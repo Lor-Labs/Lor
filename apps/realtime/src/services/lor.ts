@@ -88,7 +88,10 @@ export async function sessionStartFor(args: {
     return {
       origin: "new",
       title: sessionTitleFromPrompt(payload.content ?? ""),
-      contextMessageIds: [],
+      // "Ask Lor about this": the quoted message is the only context.
+      contextMessageIds: payload.referencedMessageId
+        ? [payload.referencedMessageId]
+        : [],
       subscriberIds,
     }
   }

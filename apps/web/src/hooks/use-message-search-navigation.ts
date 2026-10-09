@@ -82,6 +82,8 @@ export type MessageLocation = {
   messageId: string
   channelId: string
   threadRootId: string | null
+  // Set when the message's thread is a Lor session.
+  sessionId: string | null
 }
 
 // A message never moves, so its location caches for the session. null = not
@@ -129,6 +131,8 @@ export function useMessageLocation() {
 /** Jump to a message known only by id (a Lor [[msg:]] citation) like a search
  * result. False = not found. */
 export function useMessageIdNavigation() {
+  const { workspaceSlug } = useParams({ strict: false })
+  const navigate = useNavigate()
   const { resolve } = useMessageLocation()
   const navigateToMessage = useMessageSearchNavigation()
 
@@ -136,6 +140,14 @@ export function useMessageIdNavigation() {
     async (messageId: string): Promise<boolean> => {
       const loc = await resolve(messageId)
       if (!loc) return false
+      // A session message opens its session, not a thread panel.
+      if (loc.sessionId && workspaceSlug) {
+        void navigate({
+          to: "/$workspaceSlug/session/$sessionId",
+          params: { workspaceSlug, sessionId: loc.sessionId },
+        })
+        return true
+      }
       navigateToMessage({
         id: loc.messageId,
         channelId: loc.channelId,
@@ -143,6 +155,6 @@ export function useMessageIdNavigation() {
       })
       return true
     },
-    [resolve, navigateToMessage]
+    [resolve, navigateToMessage, navigate, workspaceSlug]
   )
 }

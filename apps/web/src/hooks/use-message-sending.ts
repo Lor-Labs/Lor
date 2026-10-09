@@ -173,8 +173,10 @@ export function useMessageSending({
         referencedMessage?: Message["referencedMessage"]
         attachments?: Message["attachments"]
         toPeople?: boolean
-        // New session view: start a session in this channel with no context.
+        // New session view: start a session in this channel.
         startSession?: boolean
+        // "Ask Lor about this": the message the new session starts with.
+        contextMessageId?: string
       }
     ) => {
       if (!socket?.connected || !currentUser) return undefined
@@ -211,7 +213,10 @@ export function useMessageSending({
         )
       }
 
-      const referencedMessageId = options?.referencedMessage?.id
+      // A session start carries its context message in the reply field; the
+      // server attaches it as context, not as a reply.
+      const referencedMessageId =
+        options?.referencedMessage?.id ?? options?.contextMessageId
       const attachments = options?.attachments ?? undefined
       socket.emit(
         "message:send",

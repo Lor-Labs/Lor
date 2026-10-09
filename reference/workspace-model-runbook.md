@@ -375,7 +375,20 @@ The realtime send handler reads the stored value instead of recomputing.
 
 #### Step 9: chat cleanup (~300, mostly deletions)
 
-[ ] built · [ ] committed
+[x] built 2026-10-09 (narrowed, see Deviations) · [ ] committed
+
+As built (~400 lines): the channel page drops the channel-scope run queue,
+steering and `RunQueuePill` (chat messages never route to Lor). Thread
+footers lose the `lorWaiting` badge (the sidebar's session row shows it).
+Opening a thread Lor took part in resolves its location and opens the
+session page when it is one (backfilled legacy threads);
+`useMessageIdNavigation` (Lor citations) does the same via the location's
+`sessionId`. "Ask Lor about this" is a Lor button in the message action bar
+on text-channel chat: it opens `/session/new?channelId&about=<id>`, which
+shows an "About" row, fixes the channel, hides the examples, and sends
+`startSession` with the message in `referencedMessageId`; `sessionStartFor`
+makes it the session's one context message. The meeting card's Ask buttons
+open the same view with `draft` prefilled.
 
 - `message-item.tsx`: Lor replies and memory chips leave chat (`:698-739,
   757-798`); card branches (`:452-550`) keep only a minimal legacy render;
@@ -647,4 +660,14 @@ lines, plus the server steps. 22 steps.
 - Step 7 open item: a backfilled (legacy) session opened in the thread panel
   gets the human-thread bar, but the server treats it as a session (plain
   messages run Lor). Opening session roots on the session page fixes it
-  (Step 8 or 9).
+  (Step 8 or 9). Mostly closed in Step 9: thread footers and Lor citations
+  open the session page. Still open: search results and `?threadId` deep
+  links (notifications) open the thread panel, since they carry no session id.
+- Step 9 narrowed: Lor's reply rendering stays in `message-item.tsx`, because
+  sessions render through it (Step 9a). Loop and Act runs still answer in chat
+  until Steps 16–17, so these stay until a cleanup after Step 17: chat
+  `LorRunControls`, `useLorRunReplay` on the channel page, `message-list.tsx`
+  streaming follow, and the channel page's approval and plan subscriptions.
+  Proposal subscriptions stay until Step 15 moves proposals into sessions.
+  `use-channel-messages.ts` still copies `lorWaiting` into thread summaries
+  (the server still sends it); only the badge went.

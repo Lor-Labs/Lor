@@ -27,6 +27,8 @@ interface MessageActionBarProps {
   onReact?: (emoji: string) => void
   onReply?: () => void
   onReplyInThread?: () => void
+  // Starts a new Lor session with this message attached.
+  onAskLor?: () => void
   onCopyText?: () => void
   onEdit?: () => void
   onDelete?: () => void
@@ -41,6 +43,7 @@ export function MessageActionBar({
   onReact,
   onReply,
   onReplyInThread,
+  onAskLor,
   onCopyText,
   onEdit,
   onDelete,
@@ -124,6 +127,25 @@ export function MessageActionBar({
           }
         >
           <HugeiconsIcon icon={MessageMultiple01Icon} size={8} />
+        </TooltipTrigger>
+      )}
+
+      {onAskLor && (
+        <TooltipTrigger
+          handle={tooltipHandle}
+          payload="Ask Lor about this"
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="size-7 pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-0.5"
+              onClick={onAskLor}
+              aria-label="Ask Lor about this"
+            />
+          }
+        >
+          <img src="/lor-mark.svg" alt="" className="size-4" />
         </TooltipTrigger>
       )}
 

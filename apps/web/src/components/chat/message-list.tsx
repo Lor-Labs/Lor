@@ -53,6 +53,7 @@ interface MessageListProps {
   onReact?: (messageId: string, emoji: string) => void
   onReply?: (message: Message) => void
   onReplyInThread?: (message: Message) => void
+  onAskLor?: (message: Message) => void
   onOpenThread?: (rootMessageId: string) => void
   replyingToId?: string | null
   onDelete?: (messageId: string) => void
@@ -186,6 +187,7 @@ export function MessageList({
   onReact,
   onReply,
   onReplyInThread,
+  onAskLor,
   onOpenThread,
   onDelete,
   onEdit,
@@ -590,6 +592,7 @@ export function MessageList({
                     onReact={onReact}
                     onReply={onReply}
                     onReplyInThread={onReplyInThread}
+                    onAskLor={onAskLor}
                     onOpenThread={onOpenThread}
                     isReplyTarget={replyingToId === msg.id}
                     onDelete={onDelete}

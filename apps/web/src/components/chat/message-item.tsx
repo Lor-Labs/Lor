@@ -67,6 +67,8 @@ interface MessageItemProps {
   onReact?: (messageId: string, emoji: string) => void
   onReply?: (message: Message) => void
   onReplyInThread?: (message: Message) => void
+  // Channel chat: start a Lor session with this message attached.
+  onAskLor?: (message: Message) => void
   onOpenThread?: (rootMessageId: string) => void
   onDelete?: (messageId: string) => void
   onEdit?: (messageId: string, content: string) => void
@@ -263,23 +265,9 @@ function ThreadFooter({
       <span className="shrink-0 font-semibold text-primary group-hover/thread:underline">
         {replyLabel}
       </span>
-      {summary.lorWaiting ? (
-        <span className="flex min-w-0 shrink-0 items-center gap-1.5 font-medium text-warning-foreground">
-          <span
-            aria-hidden="true"
-            className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-warning/12 text-[10px]"
-          >
-            !
-          </span>
-          {summary.lorWaiting === "needs_approval"
-            ? "Needs approval"
-            : "Needs input"}
-        </span>
-      ) : (
-        <span className="truncate text-muted-foreground">
-          Last reply {timeAgo(summary.lastReplyAt)}
-        </span>
-      )}
+      <span className="truncate text-muted-foreground">
+        Last reply {timeAgo(summary.lastReplyAt)}
+      </span>
       <HugeiconsIcon
         icon={ArrowRight01Icon}
         className="-mr-0.5 ml-auto size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread:opacity-100"
@@ -353,6 +341,7 @@ export const MessageItem = memo(function MessageItem({
   onReact,
   onReply,
   onReplyInThread,
+  onAskLor,
   onOpenThread,
   onDelete,
   onEdit,
@@ -419,6 +408,10 @@ export const MessageItem = memo(function MessageItem({
   const handleReplyInThread = useCallback(() => {
     onReplyInThread?.(message)
   }, [message, onReplyInThread])
+
+  const handleAskLor = useCallback(() => {
+    onAskLor?.(message)
+  }, [message, onAskLor])
 
   const handleOpenThread = useCallback(() => {
     onOpenThread?.(message.id)
@@ -618,6 +611,7 @@ export const MessageItem = memo(function MessageItem({
           onReact={handleReact}
           onReply={handleReply}
           onReplyInThread={canStartThread ? handleReplyInThread : undefined}
+          onAskLor={onAskLor ? handleAskLor : undefined}
           onCopyText={handleCopyText}
           onEdit={isOwnMessage && onEdit ? handleEditRequest : undefined}
           onDelete={isOwnMessage && onDelete ? handleDeleteRequest : undefined}

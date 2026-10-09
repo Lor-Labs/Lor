@@ -1,6 +1,7 @@
 import { Archive02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { toast } from "@repo/ui/components/toast"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
@@ -17,7 +18,6 @@ import {
   pinMessageForPanelReflow,
   scrollToMessage,
 } from "@/components/chat/message-list"
-import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import {
   SessionStartedNote,
@@ -40,13 +40,14 @@ import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
-import { useMessageIdNavigation } from "@/hooks/use-message-search-navigation"
+import {
+  useMessageIdNavigation,
+  useMessageLocation,
+} from "@/hooks/use-message-search-navigation"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useChannelProposals } from "@/hooks/use-proposals"
-import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
-import { useRunQueue } from "@/hooks/use-run-queue"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
@@ -264,17 +265,49 @@ function ChannelView() {
     [navigate, navigateToMessageId]
   )
 
+  // Lor threads from before sessions were backfilled into sessions, so they
+  // open on the session page; only threads Lor took part in need the lookup.
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const { resolve: resolveMessageLocation } = useMessageLocation()
   const handleOpenThread = useCallback(
     (rootMessageId: string) => {
-      setView({
-        type: "thread",
-        workspaceSlug,
-        channelId,
-        threadRootId: rootMessageId,
-      })
-      if (isCollapsed) toggleCollapsed()
+      const openPanel = () => {
+        setView({
+          type: "thread",
+          workspaceSlug,
+          channelId,
+          threadRootId: rootMessageId,
+        })
+        if (isCollapsed) toggleCollapsed()
+      }
+      const root = messagesRef.current.find((m) => m.id === rootMessageId)
+      const lorTookPart = root?.threadSummary?.participants.some(
+        (participant) => participant.id === LOR_USER_ID
+      )
+      if (!lorTookPart) {
+        openPanel()
+        return
+      }
+      void resolveMessageLocation(rootMessageId)
+        .then((location) => {
+          if (!location?.sessionId) return openPanel()
+          void navigate({
+            to: "/$workspaceSlug/session/$sessionId",
+            params: { workspaceSlug, sessionId: location.sessionId },
+          })
+        })
+        .catch(openPanel)
     },
-    [setView, workspaceSlug, channelId, isCollapsed, toggleCollapsed]
+    [
+      setView,
+      workspaceSlug,
+      channelId,
+      isCollapsed,
+      toggleCollapsed,
+      resolveMessageLocation,
+      navigate,
+    ]
   )
 
   // Opening, closing, or collapsing the thread panel animates the channel
@@ -304,6 +337,15 @@ function ChannelView() {
   const handleReplyInThread = useCallback(
     (msg: Message) => handleOpenThread(msg.id),
     [handleOpenThread]
+  )
+  const handleAskLor = useCallback(
+    (msg: Message) =>
+      void navigate({
+        to: "/$workspaceSlug/session/new",
+        params: { workspaceSlug },
+        search: { channelId, about: msg.id },
+      }),
+    [navigate, workspaceSlug, channelId]
   )
 
   const { data: workspaceMembersData } = useQuery({
@@ -339,38 +381,9 @@ function ChannelView() {
     channelId,
   })
 
+  // Loop and Act runs still answer in chat until they become sessions
+  // (runbook Steps 16–17); chat messages never queue for or steer Lor.
   useLorRunReplay({ queryClient, channelId, messages })
-
-  // Channel-scope queue (a send can land while a run is finalizing) —
-  // surfaced in the same composer pill as thread queues.
-  const pendingLorMessageId = useMemo(
-    () => messages.find((m) => m.status === "pending")?.id,
-    [messages]
-  )
-  const { queuedIds } = useRunQueue({
-    socket,
-    channelId,
-    threadRootId: null,
-    pendingLorMessageId,
-  })
-  const queuedMessages = useMemo(
-    () =>
-      queuedIds
-        .map((id) => messages.find((m) => m.id === id))
-        .filter((m): m is Message => Boolean(m)),
-    [queuedIds, messages]
-  )
-  const queuedMessageSteering = useQueuedMessageSteering({
-    messages: queuedMessages,
-    currentUserId,
-    pendingNonces,
-  })
-  // Queued messages live only in the composer's queue pill until the drain
-  // releases them — the transcript skips them (Codex model).
-  const visibleMessages = useMemo(
-    () => messages.filter((m) => !queuedIds.includes(m.id)),
-    [messages, queuedIds]
-  )
 
   const { data: activeMember } = useQuery({
     queryKey: ["active-workspace-member", workspaceSlug],
@@ -552,7 +565,7 @@ function ChannelView() {
       <MessageList
         key={channelId}
         context={context}
-        messages={visibleMessages}
+        messages={messages}
         hasOlder={hasOlder}
         onLoadOlder={() => fetchOlder()}
         isFetchingOlder={isFetchingOlder}
@@ -566,6 +579,7 @@ function ChannelView() {
         highlightScrollTarget={Boolean(msgId)}
         onJumpToMessage={handleJumpToMessage}
         onReplyInThread={handleReplyInThread}
+        onAskLor={data.type === "text" ? handleAskLor : undefined}
         onOpenThread={handleOpenThread}
         threadActivities={threadActivities}
         onOpenThreadActivity={handleOpenThreadActivity}
@@ -582,13 +596,6 @@ function ChannelView() {
         isLoading={messagesLoading}
       />
       <TypingIndicator users={typingUsers} />
-      <RunQueuePill
-        messages={queuedMessages}
-        currentUserId={currentUserId}
-        pendingNonces={pendingNonces}
-        onSteer={queuedMessageSteering.steerMessage}
-        steeringMessageId={queuedMessageSteering.steeringMessageId}
-      />
       {data.archivedAt ? (
         // Archived: no composer — a terminal divider marks when it closed.
         <div className="px-4 pt-1 pb-5">
@@ -635,9 +642,6 @@ function ChannelView() {
           getUploadedAttachments={fileUpload.getUploadedAttachments}
           isUploading={fileUpload.isUploading}
           onTyping={emitTyping}
-          canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
-          onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
-          isSteeringQueued={queuedMessageSteering.isSteering}
         />
       )}
       <AnimatePresence>

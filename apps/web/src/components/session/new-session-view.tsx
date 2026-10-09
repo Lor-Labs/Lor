@@ -13,7 +13,11 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import { toast } from "@repo/ui/components/toast"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  type InfiniteData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type CSSProperties, useState } from "react"
 import { MessageInput } from "@/components/chat/composer/message-input"
@@ -22,7 +26,9 @@ import { useSocket } from "@/context/socket-context"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import type { Message } from "@/lib/api-types"
 import { readLastChannelId } from "@/lib/last-location"
+import { toSearchPreviewText } from "@/lib/search-preview"
 import {
   openTextChannels,
   workspaceChannelsQueryOptions,
@@ -58,22 +64,29 @@ function sessionExamples(channelName: string) {
 export function NewSessionView({
   workspaceSlug,
   channelId: requestedChannelId,
+  aboutMessageId,
+  draft,
 }: {
   workspaceSlug: string
   channelId?: string
+  aboutMessageId?: string
+  draft?: string
 }) {
   const { data: channels, isPending } = useQuery(
     workspaceChannelsQueryOptions(workspaceSlug)
   )
   const [pickedChannelId, setPickedChannelId] = useState<string | null>(null)
   const options: ChannelOption[] = channels ? openTextChannels(channels) : []
-  const preferred = [
-    pickedChannelId,
-    requestedChannelId,
-    readLastChannelId(workspaceSlug),
-  ].find((id) => options.some((option) => option.id === id))
-  const channel =
-    options.find((option) => option.id === preferred) ?? options[0]
+  // A session's context must come from its own channel, so asking about a
+  // message fixes the channel to that message's.
+  const preferred = (
+    aboutMessageId
+      ? [requestedChannelId]
+      : [pickedChannelId, requestedChannelId, readLastChannelId(workspaceSlug)]
+  ).find((id) => options.some((option) => option.id === id))
+  const channel = aboutMessageId
+    ? options.find((option) => option.id === preferred)
+    : (options.find((option) => option.id === preferred) ?? options[0])
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -97,6 +110,8 @@ export function NewSessionView({
                 channel={channel}
                 options={options}
                 onPickChannel={setPickedChannelId}
+                aboutMessageId={aboutMessageId}
+                draft={draft}
               />
             ) : (
               <p className="px-4 text-center text-sm text-muted-foreground">
@@ -117,11 +132,15 @@ function NewSessionComposer({
   channel,
   options,
   onPickChannel,
+  aboutMessageId,
+  draft,
 }: {
   workspaceSlug: string
   channel: ChannelOption
   options: ChannelOption[]
   onPickChannel: (channelId: string) => void
+  aboutMessageId?: string
+  draft?: string
 }) {
   const navigate = useNavigate()
   const socket = useSocket()
@@ -130,10 +149,25 @@ function NewSessionComposer({
   const fileUpload = useFileUpload(channel.id)
   const mentionCandidates = useMentionCandidates(workspaceSlug, channel.id)
   const channelName = channel.name ?? "channel"
-  const [composerDraft, setComposerDraft] = useState<{
-    id: string
-    text: string
-  }>()
+  const [composerDraft, setComposerDraft] = useState<
+    { id: string; text: string } | undefined
+  >(() => (draft ? { id: crypto.randomUUID(), text: draft } : undefined))
+  // The asked-about message, from the channel feed when it is loaded.
+  const aboutMessage = aboutMessageId
+    ? queryClient
+        .getQueryData<InfiniteData<{ data: Message[] }>>([
+          "messages",
+          channel.id,
+        ])
+        ?.pages.flatMap((page) => page.data)
+        .find((message) => message.id === aboutMessageId)
+    : undefined
+  const channelLabel = (
+    <>
+      <HugeiconsIcon icon={HashtagIcon} className="size-3.5" strokeWidth={2} />
+      {channelName}
+    </>
+  )
 
   const { handleSend } = useMessageSending({
     socket,
@@ -150,6 +184,47 @@ function NewSessionComposer({
 
   return (
     <>
+      {aboutMessageId && (
+        <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] px-3 py-2 text-sm">
+          <span className="shrink-0 text-muted-foreground">About</span>
+          {aboutMessage ? (
+            <span className="min-w-0 truncate">
+              <span className="font-medium">
+                {aboutMessage.overrideName ?? aboutMessage.author.name}
+              </span>{" "}
+              <span className="text-muted-foreground">
+                {toSearchPreviewText(
+                  aboutMessage.content,
+                  aboutMessage.mentions
+                )}
+              </span>
+            </span>
+          ) : (
+            <span className="min-w-0 truncate text-muted-foreground">
+              a message in #{channelName}
+            </span>
+          )}
+          <button
+            type="button"
+            aria-label="Remove the attached message"
+            onClick={() =>
+              void navigate({
+                to: "/$workspaceSlug/session/new",
+                params: { workspaceSlug },
+                search: { channelId: channel.id },
+                replace: true,
+              })
+            }
+            className="ml-auto flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+          >
+            <HugeiconsIcon
+              icon={Cancel01Icon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
+          </button>
+        </div>
+      )}
       <MessageInput
         composerDraft={composerDraft}
         onComposerDraftConsumed={() => setComposerDraft(undefined)}
@@ -157,37 +232,43 @@ function NewSessionComposer({
         channelId={channel.id}
         destination="new"
         channelPicker={
-          <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 font-medium text-agent transition-colors hover:bg-agent/10 data-popup-open:bg-agent/10">
-              <HugeiconsIcon
-                icon={HashtagIcon}
-                className="size-3.5"
-                strokeWidth={2}
-              />
-              {channelName}
-              <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                className="size-3"
-                strokeWidth={2}
-              />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="max-h-72 w-56">
-              <DropdownMenuRadioGroup
-                value={channel.id}
-                onValueChange={(value) => onPickChannel(String(value))}
-              >
-                {options.map((option) => (
-                  <DropdownMenuRadioItem key={option.id} value={option.id}>
-                    # {option.name}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          aboutMessageId ? (
+            <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 font-medium text-agent">
+              {channelLabel}
+            </span>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 font-medium text-agent transition-colors hover:bg-agent/10 data-popup-open:bg-agent/10">
+                {channelLabel}
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  className="size-3"
+                  strokeWidth={2}
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-72 w-56">
+                <DropdownMenuRadioGroup
+                  value={channel.id}
+                  onValueChange={(value) => onPickChannel(String(value))}
+                >
+                  {options.map((option) => (
+                    <DropdownMenuRadioItem key={option.id} value={option.id}>
+                      # {option.name}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
         }
         placeholder="Ask Lor…"
         onSend={(content, options) =>
-          handleSend(content, { mentions: [], ...options, startSession: true })
+          handleSend(content, {
+            mentions: [],
+            ...options,
+            startSession: true,
+            contextMessageId: aboutMessageId,
+          })
         }
         currentUserId={authSession?.user.id}
         mentionCandidates={mentionCandidates}
@@ -198,10 +279,12 @@ function NewSessionComposer({
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
       />
-      <SessionExamples
-        examples={sessionExamples(channelName)}
-        onPick={(text) => setComposerDraft({ id: crypto.randomUUID(), text })}
-      />
+      {!aboutMessageId && (
+        <SessionExamples
+          examples={sessionExamples(channelName)}
+          onPick={(text) => setComposerDraft({ id: crypto.randomUUID(), text })}
+        />
+      )}
     </>
   )
 }
