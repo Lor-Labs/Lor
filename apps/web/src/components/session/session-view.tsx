@@ -19,6 +19,7 @@ import {
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelProposals } from "@/hooks/use-proposals"
+import { clearLastSessionId, writeLastSession } from "@/lib/last-location"
 
 export function SessionView({
   workspaceSlug,
@@ -28,6 +29,10 @@ export function SessionView({
   sessionId: string
 }) {
   const { data, isPending, isError } = useAgentSession(sessionId)
+  // A remembered session that no longer opens must not be the landing page.
+  useEffect(() => {
+    if (isError) clearLastSessionId(workspaceSlug)
+  }, [isError, workspaceSlug])
 
   if (isPending || isError) {
     return (
@@ -59,6 +64,9 @@ function SessionConversation({
   // here, since the channel page that also mounts these may not be open.
   useChannelApprovals(session.channelId)
   useChannelProposals(session.channelId)
+  useEffect(() => {
+    writeLastSession(workspaceSlug, session.id, session.channelId)
+  }, [workspaceSlug, session.id, session.channelId])
 
   // The right panel shows this session's context, plan, files and activity
   // while the page is open, the way a channel page sets its own panel view.

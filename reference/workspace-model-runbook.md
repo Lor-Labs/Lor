@@ -287,9 +287,23 @@ single-line composer. New placeholder and `lor_intro` hint copy.
 
 #### Step 8: sidebar sessions and New session (~400)
 
-Split in two. 8a: [x] built 2026-10-09 · [ ] committed (server state and
-sidebar rows). 8b: [ ] built · [ ] committed (New session button and view,
-⌘N, ⌘K, `last-location`).
+Split in two. 8a: [x] built 2026-10-09 · [x] committed (server state and
+sidebar rows). 8b: [x] built 2026-10-09 · [ ] committed (New session button
+and view, ⌘N, ⌘K, `last-location`).
+
+As built (8b, ~440 lines): the send payload's `startSession` flag starts a
+session (origin `new`, no context) from `/session/new`, and realtime rejects
+a `startSession` send it cannot honor instead of posting it in chat. A
+message that starts a session always runs Lor, even when it mentions people.
+`session/new-session-view.tsx` reuses `MessageInput` with destination `new`
+(always the Lor state) and a channel picker in the destination bar, defaulting
+to `?channelId`, then the last channel, then the first text channel; on the
+ack it opens the session. Entry points share `useOpenNewSession`: the sidebar
+row (`new-session-button.tsx`), a ⌘K "Lor" group, and a desktop File menu item
+"New Session" (Cmd+N) that emits `new-session`. `last-location.ts` remembers
+the last session (and its channel); visiting a channel replaces it; a session
+that fails to load is forgotten. Both landing routes open the last session
+first.
 
 As built (8a, ~410 lines): `getWorkspaceActivity` also returns, per channel,
 the caller's subscribed, unarchived sessions (`SidebarSession`: title, state,
@@ -576,6 +590,13 @@ lines, plus the server steps. 22 steps.
 - Step 8a: `agent_session.lastActivityAt` is not maintained; the sidebar
   computes the latest reply per session in its query. Step 14's channel list
   may need the column kept up to date instead.
+- Step 8b: the sidebar row shows "⌘N" only in the desktop app; in a browser
+  ⌘N opens a new window, so the web uses the row and ⌘K.
+- Step 8b: the New session view follows Linear's agent screen (Jacob): no
+  heading, a large faint Lor mark behind a taller "Ask Lor…" prompt, a filled
+  round send button, and a dismissible "Get started with some examples" row
+  whose examples fill the prompt. It is the first pass at the teaching moment
+  that replaces the `#general` intro (Step 19, and the onboarding redo).
 - Step 7 open item: a backfilled (legacy) session opened in the thread panel
   gets the human-thread bar, but the server treats it as a session (plain
   messages run Lor). Opening session roots on the session page fixes it

@@ -1,6 +1,7 @@
 import {
   ComputerIcon,
   Moon02Icon,
+  PencilEdit02Icon,
   Search01Icon,
   Sun01Icon,
 } from "@hugeicons/core-free-icons"
@@ -26,6 +27,7 @@ import { useTheme } from "next-themes"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
+import { useOpenNewSession } from "@/hooks/use-open-new-session"
 import { apiClient } from "@/lib/api-client"
 
 type SearchResult = {
@@ -52,6 +54,7 @@ type SearchResponse = {
 export function WorkspaceCommand() {
   const { workspaceSlug } = useParams({ strict: false })
   const navigateToWorkspaceMessage = useMessageSearchNavigation()
+  const openNewSession = useOpenNewSession()
   const { setTheme } = useTheme()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -196,6 +199,27 @@ export function WorkspaceCommand() {
                         </div>
                       </CommandItem>
                     ))}
+                  </CommandGroup>
+                )}
+
+                {!hasQuery && workspaceSlug && (
+                  <CommandGroup>
+                    <CommandGroupLabel>Lor</CommandGroupLabel>
+                    <CommandItem
+                      value="new-session"
+                      className="gap-2"
+                      onClick={() => {
+                        setOpen(false)
+                        openNewSession()
+                      }}
+                    >
+                      <HugeiconsIcon
+                        icon={PencilEdit02Icon}
+                        className="size-4 text-muted-foreground"
+                        strokeWidth={2}
+                      />
+                      <span className="flex-1">New session</span>
+                    </CommandItem>
                   </CommandGroup>
                 )}
 

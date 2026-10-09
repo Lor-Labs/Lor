@@ -6,8 +6,9 @@ import { AnimatePresence, motion } from "motion/react"
 import type { ReactNode } from "react"
 
 // Where the composer's message goes: channel chat and human threads start a
-// session on @Lor; inside a session a message goes to Lor or to people.
-export type ComposerDestination = "channel" | "thread" | "session"
+// session on @Lor; inside a session a message goes to Lor or to people; the
+// New session view always starts one.
+export type ComposerDestination = "channel" | "thread" | "session" | "new"
 
 export type PingedPerson = { id: string; name: string; image: string | null }
 
@@ -26,6 +27,7 @@ export function DestinationBar({
   toLor,
   pinged,
   onSwitch,
+  channelPicker,
 }: {
   destination: ComposerDestination
   channelName: string
@@ -33,13 +35,17 @@ export function DestinationBar({
   pinged: PingedPerson[]
   // Session only, when nothing in the message decides the destination.
   onSwitch?: () => void
+  // New session only: chooses the session's channel.
+  channelPicker?: ReactNode
 }) {
   const lorLabel =
     destination === "session"
       ? "To Lor"
       : destination === "thread"
         ? "New session from this thread"
-        : `New session in #${channelName}`
+        : destination === "new"
+          ? "New session in"
+          : `New session in #${channelName}`
 
   return (
     <div className="relative flex min-w-0 items-center">
@@ -57,6 +63,7 @@ export function DestinationBar({
               <img src="/lor-mark.svg" alt="" className="size-3.5" />
               {lorLabel}
             </DestinationPill>
+            {channelPicker}
             {pinged.length > 0 && (
               <PingedPeople
                 people={pinged}

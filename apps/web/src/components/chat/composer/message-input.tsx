@@ -1,4 +1,5 @@
 import {
+  ArrowUp02Icon,
   Cancel01Icon,
   PlusSignIcon,
   SentIcon,
@@ -134,6 +135,8 @@ interface MessageInputProps {
   // Shows where the message goes (Lor or people) in a toolbar row under the
   // editor. Omit for DMs and call chats, which never reach Lor.
   destination?: ComposerDestination
+  // New session only: chooses the session's channel, in the destination bar.
+  channelPicker?: ReactNode
   // Floats just above the composer, e.g. the "Started … · Open" note.
   notice?: ReactNode
   placeholder?: string
@@ -513,7 +516,7 @@ function resolveRouting({
     (isSession && replyAuthor?.id === LOR_USER_ID)
   const toLor = isSession
     ? addressesLor || (!manualToPeople && pinged.size === 0)
-    : addressesLor
+    : destination === "new" || addressesLor
   return {
     toLor,
     pinged: [...pinged.values()],
@@ -529,6 +532,7 @@ export function MessageInput({
   contextScopeKey,
   lorIntro = false,
   destination,
+  channelPicker,
   notice,
   placeholder: placeholderOverride,
   disabled,
@@ -759,22 +763,26 @@ export function MessageInput({
     const applyDraft = () => {
       if (appliedDraftRef.current === composerDraft.id) return
       appliedDraftRef.current = composerDraft.id
-      // Append to an existing draft; selecting a suggestion must not erase writing.
+      // Append to an existing draft; selecting a suggestion must not erase
+      // writing. A New session prompt already goes to Lor, so no @Lor.
       editor
         .chain()
         .focus("end")
         .insertContent({
           type: "paragraph",
-          content: [
-            {
-              type: "mention",
-              attrs: {
-                id: LOR_USER_ID,
-                label: "Lor",
-              },
-            },
-            { type: "text", text: ` ${composerDraft.text}` },
-          ],
+          content:
+            destination === "new"
+              ? [{ type: "text", text: composerDraft.text }]
+              : [
+                  {
+                    type: "mention",
+                    attrs: {
+                      id: LOR_USER_ID,
+                      label: "Lor",
+                    },
+                  },
+                  { type: "text", text: ` ${composerDraft.text}` },
+                ],
         })
         .run()
       onComposerDraftConsumed?.(composerDraft.id)
@@ -786,7 +794,7 @@ export function MessageInput({
       editor.off("create", applyDraft)
       editor.off("mount", applyDraft)
     }
-  }, [editor, composerDraft, onComposerDraftConsumed])
+  }, [editor, composerDraft, onComposerDraftConsumed, destination])
 
   const handleSend = useCallback(() => {
     if (!editor || isUploading) return
@@ -1074,7 +1082,8 @@ export function MessageInput({
         ref={composerRef}
         className={cn(
           "border bg-background transition-colors duration-150 dark:bg-muted/40",
-          showLorState
+          // New session is always Lor, so its border stays plain.
+          showLorState && destination !== "new"
             ? "border-agent/50"
             : "border-input focus-within:border-muted-foreground/40",
           replyingTo ? "rounded-b-lg" : "rounded-lg"
@@ -1139,7 +1148,8 @@ export function MessageInput({
           <div
             className={cn(
               "relative min-w-0 flex-1 py-1 text-sm leading-5",
-              destination && "order-first basis-full"
+              destination && "order-first basis-full",
+              destination === "new" && "min-h-16"
             )}
           >
             {isEmpty && (
@@ -1283,6 +1293,7 @@ export function MessageInput({
                 channelName={context.name}
                 toLor={routing.toLor}
                 pinged={routing.pinged}
+                channelPicker={channelPicker}
                 onSwitch={
                   routing.canSwitch
                     ? () => setManualToPeople((current) => !current)
@@ -1310,7 +1321,14 @@ export function MessageInput({
                   !isStopMode &&
                   (showLorState
                     ? "bg-agent/12 text-agent hover:bg-agent/18 hover:text-agent"
-                    : "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")
+                    : "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"),
+                // New session: a filled round button, like an agent prompt.
+                destination === "new" &&
+                  cn(
+                    "rounded-full",
+                    canSend &&
+                      "bg-agent text-agent-foreground hover:bg-agent/90 hover:text-agent-foreground"
+                  )
               )}
               onClick={isStopMode ? onStop : handleSend}
               disabled={isStopMode ? isStopping : !canSend}
@@ -1325,7 +1343,13 @@ export function MessageInput({
               }
             >
               <HugeiconsIcon
-                icon={isStopMode ? StopIcon : SentIcon}
+                icon={
+                  isStopMode
+                    ? StopIcon
+                    : destination === "new"
+                      ? ArrowUp02Icon
+                      : SentIcon
+                }
                 size={16}
               />
             </Button>

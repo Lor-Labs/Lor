@@ -590,6 +590,10 @@ io.on("connection", (socket) => {
         channel: accessibleChannel,
         senderId: socket.data.user.id,
       })
+      // A New session send must never fall back to posting in chat.
+      if (parsed.startSession && !newSession) {
+        throw new Error("A session can only start in a workspace text channel")
+      }
       const createdMessage = await createMessage({
         userId: socket.data.user.id,
         payload: parsed,
@@ -806,8 +810,11 @@ io.on("connection", (socket) => {
             createdMessage.message.referencedMessage,
             socket.data.user.id
           )
+        // The message that starts a session always runs Lor, even when it
+        // also mentions people (New session with "@Sam, look at …").
         const triggerLor =
-          !parsed.toPeople && (explicitlyAddressesLor || !addressesPerson)
+          Boolean(createdMessage.session) ||
+          (!parsed.toPeople && (explicitlyAddressesLor || !addressesPerson))
 
         if (session && triggerLor) {
           const lorScopeId = session.threadRootId

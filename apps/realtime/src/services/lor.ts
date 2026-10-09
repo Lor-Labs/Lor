@@ -93,6 +93,18 @@ export async function sessionStartFor(args: {
 }): Promise<NewSessionInput | undefined> {
   const { payload, channel } = args
   if (!channel.workspaceId || channel.type !== "text") return undefined
+  const subscriberIds = [
+    args.senderId,
+    ...extractDirectMentionUserIds(payload.content ?? ""),
+  ]
+  if (payload.startSession && !payload.threadRootId) {
+    return {
+      origin: "new",
+      title: sessionTitleFromPrompt(payload.content ?? ""),
+      contextMessageIds: [],
+      subscriberIds,
+    }
+  }
   if (!payload.content || !isLorMentioned(payload.content)) return undefined
   if (
     payload.threadRootId &&
@@ -108,12 +120,10 @@ export async function sessionStartFor(args: {
     contextMessageIds.push(payload.referencedMessageId)
   }
   return {
+    origin: "chat",
     title: sessionTitleFromPrompt(payload.content),
     contextMessageIds,
-    subscriberIds: [
-      args.senderId,
-      ...extractDirectMentionUserIds(payload.content),
-    ],
+    subscriberIds,
   }
 }
 

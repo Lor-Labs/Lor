@@ -57,6 +57,7 @@ import {
 } from "@/components/sidebar/channel-panel/create-channel-context"
 import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
+import { NewSessionButton } from "@/components/sidebar/new-session-button"
 import {
   sidebarMenuHeader,
   sidebarMenuIcon,
@@ -456,7 +457,7 @@ function WorkspaceSidebarInner() {
             projects here.
           </HintPopover>
         </div>
-
+        <NewSessionButton />
         {workspaceSlug && (
           <InstructionsApprovalAlert
             workspaceSlug={workspaceSlug}

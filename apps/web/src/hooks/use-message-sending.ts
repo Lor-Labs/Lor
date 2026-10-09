@@ -173,6 +173,8 @@ export function useMessageSending({
         referencedMessage?: Message["referencedMessage"]
         attachments?: Message["attachments"]
         toPeople?: boolean
+        // New session view: start a session in this channel with no context.
+        startSession?: boolean
       }
     ) => {
       if (!socket?.connected || !currentUser) return undefined
@@ -189,8 +191,11 @@ export function useMessageSending({
       if (cancelInFlightRefetch()) refetchOwed.current = true
       // `@Lor` in channel chat starts a session and posts nothing in chat.
       const startsSession =
-        !threadRootId &&
-        (options?.mentions ?? []).some((mention) => mention.id === LOR_USER_ID)
+        options?.startSession ||
+        (!threadRootId &&
+          (options?.mentions ?? []).some(
+            (mention) => mention.id === LOR_USER_ID
+          ))
       if (!startsSession) {
         prependToFirstPage(
           createOptimisticMessage(
@@ -217,6 +222,7 @@ export function useMessageSending({
           threadRootId,
           attachments,
           toPeople: options?.toPeople || undefined,
+          startSession: options?.startSession || undefined,
         },
         (result) => {
           if (cancelInFlightRefetch()) refetchOwed.current = true

@@ -47,7 +47,7 @@ type CreateMessageInput = {
 
 export type NewSessionInput = Pick<
   CreateSessionArgs,
-  "title" | "contextMessageIds" | "subscriberIds"
+  "origin" | "title" | "contextMessageIds" | "subscriberIds"
 >
 
 type DeleteMessageInput = {
@@ -407,7 +407,6 @@ export async function createMessage(input: CreateMessageInput) {
               channelId: input.payload.channelId,
               authorId: input.userId,
               creatorId: input.userId,
-              origin: "chat",
             })
           : null
 

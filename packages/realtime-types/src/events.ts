@@ -162,6 +162,9 @@ export const sendMessagePayloadSchema = z
     // Session composer switched to "To people": Lor doesn't run and nobody
     // is pinged.
     toPeople: z.boolean().optional(),
+    // New session view: the message starts a session in this channel with
+    // no chat context, @Lor or not.
+    startSession: z.boolean().optional(),
   })
   .refine(
     (data) =>

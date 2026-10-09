@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { useWorkspaceSetup } from "@/hooks/use-workspace-setup"
-import { readLastChannelId } from "@/lib/last-location"
+import { readLastChannelId, readLastSessionId } from "@/lib/last-location"
 import {
   firstTextChannelId,
   workspaceChannelsQueryOptions,
@@ -18,6 +18,7 @@ function WorkspaceHome() {
   const { settings, tab, mcpServerId, connector } = Route.useSearch()
   const navigate = useNavigate()
   const { status: setupStatus } = useWorkspaceSetup(workspaceSlug)
+  const lastSessionId = readLastSessionId(workspaceSlug)
   const lastChannelId = readLastChannelId(workspaceSlug)
   const { data: channels } = useQuery({
     ...workspaceChannelsQueryOptions(workspaceSlug),
@@ -42,19 +43,30 @@ function WorkspaceHome() {
       })
       return
     }
-    if (!targetChannelId) return
     const isConnectorReturn = connector !== undefined && settings === undefined
+    const search = isConnectorReturn
+      ? { settings: "workspace" as const, tab: "connectors", connector }
+      : { settings, tab, mcpServerId, connector }
+    if (lastSessionId) {
+      void navigate({
+        to: "/$workspaceSlug/session/$sessionId",
+        params: { workspaceSlug, sessionId: lastSessionId },
+        search,
+        replace: true,
+      })
+      return
+    }
+    if (!targetChannelId) return
     void navigate({
       to: "/$workspaceSlug/$channelId",
       params: { workspaceSlug, channelId: targetChannelId },
-      search: isConnectorReturn
-        ? { settings: "workspace", tab: "connectors", connector }
-        : { settings, tab, mcpServerId, connector },
+      search,
       replace: true,
     })
   }, [
     workspaceSlug,
     setupStatus,
+    lastSessionId,
     targetChannelId,
     settings,
     tab,
