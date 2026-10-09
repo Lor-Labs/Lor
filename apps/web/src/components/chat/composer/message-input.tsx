@@ -47,6 +47,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { createPortal } from "react-dom"
 import { AttachmentPreview } from "@/components/chat/composer/attachment-preview"
 import { CodeBlockShiki } from "@/components/chat/composer/code-block-shiki"
 import {
@@ -139,6 +140,12 @@ interface MessageInputProps {
   channelPicker?: ReactNode
   // Floats just above the composer, e.g. the "Started … · Open" note.
   notice?: ReactNode
+  // Session document: no box; the editor is the next line of the transcript,
+  // with `gutter` (the writer's avatar) beside it. The tools render into
+  // `toolbarTarget`, a bar the page keeps at the bottom of the pane.
+  variant?: "box" | "inline"
+  gutter?: ReactNode
+  toolbarTarget?: HTMLElement | null
   placeholder?: string
   disabled?: boolean
   disabledReason?: string
@@ -534,6 +541,9 @@ export function MessageInput({
   destination,
   channelPicker,
   notice,
+  variant = "box",
+  gutter,
+  toolbarTarget,
   placeholder: placeholderOverride,
   disabled,
   disabledReason,
@@ -751,6 +761,7 @@ export function MessageInput({
     ]
   )
   const showLorState = Boolean(destination) && routing.toLor
+  const isInline = variant === "inline"
 
   const appliedDraftRef = useRef<string | null>(null)
   useEffect(() => {
@@ -1049,7 +1060,14 @@ export function MessageInput({
         onChange={handleFileInputChange}
       />
       {replyingTo && (
-        <div className="flex items-center gap-2 rounded-t-lg border border-b-0 border-input bg-muted/60 px-3 py-1.5 text-sm">
+        <div
+          className={cn(
+            "flex items-center gap-2 bg-muted/60 px-3 py-1.5 text-sm",
+            isInline
+              ? "mb-1 rounded-md"
+              : "rounded-t-lg border border-b-0 border-input"
+          )}
+        >
           <span className="truncate text-muted-foreground">
             Replying to{" "}
             <span className="font-semibold text-foreground">
@@ -1081,12 +1099,14 @@ export function MessageInput({
       <div
         ref={composerRef}
         className={cn(
-          "border bg-background transition-colors duration-150 dark:bg-muted/40",
-          // New session is always Lor, so its border stays plain.
-          showLorState && destination !== "new"
-            ? "border-agent/50"
-            : "border-input focus-within:border-muted-foreground/40",
-          replyingTo ? "rounded-b-lg" : "rounded-lg"
+          !isInline && [
+            "border bg-background transition-colors duration-150 dark:bg-muted/40",
+            // New session is always Lor, so its border stays plain.
+            showLorState && destination !== "new"
+              ? "border-agent/50"
+              : "border-input focus-within:border-muted-foreground/40",
+            replyingTo ? "rounded-b-lg" : "rounded-lg",
+          ]
         )}
         onPaste={handlePaste}
       >
@@ -1098,62 +1118,29 @@ export function MessageInput({
             tools (attach, destination, send) sit on the line under it. */}
         <div
           className={cn(
-            "flex items-end gap-2 px-3 py-2",
-            destination && "flex-wrap items-center gap-y-1 pt-2.5"
+            "flex items-end gap-2",
+            isInline ? "px-0 pb-2" : "px-3 py-2",
+            destination && !isInline && "flex-wrap items-center gap-y-1 pt-2.5"
           )}
         >
-          <Popover
-            open={isAttachmentMenuOpen}
-            onOpenChange={setIsAttachmentMenuOpen}
-          >
-            <PopoverTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-                  aria-label="Open attachment menu"
-                />
-              }
-            >
-              <HugeiconsIcon
-                icon={PlusSignIcon}
-                className={cn(
-                  "size-4 transition-transform duration-200 ease-out",
-                  isAttachmentMenuOpen && "rotate-45"
-                )}
-                strokeWidth={2}
-              />
-            </PopoverTrigger>
-            <PopoverContent
-              side="top"
-              align="start"
-              sideOffset={10}
-              className="w-72"
-              viewportClassName="p-2"
-            >
-              <ConnectorAttachMenu
-                connectors={attachableConnectors}
-                workspaceSlug={workspaceSlug}
-                channelId={channelId}
-                onUploadFile={() => {
-                  fileInputRef.current?.click()
-                  setIsAttachmentMenuOpen(false)
-                }}
-                onAttach={handleAttachRecord}
-              />
-            </PopoverContent>
-          </Popover>
           <div
             className={cn(
               "relative min-w-0 flex-1 py-1 text-sm leading-5",
               destination && "order-first basis-full",
-              destination === "new" && "min-h-16"
+              destination === "new" && "min-h-16",
+              // Same column and prose size as the transcript above it.
+              isInline &&
+                "pl-10 [&_.tiptap]:text-[15px] [&_.tiptap]:leading-7 [&_.tiptap_p]:leading-7"
             )}
           >
+            {isInline && <div className="absolute top-1 left-0">{gutter}</div>}
             {isEmpty && (
-              <span className="pointer-events-none absolute left-0 right-0 top-1 truncate text-sm leading-5 text-muted-foreground">
+              <span
+                className={cn(
+                  "pointer-events-none absolute right-0 top-1 truncate text-sm leading-5 text-muted-foreground",
+                  isInline ? "left-10 text-[15px] leading-7" : "left-0"
+                )}
+              >
                 {placeholder}
               </span>
             )}
@@ -1286,76 +1273,143 @@ export function MessageInput({
             />
             <DesktopCaret editor={editor} />
           </div>
-          {destination && (
-            <div className="min-w-0 flex-1">
-              <DestinationBar
-                destination={destination}
-                channelName={context.name}
-                toLor={routing.toLor}
-                pinged={routing.pinged}
-                channelPicker={channelPicker}
-                onSwitch={
-                  routing.canSwitch
-                    ? () => setManualToPeople((current) => !current)
-                    : undefined
-                }
-              />
-            </div>
-          )}
-          <div className="flex shrink-0 items-center gap-1">
-            {/* onStop is only supplied while a run is stoppable, so it doubles
-                as "Lor is working here right now". */}
-            <ContextMeter
-              scopeKey={contextScopeKey}
-              isRunning={Boolean(onStop)}
-            />
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn(
-                "size-7 transition-colors",
-                isStopMode
-                  ? "text-destructive hover:text-destructive"
-                  : "text-muted-foreground",
-                canSend &&
-                  !isStopMode &&
-                  (showLorState
-                    ? "bg-agent/12 text-agent hover:bg-agent/18 hover:text-agent"
-                    : "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"),
-                // New session: a filled round button, like an agent prompt.
-                destination === "new" &&
-                  cn(
-                    "rounded-full",
-                    canSend &&
-                      "bg-agent text-agent-foreground hover:bg-agent/90 hover:text-agent-foreground"
-                  )
-              )}
-              onClick={isStopMode ? onStop : handleSend}
-              disabled={isStopMode ? isStopping : !canSend}
-              aria-label={
-                isStopMode
-                  ? isStopping
-                    ? "Stopping Lor"
-                    : "Stop Lor"
-                  : showLorState && destination !== "session"
-                    ? "Start session"
-                    : "Send message"
-              }
+          {/* After the editor in the markup so the three tools stay together
+              for the inline bar; `order-first` keeps attach on the left. */}
+          <ToolsSlot inline={isInline} target={toolbarTarget ?? null}>
+            <Popover
+              open={isAttachmentMenuOpen}
+              onOpenChange={setIsAttachmentMenuOpen}
             >
-              <HugeiconsIcon
-                icon={
-                  isStopMode
-                    ? StopIcon
-                    : destination === "new"
-                      ? ArrowUp02Icon
-                      : SentIcon
+              <PopoverTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    className="order-first size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label="Open attachment menu"
+                  />
                 }
-                size={16}
+              >
+                <HugeiconsIcon
+                  icon={PlusSignIcon}
+                  className={cn(
+                    "size-4 transition-transform duration-200 ease-out",
+                    isAttachmentMenuOpen && "rotate-45"
+                  )}
+                  strokeWidth={2}
+                />
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="start"
+                sideOffset={10}
+                className="w-72"
+                viewportClassName="p-2"
+              >
+                <ConnectorAttachMenu
+                  connectors={attachableConnectors}
+                  workspaceSlug={workspaceSlug}
+                  channelId={channelId}
+                  onUploadFile={() => {
+                    fileInputRef.current?.click()
+                    setIsAttachmentMenuOpen(false)
+                  }}
+                  onAttach={handleAttachRecord}
+                />
+              </PopoverContent>
+            </Popover>
+            {destination && (
+              <div className="min-w-0 flex-1">
+                <DestinationBar
+                  destination={destination}
+                  channelName={context.name}
+                  toLor={routing.toLor}
+                  pinged={routing.pinged}
+                  channelPicker={channelPicker}
+                  onSwitch={
+                    routing.canSwitch
+                      ? () => setManualToPeople((current) => !current)
+                      : undefined
+                  }
+                />
+              </div>
+            )}
+            <div className="flex shrink-0 items-center gap-1">
+              {/* onStop is only supplied while a run is stoppable, so it doubles
+                as "Lor is working here right now". */}
+              <ContextMeter
+                scopeKey={contextScopeKey}
+                isRunning={Boolean(onStop)}
               />
-            </Button>
-          </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className={cn(
+                  "size-7 transition-colors",
+                  isStopMode
+                    ? "text-destructive hover:text-destructive"
+                    : "text-muted-foreground",
+                  canSend &&
+                    !isStopMode &&
+                    (showLorState
+                      ? "bg-agent/12 text-agent hover:bg-agent/18 hover:text-agent"
+                      : "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"),
+                  // New session: a filled round button, like an agent prompt.
+                  destination === "new" &&
+                    cn(
+                      "rounded-full",
+                      canSend &&
+                        "bg-agent text-agent-foreground hover:bg-agent/90 hover:text-agent-foreground"
+                    )
+                )}
+                onClick={isStopMode ? onStop : handleSend}
+                disabled={isStopMode ? isStopping : !canSend}
+                aria-label={
+                  isStopMode
+                    ? isStopping
+                      ? "Stopping Lor"
+                      : "Stop Lor"
+                    : showLorState && destination !== "session"
+                      ? "Start session"
+                      : "Send message"
+                }
+              >
+                <HugeiconsIcon
+                  icon={
+                    isStopMode
+                      ? StopIcon
+                      : destination === "new"
+                        ? ArrowUp02Icon
+                        : SentIcon
+                  }
+                  size={16}
+                />
+              </Button>
+            </div>
+          </ToolsSlot>
         </div>
       </div>
     </div>
+  )
+}
+
+// The composer's tools render in place, or (inline variant) in a bar the
+// page owns at the bottom of the pane. Inline renders nothing until that bar
+// mounts, so the tools never flash under the input line.
+function ToolsSlot({
+  inline,
+  target,
+  children,
+}: {
+  inline: boolean
+  target: HTMLElement | null
+  children: ReactNode
+}) {
+  if (!inline) return children
+  if (!target) return null
+  return createPortal(
+    <div className="flex min-w-0 items-center gap-2">{children}</div>,
+    target
   )
 }

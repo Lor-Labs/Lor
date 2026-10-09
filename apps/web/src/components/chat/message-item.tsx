@@ -75,6 +75,9 @@ interface MessageItemProps {
   mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
   showLorRunControls?: boolean
+  // Session transcript: reads as a document. Each turn has a small avatar in
+  // a narrow gutter and no name row.
+  layout?: "chat" | "document"
 }
 
 const PREVIEW_MAX_CHARS = 100
@@ -342,6 +345,7 @@ export const MessageItem = memo(function MessageItem({
   mentionCandidates,
   onJumpToMessage,
   showLorRunControls = true,
+  layout = "chat",
 }: MessageItemProps) {
   const author = message.author
   // Webhook/connector messages render an overridden identity and aren't a
@@ -371,6 +375,7 @@ export const MessageItem = memo(function MessageItem({
   )
   const canWrapUnderAvatar =
     wrapContentAroundAvatar && message.authorId === LOR_USER_ID
+  const isDocument = layout === "document"
   const isReply = message.type === "reply"
   const hasToolCalls = (message.lorToolCalls?.length ?? 0) > 0
   const hasReasoningSegments = (message.lorReasoningSegments?.length ?? 0) > 0
@@ -551,16 +556,39 @@ export const MessageItem = memo(function MessageItem({
     )
   }
 
+  // Document layout: the first message of each turn wears a small avatar in
+  // the gutter (Lor's too) instead of a name row; name and time on hover.
+  const documentGutter = (
+    <div className="w-7 shrink-0">
+      {showHeader && (
+        <Avatar
+          className="size-7"
+          title={`${displayName} · ${formatTime(message.createdAt)}`}
+        >
+          {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
+          <AvatarFallback
+            avatarColor={author.avatarColor}
+            fallbackSeed={displayName}
+            className="text-xs font-semibold"
+          >
+            {getAvatarInitials(displayName)}
+          </AvatarFallback>
+        </Avatar>
+      )}
+    </div>
+  )
+
   return (
     <div
       data-message-id={message.id}
       className={cn(
         "group relative px-4 py-0.5 transition-colors",
+        isDocument && showHeader && "pt-5",
         isReplyTarget
           ? "bg-primary/[0.07] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary"
           : hasBroadcastMention
             ? "bg-gold/10 hover:bg-gold/15 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-gold"
-            : !canWrapUnderAvatar && "hover:bg-muted/30"
+            : !canWrapUnderAvatar && !isDocument && "hover:bg-muted/30"
       )}
     >
       <div
@@ -585,7 +613,12 @@ export const MessageItem = memo(function MessageItem({
         />
       </div>
       {message.pinned && (
-        <div className="mb-0.5 flex items-center gap-1.5 pl-[52px] text-xs text-muted-foreground">
+        <div
+          className={cn(
+            "mb-0.5 flex items-center gap-1.5 text-xs text-muted-foreground",
+            isDocument ? "pl-10" : "pl-[52px]"
+          )}
+        >
           <HugeiconsIcon icon={Pin02Icon} size={12} />
           <span>Pinned</span>
         </div>
@@ -598,7 +631,9 @@ export const MessageItem = memo(function MessageItem({
         />
       )}
       <div className={cn(canWrapUnderAvatar ? "flow-root" : "flex gap-3")}>
-        {showHeader ? (
+        {isDocument ? (
+          documentGutter
+        ) : showHeader ? (
           isApp ? (
             <div
               className={cn(
@@ -665,8 +700,16 @@ export const MessageItem = memo(function MessageItem({
             </span>
           </div>
         )}
-        <div className={cn("min-w-0", !canWrapUnderAvatar && "flex-1")}>
-          {showHeader && (
+        <div
+          className={cn(
+            "min-w-0",
+            !canWrapUnderAvatar && "flex-1",
+            // Every turn reads as document prose.
+            isDocument &&
+              "[&_.message-markdown]:text-[15px] [&_.message-markdown]:leading-7"
+          )}
+        >
+          {showHeader && !isDocument && (
             <div className="flex items-baseline gap-2">
               {isApp ? (
                 <span className="text-sm font-semibold leading-snug">

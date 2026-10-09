@@ -23,7 +23,6 @@ import { Skeleton } from "@repo/ui/components/skeleton"
 import { Spinner } from "@repo/ui/components/spinner"
 import { Tabs, TabsList, TabsTab } from "@repo/ui/components/tabs"
 import { anchoredToastManager, toast } from "@repo/ui/components/toast"
-import { cn } from "@repo/ui/lib/utils"
 import {
   differenceInMinutes,
   formatDateTime,
@@ -74,6 +73,7 @@ import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-h
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { MorphText } from "@/components/ui/morph-text"
+import { UserAvatar } from "@/components/ui/user-avatar"
 import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
@@ -586,6 +586,11 @@ export function ThreadPanel({
     registerScrollToEnd,
   } = useRegisteredMessageScroller()
   const [sendScrollVersion, setSendScrollVersion] = useState(0)
+  // Session only: the bar under the document the inline composer's tools
+  // render into.
+  const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
+    null
+  )
   useLayoutEffect(() => {
     if (!sendScrollVersion) return
     scrollToEndRef.current?.({ behavior: "auto" })
@@ -755,6 +760,89 @@ export function ThreadPanel({
     )
   }
 
+  // A thread's composer sits under the scroller; a session's is the document's
+  // last line, with its tools in the bar under the scroller.
+  const composer = (
+    <>
+      <TypingIndicator
+        users={typingUsers}
+        className={sessionView ? undefined : "from-sidebar"}
+      />
+      <RunQueuePill
+        messages={queuedMessages}
+        currentUserId={currentUserId}
+        pendingNonces={pendingNonces}
+        onSteer={queuedMessageSteering.steerMessage}
+        steeringMessageId={queuedMessageSteering.steeringMessageId}
+      />
+      <MessageInput
+        key={view.threadRootId}
+        composerDraft={view.composerDraft}
+        onComposerDraftConsumed={consumeComposerDraft}
+        context={channelContext}
+        channelId={view.channelId}
+        contextScopeKey={view.threadRootId}
+        placeholder={composerPlaceholder}
+        destination={composerDestination}
+        variant={sessionView ? "inline" : "box"}
+        toolbarTarget={toolbarTarget}
+        gutter={
+          <UserAvatar
+            name={session?.user.name}
+            src={session?.user.image}
+            avatarColor={
+              participants.find((person) => person.id === currentUserId)
+                ?.avatarColor
+            }
+            size="sm"
+            className="size-7"
+          />
+        }
+        notice={
+          <SessionStartedNote
+            session={sessionStarted.started}
+            workspaceSlug={view.workspaceSlug}
+          />
+        }
+        onSend={(content, options) => {
+          const nonce = handleSend(content, options)
+          // Retire opening anchors so a later resize cannot recapture them.
+          openingAnchorsRef.current.messageIds.clear()
+          scrollToEndRef.current?.({ behavior: "auto" })
+          setSendScrollVersion((version) => version + 1)
+          // Lor is mid-answer in this thread, so a message for Lor will
+          // queue — show it in the pill immediately instead of waiting for
+          // the routed round trip.
+          if (nonce && pendingLorMessageId && !options?.toPeople) {
+            addOptimistic(nonce)
+          }
+        }}
+        currentUserId={currentUserId}
+        replyingTo={replyingTo}
+        onCancelReply={clearReply}
+        mentionCandidates={mentionCandidates}
+        pendingAttachments={fileUpload.attachments}
+        addFiles={fileUpload.addFiles}
+        removeAttachment={fileUpload.removeAttachment}
+        clearAttachments={fileUpload.clearAttachments}
+        getUploadedAttachments={fileUpload.getUploadedAttachments}
+        isUploading={fileUpload.isUploading}
+        onTyping={emitTyping}
+        onStop={
+          pendingLorMessage
+            ? () => stopLor.mutate(pendingLorMessage)
+            : undefined
+        }
+        isStopping={
+          stopLor.isPending || Boolean(pendingLorMessage?.stopRequested)
+        }
+        canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
+        onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
+        isSteeringQueued={queuedMessageSteering.isSteering}
+      />
+    </>
+  )
+
   return (
     <div
       {...getRootProps()}
@@ -862,10 +950,11 @@ export function ThreadPanel({
           >
             <MessageScrollerContent
               aria-busy={Boolean(pendingLorMessage)}
-              className={cn(
-                "justify-end",
-                sessionView && "mx-auto w-full max-w-3xl"
-              )}
+              // A session reads top-down like a document; a thread hugs its
+              // composer like chat.
+              className={
+                sessionView ? "mx-auto w-full max-w-3xl pt-4" : "justify-end"
+              }
             >
               {rootMessageForRender && !isCallChat && !sessionView && (
                 <MessageScrollerItem
@@ -965,7 +1054,8 @@ export function ThreadPanel({
                       <MessageItem
                         message={msg}
                         showHeader={showHeader}
-                        wrapContentAroundAvatar
+                        wrapContentAroundAvatar={!sessionView}
+                        layout={sessionView ? "document" : "chat"}
                         currentUserId={currentUserId}
                         isReplyTarget={replyingTo?.id === msg.id}
                         onReact={handleReact}
@@ -980,6 +1070,14 @@ export function ThreadPanel({
                   )
                 })
               )}
+
+              {/* Inline input line: follows the last turn, and pins to the
+                  bottom once the transcript outgrows the pane. */}
+              {sessionView && (
+                <div className="sticky bottom-0 z-10 bg-background pt-3">
+                  {composer}
+                </div>
+              )}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerJumpToLatest
@@ -988,75 +1086,19 @@ export function ThreadPanel({
             }
             viewportRef={scrollRef}
             isLorResponding={Boolean(pendingLorMessage)}
+            // Clears the session's inline input line pinned at the bottom.
+            className={sessionView ? "bottom-16" : undefined}
           />
         </MessageScroller>
 
-        <div
-          className={cn(
-            "shrink-0 pt-2",
-            sessionView && "mx-auto w-full max-w-3xl"
-          )}
-        >
-          <TypingIndicator users={typingUsers} className="from-sidebar" />
-          <RunQueuePill
-            messages={queuedMessages}
-            currentUserId={currentUserId}
-            pendingNonces={pendingNonces}
-            onSteer={queuedMessageSteering.steerMessage}
-            steeringMessageId={queuedMessageSteering.steeringMessageId}
+        {sessionView ? (
+          <div
+            ref={setToolbarTarget}
+            className="mx-auto w-full max-w-3xl shrink-0 border-border/60 border-t px-4 py-2"
           />
-          <MessageInput
-            key={view.threadRootId}
-            composerDraft={view.composerDraft}
-            onComposerDraftConsumed={consumeComposerDraft}
-            context={channelContext}
-            channelId={view.channelId}
-            contextScopeKey={view.threadRootId}
-            placeholder={composerPlaceholder}
-            destination={composerDestination}
-            notice={
-              <SessionStartedNote
-                session={sessionStarted.started}
-                workspaceSlug={view.workspaceSlug}
-              />
-            }
-            onSend={(content, options) => {
-              const nonce = handleSend(content, options)
-              // Retire opening anchors so a later resize cannot recapture them.
-              openingAnchorsRef.current.messageIds.clear()
-              scrollToEndRef.current?.({ behavior: "auto" })
-              setSendScrollVersion((version) => version + 1)
-              // Lor is mid-answer in this thread, so a message for Lor will
-              // queue — show it in the pill immediately instead of waiting
-              // for the routed round trip.
-              if (nonce && pendingLorMessageId && !options?.toPeople) {
-                addOptimistic(nonce)
-              }
-            }}
-            currentUserId={currentUserId}
-            replyingTo={replyingTo}
-            onCancelReply={clearReply}
-            mentionCandidates={mentionCandidates}
-            pendingAttachments={fileUpload.attachments}
-            addFiles={fileUpload.addFiles}
-            removeAttachment={fileUpload.removeAttachment}
-            clearAttachments={fileUpload.clearAttachments}
-            getUploadedAttachments={fileUpload.getUploadedAttachments}
-            isUploading={fileUpload.isUploading}
-            onTyping={emitTyping}
-            onStop={
-              pendingLorMessage
-                ? () => stopLor.mutate(pendingLorMessage)
-                : undefined
-            }
-            isStopping={
-              stopLor.isPending || Boolean(pendingLorMessage?.stopRequested)
-            }
-            canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
-            onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
-            isSteeringQueued={queuedMessageSteering.isSteering}
-          />
-        </div>
+        ) : (
+          <div className="shrink-0 pt-2">{composer}</div>
+        )}
       </MessageScrollerProvider>
     </div>
   )

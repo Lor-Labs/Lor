@@ -335,6 +335,28 @@ replaces `LorChannelStatus`.
   `session.new.tsx` (new): empty view, centered prompt, channel picker. ⌘N on
   desktop, ⌘K entry.
 
+#### Step 9a: session document view (~130)
+
+[x] built 2026-10-09 · [ ] committed
+
+Added 2026-10-09 (Jacob, after Delta DB's inline threads): a session reads as
+a document, not a chat thread, so it feels unlike a regular chat app. Rendering
+only; no CRDTs (a shared draft could become a block later). The editor stays
+TipTap.
+
+As built: `MessageItem` takes `layout="document"`: the first message of each
+turn has a 28px avatar in the gutter (Lor's mark too), no name row (name and
+time on the avatar's hover), document prose (15px, leading 7) for everyone,
+and no row hover fill. The session's input line is the transcript's last
+child: `MessageInput variant="inline"` with the writer's avatar as `gutter`,
+no box, same column and prose size, `sticky bottom-0` so it follows the last
+turn and pins to the bottom once the transcript outgrows the pane. Its tools
+(attach, destination, context meter, stop/send) render through a portal
+(`toolbarTarget`) into a bar under the scroller, like an editor status bar.
+The transcript starts at the top. Only the writer's own avatar shows at the
+input line; others appear through the typing indicator, never as presence
+(the no-surveillance rule).
+
 #### Step 9: chat cleanup (~300, mostly deletions)
 
 [ ] built · [ ] committed
