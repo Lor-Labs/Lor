@@ -10,6 +10,7 @@ import {
   schema,
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Approval, Plan } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import { findRunVoiceRequest } from "@repo/voice/server"
@@ -297,6 +298,10 @@ async function resolveApproval(
   if (!messageId) {
     await undoResolution()
     return { kind: "post_failed" }
+  }
+  // Acting in a thread (approving or rejecting) subscribes you to it.
+  if (scope.threadRootId) {
+    await subscribeToThread(scope.threadRootId, [userId]).catch(() => {})
   }
 
   // Pending approvals feed the sidebar aggregate directly, so any durable

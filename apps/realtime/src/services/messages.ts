@@ -10,6 +10,7 @@ import {
 import { LOR_USER_ID } from "@repo/db/constants"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
+import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession } from "@repo/db/schema"
 import { type CreateSessionArgs, createSession } from "@repo/lor/agent-sessions"
 import {
@@ -382,12 +383,14 @@ export async function createMessage(input: CreateMessageInput) {
 
       // Verify the thread root exists, is in this channel, and is itself a
       // channel-level message (threads are flat — replies can't host nested threads).
+      let threadStarterId: string | null = null
       if (threadRootId) {
         const root = await tx
           .select({
             id: schema.message.id,
             threadRootId: schema.message.threadRootId,
             type: schema.message.type,
+            authorId: schema.message.authorId,
           })
           .from(schema.message)
           .where(
@@ -406,6 +409,13 @@ export async function createMessage(input: CreateMessageInput) {
         ) {
           throw new Error("Invalid thread root")
         }
+        // The first reply starts a thread, so the root's author started it.
+        const [earlierReply] = await tx
+          .select({ id: schema.message.id })
+          .from(schema.message)
+          .where(eq(schema.message.threadRootId, threadRootId))
+          .limit(1)
+        if (!earlierReply) threadStarterId = root.authorId
       }
 
       const session =
@@ -452,6 +462,16 @@ export async function createMessage(input: CreateMessageInput) {
 
       if (!insertedMessage) {
         throw new Error("Failed to create message")
+      }
+
+      // Writing in a thread subscribes you (a new session already subscribed
+      // its starter and the people it mentions).
+      if (threadRootId) {
+        await subscribeToThread(
+          threadRootId,
+          threadStarterId ? [input.userId, threadStarterId] : [input.userId],
+          tx
+        )
       }
 
       await tx

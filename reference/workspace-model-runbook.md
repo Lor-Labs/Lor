@@ -407,7 +407,20 @@ open the same view with `draft` prefilled.
 
 #### Step 10: subscription writers and API (~350)
 
-[ ] built · [ ] committed
+[x] built 2026-10-09 · [ ] committed
+
+As built (~320 lines): one writer, `subscribeToThread` in
+`@repo/db/queries/thread-subscriptions` (Lor filtered out, idempotent), used
+by: `createSession` (starter + mentioned); realtime `createMessage` (writing
+in any thread subscribes you, and the first reply also subscribes the root's
+author, who started the thread); `buildMessageFanout` in `@repo/messaging`
+(direct mentions in a thread, for people's and Lor's messages alike, which
+covers hazard 13; broadcasts never subscribe); approval resolve (the
+resolver). Routes in `routes/v1/thread-subscriptions`: GET/PUT/DELETE
+`/workspaces/{slug}/channels/{channelId}/threads/{threadRootId}/subscribers[/{userId}]`,
+gated like thread read (real root in the workspace channel, caller sees the
+channel; adding someone also requires that they see it). Changes refresh the
+sidebar through `notifyWorkspaceActivity`.
 
 - Subscribe on start, mention, send, act (approve, answer) and add, plus
   Lor's own mentions (hazard 13).
@@ -671,3 +684,10 @@ lines, plus the server steps. 22 steps.
   Proposal subscriptions stay until Step 15 moves proposals into sessions.
   `use-channel-messages.ts` still copies `lorWaiting` into thread summaries
   (the server still sends it); only the badge went.
+- Step 10: the thread endpoint's `participants` (authors + plan creator)
+  stays; Step 12's header reads the new subscribers route instead. Being
+  added notifies like a mention: that lands with notifications (Step 11).
+  Answering Lor's question subscribes through the send path, not a separate
+  writer. Not covered: a mention added by editing a message
+  (`syncMessageMentions`), and proposal resolutions (Step 15 moves proposals
+  into sessions).

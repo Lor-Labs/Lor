@@ -7,6 +7,7 @@ import {
   LOR_USER_ID,
   schema,
 } from "@repo/db"
+import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, Loop } from "@repo/db/schema"
 import type { RealtimeAgentSession } from "@repo/realtime-types/events"
 import type { Exact, SerializedDates } from "./wire-guard"
@@ -108,17 +109,7 @@ export async function createSession(
     }
   }
 
-  const subscriberIds = [...new Set(args.subscriberIds ?? [])].filter(
-    (userId) => userId !== LOR_USER_ID
-  )
-  if (subscriberIds.length > 0) {
-    await tx
-      .insert(schema.threadSubscription)
-      .values(
-        subscriberIds.map((userId) => ({ threadRootId: anchor.id, userId }))
-      )
-      .onConflictDoNothing()
-  }
+  await subscribeToThread(anchor.id, args.subscriberIds ?? [], tx)
 
   return session
 }

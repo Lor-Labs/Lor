@@ -4,6 +4,7 @@ import {
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
 import { liveSessionChatMembers } from "@repo/db/queries/session-chat-access"
+import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Embed } from "@repo/db/schema"
 import type {
   MentionNotification,
@@ -540,6 +541,17 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
   })
 
   const messageMentions = await listMentionUsers(mentionTypeByUserId)
+
+  // A direct mention in a thread subscribes the person to it; this covers
+  // people's and Lor's messages alike. Broadcasts (@here) never subscribe.
+  if (threadRootId) {
+    await subscribeToThread(
+      threadRootId,
+      [...mentionTypeByUserId]
+        .filter(([, mentionType]) => mentionType === "direct")
+        .map(([userId]) => userId)
+    )
+  }
 
   if (mentionTypeByUserId.size === 0) {
     return {

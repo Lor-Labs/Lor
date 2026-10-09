@@ -23,6 +23,7 @@ import { Skeleton } from "@repo/ui/components/skeleton"
 import { Spinner } from "@repo/ui/components/spinner"
 import { Tabs, TabsList, TabsTab } from "@repo/ui/components/tabs"
 import { anchoredToastManager, toast } from "@repo/ui/components/toast"
+import { cn } from "@repo/ui/lib/utils"
 import {
   differenceInMinutes,
   formatDateTime,
@@ -546,6 +547,8 @@ export function ThreadPanel({
     () => [...messages].reverse().filter((m) => !queuedIds.includes(m.id)),
     [messages, queuedIds]
   )
+  // First load: the skeleton shows, and a session's input line waits.
+  const isAwaitingReplies = isLoading && orderedReplies.length === 0
   // Anchors are only for the initial view of an existing thread. Freeze them
   // from the first loaded snapshot so a message sent while this panel is open
   // stays at the live edge instead of creating an empty anchored viewport.
@@ -1011,20 +1014,32 @@ export function ThreadPanel({
                 </MessageScrollerItem>
               )}
 
-              {isLoading && orderedReplies.length === 0 ? (
+              {isAwaitingReplies ? (
                 <MessageScrollerItem className="flex flex-col py-2">
                   {THREAD_SKELETON_GROUPS.map((group) => (
-                    <div key={group.key} className="px-4 py-1">
+                    <div
+                      key={group.key}
+                      className={cn("px-4", sessionView ? "pt-3" : "py-1")}
+                    >
                       <div className="flex gap-3">
-                        <Skeleton className="mt-0.5 size-9 shrink-0 rounded-full" />
+                        {/* A session's skeleton matches its document rows:
+                            a small gutter avatar and text, no name row. */}
+                        <Skeleton
+                          className={cn(
+                            "shrink-0 rounded-full",
+                            sessionView ? "-mt-0.5 size-7" : "mt-0.5 size-9"
+                          )}
+                        />
                         <div className="flex-1 space-y-2">
-                          <div className="flex items-baseline gap-2">
-                            <Skeleton
-                              className="h-3 rounded"
-                              style={{ width: group.nameWidth }}
-                            />
-                            <Skeleton className="h-2.5 w-10 rounded" />
-                          </div>
+                          {!sessionView && (
+                            <div className="flex items-baseline gap-2">
+                              <Skeleton
+                                className="h-3 rounded"
+                                style={{ width: group.nameWidth }}
+                              />
+                              <Skeleton className="h-2.5 w-10 rounded" />
+                            </div>
+                          )}
                           {group.lines.map((width, i) => (
                             <Skeleton
                               key={`${group.key}-${i}`}
@@ -1079,7 +1094,9 @@ export function ThreadPanel({
 
               {/* Inline input line: the document's last line, reached by
                   scrolling to the end like any document (never pinned). */}
-              {sessionView && <div className="pt-3">{composer}</div>}
+              {sessionView && !isAwaitingReplies && (
+                <div className="pt-3">{composer}</div>
+              )}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerJumpToLatest
