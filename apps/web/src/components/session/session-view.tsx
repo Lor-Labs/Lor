@@ -4,11 +4,14 @@ import { cn } from "@repo/ui/lib/utils"
 import { Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
+import { SessionRail } from "@/components/session/session-rail"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
 import {
   type AgentSessionDetail,
   useAgentSession,
 } from "@/hooks/use-agent-session"
+import { useChannelApprovals } from "@/hooks/use-approvals"
+import { useChannelProposals } from "@/hooks/use-proposals"
 
 export function SessionView({
   workspaceSlug,
@@ -29,12 +32,30 @@ export function SessionView({
     )
   }
 
-  const { session, channel, context } = data
+  return (
+    <SessionConversation
+      key={data.session.id}
+      workspaceSlug={workspaceSlug}
+      detail={data}
+    />
+  )
+}
+
+function SessionConversation({
+  workspaceSlug,
+  detail: { session, channel, context },
+}: {
+  workspaceSlug: string
+  detail: AgentSessionDetail
+}) {
+  // Approval and proposal cards render inline in the session; keep them live
+  // here, since the channel page that also mounts these may not be open.
+  useChannelApprovals(session.channelId)
+  useChannelProposals(session.channelId)
   const channelName = channel.name ?? "channel"
 
   return (
     <ThreadPanel
-      key={session.id}
       view={{
         type: "thread",
         workspaceSlug,
@@ -54,6 +75,13 @@ export function SessionView({
           context.length > 0 ? (
             <SessionContextBlock channelName={channelName} messages={context} />
           ) : undefined,
+        rail: (messages) => (
+          <SessionRail
+            channelId={session.channelId}
+            threadRootId={session.threadRootId}
+            messages={messages}
+          />
+        ),
       }}
     />
   )

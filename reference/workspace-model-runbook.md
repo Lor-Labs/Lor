@@ -233,7 +233,19 @@ started" toast with Open, until Step 7's composer note replaces it.
 
 #### Step 6: session rail (~350)
 
-[ ] built · [ ] committed
+[x] built 2026-10-08 · [ ] committed
+
+As built (~335 lines): `components/session/session-rail.tsx` shows Plan,
+Files and Activity beside the transcript when the session area is at least
+56rem wide (container query). `ThreadPanel` takes the rail through
+`sessionView.rail` and drops the docked work header in sessions.
+`thread-work-header.tsx` now exports `useThreadWork` and `WorkFileList`, shared
+by the header and the rail. Files merge plan artifacts with the files in Lor's
+tool calls (so artifacts made without a plan show too) and the uploads in the
+loaded messages. The session page keeps approvals and proposals live
+(`useChannelApprovals`, `useChannelProposals`), so their cards render inline
+under the run's reply. The session route takes `?artifactId` and mounts
+`ArtifactOverlay`, so file cards open on the session page.
 
 - Split `thread-work-header.tsx:61-216` (Steps, Files, Activity popovers,
   `ApprovalGateCard`) into a right rail: Plan (`plan-step-list`), Files
@@ -491,3 +503,11 @@ lines, plus the server steps. 22 steps.
   uploads and typing. `use-lor-stream` needed no change: sessions use the
   thread cache key. Remembering sessions in `last-location.ts` moves to
   Step 8, when sessions are reachable from the sidebar.
+- Step 6: the rail has no approval card. Every approval belongs to a run, so
+  `MessageApprovalCard` already shows it inline under the run's reply; the
+  thread header's copy would show it twice. "Live computer" is the Activity
+  section (the newest run's tool trail) until a sandbox view exists. The rail
+  shows only when the session area is at least 56rem wide; below that there
+  is no plan or files view yet.
+- Step 6 open item: the artifact viewer's "Open conversation" still opens the
+  channel page with the thread panel, not the session.

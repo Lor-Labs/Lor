@@ -23,6 +23,13 @@ export type PlanSourceFile = {
   contentType: string
 }
 
+export type WorkOutputFile = {
+  id: string
+  path: string
+  mime: string
+  size: number | null
+}
+
 const SECTION_TRIGGER_CLASS =
   "group flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
 
@@ -52,6 +59,92 @@ function SourceRow({ source }: { source: PlanSourceFile }) {
   )
 }
 
+export function WorkFileList({
+  outputs,
+  sources,
+}: {
+  outputs: WorkOutputFile[]
+  sources: PlanSourceFile[]
+}) {
+  return (
+    <div className="space-y-2">
+      {outputs.length > 0 && (
+        <div className="space-y-1">
+          {sources.length > 0 && (
+            <p className="px-1 font-medium text-muted-foreground text-xs">
+              Outputs
+            </p>
+          )}
+          {outputs.map((artifact) => (
+            <ArtifactFileCard
+              key={artifact.id}
+              artifactId={artifact.id}
+              name={artifact.path}
+              contentType={artifact.mime}
+              size={artifact.size}
+              variant="chip"
+              className="w-full max-w-none"
+            />
+          ))}
+        </div>
+      )}
+      {sources.length > 0 && (
+        <div className="space-y-0.5">
+          {outputs.length > 0 && (
+            <p className="px-1 font-medium text-muted-foreground text-xs">
+              Sources
+            </p>
+          )}
+          {sources.map((source) => (
+            <SourceRow key={source.url} source={source} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// A thread's plan, plan outputs and newest tool trail: the docked work header
+// in a thread, the rail in a session.
+export function useThreadWork(
+  channelId: string,
+  threadRootId: string,
+  activityMessage: Message | null
+) {
+  const plan = usePlanForThread(channelId, threadRootId)
+  const { data: artifacts } = usePlanArtifacts(plan?.id ?? null)
+
+  const { activityCalls, childrenByParent } = useMemo(() => {
+    const topLevel: LorToolCallView[] = []
+    const children = new Map<string, LorToolCallView[]>()
+    for (const call of activityMessage?.lorToolCalls ?? []) {
+      if (call.parentToolCallId) {
+        const siblings = children.get(call.parentToolCallId) ?? []
+        siblings.push(call)
+        children.set(call.parentToolCallId, siblings)
+      } else {
+        topLevel.push(call)
+      }
+    }
+    return { activityCalls: topLevel, childrenByParent: children }
+  }, [activityMessage])
+
+  const doneCount = !plan
+    ? 0
+    : plan.status === "completed"
+      ? plan.steps.length
+      : plan.steps.filter((item) => item.status === "done").length
+
+  return {
+    plan,
+    outputs: artifacts ?? [],
+    doneCount,
+    activityCalls,
+    childrenByParent,
+    streaming: activityMessage?.status === "pending",
+  }
+}
+
 // Docked strip under the thread panel header — the thread's work surface.
 // Plan/Files popover chips (the anti-lost-in-scroll anchors) when a plan
 // anchors to the thread, an Activity chip mirroring the newest run's tool
@@ -69,36 +162,20 @@ export function ThreadWorkHeader({
   sources: PlanSourceFile[]
   activityMessage: Message | null
 }) {
-  const plan = usePlanForThread(channelId, threadRootId)
+  const {
+    plan,
+    outputs,
+    doneCount,
+    activityCalls,
+    childrenByParent,
+    streaming,
+  } = useThreadWork(channelId, threadRootId, activityMessage)
   const { data: detail } = usePlan(plan?.id ?? null)
-  const { data: artifacts } = usePlanArtifacts(plan?.id ?? null)
-
-  const { activityCalls, childrenByParent } = useMemo(() => {
-    const topLevel: LorToolCallView[] = []
-    const children = new Map<string, LorToolCallView[]>()
-    for (const call of activityMessage?.lorToolCalls ?? []) {
-      if (call.parentToolCallId) {
-        const siblings = children.get(call.parentToolCallId) ?? []
-        siblings.push(call)
-        children.set(call.parentToolCallId, siblings)
-      } else {
-        topLevel.push(call)
-      }
-    }
-    return { activityCalls: topLevel, childrenByParent: children }
-  }, [activityMessage])
-  const streaming = activityMessage?.status === "pending"
 
   const pendingApproval =
     detail?.pendingApproval?.status === "pending"
       ? detail.pendingApproval
       : null
-  const outputs = artifacts ?? []
-  const doneCount = !plan
-    ? 0
-    : plan.status === "completed"
-      ? plan.steps.length
-      : plan.steps.filter((item) => item.status === "done").length
   const fileCount = outputs.length + sources.length
   const showPlan = !!plan && plan.steps.length > 0
   const showFiles = !!plan && fileCount > 0
@@ -140,40 +217,7 @@ export function ThreadWorkHeader({
                 className="w-80"
                 viewportClassName="p-3"
               >
-                <div className="space-y-2">
-                  {outputs.length > 0 && (
-                    <div className="space-y-1">
-                      {sources.length > 0 && (
-                        <p className="px-1 font-medium text-muted-foreground text-xs">
-                          Outputs
-                        </p>
-                      )}
-                      {outputs.map((artifact) => (
-                        <ArtifactFileCard
-                          key={artifact.id}
-                          artifactId={artifact.id}
-                          name={artifact.path}
-                          contentType={artifact.mime}
-                          size={artifact.size}
-                          variant="chip"
-                          className="w-full max-w-none"
-                        />
-                      ))}
-                    </div>
-                  )}
-                  {sources.length > 0 && (
-                    <div className="space-y-0.5">
-                      {outputs.length > 0 && (
-                        <p className="px-1 font-medium text-muted-foreground text-xs">
-                          Sources
-                        </p>
-                      )}
-                      {sources.map((source) => (
-                        <SourceRow key={source.url} source={source} />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <WorkFileList outputs={outputs} sources={sources} />
               </PopoverPopup>
             </Popover>
           )}

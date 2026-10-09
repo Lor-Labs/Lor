@@ -148,10 +148,12 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
 }
 
 // A Lor session renders this same conversation in the main area, with its own
-// header and starting context in place of the thread root.
+// header and starting context in place of the thread root, and its work rail
+// in place of the docked work header.
 export type SessionPresentation = {
   header: ReactNode
   context?: ReactNode
+  rail?: (messages: Message[]) => ReactNode
 }
 
 export function ThreadPanel({
@@ -316,7 +318,7 @@ export function ThreadPanel({
       ) ?? null,
     [messages]
   )
-  const showWorkHeader = isPlan || activityMessage !== null
+  const showWorkHeader = !sessionView && (isPlan || activityMessage !== null)
 
   const handleCopyAsMarkdown = useCallback(async () => {
     try {
@@ -739,7 +741,7 @@ export function ThreadPanel({
     )
   }
 
-  return (
+  const panel = (
     <div
       {...getRootProps()}
       className="@container relative flex h-full w-full flex-col"
@@ -1039,6 +1041,14 @@ export function ThreadPanel({
           />
         </div>
       </MessageScrollerProvider>
+    </div>
+  )
+
+  if (!sessionView?.rail) return panel
+  return (
+    <div className="@container flex h-full w-full">
+      <div className="min-w-0 flex-1">{panel}</div>
+      {sessionView.rail(messages)}
     </div>
   )
 }
