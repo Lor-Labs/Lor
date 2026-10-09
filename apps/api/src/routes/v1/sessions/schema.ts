@@ -36,6 +36,19 @@ export const sessionContextMessageSchema = z.object({
   createdAt: z.string(),
 })
 
+export const updateAgentSessionRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    archived: z.boolean().optional(),
+  })
+  .refine((body) => body.title !== undefined || body.archived !== undefined, {
+    message: "Nothing to update",
+  })
+
+export const updateAgentSessionResponseSchema = z.object({
+  session: agentSessionSchema,
+})
+
 export const getAgentSessionResponseSchema = z.object({
   session: agentSessionSchema,
   channel: z.object({ id: z.string().uuid(), name: z.string().nullable() }),

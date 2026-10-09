@@ -295,9 +295,9 @@ type StopOutcome = {
   stopped: boolean
 }
 
-// Shared stop core (Stop button + queued-message steer). Null = the run was
-// already terminal.
-async function requestRunStop(
+// Shared stop core (Stop button, queued-message steer, session archive).
+// Null = the run was already terminal.
+export async function requestRunStop(
   run: StopTargetRun,
   requestedBy: string
 ): Promise<StopOutcome | null> {

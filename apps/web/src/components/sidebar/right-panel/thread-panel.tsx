@@ -156,7 +156,9 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
 // header and no thread root. Its context, plan, files and activity live in
 // the right panel instead of the docked work header.
 export type SessionPresentation = {
-  header: ReactNode
+  header: (state: { lorRunning: boolean }) => ReactNode
+  // An archived session is read-only: this replaces its input line and tools.
+  archivedBar?: ReactNode
 }
 
 export function ThreadPanel({
@@ -859,7 +861,7 @@ export function ThreadPanel({
     >
       <DropZoneOverlay isDragActive={isDragActive} />
       {sessionView ? (
-        sessionView.header
+        sessionView.header({ lorRunning: Boolean(pendingLorMessage) })
       ) : (
         <RightPanelHeader
           // A call chat takes Lor's name for the call once it's summarized.
@@ -1098,9 +1100,9 @@ export function ThreadPanel({
 
               {/* Inline input line: the document's last line, reached by
                   scrolling to the end like any document (never pinned). */}
-              {sessionView && !isAwaitingReplies && (
-                <div className="pt-3">{composer}</div>
-              )}
+              {sessionView &&
+                !sessionView.archivedBar &&
+                !isAwaitingReplies && <div className="pt-3">{composer}</div>}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerJumpToLatest
@@ -1112,7 +1114,11 @@ export function ThreadPanel({
           />
         </MessageScroller>
 
-        {sessionView ? (
+        {sessionView?.archivedBar ? (
+          <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2 pb-3">
+            {sessionView.archivedBar}
+          </div>
+        ) : sessionView ? (
           <div
             ref={setToolbarTarget}
             className="mx-auto w-full max-w-3xl shrink-0 border-border/60 border-t px-4 py-2"

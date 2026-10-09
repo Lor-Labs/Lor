@@ -501,6 +501,22 @@ participants are still notified even after unsubscribing.
   document view (Step 9a) the bar replaces both the inline input line and the
   tools bar under the scroller.
 
+Split in two. **13a built** (archive, unarchive, rename): one route,
+`PATCH /v1/sessions/{sessionId}` `{ title?, archived? }`, gated on channel
+write access. A rename sets `titleEditedAt`. Archiving sets
+`archivedAt`/`archivedById` and stops the thread's active runs through
+`requestRunStop` (now exported from `runs/handlers.ts`). It does not cancel
+queue rows: the queue drain already rejects them for archived sessions
+(`run-queue.ts`). Every change emits the existing `session:updated` to the
+channel room plus workspace activity. Web: `useAgentSessionUpdates` patches
+the session query from `session:updated`; the header title is click-to-rename
+(Enter or blur saves, Escape cancels, read-only when archived); an archive
+icon asks for confirmation only while Lor is running (`SessionPresentation.header`
+is now a render function that receives `lorRunning`); an archived session
+swaps the input line and tools bar for an "Archived by Ana · Unarchive" bar
+(`SessionPresentation.archivedBar`). **13b next:** generated titles (typed
+out on web when they arrive) and "needs you" for approvers only.
+
 #### Step 14: Sessions view in the right panel (~300)
 
 [ ] built · [ ] committed
