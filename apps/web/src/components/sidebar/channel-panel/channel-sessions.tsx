@@ -1,16 +1,27 @@
-import { ArrowDown01Icon, RepeatIcon } from "@hugeicons/core-free-icons"
+import {
+  Archive02Icon,
+  ArrowDown01Icon,
+  RepeatIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { SidebarSession } from "@repo/realtime-types"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
 import {
   SessionStateIndicator,
   strongestSessionState,
 } from "@/components/sidebar/channel-panel/channel-activity"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
+import { useArchiveAgentSession } from "@/hooks/use-agent-session"
 
 // Each channel lists at most this many of your sessions; a "N more" row
 // expands the rest in place.
@@ -105,11 +116,38 @@ export function ChannelSessionRows({
   collapsed: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  const archiveSession = useArchiveAgentSession()
+  // Archived rows hide at once; the next sidebar snapshot drops them for real,
+  // so an id leaves this set once the server stops listing it.
+  const [archivingIds, setArchivingIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  useEffect(() => {
+    setArchivingIds((previous) => {
+      const listed = new Set(sessions.map((session) => session.id))
+      const next = new Set([...previous].filter((id) => listed.has(id)))
+      return next.size === previous.size ? previous : next
+    })
+  }, [sessions])
+  const archive = (sessionId: string) => {
+    setArchivingIds((previous) => new Set(previous).add(sessionId))
+    archiveSession.mutate(sessionId, {
+      onError: () =>
+        setArchivingIds((previous) => {
+          const next = new Set(previous)
+          next.delete(sessionId)
+          return next
+        }),
+    })
+  }
+
   // Attention first; the server already orders by newest activity.
   const ordered = useMemo(
     () =>
-      [...sessions].sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]),
-    [sessions]
+      sessions
+        .filter((session) => !archivingIds.has(session.id))
+        .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]),
+    [sessions, archivingIds]
   )
   const visible = collapsed
     ? []
@@ -131,7 +169,10 @@ export function ChannelSessionRows({
             transition={{ duration: 0.2, ease: EASE_OUT }}
             className="overflow-hidden"
           >
-            <SessionRow session={session} />
+            <SessionRow
+              session={session}
+              onArchive={() => archive(session.id)}
+            />
           </motion.div>
         ))}
       </AnimatePresence>
@@ -156,40 +197,81 @@ function RollupIndicator({ sessions }: { sessions: SidebarSession[] }) {
   return state ? <SessionStateIndicator state={state} /> : null
 }
 
-function SessionRow({ session }: { session: SidebarSession }) {
+// Hovering a row swaps its state indicator for an archive button, like
+// Codex's task list.
+function SessionRow({
+  session,
+  onArchive,
+}: {
+  session: SidebarSession
+  onArchive: () => void
+}) {
   const navigate = useNavigate()
   const { workspaceSlug, sessionId } = useParams({ strict: false })
   const { setOpen: setMobileSidebarOpen } = useMobileSidebar()
+  const [confirmArchive, setConfirmArchive] = useState(false)
   const active = sessionId === session.id
   const emphasized = session.state === "unread" || session.state === "needs_you"
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (!workspaceSlug) return
-        void navigate({
-          to: "/$workspaceSlug/session/$sessionId",
-          params: { workspaceSlug, sessionId: session.id },
-        })
-        setMobileSidebarOpen(false)
-      }}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "ml-6 flex w-[calc(100%-1.5rem)] cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left text-[13px] transition-colors hover:bg-foreground/[0.06]",
-        active || emphasized ? "text-foreground" : "text-muted-foreground",
-        active && "bg-foreground/[0.06] font-medium"
-      )}
-    >
-      {session.loop && (
-        <HugeiconsIcon
-          icon={RepeatIcon}
-          className="size-3.5 shrink-0 opacity-60"
-          strokeWidth={2}
-        />
-      )}
-      <span className="min-w-0 flex-1 truncate">{session.title}</span>
-      <SessionStateIndicator state={session.state} />
-    </button>
+    <div className="group/session relative ml-6 w-[calc(100%-1.5rem)]">
+      <button
+        type="button"
+        onClick={() => {
+          if (!workspaceSlug) return
+          void navigate({
+            to: "/$workspaceSlug/session/$sessionId",
+            params: { workspaceSlug, sessionId: session.id },
+          })
+          setMobileSidebarOpen(false)
+        }}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left text-[13px] transition-colors group-hover/session:bg-foreground/[0.06] group-hover/session:pr-7",
+          active || emphasized ? "text-foreground" : "text-muted-foreground",
+          active && "bg-foreground/[0.06] font-medium"
+        )}
+      >
+        {session.loop && (
+          <HugeiconsIcon
+            icon={RepeatIcon}
+            className="size-3.5 shrink-0 opacity-60"
+            strokeWidth={2}
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate">{session.title}</span>
+        <span className="flex group-hover/session:hidden">
+          <SessionStateIndicator state={session.state} />
+        </span>
+      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label="Archive session"
+              onClick={() =>
+                session.state === "running"
+                  ? setConfirmArchive(true)
+                  : onArchive()
+              }
+              className="absolute top-1/2 right-1 flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/session:opacity-100"
+            />
+          }
+        >
+          <HugeiconsIcon
+            icon={Archive02Icon}
+            className="size-3.5"
+            strokeWidth={2}
+          />
+        </TooltipTrigger>
+        <TooltipContent side="right">Archive</TooltipContent>
+      </Tooltip>
+      <ArchiveSessionDialog
+        open={confirmArchive}
+        onOpenChange={setConfirmArchive}
+        onConfirm={onArchive}
+      />
+    </div>
   )
 }

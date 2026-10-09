@@ -1,14 +1,5 @@
 import { Archive02Icon, HashtagIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import {
   Tooltip,
@@ -21,6 +12,7 @@ import { Link } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
+import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
@@ -230,30 +222,11 @@ function SessionHeader({
           {({ payload }) => <TooltipContent>{payload}</TooltipContent>}
         </Tooltip>
       </div>
-      <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Archive this session?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Lor is still working. Archiving stops it and closes the session
-              for everyone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>
-              Cancel
-            </AlertDialogClose>
-            <Button
-              onClick={() => {
-                setConfirmArchive(false)
-                onArchive()
-              }}
-            >
-              Archive
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ArchiveSessionDialog
+        open={confirmArchive}
+        onOpenChange={setConfirmArchive}
+        onConfirm={onArchive}
+      />
     </div>
   )
 }

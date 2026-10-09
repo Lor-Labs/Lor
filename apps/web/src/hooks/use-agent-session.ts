@@ -64,17 +64,23 @@ export function useAgentSessionUpdates(sessionId: string) {
   }, [socket, queryClient, sessionId])
 }
 
+async function patchAgentSession(
+  sessionId: string,
+  body: { title?: string; archived?: boolean }
+) {
+  const res = await apiClient.v1.sessions[":sessionId"].$patch({
+    param: { sessionId },
+    json: body,
+  })
+  if (!res.ok) throw new Error("Couldn't update the session")
+  return res.json()
+}
+
 export function useUpdateAgentSession(sessionId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (body: { title?: string; archived?: boolean }) => {
-      const res = await apiClient.v1.sessions[":sessionId"].$patch({
-        param: { sessionId },
-        json: body,
-      })
-      if (!res.ok) throw new Error("Couldn't update the session")
-      return res.json()
-    },
+    mutationFn: (body: { title?: string; archived?: boolean }) =>
+      patchAgentSession(sessionId, body),
     // A rename shows at once; archive waits for the server.
     onMutate: ({ title }) => {
       const previous = queryClient.getQueryData<AgentSessionDetail>(
@@ -95,5 +101,17 @@ export function useUpdateAgentSession(sessionId: string) {
       }
       toast.error(err.message)
     },
+  })
+}
+
+// Archive by id, for lists like the sidebar where the row unmounts first.
+export function useArchiveAgentSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      patchAgentSession(sessionId, { archived: true }),
+    onSuccess: ({ session }) =>
+      patchSessionCache(queryClient, session.id, session),
+    onError: (err) => toast.error(err.message),
   })
 }

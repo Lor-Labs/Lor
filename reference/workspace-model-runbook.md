@@ -514,7 +514,11 @@ the session query from `session:updated`; the header title is click-to-rename
 icon asks for confirmation only while Lor is running (`SessionPresentation.header`
 is now a render function that receives `lorRunning`); an archived session
 swaps the input line and tools bar for an "Archived by Ana · Unarchive" bar
-(`SessionPresentation.archivedBar`). **13b next:** generated titles (typed
+(`SessionPresentation.archivedBar`). Sidebar session rows also archive on
+hover (Codex-style; Jacob's ask): the state indicator gives way to an
+archive button, the row hides at once and comes back if the request fails,
+and a running session confirms first (`ArchiveSessionDialog`, shared with the
+header). **13b next:** generated titles (typed
 out on web when they arrive) and "needs you" for approvers only.
 
 #### Step 14: Sessions view in the right panel (~300)
