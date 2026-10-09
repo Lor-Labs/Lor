@@ -1210,6 +1210,7 @@ function SortableChannelItem({
           <VoiceParticipantRows channelId={ch.id} channelName={ch.name ?? ""} />
         )}
         <ChannelSessionRows
+          channelId={ch.id}
           sessions={sessions}
           collapsed={sessionCollapse.collapsed}
         />

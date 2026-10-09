@@ -518,7 +518,13 @@ swaps the input line and tools bar for an "Archived by Ana · Unarchive" bar
 hover (Codex-style; Jacob's ask): the state indicator gives way to an
 archive button, the row hides at once and comes back if the request fails,
 and a running session confirms first (`ArchiveSessionDialog`, shared with the
-header). **13b next:** generated titles (typed
+header). Everything is optimistic (Jacob's ask): `useUpdateAgentSession`
+patches the session query and writes `lib/sidebar-session-overlay.ts`, a
+small store that `ChannelActivityProvider` applies over each activity
+snapshot (hide, show, rename). An entry clears when a snapshot agrees, when
+its request fails, or after 20 seconds. Unarchive shows the row again only if
+you subscribe; following or leaving a session from its header moves its row
+too. Subscriber refetches wait while a change is in flight. **13b next:** generated titles (typed
 out on web when they arrive) and "needs you" for approvers only.
 
 #### Step 14: Sessions view in the right panel (~300)

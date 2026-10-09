@@ -21,7 +21,7 @@ import {
   strongestSessionState,
 } from "@/components/sidebar/channel-panel/channel-activity"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
-import { useArchiveAgentSession } from "@/hooks/use-agent-session"
+import { useUpdateAgentSession } from "@/hooks/use-agent-session"
 
 // Each channel lists at most this many of your sessions; a "N more" row
 // expands the rest in place.
@@ -109,45 +109,22 @@ export function SessionCollapseToggle({
 }
 
 export function ChannelSessionRows({
+  channelId,
   sessions,
   collapsed,
 }: {
+  channelId: string
   sessions: SidebarSession[]
   collapsed: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  const archiveSession = useArchiveAgentSession()
-  // Archived rows hide at once; the next sidebar snapshot drops them for real,
-  // so an id leaves this set once the server stops listing it.
-  const [archivingIds, setArchivingIds] = useState<ReadonlySet<string>>(
-    () => new Set()
-  )
-  useEffect(() => {
-    setArchivingIds((previous) => {
-      const listed = new Set(sessions.map((session) => session.id))
-      const next = new Set([...previous].filter((id) => listed.has(id)))
-      return next.size === previous.size ? previous : next
-    })
-  }, [sessions])
-  const archive = (sessionId: string) => {
-    setArchivingIds((previous) => new Set(previous).add(sessionId))
-    archiveSession.mutate(sessionId, {
-      onError: () =>
-        setArchivingIds((previous) => {
-          const next = new Set(previous)
-          next.delete(sessionId)
-          return next
-        }),
-    })
-  }
+  const updateSession = useUpdateAgentSession()
 
   // Attention first; the server already orders by newest activity.
   const ordered = useMemo(
     () =>
-      sessions
-        .filter((session) => !archivingIds.has(session.id))
-        .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]),
-    [sessions, archivingIds]
+      [...sessions].sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]),
+    [sessions]
   )
   const visible = collapsed
     ? []
@@ -171,7 +148,13 @@ export function ChannelSessionRows({
           >
             <SessionRow
               session={session}
-              onArchive={() => archive(session.id)}
+              onArchive={() =>
+                updateSession.mutate({
+                  sessionId: session.id,
+                  channelId,
+                  archived: true,
+                })
+              }
             />
           </motion.div>
         ))}

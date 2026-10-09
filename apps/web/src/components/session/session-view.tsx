@@ -1,5 +1,7 @@
 import { Archive02Icon, HashtagIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { authClient } from "@repo/auth/client"
+import type { RealtimeAgentSession } from "@repo/realtime-types"
 import { Button } from "@repo/ui/components/button"
 import {
   Tooltip,
@@ -96,11 +98,15 @@ function SessionConversation({
   }, [workView, isMobile, setView, clearView])
 
   useAgentSessionUpdates(session.id)
-  const updateSession = useUpdateAgentSession(session.id)
+  const updateSession = useUpdateAgentSession()
+  const change = { sessionId: session.id, channelId: session.channelId }
+  const { data: auth } = authClient.useSession()
   const people = useChannelPeople(workspaceSlug, session.channelId)
-  const archivedBy = people.find(
-    (person) => person.userId === session.archivedById
-  )
+  const archivedBy =
+    session.archivedById === auth?.user.id
+      ? "you"
+      : (people.find((person) => person.userId === session.archivedById)
+          ?.name ?? "someone")
 
   return (
     <ThreadPanel
@@ -113,13 +119,14 @@ function SessionConversation({
       sessionView={{
         header: ({ lorRunning }) => (
           <SessionHeader
-            title={session.title}
+            session={session}
             channelName={channel.name ?? "channel"}
             workView={workView}
-            archived={session.archivedAt !== null}
             lorRunning={lorRunning}
-            onRename={(title) => updateSession.mutate({ title })}
-            onArchive={() => updateSession.mutate({ archived: true })}
+            onRename={(title) => updateSession.mutate({ ...change, title })}
+            onArchive={() =>
+              updateSession.mutate({ ...change, archived: true })
+            }
           />
         ),
         archivedBar: session.archivedAt ? (
@@ -130,13 +137,14 @@ function SessionConversation({
               strokeWidth={2}
             />
             <span className="min-w-0 flex-1 truncate">
-              Archived by {archivedBy?.name ?? "someone"}
+              Archived by {archivedBy}
             </span>
             <Button
               size="xs"
               variant="ghost"
-              loading={updateSession.isPending}
-              onClick={() => updateSession.mutate({ archived: false })}
+              onClick={() =>
+                updateSession.mutate({ ...change, archived: false })
+              }
             >
               Unarchive
             </Button>
@@ -148,30 +156,33 @@ function SessionConversation({
 }
 
 function SessionHeader({
-  title,
+  session,
   channelName,
   workView,
-  archived,
   lorRunning,
   onRename,
   onArchive,
 }: {
-  title: string
+  session: RealtimeAgentSession
   channelName: string
   workView: SessionWorkSidebarView
-  archived: boolean
   lorRunning: boolean
   onRename: (title: string) => void
   onArchive: () => void
 }) {
   const { workspaceSlug, channelId } = workView
+  const archived = session.archivedAt !== null
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const [confirmArchive, setConfirmArchive] = useState(false)
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
       <HeaderNavControls className="-ml-2" withDivider />
-      <SessionTitle title={title} readOnly={archived} onRename={onRename} />
+      <SessionTitle
+        title={session.title}
+        readOnly={archived}
+        onRename={onRename}
+      />
       <Link
         to="/$workspaceSlug/$channelId"
         params={{ workspaceSlug, channelId }}
@@ -189,6 +200,7 @@ function SessionHeader({
           workspaceSlug={workspaceSlug}
           channelId={channelId}
           threadRootId={workView.threadRootId}
+          session={session}
         />
         {!archived && (
           <TooltipTrigger

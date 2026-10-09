@@ -4,8 +4,19 @@ import type {
   SidebarSessionState,
 } from "@repo/realtime-types"
 import { cn } from "@repo/ui/lib/utils"
-import { createContext, type ReactNode, useContext, useMemo } from "react"
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+} from "react"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
+import {
+  applySessionOverlays,
+  settleSessionOverlays,
+  useSessionOverlays,
+} from "@/lib/sidebar-session-overlay"
 
 const ActivityContext = createContext<{
   channels: Map<string, ChannelActivity>
@@ -19,13 +30,20 @@ export function ChannelActivityProvider({
   children: ReactNode
 }) {
   const activity = useWorkspaceActivity(workspaceId)
+  const overlays = useSessionOverlays()
+  useEffect(() => {
+    if (activity) settleSessionOverlays(activity)
+  }, [activity])
   const value = useMemo(
     () => ({
       channels: new Map(
-        activity?.map((channel) => [channel.channelId, channel])
+        applySessionOverlays(activity ?? [], overlays).map((channel) => [
+          channel.channelId,
+          channel,
+        ])
       ),
     }),
-    [activity]
+    [activity, overlays]
   )
   return <ActivityContext value={value}>{children}</ActivityContext>
 }

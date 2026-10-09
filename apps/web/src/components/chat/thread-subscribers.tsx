@@ -1,6 +1,7 @@
 import { Tick02Icon, UserAdd01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import type { RealtimeAgentSession } from "@repo/realtime-types"
 import {
   Avatar,
   AvatarFallback,
@@ -30,10 +31,13 @@ export function ThreadSubscribers({
   workspaceSlug,
   channelId,
   threadRootId,
+  session,
 }: {
   workspaceSlug: string
   channelId: string
   threadRootId: string
+  // Set on a session page, so following it moves its sidebar row at once.
+  session?: RealtimeAgentSession
 }) {
   const { data: authSession } = authClient.useSession()
   const currentUserId = authSession?.user.id
@@ -41,6 +45,7 @@ export function ThreadSubscribers({
     workspaceSlug,
     channelId,
     threadRootId,
+    session,
   })
   const people = useChannelPeople(workspaceSlug, channelId)
   const [open, setOpen] = useState(false)

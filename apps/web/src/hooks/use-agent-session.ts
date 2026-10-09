@@ -1,3 +1,4 @@
+import { authClient } from "@repo/auth/client"
 import type {
   AgentSessionUpdatedEvent,
   RealtimeAgentSession,
@@ -11,7 +12,12 @@ import {
 } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
+import {
+  type ThreadSubscriber,
+  threadSubscribersKey,
+} from "@/hooks/use-thread-subscribers"
 import { apiClient } from "@/lib/api-client"
+import { setSessionOverlay, sidebarRowFor } from "@/lib/sidebar-session-overlay"
 
 export function agentSessionQueryOptions(sessionId: string) {
   return {
@@ -76,42 +82,71 @@ async function patchAgentSession(
   return res.json()
 }
 
-export function useUpdateAgentSession(sessionId: string) {
+type SessionChange = {
+  sessionId: string
+  channelId: string
+  title?: string
+  archived?: boolean
+}
+
+// Rename, archive and unarchive show at once on the session page and in the
+// sidebar, and roll back if the request fails.
+export function useUpdateAgentSession() {
   const queryClient = useQueryClient()
+  const { data: auth } = authClient.useSession()
+  const currentUserId = auth?.user.id ?? null
   return useMutation({
-    mutationFn: (body: { title?: string; archived?: boolean }) =>
-      patchAgentSession(sessionId, body),
-    // A rename shows at once; archive waits for the server.
-    onMutate: ({ title }) => {
-      const previous = queryClient.getQueryData<AgentSessionDetail>(
-        agentSessionQueryOptions(sessionId).queryKey
-      )
-      if (title !== undefined)
+    mutationFn: ({ sessionId, title, archived }: SessionChange) =>
+      patchAgentSession(sessionId, { title, archived }),
+    onMutate: async ({ sessionId, channelId, title, archived }) => {
+      const queryKey = agentSessionQueryOptions(sessionId).queryKey
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<AgentSessionDetail>(queryKey)
+      if (title !== undefined) {
         patchSessionCache(queryClient, sessionId, { title })
+        setSessionOverlay(sessionId, { kind: "rename", channelId, title })
+      }
+      if (archived === true) {
+        patchSessionCache(queryClient, sessionId, {
+          archivedAt: new Date().toISOString(),
+          archivedById: currentUserId,
+        })
+        setSessionOverlay(sessionId, { kind: "hide", channelId })
+      }
+      if (archived === false) {
+        patchSessionCache(queryClient, sessionId, {
+          archivedAt: null,
+          archivedById: null,
+        })
+        // Back in your sidebar only if you follow it.
+        const session = previous?.session
+        const subscribed = session
+          ? queryClient
+              .getQueryData<ThreadSubscriber[]>(
+                threadSubscribersKey(session.threadRootId)
+              )
+              ?.some((person) => person.id === currentUserId)
+          : false
+        setSessionOverlay(
+          sessionId,
+          session && subscribed
+            ? { kind: "show", channelId, row: sidebarRowFor(session) }
+            : null
+        )
+      }
       return { previous }
     },
     onSuccess: ({ session }) =>
-      patchSessionCache(queryClient, sessionId, session),
-    onError: (err, _body, context) => {
+      patchSessionCache(queryClient, session.id, session),
+    onError: (err, { sessionId }, context) => {
       if (context?.previous) {
         queryClient.setQueryData(
           agentSessionQueryOptions(sessionId).queryKey,
           context.previous
         )
       }
+      setSessionOverlay(sessionId, null)
       toast.error(err.message)
     },
-  })
-}
-
-// Archive by id, for lists like the sidebar where the row unmounts first.
-export function useArchiveAgentSession() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (sessionId: string) =>
-      patchAgentSession(sessionId, { archived: true }),
-    onSuccess: ({ session }) =>
-      patchSessionCache(queryClient, session.id, session),
-    onError: (err) => toast.error(err.message),
   })
 }
