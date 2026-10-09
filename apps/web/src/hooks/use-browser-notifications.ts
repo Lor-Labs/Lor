@@ -4,9 +4,11 @@ import {
   buildNotificationTitle,
   buildProposalNotificationContent,
   buildReactionNotificationBody,
+  buildSubscribedNotificationContent,
   type MentionNotification,
   type ProposalNotification,
   type ReactionNotification,
+  type SubscribedNotification,
   type UnreadNotification,
 } from "@repo/realtime-types"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -213,11 +215,38 @@ export function useBrowserNotifications() {
       showNotification(title, body, { tag: `proposal-${payload.proposalId}` })
     }
 
+    // Being added as a subscriber notifies like a mention.
+    const onSubscribed = (payload: SubscribedNotification) => {
+      if (isAlreadyVisible(payload.channelId, payload.sessionId)) return
+      if (!(settings && mutes)) return
+      if (findActiveMute(mutes, payload.channelId)) return
+      if (settings.desktopNotifications === "nothing") return
+
+      const workspaceSlug = workspaceSlugFor(payload.workspaceId)
+      const { title, body } = buildSubscribedNotificationContent(payload)
+      showNotification(title, body, {
+        tag: `subscribed-${payload.threadRootId}`,
+        onClick: workspaceSlug
+          ? () => {
+              const { sessionId } = payload
+              if (sessionId) return openSession(workspaceSlug, sessionId)
+              navigateToMessage({
+                id: payload.threadRootId,
+                channelId: payload.channelId,
+                threadRootId: payload.threadRootId,
+                workspaceSlug,
+              })
+            }
+          : undefined,
+      })
+    }
+
     socket.on("notification:mention", onMention)
     socket.on("notification:unread", onUnread)
     socket.on("notification:reaction", onReaction)
     socket.on("notification:approval", onApproval)
     socket.on("notification:proposal", onProposal)
+    socket.on("notification:subscribed", onSubscribed)
 
     return () => {
       socket.off("notification:mention", onMention)
@@ -225,6 +254,7 @@ export function useBrowserNotifications() {
       socket.off("notification:reaction", onReaction)
       socket.off("notification:approval", onApproval)
       socket.off("notification:proposal", onProposal)
+      socket.off("notification:subscribed", onSubscribed)
     }
   }, [
     socket,

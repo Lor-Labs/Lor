@@ -6,9 +6,11 @@ import {
   buildNotificationTitle,
   buildProposalNotificationContent,
   buildReactionNotificationBody,
+  buildSubscribedNotificationContent,
   PRESENCE_ONLINE_USERS_SET_KEY,
   type ProposalNotification,
   type ReactionNotification,
+  type SubscribedNotification,
   type UnreadNotification,
 } from "@repo/realtime-types"
 
@@ -423,6 +425,57 @@ export async function sendProposalPush(input: {
       channelId: input.notification.channelId,
       threadRootId: null,
       messageId: input.notification.cardMessageId,
+    },
+  })
+}
+
+// Being added as a subscriber pushes like a mention: a channel mute or the
+// "nothing" level silences it.
+export async function sendSubscribedPush(input: {
+  userId: string
+  notification: SubscribedNotification
+  redis: PresenceRedisClient
+}) {
+  const { userId, notification } = input
+  const [settings, mute] = await Promise.all([
+    db
+      .select({
+        desktopNotifications:
+          schema.userNotificationSettings.desktopNotifications,
+      })
+      .from(schema.userNotificationSettings)
+      .where(eq(schema.userNotificationSettings.userId, userId))
+      .limit(1)
+      .then((rows) => rows[0]),
+    db
+      .select({ mutedUntil: schema.channelMute.mutedUntil })
+      .from(schema.channelMute)
+      .where(
+        and(
+          eq(schema.channelMute.channelId, notification.channelId),
+          eq(schema.channelMute.userId, userId)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0]),
+  ])
+  if (settings?.desktopNotifications === "nothing") return
+  if (mute && (!mute.mutedUntil || mute.mutedUntil.getTime() > Date.now())) {
+    return
+  }
+
+  const { title, body } = buildSubscribedNotificationContent(notification)
+  await sendDirectedPush({
+    userIds: [userId],
+    redis: input.redis,
+    title,
+    body,
+    data: {
+      type: "subscribed",
+      workspaceId: notification.workspaceId,
+      channelId: notification.channelId,
+      threadRootId: notification.threadRootId,
+      messageId: null,
     },
   })
 }

@@ -793,6 +793,8 @@ export interface ServerToClientEvents {
   "notification:approval": (payload: ApprovalNotification) => void
   // A change proposal awaits someone whose permissions cover it. User room.
   "notification:proposal": (payload: ProposalNotification) => void
+  // Someone added this user as a subscriber to a session or thread. User room.
+  "notification:subscribed": (payload: SubscribedNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel:created": (payload: ChannelCreatedEvent) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
@@ -944,6 +946,17 @@ export type ProposalNotification = {
   // The card message — also the thread the resolution lands in.
   cardMessageId: string | null
   rationale: string
+}
+
+export type SubscribedNotification = {
+  workspaceId: string
+  channelId: string
+  channelName: string
+  threadRootId: string
+  sessionId: string | null
+  // The session title; null for a human thread.
+  title: string | null
+  actorName: string
 }
 
 export type ApprovalCreatedEvent = {

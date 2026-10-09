@@ -8,6 +8,7 @@ import {
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { Link } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
+import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -138,6 +139,11 @@ function SessionHeader({
         {channelName}
       </Link>
       <div className="ml-auto flex items-center gap-1">
+        <ThreadSubscribers
+          workspaceSlug={workspaceSlug}
+          channelId={channelId}
+          threadRootId={workView.threadRootId}
+        />
         <RightPanelToggle
           workspaceSlug={workspaceSlug}
           channelId={channelId}

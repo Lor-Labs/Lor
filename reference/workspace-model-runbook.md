@@ -459,7 +459,25 @@ mobile settings.
 
 #### Step 12: web subscriber header and settings (~300)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
+
+As built (~450 lines): `ThreadSubscribers` (`components/chat/thread-subscribers.tsx`,
+replacing `thread-subscriber-stack.tsx`) sits in the session header and the
+thread panel header: a Subscribe/Unsubscribe text button and the subscriber
+avatars, which open a Base UI combobox ("Change subscribers…", ⌘⇧S) with a
+search field and Linear-style checkbox rows over the channel's people
+(`useChannelPeople`, split out of `use-mention-candidates.ts`). Row order is
+frozen while the picker is open. `useThreadSubscribers` reads the Step 10
+route, writes optimistically, and refetches on `message:thread:updated` for
+the thread and on `workspace:activity:updated`. `subscribeToThread` now
+returns the newly subscribed ids; the add route uses that to send
+`notification:subscribed` to the user room plus `sendSubscribedPush` (mute
+and "nothing" level respected, like a mention). Web shows "Ana added you to a
+session" and opens the session or thread; mobile gets the push only and opens
+the thread (no in-app handling until Step 22). Unsubscribing drops the
+session from your sidebar (the sidebar query inner-joins
+`thread_subscription`). Call chats show the control too, but their call
+participants are still notified even after unsubscribing.
 
 - Session header: `ThreadSubscriberStack` avatars, Subscribe/Unsubscribe,
   "Change subscribers…" dropdown (⌘⇧S) over the member list from

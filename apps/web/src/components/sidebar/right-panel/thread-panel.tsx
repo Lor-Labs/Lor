@@ -60,7 +60,7 @@ import {
   useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
-import { ThreadSubscriberStack } from "@/components/chat/thread-subscriber-stack"
+import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import {
   type PlanSourceFile,
   ThreadWorkHeader,
@@ -891,7 +891,11 @@ export function ThreadPanel({
           className={showWorkHeader || callTabs ? "border-b-0" : undefined}
           actions={
             <>
-              <ThreadSubscriberStack subscribers={participants} />
+              <ThreadSubscribers
+                workspaceSlug={view.workspaceSlug}
+                channelId={view.channelId}
+                threadRootId={view.threadRootId}
+              />
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={

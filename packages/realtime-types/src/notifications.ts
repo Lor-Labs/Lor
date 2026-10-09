@@ -54,6 +54,20 @@ export function buildProposalNotificationContent(input: {
   }
 }
 
+// "Ana added you to …" on the web OS notification and the mobile push.
+export function buildSubscribedNotificationContent(input: {
+  actorName: string
+  channelName: string
+  title: string | null
+}): { title: string; body: string } {
+  return {
+    title: `${input.actorName} added you to ${input.title ? "a session" : "a thread"}`,
+    body: input.title
+      ? `${input.title} in #${input.channelName}`
+      : `In #${input.channelName}`,
+  }
+}
+
 // One wording for the approval ping on every surface (web/desktop OS
 // notification, mobile push) — LOR-83.
 export function buildApprovalNotificationContent(input: {
