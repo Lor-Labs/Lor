@@ -1,4 +1,4 @@
-import { and, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
+import { and, db, eq, inArray, schema } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
   type ChannelAudienceInfo,
@@ -493,17 +493,11 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
       ? `sent ${input.message.attachments.length} attachment${input.message.attachments.length > 1 ? "s" : ""}`
       : null)
 
-  // Who gets an OS or push notification. Channel messages: everyone. Threads:
-  // their subscribers. Lor finishing in a session: only the person who
-  // started it ("Done notifies the starter"); a loop's session has no
-  // starter, so its subscribers hear.
+  // Who gets an OS or push notification. Channel messages: everyone. Threads
+  // and sessions: their subscribers.
   const { subscriberIds, session } = threadContext
-  const sessionStarterId =
-    session && input.authorId === LOR_USER_ID ? session.creatorId : null
   const notifies = (userId: string) =>
-    !subscriberIds ||
-    (subscriberIds.has(userId) &&
-      (!sessionStarterId || userId === sessionStarterId))
+    !subscriberIds || subscriberIds.has(userId)
   const unreadPayload = (userId: string): UnreadNotification => ({
     channelId: input.channel.id,
     workspaceId: input.channel.workspaceId,

@@ -81,8 +81,8 @@ places.
       collapses the channel's sessions. A collapsed channel row shows the
       strongest state of its sessions: alert, then spinner, then dot.
     - Starting a session in a collapsed channel expands that channel.
-    - "Needs you" always notifies. "Done" notifies the starter. Running never
-      notifies.
+    - "Needs you" always notifies. "Done" notifies the session's subscribers.
+      Running never notifies.
     - Who is needed: a question from Lor goes to the starter (anyone in the
       session can answer). An approval goes to the people the approval
       policies allow to approve. A mention goes to the person mentioned.

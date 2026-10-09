@@ -437,9 +437,8 @@ As built (~350 lines, mostly deletions): `buildMessageFanout` reads a
 thread's followers from `thread_subscription` (plus call participants for
 call chats) and sets one server-decided flag per recipient, `notify`, which
 replaces `isLorThread`/`isSubscribedToThread` and the client-side preference:
-channel messages notify everyone, thread replies only subscribers, and Lor's
-reply in a session only the session's creator ("Done notifies the starter";
-loop sessions, with no creator, notify their subscribers). Session messages
+channel messages notify everyone; thread and session messages, Lor's
+included, notify only subscribers. Session messages
 reach only the people they notify, with `unreadCountDelta: 0`. Push and web
 browser notifications obey `notify`; direct mentions still always push.
 Unread, mention and thread-summary payloads carry `sessionId`: the web and
@@ -451,7 +450,7 @@ replies and mentions. The setting is gone from the DB, API, web settings and
 mobile settings.
 
 - `packages/messaging/src/index.ts:66-113,480-526` and `push.ts:144-199`
-  read `thread_subscription`. "Done" pushes go to the starter only.
+  read `thread_subscription`. "Done" pushes go to all subscribers.
 - Remove `lorThreadNotifications`: `user-notification-settings.ts:17-20,
   39-41,59,67`, `realtime-types notifications.ts:7-23`, `events.ts:430-431,
   462-463`, `notification-settings/handlers.ts:12`.
