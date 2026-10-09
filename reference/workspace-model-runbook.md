@@ -55,6 +55,9 @@ because nothing merges until the whole runbook lands.
    the sidebar button.
 9. **No model picker yet.** The composer's Lor state shows the channel's
    agent profile as a label. A real per-session picker is later work.
+10. **The editor stays TipTap** (decided 2026-10-09 after a Plate evaluation;
+    `planned/live-collaboration.md`). Sessions render as a document with an
+    inline input line (Step 9a); live co-editing is a separate later project.
 
 ## Answered questions (locked with Jacob 2026-10-08)
 
@@ -369,7 +372,10 @@ input line; others appear through the typing indicator, never as presence
   `message-list.tsx:241,479,486,626` streaming follow.
   `use-channel-messages.ts:271-298` `lorWaiting`.
 - `message-action-bar.tsx`: "Ask Lor about this" opens a new session with the
-  message attached. `meeting-recording-card.tsx:29-41` does the same.
+  message attached. `meeting-recording-card.tsx:29-41` does the same. Built on
+  Step 8b's New session view: it takes the message id (search param) and the
+  `startSession` send carries it as the session's one context message
+  (today `startSession` starts with no context).
 
 ### Phase C: subscriptions and notifications
 
@@ -415,7 +421,9 @@ input line; others appear through the typing indicator, never as presence
   rename, generated titles. Approver set moves to a package (hazard 12) so
   "needs you" covers approvals.
 - Web: archive bar in place of the composer (precedent `$channelId.tsx:586-605`),
-  "Ana archived this session" notice with Unarchive, title rename.
+  "Ana archived this session" notice with Unarchive, title rename. With the
+  document view (Step 9a) the bar replaces both the inline input line and the
+  tools bar under the scroller.
 
 #### Step 14: Sessions view in the right panel (~300)
 
@@ -500,6 +508,10 @@ input line; others appear through the typing indicator, never as presence
 - New session route lifting `components/thread-view.tsx` (526 lines); the
   Details panel (context, plan, files, activity) as a sheet, not a block in
   the transcript (`ThreadWorkHeader` at `:359-366`); archive bar.
+- The document look from Step 9a: one avatar per turn in a gutter, no name
+  rows, document prose, and the input line as the transcript's last line
+  (native composer; `planned/live-collaboration.md` keeps the chat composer
+  native).
 
 #### Step 21: composer and channel list (~400)
 
