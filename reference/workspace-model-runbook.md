@@ -257,7 +257,23 @@ under the run's reply. The session route takes `?artifactId` and mounts
 
 #### Step 7: composer states (~400)
 
-[ ] built · [ ] committed
+[x] built 2026-10-09 · [ ] committed
+
+As built (~400 lines): `MessageInput` takes `destination` (`channel` |
+`thread` | `session`). With one, the editor gets its own line and a toolbar
+line under it holds attach, `composer/destination-bar.tsx` and send.
+`resolveRouting` mirrors the server's session rule from the draft's mention
+nodes and the reply target. The Lor state tints the border and send button
+in the agent color and shows "New session in #channel", "New session from
+this thread" or "To Lor". The people state has a pill only in a session ("To
+channel members"); chat and threads already name the destination in the
+placeholder. Both show who gets pinged ("Adds" or "Notifies" with avatars). In a
+session the pill switches by hand when nothing in the message decides the
+destination; the send then carries `toPeople`, and such a send mid-run does
+not join the run queue pill. `session/session-started-note.tsx` (the
+"Started … · Open" note, 6 s) replaces the toast on the channel page and also
+shows after `@Lor` in a human thread. DMs and call chats keep the old
+single-line composer. New placeholder and `lor_intro` hint copy.
 
 - `composer/message-input.tsx`: destination mode (props `:114-151`), toolbar
   row with the Lor state (agent label, Lor send button) and people state
@@ -525,3 +541,18 @@ lines, plus the server steps. 22 steps.
   `useAgentSession`. The design doc's item 8 was updated to match.
 - Step 6 open item: the artifact viewer's "Open conversation" still opens the
   channel page with the thread panel, not the session.
+- Step 7: no agent label in the Lor state. The effective profile resolves
+  channel, then category, then workspace default on the server; the client
+  has no resolved name. It comes with the real model picker.
+- Step 7: the destination bar also covers human threads ("New session from
+  this thread"), and the Started note shows there too; before this, `@Lor`
+  in a thread made the message vanish with no feedback.
+- Step 7: the `draft` param needed no change. It already fills the channel
+  composer with `@Lor …`, which now shows the Lor state and starts a session
+  on send. Step 19 still moves setup's Ask Lor to `session.new`.
+- Step 7: the `lor_intro` hint and placeholder copy changed here, so Step 19
+  only revisits `lor_reply`.
+- Step 7 open item: a backfilled (legacy) session opened in the thread panel
+  gets the human-thread bar, but the server treats it as a session (plain
+  messages run Lor). Opening session roots on the session page fixes it
+  (Step 8 or 9).

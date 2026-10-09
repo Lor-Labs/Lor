@@ -66,6 +66,10 @@ import {
   ThreadWorkHeader,
 } from "@/components/chat/thread-work-header"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
+import {
+  SessionStartedNote,
+  useSessionStartedNote,
+} from "@/components/session/session-started-note"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -232,6 +236,8 @@ export function ThreadPanel({
   // Latest-ref indirection: useRunQueue mounts below (it needs the thread
   // messages), but a failed send must drop the nonce it mirrored there.
   const removeQueuedOptimisticRef = useRef<(id: string) => void>(() => {})
+  // @Lor in a human thread starts a session seeded with the thread.
+  const sessionStarted = useSessionStartedNote()
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
@@ -239,6 +245,7 @@ export function ThreadPanel({
     currentUser: session?.user,
     threadRootId: view.threadRootId,
     onSendFailed: (nonce) => removeQueuedOptimisticRef.current(nonce),
+    onSessionStarted: sessionStarted.onSessionStarted,
   })
 
   const {
@@ -521,6 +528,11 @@ export function ThreadPanel({
     channelQueryOptions(view.workspaceSlug, view.channelId)
   )
   const isCallChat = channel?.type === "voice"
+  const composerDestination = sessionView
+    ? "session"
+    : channel?.type === "text"
+      ? "thread"
+      : undefined
 
   // Threads render top-down (oldest → newest). The API + cache hold
   // newest-first, so reverse for display.
@@ -997,16 +1009,25 @@ export function ThreadPanel({
             channelId={view.channelId}
             contextScopeKey={view.threadRootId}
             placeholder={composerPlaceholder}
+            destination={composerDestination}
+            notice={
+              <SessionStartedNote
+                session={sessionStarted.started}
+                workspaceSlug={view.workspaceSlug}
+              />
+            }
             onSend={(content, options) => {
               const nonce = handleSend(content, options)
               // Retire opening anchors so a later resize cannot recapture them.
               openingAnchorsRef.current.messageIds.clear()
               scrollToEndRef.current?.({ behavior: "auto" })
               setSendScrollVersion((version) => version + 1)
-              // Lor is mid-answer in this thread, so the reply will queue —
-              // show it in the pill immediately instead of waiting for the
-              // routed round trip.
-              if (nonce && pendingLorMessageId) addOptimistic(nonce)
+              // Lor is mid-answer in this thread, so a message for Lor will
+              // queue — show it in the pill immediately instead of waiting
+              // for the routed round trip.
+              if (nonce && pendingLorMessageId && !options?.toPeople) {
+                addOptimistic(nonce)
+              }
             }}
             currentUserId={currentUserId}
             replyingTo={replyingTo}

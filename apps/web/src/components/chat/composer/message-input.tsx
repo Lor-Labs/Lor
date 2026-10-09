@@ -39,6 +39,7 @@ import Suggestion, {
 } from "@tiptap/suggestion"
 import {
   type ComponentType,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -54,6 +55,11 @@ import {
 } from "@/components/chat/composer/connector-attach-menu"
 import { ConnectorChip } from "@/components/chat/composer/connector-chip"
 import { DesktopCaret } from "@/components/chat/composer/desktop-caret"
+import {
+  type ComposerDestination,
+  DestinationBar,
+  type PingedPerson,
+} from "@/components/chat/composer/destination-bar"
 import {
   MentionSuggestionList,
   type MentionSuggestionListProps,
@@ -125,6 +131,11 @@ interface MessageInputProps {
   // Main channel composer only: teaches @Lor through the placeholder and the
   // lor_intro hint.
   lorIntro?: boolean
+  // Shows where the message goes (Lor or people) in a toolbar row under the
+  // editor. Omit for DMs and call chats, which never reach Lor.
+  destination?: ComposerDestination
+  // Floats just above the composer, e.g. the "Started … · Open" note.
+  notice?: ReactNode
   placeholder?: string
   disabled?: boolean
   disabledReason?: string
@@ -134,6 +145,8 @@ interface MessageInputProps {
       mentions: Message["mentions"]
       referencedMessage?: Message["referencedMessage"]
       attachments?: Message["attachments"]
+      // Session only: the message is for people, so Lor does not run.
+      toPeople?: boolean
     }
   ) => void
   isSending?: boolean
@@ -452,6 +465,62 @@ function getActiveCodeBlockPos(editor: {
   return null
 }
 
+// Mirrors the server's session routing rule (realtime routeLor): in a session
+// Lor runs unless the message addresses only people (a mention, or a reply to
+// someone else) or is switched to people; addressing Lor always wins. In chat
+// and human threads only an @Lor mention starts a session.
+function resolveRouting({
+  destination,
+  mentionedIds,
+  replyingTo,
+  currentUserId,
+  candidates,
+  manualToPeople,
+}: {
+  destination: ComposerDestination | undefined
+  mentionedIds: string[]
+  replyingTo: Message | null | undefined
+  currentUserId: string | undefined
+  candidates: MentionCandidate[]
+  manualToPeople: boolean
+}) {
+  const isSession = destination === "session"
+  const pinged = new Map<string, PingedPerson>()
+  for (const id of mentionedIds) {
+    const candidate = candidates.find((c) => c.id === id)
+    if (!candidate || id === LOR_USER_ID) continue
+    pinged.set(id, {
+      id,
+      name: candidate.name ?? candidate.label,
+      image: candidate.image ?? null,
+    })
+  }
+  const replyAuthor = replyingTo?.author
+  if (
+    isSession &&
+    replyAuthor &&
+    replyAuthor.id !== LOR_USER_ID &&
+    replyAuthor.id !== currentUserId
+  ) {
+    pinged.set(replyAuthor.id, {
+      id: replyAuthor.id,
+      name: replyAuthor.name,
+      image: replyAuthor.image ?? null,
+    })
+  }
+  const addressesLor =
+    mentionedIds.includes(LOR_USER_ID) ||
+    (isSession && replyAuthor?.id === LOR_USER_ID)
+  const toLor = isSession
+    ? addressesLor || (!manualToPeople && pinged.size === 0)
+    : addressesLor
+  return {
+    toLor,
+    pinged: [...pinged.values()],
+    canSwitch: isSession && !addressesLor && pinged.size === 0,
+  }
+}
+
 export function MessageInput({
   composerDraft,
   onComposerDraftConsumed,
@@ -459,6 +528,8 @@ export function MessageInput({
   channelId,
   contextScopeKey,
   lorIntro = false,
+  destination,
+  notice,
   placeholder: placeholderOverride,
   disabled,
   disabledReason,
@@ -521,7 +592,7 @@ export function MessageInput({
     placeholderOverride ??
     (context.type === "channel"
       ? lorIntro && !lorHint.dismissed
-        ? `Message #${context.name}, or @Lor to ask a question`
+        ? `Message #${context.name}, or @Lor to start a session`
         : `Message #${context.name}`
       : `Message ${context.name}`)
 
@@ -645,6 +716,38 @@ export function MessageInput({
   const plainText = draftState?.text ?? ""
   const isEmpty = draftState?.isEmpty ?? true
 
+  const mentionedIdsKey = useEditorState({
+    editor,
+    selector: ({ editor: tiptapEditor }) => {
+      const ids: string[] = []
+      tiptapEditor?.state.doc.descendants((node) => {
+        if (node.type.name === "mention") ids.push(String(node.attrs.id))
+      })
+      return ids.join(" ")
+    },
+  })
+  const [manualToPeople, setManualToPeople] = useState(false)
+  const routing = useMemo(
+    () =>
+      resolveRouting({
+        destination,
+        mentionedIds: mentionedIdsKey ? mentionedIdsKey.split(" ") : [],
+        replyingTo,
+        currentUserId,
+        candidates: normalizedMentionCandidates,
+        manualToPeople,
+      }),
+    [
+      destination,
+      mentionedIdsKey,
+      replyingTo,
+      currentUserId,
+      normalizedMentionCandidates,
+      manualToPeople,
+    ]
+  )
+  const showLorState = Boolean(destination) && routing.toLor
+
   const appliedDraftRef = useRef<string | null>(null)
   useEffect(() => {
     if (
@@ -730,11 +833,13 @@ export function MessageInput({
           }
         : undefined,
       attachments: hasAttachments ? uploadedAttachments : undefined,
+      toPeople: destination === "session" && !routing.toLor,
     })
     editor.commands.clearContent(true)
     editor.commands.focus("end")
     clearAttachments()
     onCancelReply?.()
+    setManualToPeople(false)
   }, [
     editor,
     isSending,
@@ -746,6 +851,8 @@ export function MessageInput({
     replyingTo,
     onCancelReply,
     dismissLorHint,
+    destination,
+    routing.toLor,
   ])
   const handleSubmit = useCallback(() => {
     const hasDraft =
@@ -924,7 +1031,8 @@ export function MessageInput({
   }
 
   return (
-    <div className="shrink-0 px-4 pb-3">
+    <div className="relative shrink-0 px-4 pb-3">
+      {notice}
       <input
         ref={fileInputRef}
         type="file"
@@ -960,12 +1068,15 @@ export function MessageInput({
         align="start"
         onDismiss={dismissLorHint}
       >
-        Mention @Lor to ask about code, issues, or past conversations.
+        Mention @Lor to start a session. Lor works there, next to the chat.
       </HintPopover>
       <div
         ref={composerRef}
         className={cn(
-          "border border-input bg-background transition-colors duration-150 focus-within:border-muted-foreground/40 dark:bg-muted/40",
+          "border bg-background transition-colors duration-150 dark:bg-muted/40",
+          showLorState
+            ? "border-agent/50"
+            : "border-input focus-within:border-muted-foreground/40",
           replyingTo ? "rounded-b-lg" : "rounded-lg"
         )}
         onPaste={handlePaste}
@@ -974,7 +1085,14 @@ export function MessageInput({
           attachments={pendingAttachments}
           onRemove={removeAttachment}
         />
-        <div className="flex items-end gap-2 px-3 py-2">
+        {/* With a destination the editor wraps onto its own line and the
+            tools (attach, destination, send) sit on the line under it. */}
+        <div
+          className={cn(
+            "flex items-end gap-2 px-3 py-2",
+            destination && "flex-wrap items-center gap-y-1 pt-2.5"
+          )}
+        >
           <Popover
             open={isAttachmentMenuOpen}
             onOpenChange={setIsAttachmentMenuOpen}
@@ -1018,7 +1136,12 @@ export function MessageInput({
               />
             </PopoverContent>
           </Popover>
-          <div className="relative min-w-0 flex-1 py-1 text-sm leading-5">
+          <div
+            className={cn(
+              "relative min-w-0 flex-1 py-1 text-sm leading-5",
+              destination && "order-first basis-full"
+            )}
+          >
             {isEmpty && (
               <span className="pointer-events-none absolute left-0 right-0 top-1 truncate text-sm leading-5 text-muted-foreground">
                 {placeholder}
@@ -1153,6 +1276,21 @@ export function MessageInput({
             />
             <DesktopCaret editor={editor} />
           </div>
+          {destination && (
+            <div className="min-w-0 flex-1">
+              <DestinationBar
+                destination={destination}
+                channelName={context.name}
+                toLor={routing.toLor}
+                pinged={routing.pinged}
+                onSwitch={
+                  routing.canSwitch
+                    ? () => setManualToPeople((current) => !current)
+                    : undefined
+                }
+              />
+            </div>
+          )}
           <div className="flex shrink-0 items-center gap-1">
             {/* onStop is only supplied while a run is stoppable, so it doubles
                 as "Lor is working here right now". */}
@@ -1170,7 +1308,9 @@ export function MessageInput({
                   : "text-muted-foreground",
                 canSend &&
                   !isStopMode &&
-                  "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                  (showLorState
+                    ? "bg-agent/12 text-agent hover:bg-agent/18 hover:text-agent"
+                    : "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")
               )}
               onClick={isStopMode ? onStop : handleSend}
               disabled={isStopMode ? isStopping : !canSend}
@@ -1179,7 +1319,9 @@ export function MessageInput({
                   ? isStopping
                     ? "Stopping Lor"
                     : "Stop Lor"
-                  : "Send message"
+                  : showLorState && destination !== "session"
+                    ? "Start session"
+                    : "Send message"
               }
             >
               <HugeiconsIcon

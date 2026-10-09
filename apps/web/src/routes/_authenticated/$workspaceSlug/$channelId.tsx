@@ -19,6 +19,10 @@ import {
 } from "@/components/chat/message-list"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
+import {
+  SessionStartedNote,
+  useSessionStartedNote,
+} from "@/components/session/session-started-note"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
@@ -200,24 +204,13 @@ function ChannelView() {
     [workspaceSlug, channelId]
   )
 
+  const sessionStarted = useSessionStartedNote()
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
     channelId,
     currentUser: session?.user,
-    // Interim until the composer's "Started · Open" note (runbook Step 7).
-    onSessionStarted: (started) =>
-      toast("Session started", {
-        description: started.title,
-        action: {
-          label: "Open",
-          onClick: () =>
-            void navigate({
-              to: "/$workspaceSlug/session/$sessionId",
-              params: { workspaceSlug, sessionId: started.id },
-            }),
-        },
-      }),
+    onSessionStarted: sessionStarted.onSessionStarted,
   })
 
   const {
@@ -621,6 +614,13 @@ function ChannelView() {
           composerDraft={composerDraft}
           onComposerDraftConsumed={consumeComposerDraft}
           lorIntro
+          destination="channel"
+          notice={
+            <SessionStartedNote
+              session={sessionStarted.started}
+              workspaceSlug={workspaceSlug}
+            />
+          }
           context={context}
           channelId={channelId}
           onSend={handleSend}

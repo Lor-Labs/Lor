@@ -172,6 +172,7 @@ export function useMessageSending({
         mentions: Message["mentions"]
         referencedMessage?: Message["referencedMessage"]
         attachments?: Message["attachments"]
+        toPeople?: boolean
       }
     ) => {
       if (!socket?.connected || !currentUser) return undefined
@@ -215,6 +216,7 @@ export function useMessageSending({
           referencedMessageId,
           threadRootId,
           attachments,
+          toPeople: options?.toPeople || undefined,
         },
         (result) => {
           if (cancelInFlightRefetch()) refetchOwed.current = true
