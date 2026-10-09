@@ -13,7 +13,7 @@ export function chatFeedMessage() {
 // message type: backfilled legacy sessions have ordinary chat roots.
 export async function findAgentSessionByThreadRoot(threadRootId: string) {
   const [row] = await db
-    .select({ id: agentSession.id, archivedAt: agentSession.archivedAt })
+    .select()
     .from(agentSession)
     .where(eq(agentSession.threadRootId, threadRootId))
     .limit(1)

@@ -15,10 +15,9 @@ export const LOR_RESPOND_QUEUE = "lor-respond"
 export const AGENT_RUN_STOP_CHANNEL = "agent-run:stop"
 
 // lorMessageId = the empty placeholder message the worker streams into.
-// threadRootId = where the reply is posted (Lor's chosen placement).
+// threadRootId = where the reply is posted (the session's thread).
 // contextThreadRootId = where the trigger lived (null = main channel); the
-// worker reads conversation context from here, which differs from threadRootId
-// when Lor routes a channel mention into a fresh thread.
+// worker reads conversation context from here.
 export type LorRespondJobData = {
   lorMessageId: string
   channelId: string

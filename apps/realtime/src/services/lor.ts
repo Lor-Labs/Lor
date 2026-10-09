@@ -4,29 +4,38 @@ import {
   desc,
   eq,
   inArray,
-  isNotNull,
   isUniqueViolation,
   LOR_USER_ID,
+  ne,
   schema,
 } from "@repo/db"
-import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
+import {
+  chatFeedMessage,
+  findAgentSessionByThreadRoot,
+} from "@repo/db/queries/agent-sessions"
 import { env } from "@repo/env/server"
-import type { PlacementTurn } from "@repo/lor/placement"
-import { extractDirectMentionUserIds } from "@repo/messaging"
-import type { RealtimeMessage } from "@repo/realtime-types"
+import {
+  extractDirectMentionUserIds,
+  MARKDOWN_USER_MENTION_REGEX,
+  USER_MENTION_REGEX,
+} from "@repo/messaging"
+import type { RealtimeMessage, SendMessagePayload } from "@repo/realtime-types"
 import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
-import { createMessage } from "@/services/messages"
+import { createMessage, type NewSessionInput } from "@/services/messages"
 
-const PLACEMENT_CONTEXT_LIMIT = 12
+// How much chat a session started from `@Lor` carries as context; matches
+// the pre-thread background Lor read before sessions.
+const CHAT_CONTEXT_LIMIT = 10
+const THREAD_CONTEXT_LIMIT = 50
+const TITLE_WORDS = 6
 
 export function isLorMentioned(content: string | null | undefined): boolean {
   if (!content) return false
   return extractDirectMentionUserIds(content).has(LOR_USER_ID)
 }
 
-// Whether the message addresses a teammate (any non-Lor mention). Used to
-// end an open Lor session — talking to a person isn't talking to Lor.
+// Whether the message addresses a teammate (any non-Lor mention).
 export function mentionsOtherUser(content: string | null | undefined): boolean {
   if (!content) return false
   for (const id of extractDirectMentionUserIds(content)) {
@@ -35,47 +44,77 @@ export function mentionsOtherUser(content: string | null | undefined): boolean {
   return false
 }
 
-// Has Lor posted in this thread? If so the thread is an ongoing Lor
-// conversation, so plain replies go to it without a mention or session window.
-export async function isLorThread(threadRootId: string): Promise<boolean> {
-  const row = await db
+function sessionTitleFromPrompt(content: string) {
+  const words = content
+    .replace(USER_MENTION_REGEX, "")
+    .replace(MARKDOWN_USER_MENTION_REGEX, "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+  if (words.length === 0) return "New session"
+  const title = words.slice(0, TITLE_WORDS).join(" ")
+  const capitalized = title.charAt(0).toUpperCase() + title.slice(1)
+  return words.length > TITLE_WORDS ? `${capitalized}…` : capitalized
+}
+
+async function loadChatContextIds(channelId: string) {
+  const rows = await db
     .select({ id: schema.message.id })
     .from(schema.message)
     .where(
       and(
-        eq(schema.message.authorId, LOR_USER_ID),
-        eq(schema.message.threadRootId, threadRootId)
-      )
-    )
-    .limit(1)
-    .then((r) => r[0])
-  return !!row
-}
-
-// Recent channel-level messages (oldest→newest) used to decide reply placement.
-export async function loadRecentChannelMessages(
-  channelId: string
-): Promise<PlacementTurn[]> {
-  const rows = await db
-    .select({
-      content: schema.message.content,
-      authorName: schema.user.name,
-    })
-    .from(schema.message)
-    .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
-    .where(
-      and(
         eq(schema.message.channelId, channelId),
         chatFeedMessage(),
-        isNotNull(schema.message.content)
+        ne(schema.message.type, "event")
       )
     )
     .orderBy(desc(schema.message.createdAt))
-    .limit(PLACEMENT_CONTEXT_LIMIT)
+    .limit(CHAT_CONTEXT_LIMIT)
+  return rows.map((row) => row.id)
+}
 
-  return rows
-    .reverse()
-    .map((r) => ({ authorName: r.authorName, content: r.content ?? "" }))
+async function loadThreadContextIds(threadRootId: string) {
+  const replies = await db
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(eq(schema.message.threadRootId, threadRootId))
+    .orderBy(desc(schema.message.createdAt))
+    .limit(THREAD_CONTEXT_LIMIT)
+  return [threadRootId, ...replies.map((row) => row.id)]
+}
+
+// `@Lor` in channel chat or a human thread starts a session seeded with what
+// led up to it, and nothing posts where it was sent
+// (reference/workspace-model.md). Undefined = a normal send.
+export async function sessionStartFor(args: {
+  payload: SendMessagePayload
+  channel: AccessibleChannel
+  senderId: string
+}): Promise<NewSessionInput | undefined> {
+  const { payload, channel } = args
+  if (!channel.workspaceId || channel.type !== "text") return undefined
+  if (!payload.content || !isLorMentioned(payload.content)) return undefined
+  if (
+    payload.threadRootId &&
+    (await findAgentSessionByThreadRoot(payload.threadRootId))
+  ) {
+    return undefined
+  }
+
+  const contextMessageIds = payload.threadRootId
+    ? await loadThreadContextIds(payload.threadRootId)
+    : await loadChatContextIds(payload.channelId)
+  if (payload.referencedMessageId) {
+    contextMessageIds.push(payload.referencedMessageId)
+  }
+  return {
+    title: sessionTitleFromPrompt(payload.content),
+    contextMessageIds,
+    subscriberIds: [
+      args.senderId,
+      ...extractDirectMentionUserIds(payload.content),
+    ],
+  }
 }
 
 // Empty Lor placeholder the worker streams into; no fanout (fires on completion).

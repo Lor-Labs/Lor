@@ -9,6 +9,8 @@ import {
 } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
+import type { AgentSession } from "@repo/db/schema"
+import { type CreateSessionArgs, createSession } from "@repo/lor/agent-sessions"
 import {
   buildReactionNotification,
   type PresenceRedisClient,
@@ -38,7 +40,15 @@ type CreateMessageInput = {
   status?: RealtimeMessage["status"]
   // Internal: a plan's card; normal sends derive reply/default.
   type?: "plan_card"
+  // The message starts a Lor session and becomes its first message, under a
+  // new anchor, instead of posting where it was sent.
+  newSession?: NewSessionInput
 }
+
+export type NewSessionInput = Pick<
+  CreateSessionArgs,
+  "title" | "contextMessageIds" | "subscriberIds"
+>
 
 type DeleteMessageInput = {
   userId: string
@@ -67,6 +77,8 @@ export type CreateMessageResult = {
   // after a lost ack): the original row is returned and the caller must skip
   // fanout/broadcast/triggers — they already ran the first time.
   deduplicated?: boolean
+  // Set when this send started a Lor session.
+  session?: AgentSession
 }
 
 async function loadReferencedMessage(
@@ -301,7 +313,8 @@ export async function createMessage(input: CreateMessageInput) {
     input.userId
   )
 
-  let hasReply = !!input.payload.referencedMessageId
+  // A session start carries its quoted message as context, not as a reply.
+  let hasReply = !!input.payload.referencedMessageId && !input.newSession
   const threadRootId: string | null = input.payload.threadRootId ?? null
 
   // Voice channels hold only session roots; people write in a session's chat,
@@ -386,6 +399,18 @@ export async function createMessage(input: CreateMessageInput) {
         }
       }
 
+      const session =
+        input.newSession && channelRecord.workspaceId
+          ? await createSession(tx, {
+              ...input.newSession,
+              workspaceId: channelRecord.workspaceId,
+              channelId: input.payload.channelId,
+              authorId: input.userId,
+              creatorId: input.userId,
+              origin: "chat",
+            })
+          : null
+
       const insertedMessage = await tx
         .insert(schema.message)
         .values({
@@ -396,7 +421,7 @@ export async function createMessage(input: CreateMessageInput) {
           referencedMessageId: hasReply
             ? (input.payload.referencedMessageId ?? null)
             : null,
-          threadRootId,
+          threadRootId: session?.threadRootId ?? threadRootId,
           attachments: input.payload.attachments ?? [],
           status: input.status,
           clientKey: input.payload.nonce ?? null,
@@ -437,7 +462,7 @@ export async function createMessage(input: CreateMessageInput) {
         throw new Error("Failed to fetch created message")
       }
 
-      return createdMessageWithAuthor
+      return { ...createdMessageWithAuthor, session }
     })
 
   let messageWithAuthor: Awaited<ReturnType<typeof runInsertTransaction>>
@@ -491,7 +516,7 @@ export async function createMessage(input: CreateMessageInput) {
     attachments: input.payload.attachments ?? [],
     embeds: [],
     referencedMessage,
-    threadRootId,
+    threadRootId: messageWithAuthor.session?.threadRootId ?? threadRootId,
   }
 
   if (input.payload.nonce) {
@@ -501,6 +526,7 @@ export async function createMessage(input: CreateMessageInput) {
   return {
     message: createdMessage,
     channel: channelRecord,
+    session: messageWithAuthor.session ?? undefined,
   } satisfies CreateMessageResult
 }
 

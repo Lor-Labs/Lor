@@ -1,3 +1,4 @@
+import { LOR_USER_ID } from "@repo/db/constants"
 import type { RealtimeMessageEmbedsUpdated } from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef } from "react"
@@ -179,17 +180,23 @@ export function useMessageSending({
       }
 
       if (cancelInFlightRefetch()) refetchOwed.current = true
-      prependToFirstPage(
-        createOptimisticMessage(
-          nonce,
-          channelId,
-          content || null,
-          author,
-          options?.mentions ?? [],
-          options?.referencedMessage ?? undefined,
-          options?.attachments ?? []
+      // `@Lor` in channel chat starts a session and posts nothing in chat.
+      const startsSession =
+        !threadRootId &&
+        (options?.mentions ?? []).some((mention) => mention.id === LOR_USER_ID)
+      if (!startsSession) {
+        prependToFirstPage(
+          createOptimisticMessage(
+            nonce,
+            channelId,
+            content || null,
+            author,
+            options?.mentions ?? [],
+            options?.referencedMessage ?? undefined,
+            options?.attachments ?? []
+          )
         )
-      )
+      }
 
       const referencedMessageId = options?.referencedMessage?.id
       const attachments = options?.attachments ?? undefined
@@ -207,12 +214,18 @@ export function useMessageSending({
           if (cancelInFlightRefetch()) refetchOwed.current = true
           pendingNonces.current.delete(nonce)
           if (result.ok) {
+            // The server moved the message into a new Lor session (`@Lor` in
+            // chat or a human thread), so it leaves this list.
+            const movedToSession =
+              result.message.threadRootId !== (threadRootId ?? null)
             updateMessagesInCache((messages) =>
-              messages.map((message) =>
-                message.id === nonce
-                  ? realtimeMessageToMessage(result.message)
-                  : message
-              )
+              movedToSession
+                ? messages.filter((message) => message.id !== nonce)
+                : messages.map((message) =>
+                    message.id === nonce
+                      ? realtimeMessageToMessage(result.message)
+                      : message
+                  )
             )
           } else {
             console.error("[chat] send failed:", result.error)

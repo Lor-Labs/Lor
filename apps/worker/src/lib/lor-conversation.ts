@@ -4,6 +4,7 @@ import {
   db,
   desc,
   eq,
+  inArray,
   lte,
   ne,
   notExists,
@@ -96,12 +97,16 @@ export async function loadConversation(args: {
     }
   }
 
-  // Thread runs also get the channel messages that led up to the root —
-  // attachments and asks posted right before the thread opened live there.
+  // Thread runs also get background. A Lor session gets the context it was
+  // started with (agent_session_context). Other threads (pre-redesign Lor
+  // threads) get the channel messages that led up to the root.
   let backgroundRows: typeof rows = []
   if (args.threadRootId) {
     const root = await db
-      .select({ createdAt: schema.message.createdAt })
+      .select({
+        createdAt: schema.message.createdAt,
+        type: schema.message.type,
+      })
       .from(schema.message)
       .where(
         and(
@@ -111,7 +116,25 @@ export async function loadConversation(args: {
       )
       .limit(1)
       .then((r) => r[0])
-    if (root) {
+    if (root?.type === "agent_session") {
+      const context = await db
+        .select({ messageId: schema.agentSessionContext.messageId })
+        .from(schema.agentSessionContext)
+        .innerJoin(
+          schema.agentSession,
+          eq(schema.agentSession.id, schema.agentSessionContext.sessionId)
+        )
+        .where(eq(schema.agentSession.threadRootId, args.threadRootId))
+      backgroundRows =
+        context.length > 0
+          ? await selectTurns(
+              inArray(
+                schema.message.id,
+                context.map((row) => row.messageId)
+              )
+            )
+          : []
+    } else if (root) {
       const pre = await selectTurns(
         and(
           eq(schema.message.channelId, args.channelId),

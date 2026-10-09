@@ -12,3 +12,16 @@ export function isReplyToLor(
 ): boolean {
   return referencedMessage?.author.id === LOR_USER_ID
 }
+
+// In a session, replying to a teammate's message addresses them like a
+// mention, so Lor stays out. Replying to your own message doesn't count.
+export function isReplyToPerson(
+  referencedMessage:
+    | Pick<RealtimeReferencedMessage, "author">
+    | null
+    | undefined,
+  senderId: string
+): boolean {
+  const authorId = referencedMessage?.author.id
+  return Boolean(authorId && authorId !== LOR_USER_ID && authorId !== senderId)
+}

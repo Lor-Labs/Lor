@@ -181,7 +181,15 @@ Backfill: `packages/db/src/scripts/backfill-agent-sessions.ts`, run after
 
 #### Step 4: send path (~400, may split)
 
-[ ] built · [ ] committed
+[x] built 2026-10-08 · [ ] committed
+
+As built (+240/−355): `sessionStartFor` (realtime `services/lor.ts`) decides
+whether a send starts a session and picks its context (last 10 chat messages,
+or a human thread's root and replies) and title. `createMessage` takes
+`newSession` and creates the session in its own transaction. The send ack
+carries the session, and a new session is announced as `session:updated` to
+the channel room. The worker reads `agent_session_context` as background for
+anchor-rooted sessions. Web drops `@Lor` sends from the chat list.
 
 - `apps/realtime/src/index.ts:734-1113` `routeLor`: `@Lor` in chat creates a
   session through `createSession`; the prompt becomes the session's first
@@ -460,3 +468,12 @@ lines, plus the server steps. 22 steps.
   17 change the loop and trigger inserts anyway.
 - Step 3: the backfill lives in `packages/db/src/scripts/` with the other
   one-off scripts, not `packages/db/scripts/`.
+- Step 4: `@Lor` in a human thread also starts a session (answered question),
+  seeded with that thread. A session start drops a quoted reply and adds the
+  quoted message to the context instead.
+- Step 4: in channel chat only an `@Lor` mention starts a session. Replying to
+  an old Lor chat message no longer runs Lor.
+- Step 4: backfilled (legacy) sessions have no context rows, so the worker
+  keeps the old "chat before the root" background for them.
+- Step 4 open items: mobile still shows an `@Lor` chat send until Phase F;
+  Lor's prompt still describes channel replies until Step 15.

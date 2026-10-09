@@ -383,7 +383,14 @@ export type RealtimeMessageThreadUpdated = {
 }
 
 export type SendMessageAck = (
-  result: { ok: true; message: RealtimeMessage } | ErrorResult
+  result:
+    | {
+        ok: true
+        message: RealtimeMessage
+        // The Lor session this message is in, when it is in one.
+        session?: RealtimeAgentSession
+      }
+    | ErrorResult
 ) => void
 
 export type DeleteMessageAck = (result: OkResult | ErrorResult) => void

@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import { auth, type Session } from "@repo/auth"
 import { and, db, eq, notExists, schema } from "@repo/db"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
   canSeeSessionChat,
   isLiveSessionChat,
 } from "@repo/db/queries/session-chat-access"
 import { env } from "@repo/env/server"
 import { enterContext } from "@repo/logger"
-import { decideReplyPlacement } from "@repo/lor/placement"
+import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import {
   buildMessageFanout,
@@ -58,21 +59,12 @@ import {
   createAgentRun,
   createLorPlaceholder,
   isLorMentioned,
-  isLorThread,
-  loadRecentChannelMessages,
   mentionsOtherUser,
   type RunRouteOutcome,
   routeToActiveRun,
+  sessionStartFor,
 } from "@/services/lor"
-import { isReplyToLor } from "@/services/lor-routing"
-import {
-  closeLorSession,
-  isLorSessionOpen,
-  isLorThreadMuted,
-  muteLorThread,
-  openLorSession,
-  unmuteLorThread,
-} from "@/services/lor-session"
+import { isReplyToLor, isReplyToPerson } from "@/services/lor-routing"
 import {
   claimMessageDelivery,
   MESSAGE_DELIVERY_RETRY,
@@ -593,10 +585,16 @@ io.on("connection", (socket) => {
         return
       }
 
+      const newSession = await sessionStartFor({
+        payload: parsed,
+        channel: accessibleChannel,
+        senderId: socket.data.user.id,
+      })
       const createdMessage = await createMessage({
         userId: socket.data.user.id,
         payload: parsed,
         accessibleChannel,
+        newSession,
       })
 
       if (
@@ -614,6 +612,11 @@ io.on("connection", (socket) => {
         content: createdMessage.message.content ?? undefined,
         threadRootId: createdMessage.message.threadRootId ?? undefined,
       }
+      const session =
+        createdMessage.session ??
+        (parsed.threadRootId
+          ? await findAgentSessionByThreadRoot(parsed.threadRootId)
+          : null)
       const fanout =
         delivery.stage === "pending"
           ? await buildMessageFanout({
@@ -627,10 +630,12 @@ io.on("connection", (socket) => {
         ...createdMessage.message,
         mentions: fanout?.messageMentions ?? createdMessage.message.mentions,
       }
-      // A live session chat's replies stay out of the channel room.
+      // Lor sessions and live call chats keep their replies out of the
+      // channel room.
       const threadRootId = messageWithMentions.threadRootId
       const summary =
         threadRootId &&
+        !session &&
         !(
           accessibleChannel.type === "voice" &&
           (await isLiveSessionChat(threadRootId))
@@ -641,6 +646,12 @@ io.on("connection", (socket) => {
       // Finish fallible reads before fanout; retries may repeat message IDs,
       // but notification deltas and pushes have a single delivery claim.
       await delivery.checkpoint("broadcast")
+      const realtimeSession = session ? toRealtimeAgentSession(session) : null
+      if (createdMessage.session && realtimeSession) {
+        io.to(channelRoom(parsed.channelId)).emit("session:updated", {
+          session: realtimeSession,
+        })
+      }
       if (messageWithMentions.threadRootId) {
         socket
           .to(threadRoom(messageWithMentions.threadRootId))
@@ -676,9 +687,13 @@ io.on("connection", (socket) => {
         )
       }
 
-      // Placement can exceed mobile's ack timeout; confirm delivery first.
+      // Starting Lor can exceed mobile's ack timeout; confirm delivery first.
       acknowledged = true
-      ack?.({ ok: true, message: messageWithMentions })
+      ack?.({
+        ok: true,
+        message: messageWithMentions,
+        session: realtimeSession ?? undefined,
+      })
 
       // Enqueue link unfurl job if the message contains a URL
       const rawUrlMatches =
@@ -771,76 +786,24 @@ io.on("connection", (socket) => {
           .where(eq(schema.agentRunQueue.messageId, createdMessage.message.id))
           .limit(1)
         if (queued) return
-        // Lor responds when explicitly @-mentioned or replied to, or when the
-        // sender has an open session (a recent exchange with Lor in this
-        // scope) and isn't now addressing a teammate. Session is keyed by thread
-        // root, else channel, + sender.
-        const lorScopeId = parsed.threadRootId ?? parsed.channelId
-        const lorMentioned = isLorMentioned(parsed.content)
-        const replyingToLor = isReplyToLor(
-          createdMessage.message.referencedMessage
-        )
-        const explicitlyAddressesLor = lorMentioned || replyingToLor
-        const addressesTeammate = mentionsOtherUser(parsed.content)
-        let triggerLor = explicitlyAddressesLor
-        if (!explicitlyAddressesLor && !addressesTeammate) {
-          // Inside a thread Lor is part of, plain replies always go to it (the
-          // thread is the conversation) — no session window — unless the thread
-          // was muted by someone addressing a teammate. Elsewhere, fall back to
-          // the timed session opened by a recent exchange with Lor.
-          if (parsed.threadRootId) {
-            const inLorThread = await isLorThread(parsed.threadRootId).catch(
-              () => false
-            )
-            const muted =
-              inLorThread &&
-              (await isLorThreadMuted(
-                redisPresenceClient,
-                parsed.threadRootId
-              ).catch(() => false))
-            triggerLor = inLorThread && !muted
-          }
-          if (!triggerLor) {
-            triggerLor = await isLorSessionOpen(
-              redisPresenceClient,
-              lorScopeId,
-              socket.data.user.id
-            ).catch(() => false)
-          }
-        }
-
-        if (!triggerLor) {
-          // Addressing a teammate ends the sender's open Lor session, and in a
-          // thread mutes Lor there until someone explicitly addresses it again.
-          if (addressesTeammate) {
-            void closeLorSession(
-              redisPresenceClient,
-              lorScopeId,
-              socket.data.user.id
-            ).catch(() => {})
-            if (parsed.threadRootId) {
-              void muteLorThread(
-                redisPresenceClient,
-                parsed.threadRootId
-              ).catch(() => {})
-            }
-          }
-        } else {
-          // An explicit mention/reply in a thread un-mutes it (Lor is back in).
-          if (explicitlyAddressesLor && parsed.threadRootId) {
-            void unmuteLorThread(
-              redisPresenceClient,
-              parsed.threadRootId
-            ).catch(() => {})
-          }
-          // Open/refresh the session so follow-ups continue without re-mentioning.
-          void openLorSession(
-            redisPresenceClient,
-            lorScopeId,
+        // Lor works only in sessions; chat and human threads are people only.
+        // In a session each message is routed on its own: a plain message
+        // goes to Lor, addressing a teammate (mention or reply) leaves Lor
+        // out unless Lor is addressed too, and "To people" never runs Lor.
+        const explicitlyAddressesLor =
+          isLorMentioned(parsed.content) ||
+          isReplyToLor(createdMessage.message.referencedMessage)
+        const addressesPerson =
+          mentionsOtherUser(parsed.content) ||
+          isReplyToPerson(
+            createdMessage.message.referencedMessage,
             socket.data.user.id
-          ).catch((err) => {
-            logger.error({ err }, "Failed to open Lor session")
-          })
+          )
+        const triggerLor =
+          !parsed.toPeople && (explicitlyAddressesLor || !addressesPerson)
+
+        if (session && triggerLor) {
+          const lorScopeId = session.threadRootId
 
           // One active run per scope: a mid-run send is absorbed by the active
           // run — steered at its next step boundary, or queued for the
@@ -860,7 +823,7 @@ io.on("connection", (socket) => {
           }
           const routed = await routeToActiveRun({
             scopeKey: lorScopeId,
-            threadScope: Boolean(parsed.threadRootId),
+            threadScope: true,
             messageId: createdMessage.message.id,
             senderId: socket.data.user.id,
           })
@@ -869,34 +832,7 @@ io.on("connection", (socket) => {
             return
           }
 
-          // Decide where Lor replies. A mention already in a thread stays
-          // there; a main-channel mention answers in-channel (broadly useful)
-          // or ducks into a thread rooted at the triggering message (narrow,
-          // noisy, or delegated work — start_plan adopts the thread mid-run
-          // when Lor commits to a plan).
-          let lorThreadRootId = parsed.threadRootId ?? null
-          if (lorThreadRootId === null) {
-            const placementStart = performance.now()
-            try {
-              const recent = await loadRecentChannelMessages(parsed.channelId)
-              const { placement } = await decideReplyPlacement(recent, {
-                authorName: createdMessage.message.author.name,
-                content: createdMessage.message.content ?? "",
-              })
-              if (placement === "thread") {
-                lorThreadRootId = createdMessage.message.id
-              }
-            } catch (err) {
-              logger.error({ err }, "Lor placement decision failed")
-            }
-            logger.info(
-              {
-                channelId: parsed.channelId,
-                ms: Math.round(performance.now() - placementStart),
-              },
-              "Lor placement decision timing"
-            )
-          }
+          const lorThreadRootId = lorScopeId
 
           await createLorPlaceholder({
             accessibleChannel,
@@ -928,8 +864,8 @@ io.on("connection", (socket) => {
                       )
                     )
                   const lateRouted = await routeToActiveRun({
-                    scopeKey: lorThreadRootId ?? parsed.channelId,
-                    threadScope: lorThreadRootId !== null,
+                    scopeKey: lorThreadRootId,
+                    threadScope: true,
                     messageId: createdMessage.message.id,
                     senderId: socket.data.user.id,
                   })

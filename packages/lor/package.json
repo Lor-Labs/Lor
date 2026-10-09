@@ -23,7 +23,6 @@
     "./mcp-guarded-fetch": "./src/mcp-guarded-fetch.ts",
     "./mcp-oauth-provider": "./src/mcp-oauth-provider.ts",
     "./mcp-runtime-oauth": "./src/mcp-runtime-oauth.ts",
-    "./placement": "./src/placement.ts",
     "./project-archive": "./src/project-archive.ts",
     "./providers": "./src/providers/index.ts",
     "./sources": "./src/sources.ts",
