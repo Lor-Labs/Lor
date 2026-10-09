@@ -7,8 +7,13 @@ import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
+import {
+  patchSidebarSession,
+  settleSidebarSessions,
+  sidebarRowFor,
+  sidebarSessionMutationKey,
+} from "@/hooks/use-workspace-activity"
 import { apiClient } from "@/lib/api-client"
-import { setSessionOverlay, sidebarRowFor } from "@/lib/sidebar-session-overlay"
 
 export type ThreadSubscriber = {
   id: string
@@ -26,6 +31,10 @@ type ThreadRef = {
 export const threadSubscribersKey = (threadRootId: string) =>
   ["thread-subscribers", threadRootId] as const
 
+// Under the sidebar key: following a session moves its sidebar row.
+const subscriberMutationKey = (threadRootId: string) =>
+  [...sidebarSessionMutationKey, "subscribers", threadRootId] as const
+
 // Who follows a session or thread: its sidebar row and notifications reach
 // them. Writes are optimistic, and following or leaving a session moves its
 // sidebar row at once. Refetches wait while a change is in flight, so quick
@@ -41,6 +50,7 @@ export function useThreadSubscribers({
   const { data: auth } = authClient.useSession()
   const currentUserId = auth?.user.id
   const queryKey = threadSubscribersKey(threadRootId)
+  const mutationKey = subscriberMutationKey(threadRootId)
 
   const { data: subscribers = [] } = useQuery({
     queryKey,
@@ -61,9 +71,16 @@ export function useThreadSubscribers({
   useEffect(() => {
     if (!socket) return
     const refresh = () => {
-      const key = threadSubscribersKey(threadRootId)
-      if (queryClient.isMutating({ mutationKey: key }) > 0) return
-      void queryClient.invalidateQueries({ queryKey: key })
+      if (
+        queryClient.isMutating({
+          mutationKey: subscriberMutationKey(threadRootId),
+        }) > 0
+      ) {
+        return
+      }
+      void queryClient.invalidateQueries({
+        queryKey: threadSubscribersKey(threadRootId),
+      })
     }
     const onThreadUpdated = (payload: RealtimeMessageThreadUpdated) => {
       if (payload.threadRootId === threadRootId) refresh()
@@ -77,7 +94,7 @@ export function useThreadSubscribers({
   }, [socket, queryClient, threadRootId])
 
   const mutation = useMutation({
-    mutationKey: queryKey,
+    mutationKey,
     mutationFn: async (input: {
       person: ThreadSubscriber
       subscribed: boolean
@@ -106,32 +123,29 @@ export function useThreadSubscribers({
         return subscribed ? [...others, person] : others
       })
       if (session && !session.archivedAt && person.id === currentUserId) {
-        setSessionOverlay(
-          session.id,
-          subscribed
-            ? {
-                kind: "show",
-                channelId: session.channelId,
-                row: sidebarRowFor(session),
-              }
-            : { kind: "hide", channelId: session.channelId }
+        await patchSidebarSession(
+          queryClient,
+          {
+            workspaceId: session.workspaceId,
+            channelId: session.channelId,
+            sessionId: session.id,
+          },
+          subscribed ? { show: sidebarRowFor(session) } : { hide: true }
         )
       }
       return { previous }
     },
-    onError: (err, { person }, context) => {
+    onError: (err, _input, context) => {
       queryClient.setQueryData(queryKey, context?.previous)
-      if (session && person.id === currentUserId) {
-        setSessionOverlay(session.id, null)
-      }
       toast.error(err.message)
     },
     // The last change in flight refetches; earlier ones would overwrite the
     // later optimistic ticks.
     onSettled: () => {
-      if (queryClient.isMutating({ mutationKey: queryKey }) <= 1) {
+      if (queryClient.isMutating({ mutationKey }) <= 1) {
         void queryClient.invalidateQueries({ queryKey })
       }
+      if (session) settleSidebarSessions(queryClient, session.workspaceId)
     },
   })
 

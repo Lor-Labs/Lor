@@ -99,7 +99,11 @@ function SessionConversation({
 
   useAgentSessionUpdates(session.id)
   const updateSession = useUpdateAgentSession()
-  const change = { sessionId: session.id, channelId: session.channelId }
+  const change = {
+    workspaceId: session.workspaceId,
+    channelId: session.channelId,
+    sessionId: session.id,
+  }
   const { data: auth } = authClient.useSession()
   const people = useChannelPeople(workspaceSlug, session.channelId)
   const archivedBy =

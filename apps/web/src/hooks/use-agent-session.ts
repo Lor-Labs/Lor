@@ -16,8 +16,13 @@ import {
   type ThreadSubscriber,
   threadSubscribersKey,
 } from "@/hooks/use-thread-subscribers"
+import {
+  patchSidebarSession,
+  settleSidebarSessions,
+  sidebarRowFor,
+  sidebarSessionMutationKey,
+} from "@/hooks/use-workspace-activity"
 import { apiClient } from "@/lib/api-client"
-import { setSessionOverlay, sidebarRowFor } from "@/lib/sidebar-session-overlay"
 
 export function agentSessionQueryOptions(sessionId: string) {
   return {
@@ -83,35 +88,38 @@ async function patchAgentSession(
 }
 
 type SessionChange = {
-  sessionId: string
+  workspaceId: string
   channelId: string
+  sessionId: string
   title?: string
   archived?: boolean
 }
 
 // Rename, archive and unarchive show at once on the session page and in the
-// sidebar, and roll back if the request fails.
+// sidebar. A failure rolls the page back; the sidebar refetches.
 export function useUpdateAgentSession() {
   const queryClient = useQueryClient()
   const { data: auth } = authClient.useSession()
   const currentUserId = auth?.user.id ?? null
   return useMutation({
+    mutationKey: sidebarSessionMutationKey,
     mutationFn: ({ sessionId, title, archived }: SessionChange) =>
       patchAgentSession(sessionId, { title, archived }),
-    onMutate: async ({ sessionId, channelId, title, archived }) => {
+    onMutate: async (change) => {
+      const { sessionId, title, archived } = change
       const queryKey = agentSessionQueryOptions(sessionId).queryKey
       await queryClient.cancelQueries({ queryKey })
       const previous = queryClient.getQueryData<AgentSessionDetail>(queryKey)
       if (title !== undefined) {
         patchSessionCache(queryClient, sessionId, { title })
-        setSessionOverlay(sessionId, { kind: "rename", channelId, title })
+        await patchSidebarSession(queryClient, change, { title })
       }
       if (archived === true) {
         patchSessionCache(queryClient, sessionId, {
           archivedAt: new Date().toISOString(),
           archivedById: currentUserId,
         })
-        setSessionOverlay(sessionId, { kind: "hide", channelId })
+        await patchSidebarSession(queryClient, change, { hide: true })
       }
       if (archived === false) {
         patchSessionCache(queryClient, sessionId, {
@@ -127,12 +135,11 @@ export function useUpdateAgentSession() {
               )
               ?.some((person) => person.id === currentUserId)
           : false
-        setSessionOverlay(
-          sessionId,
-          session && subscribed
-            ? { kind: "show", channelId, row: sidebarRowFor(session) }
-            : null
-        )
+        if (session && subscribed) {
+          await patchSidebarSession(queryClient, change, {
+            show: sidebarRowFor(session),
+          })
+        }
       }
       return { previous }
     },
@@ -145,8 +152,9 @@ export function useUpdateAgentSession() {
           context.previous
         )
       }
-      setSessionOverlay(sessionId, null)
       toast.error(err.message)
     },
+    onSettled: (_data, _err, { workspaceId }) =>
+      settleSidebarSessions(queryClient, workspaceId),
   })
 }

@@ -19,6 +19,7 @@ import { ArchiveSessionDialog } from "@/components/session/archive-session-dialo
 import {
   SessionStateIndicator,
   strongestSessionState,
+  useActivityWorkspaceId,
 } from "@/components/sidebar/channel-panel/channel-activity"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUpdateAgentSession } from "@/hooks/use-agent-session"
@@ -118,6 +119,7 @@ export function ChannelSessionRows({
   collapsed: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  const workspaceId = useActivityWorkspaceId()
   const updateSession = useUpdateAgentSession()
 
   // Attention first; the server already orders by newest activity.
@@ -148,13 +150,15 @@ export function ChannelSessionRows({
           >
             <SessionRow
               session={session}
-              onArchive={() =>
+              onArchive={() => {
+                if (!workspaceId) return
                 updateSession.mutate({
-                  sessionId: session.id,
+                  workspaceId,
                   channelId,
+                  sessionId: session.id,
                   archived: true,
                 })
-              }
+              }}
             />
           </motion.div>
         ))}

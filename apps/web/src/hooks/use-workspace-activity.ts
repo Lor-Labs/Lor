@@ -1,125 +1,178 @@
-import type { ChannelActivity } from "@repo/realtime-types"
-import { useEffect, useState } from "react"
+import type {
+  ChannelActivity,
+  RealtimeAgentSession,
+  SidebarSession,
+} from "@repo/realtime-types"
+import {
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
+import type { AppSocket } from "@/lib/socket"
 
-const POLL_MS = 15_000
 // Bursty invalidations (run transition + plan update) collapse into one
-// snapshot request. Fixed deadline: a constant stream cannot postpone it.
+// fetch. Fixed deadline: a constant stream cannot postpone it.
 const COALESCE_MS = 100
+const FETCH_TIMEOUT_MS = 10_000
 
-// Lor channel activity and the user's session rows for the sidebar.
-// Push-invalidated: workspace:activity:updated triggers a coalesced refetch;
-// the poll is recovery for missed emits, not the update mechanism.
+export const workspaceActivityKey = (workspaceId: string) =>
+  ["workspace-activity", workspaceId] as const
+
+// Every change that moves a sidebar session row (archive, rename, subscribe)
+// runs under this key. Pushes wait while one is in flight, so a snapshot
+// taken before the server saved it can't undo the optimistic row.
+export const sidebarSessionMutationKey = ["sidebar-session"] as const
+
+function fetchWorkspaceActivity(socket: AppSocket, workspaceId: string) {
+  return new Promise<ChannelActivity[]>((resolve, reject) => {
+    if (!socket.connected) {
+      reject(new Error("Socket disconnected"))
+      return
+    }
+    const timer = setTimeout(
+      () => reject(new Error("Workspace activity timed out")),
+      FETCH_TIMEOUT_MS
+    )
+    socket.emit("workspace:activity", { workspaceId }, (result) => {
+      clearTimeout(timer)
+      if (result.ok) resolve(result.channels)
+      else reject(new Error("Workspace activity failed"))
+    })
+  })
+}
+
+// Lor channel activity and the user's session rows for the sidebar, fetched
+// over the socket. Push-driven, no polling: workspace:activity:updated and
+// thread reads refetch, and so do reconnects and refocus, which cover pushes
+// missed while disconnected or in the background.
 export function useWorkspaceActivity(workspaceId?: string) {
   const socket = useSocket()
-  const [snapshot, setSnapshot] = useState<{
-    workspaceId: string
-    channels: ChannelActivity[]
-  } | null>(null)
+  const queryClient = useQueryClient()
+  const { data } = useQuery({
+    queryKey: workspaceActivityKey(workspaceId ?? ""),
+    queryFn: () => {
+      if (!socket || !workspaceId) throw new Error("No workspace")
+      return fetchWorkspaceActivity(socket, workspaceId)
+    },
+    enabled: Boolean(socket && workspaceId),
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
 
   useEffect(() => {
-    setSnapshot(null)
     if (!socket || !workspaceId) return
-    let disposed = false
-    let generation = 0
-    let timer: ReturnType<typeof setTimeout> | undefined
     let coalesceTimer: ReturnType<typeof setTimeout> | undefined
-    let pending = false
-    let refreshQueued = false
-    let failures = 0
-    let previous = ""
-    const clear = () => {
-      generation += 1
-      pending = false
-      refreshQueued = false
-      failures = 0
-      previous = ""
-      if (timer) clearTimeout(timer)
-      if (coalesceTimer) {
-        clearTimeout(coalesceTimer)
-        coalesceTimer = undefined
-      }
-      setSnapshot(null)
-    }
     const refresh = () => {
-      if (disposed || !socket.connected || !isAppFocused()) return
-      if (pending) {
-        refreshQueued = true
-        return
-      }
-      if (timer) clearTimeout(timer)
-      pending = true
-      const attempt = ++generation
-      const fail = () => {
-        if (disposed || attempt !== generation) return
-        // Invalidate the attempt: an ack landing after the timeout must not
-        // fail the same attempt twice or clobber the scheduled retry.
-        generation += 1
-        pending = false
-        failures += 1
-        // Keep the last healthy snapshot through a transient failure; only
-        // repeated failure clears it so stale data can't pose as current.
-        if (failures >= 3) {
-          previous = ""
-          setSnapshot(null)
-        }
-        timer = setTimeout(refresh, 5_000)
-      }
-      timer = setTimeout(fail, 10_000)
-      socket.emit("workspace:activity", { workspaceId }, (result) => {
-        if (disposed || attempt !== generation) return
-        if (timer) clearTimeout(timer)
-        if (!result.ok) {
-          fail()
-          return
-        }
-        pending = false
-        failures = 0
-        const serialized = JSON.stringify(result.channels)
-        if (serialized !== previous) {
-          previous = serialized
-          setSnapshot({ workspaceId, channels: result.channels })
-        }
-        if (refreshQueued) {
-          refreshQueued = false
-          timer = setTimeout(refresh, 0)
-        } else {
-          timer = setTimeout(refresh, POLL_MS)
-        }
-      })
-    }
-    const scheduleRefresh = () => {
-      if (coalesceTimer) return
+      if (coalesceTimer || !isAppFocused()) return
       coalesceTimer = setTimeout(() => {
         coalesceTimer = undefined
-        refresh()
+        if (
+          queryClient.isMutating({ mutationKey: sidebarSessionMutationKey }) > 0
+        ) {
+          return
+        }
+        void queryClient.invalidateQueries({
+          queryKey: workspaceActivityKey(workspaceId),
+        })
       }, COALESCE_MS)
     }
     const onActivityUpdated = (payload: { workspaceId: string }) => {
-      if (payload.workspaceId === workspaceId) scheduleRefresh()
+      if (payload.workspaceId === workspaceId) refresh()
     }
-    const unsubscribe = subscribeAppFocus((focused) => {
+    const unsubscribeFocus = subscribeAppFocus((focused) => {
       if (focused) refresh()
-      else clear()
     })
     socket.on("connect", refresh)
-    socket.on("disconnect", clear)
     socket.on("workspace:activity:updated", onActivityUpdated)
     // Reading a session (on any of the user's devices) clears its unread dot.
-    socket.on("thread-read:updated", scheduleRefresh)
-    refresh()
+    socket.on("thread-read:updated", refresh)
     return () => {
-      disposed = true
-      if (timer) clearTimeout(timer)
       if (coalesceTimer) clearTimeout(coalesceTimer)
-      unsubscribe()
+      unsubscribeFocus()
       socket.off("connect", refresh)
-      socket.off("disconnect", clear)
       socket.off("workspace:activity:updated", onActivityUpdated)
-      socket.off("thread-read:updated", scheduleRefresh)
+      socket.off("thread-read:updated", refresh)
     }
-  }, [socket, workspaceId])
+  }, [socket, workspaceId, queryClient])
 
-  return snapshot?.workspaceId === workspaceId ? snapshot?.channels : undefined
+  return data
+}
+
+// A row for a session the snapshot doesn't list yet (unarchive, subscribe).
+export function sidebarRowFor(session: RealtimeAgentSession): SidebarSession {
+  return {
+    id: session.id,
+    title: session.title,
+    state: "idle",
+    loop: session.loopId !== null,
+    lastActivityAt: session.lastActivityAt,
+  }
+}
+
+export type SidebarSessionChange =
+  | { hide: true }
+  | { show: SidebarSession }
+  | { title: string }
+
+// Optimistic edit of one session row. Call from onMutate; the in-flight
+// fetch is cancelled so its older snapshot can't land on top.
+export async function patchSidebarSession(
+  queryClient: QueryClient,
+  target: { workspaceId: string; channelId: string; sessionId: string },
+  change: SidebarSessionChange
+) {
+  const queryKey = workspaceActivityKey(target.workspaceId)
+  await queryClient.cancelQueries({ queryKey })
+  queryClient.setQueryData<ChannelActivity[]>(queryKey, (channels) => {
+    if (!channels) return channels
+    const withChannel = channels.some(
+      (channel) => channel.channelId === target.channelId
+    )
+      ? channels
+      : [...channels, { channelId: target.channelId, lor: null, sessions: [] }]
+    return withChannel.map((channel) => {
+      if (channel.channelId !== target.channelId) return channel
+      const listed = channel.sessions.some(
+        (session) => session.id === target.sessionId
+      )
+      if ("hide" in change) {
+        return {
+          ...channel,
+          sessions: channel.sessions.filter(
+            (session) => session.id !== target.sessionId
+          ),
+        }
+      }
+      if ("show" in change) {
+        return listed
+          ? channel
+          : { ...channel, sessions: [...channel.sessions, change.show] }
+      }
+      return {
+        ...channel,
+        sessions: channel.sessions.map((session) =>
+          session.id === target.sessionId
+            ? { ...session, title: change.title }
+            : session
+        ),
+      }
+    })
+  })
+}
+
+// Call from onSettled: the last sidebar change in flight refetches the truth,
+// which also undoes a failed one.
+export function settleSidebarSessions(
+  queryClient: QueryClient,
+  workspaceId: string
+) {
+  if (queryClient.isMutating({ mutationKey: sidebarSessionMutationKey }) <= 1) {
+    void queryClient.invalidateQueries({
+      queryKey: workspaceActivityKey(workspaceId),
+    })
+  }
 }
