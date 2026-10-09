@@ -22,12 +22,20 @@ import type {
 import { assertUserCanAccessChannel } from "@/services/channel-access"
 
 // Voice and Lor session roots post silently, and a live session's chat counts
-// only for people in the call.
+// only for people in the call. Lor session activity never counts toward the
+// channel badge; the session's sidebar row shows it.
 function countsAsUnread(userId: string) {
   return and(
     notInArray(schema.message.type, ["voice_session", "agent_session"]),
-    visibleToSessionChatFilter(userId, schema.message.threadRootId)
+    visibleToSessionChatFilter(userId, schema.message.threadRootId),
+    sql`not exists (select 1 from agent_session s where s.thread_root_id = ${schema.message.threadRootId})`
   )
+}
+
+// A mention inside a Lor session alerts on the session row, not the channel's
+// mention badge.
+function mentionOutsideSessions() {
+  return sql`not exists (select 1 from message m join agent_session s on s.thread_root_id = m.thread_root_id where m.id = ${schema.messageMention.messageId})`
 }
 
 type MarkChannelReadInput = {
@@ -178,7 +186,8 @@ export async function markChannelRead(
           eq(schema.messageMention.mentionedUserId, input.userId),
           // Only direct mentions drive badge counts; channel/here rows are notification-only
           eq(schema.messageMention.mentionType, "direct"),
-          gt(schema.messageMention.createdAt, persistedState.lastReadAt)
+          gt(schema.messageMention.createdAt, persistedState.lastReadAt),
+          mentionOutsideSessions()
         )
       )
       .then((rows) => rows[0]),
@@ -293,7 +302,8 @@ export async function getUnreadStatesForUser(
               eq(schema.messageMention.channelId, channelId),
               eq(schema.messageMention.mentionedUserId, userId),
               eq(schema.messageMention.mentionType, "direct"),
-              gt(schema.messageMention.createdAt, lastReadAt)
+              gt(schema.messageMention.createdAt, lastReadAt),
+              mentionOutsideSessions()
             )
           )
           .then((rows) => rows[0]),

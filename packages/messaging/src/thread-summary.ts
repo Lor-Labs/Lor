@@ -1,4 +1,5 @@
 import { and, count, db, desc, eq, inArray, max, or, schema } from "@repo/db"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import type { RealtimeMessageThreadUpdated } from "@repo/realtime-types"
 
 // Blocked-on-a-human state for the footer chip: a pending approval anchored to
@@ -55,14 +56,18 @@ export async function loadThreadSummary(
   channelId: string,
   threadRootId: string
 ): Promise<RealtimeMessageThreadUpdated> {
-  const summary = await db
-    .select({
-      replyCount: count(),
-      lastReplyAt: max(schema.message.createdAt),
-    })
-    .from(schema.message)
-    .where(eq(schema.message.threadRootId, threadRootId))
-    .then((rows) => rows[0])
+  const [summary, session] = await Promise.all([
+    db
+      .select({
+        replyCount: count(),
+        lastReplyAt: max(schema.message.createdAt),
+      })
+      .from(schema.message)
+      .where(eq(schema.message.threadRootId, threadRootId))
+      .then((rows) => rows[0]),
+    findAgentSessionByThreadRoot(threadRootId),
+  ])
+  const sessionId = session?.id ?? null
 
   // Empty thread (last reply deleted): return an explicit cleared shape so
   // the channel-feed footer can drop its stale threadSummary.
@@ -70,6 +75,7 @@ export async function loadThreadSummary(
     return {
       channelId,
       threadRootId,
+      sessionId,
       replyCount: 0,
       lastReplyAt: null,
       lorWaiting: null,
@@ -190,6 +196,7 @@ export async function loadThreadSummary(
   return {
     channelId,
     threadRootId,
+    sessionId,
     replyCount: Number(summary.replyCount),
     lastReplyAt: summary.lastReplyAt.toISOString(),
     lorWaiting: await lorWaitingPromise,

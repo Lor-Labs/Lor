@@ -377,6 +377,9 @@ export type RealtimeMessageReactionUpdated = {
 export type RealtimeMessageThreadUpdated = {
   channelId: string
   threadRootId: string
+  // Set when the thread is a Lor session; the chat's thread-activity dock
+  // skips sessions (their sidebar row shows activity).
+  sessionId?: string | null
   replyCount: number
   lastReplyAt: string | null
   // The thread is blocked on a human — a pending approval or an open plan
@@ -459,8 +462,12 @@ export type UnreadNotification = {
   messageId: string
   messageType?: RealtimeMessageType
   threadRootId: string | null
-  isLorThread: boolean
-  isSubscribedToThread: boolean
+  // Whether this recipient gets an OS or push notification. Thread messages
+  // notify only the thread's subscribers, and Lor finishing in a session only
+  // its starter. Badges count the message either way.
+  notify: boolean
+  // Set when the message is in a Lor session (opens the session page).
+  sessionId: string | null
   unreadCountDelta: number
   authorUserId: string
   authorName: string
@@ -491,8 +498,9 @@ export type MentionNotification = {
   channelId: string
   workspaceId: string | null
   threadRootId: string | null
-  isLorThread: boolean
-  isSubscribedToThread: boolean
+  // Set when the mention is in a Lor session: it alerts on the session's
+  // sidebar row, not the channel's mention badge.
+  sessionId: string | null
   createdAt: string
   // Set when the mention is in a live call's chat the person isn't in: they
   // get who and where, never the message, and threadRootId is null.

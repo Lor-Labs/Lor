@@ -429,7 +429,26 @@ sidebar through `notifyWorkspaceActivity`.
 
 #### Step 11: subscribed-only notifications (~300)
 
-[ ] built · [ ] committed · [ ] db:push (destructive: drops a column and enum)
+[x] built 2026-10-09 · [ ] committed · [ ] db:push (destructive: drops
+`user_notification_settings.lor_thread_notifications` and the
+`lor_thread_notification` enum)
+
+As built (~350 lines, mostly deletions): `buildMessageFanout` reads a
+thread's followers from `thread_subscription` (plus call participants for
+call chats) and sets one server-decided flag per recipient, `notify`, which
+replaces `isLorThread`/`isSubscribedToThread` and the client-side preference:
+channel messages notify everyone, thread replies only subscribers, and Lor's
+reply in a session only the session's creator ("Done notifies the starter";
+loop sessions, with no creator, notify their subscribers). Session messages
+reach only the people they notify, with `unreadCountDelta: 0`. Push and web
+browser notifications obey `notify`; direct mentions still always push.
+Unread, mention and thread-summary payloads carry `sessionId`: the web and
+mobile mention badges skip session mentions, the web thread-activity dock
+skips session threads, browser notifications for sessions open the session
+and are suppressed while it is on screen. Server badge counts
+(`read-states.ts`) and the dock seed (`thread-activity.ts`) exclude session
+replies and mentions. The setting is gone from the DB, API, web settings and
+mobile settings.
 
 - `packages/messaging/src/index.ts:66-113,480-526` and `push.ts:144-199`
   read `thread_subscription`. "Done" pushes go to the starter only.
@@ -447,7 +466,8 @@ sidebar through `notifyWorkspaceActivity`.
   "Change subscribers…" dropdown (⌘⇧S) over the member list from
   `workspace-members-panel.tsx`. Same header on human threads.
 - Remove the setting: `notification-settings.tsx:26,41-42,160-185`,
-  `use-browser-notifications.ts:28,77,135`.
+  `use-browser-notifications.ts:28,77,135`. (Done in Step 11.)
+- Being added as a subscriber notifies you like a mention (from Step 10).
 
 ### Phase D: lists, archive, titles
 
@@ -691,3 +711,11 @@ lines, plus the server steps. 22 steps.
   writer. Not covered: a mention added by editing a message
   (`syncMessageMentions`), and proposal resolutions (Step 15 moves proposals
   into sessions).
+- Step 11: removing the setting changed its types, so the web and mobile
+  settings screens lost it here instead of in Steps 12 and 22. The obsolete
+  `apps/realtime/src/lor-notifications.test.ts` (it tested the removed
+  `shouldNotifyForLorThread`) was deleted. `message:thread:updated` emits for
+  sessions were kept rather than skipped at their ten call sites: the summary
+  carries `sessionId` and the dock ignores sessions, while old Lor threads
+  still visible in chat keep live footers. Human-thread replies still count
+  toward the channel unread badge (unchanged); only sessions left it.

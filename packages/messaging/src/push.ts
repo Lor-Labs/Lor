@@ -9,7 +9,6 @@ import {
   PRESENCE_ONLINE_USERS_SET_KEY,
   type ProposalNotification,
   type ReactionNotification,
-  shouldNotifyForLorThread,
   type UnreadNotification,
 } from "@repo/realtime-types"
 
@@ -141,8 +140,6 @@ export async function sendMessagePushNotifications(input: {
       desktopNotifications:
         schema.userNotificationSettings.desktopNotifications,
       dmNotifications: schema.userNotificationSettings.dmNotifications,
-      lorThreadNotifications:
-        schema.userNotificationSettings.lorThreadNotifications,
     })
     .from(schema.userNotificationSettings)
     .where(
@@ -155,7 +152,7 @@ export async function sendMessagePushNotifications(input: {
   const mentionedUserIds = new Set(
     input.fanout.mentionNotifications.map((notification) => notification.userId)
   )
-  // An explicit @-mention outrides the Lor-thread ambience preference.
+  // An explicit @-mention notifies even outside the thread's subscribers.
   const directMentionUserIds = new Set(
     input.fanout.mentionNotifications
       .filter((notification) => notification.payload.type === "direct_mention")
@@ -194,11 +191,8 @@ export async function sendMessagePushNotifications(input: {
       return (settings?.dmNotifications ?? "all_messages") !== "nothing"
     }
     if (
-      !directMentionUserIds.has(recipient.userId) &&
-      !shouldNotifyForLorThread(
-        settings?.lorThreadNotifications ?? "all_activity",
-        recipient.payload
-      )
+      !recipient.payload.notify &&
+      !directMentionUserIds.has(recipient.userId)
     ) {
       return false
     }

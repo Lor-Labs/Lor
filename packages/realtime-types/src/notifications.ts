@@ -3,25 +3,6 @@ export type NotificationConversationContext = {
   workspaceName: string | null
 }
 
-export type LorThreadNotificationPreference = "all_activity" | "subscribed_only"
-
-export type LorThreadNotificationContext = {
-  threadRootId: string | null
-  isLorThread: boolean
-  isSubscribedToThread: boolean
-}
-
-export function shouldNotifyForLorThread(
-  preference: LorThreadNotificationPreference,
-  context: LorThreadNotificationContext
-): boolean {
-  return (
-    !context.isLorThread ||
-    preference === "all_activity" ||
-    context.isSubscribedToThread
-  )
-}
-
 export function buildNotificationConversationName(
   context: NotificationConversationContext
 ): string | null {

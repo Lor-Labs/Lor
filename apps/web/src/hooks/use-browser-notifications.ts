@@ -7,7 +7,6 @@ import {
   type MentionNotification,
   type ProposalNotification,
   type ReactionNotification,
-  shouldNotifyForLorThread,
   type UnreadNotification,
 } from "@repo/realtime-types"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -25,7 +24,6 @@ import { showNotification } from "@/lib/notification-dispatcher"
 type NotificationSettings = {
   desktopNotifications: "all_messages" | "mentions_only" | "nothing"
   dmNotifications: "all_messages" | "nothing"
-  lorThreadNotifications: "all_activity" | "subscribed_only"
 }
 
 /**
@@ -35,8 +33,9 @@ type NotificationSettings = {
  */
 export function useBrowserNotifications() {
   const socket = useSocket()
-  const { channelId, dmId } = useParams({ strict: false })
+  const { channelId, dmId, sessionId } = useParams({ strict: false })
   const viewedChannelId = channelId ?? dmId ?? null
+  const viewedSessionId = sessionId ?? null
   const { data: settings } = useQuery({
     queryKey: ["notification-settings"],
     queryFn: async () => {
@@ -61,23 +60,27 @@ export function useBrowserNotifications() {
 
     // A focused window is not enough to assume the user saw it: sitting in
     // #general while a message lands in #test leaves only a sidebar badge,
-    // which is easy to miss. Suppress only for the channel actually on screen.
-    const isAlreadyVisible = (eventChannelId: string) =>
-      document.hasFocus() && viewedChannelId === eventChannelId
+    // which is easy to miss. Suppress only for the channel (or the Lor
+    // session) actually on screen.
+    const isAlreadyVisible = (
+      eventChannelId: string,
+      eventSessionId?: string | null
+    ) =>
+      document.hasFocus() &&
+      (eventSessionId
+        ? viewedSessionId === eventSessionId
+        : viewedChannelId === eventChannelId)
+    const openSession = (workspaceSlug: string, sessionId: string) =>
+      void navigate({
+        to: "/$workspaceSlug/session/$sessionId",
+        params: { workspaceSlug, sessionId },
+      })
 
     const onMention = (payload: MentionNotification) => {
-      if (isAlreadyVisible(payload.channelId)) return
+      if (isAlreadyVisible(payload.channelId, payload.sessionId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
       if (settings.desktopNotifications === "nothing") return
-      // An explicit @-mention outrides the Lor-thread ambience preference;
-      // only broadcast mentions stay subject to it.
-      if (
-        payload.type === "everyone_mention" &&
-        !shouldNotifyForLorThread(settings.lorThreadNotifications, payload)
-      ) {
-        return
-      }
 
       // For DM mentions, check dmNotifications setting
       if (
@@ -117,30 +120,36 @@ export function useBrowserNotifications() {
       showNotification("New Mention", `You received ${mentionType}`, {
         tag: `mention-${payload.messageId}`,
         onClick: workspaceSlug
-          ? () =>
+          ? () => {
+              const { sessionId } = payload
+              if (sessionId) return openSession(workspaceSlug, sessionId)
               navigateToMessage({
                 id: payload.messageId,
                 channelId: payload.channelId,
                 threadRootId: payload.threadRootId,
                 workspaceSlug,
               })
+            }
           : undefined,
       })
     }
 
     const onUnread = (payload: UnreadNotification) => {
-      if (isAlreadyVisible(payload.channelId)) return
+      if (isAlreadyVisible(payload.channelId, payload.sessionId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
-      if (!shouldNotifyForLorThread(settings.lorThreadNotifications, payload)) {
-        return
-      }
+      // The server decides: thread messages notify only their subscribers.
+      if (!payload.notify) return
       const enabled =
         payload.workspaceId === null
           ? settings.dmNotifications === "all_messages"
           : settings.desktopNotifications === "all_messages"
       if (!enabled) return
 
+      const { sessionId } = payload
+      const workspaceSlug = payload.workspaceId
+        ? workspaceSlugFor(payload.workspaceId)
+        : undefined
       showNotification(
         buildNotificationTitle({
           actorName: payload.authorName,
@@ -149,8 +158,14 @@ export function useBrowserNotifications() {
         }),
         payload.contentPreview ?? "Sent a message",
         {
-          tag: `unread-${payload.channelId}`,
+          tag: sessionId
+            ? `unread-session-${sessionId}`
+            : `unread-${payload.channelId}`,
           icon: payload.authorImage,
+          onClick:
+            sessionId && workspaceSlug
+              ? () => openSession(workspaceSlug, sessionId)
+              : undefined,
         }
       )
     }
@@ -216,6 +231,7 @@ export function useBrowserNotifications() {
     settings,
     mutes,
     viewedChannelId,
+    viewedSessionId,
     queryClient,
     navigate,
     navigateToMessage,

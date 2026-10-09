@@ -1,4 +1,5 @@
-import { and, db, eq, inArray, LOR_USER_ID, or, schema } from "@repo/db"
+import { and, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
   type ChannelAudienceInfo,
   resolveChannelAudienceInfo,
@@ -64,32 +65,19 @@ type UserTargetedPayload<T> = {
   payload: T
 }
 
+// A thread's followers (thread_subscription) and, when it is one, its Lor
+// session. Channel messages have neither.
 async function resolveThreadNotificationContext(message: FanoutMessage) {
   const threadRootId = message.threadRootId ?? null
   if (!threadRootId) {
-    return {
-      threadRootId: null,
-      isLorThread: false,
-      subscribedUserIds: new Set<string>(),
-    }
+    return { threadRootId: null, subscriberIds: null, session: null }
   }
 
-  const [participantRows, planCreator, callRows] = await Promise.all([
+  const [subscriptionRows, callRows, session] = await Promise.all([
     db
-      .selectDistinct({ userId: schema.message.authorId })
-      .from(schema.message)
-      .where(
-        or(
-          eq(schema.message.id, threadRootId),
-          eq(schema.message.threadRootId, threadRootId)
-        )
-      ),
-    db
-      .select({ userId: schema.plan.creatorId })
-      .from(schema.plan)
-      .where(eq(schema.plan.threadRootId, threadRootId))
-      .limit(1)
-      .then((rows) => rows[0]?.userId ?? null),
+      .select({ userId: schema.threadSubscription.userId })
+      .from(schema.threadSubscription)
+      .where(eq(schema.threadSubscription.threadRootId, threadRootId)),
     // Everyone who was in a call follows its chat, so they hear about Lor's
     // after-call recap even if they never typed there.
     db
@@ -100,16 +88,14 @@ async function resolveThreadNotificationContext(message: FanoutMessage) {
         eq(schema.voiceSession.id, schema.voiceSessionParticipant.sessionId)
       )
       .where(eq(schema.voiceSession.threadRootId, threadRootId)),
+    findAgentSessionByThreadRoot(threadRootId),
   ])
-  const subscribedUserIds = new Set(
-    [...participantRows, ...callRows].map((participant) => participant.userId)
-  )
-  if (planCreator) subscribedUserIds.add(planCreator)
-
   return {
     threadRootId,
-    isLorThread: subscribedUserIds.has(LOR_USER_ID),
-    subscribedUserIds,
+    subscriberIds: new Set(
+      [...subscriptionRows, ...callRows].map((row) => row.userId)
+    ),
+    session,
   }
 }
 
@@ -507,15 +493,28 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
       ? `sent ${input.message.attachments.length} attachment${input.message.attachments.length > 1 ? "s" : ""}`
       : null)
 
+  // Who gets an OS or push notification. Channel messages: everyone. Threads:
+  // their subscribers. Lor finishing in a session: only the person who
+  // started it ("Done notifies the starter"); a loop's session has no
+  // starter, so its subscribers hear.
+  const { subscriberIds, session } = threadContext
+  const sessionStarterId =
+    session && input.authorId === LOR_USER_ID ? session.creatorId : null
+  const notifies = (userId: string) =>
+    !subscriberIds ||
+    (subscriberIds.has(userId) &&
+      (!sessionStarterId || userId === sessionStarterId))
   const unreadPayload = (userId: string): UnreadNotification => ({
     channelId: input.channel.id,
     workspaceId: input.channel.workspaceId,
     messageId: input.message.id,
     messageType: input.message.type,
     threadRootId: threadContext.threadRootId,
-    isLorThread: threadContext.isLorThread,
-    isSubscribedToThread: threadContext.subscribedUserIds.has(userId),
-    unreadCountDelta: 1,
+    notify: notifies(userId),
+    sessionId: session?.id ?? null,
+    // Session activity never counts toward the channel badge; the session's
+    // sidebar row shows it.
+    unreadCountDelta: session ? 0 : 1,
     authorUserId: input.authorId,
     authorName: input.message.author.name,
     authorImage: input.message.author.image ?? null,
@@ -523,8 +522,11 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
     channelName: input.channel.name,
     workspaceName: input.channel.workspaceName ?? null,
   })
+  // A session message only reaches the people it notifies.
   const unreadNotifications: Array<UserTargetedPayload<UnreadNotification>> =
-    readerIds.map((userId) => ({ userId, payload: unreadPayload(userId) }))
+    readerIds
+      .filter((userId) => !session || notifies(userId))
+      .map((userId) => ({ userId, payload: unreadPayload(userId) }))
 
   const onlineRecipientIds = needsPresenceLookup(
     audience,
@@ -577,6 +579,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
         payload: {
           ...payload,
           threadRootId: null,
+          notify: true,
           contentPreview: "Mentioned you in a call",
         },
       }
@@ -693,10 +696,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
             channelId: notification.channelId ?? input.channel.id,
             workspaceId: notification.workspaceId ?? input.channel.workspaceId,
             threadRootId: outsider ? null : threadContext.threadRootId,
-            isLorThread: threadContext.isLorThread,
-            isSubscribedToThread: threadContext.subscribedUserIds.has(
-              notification.userId
-            ),
+            sessionId: outsider ? null : (threadContext.session?.id ?? null),
             createdAt: notification.createdAt.toISOString(),
             ...(outsider && {
               callMention: {
