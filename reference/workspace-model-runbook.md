@@ -208,7 +208,15 @@ anchor-rooted sessions. Web drops `@Lor` sends from the chat list.
 
 #### Step 5: web session route and view (~400)
 
-[ ] built · [ ] committed
+[x] built 2026-10-08 · [ ] committed
+
+As built: `GET /v1/sessions/{sessionId}` returns the session, its channel,
+and its context with mentions resolved to names (same 404 for missing and
+forbidden). Web route `/$workspaceSlug/session/$sessionId` renders
+`components/session/session-view.tsx`, which reuses `ThreadPanel` through a
+`sessionView` prop (session header, "From #channel" block, centered column,
+session placeholder). After an `@Lor` send, the channel page shows a "Session
+started" toast with Open, until Step 7's composer note replaces it.
 
 - `apps/api/src/routes/v1/sessions/*` (new, registered at `app.ts:95`):
   `GET /sessions/{id}`.
@@ -477,3 +485,9 @@ lines, plus the server steps. 22 steps.
   keeps the old "chat before the root" background for them.
 - Step 4 open items: mobile still shows an `@Lor` chat send until Phase F;
   Lor's prompt still describes channel replies until Step 15.
+- Step 5: no `useConversation` extraction. The session page reuses
+  `ThreadPanel` with a `sessionView` prop, since a session is a thread and the
+  panel already handles streaming, replay, queue, steering, stop, reactions,
+  uploads and typing. `use-lor-stream` needed no change: sessions use the
+  thread cache key. Remembering sessions in `last-location.ts` moves to
+  Step 8, when sessions are reachable from the sidebar.

@@ -23,6 +23,7 @@ import { Skeleton } from "@repo/ui/components/skeleton"
 import { Spinner } from "@repo/ui/components/spinner"
 import { Tabs, TabsList, TabsTab } from "@repo/ui/components/tabs"
 import { anchoredToastManager, toast } from "@repo/ui/components/toast"
+import { cn } from "@repo/ui/lib/utils"
 import {
   differenceInMinutes,
   formatDateTime,
@@ -35,6 +36,7 @@ import {
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -145,7 +147,20 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
   return lines.join("\n")
 }
 
-export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
+// A Lor session renders this same conversation in the main area, with its own
+// header and starting context in place of the thread root.
+export type SessionPresentation = {
+  header: ReactNode
+  context?: ReactNode
+}
+
+export function ThreadPanel({
+  view,
+  sessionView,
+}: {
+  view: ThreadSidebarView
+  sessionView?: SessionPresentation
+}) {
   const { consumeComposerDraft, setView } = useRightSidebar()
   const { call } = useVoiceCall()
   const queryClient = useQueryClient()
@@ -663,8 +678,14 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   // false the loaded array is the full thread.
   const summaryTotal = rootMessage?.threadSummary?.replyCount
   const dividerCount = hasOlder ? summaryTotal : orderedReplies.length
+  const composerPlaceholder = sessionView
+    ? "Reply to Lor, or @mention a teammate"
+    : isCallChat
+      ? "Message the call…"
+      : "Reply…"
   const showDivider =
     !isCallChat &&
+    !sessionView &&
     !isLoading &&
     orderedReplies.length > 0 &&
     dividerCount !== undefined &&
@@ -724,70 +745,74 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
       className="@container relative flex h-full w-full flex-col"
     >
       <DropZoneOverlay isDragActive={isDragActive} />
-      <RightPanelHeader
-        // A call chat takes Lor's name for the call once it's summarized.
-        title={
-          isPlan
-            ? "Plan"
-            : isCallChat
-              ? (voiceSessionTitle ?? "Call")
-              : "Thread"
-        }
-        workspaceSlug={view.workspaceSlug}
-        channelId={view.channelId}
-        titleAdornment={
-          planStatusMeta ? (
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
-              <HugeiconsIcon
-                icon={planStatusMeta.icon}
-                size={14}
-                className={
-                  planStatusMeta.spin
-                    ? "animate-spin text-primary"
-                    : "text-primary"
-                }
-              />
-              {planStatusMeta.label}
-            </span>
-          ) : undefined
-        }
-        className={showWorkHeader || callTabs ? "border-b-0" : undefined}
-        actions={
-          <>
-            <ThreadSubscriberStack subscribers={participants} />
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <button
-                    ref={actionsMenuTriggerRef}
-                    type="button"
-                    aria-label={`${isPlan ? "Plan" : "Thread"} actions`}
-                    className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
-                  />
-                }
-              >
+      {sessionView ? (
+        sessionView.header
+      ) : (
+        <RightPanelHeader
+          // A call chat takes Lor's name for the call once it's summarized.
+          title={
+            isPlan
+              ? "Plan"
+              : isCallChat
+                ? (voiceSessionTitle ?? "Call")
+                : "Thread"
+          }
+          workspaceSlug={view.workspaceSlug}
+          channelId={view.channelId}
+          titleAdornment={
+            planStatusMeta ? (
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
                 <HugeiconsIcon
-                  icon={MoreHorizontalIcon}
-                  className="size-4"
-                  strokeWidth={2}
+                  icon={planStatusMeta.icon}
+                  size={14}
+                  className={
+                    planStatusMeta.spin
+                      ? "animate-spin text-primary"
+                      : "text-primary"
+                  }
                 />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="end" className="w-60">
-                {!isCallChat && (
-                  <DropdownMenuItem onClick={handleViewInChannel}>
-                    <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
-                    Go to message
+                {planStatusMeta.label}
+              </span>
+            ) : undefined
+          }
+          className={showWorkHeader || callTabs ? "border-b-0" : undefined}
+          actions={
+            <>
+              <ThreadSubscriberStack subscribers={participants} />
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <button
+                      ref={actionsMenuTriggerRef}
+                      type="button"
+                      aria-label={`${isPlan ? "Plan" : "Thread"} actions`}
+                      className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
+                    />
+                  }
+                >
+                  <HugeiconsIcon
+                    icon={MoreHorizontalIcon}
+                    className="size-4"
+                    strokeWidth={2}
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="bottom" align="end" className="w-60">
+                  {!isCallChat && (
+                    <DropdownMenuItem onClick={handleViewInChannel}>
+                      <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
+                      Go to message
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
+                    <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
+                    {`Copy ${isPlan ? "plan" : "thread"} as Markdown`}
                   </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
-                  <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
-                  {`Copy ${isPlan ? "plan" : "thread"} as Markdown`}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        }
-      />
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          }
+        />
+      )}
       {callTabs}
 
       {showWorkHeader && (
@@ -821,9 +846,18 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           >
             <MessageScrollerContent
               aria-busy={Boolean(pendingLorMessage)}
-              className="justify-end"
+              className={cn(
+                "justify-end",
+                sessionView && "mx-auto w-full max-w-3xl"
+              )}
             >
-              {rootMessageForRender && !isCallChat && (
+              {sessionView?.context && (
+                <MessageScrollerItem className="px-4 pt-4 pb-2">
+                  {sessionView.context}
+                </MessageScrollerItem>
+              )}
+
+              {rootMessageForRender && !isCallChat && !sessionView && (
                 <MessageScrollerItem
                   messageId={rootMessageForRender.id}
                   scrollAnchor={openingLorTriggerMessageIds.has(
@@ -947,7 +981,12 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
           />
         </MessageScroller>
 
-        <div className="shrink-0 pt-2">
+        <div
+          className={cn(
+            "shrink-0 pt-2",
+            sessionView && "mx-auto w-full max-w-3xl"
+          )}
+        >
           <TypingIndicator users={typingUsers} className="from-sidebar" />
           <RunQueuePill
             messages={queuedMessages}
@@ -963,7 +1002,7 @@ export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
             context={channelContext}
             channelId={view.channelId}
             contextScopeKey={view.threadRootId}
-            placeholder={isCallChat ? "Message the call…" : "Reply…"}
+            placeholder={composerPlaceholder}
             onSend={(content, options) => {
               const nonce = handleSend(content, options)
               // Retire opening anchors so a later resize cannot recapture them.

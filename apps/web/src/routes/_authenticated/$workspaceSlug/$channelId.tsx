@@ -205,6 +205,19 @@ function ChannelView() {
     queryClient,
     channelId,
     currentUser: session?.user,
+    // Interim until the composer's "Started · Open" note (runbook Step 7).
+    onSessionStarted: (started) =>
+      toast("Session started", {
+        description: started.title,
+        action: {
+          label: "Open",
+          onClick: () =>
+            void navigate({
+              to: "/$workspaceSlug/session/$sessionId",
+              params: { workspaceSlug, sessionId: started.id },
+            }),
+        },
+      }),
   })
 
   const {

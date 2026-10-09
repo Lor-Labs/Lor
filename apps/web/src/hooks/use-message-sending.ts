@@ -1,5 +1,8 @@
 import { LOR_USER_ID } from "@repo/db/constants"
-import type { RealtimeMessageEmbedsUpdated } from "@repo/realtime-types"
+import type {
+  RealtimeAgentSession,
+  RealtimeMessageEmbedsUpdated,
+} from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import type { ThreadPage } from "@/hooks/use-thread-messages"
@@ -37,6 +40,8 @@ interface UseMessageSendingOptions {
   /** Called with the send nonce when the server rejects the send, so callers
    * can undo state they mirrored off the returned nonce (e.g. the run queue). */
   onSendFailed?: (nonce: string) => void
+  /** Called when the send started a new Lor session. */
+  onSessionStarted?: (session: RealtimeAgentSession) => void
 }
 
 export function useMessageSending({
@@ -46,6 +51,7 @@ export function useMessageSending({
   currentUser,
   threadRootId,
   onSendFailed,
+  onSessionStarted,
 }: UseMessageSendingOptions) {
   const pendingNonces = useRef(new Set<string>())
   // A cancelled refetch is owed until every send has settled: running it while
@@ -218,6 +224,9 @@ export function useMessageSending({
             // chat or a human thread), so it leaves this list.
             const movedToSession =
               result.message.threadRootId !== (threadRootId ?? null)
+            if (movedToSession && result.session) {
+              onSessionStarted?.(result.session)
+            }
             updateMessagesInCache((messages) =>
               movedToSession
                 ? messages.filter((message) => message.id !== nonce)
@@ -258,6 +267,7 @@ export function useMessageSending({
       prependToFirstPage,
       updateMessagesInCache,
       onSendFailed,
+      onSessionStarted,
     ]
   )
 
