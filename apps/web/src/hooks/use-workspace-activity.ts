@@ -8,7 +8,7 @@ const POLL_MS = 15_000
 // snapshot request. Fixed deadline: a constant stream cannot postpone it.
 const COALESCE_MS = 100
 
-// Lor channel activity for the sidebar (spinner / needs-attention states).
+// Lor channel activity and the user's session rows for the sidebar.
 // Push-invalidated: workspace:activity:updated triggers a coalesced refetch;
 // the poll is recovery for missed emits, not the update mechanism.
 export function useWorkspaceActivity(workspaceId?: string) {
@@ -89,12 +89,15 @@ export function useWorkspaceActivity(workspaceId?: string) {
         }
       })
     }
-    const onActivityUpdated = (payload: { workspaceId: string }) => {
-      if (payload.workspaceId !== workspaceId || coalesceTimer) return
+    const scheduleRefresh = () => {
+      if (coalesceTimer) return
       coalesceTimer = setTimeout(() => {
         coalesceTimer = undefined
         refresh()
       }, COALESCE_MS)
+    }
+    const onActivityUpdated = (payload: { workspaceId: string }) => {
+      if (payload.workspaceId === workspaceId) scheduleRefresh()
     }
     const unsubscribe = subscribeAppFocus((focused) => {
       if (focused) refresh()
@@ -103,6 +106,8 @@ export function useWorkspaceActivity(workspaceId?: string) {
     socket.on("connect", refresh)
     socket.on("disconnect", clear)
     socket.on("workspace:activity:updated", onActivityUpdated)
+    // Reading a session (on any of the user's devices) clears its unread dot.
+    socket.on("thread-read:updated", scheduleRefresh)
     refresh()
     return () => {
       disposed = true
@@ -112,6 +117,7 @@ export function useWorkspaceActivity(workspaceId?: string) {
       socket.off("connect", refresh)
       socket.off("disconnect", clear)
       socket.off("workspace:activity:updated", onActivityUpdated)
+      socket.off("thread-read:updated", scheduleRefresh)
     }
   }, [socket, workspaceId])
 

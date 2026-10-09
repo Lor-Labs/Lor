@@ -1,9 +1,14 @@
-import { and, db, eq, inArray, schema } from "@repo/db"
+import { and, db, desc, eq, inArray, isNull, schema, sql } from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
-import type { ChannelActivity } from "@repo/realtime-types"
+import type { ChannelActivity, SidebarSessionState } from "@repo/realtime-types"
+
+// Bounds the sidebar payload; older sessions stay reachable from the
+// channel's session list and search.
+const SESSION_LIMIT = 200
 
 // Per-channel Lor state for the sidebar, aggregated across every thread in
-// the channel and filtered to what the requesting user can access. Precedence:
+// the channel and filtered to what the requesting user can access, plus the
+// user's subscribed sessions with their own state. Precedence:
 // needs_approval > working/finalizing > queued > needs_input — an approval
 // gate outranks active work; it's the state that needs a human and a
 // concurrent run in another thread must not mask it.
@@ -23,10 +28,21 @@ export async function getWorkspaceActivity(
   const accessible = await listAccessibleChannelIds(userId, workspaceId)
   if (accessible.size === 0) return []
   const channelIds = [...accessible]
-  const [runs, plans, approvals] = await Promise.all([
+
+  // Unread: a message from someone else, or a run that changed (finished),
+  // after the user's read cursor. With no cursor only the last week counts,
+  // so backfilled sessions don't all start unread.
+  const readCursor = sql`coalesce(${schema.threadReadState.lastReadAt}, now() - interval '7 days')`
+  const lastActivityAt =
+    sql<Date>`greatest(${schema.agentSession.createdAt}, (select max(m.created_at) from message m where m.thread_root_id = ${schema.agentSession.threadRootId}))`.mapWith(
+      schema.agentSession.createdAt
+    )
+
+  const [runs, plans, approvals, sessions] = await Promise.all([
     db
       .select({
         channelId: schema.agentRun.channelId,
+        threadRootId: schema.agentRun.threadRootId,
         state: schema.agentRun.state,
       })
       .from(schema.agentRun)
@@ -38,7 +54,11 @@ export async function getWorkspaceActivity(
         )
       ),
     db
-      .select({ channelId: schema.plan.channelId, status: schema.plan.status })
+      .select({
+        channelId: schema.plan.channelId,
+        threadRootId: schema.plan.threadRootId,
+        status: schema.plan.status,
+      })
       .from(schema.plan)
       .where(
         and(
@@ -57,7 +77,9 @@ export async function getWorkspaceActivity(
     db
       .select({
         planChannelId: schema.plan.channelId,
+        planThreadRootId: schema.plan.threadRootId,
         runChannelId: schema.agentRun.channelId,
+        runThreadRootId: schema.agentRun.threadRootId,
       })
       .from(schema.approval)
       .leftJoin(schema.plan, eq(schema.approval.planId, schema.plan.id))
@@ -68,6 +90,46 @@ export async function getWorkspaceActivity(
           eq(schema.approval.status, "pending")
         )
       ),
+    db
+      .select({
+        id: schema.agentSession.id,
+        channelId: schema.agentSession.channelId,
+        threadRootId: schema.agentSession.threadRootId,
+        title: schema.agentSession.title,
+        loopId: schema.agentSession.loopId,
+        lastActivityAt,
+        unread: sql<boolean>`(exists (select 1 from message m where m.thread_root_id = ${schema.agentSession.threadRootId} and m.author_id <> ${userId}::uuid and m.created_at > ${readCursor}) or exists (select 1 from agent_run r where r.thread_root_id = ${schema.agentSession.threadRootId} and r.updated_at > ${readCursor}))`,
+      })
+      .from(schema.agentSession)
+      .innerJoin(
+        schema.threadSubscription,
+        and(
+          eq(
+            schema.threadSubscription.threadRootId,
+            schema.agentSession.threadRootId
+          ),
+          eq(schema.threadSubscription.userId, userId)
+        )
+      )
+      .leftJoin(
+        schema.threadReadState,
+        and(
+          eq(
+            schema.threadReadState.threadRootId,
+            schema.agentSession.threadRootId
+          ),
+          eq(schema.threadReadState.userId, userId)
+        )
+      )
+      .where(
+        and(
+          eq(schema.agentSession.workspaceId, workspaceId),
+          inArray(schema.agentSession.channelId, channelIds),
+          isNull(schema.agentSession.archivedAt)
+        )
+      )
+      .orderBy(desc(lastActivityAt))
+      .limit(SESSION_LIMIT),
   ])
 
   const rank = {
@@ -77,30 +139,57 @@ export async function getWorkspaceActivity(
     needs_approval: 4,
   } as const
   const channels = new Map<string, ChannelActivity>()
-  const bump = (channelId: string, state: keyof typeof rank) => {
-    const activity = channels.get(channelId)
+  const entry = (channelId: string) => {
+    let activity = channels.get(channelId)
     if (!activity) {
-      channels.set(channelId, { channelId, lor: state })
-      return
+      activity = { channelId, lor: null, sessions: [] }
+      channels.set(channelId, activity)
     }
+    return activity
+  }
+  const bump = (channelId: string, state: keyof typeof rank) => {
+    const activity = entry(channelId)
     if (!activity.lor || rank[state] > rank[activity.lor]) {
       activity.lor = state
     }
   }
+  // Session state is keyed by the session's thread root.
+  const running = new Set<string>()
+  const needsYou = new Set<string>()
   for (const run of runs) {
     bump(run.channelId, run.state === "queued" ? "queued" : "working")
+    if (run.threadRootId) running.add(run.threadRootId)
   }
   for (const plan of plans) {
     bump(
       plan.channelId,
       plan.status === "waiting_for_approval" ? "needs_approval" : "needs_input"
     )
+    if (plan.threadRootId) needsYou.add(plan.threadRootId)
   }
   for (const approval of approvals) {
     const channelId = approval.planChannelId ?? approval.runChannelId
     if (channelId && accessible.has(channelId)) {
       bump(channelId, "needs_approval")
     }
+    const threadRootId = approval.planThreadRootId ?? approval.runThreadRootId
+    if (threadRootId) needsYou.add(threadRootId)
+  }
+  for (const session of sessions) {
+    const state: SidebarSessionState = needsYou.has(session.threadRootId)
+      ? "needs_you"
+      : running.has(session.threadRootId)
+        ? "running"
+        : session.unread
+          ? "unread"
+          : "idle"
+    entry(session.channelId).sessions.push({
+      id: session.id,
+      title: session.title,
+      state,
+      loop: session.loopId !== null,
+      lastActivityAt: session.lastActivityAt.toISOString(),
+    })
   }
   return [...channels.values()].sort((a, b) =>
     a.channelId.localeCompare(b.channelId)

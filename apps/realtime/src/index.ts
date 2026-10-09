@@ -652,6 +652,13 @@ io.on("connection", (socket) => {
           session: realtimeSession,
         })
       }
+      // A new session or a post in one changes subscribers' sidebar rows.
+      if (session) {
+        io.to(workspaceRoom(session.workspaceId)).emit(
+          "workspace:activity:updated",
+          { workspaceId: session.workspaceId }
+        )
+      }
       if (messageWithMentions.threadRootId) {
         socket
           .to(threadRoom(messageWithMentions.threadRootId))

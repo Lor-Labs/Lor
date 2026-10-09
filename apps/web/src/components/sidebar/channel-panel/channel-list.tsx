@@ -50,9 +50,15 @@ import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useMemo, useState } from "react"
 import { ArchiveProjectDialog } from "@/components/project/archive-project-dialog"
 import {
-  LorChannelStatus,
+  SessionStateIndicator,
+  strongestSessionState,
   useChannelActivity,
 } from "@/components/sidebar/channel-panel/channel-activity"
+import {
+  ChannelSessionRows,
+  SessionCollapseToggle,
+  useSessionCollapse,
+} from "@/components/sidebar/channel-panel/channel-sessions"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
@@ -1039,7 +1045,19 @@ function SortableChannelItem({
   const mentionCount = active ? 0 : getMentionCount(ch.id)
   const hasUnread = unreadCount > 0
   const activity = useChannelActivity(ch.id)
-  const hasChannelActivity = Boolean(activity?.lor)
+  const sessions = activity?.sessions ?? []
+  const sessionCollapse = useSessionCollapse(ch.id, activity?.sessions)
+  // A collapsed channel shows the strongest state of its hidden sessions.
+  const rollup = sessionCollapse.collapsed
+    ? strongestSessionState(sessions)
+    : undefined
+  const hasChannelActivity = Boolean(rollup)
+  const channelIcon = (
+    <ChannelIcon
+      type={ch.type}
+      isPrivate={ch.audience === "members" && ch.parentId === null}
+    />
+  )
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -1065,10 +1083,16 @@ function SortableChannelItem({
           {!active && hasUnread && (
             <div className="absolute left-0 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
           )}
-          <ChannelIcon
-            type={ch.type}
-            isPrivate={ch.audience === "members" && ch.parentId === null}
-          />
+          {sessions.length > 0 ? (
+            <SessionCollapseToggle
+              collapsed={sessionCollapse.collapsed}
+              onToggle={sessionCollapse.toggle}
+            >
+              {channelIcon}
+            </SessionCollapseToggle>
+          ) : (
+            channelIcon
+          )}
           <button
             type="button"
             onClick={onClick}
@@ -1080,7 +1104,7 @@ function SortableChannelItem({
           </button>
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <MentionBadge count={mentionCount} />
-            {activity?.lor && <LorChannelStatus state={activity.lor} compact />}
+            {rollup && <SessionStateIndicator state={rollup} />}
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger
                 render={
@@ -1185,6 +1209,10 @@ function SortableChannelItem({
         {ch.type === "voice" && (
           <VoiceParticipantRows channelId={ch.id} channelName={ch.name ?? ""} />
         )}
+        <ChannelSessionRows
+          sessions={sessions}
+          collapsed={sessionCollapse.collapsed}
+        />
       </div>
       {canEdit && (
         <EditChannelDialog

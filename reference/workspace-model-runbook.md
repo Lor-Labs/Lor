@@ -287,7 +287,24 @@ single-line composer. New placeholder and `lor_intro` hint copy.
 
 #### Step 8: sidebar sessions and New session (~400)
 
-[ ] built · [ ] committed
+Split in two. 8a: [x] built 2026-10-09 · [ ] committed (server state and
+sidebar rows). 8b: [ ] built · [ ] committed (New session button and view,
+⌘N, ⌘K, `last-location`).
+
+As built (8a, ~410 lines): `getWorkspaceActivity` also returns, per channel,
+the caller's subscribed, unarchived sessions (`SidebarSession`: title, state,
+loop flag, last activity; capped at 200, newest first). State per session:
+`needs_you` (a pending approval, or a plan waiting for input or approval, in
+the session), `running` (an active run; queued folds in), `unread` (a message
+from someone else, or a run change, after the user's `thread_read_state`
+cursor; with no cursor only the last 7 days count), `idle`. Realtime emits
+`workspace:activity:updated` when a session is created or posted in; web
+also refreshes on `thread-read:updated`. The thread panel marks read when the
+newest reply's status changes, so a reply that finishes while open is read.
+Web: `channel-sessions.tsx` (rows, "N more", collapse remembered per device
+in localStorage, auto-expand when a new session appears in a collapsed
+channel) and `SessionStateIndicator` in `channel-activity.tsx`, which
+replaces `LorChannelStatus`.
 
 - Server: `realtime/src/services/workspace-activity.ts:10-120` per user, per
   session; `ChannelActivity` (`events.ts:11-14`) carries subscribed sessions
@@ -552,6 +569,13 @@ lines, plus the server steps. 22 steps.
   on send. Step 19 still moves setup's Ask Lor to `session.new`.
 - Step 7: the `lor_intro` hint and placeholder copy changed here, so Step 19
   only revisits `lor_reply`.
+- Step 8a: the web channel row no longer shows channel-wide Lor activity
+  (`ChannelActivity.lor`), only the rollup of your sessions when collapsed.
+  Until Steps 16 and 17 make loop and Act runs sessions, their activity is
+  not on the web sidebar. Mobile still reads `lor`.
+- Step 8a: `agent_session.lastActivityAt` is not maintained; the sidebar
+  computes the latest reply per session in its query. Step 14's channel list
+  may need the column kept up to date instead.
 - Step 7 open item: a backfilled (legacy) session opened in the thread panel
   gets the human-thread bar, but the server treats it as a session (plain
   messages run Lor). Opening session roots on the session page fixes it

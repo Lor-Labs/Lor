@@ -1,4 +1,8 @@
-import type { ChannelActivity } from "@repo/realtime-types"
+import type {
+  ChannelActivity,
+  SidebarSession,
+  SidebarSessionState,
+} from "@repo/realtime-types"
 import { cn } from "@repo/ui/lib/utils"
 import { createContext, type ReactNode, useContext, useMemo } from "react"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
@@ -31,53 +35,54 @@ export function useChannelActivity(channelId: string) {
   return channels.get(channelId)
 }
 
-const lorLabels = {
-  working: "Lor is working",
-  queued: "Lor is queued",
-  needs_input: "Lor needs input",
-  needs_approval: "Awaiting approval",
+const STATE_LABELS = {
+  needs_you: "Needs you",
+  running: "Lor is working",
+  unread: "Unread",
 } as const
 
-export function LorChannelStatus({
+// Strongest state among some sessions, for a collapsed channel row or the
+// "N more" row: alert, then spinner, then dot.
+export function strongestSessionState(
+  sessions: SidebarSession[]
+): SidebarSessionState | undefined {
+  return (["needs_you", "running", "unread"] as const).find((state) =>
+    sessions.some((session) => session.state === state)
+  )
+}
+
+// A session's state in the sidebar: alert (needs you), spinner (running),
+// blue dot (unread). Idle shows nothing.
+export function SessionStateIndicator({
   state,
-  compact = false,
 }: {
-  state: NonNullable<ChannelActivity["lor"]>
-  compact?: boolean
+  state: SidebarSessionState
 }) {
-  const working = state === "working"
-  const waiting = state === "needs_input" || state === "needs_approval"
+  if (state === "idle") return null
+  const label = STATE_LABELS[state]
+  if (state === "running") {
+    return (
+      <span
+        role="img"
+        aria-label={label}
+        title={label}
+        className="size-3 shrink-0 rounded-full border-[1.5px] border-agent/20 border-t-agent motion-safe:animate-spin"
+      />
+    )
+  }
   return (
     <span
-      title={lorLabels[state]}
+      role="img"
+      aria-label={label}
+      title={label}
       className={cn(
-        "inline-flex min-w-0 shrink-0 items-center gap-1.5 text-[11px] font-medium",
-        waiting ? "text-warning-foreground" : "text-agent"
+        "shrink-0",
+        state === "unread"
+          ? "mx-[3px] size-1.5 rounded-full bg-info"
+          : "flex size-3.5 items-center justify-center rounded-full bg-warning/12 text-[10px] font-semibold text-warning-foreground"
       )}
     >
-      {working ? (
-        <span
-          aria-hidden="true"
-          className="size-3.5 shrink-0 rounded-full border-[1.5px] border-agent/20 border-t-agent motion-safe:animate-spin"
-        />
-      ) : (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "flex size-3.5 shrink-0 items-center justify-center",
-            waiting && "rounded-full bg-warning/12 text-[10px]"
-          )}
-        >
-          {waiting ? (
-            "!"
-          ) : (
-            <span className="size-1.5 rounded-full bg-current opacity-60" />
-          )}
-        </span>
-      )}
-      <span className={compact ? "sr-only" : "truncate"}>
-        {lorLabels[state]}
-      </span>
+      {state === "needs_you" && "!"}
     </span>
   )
 }

@@ -277,12 +277,16 @@ export function ThreadPanel({
   // read cursor on open and on every reply that lands while it's visible, so
   // the activity dock stays clear here and on other devices.
   const markThreadRead = useMarkThreadRead(view.workspaceSlug, view.channelId)
-  const newestReplyId = messages[0]?.id ?? null
+  // Status too: a Lor reply finishing while open must count as read, or the
+  // session's sidebar row shows unread for a reply already seen.
+  const newestReplyKey = messages[0]
+    ? `${messages[0].id}:${messages[0].status}`
+    : null
   useEffect(() => {
     if (document.visibilityState !== "visible" || showTranscript) return
     const timer = setTimeout(() => markThreadRead(view.threadRootId), 500)
     return () => clearTimeout(timer)
-  }, [view.threadRootId, newestReplyId, markThreadRead, showTranscript])
+  }, [view.threadRootId, newestReplyKey, markThreadRead, showTranscript])
   useEffect(() => {
     if (showTranscript) return
     const onVisibilityChange = () => {

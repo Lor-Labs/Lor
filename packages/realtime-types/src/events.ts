@@ -8,9 +8,24 @@ export const presenceSubscribePayloadSchema = z.object({
   workspaceId: z.string().uuid(),
 })
 
+// A sidebar session's state, strongest first: needs_you (an approval or a
+// question from Lor), running, unread, idle.
+export type SidebarSessionState = "needs_you" | "running" | "unread" | "idle"
+
+export type SidebarSession = {
+  id: string
+  title: string
+  state: SidebarSessionState
+  loop: boolean
+  lastActivityAt: string
+}
+
 export type ChannelActivity = {
   channelId: string
+  // Every Lor run in the channel. Mobile reads it until its session rows land.
   lor: "working" | "queued" | "needs_input" | "needs_approval" | null
+  // The caller's subscribed, unarchived sessions here, newest activity first.
+  sessions: SidebarSession[]
 }
 
 export type WorkspaceActivityAck = (
