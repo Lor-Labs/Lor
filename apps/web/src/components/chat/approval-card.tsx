@@ -1,3 +1,5 @@
+import { LockKeyIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -34,7 +36,7 @@ export function MessageApprovalCard({
   const approval = useMessageApproval(channelId, messageId)
   if (!approval) return null
   return (
-    <div className="mt-2 max-w-lg">
+    <div className="mt-2 max-w-xl">
       <ApprovalGateCard channelId={channelId} approval={approval} />
     </div>
   )
@@ -103,38 +105,71 @@ export function ApprovalGateCard({
   }
 
   return (
-    <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
-      <p className="font-medium text-sm">Lor asks for approval</p>
-      <p className="mt-1 text-muted-foreground text-sm">
-        {approval.description}
-      </p>
-      {approval.toolName && (
-        <p className="mt-1 font-mono text-[11px] text-muted-foreground/80">
-          {approval.toolName}
+    <ApprovalGateView
+      approval={approval}
+      canResolve={canResolve}
+      pending={resolve.isPending}
+      onResolve={onResolve}
+    />
+  )
+}
+
+// One quiet row: what Lor wants to do, who can allow it, and the buttons.
+// Data in, callback out (the /design page renders it with sample data).
+export function ApprovalGateView({
+  approval,
+  canResolve,
+  pending,
+  onResolve,
+}: {
+  approval: ApprovalCardData
+  canResolve: boolean
+  pending: boolean
+  onResolve: (resolution: "approve" | "reject") => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/60 bg-card py-2.5 ps-3 pe-2.5 dark:bg-foreground/[0.025]">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning-foreground">
+        <HugeiconsIcon
+          icon={LockKeyIcon}
+          className="size-3.5"
+          strokeWidth={2}
+        />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium leading-5">
+          {approval.description}
         </p>
-      )}
-      {canResolve ? (
-        <div className="mt-2 flex gap-2">
+        <p className="truncate text-muted-foreground text-xs leading-4">
+          {canResolve
+            ? "Needs your approval"
+            : resolverLabel(approval.resolver, approval.resolverUserName)}
+          {approval.toolName && (
+            <>
+              {" · "}
+              <span className="font-mono">{approval.toolName}</span>
+            </>
+          )}
+        </p>
+      </div>
+      {canResolve && (
+        <div className="ms-auto flex shrink-0 gap-1.5">
           <Button
             size="sm"
-            disabled={resolve.isPending}
-            onClick={() => onResolve("approve")}
-          >
-            Approve
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={resolve.isPending}
+            variant="ghost"
+            disabled={pending}
             onClick={() => onResolve("reject")}
           >
             Reject
           </Button>
+          <Button
+            size="sm"
+            disabled={pending}
+            onClick={() => onResolve("approve")}
+          >
+            Approve
+          </Button>
         </div>
-      ) : (
-        <p className="mt-2 text-muted-foreground text-xs">
-          {resolverLabel(approval.resolver, approval.resolverUserName)}
-        </p>
       )}
     </div>
   )
