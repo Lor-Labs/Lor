@@ -558,7 +558,12 @@ the session header and sidebar rows; any person's rename, yours or a
 teammate's, shows at once. On the session page,
 `session:updated` patches the sidebar query too (after cancelling any
 in-flight sidebar fetch) in the same tick as the header, so both type
-together; the sidebar refetch that follows finds the same title. "Needs you" in
+together; the sidebar refetch that follows finds the same title. Changed
+2026-10-10 (Jacob, QA pass: no typewriter away from the session): the title
+job also sends `session:updated` to every subscriber's user room, and the
+sidebar's activity provider applies it (`useWorkspaceSessionUpdates`), so the
+title types out in the sidebar wherever you are and an open-later session
+page shows it without waiting for its cache to go stale. "Needs you" in
 `workspace-activity.ts`: a plan waiting for input marks every subscriber
 (anyone can answer); a pending approval marks only people who may resolve it
 (`approvalResolverSpecFor` in `@repo/auth/permissions` + `canResolveApproval`,

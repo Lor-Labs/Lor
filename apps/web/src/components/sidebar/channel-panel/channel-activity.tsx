@@ -5,6 +5,7 @@ import type {
 } from "@repo/realtime-types"
 import { cn } from "@repo/ui/lib/utils"
 import { createContext, type ReactNode, useContext, useMemo } from "react"
+import { useWorkspaceSessionUpdates } from "@/hooks/use-agent-session"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
 
 const ActivityContext = createContext<{
@@ -20,6 +21,7 @@ export function ChannelActivityProvider({
   children: ReactNode
 }) {
   const activity = useWorkspaceActivity(workspaceId)
+  useWorkspaceSessionUpdates(workspaceId)
   const value = useMemo(
     () => ({
       workspaceId,

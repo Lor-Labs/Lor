@@ -62,38 +62,64 @@ function patchSessionCache(
   )
 }
 
-// Renames, generated titles and archives from anyone land live. The sidebar
-// row takes the same event in the same tick, so a new title types out in the
-// header and the sidebar together instead of waiting for the sidebar refetch.
+// The sidebar row and the session's cache take the same event in the same
+// tick, so a new title types out in the header and the sidebar together
+// instead of waiting for the sidebar refetch.
+async function applySessionUpdate(
+  queryClient: QueryClient,
+  session: RealtimeAgentSession
+) {
+  await cancelSidebarFetch(queryClient, session.workspaceId)
+  patchSidebarSession(
+    queryClient,
+    {
+      workspaceId: session.workspaceId,
+      channelId: session.channelId,
+      sessionId: session.id,
+    },
+    session.archivedAt
+      ? { hide: true }
+      : { title: session.title, titleEdited: session.titleEditedAt !== null }
+  )
+  patchSessionCache(queryClient, session.id, session)
+}
+
+// Renames, generated titles and archives from anyone land live on the open
+// session (the channel room carries them).
 export function useAgentSessionUpdates(sessionId: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()
   useEffect(() => {
     if (!socket) return
-    const onUpdated = async ({ session }: AgentSessionUpdatedEvent) => {
-      if (session.id !== sessionId) return
-      await cancelSidebarFetch(queryClient, session.workspaceId)
-      patchSidebarSession(
-        queryClient,
-        {
-          workspaceId: session.workspaceId,
-          channelId: session.channelId,
-          sessionId,
-        },
-        session.archivedAt
-          ? { hide: true }
-          : {
-              title: session.title,
-              titleEdited: session.titleEditedAt !== null,
-            }
-      )
-      patchSessionCache(queryClient, sessionId, session)
+    const onUpdated = ({ session }: AgentSessionUpdatedEvent) => {
+      if (session.id === sessionId)
+        void applySessionUpdate(queryClient, session)
     }
     socket.on("session:updated", onUpdated)
     return () => {
       socket.off("session:updated", onUpdated)
     }
   }, [socket, queryClient, sessionId])
+}
+
+// Every session the user follows, wherever they are: generated titles also
+// reach each subscriber's user room, so they type out in the sidebar even
+// when the session isn't open, and opening it shows the new title.
+export function useWorkspaceSessionUpdates(workspaceId: string | undefined) {
+  const socket = useSocket()
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!socket || !workspaceId) return
+    const onUpdated = ({ session }: AgentSessionUpdatedEvent) => {
+      if (session.workspaceId === workspaceId) {
+        void applySessionUpdate(queryClient, session)
+      }
+    }
+    socket.on("session:updated", onUpdated)
+    return () => {
+      socket.off("session:updated", onUpdated)
+    }
+  }, [socket, queryClient, workspaceId])
 }
 
 async function patchAgentSession(
