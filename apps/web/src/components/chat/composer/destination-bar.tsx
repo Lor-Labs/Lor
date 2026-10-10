@@ -56,9 +56,15 @@ export function DestinationBar({
             {...swap}
             className="flex min-w-0 items-center gap-1.5 text-xs"
           >
+            {/* Quiet in a session, where Lor is the default; chat and threads
+                tint it, since there it changes what the send does. */}
             <DestinationPill
               onSwitch={onSwitch}
-              className="bg-agent/10 font-medium text-agent"
+              className={
+                destination === "session"
+                  ? "text-muted-foreground hover:text-foreground"
+                  : "bg-agent/10 font-medium text-agent"
+              }
             >
               <img src="/lor-mark.svg" alt="" className="size-3.5" />
               {lorLabel}

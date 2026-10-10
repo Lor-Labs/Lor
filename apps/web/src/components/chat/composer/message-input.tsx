@@ -732,10 +732,12 @@ export function MessageInput({
     selector: ({ editor: tiptapEditor }) => ({
       text: tiptapEditor?.getText({ blockSeparator: "\n" }) ?? "",
       isEmpty: tiptapEditor?.isEmpty ?? true,
+      isFocused: tiptapEditor?.isFocused ?? false,
     }),
   })
   const plainText = draftState?.text ?? ""
   const isEmpty = draftState?.isEmpty ?? true
+  const isFocused = draftState?.isFocused ?? false
 
   const mentionedIdsKey = useEditorState({
     editor,
@@ -1190,8 +1192,10 @@ export function MessageInput({
             {isEmpty && placeholder && (
               <span
                 className={cn(
-                  "pointer-events-none absolute right-0 top-1 truncate text-sm leading-5 text-muted-foreground",
-                  isInline ? "left-10 text-[15px] leading-6" : "left-0"
+                  "pointer-events-none absolute right-0 top-1 truncate text-sm leading-5",
+                  isInline
+                    ? "left-10 text-[15px] text-muted-foreground/50 leading-6"
+                    : "left-0 text-muted-foreground"
                 )}
               >
                 {placeholder}
@@ -1328,7 +1332,16 @@ export function MessageInput({
           </div>
           {/* After the editor in the markup so the three tools stay together
               for the inline bar; `order-first` keeps attach on the left. */}
-          <ToolsSlot inline={isInline} target={toolbarTarget ?? null}>
+          <ToolsSlot
+            inline={isInline}
+            target={toolbarTarget ?? null}
+            active={
+              isFocused ||
+              !isEmpty ||
+              pendingAttachments.length > 0 ||
+              isAttachmentMenuOpen
+            }
+          >
             <Popover
               open={isAttachmentMenuOpen}
               onOpenChange={setIsAttachmentMenuOpen}
@@ -1449,20 +1462,34 @@ export function MessageInput({
 
 // The composer's tools render in place, or (inline variant) in a bar the
 // page owns at the bottom of the pane. Inline renders nothing until that bar
-// mounts, so the tools never flash under the input line.
+// mounts, so the tools never flash under the input line. A session reads as a
+// document, so its tools stay hidden until you write (or point at the bar):
+// an idle bar at the bottom looked like a missing composer.
 function ToolsSlot({
   inline,
   target,
+  active,
   children,
 }: {
   inline: boolean
   target: HTMLElement | null
+  active: boolean
   children: ReactNode
 }) {
   if (!inline) return children
   if (!target) return null
   return createPortal(
-    <div className="flex min-w-0 items-center gap-2">{children}</div>,
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-2 transition-opacity duration-300",
+        // Shows at once; lingers a moment before fading after you stop.
+        active
+          ? "opacity-100"
+          : "opacity-0 delay-700 focus-within:opacity-100 focus-within:delay-0 hover:opacity-100 hover:delay-0"
+      )}
+    >
+      {children}
+    </div>,
     target
   )
 }

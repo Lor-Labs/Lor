@@ -729,12 +729,9 @@ export function ThreadPanel({
   // false the loaded array is the full thread.
   const summaryTotal = rootMessage?.threadSummary?.replyCount
   const dividerCount = hasOlder ? summaryTotal : orderedReplies.length
-  // A session's input line is bare, like the next line of a document.
-  const composerPlaceholder = sessionView
-    ? ""
-    : isCallChat
-      ? "Message the call…"
-      : "Reply…"
+  // A session's input line reads as the document's next line, with a faint
+  // placeholder so the eye finds where to write.
+  const composerPlaceholder = isCallChat ? "Message the call…" : "Reply…"
   const showDivider =
     !isCallChat &&
     !sessionView &&
@@ -1169,7 +1166,7 @@ export function ThreadPanel({
         ) : sessionView ? (
           <div
             ref={setToolbarTarget}
-            className="mx-auto w-full max-w-3xl shrink-0 border-border/60 border-t px-4 py-2"
+            className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
           />
         ) : (
           <div className="shrink-0 pt-2">{composer}</div>
