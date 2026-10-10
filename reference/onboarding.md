@@ -430,7 +430,7 @@ cached system prompt:
 | Join by email domain | Build it; admins set the domain they belong to; free email domains excluded | Locked |
 | Domain join default | Setup toggle starts on when the creator's domain qualifies | Locked |
 | Default channels | `#general`, `#engineering`, `#product`, `#design`, `#customers`, `#random`, `standup` (voice), with topics | Locked |
-| Teaching the workspace model | One "How Lor works" page per user, then hints the first time each thing happens, and an empty channel state that explains sessions (Step 11). Overrides "no tour" for this one page | Locked |
+| Teaching the workspace model | One "How Lor works" dialog per user, then hints the first time each thing happens, and an empty channel state that explains sessions (Step 11). Overrides "no tour" for this one dialog | Locked |
 | Connector routing | Off by default; setup does not ask; Lor change proposals can suggest it later | Locked |
 | Lor intro message | One static Lor message in `#general`, excluded from memory | Recommended |
 | Setup state | `workspace.setupCompletedAt`; card states derived from rows | Recommended |
@@ -748,7 +748,7 @@ sessions are shared.
   `standup` moved to the end.
 - `packages/db/src/schemas/hint-dismissals.ts`: `sessions_intro`,
   `session_reply`, `how_lor_works`. **db:push owed.** `how_lor_works` is
-  stored like a hint but is the 11b page, so the web provider keeps it out of
+  stored like a hint but is the 11b dialog, so the web provider keeps it out of
   the popover slot (`PAGE_HINTS`).
 - `components/sidebar/channel-panel/channel-sessions.tsx`: `sessions_intro`
   on the first visible session row, right of the row.
@@ -759,15 +759,35 @@ sessions are shared.
   (⌘N on desktop). Channels made in the app start with a `channel_created`
   event, so in practice this teaches on the seeded channels.
 
-11b: [ ] built · [ ] committed
+11b: [x] built 2026-10-10 · [ ] committed
 
-- A "How Lor works" page, shown once per user (`how_lor_works`): creators see
-  it after creating a workspace, before Setup; joiners on first landing.
-  Three panels, each with a small animated mockup made from the real
-  components: chat is for your team; @Lor or ⌘N starts a session under the
-  channel; sessions are shared, and the reply pill switches between Lor and
-  channel members. It ends with "Start your first session" (New session view
-  with a prompt) and shows ⌘N, @Lor and ⌘Enter. A menu item reopens it.
+A medium dialog, not a full page (Jacob): it takes the place of the old
+community onboarding dialog that Step 3 deleted. 640px wide, an animated stage
+on top, the step text under it, step dots and Back/Next at the bottom.
+
+- `components/onboarding/how-lor-works-dialog.tsx` (new):
+  `HowLorWorksDialog`, mounted in the `$workspaceSlug` layout. Opens while
+  `how_lor_works` is not dismissed, or with `?intro=true` (validated in
+  `_authenticated.tsx`, set by "How Lor works" in the workspace menu). X or
+  Escape dismisses it; a backdrop click does not, so a stray click can't lose
+  it. The last step's "Start a session" dismisses it and opens the New
+  session view for the current channel. Copy names only what people see
+  (no "pill"): step 2 says ⌘N on desktop and New session in the sidebar on
+  the web.
+- `components/onboarding/how-lor-works-scenes.tsx` (new): three mockups that
+  play once per step and hold the last frame (reduced motion shows the last
+  frame): chat between people; `@Lor` + a question with the real
+  `DestinationBar`, the send leaves the chat as it was, and a session row
+  starts under `#engineering` with the real `SessionStateIndicator` and
+  `TypewriterText` title, the "Started … · Open" note shows (a copy of
+  `SessionStartedNote`, since the real one is a router link), a cursor
+  clicks Open, and the session opens with the question on top,
+  Lor's "Working…" row and its answer typing out; a shared session where a teammate joins and replies
+  to Lor, then the pill switches to channel members and that turn lands
+  muted. The mini sidebar uses the real workspace name, and "you" is the
+  signed-in user.
+- `components/hints/hints-provider.tsx`: `usePageHint(key)`; no popover hint
+  shows until `how_lor_works` is dismissed, so none lands over the dialog.
 
 ### Docs
 

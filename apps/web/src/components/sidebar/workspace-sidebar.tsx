@@ -4,6 +4,7 @@ import {
   FolderAddIcon,
   GridViewIcon,
   HashtagIcon,
+  HelpCircleIcon,
   Message01Icon,
   PlusSignIcon,
   Settings05Icon,
@@ -294,6 +295,22 @@ function WorkspaceSidebarInner() {
                       Finish setup
                     </DropdownMenuItem>
                   )}
+                  <DropdownMenuItem
+                    className={sidebarMenuRow}
+                    onClick={() =>
+                      navigate({
+                        to: ".",
+                        search: (prev) => ({ ...prev, intro: true }),
+                      })
+                    }
+                  >
+                    <HugeiconsIcon
+                      icon={HelpCircleIcon}
+                      className={sidebarMenuIcon}
+                      strokeWidth={1.5}
+                    />
+                    How Lor works
+                  </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator className={sidebarMenuSeparator} />
                 <DropdownMenuSub>

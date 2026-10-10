@@ -27,9 +27,8 @@ const HINT_PRIORITY = [
 // Stored like hints but shown as a page, never in the popover slot.
 const PAGE_HINTS = ["how_lor_works"] as const
 
-export type HintKey =
-  | (typeof HINT_PRIORITY)[number]
-  | (typeof PAGE_HINTS)[number]
+type PageHintKey = (typeof PAGE_HINTS)[number]
+export type HintKey = (typeof HINT_PRIORITY)[number] | PageHintKey
 
 const hintsQueryKey = ["hints"] as const
 
@@ -128,10 +127,12 @@ export function HintsProvider({ children }: { children: ReactNode }) {
     []
   )
 
-  const activeKey =
-    HINT_PRIORITY.find(
-      (key) => (eligible.get(key)?.length ?? 0) > 0 && !isDismissed(key)
-    ) ?? null
+  // The How Lor works dialog comes first; no popover shows over it.
+  const activeKey = isDismissed("how_lor_works")
+    ? (HINT_PRIORITY.find(
+        (key) => (eligible.get(key)?.length ?? 0) > 0 && !isDismissed(key)
+      ) ?? null)
+    : null
   const activeInstance = activeKey
     ? (eligible.get(activeKey)?.[0] ?? null)
     : null
@@ -165,4 +166,12 @@ export function useHint(key: HintKey, eligible: boolean) {
     dismissed: context ? context.isDismissed(key) : true,
     dismiss,
   }
+}
+
+// A hint shown as a page or dialog: only its dismissal is shared.
+export function usePageHint(key: PageHintKey) {
+  const context = useContext(HintsContext)
+  const dismissKey = context?.dismiss
+  const dismiss = useCallback(() => dismissKey?.(key), [dismissKey, key])
+  return { dismissed: context ? context.isDismissed(key) : true, dismiss }
 }

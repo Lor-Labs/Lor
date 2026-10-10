@@ -54,11 +54,13 @@ const LAST_PATH_KEY = "lor:last-path"
 // Settings dialogs are URL-driven so they survive refresh and deep-link
 // (e.g. the GitHub setup redirect reopens GitHub's connector detail):
 // ?settings=user|workspace&tab=<section>[&connector=<id>].
+// ?intro=true reopens the How Lor works dialog.
 type SettingsSearch = {
   settings?: "user" | "workspace"
   tab?: string
   mcpServerId?: string
   connector?: string
+  intro?: true
 }
 
 export const Route = createFileRoute("/_authenticated")({
@@ -73,6 +75,7 @@ export const Route = createFileRoute("/_authenticated")({
       typeof search.mcpServerId === "string" ? search.mcpServerId : undefined,
     connector:
       typeof search.connector === "string" ? search.connector : undefined,
+    intro: search.intro === true ? true : undefined,
   }),
 })
 
