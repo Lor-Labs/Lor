@@ -38,6 +38,7 @@ type LoopPayload = {
   reason?: "failures" | "out_of_credits"
   via?: "proposal"
 }
+type TriggerRunPayload = { triggerId: string; label: string }
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -409,6 +410,15 @@ function eventText(
             {p.loopName}
           </LoopName>{" "}
           ran on schedule
+        </>
+      )
+    }
+    // Content is the event payload Lor reads, never shown as the line.
+    case "trigger_run": {
+      const p = payload as TriggerRunPayload | null
+      return (
+        <>
+          <Name>{p?.label ?? "An automation"}</Name> started this session
         </>
       )
     }

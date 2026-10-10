@@ -148,9 +148,8 @@ import {
   completeLoopTool,
   loopSessionPromptSection,
   type RunLoopContext,
-  type RunTriggeredContext,
-  triggeredPromptSection,
-  triggeredTools,
+  type RunTriggerContext,
+  triggerSessionPromptSection,
 } from "./triggered"
 import type { OnUsage } from "./usage"
 import { type RunVoiceContext, voicePromptSection, voiceTools } from "./voice"
@@ -361,23 +360,18 @@ export type RespondContext = {
   // the plan row anchored to this run's thread root. Worker-provided on
   // thread-scope runs.
   createPlan?: CreatePlanForThread
-  // Set on headless triggered runs (the Act effect): binds the disposition
-  // tools and injects the trigger's instructions — which appear in the
-  // system prompt only when the trigger fires.
-  triggered?: RunTriggeredContext
+  // Set on every run in an Act session: the trigger's instructions in the
+  // system prompt.
+  trigger?: RunTriggerContext
   // Set on every run in a loop's session: the loop's standing brief in the
   // system prompt, plus complete_loop when the loop has an end condition.
   loop?: RunLoopContext
   // Set on a request spoken in a voice call: binds show_in_call and the call
   // framing. Results go to Lor's window, never the chat.
   voice?: RunVoiceContext
-  // Overrides the persistent-sandbox scope (default threadRootId ??
-  // channelId). Act runs pass their own key so co-channel triggers never
-  // share a warm checkout; loop runs use their session's thread.
-  sandboxKey?: string
-  // Conversational runs only: binds propose_loop (the worker owns the card
-  // posting + draft loop row insert). Never set on triggered/loop runs — a
-  // loop must not schedule more loops.
+  // Binds propose_loop (the worker owns the card posting + draft loop row
+  // insert). Never set on the run that answers a loop fire or an Act event —
+  // automations must not schedule more loops.
   proposeLoop?: ProposeLoopExecutor
   // Files a workspace change-proposal card (pillar 3). Conversational runs
   // only, same rationale as proposeLoop.
@@ -454,10 +448,8 @@ export { generateSessionTitle } from "./session-title"
 export { formatSpeakerLine } from "./transcript"
 export type {
   RunLoopContext,
-  RunTriggeredContext,
+  RunTriggerContext,
   TriggeredCompleteLoop,
-  TriggeredCreatePlan,
-  TriggeredPostMessage,
 } from "./triggered"
 export type { OnUsage, UsageEvent } from "./usage"
 export {
@@ -2120,7 +2112,6 @@ export async function respond(
       ...(codeActionsEnabled ? codeActionTools : {}),
       ...(artifactsEnabled ? artifactTools : {}),
       ...(ctx.plan || ctx.threadRootId ? planTools : {}),
-      ...(ctx.triggered ? triggeredTools : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
@@ -2252,8 +2243,7 @@ export async function respond(
               baseBranches,
               // Thread scope when there is one; channel scope otherwise —
               // matches the run scope, so follow-ups land in the same sandbox.
-              // Loop runs override with loop.id (their run scope).
-              sandboxKey: ctx.sandboxKey ?? ctx.threadRootId ?? ctx.channelId,
+              sandboxKey: ctx.threadRootId ?? ctx.channelId,
               deadlineAt: budgets.deadlineAt,
               onUsage,
               onToolEvent,
@@ -2265,10 +2255,10 @@ export async function respond(
             create_artifacts: {
               workspaceId: ctx.workspaceId,
               channelId: ctx.channelId,
-              // Warm workbench continuity per conversation scope (loop runs
-              // override with loop.id). Channel-scope one-shots stay ephemeral
-              // — no channelId fallback here, unlike code sessions.
-              sandboxKey: ctx.sandboxKey ?? ctx.threadRootId ?? null,
+              // Warm workbench continuity per conversation scope.
+              // Channel-scope one-shots stay ephemeral — no channelId
+              // fallback here, unlike code sessions.
+              sandboxKey: ctx.threadRootId ?? null,
               // Getter, not a value: the plan may start mid-run.
               getPlan: () =>
                 planRef.current ? { id: planRef.current.id } : null,
@@ -2316,12 +2306,6 @@ export async function respond(
               request_approval: planToolContext,
             }
           })()
-        : {}),
-      ...(ctx.triggered
-        ? {
-            post_channel_message: { postMessage: ctx.triggered.postMessage },
-            create_plan: { createPlan: ctx.triggered.createPlan },
-          }
         : {}),
       ...(ctx.loop?.completeLoop
         ? { complete_loop: { completeLoop: ctx.loop.completeLoop } }
@@ -2463,7 +2447,7 @@ export async function respond(
         buildRunContext(ctx),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.triggered ? `\n\n${triggeredPromptSection(ctx.triggered)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
       messageBudget = getMessageBudget(instructions)
       // A continued run inherits its predecessors' transcript in place of a
       // fresh initial message; the snapshot records the delta it was started

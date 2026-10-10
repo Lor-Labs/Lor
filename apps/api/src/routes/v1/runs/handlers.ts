@@ -544,7 +544,8 @@ export const steerQueuedMessage: AppRouteHandler<
     .then((rows) => rows[0])
 
   // Conversational scopes always carry a placeholder message; a null here
-  // can't happen for them (headless runs live on delivery-id scopes).
+  // can't happen for them (an Act run is message-less only before its
+  // session exists).
   const outcome = active?.messageId
     ? await requestRunStop(
         { ...active, messageId: active.messageId },

@@ -693,13 +693,45 @@ run's reply is not built.
 
 #### Step 17: Act runs in sessions (~350)
 
-[ ] built · [ ] committed · [ ] db:push
+[x] built · [ ] committed · [ ] db:push
 
 - `triggered-run.ts:113-150`, `act-runs.ts:122-151`: one session per run;
   partial unique index on active `trigger_id`; scoped briefing (hazard 11).
 - Delete `post_channel_message` and `create_plan` (`triggered.ts:63-98`),
   `worker lib/lor-plan.ts`; rewrite `triggered.ts:132-196`; tool binding
   `index.ts:2112,2308-2318`, `tool-guard.ts:29-30` (hazard 6).
+
+**Built** (db:push adds `trigger_run` to `channel_event_type` and the index
+`agent_run_triggerId_active_uidx`). Act runs are still created where they
+were (the API's leading edge, the worker's window flush), with `scopeKey =
+triggerId` and their deliveries claimed. The triggered-run processor no
+longer runs them headless: after the kill switch, `startActSession`
+(`apps/worker/src/lib/trigger-session.ts`) creates a session (origin
+`trigger`, title = the event label), posts a silent `trigger_run` event line
+whose content is the payload (`eventPayload` = `{ triggerId, label }`), and
+moves the queued run into the session through `startScopeRun`'s new
+`queuedRunId` (placeholder, scopeKey = the anchor, respond job). A retried job
+never makes a second session: it skips a run that is already placed, and the
+start never throws to BullMQ. `lor-respond` reads `loadTriggerRun`: every run
+in the session gets `ctx.trigger` (the instructions via
+`triggerSessionPromptSection`, stable per trigger); the event's run gets no
+`propose_loop`/`propose_workspace_change`, its briefing is appended to the
+event turn (so it is saved in the run's context and replayed unchanged by
+later runs, never in the system prompt), and its reply is saved as the
+`handoffNote` for the next event's briefing and the settings "last run" row.
+The briefing reads channel chat only (`chatFeedMessage()`), never sessions
+(hazard 11). The loader reads `trigger_run` lines with the event label as the
+speaker. Generated titles now cover Act sessions too (the event is the
+request). Web and mobile render the line as "<label> started this session";
+the Act toggle copy says each event starts a session. Deleted:
+`runUnattended` (only `cancelPendingRun` stays in `unattended-run.ts`),
+`lib/lor-plan.ts`, the `post_channel_message`/`create_plan` tools and their
+binding, `ctx.sandboxKey`; both names stay in `RESERVED_TOOL_NAMES` and left
+`SIDE_EFFECT_TOOLS` (hazard 6). Deviation: the design did not say who follows
+an Act session. The person who connected the source (`integration_connection.
+created_by`) is subscribed when they can see the channel; Lor's prompt says
+to mention anyone else, and its mentions subscribe them. Not built: a way to
+see the raw payload in the session (only Lor reads it).
 
 #### Step 18: call Summary tab (~300)
 

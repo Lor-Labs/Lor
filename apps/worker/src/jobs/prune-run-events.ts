@@ -105,8 +105,8 @@ export async function sweepDeadRuns(
   // One transaction per run: the failure and its placeholder settle together,
   // so a run can never go terminal while its message stays pending forever.
   // The update re-checks the dead predicate, keeping concurrent sweeps (and a
-  // claim that landed since the select) from double-failing a run. Headless
-  // triggered runs have no placeholder message — only the run row settles.
+  // claim that landed since the select) from double-failing a run. An Act run
+  // that never reached its session has no placeholder — only the row settles.
   const dead: {
     id: string
     messageId: string | null

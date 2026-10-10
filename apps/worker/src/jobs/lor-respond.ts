@@ -24,6 +24,7 @@ import {
   respond,
   writeBack,
 } from "@repo/lor"
+import { saveHandoffNote } from "@repo/lor/act-runs"
 import type { ProposeLoopExecutor } from "@repo/lor/loops"
 import type { StartPlanInput } from "@repo/lor/plans"
 import { toRealtimePlan } from "@repo/lor/plans"
@@ -72,6 +73,7 @@ import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { titleSessionAfterFirstReply } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
+import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
@@ -318,6 +320,11 @@ export function createLorRespondProcessor(
         loopRun = await loadLoopRun(threadRootId, triggerMessageId).catch(
           () => null
         )
+        const triggerRun = await loadTriggerRun(
+          threadRootId,
+          triggerMessageId
+        ).catch(() => null)
+        const automated = loopRun?.isFire || triggerRun?.isEvent
         if (loopRun?.isFire && job.data.runId) {
           await markLoopFireRun(job.data.runId, loopRun.loop.id).catch((err) =>
             logger.warn({ err, lorMessageId }, "Loop fire run tag failed")
@@ -555,7 +562,19 @@ export function createLorRespondProcessor(
                     lorMessageId,
                     triggerMessageId,
                   })
-            const { conversation } = snapshot
+            const conversation =
+              triggerRun?.isEvent &&
+              job.data.runId &&
+              !execution?.resume &&
+              !continuation &&
+              "backgroundConversation" in snapshot
+                ? await briefActEvent(snapshot.conversation, {
+                    triggerId: triggerRun.triggerId,
+                    channelId,
+                    runId: job.data.runId,
+                    eventMessageId: triggerMessageId,
+                  })
+                : snapshot.conversation
             const backgroundConversation =
               "backgroundConversation" in snapshot
                 ? snapshot.backgroundConversation
@@ -774,8 +793,10 @@ export function createLorRespondProcessor(
                       },
                     }
                   : {}),
-                // A loop's fire never schedules loops or files proposals.
-                ...(loopRun?.isFire ? {} : { proposeLoop, proposeChange }),
+                // A loop's fire or an Act event never schedules loops or
+                // files proposals.
+                ...(automated ? {} : { proposeLoop, proposeChange }),
+                ...(triggerRun ? { trigger: triggerRun.context } : {}),
                 ...(loopRun && threadRootId
                   ? {
                       loop: loopRunContext(
@@ -1164,6 +1185,10 @@ export function createLorRespondProcessor(
             false,
             messageMentions
           )
+          // The reply to an Act event briefs the trigger's next run.
+          if (triggerRun?.isEvent && job.data.runId) {
+            await saveHandoffNote(job.data.runId, finalText)
+          }
           await runWriter.transition(stoppedByUser ? "stopped" : "complete", {
             stopReason: answer.stoppedFor ?? "completed",
           })

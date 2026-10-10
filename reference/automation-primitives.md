@@ -101,6 +101,15 @@ LOR-49: index data silently, notify no one.
 
 ### Act — hand data + instructions to Lor, let it decide
 
+> **Superseded 2026-10-09 (workspace model, Step 17).** Each Act run now starts its own
+> Lor session in the anchor channel: the payload is the session's first turn (a
+> `trigger_run` event line), and Lor answers it as a normal visible session run. The
+> trigger's instructions sit in the system prompt of every run in that session.
+> `post_channel_message` and `create_plan` are gone; Lor never posts in channel chat.
+> The person who connected the source follows the session; Lor mentions anyone else.
+> See `reference/workspace-model.md` (decision 1) and `apps/worker/src/lib/trigger-session.ts`.
+> The text below is the original design.
+
 An **agent run** composed as: the channel's normal toolset (connectors granted by the
 channel's agent profile, **including custom tools**) + the trigger's instructions + the
 normalized payload as the user turn. Trigger instructions are *not* in the system prompt
@@ -262,9 +271,10 @@ refresh keeps the current selection). CRUD + discover endpoints at
   changes *when* and *with what company* Lor looks, never *whether*. Three layers, in
   `packages/lor/src/act-runs.ts` (shared: the API arms windows on ingest, the worker
   flushes them minutes later):
-  1. **One run per trigger at a time.** Act runs use `scopeKey = triggerId`, so the
-     existing partial unique index on active `agent_run` rows makes this a database
-     invariant rather than a check that can race. `actGuard` pre-checks it so a burst
+  1. **One run per trigger at a time.** The partial unique index
+     `agent_run_triggerId_active_uidx` makes this a database invariant rather than a
+     check that can race (until Step 17 of the workspace model it was `scopeKey =
+     triggerId`; the run now moves into its own session's scope). `actGuard` pre-checks it so a burst
      doesn't spend cap slots on runs Postgres would reject anyway. A delivery that
      arrives mid-run **queues** — even in immediate mode, where the trigger borrows the
      batch machinery with a 30s window purely to hold the work.
@@ -367,7 +377,8 @@ refresh keeps the current selection). CRUD + discover endpoints at
 1. **Custom tools are workspace-registered, channel-enabled** like connectors. ✓
 2. **Effects are named POST, Remember, Act** and any combination can be enabled per
    trigger. ✓
-3. **Silent Act runs leave no channel trace** — run/delivery log only. ✓
+3. **Silent Act runs leave no channel trace** — run/delivery log only. ✓ (Since
+   2026-10-09 every Act run has its own session, but still nothing in channel chat.)
 4. **Remember lands in `source`, not the brain.** ✓
 5. **Write tools execute freely in unattended runs.** Offering a tool to the AI *is* the
    consent — if it's registered and granted to the channel, Lor may call it without

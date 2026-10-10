@@ -38,6 +38,7 @@ export async function loadConversation(args: {
         attachments: schema.message.attachments,
         embeds: schema.message.embeds,
         eventType: schema.message.eventType,
+        eventPayload: schema.message.eventPayload,
       })
       .from(schema.message)
       .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
@@ -162,12 +163,19 @@ export async function loadConversation(args: {
     const files = (r.attachments ?? [])
       .filter((a) => !a.contentType.startsWith("image/"))
       .map(toRef)
+    // Lor posts both lines, but each is the turn's request: a loop's fire
+    // reads as the schedule, an Act event as its source.
+    const authorName =
+      r.eventType === "loop_run"
+        ? LOOP_SCHEDULE_SPEAKER
+        : r.eventType === "trigger_run" &&
+            r.eventPayload &&
+            "label" in r.eventPayload
+          ? r.eventPayload.label
+          : userDisplayName({ name: r.authorName })
     return {
       messageId: r.messageId,
-      authorName:
-        r.eventType === "loop_run"
-          ? LOOP_SCHEDULE_SPEAKER
-          : userDisplayName({ name: r.authorName }),
+      authorName,
       content:
         (r.content ?? "") +
         (r.messageId === args.threadRootId

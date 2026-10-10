@@ -15,8 +15,8 @@ export type LorLoopDeps = {
   redis: RedisClient
 }
 
-// The propose_loop executor: loop_card message + draft loop row, the same
-// card-is-anchor shape as createLorPlan. Nothing is scheduled here — the
+// The propose_loop executor: loop_card message + draft loop row, with the
+// card as the loop's anchor. Nothing is scheduled here — the
 // loop stays a draft until a human activates it (L2 activate route). The
 // card content is a plain-text fallback (mobile, search, clients without the
 // loop row); rich rendering reads the row via cardMessageId.

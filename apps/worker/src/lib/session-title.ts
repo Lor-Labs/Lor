@@ -7,6 +7,7 @@ import {
   isNull,
   LOR_USER_ID,
   ne,
+  or,
   schema,
 } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
@@ -18,9 +19,10 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import { logger } from "@/lib/logger"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
-// After Lor's first finished reply in a person-started session, a small model
-// names it, replacing the prompt's first line. Web types the new title out.
-// A person's rename (titleEditedAt) always wins, even mid-generation.
+// After Lor's first finished reply in a person-started or Act session, a
+// small model names it, replacing the prompt's first line (or the event
+// source). Web types the new title out. A person's rename (titleEditedAt)
+// always wins, even mid-generation.
 export async function titleSessionAfterFirstReply(input: {
   emitter: Emitter<ServerToClientEvents>
   threadRootId: string
@@ -32,7 +34,7 @@ export async function titleSessionAfterFirstReply(input: {
     !session ||
     session.titleEditedAt ||
     session.archivedAt ||
-    (session.origin !== "chat" && session.origin !== "new")
+    session.origin === "loop"
   ) {
     return
   }
@@ -53,7 +55,10 @@ export async function titleSessionAfterFirstReply(input: {
     .where(
       and(
         eq(schema.message.threadRootId, input.threadRootId),
-        ne(schema.message.authorId, LOR_USER_ID)
+        or(
+          ne(schema.message.authorId, LOR_USER_ID),
+          eq(schema.message.eventType, "trigger_run")
+        )
       )
     )
     .orderBy(asc(schema.message.createdAt))

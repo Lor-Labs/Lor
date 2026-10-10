@@ -241,6 +241,7 @@ export type RealtimeChannelEventType =
   | "loop_paused"
   | "loop_completed"
   | "loop_run"
+  | "trigger_run"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -253,6 +254,7 @@ export type RealtimeChannelEventPayload =
       reason?: "failures" | "out_of_credits"
       via?: "proposal"
     }
+  | { triggerId: string; label: string }
   | null
 
 export type RealtimeAuthor = {

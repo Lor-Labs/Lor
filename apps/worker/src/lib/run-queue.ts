@@ -259,13 +259,16 @@ export type ScopeRunStart = {
   loopId?: string
   scheduledFor?: Date
   resumeApprovalId?: string | null
+  // An Act run created before its session (its deliveries point at it) is
+  // moved into the scope instead of inserting a new run.
+  queuedRunId?: string
 }
 
 // Placeholder + run + respond job answering one trigger message in an idle
 // scope. "busy" means another run holds the scope (one active run per scope)
 // and nothing was started. `beforeEnqueue` runs once the run row commits;
 // if the enqueue then fails, everything unwinds and `onUnwind` runs. Shared
-// by the queue drain and loop fires.
+// by the queue drain, loop fires and Act sessions.
 export async function startScopeRun(
   deps: {
     emitter: Emitter<ServerToClientEvents>
@@ -300,26 +303,41 @@ export async function startScopeRun(
   if (!placeholder) return "failed"
 
   let busy = false
-  const newRun = await db
-    .insert(schema.agentRun)
-    .values({
-      workspaceId: args.workspaceId,
-      channelId,
-      messageId: placeholder.id,
-      threadRootId,
-      triggerMessageId: args.triggerMessageId,
-      scopeKey,
-      loopId: args.loopId ?? null,
-      scheduledFor: args.scheduledFor ?? null,
-      budgetSteps: env.AGENT_RUN_MAX_STEPS,
-      budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-      budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-      budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-      budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
-      budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
-      budgetCredits: env.AGENT_RUN_MAX_CREDITS,
-    })
-    .returning({ id: schema.agentRun.id })
+  const placement = {
+    messageId: placeholder.id,
+    threadRootId,
+    triggerMessageId: args.triggerMessageId,
+    scopeKey,
+  }
+  const placed: Promise<{ id: string }[]> = args.queuedRunId
+    ? db
+        .update(schema.agentRun)
+        .set(placement)
+        .where(
+          and(
+            eq(schema.agentRun.id, args.queuedRunId),
+            eq(schema.agentRun.state, "queued")
+          )
+        )
+        .returning({ id: schema.agentRun.id })
+    : db
+        .insert(schema.agentRun)
+        .values({
+          ...placement,
+          workspaceId: args.workspaceId,
+          channelId,
+          loopId: args.loopId ?? null,
+          scheduledFor: args.scheduledFor ?? null,
+          budgetSteps: env.AGENT_RUN_MAX_STEPS,
+          budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
+          budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
+          budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
+          budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
+          budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
+          budgetCredits: env.AGENT_RUN_MAX_CREDITS,
+        })
+        .returning({ id: schema.agentRun.id })
+  const newRun = await placed
     .then((r) => r[0] ?? null)
     .catch((err) => {
       // Only the one-active-run-per-scope unique index is expected contention.

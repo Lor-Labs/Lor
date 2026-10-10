@@ -24,7 +24,7 @@ export type DispatchOutcome = {
   // The posted channel message id, when the POST effect ran.
   posted: string | null
   remembered: boolean
-  // The headless agent run id, when the Act effect started.
+  // The Act run id, when the Act effect started.
   acted: string | null
 }
 
@@ -208,8 +208,8 @@ export async function dispatchConnectorEvent(input: {
       return null
     })
 
-  // Act: hand the payload + trigger instructions to a headless agent run.
-  // Anchored on the delivery row — no delivery log, no run.
+  // Act: the worker turns the run into a new session whose first turn is the
+  // payload. Anchored on the delivery row — no delivery log, no run.
   let actOutcome = "off"
   if (delivery && actText !== null) {
     const started = await startActRun({
