@@ -7,8 +7,8 @@ import { useEffect, useState } from "react"
 
 const NOTE_MS = 6000
 
-// @Lor in chat or a human thread starts a session and keeps the sender where
-// they are, so several can start in a row. The note confirms each start.
+// Cmd+Enter starts a session and keeps the sender where they are, so several
+// can start in a row (Enter opens it instead). The note confirms each start.
 export function useSessionStartedNote() {
   const [started, setStarted] = useState<RealtimeAgentSession | null>(null)
   useEffect(() => {

@@ -167,6 +167,12 @@ export const sendMessagePayloadSchema = z
     // New session view: the message starts a session in this channel with
     // no chat context, @Lor or not.
     startSession: z.boolean().optional(),
+    // Ids the sender chose for the session this send starts (New session or
+    // @Lor), so it can show the session before the ack. Ignored when the
+    // send starts none.
+    newSession: z
+      .object({ id: z.string().uuid(), threadRootId: z.string().uuid() })
+      .optional(),
   })
   .refine(
     (data) =>

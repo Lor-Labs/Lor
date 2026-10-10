@@ -19,10 +19,7 @@ import {
   scrollToMessage,
 } from "@/components/chat/message-list"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
-import {
-  SessionStartedNote,
-  useSessionStartedNote,
-} from "@/components/session/session-started-note"
+import { SessionStartedNote } from "@/components/session/session-started-note"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
@@ -44,6 +41,7 @@ import {
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
+import { useSessionStart } from "@/hooks/use-session-start"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
@@ -203,13 +201,16 @@ function ChannelView() {
     [workspaceSlug, channelId]
   )
 
-  const sessionStarted = useSessionStartedNote()
+  const sessionStart = useSessionStart({
+    workspaceSlug,
+    channel: { id: channelId, name: data?.name ?? null },
+  })
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
     channelId,
     currentUser: session?.user,
-    onSessionStarted: sessionStarted.onSessionStarted,
+    sessionStart: sessionStart.handlers,
   })
 
   const {
@@ -618,7 +619,7 @@ function ChannelView() {
           destination="channel"
           notice={
             <SessionStartedNote
-              session={sessionStarted.started}
+              session={sessionStart.started}
               workspaceSlug={workspaceSlug}
             />
           }

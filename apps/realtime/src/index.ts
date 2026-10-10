@@ -652,6 +652,10 @@ io.on("connection", (socket) => {
         io.to(channelRoom(parsed.channelId)).emit("session:updated", {
           session: realtimeSession,
         })
+        // Before the ack: the sender may be showing the session already
+        // (optimistic start), and Lor's first frames must reach them even
+        // if their page joins the room late or not at all (Cmd+Enter).
+        await socket.join(threadRoom(realtimeSession.threadRootId))
       }
       // A new session or a post in one changes subscribers' sidebar rows.
       if (session) {

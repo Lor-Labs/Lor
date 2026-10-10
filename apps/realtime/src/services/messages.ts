@@ -50,7 +50,12 @@ type CreateMessageInput = {
 
 export type NewSessionInput = Pick<
   CreateSessionArgs,
-  "origin" | "title" | "contextMessageIds" | "subscriberIds"
+  | "id"
+  | "threadRootId"
+  | "origin"
+  | "title"
+  | "contextMessageIds"
+  | "subscriberIds"
 >
 
 type DeleteMessageInput = {

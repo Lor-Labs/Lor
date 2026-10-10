@@ -902,6 +902,15 @@ lines, plus the server steps. 22 steps.
 - Step 7: the destination bar also covers human threads ("New session from
   this thread"), and the Started note shows there too; before this, `@Lor`
   in a thread made the message vanish with no feedback.
+- Step 7, changed 2026-10-10 (Jacob, QA pass): starting a session is
+  optimistic. The client picks the session and anchor ids (`newSession` on
+  `message:send`; `createSession` inserts under them) and `useSessionStart`
+  seeds the session, its first turn, its subscribers and its sidebar row
+  before the ack. Enter opens the session at once; Cmd+Enter keeps you where
+  you sent it, with the Started note, to fire off several. Same in channel
+  chat, human threads and the New session view. The gateway joins the
+  sender's socket to the session's room before the ack, so Lor's first
+  frames reach them even before their page joins.
 - Step 7: the `draft` param needed no change. It already fills the channel
   composer with `@Lor …`, which now shows the Lor state and starts a session
   on send. Step 19 still moves setup's Ask Lor to `session.new`.

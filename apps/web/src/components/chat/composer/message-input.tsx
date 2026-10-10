@@ -160,6 +160,8 @@ interface MessageInputProps {
       attachments?: Message["attachments"]
       // Session only: the message is for people, so Lor does not run.
       toPeople?: boolean
+      // Cmd+Enter: a send that starts a session stays where it was sent.
+      stay?: boolean
     }
   ) => void
   isSending?: boolean
@@ -573,7 +575,7 @@ export function MessageInput({
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
   const mentionCandidatesRef = useRef<MentionCandidate[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const handleSubmitRef = useRef<() => void>(() => undefined)
+  const handleSubmitRef = useRef<(stay: boolean) => void>(() => undefined)
   const addFilesRef = useRef(addFiles)
   addFilesRef.current = addFiles
   const onTypingRef = useRef(onTyping)
@@ -700,7 +702,8 @@ export function MessageInput({
 
           event.preventDefault()
           event.stopPropagation()
-          handleSubmitRef.current()
+          // Cmd+Enter starts a session without opening it, to fire off several.
+          handleSubmitRef.current(event.metaKey || event.ctrlKey)
           return true
         },
         handlePaste: (_view, event) => {
@@ -811,88 +814,98 @@ export function MessageInput({
     }
   }, [editor, composerDraft, onComposerDraftConsumed, destination])
 
-  const handleSend = useCallback(() => {
-    if (!editor || isUploading) return
+  const handleSend = useCallback(
+    (stay = false) => {
+      if (!editor || isUploading) return
 
-    const rawMarkdown = editor.getMarkdown()
-    const markdown = toStoredMarkdown(rawMarkdown)
-    const trimmed = markdown.trim()
-    const uploadedAttachments = getUploadedAttachments()
-    const hasAttachments = uploadedAttachments.length > 0
-    const hasContent = trimmed.length > 0
+      const rawMarkdown = editor.getMarkdown()
+      const markdown = toStoredMarkdown(rawMarkdown)
+      const trimmed = markdown.trim()
+      const uploadedAttachments = getUploadedAttachments()
+      const hasAttachments = uploadedAttachments.length > 0
+      const hasContent = trimmed.length > 0
 
-    if ((!hasContent && !hasAttachments) || isSending) return
+      if ((!hasContent && !hasAttachments) || isSending) return
 
-    const mentionCandidatesById = new Map(
-      normalizedMentionCandidates.map((candidate) => [candidate.id, candidate])
-    )
+      const mentionCandidatesById = new Map(
+        normalizedMentionCandidates.map((candidate) => [
+          candidate.id,
+          candidate,
+        ])
+      )
 
-    const mentionIds = extractMentionIds(trimmed)
-    // Asking Lor is what the lor_intro hint teaches, from any composer.
-    if (mentionIds.includes(LOR_USER_ID)) dismissLorHint()
+      const mentionIds = extractMentionIds(trimmed)
+      // Asking Lor is what the lor_intro hint teaches, from any composer.
+      if (mentionIds.includes(LOR_USER_ID)) dismissLorHint()
 
-    const mentions: Message["mentions"] = mentionIds.flatMap((mentionId) => {
-      const mentionCandidate = mentionCandidatesById.get(mentionId)
-      if (!mentionCandidate) return []
+      const mentions: Message["mentions"] = mentionIds.flatMap((mentionId) => {
+        const mentionCandidate = mentionCandidatesById.get(mentionId)
+        if (!mentionCandidate) return []
 
-      return [
-        {
-          id: mentionCandidate.id,
-          name: mentionCandidate.name ?? mentionCandidate.label,
-          image: mentionCandidate.image ?? null,
-        },
-      ]
-    })
+        return [
+          {
+            id: mentionCandidate.id,
+            name: mentionCandidate.name ?? mentionCandidate.label,
+            image: mentionCandidate.image ?? null,
+          },
+        ]
+      })
 
-    onSend(trimmed, {
-      mentions,
-      referencedMessage: replyingTo
-        ? {
-            id: replyingTo.id,
-            content: replyingTo.content,
-            author: replyingTo.author,
-            overrideName: replyingTo.overrideName,
-            overrideAvatarUrl: replyingTo.overrideAvatarUrl,
-          }
-        : undefined,
-      attachments: hasAttachments ? uploadedAttachments : undefined,
-      toPeople: destination === "session" && !routing.toLor,
-    })
-    editor.commands.clearContent(true)
-    editor.commands.focus("end")
-    clearAttachments()
-    onCancelReply?.()
-    setManualToPeople(false)
-  }, [
-    editor,
-    isSending,
-    isUploading,
-    getUploadedAttachments,
-    clearAttachments,
-    normalizedMentionCandidates,
-    onSend,
-    replyingTo,
-    onCancelReply,
-    dismissLorHint,
-    destination,
-    routing.toLor,
-  ])
-  const handleSubmit = useCallback(() => {
-    const hasDraft =
-      plainText.trim().length > 0 || pendingAttachments.length > 0
-    if (hasDraft) {
-      handleSend()
-      return
-    }
-    if (canSteerQueued && !isSteeringQueued) onSteerQueued?.()
-  }, [
-    canSteerQueued,
-    handleSend,
-    isSteeringQueued,
-    onSteerQueued,
-    pendingAttachments.length,
-    plainText,
-  ])
+      onSend(trimmed, {
+        mentions,
+        referencedMessage: replyingTo
+          ? {
+              id: replyingTo.id,
+              content: replyingTo.content,
+              author: replyingTo.author,
+              overrideName: replyingTo.overrideName,
+              overrideAvatarUrl: replyingTo.overrideAvatarUrl,
+            }
+          : undefined,
+        attachments: hasAttachments ? uploadedAttachments : undefined,
+        toPeople: destination === "session" && !routing.toLor,
+        stay,
+      })
+      editor.commands.clearContent(true)
+      editor.commands.focus("end")
+      clearAttachments()
+      onCancelReply?.()
+      setManualToPeople(false)
+    },
+    [
+      editor,
+      isSending,
+      isUploading,
+      getUploadedAttachments,
+      clearAttachments,
+      normalizedMentionCandidates,
+      onSend,
+      replyingTo,
+      onCancelReply,
+      dismissLorHint,
+      destination,
+      routing.toLor,
+    ]
+  )
+  const handleSubmit = useCallback(
+    (stay: boolean) => {
+      const hasDraft =
+        plainText.trim().length > 0 || pendingAttachments.length > 0
+      if (hasDraft) {
+        handleSend(stay)
+        return
+      }
+      if (canSteerQueued && !isSteeringQueued) onSteerQueued?.()
+    },
+    [
+      canSteerQueued,
+      handleSend,
+      isSteeringQueued,
+      onSteerQueued,
+      pendingAttachments.length,
+      plainText,
+    ]
+  )
   handleSubmitRef.current = handleSubmit
 
   // Session document: a printable key pressed anywhere outside another field
@@ -1403,7 +1416,7 @@ export function MessageInput({
                         "bg-agent text-agent-foreground hover:bg-agent/90 hover:text-agent-foreground"
                     )
                 )}
-                onClick={isStopMode ? onStop : handleSend}
+                onClick={isStopMode ? onStop : () => handleSend()}
                 disabled={isStopMode ? isStopping : !canSend}
                 aria-label={
                   isStopMode

@@ -67,10 +67,7 @@ import {
   ThreadWorkHeader,
 } from "@/components/chat/thread-work-header"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
-import {
-  SessionStartedNote,
-  useSessionStartedNote,
-} from "@/components/session/session-started-note"
+import { SessionStartedNote } from "@/components/session/session-started-note"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
@@ -101,6 +98,7 @@ import { usePlanArtifacts } from "@/hooks/use-plan"
 import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import { useSessionStart } from "@/hooks/use-session-start"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import {
   type FetchPageParams,
@@ -245,8 +243,14 @@ export function ThreadPanel({
   // Latest-ref indirection: useRunQueue mounts below (it needs the thread
   // messages), but a failed send must drop the nonce it mirrored there.
   const removeQueuedOptimisticRef = useRef<(id: string) => void>(() => {})
+  const { data: channel } = useQuery(
+    channelQueryOptions(view.workspaceSlug, view.channelId)
+  )
   // @Lor in a human thread starts a session seeded with the thread.
-  const sessionStarted = useSessionStartedNote()
+  const sessionStart = useSessionStart({
+    workspaceSlug: view.workspaceSlug,
+    channel: { id: view.channelId, name: channel?.name ?? null },
+  })
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
@@ -254,7 +258,10 @@ export function ThreadPanel({
     currentUser: session?.user,
     threadRootId: view.threadRootId,
     onSendFailed: (nonce) => removeQueuedOptimisticRef.current(nonce),
-    onSessionStarted: sessionStarted.onSessionStarted,
+    sessionStart:
+      !sessionView && channel?.type === "text"
+        ? sessionStart.handlers
+        : undefined,
   })
 
   const {
@@ -548,9 +555,6 @@ export function ThreadPanel({
     view.channelId
   )
   // Voice channel threads are call chats; their root is a silent placeholder.
-  const { data: channel } = useQuery(
-    channelQueryOptions(view.workspaceSlug, view.channelId)
-  )
   const isCallChat = channel?.type === "voice"
   const composerDestination = sessionView
     ? "session"
@@ -849,7 +853,7 @@ export function ThreadPanel({
         }
         notice={
           <SessionStartedNote
-            session={sessionStarted.started}
+            session={sessionStart.started}
             workspaceSlug={view.workspaceSlug}
           />
         }

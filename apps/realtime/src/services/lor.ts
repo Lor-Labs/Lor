@@ -14,12 +14,12 @@ import {
   findAgentSessionByThreadRoot,
 } from "@repo/db/queries/agent-sessions"
 import { env } from "@repo/env/server"
+import { extractDirectMentionUserIds } from "@repo/messaging"
 import {
-  extractDirectMentionUserIds,
-  MARKDOWN_USER_MENTION_REGEX,
-  USER_MENTION_REGEX,
-} from "@repo/messaging"
-import type { RealtimeMessage, SendMessagePayload } from "@repo/realtime-types"
+  type RealtimeMessage,
+  type SendMessagePayload,
+  sessionTitleFromPrompt,
+} from "@repo/realtime-types"
 import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
 import { isLorMentioned } from "@/services/lor-routing"
@@ -29,20 +29,6 @@ import { createMessage, type NewSessionInput } from "@/services/messages"
 // the pre-thread background Lor read before sessions.
 const CHAT_CONTEXT_LIMIT = 10
 const THREAD_CONTEXT_LIMIT = 50
-const TITLE_WORDS = 6
-
-function sessionTitleFromPrompt(content: string) {
-  const words = content
-    .replace(USER_MENTION_REGEX, "")
-    .replace(MARKDOWN_USER_MENTION_REGEX, "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-  if (words.length === 0) return "New session"
-  const title = words.slice(0, TITLE_WORDS).join(" ")
-  const capitalized = title.charAt(0).toUpperCase() + title.slice(1)
-  return words.length > TITLE_WORDS ? `${capitalized}…` : capitalized
-}
 
 async function loadChatContextIds(channelId: string) {
   const rows = await db
@@ -84,8 +70,13 @@ export async function sessionStartFor(args: {
     args.senderId,
     ...extractDirectMentionUserIds(payload.content ?? ""),
   ]
+  const ids = {
+    id: payload.newSession?.id,
+    threadRootId: payload.newSession?.threadRootId,
+  }
   if (payload.startSession && !payload.threadRootId) {
     return {
+      ...ids,
       origin: "new",
       title: sessionTitleFromPrompt(payload.content ?? ""),
       // "Ask Lor about this": the quoted message is the only context.
@@ -110,6 +101,7 @@ export async function sessionStartFor(args: {
     contextMessageIds.push(payload.referencedMessageId)
   }
   return {
+    ...ids,
     origin: "chat",
     title: sessionTitleFromPrompt(payload.content),
     contextMessageIds,

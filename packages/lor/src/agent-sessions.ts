@@ -43,6 +43,9 @@ export function toRealtimeAgentSession(
 }
 
 export type CreateSessionArgs = {
+  // Client-chosen ids for an optimistic start; generated when unset.
+  id?: string
+  threadRootId?: string
   workspaceId: string
   channelId: string
   // Anchor author: the person who started it, or Lor for loops and triggers.
@@ -65,6 +68,7 @@ export async function createSession(
   const [anchor] = await tx
     .insert(schema.message)
     .values({
+      id: args.threadRootId,
       channelId: args.channelId,
       authorId: args.authorId,
       type: "agent_session",
@@ -75,6 +79,7 @@ export async function createSession(
   const [session] = await tx
     .insert(schema.agentSession)
     .values({
+      id: args.id,
       workspaceId: args.workspaceId,
       channelId: args.channelId,
       threadRootId: anchor.id,

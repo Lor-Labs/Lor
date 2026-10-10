@@ -12,7 +12,6 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
-import { toast } from "@repo/ui/components/toast"
 import {
   type InfiniteData,
   useQuery,
@@ -22,10 +21,12 @@ import { useNavigate } from "@tanstack/react-router"
 import { type CSSProperties, useState } from "react"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
+import { SessionStartedNote } from "@/components/session/session-started-note"
 import { useSocket } from "@/context/socket-context"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { useSessionStart } from "@/hooks/use-session-start"
 import type { Message } from "@/lib/api-types"
 import { readLastChannelId } from "@/lib/last-location"
 import { toSearchPreviewText } from "@/lib/search-preview"
@@ -169,17 +170,13 @@ function NewSessionComposer({
     </>
   )
 
+  const sessionStart = useSessionStart({ workspaceSlug, channel })
   const { handleSend } = useMessageSending({
     socket,
     queryClient,
     channelId: channel.id,
     currentUser: authSession?.user,
-    onSendFailed: () => toast.error("Couldn't start the session"),
-    onSessionStarted: (started) =>
-      void navigate({
-        to: "/$workspaceSlug/session/$sessionId",
-        params: { workspaceSlug, sessionId: started.id },
-      }),
+    sessionStart: sessionStart.handlers,
   })
 
   return (
@@ -231,6 +228,12 @@ function NewSessionComposer({
         context={{ type: "channel", name: channelName }}
         channelId={channel.id}
         destination="new"
+        notice={
+          <SessionStartedNote
+            session={sessionStart.started}
+            workspaceSlug={workspaceSlug}
+          />
+        }
         channelPicker={
           aboutMessageId ? (
             <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 font-medium text-agent">
