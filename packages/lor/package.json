@@ -17,7 +17,6 @@
     "./custom-tools": "./src/custom-tools.ts",
     "./embeddings": "./src/embeddings.ts",
     "./github": "./src/github.ts",
-    "./loop-runs": "./src/loop-runs.ts",
     "./loop-schedule": "./src/loop-schedule.ts",
     "./loops": "./src/loops.ts",
     "./mcp-guarded-fetch": "./src/mcp-guarded-fetch.ts",

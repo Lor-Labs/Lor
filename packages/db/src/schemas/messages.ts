@@ -61,6 +61,8 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "loop_created",
   "loop_paused",
   "loop_completed",
+  // One fire of a loop, the first line of its turn in the loop's session.
+  "loop_run",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Lor

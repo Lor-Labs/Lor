@@ -15,6 +15,7 @@ import {
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { userDisplayName } from "@repo/lor"
 import { meetingThreadContext } from "./meeting-context"
+import { LOOP_SCHEDULE_SPEAKER } from "./run-continuation"
 
 const CONTEXT_LIMIT = 30
 const THREAD_CONTEXT_LIMIT = 1000
@@ -36,6 +37,7 @@ export async function loadConversation(args: {
         authorName: schema.user.name,
         attachments: schema.message.attachments,
         embeds: schema.message.embeds,
+        eventType: schema.message.eventType,
       })
       .from(schema.message)
       .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
@@ -162,7 +164,10 @@ export async function loadConversation(args: {
       .map(toRef)
     return {
       messageId: r.messageId,
-      authorName: userDisplayName({ name: r.authorName }),
+      authorName:
+        r.eventType === "loop_run"
+          ? LOOP_SCHEDULE_SPEAKER
+          : userDisplayName({ name: r.authorName }),
       content:
         (r.content ?? "") +
         (r.messageId === args.threadRootId

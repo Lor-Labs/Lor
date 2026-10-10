@@ -1,13 +1,4 @@
-import {
-  and,
-  db,
-  eq,
-  inArray,
-  isUniqueViolation,
-  LOR_USER_ID,
-  schema,
-  sql,
-} from "@repo/db"
+import { and, db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
 import type { Loop } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
@@ -24,7 +15,6 @@ import { getEmitter } from "@/lib/bot-messages"
 import { postLoopChannelEvent } from "@/lib/channel-events"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
-import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // Loop lifecycle transitions shared by the L2 activate flow and L3
 // management routes. All emits go to the channel room (channel membership
@@ -62,10 +52,9 @@ function getLoopRunQueue(): Queue<LoopRunJobData> {
   return loopRunQueue
 }
 
-// Manual "Run now" from the loop panel: same rails as a sweep-claimed fire
-// (run row with scopeKey = loop.id, then the loop-run job), but the cadence
-// is untouched — nextRunAt stays where the schedule put it. The active-scope
-// unique index still enforces one run at a time.
+// Manual "Run now" from the loop panel: the same fire job the sweep queues
+// (a turn in the loop's session), but the cadence is untouched — nextRunAt
+// stays where the schedule put it. A fire still running refuses another.
 export async function runLoopNow(input: {
   loopId: string
 }): Promise<
@@ -80,52 +69,33 @@ export async function runLoopNow(input: {
   if (!loop || loop.status !== "active")
     return { ok: false, reason: "not_active" }
 
-  const run = await db
-    .insert(schema.agentRun)
-    .values({
-      workspaceId: loop.workspaceId,
-      channelId: loop.channelId,
-      scopeKey: loop.id,
-      loopId: loop.id,
-      scheduledFor: new Date(),
-      budgetSteps: env.AGENT_RUN_MAX_STEPS,
-      budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-      budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-      budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-      budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
-      budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
-      budgetCredits: env.AGENT_RUN_MAX_CREDITS,
-    })
-    .returning({ id: schema.agentRun.id })
+  const running = await db
+    .select({ id: schema.agentRun.id })
+    .from(schema.agentRun)
+    .where(
+      and(
+        eq(schema.agentRun.loopId, loop.id),
+        inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
+      )
+    )
+    .limit(1)
     .then((rows) => rows[0] ?? null)
-    .catch((err) => {
-      if (isUniqueViolation(err)) return null
-      throw err
-    })
-  if (!run) return { ok: false, reason: "already_running" }
+  if (running) return { ok: false, reason: "already_running" }
 
-  notifyWorkspaceActivity(loop.workspaceId)
+  const firedAt = new Date()
   try {
     await getLoopRunQueue().add(
       LOOP_RUN_JOB,
-      { runId: run.id, loopId: loop.id },
+      { loopId: loop.id, scheduledFor: firedAt.toISOString() },
       {
-        jobId: run.id,
+        jobId: `${loop.id}-now-${firedAt.getTime()}`,
         attempts: 2,
         backoff: { type: "fixed", delay: 5000 },
         removeOnComplete: true,
       }
     )
   } catch (err) {
-    // Same unwind as the sweep: a run row with no job would sit until the
-    // dead-run sweep force-fails it.
     logger.error({ err, loopId: loop.id }, "Run-now enqueue failed")
-    await db
-      .delete(schema.agentRun)
-      .where(eq(schema.agentRun.id, run.id))
-      .catch(() => {})
-    // The deleted queued run's indicator must clear.
-    notifyWorkspaceActivity(loop.workspaceId)
     return { ok: false, reason: "enqueue_failed" }
   }
 
@@ -155,7 +125,7 @@ async function stopInFlightRuns(
     })
     .where(
       and(
-        eq(schema.agentRun.scopeKey, loopId),
+        eq(schema.agentRun.loopId, loopId),
         inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
       )
     )

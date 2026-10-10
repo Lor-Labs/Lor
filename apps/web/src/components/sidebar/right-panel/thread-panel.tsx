@@ -47,6 +47,7 @@ import {
   useSyncExternalStore,
 } from "react"
 import { useDropzone } from "react-dropzone"
+import { ChannelEventRow } from "@/components/chat/channel-event-row"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { MessageItem } from "@/components/chat/message-item"
@@ -1067,10 +1068,24 @@ export function ThreadPanel({
                     !!prev &&
                     differenceInMinutes(msg.createdAt, prev.createdAt) <=
                       MESSAGE_GROUP_WINDOW_MINUTES
+                  // Events (a loop's "ran on schedule" line) are muted rows
+                  // that break the author group, so Lor's reply after one
+                  // keeps its avatar.
+                  if (msg.type === "event") {
+                    return (
+                      <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                        <ChannelEventRow
+                          events={[msg]}
+                          layout={sessionView ? "document" : "chat"}
+                        />
+                      </MessageScrollerItem>
+                    )
+                  }
                   const showHeader =
                     isDateBoundary ||
                     !prev ||
                     prev.authorId !== msg.authorId ||
+                    prev.type === "event" ||
                     !isWithinGroupWindow
                   return (
                     <MessageScrollerItem

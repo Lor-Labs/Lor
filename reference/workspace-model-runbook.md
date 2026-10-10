@@ -640,6 +640,37 @@ cards in chat.
   (`sweep-due-loops.ts:156-163`).
 - Web: loop panel links open the session.
 
+Split in two. **16a built** (server: a fire is a session turn; db:push adds
+`loop_run` to `channel_event_type`). The sweep and "Run now" both enqueue the
+loop job (`LoopRunJobData` is now `{ loopId, scheduledFor? }`; a pre-session
+job's `runId` is cancelled). Its processor calls `fireLoop`
+(`apps/worker/src/lib/loop-session.ts`): `ensureLoopSession` (creates or
+unarchives), skips if the loop's own run is still active, posts a silent
+`loop_run` event line ("The loop "X" ran on schedule") into the session, then
+starts a normal Lor run for it through `startScopeRun` (pulled out of the
+queue drain in `run-queue.ts`, scopeKey = the anchor, `loopId` and
+`scheduledFor` set) or queues it behind a person's turn. `lor-respond` reads
+`loadLoopRun`: every run in a loop's session gets `ctx.loop` (the loop's brief
+via `loopSessionPromptSection`, stable per loop so cache-safe, plus
+`complete_loop` when there is an end condition); a fire run is tagged with
+`loopId` (`markLoopFireRun`, for drained fires), skipped if the loop stopped,
+gets no `propose_loop`/`propose_workspace_change`, and settles the loop's
+failure count through `settlePlan` (`settleLoopRun`, auto-pause note into the
+session; the dead-run sweep calls it too). The loaders read `loop_run` lines
+as the "Loop schedule" speaker, and continuation deltas include them though
+Lor authored them. Pause stops runs by `agentRun.loopId`. Deleted: the
+headless loop path (`runUnattended` for loops, `post_channel_message`/
+`create_plan` for loops, the chat `loop_fire` chip, `loopRunBriefing` and
+`packages/lor/src/loop-runs.ts`, `loopPromptSection`). The propose_loop draft
+card now posts in the session it was asked in. Web renders event replies in a
+session with `ChannelEventRow` (document gutter). Deviations: no partial
+unique index on `loop_id` — one session per loop makes the existing
+one-active-run-per-scope index enforce one run per loop; loop sandboxes key
+on the session thread, not `loop.id`; the run-chain briefing is gone (the
+session transcript and continuation carry earlier runs). **16b next:**
+subscriptions at activation and setup, the "everyone in the channel" option,
+loop panel links into the session.
+
 #### Step 17: Act runs in sessions (~350)
 
 [ ] built · [ ] committed · [ ] db:push

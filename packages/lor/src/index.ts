@@ -146,7 +146,8 @@ import { guardTools } from "./tool-guard"
 import { formatSpeakerLine, sanitizeRosterLabel } from "./transcript"
 import {
   completeLoopTool,
-  loopPromptSection,
+  loopSessionPromptSection,
+  type RunLoopContext,
   type RunTriggeredContext,
   triggeredPromptSection,
   triggeredTools,
@@ -207,7 +208,7 @@ const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one o
 
 const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Pull requests target each repository's configured base branch (its default branch unless the workspace overrides it); when someone asks to target a different existing branch, pass it as base. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
 
-const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — an unattended run of you in this channel on a cron schedule, with standing instructions and an optional plain-language end condition. It creates a draft card; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
+const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
 
 const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
 
@@ -364,12 +365,15 @@ export type RespondContext = {
   // tools and injects the trigger's instructions — which appear in the
   // system prompt only when the trigger fires.
   triggered?: RunTriggeredContext
+  // Set on every run in a loop's session: the loop's standing brief in the
+  // system prompt, plus complete_loop when the loop has an end condition.
+  loop?: RunLoopContext
   // Set on a request spoken in a voice call: binds show_in_call and the call
   // framing. Results go to Lor's window, never the chat.
   voice?: RunVoiceContext
   // Overrides the persistent-sandbox scope (default threadRootId ??
-  // channelId). Loop runs pass loop.id so co-channel loops/triggers never
-  // share a warm checkout — keeps "sandbox key = run scope" true for them.
+  // channelId). Act runs pass their own key so co-channel triggers never
+  // share a warm checkout; loop runs use their session's thread.
   sandboxKey?: string
   // Conversational runs only: binds propose_loop (the worker owns the card
   // posting + draft loop row insert). Never set on triggered/loop runs — a
@@ -449,6 +453,7 @@ export {
 export { generateSessionTitle } from "./session-title"
 export { formatSpeakerLine } from "./transcript"
 export type {
+  RunLoopContext,
   RunTriggeredContext,
   TriggeredCompleteLoop,
   TriggeredCreatePlan,
@@ -2116,7 +2121,7 @@ export async function respond(
       ...(artifactsEnabled ? artifactTools : {}),
       ...(ctx.plan || ctx.threadRootId ? planTools : {}),
       ...(ctx.triggered ? triggeredTools : {}),
-      ...(ctx.triggered?.completeLoop ? completeLoopTool : {}),
+      ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
@@ -2316,12 +2321,10 @@ export async function respond(
         ? {
             post_channel_message: { postMessage: ctx.triggered.postMessage },
             create_plan: { createPlan: ctx.triggered.createPlan },
-            ...(ctx.triggered.completeLoop
-              ? {
-                  complete_loop: { completeLoop: ctx.triggered.completeLoop },
-                }
-              : {}),
           }
+        : {}),
+      ...(ctx.loop?.completeLoop
+        ? { complete_loop: { completeLoop: ctx.loop.completeLoop } }
         : {}),
       ...(ctx.voice
         ? {
@@ -2460,7 +2463,7 @@ export async function respond(
         buildRunContext(ctx),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.triggered ? `\n\n${triggeredPromptSection(ctx.triggered)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
       messageBudget = getMessageBudget(instructions)
       // A continued run inherits its predecessors' transcript in place of a
       // fresh initial message; the snapshot records the delta it was started

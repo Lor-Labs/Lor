@@ -119,6 +119,15 @@ function eventText(
         </>
       )
     }
+    case "loop_run": {
+      if (!payload) break
+      const p = payload as LoopPayload
+      return (
+        <>
+          The loop <Name>{p.loopName}</Name> ran on schedule
+        </>
+      )
+    }
   }
   return message.content
 }

@@ -12,6 +12,7 @@ import {
   schema,
 } from "@repo/db"
 import type {
+  Loop,
   LorMemory,
   LorReasoningSegment,
   LorToolCall,
@@ -55,6 +56,12 @@ import {
 } from "@/lib/approval-notify"
 import { createProposalCard } from "@/lib/change-proposal"
 import { logger } from "@/lib/logger"
+import {
+  loadLoopRun,
+  loopRunContext,
+  markLoopFireRun,
+  settleLoopRun,
+} from "@/lib/loop-session"
 import { loadConversation } from "@/lib/lor-conversation"
 import { createLoopCard } from "@/lib/lor-loop"
 import {
@@ -148,9 +155,25 @@ export function createLorRespondProcessor(
         // back to failed.
         let planSettled = false
         let planSettlementOutcome: "complete" | "failed" | "stopped" = "failed"
+        // Set once the run is known to be in a loop's session; a fire's
+        // outcome feeds the loop's failure count (lib/loop-session).
+        let loopRun: { loop: Loop; isFire: boolean } | null = null
+        let loopSettled = false
         const settlePlan = async (
-          outcome: "complete" | "failed" | "stopped"
+          outcome: "complete" | "failed" | "stopped",
+          stopReason?: string
         ) => {
+          if (loopRun?.isFire && threadRootId && !loopSettled) {
+            loopSettled = true
+            await settleLoopRun(
+              { emitter, redis },
+              loopRun.loop.id,
+              threadRootId,
+              { outcome, stopReason }
+            ).catch((err) =>
+              logger.error({ err, lorMessageId }, "Loop settlement failed")
+            )
+          }
           planSettlementOutcome = outcome
           if (!plan) {
             planSettled = true
@@ -292,6 +315,14 @@ export function createLorRespondProcessor(
           return
         }
         const execution = claim.kind === "claimed" ? claim.execution : null
+        loopRun = await loadLoopRun(threadRootId, triggerMessageId).catch(
+          () => null
+        )
+        if (loopRun?.isFire && job.data.runId) {
+          await markLoopFireRun(job.data.runId, loopRun.loop.id).catch((err) =>
+            logger.warn({ err, lorMessageId }, "Loop fire run tag failed")
+          )
+        }
         // Completed plans don't resurrect on follow-up replies — a quick
         // question in a finished plan thread stays a question. Plan tools
         // reopen explicitly (update_plan flips completed back to running).
@@ -563,6 +594,25 @@ export function createLorRespondProcessor(
               return
             }
             workspaceId = channel.workspaceId
+            // A fire that waited behind a person's turn while its loop was
+            // paused or completed does nothing.
+            if (loopRun?.isFire && loopRun.loop.status !== "active") {
+              const skipped = "Skipped: this loop is no longer running."
+              await db
+                .update(schema.message)
+                .set({ content: skipped, status: "complete" })
+                .where(eq(schema.message.id, lorMessageId))
+                .catch(() => {})
+              emit(skipped, true, "complete")
+              await runWriter.transition("stopped", {
+                stopReason: "stopped_by_user",
+              })
+              execution?.stop()
+              await settlePlan("stopped")
+              await emitThreadSummary()
+              drainQueue()
+              return
+            }
             streamMentionRoster = await db
               .select({
                 id: schema.user.id,
@@ -601,7 +651,7 @@ export function createLorRespondProcessor(
                 stopReason: "out_of_credits",
               })
               execution?.stop()
-              await settlePlan("failed")
+              await settlePlan("failed", "out_of_credits")
               await emitThreadSummary()
               drainQueue()
               emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
@@ -686,6 +736,7 @@ export function createLorRespondProcessor(
                 {
                   workspaceId,
                   channelId,
+                  threadRootId: threadRootId ?? null,
                   creatorId: triggerUserId,
                   ...loopInput,
                 }
@@ -723,8 +774,17 @@ export function createLorRespondProcessor(
                       },
                     }
                   : {}),
-                proposeLoop,
-                proposeChange,
+                // A loop's fire never schedules loops or files proposals.
+                ...(loopRun?.isFire ? {} : { proposeLoop, proposeChange }),
+                ...(loopRun && threadRootId
+                  ? {
+                      loop: loopRunContext(
+                        { emitter, redis },
+                        loopRun.loop,
+                        threadRootId
+                      ),
+                    }
+                  : {}),
                 ...(plan
                   ? {
                       plan: {

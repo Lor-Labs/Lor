@@ -83,7 +83,12 @@ type DeltaRow = {
     | { url: string; filename: string; size: number; contentType: string }[]
     | null
   name: string
+  eventType?: string | null
 }
+
+// A loop's fire line is Lor-authored but is the turn's request, so it reads
+// as coming from the schedule.
+export const LOOP_SCHEDULE_SPEAKER = "Loop schedule"
 
 // Newest finished run in this scope worth continuing. `failed` qualifies on
 // purpose: a run that tripped a budget rail mid-work is exactly the one whose
@@ -188,7 +193,10 @@ async function loadChain(head: ChainRun): Promise<ChainRun[] | null> {
 
 function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
   return {
-    authorName: userDisplayName(row),
+    authorName:
+      row.eventType === "loop_run"
+        ? LOOP_SCHEDULE_SPEAKER
+        : userDisplayName(row),
     content: row.content ?? "",
     images: (row.attachments ?? [])
       .filter((a) => a.contentType.startsWith("image/"))
@@ -242,6 +250,7 @@ async function loadDelta(args: {
       content: schema.message.content,
       attachments: schema.message.attachments,
       name: schema.user.name,
+      eventType: schema.message.eventType,
     })
     .from(schema.message)
     .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
@@ -255,8 +264,12 @@ async function loadDelta(args: {
         gt(schema.message.createdAt, args.predecessorStartedAt),
         ne(schema.message.id, args.lorMessageId),
         // Lor's own answers are already in the transcript as assistant
-        // turns; re-adding them as user text would double them.
-        ne(schema.message.authorId, LOR_USER_ID),
+        // turns; re-adding them as user text would double them. A loop's
+        // fire line is the exception: it is the new turn's request.
+        or(
+          ne(schema.message.authorId, LOR_USER_ID),
+          eq(schema.message.eventType, "loop_run")
+        ),
         or(
           isNotNull(schema.message.content),
           sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`

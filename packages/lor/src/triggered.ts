@@ -36,15 +36,17 @@ export type RunTriggeredContext = {
   briefing?: string | null
   postMessage: TriggeredPostMessage
   createPlan: TriggeredCreatePlan
-  // Loop runs only: switches the prompt section to the scheduled-loop
-  // framing. See reference/loops.md.
-  loop?: {
-    name: string
-    // Human-readable schedule (describeLoopSchedule), not the raw cron.
-    scheduleDescription: string
-    endCondition: string | null
-  }
-  // Loop runs only: binds the complete_loop tool.
+}
+
+// Every run in a loop's session (reference/workspace-model.md, decision 1):
+// the loop's standing brief frames it, and complete_loop binds when the loop
+// has an end condition. Stable per loop, so it is safe in the system prompt.
+export type RunLoopContext = {
+  name: string
+  // Human-readable schedule (describeLoopSchedule), not the raw cron.
+  scheduleDescription: string
+  instructions: string
+  endCondition: string | null
   completeLoop?: TriggeredCompleteLoop
 }
 
@@ -102,7 +104,7 @@ export const triggeredTools = {
 export const completeLoopTool = {
   complete_loop: tool({
     description:
-      "Permanently complete this loop so it never runs again — only when its end condition is genuinely, verifiably met (confirm with your tools first; when unsure, let the loop keep running). Usually post_channel_message a final wrap-up too, since completing is silent. The closing note is the loop's permanent record: what was achieved and how you verified the end condition.",
+      "Permanently complete this loop so it never runs again — only when its end condition is genuinely, verifiably met (confirm with your tools first; when unsure, let the loop keep running). Say so in your reply too. The closing note is the loop's permanent record: what was achieved and how you verified the end condition.",
     inputSchema: z.object({
       closingNote: z.string().min(1).max(2000),
     }),
@@ -155,42 +157,28 @@ export function triggeredPromptSection(t: {
   return sections.join("\n")
 }
 
-// The loop variant: same headless rules, but framed as one beat of a
-// recurring concern, with the end condition checked before the work.
-export function loopPromptSection(t: {
-  instructions: string
-  briefing?: string | null
-  loop: {
-    name: string
-    scheduleDescription: string
-    endCondition: string | null
-  }
-}): string {
-  const sections = [
-    "## Scheduled loop run",
-    `You were invoked on a schedule by the loop "${t.loop.name}" (runs ${t.loop.scheduleDescription}) — no human asked this and nobody is watching the run. Only tool calls have any effect on this channel.`,
+// A loop's session: one recurring conversation. Each scheduled run is a turn
+// that starts with a "Loop schedule" line; the transcript carries what
+// earlier runs found, so there is no separate briefing.
+export function loopSessionPromptSection(loop: RunLoopContext): string {
+  return [
+    "## This is a loop's session",
+    `This session belongs to the loop "${loop.name}", which runs ${loop.scheduleDescription}. Each scheduled run is a turn that starts with a "Loop schedule" line. When that is the newest message, do the loop's work now. Teammates can also talk to you here between runs; answer them normally.`,
     "",
-    "The team configured this loop with these instructions — they are your brief and take precedence for this run:",
-    t.instructions.trim() ||
-      "(none — use your judgment about what this run needs)",
+    "The team set up this loop with these standing instructions — they are your brief for every scheduled run:",
+    loop.instructions.trim() ||
+      "(none — use your judgment about what each run needs)",
     "",
-    ...(t.loop.endCondition?.trim()
+    ...(loop.endCondition?.trim()
       ? [
           "## End condition",
-          `This loop runs until: ${t.loop.endCondition.trim()}`,
-          "Check this FIRST each run. If it is genuinely met (verify with your tools, don't assume), call complete_loop — and usually post a final wrap-up message — instead of doing the work again. If it isn't met, proceed with the instructions.",
+          `This loop runs until: ${loop.endCondition.trim()}`,
+          "On each scheduled run, check this FIRST. If it is genuinely met (verify with your tools, don't assume), call complete_loop instead of doing the work again. If it isn't met, proceed with the instructions.",
           "",
         ]
       : []),
-    "Disposition rules:",
-    "- Decide what this run warrants: post_channel_message to tell the team something, create_plan for multi-step work worth tracking, other tools to act directly — or nothing at all.",
-    "- Doing nothing is a normal outcome (some scheduled checks find nothing new). Never post just to say nothing changed unless the instructions ask for it; say so in your closing note instead.",
-    "- Don't ask clarifying questions — nobody will answer. When the instructions don't cover the situation, make the conservative call.",
-    "",
-    ...CLOSING_NOTE_LINES,
-  ]
-  if (t.briefing?.trim()) {
-    sections.push("", t.briefing.trim())
-  }
-  return sections.join("\n")
+    "On scheduled runs:",
+    "- Nobody asked in real time and nobody may be watching. Don't ask clarifying questions; when the instructions don't cover the situation, make the conservative call.",
+    "- Your reply is what the people following this session read, and what your next run sees. Lead with what matters. If nothing needs attention, say so in one short line.",
+  ].join("\n")
 }

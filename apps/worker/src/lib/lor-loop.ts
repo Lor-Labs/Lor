@@ -25,6 +25,8 @@ export async function createLoopCard(
   input: {
     workspaceId: string
     channelId: string
+    // The session Lor proposed it in; the draft card posts there.
+    threadRootId: string | null
     creatorId: string | null
     name: string
     instructions: string
@@ -40,6 +42,7 @@ export async function createLoopCard(
       channelId: input.channelId,
       content: `${input.name} — ${describeLoopSchedule(input.schedule, input.timezone)}`,
       type: "loop_card",
+      ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
     }
   )
   // Compensation: an orphan loop_card renders a benign fallback, but don't

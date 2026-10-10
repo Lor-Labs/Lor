@@ -63,9 +63,13 @@ export type ActFlushJobData = { triggerId: string }
 export const LOOP_RUN_QUEUE = "loop-run"
 export const LOOP_RUN_JOB = "loop"
 
+// Fire a loop now: the sweep (scheduledFor = the due time) or "Run now". The
+// worker posts the fire into the loop's session and starts or queues its run.
 export type LoopRunJobData = {
-  runId: string
   loopId: string
+  scheduledFor?: string
+  // Jobs from before sessions carried a pre-created run row; it is cancelled.
+  runId?: string
 }
 
 // Requests to Lor spoken in a call (reference/voice-channels-runbook.md V5).

@@ -240,6 +240,7 @@ export type RealtimeChannelEventType =
   | "loop_created"
   | "loop_paused"
   | "loop_completed"
+  | "loop_run"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
