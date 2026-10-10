@@ -10,7 +10,7 @@ import {
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
-import { Link } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
@@ -100,6 +100,7 @@ function SessionConversation({
 
   useAgentSessionUpdates(session.id)
   const updateSession = useUpdateAgentSession()
+  const navigate = useNavigate()
   const change = {
     workspaceId: session.workspaceId,
     channelId: session.channelId,
@@ -129,9 +130,14 @@ function SessionConversation({
             workView={workView}
             lorRunning={lorRunning}
             onRename={(title) => updateSession.mutate({ ...change, title })}
-            onArchive={() =>
+            onArchive={() => {
               updateSession.mutate({ ...change, archived: true })
-            }
+              // Nothing left to do here; back to the channel's chat.
+              void navigate({
+                to: "/$workspaceSlug/$channelId",
+                params: { workspaceSlug, channelId: session.channelId },
+              })
+            }}
           />
         ),
         archivedBar: session.archivedAt ? (

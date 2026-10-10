@@ -518,7 +518,9 @@ swaps the input line and tools bar for an "Archived by Ana · Unarchive" bar
 hover (Codex-style; Jacob's ask): the state indicator gives way to an
 archive button, the row hides at once and comes back if the request fails,
 and a running session confirms first (`ArchiveSessionDialog`, shared with the
-header). Everything is optimistic through the React Query cache (Jacob's
+header). Archiving the session you're in (header, or its sidebar row) takes
+you to the channel's chat (Jacob's call); teammates who have it open stay and
+see the bar. Every archive shows a "Session archived" toast with Undo. Everything is optimistic through the React Query cache (Jacob's
 ask): `use-workspace-activity.ts` is now a query
 (`["workspace-activity", workspaceId]`) fetched over the same
 `workspace:activity` socket ack, with **no polling**. Pushes

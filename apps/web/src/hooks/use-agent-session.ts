@@ -118,17 +118,25 @@ type SessionChange = {
 
 // Rename, archive and unarchive show at once on the session page, in the
 // sidebar and in the channel's Sessions list. A failure rolls the page back;
-// the lists refetch.
+// the lists refetch. Archiving offers Undo, since the session leaves view.
 export function useUpdateAgentSession() {
   const queryClient = useQueryClient()
   const { data: auth } = authClient.useSession()
   const currentUserId = auth?.user.id ?? null
-  return useMutation({
+  const mutation = useMutation({
     mutationKey: sidebarSessionMutationKey,
     mutationFn: ({ sessionId, title, archived }: SessionChange) =>
       patchAgentSession(sessionId, { title, archived }),
     onMutate: async (change) => {
       const { sessionId, workspaceId, channelId, title, archived } = change
+      if (archived === true) {
+        toast("Session archived", {
+          action: {
+            label: "Undo",
+            onClick: () => mutation.mutate({ ...change, archived: false }),
+          },
+        })
+      }
       const queryKey = agentSessionQueryOptions(sessionId).queryKey
       const listKey = channelSessionsKey(channelId)
       await Promise.all([
@@ -203,4 +211,5 @@ export function useUpdateAgentSession() {
       })
     },
   })
+  return mutation
 }

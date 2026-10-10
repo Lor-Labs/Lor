@@ -122,6 +122,21 @@ export function ChannelSessionRows({
   const [expanded, setExpanded] = useState(false)
   const workspaceId = useActivityWorkspaceId()
   const updateSession = useUpdateAgentSession()
+  const navigate = useNavigate()
+  const { workspaceSlug, sessionId: openSessionId } = useParams({
+    strict: false,
+  })
+  const archive = (sessionId: string) => {
+    if (!workspaceId) return
+    updateSession.mutate({ workspaceId, channelId, sessionId, archived: true })
+    // Archiving the session you're in leaves it for the channel's chat.
+    if (sessionId === openSessionId && workspaceSlug) {
+      void navigate({
+        to: "/$workspaceSlug/$channelId",
+        params: { workspaceSlug, channelId },
+      })
+    }
+  }
 
   // Attention first; the server already orders by newest activity.
   const ordered = useMemo(
@@ -151,15 +166,7 @@ export function ChannelSessionRows({
           >
             <SessionRow
               session={session}
-              onArchive={() => {
-                if (!workspaceId) return
-                updateSession.mutate({
-                  workspaceId,
-                  channelId,
-                  sessionId: session.id,
-                  archived: true,
-                })
-              }}
+              onArchive={() => archive(session.id)}
             />
           </motion.div>
         ))}
