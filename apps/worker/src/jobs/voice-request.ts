@@ -488,10 +488,7 @@ export function createVoiceRequestProcessor(deps: LorMessageDeps) {
       return
     }
     if (job.name === VOICE_SESSION_MEMORY_JOB) {
-      await processCallMemory(
-        (job.data as VoiceSessionMemoryJobData).sessionId,
-        deps
-      )
+      await processCallMemory((job.data as VoiceSessionMemoryJobData).sessionId)
       return
     }
     const data = job.data as VoiceRequestJobData

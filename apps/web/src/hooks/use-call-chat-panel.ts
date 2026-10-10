@@ -5,7 +5,7 @@ import { useVoiceCall } from "@/context/voice-call-context"
 
 // The live call's chat in the right panel, from the call controls and the
 // sidebar call bar. Closed by default; unread counts while it's closed or on
-// the transcript tab.
+// another tab.
 export function useCallChatPanel() {
   const { call, chatUnread, clearChatUnread } = useVoiceCall()
   const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
@@ -17,7 +17,7 @@ export function useCallChatPanel() {
     Boolean(threadRootId && workspaceSlug) &&
     view?.type === "thread" &&
     view.threadRootId === threadRootId &&
-    view.callTab !== "transcript" &&
+    (view.callTab ?? "chat") === "chat" &&
     !isCollapsed
 
   useEffect(() => {

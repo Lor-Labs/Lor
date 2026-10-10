@@ -44,7 +44,6 @@ import { PlanCard } from "@/components/chat/plan-card"
 import { ProposalCard } from "@/components/chat/proposal-card"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
-import { CallSummaryCard } from "@/components/voice/call-summary"
 import type { Message } from "@/lib/api-types"
 import { connectorMessageEmbed } from "@/lib/connector-message-embed"
 import {
@@ -457,8 +456,7 @@ export const MessageItem = memo(function MessageItem({
     message.type === "plan_card" ||
     message.type === "loop_card" ||
     message.type === "loop_fire" ||
-    message.type === "proposal_card" ||
-    message.type === "call_summary"
+    message.type === "proposal_card"
   ) {
     // A card in a session (a proposal Lor filed there) follows the
     // document look: gutter avatar, no name row.
@@ -475,8 +473,6 @@ export const MessageItem = memo(function MessageItem({
                 <ProposalCard message={message} />
               ) : message.type === "plan_card" ? (
                 <PlanCard message={message} onOpenThread={onOpenThread} />
-              ) : message.type === "call_summary" ? (
-                <CallSummaryCard message={message} />
               ) : (
                 <LoopCard message={message} />
               )}
@@ -552,8 +548,6 @@ export const MessageItem = memo(function MessageItem({
               <PlanCard message={message} onOpenThread={onOpenThread} />
             ) : message.type === "proposal_card" ? (
               <ProposalCard message={message} />
-            ) : message.type === "call_summary" ? (
-              <CallSummaryCard message={message} />
             ) : (
               <LoopCard message={message} />
             )}

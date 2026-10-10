@@ -735,7 +735,7 @@ see the raw payload in the session (only Lor reads it).
 
 #### Step 18: call Summary tab (~300)
 
-[ ] built · [ ] committed
+[x] built 2026-10-09 · [ ] committed
 
 - Server: `voice-session-memory.ts:141-153` stops posting the card;
   `api/lib/voice/queries.ts:55-78,229`; summary routes keyed by session id.
@@ -745,6 +745,27 @@ see the raw payload in the session (only Lor reads it).
   Widen `callTab` (`right-sidebar-types.ts:17`, `voice-channel-view.tsx:57-59`,
   `use-call-chat-panel.ts`, `use-thread-panel-url-sync.ts`,
   `use-call-citation.ts`).
+
+As built (no db:push): the after-call job no longer posts a `call_summary`
+card. It saves the summary and calls `notifyVoicePresence`, so past-call
+lists and open Summary tabs refetch. `GET`/`PUT
+/v1/voice/sessions/{sessionId}/summary` replace the card routes; the
+response adds `processed` (`memoryProcessedAt` is set), and editing needs a
+processed call, so the job never overwrites an edit. A save also notifies.
+`GET /voice/summary-cards/{messageId}` stays for phones (old cards, Step
+22); its PUT is gone (only web used it). The thread response gains
+`voiceSessionEnded`. Web: `CallTab` = summary | chat | transcript; an unset
+tab means Summary for an ended call, else Chat; Summary shows only once the
+call has ended. `CallSummaryPanel` (was `CallSummaryCard`) is the tab body:
+day, length and faces, then the summary, "Lor is writing the summary…"
+before processing, or "Lor didn't write a summary for this call", with Edit
+or "Write one"; a row with a time opens the Transcript tab there. The panel
+header takes the summary's title. Old cards are filtered out of call chats
+on web. Past calls open on Summary when titled, else Chat when people wrote,
+else Transcript. The lobby already showed the summary title. Past-call
+visibility counts a summary as posted. Deviation: the card's notification
+to everyone in the call ("Lor summarized this") is gone with the card;
+nothing replaces it yet. Phones show no summary for new calls until Step 22.
 
 #### Step 19: onboarding touchpoints and share to chat (~300)
 

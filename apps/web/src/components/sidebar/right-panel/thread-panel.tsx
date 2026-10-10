@@ -73,12 +73,17 @@ import {
 } from "@/components/session/session-started-note"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
-import type { ThreadSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import type {
+  CallTab,
+  ThreadSidebarView,
+} from "@/components/sidebar/right-panel/right-sidebar-types"
 import { MorphText } from "@/components/ui/morph-text"
 import { UserAvatar } from "@/components/ui/user-avatar"
+import { CallSummaryPanel } from "@/components/voice/call-summary"
 import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
+import { useCallSummary } from "@/hooks/use-call-summary"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useLorRunReplay } from "@/hooks/use-lor-stream"
@@ -258,6 +263,7 @@ export function ThreadPanel({
     participants,
     voiceSessionId,
     voiceSessionTitle,
+    voiceSessionEnded,
     isLoading,
     fetchOlder,
     hasOlder,
@@ -272,10 +278,19 @@ export function ThreadPanel({
   })
 
   const rootMessage = threadApiRoot ?? channelCacheRoot
-  // A call chat's panel also holds the call's record: its summary and
-  // transcript.
-  const showTranscript =
-    view.callTab === "transcript" && voiceSessionId !== null
+  // A call chat's panel also holds the call's record: its summary (once the
+  // call has ended, and then the default) and its transcript.
+  const callTab: CallTab =
+    voiceSessionId === null
+      ? "chat"
+      : view.callTab === "summary" && !voiceSessionEnded
+        ? "chat"
+        : (view.callTab ?? (voiceSessionEnded ? "summary" : "chat"))
+  const showTranscript = callTab === "transcript"
+  const showSummary = callTab === "summary"
+  const callSummary = useCallSummary(voiceSessionEnded ? voiceSessionId : null)
+  const callTitle =
+    callSummary.data?.summary?.title ?? voiceSessionTitle ?? "Call"
 
   // An open panel means the thread is being read — advance the per-thread
   // read cursor on open and on every reply that lands while it's visible, so
@@ -286,13 +301,14 @@ export function ThreadPanel({
   const newestReplyKey = messages[0]
     ? `${messages[0].id}:${messages[0].status}`
     : null
+  const showCallRecord = callTab !== "chat"
   useEffect(() => {
-    if (document.visibilityState !== "visible" || showTranscript) return
+    if (document.visibilityState !== "visible" || showCallRecord) return
     const timer = setTimeout(() => markThreadRead(view.threadRootId), 500)
     return () => clearTimeout(timer)
-  }, [view.threadRootId, newestReplyKey, markThreadRead, showTranscript])
+  }, [view.threadRootId, newestReplyKey, markThreadRead, showCallRecord])
   useEffect(() => {
-    if (showTranscript) return
+    if (showCallRecord) return
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         markThreadRead(view.threadRootId)
@@ -302,7 +318,7 @@ export function ThreadPanel({
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
-  }, [view.threadRootId, markThreadRead, showTranscript])
+  }, [view.threadRootId, markThreadRead, showCallRecord])
 
   // MessageItem is memoized — keep the root message prop referentially
   // stable. A fresh `{ ...rootMessage, threadSummary: null }` spread on every
@@ -545,9 +561,13 @@ export function ThreadPanel({
   // Threads render top-down (oldest → newest). The API + cache hold
   // newest-first, so reverse for display.
   // Queued messages live only in the composer's queue pill until the drain
-  // releases them — the transcript skips them (Codex model).
+  // releases them — the transcript skips them (Codex model). Old calls'
+  // summary cards stay out of the chat: the Summary tab shows the summary.
   const orderedReplies = useMemo(
-    () => [...messages].reverse().filter((m) => !queuedIds.includes(m.id)),
+    () =>
+      [...messages]
+        .reverse()
+        .filter((m) => !queuedIds.includes(m.id) && m.type !== "call_summary"),
     [messages, queuedIds]
   )
   // First load: the skeleton shows, and a session's input line waits.
@@ -719,23 +739,32 @@ export function ThreadPanel({
     dividerCount !== undefined &&
     dividerCount > 0
 
-  // Keyed so the chat and transcript returns below share one Tabs instance;
-  // a remount would skip the active tab's slide.
+  const openCallTab = (tab: CallTab, transcriptAtMs?: number) =>
+    setView({
+      ...view,
+      composerDraft: undefined,
+      callTab: tab,
+      transcriptAtMs,
+    })
+  // Keyed so the summary, chat and transcript returns below share one Tabs
+  // instance; a remount would skip the active tab's slide.
   const callTabs = voiceSessionId ? (
     <Tabs
       key="call-tabs"
-      value={showTranscript ? "transcript" : "chat"}
+      value={callTab}
       onValueChange={(value) =>
-        setView({
-          ...view,
-          composerDraft: undefined,
-          callTab: value === "transcript" ? "transcript" : "chat",
-          transcriptAtMs: undefined,
-        })
+        openCallTab(
+          value === "summary" || value === "transcript" ? value : "chat"
+        )
       }
       className="border-border/70 border-b px-4 pb-3"
     >
       <TabsList>
+        {voiceSessionEnded && (
+          <TabsTab value="summary" className="grow-0">
+            Summary
+          </TabsTab>
+        )}
         <TabsTab value="chat" className="grow-0">
           Chat
         </TabsTab>
@@ -746,23 +775,31 @@ export function ThreadPanel({
     </Tabs>
   ) : null
 
-  if (showTranscript && voiceSessionId) {
+  if ((showTranscript || showSummary) && voiceSessionId) {
     return (
       <div className="@container relative flex h-full w-full flex-col">
         <RightPanelHeader
-          title={voiceSessionTitle ?? "Call"}
+          title={callTitle}
           workspaceSlug={view.workspaceSlug}
           channelId={view.channelId}
           className="border-b-0"
         />
         {callTabs}
-        <CallTranscript
-          // A new citation target remounts, so it scrolls again.
-          key={view.transcriptAtMs ?? "start"}
-          sessionId={voiceSessionId}
-          live={call?.sessionId === voiceSessionId}
-          atMs={view.transcriptAtMs}
-        />
+        {showSummary ? (
+          <CallSummaryPanel
+            sessionId={voiceSessionId}
+            query={callSummary}
+            onOpenMoment={(atMs) => openCallTab("transcript", atMs)}
+          />
+        ) : (
+          <CallTranscript
+            // A new citation target remounts, so it scrolls again.
+            key={view.transcriptAtMs ?? "start"}
+            sessionId={voiceSessionId}
+            live={call?.sessionId === voiceSessionId}
+            atMs={view.transcriptAtMs}
+          />
+        )}
       </div>
     )
   }
@@ -866,13 +903,7 @@ export function ThreadPanel({
       ) : (
         <RightPanelHeader
           // A call chat takes Lor's name for the call once it's summarized.
-          title={
-            isPlan
-              ? "Plan"
-              : isCallChat
-                ? (voiceSessionTitle ?? "Call")
-                : "Thread"
-          }
+          title={isPlan ? "Plan" : isCallChat ? callTitle : "Thread"}
           workspaceSlug={view.workspaceSlug}
           channelId={view.channelId}
           titleAdornment={

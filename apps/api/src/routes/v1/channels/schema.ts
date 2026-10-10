@@ -105,6 +105,8 @@ export const listThreadRepliesResponseSchema =
     voiceSessionId: z.string().uuid().nullable(),
     // Lor's name for the call once summarized, for the chat's header.
     voiceSessionTitle: z.string().nullable(),
+    // An ended call's panel opens on its Summary tab.
+    voiceSessionEnded: z.boolean(),
   })
 
 // ── Pins ──────────────────────────────────────────

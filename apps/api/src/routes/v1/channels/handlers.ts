@@ -1203,6 +1203,7 @@ export const listThreadReplies: AppRouteHandler<
               title: sql<
                 string | null
               >`${schema.voiceSession.summary}->>'title'`,
+              endedAt: schema.voiceSession.endedAt,
             })
             .from(schema.voiceSession)
             .where(eq(schema.voiceSession.threadRootId, messageId))
@@ -1223,6 +1224,7 @@ export const listThreadReplies: AppRouteHandler<
       participants: [...participants.values()],
       voiceSessionId: voiceSession?.id ?? null,
       voiceSessionTitle: voiceSession?.title ?? null,
+      voiceSessionEnded: Boolean(voiceSession?.endedAt),
     },
     HttpStatusCodes.OK
   )
