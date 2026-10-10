@@ -5,6 +5,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { SidebarSession } from "@repo/realtime-types"
+import { useSidebar } from "@repo/ui/components/sidebar"
 import {
   Tooltip,
   TooltipContent,
@@ -15,6 +16,8 @@ import { cn } from "@repo/ui/lib/utils"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { HintPopover } from "@/components/hints/hint-popover"
+import { useHint } from "@/components/hints/hints-provider"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
 import {
   SessionStateIndicator,
@@ -209,12 +212,33 @@ function SessionRow({
   const [confirmArchive, setConfirmArchive] = useState(false)
   const active = sessionId === session.id
   const emphasized = session.state === "unread" || session.state === "needs_you"
+  const rowRef = useRef<HTMLDivElement>(null)
+  const { isMobile, open: sidebarOpen, openMobile } = useSidebar()
+  // Taught on the first session row a person sees, usually the one their
+  // first @Lor just started.
+  const sessionsHint = useHint(
+    "sessions_intro",
+    isMobile ? openMobile : sidebarOpen
+  )
 
   return (
-    <div className="group/session relative ml-6 w-[calc(100%-1.5rem)]">
+    <div
+      ref={rowRef}
+      className="group/session relative ml-6 w-[calc(100%-1.5rem)]"
+    >
+      <HintPopover
+        open={sessionsHint.show}
+        anchor={rowRef}
+        side="right"
+        onDismiss={sessionsHint.dismiss}
+      >
+        Lor works in sessions, listed under their channel. Anyone in the channel
+        can open one and join in.
+      </HintPopover>
       <button
         type="button"
         onClick={() => {
+          sessionsHint.dismiss()
           if (!workspaceSlug) return
           void navigate({
             to: "/$workspaceSlug/session/$sessionId",

@@ -14,8 +14,23 @@ const STARTUP_CHANNELS: TemplateChannel[] = [
     type: "text",
     topic: "Code, pull requests, and technical decisions.",
   },
-  { name: "standup", type: "voice", topic: "Daily sync. Lor takes notes." },
+  {
+    name: "product",
+    type: "text",
+    topic: "Specs, roadmap, and what to build next.",
+  },
+  {
+    name: "design",
+    type: "text",
+    topic: "Mockups, UI feedback, and design decisions.",
+  },
+  {
+    name: "customers",
+    type: "text",
+    topic: "Customer feedback, requests, and calls.",
+  },
   { name: "random", type: "text", topic: "Everything else." },
+  { name: "standup", type: "voice", topic: "Daily sync. Lor takes notes." },
 ]
 
 // No Lor intro post: Lor never writes in channel chat

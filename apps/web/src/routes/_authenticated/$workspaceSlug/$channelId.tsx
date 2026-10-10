@@ -39,6 +39,7 @@ import {
   useMessageLocation,
 } from "@/hooks/use-message-search-navigation"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { useOpenNewSession } from "@/hooks/use-open-new-session"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useSessionStart } from "@/hooks/use-session-start"
@@ -346,6 +347,7 @@ function ChannelView() {
       }),
     [navigate, workspaceSlug, channelId]
   )
+  const openNewSession = useOpenNewSession()
 
   const { data: workspaceMembersData } = useQuery({
     queryKey: ["workspace-members", workspaceSlug],
@@ -575,6 +577,9 @@ function ChannelView() {
         onJumpToMessage={handleJumpToMessage}
         onReplyInThread={handleReplyInThread}
         onAskLor={data.type === "text" ? handleAskLor : undefined}
+        onNewSession={
+          data.type === "text" && !data.archivedAt ? openNewSession : undefined
+        }
         onOpenThread={handleOpenThread}
         threadActivities={threadActivities}
         onOpenThreadActivity={handleOpenThreadActivity}

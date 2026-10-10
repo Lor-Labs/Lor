@@ -772,6 +772,13 @@ export function MessageInput({
   )
   const showLorState = Boolean(destination) && routing.toLor
   const isInline = variant === "inline"
+  const destinationRef = useRef<HTMLDivElement>(null)
+  // Taught once the person types in a session, when the pill decides who
+  // gets the message.
+  const sessionReplyHint = useHint(
+    "session_reply",
+    routing.canSwitch && !isEmpty && !disabled
+  )
 
   const appliedDraftRef = useRef<string | null>(null)
   useEffect(() => {
@@ -1387,7 +1394,7 @@ export function MessageInput({
               </PopoverContent>
             </Popover>
             {destination && (
-              <div className="min-w-0 flex-1">
+              <div ref={destinationRef} className="min-w-0 flex-1">
                 <DestinationBar
                   destination={destination}
                   channelName={context.name}
@@ -1396,10 +1403,22 @@ export function MessageInput({
                   channelPicker={channelPicker}
                   onSwitch={
                     routing.canSwitch
-                      ? () => setManualToPeople((current) => !current)
+                      ? () => {
+                          setManualToPeople((current) => !current)
+                          sessionReplyHint.dismiss()
+                        }
                       : undefined
                   }
                 />
+                <HintPopover
+                  open={sessionReplyHint.show}
+                  anchor={destinationRef}
+                  align="start"
+                  onDismiss={sessionReplyHint.dismiss}
+                >
+                  Replies go to Lor by default. Switch here to talk to channel
+                  members without Lor answering.
+                </HintPopover>
               </div>
             )}
             <div className="flex shrink-0 items-center gap-1">

@@ -34,6 +34,7 @@ export function PopoverPopup({
   sideOffset = 4,
   alignOffset = 0,
   tooltipStyle = false,
+  arrow = false,
   anchor,
   portalProps,
   ...props
@@ -45,6 +46,8 @@ export function PopoverPopup({
   sideOffset?: PopoverPrimitive.Positioner.Props["sideOffset"]
   alignOffset?: PopoverPrimitive.Positioner.Props["alignOffset"]
   tooltipStyle?: boolean
+  // Points at the anchor; add the arrow's 8px to sideOffset.
+  arrow?: boolean
   anchor?: PopoverPrimitive.Positioner.Props["anchor"]
 }): React.ReactElement {
   return (
@@ -68,6 +71,30 @@ export function PopoverPopup({
           data-slot="popover-popup"
           {...props}
         >
+          {/* Outside the viewport, which clips. The base overlaps the popup
+              border so the outline runs unbroken into the arrow. */}
+          {arrow && (
+            <PopoverPrimitive.Arrow
+              className="data-[side=left]:-right-3 data-[side=right]:-left-3 data-[side=bottom]:-top-2 data-[side=top]:-bottom-2 data-[side=left]:rotate-90 data-[side=right]:-rotate-90 data-[side=top]:rotate-180"
+              data-slot="popover-arrow"
+            >
+              <svg
+                aria-hidden="true"
+                className="block"
+                fill="none"
+                height="8"
+                viewBox="0 0 16 8"
+                width="16"
+              >
+                <path className="fill-popover" d="M0 8L8 0.5L16 8Z" />
+                <path
+                  className="stroke-border"
+                  d="M0 8L8 0.5L16 8"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </PopoverPrimitive.Arrow>
+          )}
           <PopoverPrimitive.Viewport
             className={cn(
               "relative size-full max-h-(--available-height) overflow-clip px-(--viewport-inline-padding) py-4 [--viewport-inline-padding:--spacing(4)] has-data-[slot=calendar]:p-2 data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity",

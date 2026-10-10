@@ -17,12 +17,19 @@ import { apiClient } from "@/lib/api-client"
 const HINT_PRIORITY = [
   "lor_intro",
   "channels_intro",
+  "sessions_intro",
+  "session_reply",
   "lor_reply",
   "voice_intro",
   "connectors_intro",
 ] as const
 
-export type HintKey = (typeof HINT_PRIORITY)[number]
+// Stored like hints but shown as a page, never in the popover slot.
+const PAGE_HINTS = ["how_lor_works"] as const
+
+export type HintKey =
+  | (typeof HINT_PRIORITY)[number]
+  | (typeof PAGE_HINTS)[number]
 
 const hintsQueryKey = ["hints"] as const
 
@@ -39,7 +46,10 @@ type HintsContextValue = {
 const HintsContext = createContext<HintsContextValue | null>(null)
 
 function isHintKey(value: string): value is HintKey {
-  return (HINT_PRIORITY as readonly string[]).includes(value)
+  return (
+    (HINT_PRIORITY as readonly string[]).includes(value) ||
+    (PAGE_HINTS as readonly string[]).includes(value)
+  )
 }
 
 export function HintsProvider({ children }: { children: ReactNode }) {
