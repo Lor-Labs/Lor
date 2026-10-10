@@ -2,11 +2,13 @@ import { and, db, eq, inArray, schema } from "@repo/db"
 import {
   type ApprovalNotification,
   buildApprovalNotificationContent,
+  buildCallSummaryNotificationContent,
   buildNotificationConversationName,
   buildNotificationTitle,
   buildProposalNotificationContent,
   buildReactionNotificationBody,
   buildSubscribedNotificationContent,
+  type CallSummaryNotification,
   PRESENCE_ONLINE_USERS_SET_KEY,
   type ProposalNotification,
   type ReactionNotification,
@@ -429,49 +431,87 @@ export async function sendProposalPush(input: {
   })
 }
 
-// Being added as a subscriber pushes like a mention: a channel mute or the
-// "nothing" level silences it.
+// Directed pings that notify like a mention: a channel mute or the "nothing"
+// level silences them.
+async function unmutedUserIds(
+  userIds: string[],
+  channelId: string
+): Promise<string[]> {
+  if (userIds.length === 0) return []
+  const [silent, mutes] = await Promise.all([
+    db
+      .select({ userId: schema.userNotificationSettings.userId })
+      .from(schema.userNotificationSettings)
+      .where(
+        and(
+          inArray(schema.userNotificationSettings.userId, userIds),
+          eq(schema.userNotificationSettings.desktopNotifications, "nothing")
+        )
+      ),
+    db
+      .select({
+        userId: schema.channelMute.userId,
+        mutedUntil: schema.channelMute.mutedUntil,
+      })
+      .from(schema.channelMute)
+      .where(
+        and(
+          eq(schema.channelMute.channelId, channelId),
+          inArray(schema.channelMute.userId, userIds)
+        )
+      ),
+  ])
+  const skip = new Set([
+    ...silent.map((row) => row.userId),
+    ...mutes
+      .filter(
+        (mute) => !mute.mutedUntil || mute.mutedUntil.getTime() > Date.now()
+      )
+      .map((mute) => mute.userId),
+  ])
+  return userIds.filter((userId) => !skip.has(userId))
+}
+
+// Being added as a subscriber pushes like a mention.
 export async function sendSubscribedPush(input: {
   userId: string
   notification: SubscribedNotification
   redis: PresenceRedisClient
 }) {
-  const { userId, notification } = input
-  const [settings, mute] = await Promise.all([
-    db
-      .select({
-        desktopNotifications:
-          schema.userNotificationSettings.desktopNotifications,
-      })
-      .from(schema.userNotificationSettings)
-      .where(eq(schema.userNotificationSettings.userId, userId))
-      .limit(1)
-      .then((rows) => rows[0]),
-    db
-      .select({ mutedUntil: schema.channelMute.mutedUntil })
-      .from(schema.channelMute)
-      .where(
-        and(
-          eq(schema.channelMute.channelId, notification.channelId),
-          eq(schema.channelMute.userId, userId)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0]),
-  ])
-  if (settings?.desktopNotifications === "nothing") return
-  if (mute && (!mute.mutedUntil || mute.mutedUntil.getTime() > Date.now())) {
-    return
-  }
-
+  const { notification } = input
+  const userIds = await unmutedUserIds([input.userId], notification.channelId)
   const { title, body } = buildSubscribedNotificationContent(notification)
   await sendDirectedPush({
-    userIds: [userId],
+    userIds,
     redis: input.redis,
     title,
     body,
     data: {
       type: "subscribed",
+      workspaceId: notification.workspaceId,
+      channelId: notification.channelId,
+      threadRootId: notification.threadRootId,
+      messageId: null,
+    },
+  })
+}
+
+// Lor finished a call's summary: everyone who was in the call, like a
+// mention. Phones open the call's chat until they have a Summary tab.
+export async function sendCallSummaryPush(input: {
+  userIds: string[]
+  notification: CallSummaryNotification
+  redis: PresenceRedisClient
+}) {
+  const { notification } = input
+  const { title, body } = buildCallSummaryNotificationContent(notification)
+  await sendDirectedPush({
+    userIds: await unmutedUserIds(input.userIds, notification.channelId),
+    redis: input.redis,
+    title,
+    body,
+    data: {
+      type: "call_summary",
       workspaceId: notification.workspaceId,
       channelId: notification.channelId,
       threadRootId: notification.threadRootId,

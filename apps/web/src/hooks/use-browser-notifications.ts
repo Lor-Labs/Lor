@@ -1,10 +1,12 @@
 import {
   type ApprovalNotification,
   buildApprovalNotificationContent,
+  buildCallSummaryNotificationContent,
   buildNotificationTitle,
   buildProposalNotificationContent,
   buildReactionNotificationBody,
   buildSubscribedNotificationContent,
+  type CallSummaryNotification,
   type MentionNotification,
   type ProposalNotification,
   type ReactionNotification,
@@ -241,12 +243,37 @@ export function useBrowserNotifications() {
       })
     }
 
+    // Lor summarized a call this person was in. Opening the call's chat root
+    // lands on its Summary tab.
+    const onCallSummary = (payload: CallSummaryNotification) => {
+      if (isAlreadyVisible(payload.channelId)) return
+      if (!(settings && mutes)) return
+      if (findActiveMute(mutes, payload.channelId)) return
+      if (settings.desktopNotifications === "nothing") return
+
+      const workspaceSlug = workspaceSlugFor(payload.workspaceId)
+      const { title, body } = buildCallSummaryNotificationContent(payload)
+      showNotification(title, body, {
+        tag: `call-summary-${payload.sessionId}`,
+        onClick: workspaceSlug
+          ? () =>
+              navigateToMessage({
+                id: payload.threadRootId,
+                channelId: payload.channelId,
+                threadRootId: payload.threadRootId,
+                workspaceSlug,
+              })
+          : undefined,
+      })
+    }
+
     socket.on("notification:mention", onMention)
     socket.on("notification:unread", onUnread)
     socket.on("notification:reaction", onReaction)
     socket.on("notification:approval", onApproval)
     socket.on("notification:proposal", onProposal)
     socket.on("notification:subscribed", onSubscribed)
+    socket.on("notification:call-summary", onCallSummary)
 
     return () => {
       socket.off("notification:mention", onMention)
@@ -255,6 +282,7 @@ export function useBrowserNotifications() {
       socket.off("notification:approval", onApproval)
       socket.off("notification:proposal", onProposal)
       socket.off("notification:subscribed", onSubscribed)
+      socket.off("notification:call-summary", onCallSummary)
     }
   }, [
     socket,

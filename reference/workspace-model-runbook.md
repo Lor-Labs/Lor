@@ -763,9 +763,16 @@ or "Write one"; a row with a time opens the Transcript tab there. The panel
 header takes the summary's title. Old cards are filtered out of call chats
 on web. Past calls open on Summary when titled, else Chat when people wrote,
 else Transcript. The lobby already showed the summary title. Past-call
-visibility counts a summary as posted. Deviation: the card's notification
-to everyone in the call ("Lor summarized this") is gone with the card;
-nothing replaces it yet. Phones show no summary for new calls until Step 22.
+visibility counts a summary as posted. The card's notification is replaced
+(Jacob: people in the call must hear the summary is done): once Lor writes a
+summary, everyone who was in the call and can still see the channel gets
+`notification:call-summary` ("Call summary: #channel", the summary's title
+as body; Jacob's wording) and, when offline, a push (`sendCallSummaryPush`, data type
+`call_summary`); a channel mute or the "nothing" level silences both, as for
+"added you" (`unmutedUserIds` in `push.ts`, now shared with that push).
+Clicking it on web opens the call's panel, which lands on Summary. No
+notification for short calls or a failed summary. Phones open the call chat
+from the push, and show no summary for new calls until Step 22.
 
 #### Step 19: onboarding touchpoints and share to chat (~300)
 

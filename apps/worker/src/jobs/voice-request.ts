@@ -474,7 +474,7 @@ async function resumeRequest(request: LoadedRequest, approvalId: string) {
 
 // Runs a request someone spoke to Lor in a call. A retried job (worker crash)
 // finds the request working and resumes its run from the last checkpoint.
-// `deps` posts the after-call recap in the call chat.
+// `deps` also tells everyone in a call that its summary is ready.
 export function createVoiceRequestProcessor(deps: LorMessageDeps) {
   return async (
     job: Job<
@@ -488,7 +488,10 @@ export function createVoiceRequestProcessor(deps: LorMessageDeps) {
       return
     }
     if (job.name === VOICE_SESSION_MEMORY_JOB) {
-      await processCallMemory((job.data as VoiceSessionMemoryJobData).sessionId)
+      await processCallMemory(
+        (job.data as VoiceSessionMemoryJobData).sessionId,
+        deps
+      )
       return
     }
     const data = job.data as VoiceRequestJobData

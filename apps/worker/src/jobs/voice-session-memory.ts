@@ -1,6 +1,11 @@
 import { recordUsage } from "@repo/billing"
+import { db, eq, schema } from "@repo/db"
+import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { embedDocumentsWithUsage, summarizeCall } from "@repo/lor"
+import { sendCallSummaryPush } from "@repo/messaging"
+import type { CallSummaryNotification } from "@repo/realtime-types"
 import { formatCallTime } from "@repo/realtime-types/call-transcript"
+import { userRoom } from "@repo/realtime-types/rooms"
 import {
   buildSectionPassages,
   callDateLabel,
@@ -14,6 +19,7 @@ import {
   summaryText,
 } from "@repo/voice/server"
 import { logger } from "@/lib/logger"
+import type { LorMessageDeps } from "@/lib/lor-messages"
 import { enqueueCallMemory } from "@/lib/voice-queue"
 
 // Calls shorter than this, or with almost nothing said, are left alone: no
@@ -33,8 +39,11 @@ export async function queueMissedCallMemory() {
 // Summarizes an ended call and indexes it for Lor's search (a summary passage
 // plus one passage per topic section, each labelled with where it sits). The
 // summary shows on the call's Summary tab, never in its chat
-// (reference/workspace-model.md, decision 3).
-export async function processCallMemory(sessionId: string) {
+// (reference/workspace-model.md, decision 3); everyone in the call is told.
+export async function processCallMemory(
+  sessionId: string,
+  deps: LorMessageDeps
+) {
   const call = await loadEndedCall(sessionId)
   if (!call) return
   const onUsage = (usage: Parameters<typeof recordUsage>[0]) =>
@@ -132,4 +141,45 @@ export async function processCallMemory(sessionId: string) {
     { sessionId, passages: rows.length, summarized: summary !== null },
     "Call memory saved"
   )
+  // After the save: a retry never notifies twice, at the cost of a lost
+  // notification if this fails.
+  if (summary && call.threadRootId) {
+    await notifyCallSummary(deps, {
+      workspaceId: call.workspaceId,
+      channelId: call.channelId,
+      channelName,
+      sessionId,
+      threadRootId: call.threadRootId,
+      title: summary.title,
+    }).catch((err) =>
+      logger.error({ err, sessionId }, "Call summary notification failed")
+    )
+  }
+}
+
+// Everyone who was in the call and can still see the channel learns the
+// summary is ready, so Lor's processing of the call is never a surprise.
+async function notifyCallSummary(
+  deps: LorMessageDeps,
+  notification: CallSummaryNotification
+) {
+  const [participants, audience] = await Promise.all([
+    db
+      .selectDistinct({ userId: schema.voiceSessionParticipant.userId })
+      .from(schema.voiceSessionParticipant)
+      .where(
+        eq(schema.voiceSessionParticipant.sessionId, notification.sessionId)
+      ),
+    listChannelAudienceUserIds(notification.channelId),
+  ])
+  const visible = new Set(audience)
+  const userIds = participants
+    .map((row) => row.userId)
+    .filter((userId) => visible.has(userId))
+  for (const userId of userIds) {
+    deps.emitter
+      .to(userRoom(userId))
+      .emit("notification:call-summary", notification)
+  }
+  await sendCallSummaryPush({ userIds, notification, redis: deps.redis })
 }

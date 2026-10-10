@@ -68,6 +68,18 @@ export function buildSubscribedNotificationContent(input: {
   }
 }
 
+// "Call summary: #general-vc" on the web OS notification and the mobile push;
+// the body is the summary's title.
+export function buildCallSummaryNotificationContent(input: {
+  channelName: string
+  title: string
+}): { title: string; body: string } {
+  return {
+    title: `Call summary: #${input.channelName}`,
+    body: input.title,
+  }
+}
+
 // One wording for the approval ping on every surface (web/desktop OS
 // notification, mobile push) — LOR-83.
 export function buildApprovalNotificationContent(input: {

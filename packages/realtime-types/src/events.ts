@@ -800,6 +800,7 @@ export interface ServerToClientEvents {
   "notification:proposal": (payload: ProposalNotification) => void
   // Someone added this user as a subscriber to a session or thread. User room.
   "notification:subscribed": (payload: SubscribedNotification) => void
+  "notification:call-summary": (payload: CallSummaryNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel:created": (payload: ChannelCreatedEvent) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
@@ -953,6 +954,17 @@ export type ProposalNotification = {
   threadRootId: string | null
   cardMessageId: string | null
   rationale: string
+}
+
+// Lor finished an ended call's summary; sent to everyone who was in the call.
+export type CallSummaryNotification = {
+  workspaceId: string
+  channelId: string
+  channelName: string
+  sessionId: string
+  // The call chat's root: opening it shows the call's Summary tab.
+  threadRootId: string
+  title: string
 }
 
 export type SubscribedNotification = {
