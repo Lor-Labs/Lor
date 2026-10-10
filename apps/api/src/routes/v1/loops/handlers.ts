@@ -7,6 +7,7 @@ import { postLoopChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
+  adoptCardSession,
   completeLoopManually,
   deleteLoop as deleteLoopAction,
   discardDraftLoop as discardDraftLoopAction,
@@ -169,6 +170,9 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
   // delays the card flip until the next fetch.
   await emitLoopUpdated(activated).catch((err) =>
     logger.error({ err, loopId }, "Loop activation emit failed")
+  )
+  await adoptCardSession(activated).catch((err) =>
+    logger.error({ err, loopId }, "Loop session adoption failed")
   )
 
   // Activation is the loop's public creation moment — the draft card was the

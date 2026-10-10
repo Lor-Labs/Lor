@@ -1,4 +1,14 @@
-import { and, db, eq, inArray, LOR_USER_ID, schema, sql } from "@repo/db"
+import {
+  and,
+  db,
+  eq,
+  inArray,
+  isNull,
+  isUniqueViolation,
+  LOR_USER_ID,
+  schema,
+  sql,
+} from "@repo/db"
 import type { Loop } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
@@ -50,6 +60,35 @@ function getLoopRunQueue(): Queue<LoopRunJobData> {
     },
   })
   return loopRunQueue
+}
+
+// The session a loop's draft card sits in becomes the loop's session, so
+// every fire lands in the conversation where it was set up instead of a new
+// one. A session holds at most one loop; another loop set up there gets its
+// own session on its first fire.
+export async function adoptCardSession(loop: Loop): Promise<void> {
+  if (!loop.cardMessageId) return
+  const card = await db
+    .select({ threadRootId: schema.message.threadRootId })
+    .from(schema.message)
+    .where(eq(schema.message.id, loop.cardMessageId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!card?.threadRootId) return
+  await db
+    .update(schema.agentSession)
+    .set({ loopId: loop.id })
+    .where(
+      and(
+        eq(schema.agentSession.threadRootId, card.threadRootId),
+        eq(schema.agentSession.channelId, loop.channelId),
+        isNull(schema.agentSession.loopId)
+      )
+    )
+    .catch((err) => {
+      // The loop already has a session (agent_session_loopId_uidx).
+      if (!isUniqueViolation(err)) throw err
+    })
 }
 
 // Manual "Run now" from the loop panel: the same fire job the sweep queues

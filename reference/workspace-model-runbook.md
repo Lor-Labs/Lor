@@ -662,7 +662,11 @@ Lor authored them. Pause stops runs by `agentRun.loopId`. Deleted: the
 headless loop path (`runUnattended` for loops, `post_channel_message`/
 `create_plan` for loops, the chat `loop_fire` chip, `loopRunBriefing` and
 `packages/lor/src/loop-runs.ts`, `loopPromptSection`). The propose_loop draft
-card now posts in the session it was asked in. Web renders event replies in a
+card now posts in the session it was asked in, and activating it makes that
+session the loop's session (`adoptCardSession` in `api/lib/loops.ts`, run by
+the activate handler), so fires land in the conversation where the loop was
+set up instead of a second session. A session holds one loop; a second loop
+set up there, or a loop created by a change proposal, gets its own session. Web renders event replies in a
 session with `ChannelEventRow` (document gutter). Deviations: no partial
 unique index on `loop_id` — one session per loop makes the existing
 one-active-run-per-scope index enforce one run per loop; loop sandboxes key
