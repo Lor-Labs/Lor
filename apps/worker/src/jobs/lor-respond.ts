@@ -57,7 +57,6 @@ import { createProposalCard } from "@/lib/change-proposal"
 import { logger } from "@/lib/logger"
 import { loadConversation } from "@/lib/lor-conversation"
 import { createLoopCard } from "@/lib/lor-loop"
-import { postLorMessage } from "@/lib/lor-messages"
 import {
   buildApprovalContinuation,
   buildContinuation,
@@ -628,19 +627,12 @@ export function createLorRespondProcessor(
               userId: triggerUserId,
             }
 
-            // start_plan: adopt this run's thread as a new plan. Posts the
-            // projected card into the channel, anchors the plan to the thread
-            // root, and assigns it to this run so settlePlan owns it.
+            // start_plan: adopt this run's thread as a new plan, anchored to
+            // the thread root and assigned to this run so settlePlan owns it.
+            // No card in channel chat: the plan lives in the session's right
+            // panel.
             const createPlanForThread = async (input: StartPlanInput) => {
               if (!threadRootId) return null
-              const { messageId: cardId } = await postLorMessage(
-                { emitter, redis },
-                {
-                  channelId,
-                  content: input.goal,
-                  type: "plan_card",
-                }
-              )
               try {
                 const row = await db
                   .insert(schema.plan)
@@ -648,7 +640,6 @@ export function createLorRespondProcessor(
                     workspaceId,
                     channelId,
                     threadRootId,
-                    cardMessageId: cardId,
                     creatorId: triggerUserId,
                     title: input.title,
                     goal: input.goal,
@@ -662,10 +653,6 @@ export function createLorRespondProcessor(
                 emitPlanUpdated(row)
                 return row
               } catch (err) {
-                await db
-                  .delete(schema.message)
-                  .where(eq(schema.message.id, cardId))
-                  .catch(() => {})
                 if (isUniqueViolation(err)) {
                   // Lost a race on the thread's unique anchor — adopt the
                   // winner instead of failing the tool call.
@@ -706,7 +693,12 @@ export function createLorRespondProcessor(
             const proposeChange: ProposeChangeExecutor = (changeInput) =>
               createProposalCard(
                 { emitter, redis },
-                { workspaceId, channelId, ...changeInput }
+                {
+                  workspaceId,
+                  channelId,
+                  threadRootId: threadRootId ?? null,
+                  ...changeInput,
+                }
               )
             answer = await respond(
               {

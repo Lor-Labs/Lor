@@ -25,6 +25,8 @@ export type OnMessageReaction = (
 const messageActionContext = z.object({
   workspaceId: z.string(),
   channelId: z.string(),
+  // The session's thread; reactions stay inside it.
+  threadRootId: z.string(),
   triggerMessageId: z.string().optional(),
   onMessageReaction: z.custom<OnMessageReaction>().optional(),
 })
@@ -126,7 +128,7 @@ async function buildTargetedNotification(input: {
 export const messageActionTools = {
   react_to_message: tool({
     description:
-      "Add a reaction to a message as Lor to complement a concise written response. Use reactions sparingly. Repeating the same emoji on the same message is harmless and does not remove it. Omit messageId to react to the message that triggered this response.",
+      "Add a reaction to a message in this session as Lor to complement a concise written response. Use reactions sparingly. Repeating the same emoji on the same message is harmless and does not remove it. Omit messageId to react to the message that triggered this response.",
     inputSchema: z.object({
       emoji: z.string().trim().min(1).max(64),
       messageId: z.string().uuid().optional(),
@@ -151,6 +153,7 @@ export const messageActionTools = {
               and(
                 eq(schema.message.id, targetMessageId),
                 eq(schema.message.channelId, context.channelId),
+                eq(schema.message.threadRootId, context.threadRootId),
                 eq(schema.channel.workspaceId, context.workspaceId)
               )
             )
@@ -184,7 +187,7 @@ export const messageActionTools = {
           return { inserted, count: total }
         })
 
-        if (!result) return { error: "message not found in this channel" }
+        if (!result) return { error: "message not found in this session" }
 
         const lor = await loadLorIdentity()
         const update: RealtimeMessageReactionUpdated = {

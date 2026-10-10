@@ -465,6 +465,28 @@ export const MessageItem = memo(function MessageItem({
     )
   }
 
+  // Document layout: the first message of each turn wears a small avatar in
+  // the gutter (Lor's too) instead of a name row; name and time on hover.
+  const documentGutter = (
+    <div className="w-7 shrink-0">
+      {showHeader && (
+        <Avatar
+          className="-mt-0.5 size-7"
+          title={`${displayName} · ${formatTime(message.createdAt)}`}
+        >
+          {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
+          <AvatarFallback
+            avatarColor={author.avatarColor}
+            fallbackSeed={displayName}
+            className="text-xs font-semibold"
+          >
+            {getAvatarInitials(displayName)}
+          </AvatarFallback>
+        </Avatar>
+      )}
+    </div>
+  )
+
   // Plan, loop and proposal cards (and per-fire loop chips) render as their
   // own surface, but inside the normal message row — so they keep Lor's
   // avatar, name and timestamp, and line up with every other message.
@@ -475,6 +497,31 @@ export const MessageItem = memo(function MessageItem({
     message.type === "proposal_card" ||
     message.type === "call_summary"
   ) {
+    // A card in a session (a proposal Lor filed there) follows the
+    // document look: gutter avatar, no name row.
+    if (isDocument) {
+      return (
+        <div
+          data-message-id={message.id}
+          className={cn("group px-4 py-0.5", showHeader && "pt-3")}
+        >
+          <div className="flex gap-3">
+            {documentGutter}
+            <div className="min-w-0 flex-1">
+              {message.type === "proposal_card" ? (
+                <ProposalCard message={message} />
+              ) : message.type === "plan_card" ? (
+                <PlanCard message={message} onOpenThread={onOpenThread} />
+              ) : message.type === "call_summary" ? (
+                <CallSummaryCard message={message} />
+              ) : (
+                <LoopCard message={message} />
+              )}
+            </div>
+          </div>
+        </div>
+      )
+    }
     const planAvatar = (
       <Avatar size="lg">
         {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
@@ -564,28 +611,6 @@ export const MessageItem = memo(function MessageItem({
       </div>
     )
   }
-
-  // Document layout: the first message of each turn wears a small avatar in
-  // the gutter (Lor's too) instead of a name row; name and time on hover.
-  const documentGutter = (
-    <div className="w-7 shrink-0">
-      {showHeader && (
-        <Avatar
-          className="-mt-0.5 size-7"
-          title={`${displayName} · ${formatTime(message.createdAt)}`}
-        >
-          {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
-          <AvatarFallback
-            avatarColor={author.avatarColor}
-            fallbackSeed={displayName}
-            className="text-xs font-semibold"
-          >
-            {getAvatarInitials(displayName)}
-          </AvatarFallback>
-        </Avatar>
-      )}
-    </div>
-  )
 
   return (
     <div

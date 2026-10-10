@@ -423,7 +423,7 @@ export async function sendProposalPush(input: {
       proposalId: input.notification.proposalId,
       workspaceId: input.notification.workspaceId,
       channelId: input.notification.channelId,
-      threadRootId: null,
+      threadRootId: input.notification.threadRootId,
       messageId: input.notification.cardMessageId,
     },
   })

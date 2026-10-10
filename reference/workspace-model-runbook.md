@@ -589,7 +589,31 @@ Opening a session from the list never subscribes you. The `subscribed` field is 
 
 #### Step 15: cards, reactions, prompt copy (~300)
 
-[ ] built · [ ] committed · [ ] db:push
+[x] built · [ ] committed · [ ] db:push
+
+As built (~200 lines): `lor-respond` no longer posts a `plan_card`; a
+session's plan has no `cardMessageId` and shows in the Details panel (loop
+and Act plans in `lor-plan.ts` still post cards until Steps 16–17).
+`change_proposal.thread_root_id` (new, cascade) records the session; the
+card posts in the session (`postLorMessage` with `threadRootId`), supersede
+is scoped to the session (or to the channel for rows without one), and the
+pending unique index splits in two: `changeProposal_session_pending_uidx`
+(per `thread_root_id`) and `changeProposal_channel_pending_uidx` (per channel
+where `thread_root_id is null`). **db:push**: adds the column and the session
+index, recreates the channel index with the new filter. Resolving posts in
+the session, continues Lor there, and subscribes the resolver;
+`ProposalNotification.threadRootId` lets the phone push open the session.
+`react_to_message` is bound only on runs with a `threadRootId` (not voice)
+and only reacts to replies in that thread. Prompt copy (the one cache bust):
+a "Where you work" paragraph on sessions, people-to-people messages as
+context, "other sessions" in place of "other threads", proposal results
+"arrive in the same conversation", and plan tools no longer promise a card.
+Card messages inside a session now use the document layout (gutter avatar,
+no name row). Open: proposals don't raise "needs you" for approvers yet (they
+get the directed notification); the loop card and loop/Act runs still live
+in chat until Steps 16–17, so the "Where you work" paragraph is briefly
+loose for them; the channel page's proposal subscription stays for older
+cards in chat.
 
 - `lor-respond.ts:633-642`: stop posting `plan_card`.
 - Proposals: `worker lib/change-proposal.ts:71-110` posts in the session;

@@ -945,7 +945,9 @@ export type ProposalNotification = {
   workspaceName: string
   channelId: string
   channelName: string | null
-  // The card message — also the thread the resolution lands in.
+  // The session the card is in; null for pre-session proposals, whose card
+  // thread takes the resolution.
+  threadRootId: string | null
   cardMessageId: string | null
   rationale: string
 }
