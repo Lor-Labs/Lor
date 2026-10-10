@@ -585,6 +585,40 @@ export async function buildApprovalContinuation(args: {
   }
 }
 
+export const APPROVAL_SPEAKER = "Approval"
+
+// request_approval parks no tool call, so its decision reaches the
+// continuation as a line in the delta; nothing posts in the chat. Null for
+// policy gates, which resume with the AI SDK approval response instead.
+export async function approvalDecisionTurn(
+  approvalId: string
+): Promise<AgentRunContext["conversation"][number] | null> {
+  const row = await db
+    .select({
+      status: schema.approval.status,
+      description: schema.approval.description,
+      toolCallId: schema.approval.toolCallId,
+      resolverName: schema.user.name,
+    })
+    .from(schema.approval)
+    .leftJoin(schema.user, eq(schema.user.id, schema.approval.resolvedBy))
+    .where(eq(schema.approval.id, approvalId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!row || row.toolCallId) return null
+  if (row.status !== "approved" && row.status !== "rejected") return null
+  const who = row.resolverName ?? "Someone"
+  return {
+    authorName: APPROVAL_SPEAKER,
+    content:
+      row.status === "approved"
+        ? `${who} approved: ${row.description}`
+        : `${who} rejected: ${row.description}. Do not take this action.`,
+    images: [],
+    files: [],
+  }
+}
+
 // Assemble a continued context: the full chain of prior runs in this scope
 // (the original snapshot, then each hop's delta and steps) plus one user
 // message carrying what has been said since. Returns null whenever the
@@ -595,6 +629,8 @@ export async function buildContinuation(args: {
   channelId: string
   lorMessageId: string
   runId: string | undefined
+  // Appended after the delta's messages (an approval decision).
+  extraTurns?: AgentRunContext["conversation"]
 }): Promise<Continuation | null> {
   try {
     const predecessor = await findPredecessor({
@@ -614,7 +650,7 @@ export async function buildContinuation(args: {
     if (!replayed) return null
 
     const since = predecessor.startedAt ?? predecessor.createdAt
-    const { turns, omitted, coveredMessageIds } = await loadDelta({
+    const delta = await loadDelta({
       predecessorRunId: predecessor.id,
       predecessorStartedAt: since,
       predecessorContext: predecessor.context,
@@ -622,6 +658,8 @@ export async function buildContinuation(args: {
       channelId: args.channelId,
       lorMessageId: args.lorMessageId,
     })
+    const { omitted, coveredMessageIds } = delta
+    const turns = [...delta.turns, ...(args.extraTurns ?? [])]
     const finishedAt = predecessor.finishedAt ?? since
     const deltaText = formatDelta(
       turns,

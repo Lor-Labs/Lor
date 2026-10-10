@@ -804,6 +804,7 @@ export const MessageItem = memo(function MessageItem({
             <MessageApprovalCard
               channelId={message.channelId}
               messageId={message.id}
+              threadRootId={isDocument ? message.threadRootId : null}
             />
           )}
           {message.routedOutcome === "steered" && (

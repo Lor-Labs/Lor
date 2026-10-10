@@ -30,6 +30,7 @@ function channelApprovalsQueryOptions(channelId: string) {
     queryFn: async (): Promise<ChannelApproval[]> => {
       const res = await api.v1.channels[":channelId"].approvals.$get({
         param: { channelId },
+        query: {},
       })
       if (!res.ok) throw new Error("Failed to fetch channel approvals")
       const payload = await res.json()

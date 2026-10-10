@@ -66,6 +66,7 @@ import {
 import { loadConversation } from "@/lib/lor-conversation"
 import { createLoopCard } from "@/lib/lor-loop"
 import {
+  approvalDecisionTurn,
   buildApprovalContinuation,
   buildContinuation,
 } from "@/lib/run-continuation"
@@ -532,9 +533,17 @@ export function createLorRespondProcessor(
             // An approval resume is explicit rather than scope-inferred: it
             // replays the parked run named by the approval row, so it also
             // works in a plain channel scope where no delta path exists.
+            // request_approval parks no tool call: its decision rides the
+            // delta as a line instead.
+            const decisionTurn =
+              !execution?.resume && job.data.resumeApprovalId
+                ? await approvalDecisionTurn(job.data.resumeApprovalId).catch(
+                    () => null
+                  )
+                : null
             const continuation = execution?.resume
               ? null
-              : job.data.resumeApprovalId
+              : job.data.resumeApprovalId && !decisionTurn
                 ? await buildApprovalContinuation({
                     approvalId: job.data.resumeApprovalId,
                   })
@@ -544,6 +553,7 @@ export function createLorRespondProcessor(
                       channelId,
                       lorMessageId,
                       runId: job.data.runId,
+                      ...(decisionTurn ? { extraTurns: [decisionTurn] } : {}),
                     })
                   : null
             if (continuation && execution) {

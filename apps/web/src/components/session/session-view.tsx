@@ -71,7 +71,7 @@ function SessionConversation({
   detail: AgentSessionDetail
 }) {
   // Approval and proposal cards render inline in the session; keep them live.
-  useChannelApprovals(session.channelId)
+  useChannelApprovals(session.channelId, session.threadRootId)
   useChannelProposals(session.channelId)
   useEffect(() => {
     writeLastSession(workspaceSlug, session.id, session.channelId)

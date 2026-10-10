@@ -44,6 +44,7 @@ export const listChannelApprovals: AppRouteHandler<
 > = async (c) => {
   const currentUser = c.var.user
   const { channelId } = c.req.valid("param")
+  const { threadRootId } = c.req.valid("query")
 
   const canAccess = await userCanAccessChannel(channelId, currentUser.id)
   if (!canAccess) {
@@ -76,7 +77,16 @@ export const listChannelApprovals: AppRouteHandler<
     .where(
       and(
         eq(schema.agentRun.channelId, channelId),
-        eq(schema.approval.status, "pending"),
+        threadRootId
+          ? and(
+              eq(schema.agentRun.threadRootId, threadRootId),
+              inArray(schema.approval.status, [
+                "pending",
+                "approved",
+                "rejected",
+              ])
+            )
+          : eq(schema.approval.status, "pending"),
         isNotNull(schema.approval.runId),
         // A call's approvals show only in the call (Lor's window).
         notExists(
@@ -173,6 +183,7 @@ async function resolveApproval(
         channelId: schema.agentRun.channelId,
         threadRootId: schema.agentRun.threadRootId,
         scopeKey: schema.agentRun.scopeKey,
+        messageId: schema.agentRun.messageId,
       },
       plan: schema.plan,
     })
@@ -281,20 +292,22 @@ async function resolveApproval(
     return { kind: "resolved", approval: resolved }
   }
 
-  // The resolution message is the continuation trigger: it lands in the run's
-  // scope as the resolver, and the next run answers it. If it can't be
-  // created, un-resolve the CAS so the caller can retry — a success response
-  // without the message would strand the run.
-  const content =
-    resolution === "approved"
-      ? `Approved — go ahead: ${resolved.description}`
-      : `Rejected — do not proceed: ${resolved.description}`
-  const messageId = await postScopeMessage({
-    channelId: scope.channelId,
-    threadRootId: scope.threadRootId,
-    authorId: userId,
-    content,
-  }).catch(() => null)
+  // No message posts: the decision reaches Lor as the AI SDK's approval
+  // response (or a decision line for request_approval), and the card shows
+  // it. The continuation answers Lor's parked reply. Only an old message-less
+  // run still needs a posted resolution to trigger on; if that can't be
+  // created, un-resolve the CAS so the caller can retry.
+  const messageId =
+    row.run?.messageId ??
+    (await postScopeMessage({
+      channelId: scope.channelId,
+      threadRootId: scope.threadRootId,
+      authorId: userId,
+      content:
+        resolution === "approved"
+          ? `Approved — go ahead: ${resolved.description}`
+          : `Rejected — do not proceed: ${resolved.description}`,
+    }).catch(() => null))
   if (!messageId) {
     await undoResolution()
     return { kind: "post_failed" }
@@ -366,9 +379,10 @@ async function resolveApproval(
       scopeKey: scope.scopeKey,
       triggerMessageId: messageId,
       senderId: userId,
-      // Policy gates park a real tool call: the next run replays the parked
-      // transcript and answers its approval request rather than re-deciding.
-      ...(resolved.toolCallId && resolved.runId
+      // The worker replays a policy gate's parked tool call with the SDK
+      // approval response, or hands request_approval its decision (unless an
+      // old run's posted resolution already says it).
+      ...(resolved.runId && (resolved.toolCallId || row.run?.messageId)
         ? { resumeApprovalId: resolved.id }
         : {}),
       ...(plan

@@ -264,6 +264,7 @@ export type ApprovalSample = {
   lorSays: string
   approval: ApprovalCardData
   canResolve: boolean
+  resolvedByName?: string
 }
 
 export const APPROVAL_SAMPLES: ApprovalSample[] = [
@@ -278,6 +279,8 @@ export const APPROVAL_SAMPLES: ApprovalSample[] = [
       toolName: "search_github",
       resolver: { kind: "any_member" },
       resolverUserName: null,
+      status: "pending",
+      resolvedBy: null,
     },
     canResolve: true,
   },
@@ -293,7 +296,44 @@ export const APPROVAL_SAMPLES: ApprovalSample[] = [
       toolName: "send_email",
       resolver: { kind: "role", role: "admin" },
       resolverUserName: null,
+      status: "pending",
+      resolvedBy: null,
     },
     canResolve: false,
+  },
+  {
+    label: "Approved",
+    lorSays: "Waiting for approval before I continue.",
+    approval: {
+      id: "a3",
+      description: "Searching GitHub for “bug report”",
+      planId: null,
+      target: "capability:github",
+      toolName: "search_github",
+      resolver: { kind: "any_member" },
+      resolverUserName: null,
+      status: "approved",
+      resolvedBy: "u1",
+    },
+    canResolve: true,
+    resolvedByName: "Maren Okafor",
+  },
+  {
+    label: "Rejected",
+    lorSays: "Waiting for approval before I continue.",
+    approval: {
+      id: "a4",
+      description:
+        "Sending the release notes to the 42 people on the beta list",
+      planId: null,
+      target: "custom_tool:send_email",
+      toolName: "send_email",
+      resolver: { kind: "role", role: "admin" },
+      resolverUserName: null,
+      status: "rejected",
+      resolvedBy: "u2",
+    },
+    canResolve: false,
+    resolvedByName: "you",
   },
 ]

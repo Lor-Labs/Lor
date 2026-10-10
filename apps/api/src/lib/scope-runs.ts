@@ -304,7 +304,9 @@ export async function startScopeContinuationRun(
       if (undone.length > 0) return "no_active_run"
     }
     // The queue row is durable (the drain picks it up regardless); a failed
-    // broadcast only costs the live routing indicator.
+    // broadcast only costs the live routing indicator. An approval resume
+    // waits on Lor's own reply, which never shows as queued.
+    if (args.resumeApprovalId) return "queued"
     try {
       const io = await getEmitter()
       io.to(room).emit("message:routed", {

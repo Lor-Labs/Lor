@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   inArray,
+  isNull,
   lte,
   ne,
   notExists,
@@ -63,7 +64,10 @@ export async function loadConversation(args: {
               .where(
                 and(
                   eq(schema.agentRunQueue.messageId, schema.message.id),
-                  eq(schema.agentRunQueue.state, "queued")
+                  eq(schema.agentRunQueue.state, "queued"),
+                  // An approval resume queues on Lor's own reply, which
+                  // stays in the conversation.
+                  isNull(schema.agentRunQueue.resumeApprovalId)
                 )
               )
           )

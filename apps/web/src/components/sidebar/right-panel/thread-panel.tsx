@@ -819,6 +819,7 @@ export function ThreadPanel({
         pendingNonces={pendingNonces}
         onSteer={queuedMessageSteering.steerMessage}
         steeringMessageId={queuedMessageSteering.steeringMessageId}
+        variant={sessionView ? "document" : "box"}
       />
       <MessageInput
         key={view.threadRootId}

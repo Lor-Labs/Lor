@@ -7,6 +7,7 @@ import {
   gt,
   inArray,
   isNotNull,
+  isNull,
   schema,
   sql,
 } from "@repo/db"
@@ -103,7 +104,10 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
       .where(
         and(
           eq(schema.agentRunQueue.scopeKey, run.scopeKey),
-          eq(schema.agentRunQueue.state, "queued")
+          eq(schema.agentRunQueue.state, "queued"),
+          // An approval resume waits on Lor's own reply, not a person's
+          // message, so it never shows in the queue.
+          isNull(schema.agentRunQueue.resumeApprovalId)
         )
       )
       .orderBy(asc(schema.agentRunQueue.createdAt)),

@@ -51,6 +51,7 @@ export function DesignPage() {
                   canResolve={sample.canResolve}
                   pending={false}
                   onResolve={() => {}}
+                  resolvedByName={sample.resolvedByName ?? null}
                 />
               </div>
             </Example>

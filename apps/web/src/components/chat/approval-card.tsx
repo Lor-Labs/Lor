@@ -1,7 +1,12 @@
-import { LockKeyIcon } from "@hugeicons/core-free-icons"
+import {
+  Cancel01Icon,
+  LockKeyIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
+import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import {
@@ -21,19 +26,24 @@ export type ApprovalCardData = {
   toolName: string | null
   resolver: ApprovalResolverSpec | null
   resolverUserName: string | null
+  status: "pending" | "approved" | "rejected" | "expired"
+  resolvedBy: string | null
 }
 
-// The gate card under a parked run's own message (channel or thread scope).
-// Mounted only on Lor run replies; renders nothing unless this message's
-// run parked on a pending approval.
+// The gate card under a parked run's own message. Renders nothing unless
+// this message's run parked on an approval. In a session it stays after the
+// decision as its record: nothing else posts (the decision reaches Lor as
+// the AI SDK approval response).
 export function MessageApprovalCard({
   channelId,
   messageId,
+  threadRootId,
 }: {
   channelId: string
   messageId: string
+  threadRootId: string | null
 }) {
-  const approval = useMessageApproval(channelId, messageId)
+  const approval = useMessageApproval(channelId, messageId, threadRootId)
   if (!approval) return null
   return (
     <div className="mt-2 max-w-xl">
@@ -90,8 +100,9 @@ export function ApprovalGateCard({
   )
 
   const onResolve = (resolution: "approve" | "reject") => {
+    if (!activeMember) return
     resolve.mutate(
-      { approvalId: approval.id, resolution },
+      { approvalId: approval.id, resolution, userId: activeMember.userId },
       {
         onSettled: () => {
           if (approval.planId) {
@@ -104,29 +115,75 @@ export function ApprovalGateCard({
     )
   }
 
+  const resolvedByName =
+    approval.resolvedBy === activeMember?.userId
+      ? "you"
+      : (membersData?.members.find((m) => m.userId === approval.resolvedBy)
+          ?.name ?? null)
+
   return (
     <ApprovalGateView
       approval={approval}
       canResolve={canResolve}
       pending={resolve.isPending}
       onResolve={onResolve}
+      resolvedByName={resolvedByName}
     />
   )
 }
 
-// One quiet row: what Lor wants to do, who can allow it, and the buttons.
-// Data in, callback out (the /design page renders it with sample data).
+const RESOLVED_LABEL = {
+  approved: "Approved",
+  rejected: "Rejected",
+  expired: "Expired",
+} as const
+
+// One quiet row: what Lor wants to do, who can allow it, and the buttons;
+// once decided, what was decided and by whom. Data in, callback out (the
+// /design page renders it with sample data).
 export function ApprovalGateView({
   approval,
   canResolve,
   pending,
   onResolve,
+  resolvedByName,
 }: {
   approval: ApprovalCardData
   canResolve: boolean
   pending: boolean
   onResolve: (resolution: "approve" | "reject") => void
+  resolvedByName: string | null
 }) {
+  if (approval.status !== "pending") {
+    const approved = approval.status === "approved"
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-border/60 py-2 ps-3 pe-3">
+        <span
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-lg",
+            approved
+              ? "bg-success/12 text-success-foreground"
+              : "bg-foreground/[0.05] text-muted-foreground"
+          )}
+        >
+          <HugeiconsIcon
+            icon={approved ? Tick02Icon : Cancel01Icon}
+            className="size-3.5"
+            strokeWidth={2.25}
+          />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] text-foreground/80 leading-5">
+            {approval.description}
+          </p>
+          <p className="truncate text-muted-foreground text-xs leading-4">
+            {RESOLVED_LABEL[approval.status]}
+            {resolvedByName && ` by ${resolvedByName}`}
+          </p>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/60 bg-card py-2.5 ps-3 pe-2.5 dark:bg-foreground/[0.025]">
       <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning-foreground">
