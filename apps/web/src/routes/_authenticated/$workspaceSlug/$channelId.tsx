@@ -26,14 +26,11 @@ import {
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
-import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelEntry } from "@/hooks/use-channel-entry"
 import { useChannelFilesRealtime } from "@/hooks/use-channel-files"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
-import { useChannelPlans } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
-import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
@@ -45,7 +42,6 @@ import {
   useMessageLocation,
 } from "@/hooks/use-message-search-navigation"
 import { useMessageSending } from "@/hooks/use-message-sending"
-import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
@@ -165,15 +161,6 @@ function ChannelView() {
     useRightSidebar()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
-  // Live source for every approval and proposal card in this channel (message
-  // cards read the same caches); the socket handlers live here, once per
-  // channel view.
-  useChannelApprovals(channelId)
-  useChannelProposals(channelId)
-  // Plans too — cards mount/unmount with scrolling, so without a route-level
-  // subscription a terminal plan:updated can arrive with no listener and the
-  // card spins on "running" until a refetch.
-  useChannelPlans(channelId)
   useChannelFilesRealtime(channelId)
 
   useEffect(() => {
@@ -391,10 +378,6 @@ function ChannelView() {
     queryClient,
     channelId,
   })
-
-  // Loop and Act runs still answer in chat until they become sessions
-  // (runbook Steps 16–17); chat messages never queue for or steer Lor.
-  useLorRunReplay({ queryClient, channelId, messages })
 
   const { data: activeMember } = useQuery({
     queryKey: ["active-workspace-member", workspaceSlug],

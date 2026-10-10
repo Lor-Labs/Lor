@@ -33,8 +33,8 @@ function channelApprovalsQueryOptions(channelId: string) {
 }
 
 // Pending policy-gated approvals for the channel, kept live by
-// approval:created/updated (channel room). Mount once per channel view — the
-// per-message hook below reads the same cache without its own socket work.
+// approval:created/updated (channel room). Mounted once by the session page —
+// the per-message hook below reads the same cache without its own socket work.
 export function useChannelApprovals(channelId: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()

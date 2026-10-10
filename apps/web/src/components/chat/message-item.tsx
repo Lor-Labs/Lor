@@ -2,7 +2,6 @@ import {
   ArrowRight01Icon,
   BrainIcon,
   Pin02Icon,
-  SquareIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { LOR_USER_ID } from "@repo/db/constants"
@@ -46,7 +45,6 @@ import { ProposalCard } from "@/components/chat/proposal-card"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import { CallSummaryCard } from "@/components/voice/call-summary"
-import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import type { Message } from "@/lib/api-types"
 import { connectorMessageEmbed } from "@/lib/connector-message-embed"
 import {
@@ -76,7 +74,6 @@ interface MessageItemProps {
   canPin?: boolean
   mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
-  showLorRunControls?: boolean
   // Session transcript: reads as a document. Each turn has a small avatar in
   // a narrow gutter and no name row.
   layout?: "chat" | "document"
@@ -187,39 +184,6 @@ function ReplyPreview({
         </span>
       )}
     </button>
-  )
-}
-
-// Steer status + explicit Stop for an in-flight Lor reply. Stop is honored
-// by the run at its next safe step boundary; whatever streamed is kept.
-function LorRunControls({ message }: { message: Message }) {
-  const stop = useStopLorRun()
-
-  return (
-    <div className="mt-1.5 flex items-center gap-3">
-      {message.steeringBy && (
-        <span className="text-xs italic text-agent">
-          Applying {message.steeringBy}'s new direction…
-        </span>
-      )}
-      {message.stopRequested ? (
-        <span className="text-xs text-muted-foreground italic">Stopping…</span>
-      ) : (
-        <button
-          type="button"
-          onClick={() => stop.mutate(message)}
-          disabled={stop.isPending}
-          className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <HugeiconsIcon
-            icon={SquareIcon}
-            className="size-2.5 fill-current"
-            strokeWidth={2}
-          />
-          Stop
-        </button>
-      )}
-    </div>
   )
 }
 
@@ -349,7 +313,6 @@ export const MessageItem = memo(function MessageItem({
   canPin = false,
   mentionCandidates,
   onJumpToMessage,
-  showLorRunControls = true,
   layout = "chat",
 }: MessageItemProps) {
   const author = message.author
@@ -841,11 +804,6 @@ export const MessageItem = memo(function MessageItem({
               onCitationJump={onJumpToMessage}
             />
           )}
-          {showLorRunControls &&
-            !isEditing &&
-            (message.streaming || message.status === "pending") && (
-              <LorRunControls message={message} />
-            )}
           {/* Policy-gated approval parked on this run's reply (LOR-81).
               lorTriggerMessageId marks run replies live and on reload. */}
           {message.lorTriggerMessageId && !isEditing && (

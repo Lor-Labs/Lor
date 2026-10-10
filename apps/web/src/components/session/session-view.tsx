@@ -70,8 +70,7 @@ function SessionConversation({
   workspaceSlug: string
   detail: AgentSessionDetail
 }) {
-  // Approval and proposal cards render inline in the session; keep them live
-  // here, since the channel page that also mounts these may not be open.
+  // Approval and proposal cards render inline in the session; keep them live.
   useChannelApprovals(session.channelId)
   useChannelProposals(session.channelId)
   useEffect(() => {

@@ -693,7 +693,7 @@ run's reply is not built.
 
 #### Step 17: Act runs in sessions (~350)
 
-[x] built · [ ] committed · [ ] db:push
+[x] built · [x] committed · [ ] db:push
 
 - `triggered-run.ts:113-150`, `act-runs.ts:122-151`: one session per run;
   partial unique index on active `trigger_id`; scoped briefing (hazard 11).
@@ -902,7 +902,17 @@ lines, plus the server steps. 22 steps.
   streaming follow, and the channel page's approval and plan subscriptions.
   Proposal subscriptions stay until Step 15 moves proposals into sessions.
   `use-channel-messages.ts` still copies `lorWaiting` into thread summaries
-  (the server still sends it); only the badge went.
+  (the server still sends it); only the badge went. **Cleanup done
+  2026-10-09, after Step 17:** the channel page drops `useLorRunReplay` and
+  its approval, proposal and plan subscriptions (the session page mounts
+  approvals and proposals; `usePlanForThread` and legacy plan cards subscribe
+  to plans themselves); `message-item.tsx` loses `LorRunControls` and the
+  `showLorRunControls` prop (sessions stop runs from their own controls);
+  `message-list.tsx` loses the Lor streaming follow. Kept: the `lorWaiting`
+  copy, because the API thread summary type still carries it for mobile
+  (Phase F). The only runs left in channel scope are legacy approvals parked
+  before Step 4; resolving one still streams into chat through the global
+  `useLorStream`, without late-join replay or follow.
 - Step 10: the thread endpoint's `participants` (authors + plan creator)
   stays; Step 12's header reads the new subscribers route instead. Being
   added notifies like a mention: that lands with notifications (Step 11).

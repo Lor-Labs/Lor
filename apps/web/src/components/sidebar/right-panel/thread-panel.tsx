@@ -992,7 +992,6 @@ export function ThreadPanel({
                     onEdit={handleEdit}
                     onJumpToMessage={handleJumpWithinThread}
                     mentionCandidates={mentionCandidates}
-                    showLorRunControls={false}
                   />
                 </MessageScrollerItem>
               )}
@@ -1106,7 +1105,6 @@ export function ThreadPanel({
                         onEdit={handleEdit}
                         onJumpToMessage={handleJumpWithinThread}
                         mentionCandidates={mentionCandidates}
-                        showLorRunControls={false}
                       />
                     </MessageScrollerItem>
                   )

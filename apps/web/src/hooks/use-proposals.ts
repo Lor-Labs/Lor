@@ -31,8 +31,8 @@ function channelProposalsQueryOptions(channelId: string) {
 }
 
 // The channel's change proposals (all statuses — resolved cards render their
-// terminal state), kept live by proposal:updated (channel room). Mount once
-// per channel view; the per-message hook reads the same cache.
+// terminal state), kept live by proposal:updated (channel room). Mounted once
+// by the session page; the per-message hook reads the same cache.
 export function useChannelProposals(channelId: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()
