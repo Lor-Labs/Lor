@@ -239,7 +239,9 @@ started" toast with Open, until Step 7's composer note replaces it.
 [x] built 2026-10-08 · [x] committed · [ ] right-panel follow-up committed
 
 As built: the rail is a right-panel view, `{ type: "session-work" }`
-(`right-panel/session-work-panel.tsx`, "Details": Plan, Files, Activity), so
+(`right-panel/session-work-panel.tsx`, "Details": Context, Plan, Files; the
+Activity section was removed 2026-10-09, since tool activity shows on Lor's
+replies in the session), so
 it gets the panel's background, resize and collapse. The session page sets
 that view on open and clears it on leave, as a channel page does; the header's
 `RightPanelToggle` reopens it (`openView` prop). It has its own size class

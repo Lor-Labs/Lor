@@ -1,10 +1,8 @@
 import { HashtagIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { LOR_USER_ID } from "@repo/db/constants"
 import { toast } from "@repo/ui/components/toast"
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { type ReactNode, useMemo } from "react"
-import { LorToolTrail } from "@/components/chat/lor-tool-trail"
 import { PlanStepList } from "@/components/chat/plan-step-list"
 import {
   type PlanSourceFile,
@@ -28,11 +26,9 @@ import {
   type ThreadPage,
   threadQueryOptions,
 } from "@/hooks/use-thread-messages"
-import type { Message } from "@/lib/api-types"
 
-// Files and the newest tool trail from the loaded session messages, walked
-// oldest first so a file Lor rewrote keeps its latest version and moves to
-// the top.
+// Files from the loaded session messages, walked oldest first so a file Lor
+// rewrote keeps its latest version and moves to the top.
 function collectSessionWork(pages: ThreadPage[]) {
   const messages = pages
     .flatMap((page) => page.data)
@@ -40,15 +36,10 @@ function collectSessionWork(pages: ThreadPage[]) {
       (a, b) =>
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     )
-  let activityMessage: Message | null = null
   const outputs = new Map<string, WorkOutputFile>()
   const sources = new Map<string, PlanSourceFile>()
   for (const message of messages) {
-    const toolCalls = message.lorToolCalls ?? []
-    if (message.authorId === LOR_USER_ID && toolCalls.length > 0) {
-      activityMessage = message
-    }
-    for (const call of toolCalls) {
+    for (const call of message.lorToolCalls ?? []) {
       for (const file of call.files ?? []) {
         outputs.delete(file.artifactId)
         outputs.set(file.artifactId, {
@@ -69,15 +60,14 @@ function collectSessionWork(pages: ThreadPage[]) {
     }
   }
   return {
-    activityMessage,
     outputs: [...outputs.values()].reverse(),
     sources: [...sources.values()],
   }
 }
 
-// The session's details beside the session page: its starting context, plan,
-// files and Lor's latest activity stay in view while the transcript scrolls.
-// Approval and proposal cards render inline in the transcript, not here.
+// The session's details beside the session page: its starting context, plan
+// and files stay in view while the transcript scrolls. Lor's tool activity
+// shows on its replies; approval and proposal cards render inline there too.
 export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
   const queryClient = useQueryClient()
   // Same query as the session page, so it shares the cache, live replies and
@@ -87,19 +77,15 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
       fetchThreadPage(view, params)
     )
   )
-  const {
-    activityMessage,
-    outputs: toolOutputs,
-    sources,
-  } = useMemo(() => collectSessionWork(data?.pages ?? []), [data])
+  const { outputs: toolOutputs, sources } = useMemo(
+    () => collectSessionWork(data?.pages ?? []),
+    [data]
+  )
   const {
     plan,
     outputs: planOutputs,
     doneCount,
-    activityCalls,
-    childrenByParent,
-    streaming,
-  } = useThreadWork(view.channelId, view.threadRootId, activityMessage)
+  } = useThreadWork(view.channelId, view.threadRootId, null)
 
   // Plan artifacts can predate the loaded messages; tool-call files cover
   // artifacts made without a plan.
@@ -153,22 +139,6 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
             <WorkFileList outputs={outputs} sources={sources} />
           ) : (
             <PanelEmpty>No files yet</PanelEmpty>
-          )}
-        </PanelSection>
-        <PanelSection
-          title={
-            streaming ? <span className="shimmer">Working…</span> : "Activity"
-          }
-        >
-          {activityCalls.length > 0 ? (
-            <LorToolTrail
-              toolCalls={activityCalls}
-              childrenByParent={childrenByParent}
-              streaming={streaming}
-              embedded
-            />
-          ) : (
-            <PanelEmpty>No activity yet</PanelEmpty>
           )}
         </PanelSection>
       </div>
