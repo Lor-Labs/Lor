@@ -10,6 +10,7 @@ import {
   TextStrikethroughIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { isTauri } from "@repo/auth/tauri-fetch"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -1141,7 +1142,7 @@ export function MessageInput({
         align="start"
         onDismiss={dismissLorHint}
       >
-        Mention @Lor to start a session. Lor works there, next to the chat.
+        {`Mention @Lor${isTauri ? " or press ⌘N" : ""} to start a session. Lor works there, next to the chat.`}
       </HintPopover>
       <div
         ref={composerRef}

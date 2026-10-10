@@ -253,14 +253,17 @@ put noise where people talk. A better later moment is a Lor change proposal
 pasting PR links. That belongs to the self-configuration work, not
 onboarding.
 
-Lor's intro, posted once in `#general` as `LOR_USER_ID`, `type: default`,
-`silent`, `excludedFromMemory: true`:
+**Removed 2026-10-10** (workspace model Step 19: Lor never writes in channel
+chat; existing intros are hidden by `chatFeedMessage()`). Jacob wants to redo
+how onboarding introduces Lor next; the New session view and the `lor_intro`
+hint carry it until then. The old intro, posted once in `#general` as
+`LOR_USER_ID`, `type: default`, `silent`, `excludedFromMemory: true`:
 
 > Hi, I'm Lor. Mention me with @Lor in any channel to ask about your code,
 > your issues, or anything this team has discussed. I show my work and cite
 > what I used.
 
-Nothing else is posted. No channel events are posted for seeded channels.
+Nothing is posted. No channel events are posted for seeded channels.
 
 The template lives in `packages/auth/src/lib/workspace-template.ts` and is
 called from the `afterCreateOrganization` hook. Each hook step runs
