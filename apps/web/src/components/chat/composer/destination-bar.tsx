@@ -3,7 +3,7 @@ import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { AnimatePresence, motion } from "motion/react"
-import type { ReactNode } from "react"
+import type { ReactNode, RefObject } from "react"
 
 // Where the composer's message goes: channel chat and human threads start a
 // session on @Lor; inside a session a message goes to Lor or to people; the
@@ -28,6 +28,7 @@ export function DestinationBar({
   pinged,
   onSwitch,
   channelPicker,
+  lorPillRef,
 }: {
   destination: ComposerDestination
   channelName: string
@@ -37,6 +38,9 @@ export function DestinationBar({
   onSwitch?: () => void
   // New session only: chooses the session's channel.
   channelPicker?: ReactNode
+  // Anchors the session_reply hint on the Lor pill. Only the Lor state takes
+  // it: the people state's exit would clear the ref after the swap.
+  lorPillRef?: RefObject<HTMLSpanElement | null>
 }) {
   const lorLabel =
     destination === "session"
@@ -58,17 +62,19 @@ export function DestinationBar({
           >
             {/* Quiet in a session, where Lor is the default; chat and threads
                 tint it, since there it changes what the send does. */}
-            <DestinationPill
-              onSwitch={onSwitch}
-              className={
-                destination === "session"
-                  ? "text-muted-foreground hover:text-foreground"
-                  : "bg-agent/10 font-medium text-agent"
-              }
-            >
-              <img src="/lor-mark.svg" alt="" className="size-3.5" />
-              {lorLabel}
-            </DestinationPill>
+            <span ref={lorPillRef} className="flex shrink-0">
+              <DestinationPill
+                onSwitch={onSwitch}
+                className={
+                  destination === "session"
+                    ? "text-muted-foreground hover:text-foreground"
+                    : "bg-agent/10 font-medium text-agent"
+                }
+              >
+                <img src="/lor-mark.svg" alt="" className="size-3.5" />
+                {lorLabel}
+              </DestinationPill>
+            </span>
             {channelPicker}
             {pinged.length > 0 && (
               <PingedPeople

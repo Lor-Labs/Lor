@@ -772,12 +772,12 @@ export function MessageInput({
   )
   const showLorState = Boolean(destination) && routing.toLor
   const isInline = variant === "inline"
-  const destinationRef = useRef<HTMLDivElement>(null)
+  const lorPillRef = useRef<HTMLSpanElement>(null)
   // Taught once the person types in a session, when the pill decides who
   // gets the message.
   const sessionReplyHint = useHint(
     "session_reply",
-    routing.canSwitch && !isEmpty && !disabled
+    routing.canSwitch && routing.toLor && !isEmpty && !disabled
   )
 
   const appliedDraftRef = useRef<string | null>(null)
@@ -1394,13 +1394,14 @@ export function MessageInput({
               </PopoverContent>
             </Popover>
             {destination && (
-              <div ref={destinationRef} className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1">
                 <DestinationBar
                   destination={destination}
                   channelName={context.name}
                   toLor={routing.toLor}
                   pinged={routing.pinged}
                   channelPicker={channelPicker}
+                  lorPillRef={lorPillRef}
                   onSwitch={
                     routing.canSwitch
                       ? () => {
@@ -1412,7 +1413,7 @@ export function MessageInput({
                 />
                 <HintPopover
                   open={sessionReplyHint.show}
-                  anchor={destinationRef}
+                  anchor={lorPillRef}
                   align="start"
                   onDismiss={sessionReplyHint.dismiss}
                 >
