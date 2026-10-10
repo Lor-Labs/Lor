@@ -68,6 +68,7 @@ import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
 import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
+import { useOpenChannelSessions } from "@/hooks/use-open-channel-sessions"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { apiClient } from "@/lib/api-client"
 import type { Channel, ListChannelsResponse } from "@/lib/api-types"
@@ -1032,6 +1033,7 @@ function SortableChannelItem({
   const [menuOpen, setMenuOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const openChannelSessions = useOpenChannelSessions()
 
   // Creators may rename their own channel and change its topic.
   const { data: session } = authClient.useSession()
@@ -1167,6 +1169,17 @@ function SortableChannelItem({
                   </DropdownMenuSub>
                 )}
                 <DropdownMenuSeparator />
+                {ch.type === "text" && (
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setMenuOpen(false)
+                      openChannelSessions(ch.id)
+                    }}
+                  >
+                    View Sessions
+                  </DropdownMenuItem>
+                )}
                 {canEdit && (
                   <DropdownMenuItem
                     onClick={(e) => {

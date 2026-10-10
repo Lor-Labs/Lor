@@ -15,6 +15,7 @@ export function useThreadPanelUrlSync({
   threadMessageId,
   callAt,
   transientThreadRootId = null,
+  panel,
 }: {
   workspaceSlug: string
   channelId: string
@@ -23,8 +24,11 @@ export function useThreadPanelUrlSync({
   // A call chat's transcript tab, at this moment of the call.
   callAt?: number
   transientThreadRootId?: string | null
+  // ?panel=sessions: open the channel's Sessions list, then drop the param.
+  panel?: "sessions"
 }) {
-  const { view, setView, clearView } = useRightSidebar()
+  const { view, setView, clearView, isCollapsed, toggleCollapsed } =
+    useRightSidebar()
   const isMobile = useIsMobile()
   const navigate = useNavigate({ from: "/$workspaceSlug/$channelId" })
 
@@ -60,6 +64,20 @@ export function useThreadPanelUrlSync({
       clearView()
     }
   }, [setView, clearView, workspaceSlug, channelId, isMobile])
+
+  // After the mount effect above, so it wins on entry; also works when the
+  // channel is already open.
+  const isCollapsedRef = useRef(isCollapsed)
+  isCollapsedRef.current = isCollapsed
+  useEffect(() => {
+    if (panel !== "sessions") return
+    setView({ type: "sessions", workspaceSlug, channelId, filter: "active" })
+    if (isCollapsedRef.current) toggleCollapsed()
+    void navigate({
+      search: (prev) => ({ ...prev, panel: undefined }),
+      replace: true,
+    })
+  }, [panel, setView, toggleCollapsed, workspaceSlug, channelId, navigate])
 
   // Mirror view → URL (the mount effect does URL → view). Skip views for
   // another channel: a cross-channel jump (search result, Lor citation) sets

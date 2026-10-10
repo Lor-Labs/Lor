@@ -5,6 +5,7 @@ import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
 import { LoopsListPanel } from "@/components/sidebar/right-panel/loops-list-panel"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { SessionWorkPanel } from "@/components/sidebar/right-panel/session-work-panel"
+import { SessionsListPanel } from "@/components/sidebar/right-panel/sessions-list-panel"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
 import { WorkspaceMembersPanel } from "@/components/sidebar/right-panel/workspace-members-panel"
 
@@ -44,6 +45,7 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView }) {
           {view.type === "loops" && <LoopsListPanel view={view} />}
           {view.type === "attachments" && <ChannelFilesPanel view={view} />}
           {view.type === "session-work" && <SessionWorkPanel view={view} />}
+          {view.type === "sessions" && <SessionsListPanel view={view} />}
         </motion.div>
       </AnimatePresence>
     </div>

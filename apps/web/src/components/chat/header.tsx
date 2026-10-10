@@ -1,6 +1,12 @@
-import { HashtagIcon } from "@hugeicons/core-free-icons"
+import { HashtagIcon, MoreHorizontalIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@repo/ui/components/menu"
 import {
   Tooltip,
   TooltipContent,
@@ -15,6 +21,7 @@ import { PinnedMessagesPopover } from "@/components/chat/pinned-messages-popover
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
+import { useOpenChannelSessions } from "@/hooks/use-open-channel-sessions"
 
 export type ChatContext =
   | { type: "channel"; name: string; topic?: string; isPrivate?: boolean }
@@ -30,6 +37,7 @@ export function ChatHeader({
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
+  const openChannelSessions = useOpenChannelSessions()
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
@@ -91,6 +99,30 @@ export function ChatHeader({
             channelId={channelId}
             tooltipHandle={tooltipHandle}
           />
+        )}
+        {context.type === "channel" && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Channel actions"
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
+                />
+              }
+            >
+              <HugeiconsIcon
+                icon={MoreHorizontalIcon}
+                className="size-4"
+                strokeWidth={2}
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="bottom" align="end">
+              <DropdownMenuItem onClick={() => openChannelSessions(channelId)}>
+                View Sessions
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         <Tooltip handle={tooltipHandle}>
           {({ payload }) => <TooltipContent>{payload}</TooltipContent>}

@@ -74,6 +74,9 @@ type ChannelSearchParams = {
   // Prefills the composer with "@Lor <draft>" without sending (setup's Ask
   // Lor suggestions). Cleared once applied.
   draft?: string
+  // Opens the channel's Sessions list in the right panel (the channel menus'
+  // "View Sessions"). Cleared once applied.
+  panel?: "sessions"
 }
 
 export const Route = createFileRoute(
@@ -102,6 +105,7 @@ export const Route = createFileRoute(
         : undefined,
     draft:
       typeof search.draft === "string" ? search.draft.slice(0, 500) : undefined,
+    panel: search.panel === "sessions" ? "sessions" : undefined,
   }),
 })
 
@@ -140,6 +144,7 @@ function ChannelView() {
     artifactFrom,
     fileSearch,
     draft,
+    panel,
   } = Route.useSearch()
   const navigate = Route.useNavigate()
   const composerDraft = useMemo(
@@ -176,7 +181,13 @@ function ChannelView() {
     writeLastChannelId(workspaceSlug, channelId)
   }, [workspaceSlug, channelId])
 
-  useThreadPanelUrlSync({ workspaceSlug, channelId, threadId, threadMessageId })
+  useThreadPanelUrlSync({
+    workspaceSlug,
+    channelId,
+    threadId,
+    threadMessageId,
+    panel,
+  })
 
   const { data, isPending, isError, error } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)

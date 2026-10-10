@@ -558,12 +558,30 @@ their own copies of the resolver fallback.
 
 #### Step 14: Sessions view in the right panel (~300)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - `right-sidebar-types.ts:43-48`: `{ type: "sessions", channelId, filter }`.
   `right-sidebar-panel.tsx:18-23,38-44`, `right-sidebar-context.tsx:68-69`.
 - `SessionsListPanel` (new, modeled on `loops-list-panel.tsx`).
   `chat/header.tsx:71-96`: Sessions button.
+
+As built (~450 lines): `GET /v1/channels/{channelId}/sessions?archived=`
+(sessions router; channel access gate) returns everyone's sessions, active by
+latest activity or archived by archive time, capped at 100 (no paging yet),
+each with creator, loop flag, `running`, `subscribed` and `titleEdited`.
+`useChannelSessions` keys `["channel-sessions", channelId, filter]` and
+refetches on workspace activity unless a session change is in flight. The
+compact `sessions` view: header with a New session button, Active / Archived
+filter pills, rows (creator avatar or loop icon, title, "Ana · 2h"), a Lor
+spinner when running, and a hover archive or unarchive button (running
+sessions confirm). `useUpdateAgentSession` also patches the open lists
+(archive moves the row out; rename retitles it) and refetches them when it
+settles. Entry points (Jacob's call, it's an occasional action): "View
+Sessions" in the sidebar channel's "..." menu and in a new "..." menu at the
+right corner of the channel header, both through `useOpenChannelSessions`,
+which navigates to the channel with `?panel=sessions`; `useThreadPanelUrlSync`
+applies it after its own mount view and drops the param. Text channels only.
+Opening a session from the list never subscribes you. The `subscribed` field is returned but not shown yet.
 
 ### Phase E: features move into sessions
 

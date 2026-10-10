@@ -36,6 +36,46 @@ export const sessionContextMessageSchema = z.object({
   createdAt: z.string(),
 })
 
+export const channelSessionsParamsSchema = z.object({
+  channelId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: { name: "channelId", in: "path", required: true },
+    }),
+})
+
+export const channelSessionsQuerySchema = z.object({
+  archived: z
+    .enum(["true", "false"])
+    .optional()
+    .openapi({ param: { name: "archived", in: "query" } }),
+})
+
+export const channelSessionSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  titleEdited: z.boolean(),
+  loop: z.boolean(),
+  // Null for loop and trigger sessions.
+  creator: z
+    .object({
+      id: z.string().uuid(),
+      name: z.string(),
+      image: z.string().nullable(),
+      avatarColor: z.string().nullable(),
+    })
+    .nullable(),
+  archivedAt: z.string().nullable(),
+  lastActivityAt: z.string(),
+  running: z.boolean(),
+  subscribed: z.boolean(),
+})
+
+export const listChannelSessionsResponseSchema = z.object({
+  sessions: z.array(channelSessionSchema),
+})
+
 export const updateAgentSessionRequestSchema = z
   .object({
     title: z.string().trim().min(1).max(200).optional(),

@@ -13,6 +13,10 @@ import {
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import {
+  type ChannelSession,
+  channelSessionsKey,
+} from "@/hooks/use-channel-sessions"
+import {
   type ThreadSubscriber,
   threadSubscribersKey,
 } from "@/hooks/use-thread-subscribers"
@@ -112,8 +116,9 @@ type SessionChange = {
   archived?: boolean
 }
 
-// Rename, archive and unarchive show at once on the session page and in the
-// sidebar. A failure rolls the page back; the sidebar refetches.
+// Rename, archive and unarchive show at once on the session page, in the
+// sidebar and in the channel's Sessions list. A failure rolls the page back;
+// the lists refetch.
 export function useUpdateAgentSession() {
   const queryClient = useQueryClient()
   const { data: auth } = authClient.useSession()
@@ -123,13 +128,27 @@ export function useUpdateAgentSession() {
     mutationFn: ({ sessionId, title, archived }: SessionChange) =>
       patchAgentSession(sessionId, { title, archived }),
     onMutate: async (change) => {
-      const { sessionId, workspaceId, title, archived } = change
+      const { sessionId, workspaceId, channelId, title, archived } = change
       const queryKey = agentSessionQueryOptions(sessionId).queryKey
+      const listKey = channelSessionsKey(channelId)
       await Promise.all([
         queryClient.cancelQueries({ queryKey }),
+        queryClient.cancelQueries({ queryKey: listKey }),
         cancelSidebarFetch(queryClient, workspaceId),
       ])
       const previous = queryClient.getQueryData<AgentSessionDetail>(queryKey)
+      // Archive and unarchive move the row to the other filter's list.
+      queryClient.setQueriesData<ChannelSession[]>(
+        { queryKey: listKey },
+        (rows) =>
+          archived === undefined
+            ? rows?.map((row) =>
+                row.id === sessionId && title !== undefined
+                  ? { ...row, title, titleEdited: true }
+                  : row
+              )
+            : rows?.filter((row) => row.id !== sessionId)
+      )
       if (title !== undefined) {
         patchSessionCache(queryClient, sessionId, {
           title,
@@ -177,7 +196,11 @@ export function useUpdateAgentSession() {
       }
       toast.error(err.message)
     },
-    onSettled: (_data, _err, { workspaceId }) =>
-      settleSidebarSessions(queryClient, workspaceId),
+    onSettled: (_data, _err, { workspaceId, channelId }) => {
+      settleSidebarSessions(queryClient, workspaceId)
+      void queryClient.invalidateQueries({
+        queryKey: channelSessionsKey(channelId),
+      })
+    },
   })
 }

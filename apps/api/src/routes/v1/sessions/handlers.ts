@@ -1,4 +1,15 @@
-import { and, asc, db, eq, inArray, isNotNull, schema } from "@repo/db"
+import {
+  and,
+  asc,
+  db,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  schema,
+  sql,
+} from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { channelRoom } from "@repo/realtime-types/rooms"
@@ -11,6 +22,7 @@ import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
   GetAgentSessionRoute,
+  ListChannelSessionsRoute,
   UpdateAgentSessionRoute,
 } from "@/routes/v1/sessions/routes"
 
@@ -68,6 +80,88 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
       context: context.map((message) => ({
         id: message.id,
         createdAt: message.createdAt.toISOString(),
+      })),
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+// Bounded for now; older sessions stay reachable from search.
+const CHANNEL_SESSION_LIMIT = 100
+
+export const listChannelSessions: AppRouteHandler<
+  ListChannelSessionsRoute
+> = async (c) => {
+  const currentUser = c.var.user
+  const { channelId } = c.req.valid("param")
+  const archived = c.req.valid("query").archived === "true"
+
+  const access = await resolveChannelAccess(currentUser.id, channelId)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  const session = schema.agentSession
+  const lastActivityAt =
+    sql<Date>`greatest(${session.createdAt}, (select max(m.created_at) from message m where m.thread_root_id = ${session.threadRootId}))`.mapWith(
+      session.createdAt
+    )
+  const rows = await db
+    .select({
+      id: session.id,
+      title: session.title,
+      titleEditedAt: session.titleEditedAt,
+      loopId: session.loopId,
+      archivedAt: session.archivedAt,
+      lastActivityAt,
+      creatorId: schema.user.id,
+      creatorName: schema.user.name,
+      creatorImage: schema.user.image,
+      creatorAvatarColor: schema.workspaceMember.avatarColor,
+      running: sql<boolean>`exists (select 1 from agent_run r where r.thread_root_id = ${session.threadRootId} and r.state in ('queued', 'working', 'finalizing'))`,
+      subscribed: sql<boolean>`exists (select 1 from thread_subscription s where s.thread_root_id = ${session.threadRootId} and s.user_id = ${currentUser.id}::uuid)`,
+    })
+    .from(session)
+    .leftJoin(schema.user, eq(schema.user.id, session.creatorId))
+    .leftJoin(
+      schema.workspaceMember,
+      and(
+        eq(schema.workspaceMember.userId, session.creatorId),
+        eq(schema.workspaceMember.workspaceId, session.workspaceId)
+      )
+    )
+    .where(
+      and(
+        eq(session.channelId, channelId),
+        archived ? isNotNull(session.archivedAt) : isNull(session.archivedAt)
+      )
+    )
+    .orderBy(archived ? desc(session.archivedAt) : desc(lastActivityAt))
+    .limit(CHANNEL_SESSION_LIMIT)
+
+  return c.json(
+    {
+      sessions: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        titleEdited: row.titleEditedAt !== null,
+        loop: row.loopId !== null,
+        creator:
+          row.creatorId && row.creatorName
+            ? {
+                id: row.creatorId,
+                name: row.creatorName,
+                image: row.creatorImage,
+                avatarColor: row.creatorAvatarColor,
+              }
+            : null,
+        archivedAt: row.archivedAt?.toISOString() ?? null,
+        lastActivityAt: row.lastActivityAt.toISOString(),
+        running: row.running,
+        subscribed: row.subscribed,
       })),
     },
     HttpStatusCodes.OK

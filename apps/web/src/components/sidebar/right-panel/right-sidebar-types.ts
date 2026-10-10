@@ -40,6 +40,14 @@ export type LoopsListSidebarView = {
   channelId: string
 }
 
+// Everyone's sessions in a channel, active or archived.
+export type SessionsListSidebarView = {
+  type: "sessions"
+  workspaceSlug: string
+  channelId: string
+  filter: "active" | "archived"
+}
+
 // A Lor session's context, plan, files and activity, beside the session page.
 export type SessionWorkSidebarView = {
   type: "session-work"
@@ -55,4 +63,5 @@ export type RightSidebarView =
   | AttachmentsSidebarView
   | LoopSidebarView
   | LoopsListSidebarView
+  | SessionsListSidebarView
   | SessionWorkSidebarView

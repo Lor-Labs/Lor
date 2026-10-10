@@ -9,7 +9,10 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
+  channelSessionsParamsSchema,
+  channelSessionsQuerySchema,
   getAgentSessionResponseSchema,
+  listChannelSessionsResponseSchema,
   sessionParamsSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
@@ -39,6 +42,32 @@ export const getAgentSession = createRoute({
 })
 
 export type GetAgentSessionRoute = typeof getAgentSession
+
+export const listChannelSessions = createRoute({
+  path: "/channels/{channelId}/sessions",
+  method: "get",
+  summary: "List a channel's Lor sessions",
+  description:
+    "Everyone's sessions in the channel, active (most recent activity first) or archived (most recently archived first), so teammates can browse and join each other's work.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: channelSessionsParamsSchema,
+    query: channelSessionsQuerySchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listChannelSessionsResponseSchema,
+      description: "Channel sessions",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListChannelSessionsRoute = typeof listChannelSessions
 
 export const updateAgentSession = createRoute({
   path: "/sessions/{sessionId}",
