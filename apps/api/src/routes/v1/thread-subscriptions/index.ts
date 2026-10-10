@@ -5,6 +5,7 @@ import * as routes from "@/routes/v1/thread-subscriptions/routes"
 const threadSubscriptionsRouter = createRouter()
   .openapi(routes.listThreadSubscribers, handlers.listThreadSubscribers)
   .openapi(routes.addThreadSubscriber, handlers.addThreadSubscriber)
+  .openapi(routes.subscribeEveryone, handlers.subscribeEveryone)
   .openapi(routes.removeThreadSubscriber, handlers.removeThreadSubscriber)
 
 export default threadSubscriptionsRouter

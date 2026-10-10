@@ -1,5 +1,6 @@
-import { and, asc, db, eq, isNull, schema } from "@repo/db"
+import { and, asc, db, eq, inArray, isNull, schema } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import { sendSubscribedPush } from "@repo/messaging"
 import { type SubscribedNotification, userRoom } from "@repo/realtime-types"
@@ -14,6 +15,7 @@ import type {
   AddThreadSubscriberRoute,
   ListThreadSubscribersRoute,
   RemoveThreadSubscriberRoute,
+  SubscribeEveryoneRoute,
 } from "@/routes/v1/thread-subscriptions/routes"
 
 const notFound = { success: false as const, message: "Thread not found" }
@@ -123,6 +125,42 @@ export const addThreadSubscriber: AppRouteHandler<
     )
   }
   return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+// "Everyone in #channel": every person who can see the channel follows the
+// thread. No per-person "added you" notification; it would ping the channel.
+export const subscribeEveryone: AppRouteHandler<
+  SubscribeEveryoneRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const { channelId, threadRootId } = c.req.valid("param")
+  if (
+    !(await findUsableThread({
+      workspaceId: workspace.id,
+      channelId,
+      threadRootId,
+      userId: c.var.user.id,
+    }))
+  ) {
+    return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+  }
+
+  const audience = await listChannelAudienceUserIds(channelId)
+  const people =
+    audience.length > 0
+      ? await db
+          .select({ id: schema.user.id })
+          .from(schema.user)
+          .where(
+            and(inArray(schema.user.id, audience), eq(schema.user.isBot, false))
+          )
+      : []
+  const added = await subscribeToThread(
+    threadRootId,
+    people.map((person) => person.id)
+  )
+  notifyWorkspaceActivity(workspace.id)
+  return c.json({ added: added.length }, HttpStatusCodes.OK)
 }
 
 // Being added notifies like a mention: an OS notification on open clients,

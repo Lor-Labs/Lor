@@ -9,8 +9,10 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Loop } from "@repo/db/schema"
 import { env } from "@repo/env/server"
+import { ensureLoopSession } from "@repo/lor/agent-sessions"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
 import {
@@ -25,6 +27,7 @@ import { getEmitter } from "@/lib/bot-messages"
 import { postLoopChannelEvent } from "@/lib/channel-events"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // Loop lifecycle transitions shared by the L2 activate flow and L3
 // management routes. All emits go to the channel room (channel membership
@@ -62,11 +65,27 @@ function getLoopRunQueue(): Queue<LoopRunJobData> {
   return loopRunQueue
 }
 
+// At activation the loop's session exists right away: the session its draft
+// card sits in, or a new one. The creator and the person who activated it
+// follow it, so it is in their sidebars before the first run.
+export async function openLoopSession(
+  loop: Loop,
+  activatorId: string
+): Promise<void> {
+  await adoptCardSession(loop)
+  const session = await ensureLoopSession(loop)
+  await subscribeToThread(session.threadRootId, [
+    activatorId,
+    ...(loop.creatorId ? [loop.creatorId] : []),
+  ])
+  notifyWorkspaceActivity(loop.workspaceId)
+}
+
 // The session a loop's draft card sits in becomes the loop's session, so
 // every fire lands in the conversation where it was set up instead of a new
 // one. A session holds at most one loop; another loop set up there gets its
-// own session on its first fire.
-export async function adoptCardSession(loop: Loop): Promise<void> {
+// own session.
+async function adoptCardSession(loop: Loop): Promise<void> {
   if (!loop.cardMessageId) return
   const card = await db
     .select({ threadRootId: schema.message.threadRootId })

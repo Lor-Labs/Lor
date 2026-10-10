@@ -153,9 +153,64 @@ export function useThreadSubscribers({
     },
   })
 
+  // "Everyone in #channel": the server subscribes the whole audience; the
+  // list shows the channel's people at once.
+  const everyone = useMutation({
+    mutationKey,
+    mutationFn: async (_people: ThreadSubscriber[]) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].threads[":threadRootId"].subscribers.everyone.$post({
+        param: { workspaceSlug, channelId, threadRootId },
+      })
+      if (!res.ok) throw new Error("Couldn't subscribe the channel")
+    },
+    onMutate: async (people) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey }),
+        session && cancelSidebarFetch(queryClient, session.workspaceId),
+      ])
+      const previous = queryClient.getQueryData<ThreadSubscriber[]>(queryKey)
+      const current = previous ?? []
+      const known = new Set(current.map((subscriber) => subscriber.id))
+      queryClient.setQueryData<ThreadSubscriber[]>(queryKey, [
+        ...current,
+        ...people.filter((person) => !known.has(person.id)),
+      ])
+      if (
+        session &&
+        !session.archivedAt &&
+        currentUserId &&
+        !known.has(currentUserId)
+      ) {
+        patchSidebarSession(
+          queryClient,
+          {
+            workspaceId: session.workspaceId,
+            channelId: session.channelId,
+            sessionId: session.id,
+          },
+          { show: sidebarRowFor(session) }
+        )
+      }
+      return { previous }
+    },
+    onError: (err, _people, context) => {
+      queryClient.setQueryData(queryKey, context?.previous)
+      toast.error(err.message)
+    },
+    onSettled: () => {
+      if (queryClient.isMutating({ mutationKey }) <= 1) {
+        void queryClient.invalidateQueries({ queryKey })
+      }
+      if (session) settleSidebarSessions(queryClient, session.workspaceId)
+    },
+  })
+
   return {
     subscribers,
     setSubscribed: (person: ThreadSubscriber, subscribed: boolean) =>
       mutation.mutate({ person, subscribed }),
+    subscribeEveryone: (people: ThreadSubscriber[]) => everyone.mutate(people),
   }
 }

@@ -1,4 +1,8 @@
-import { Tick02Icon, UserAdd01Icon } from "@hugeicons/core-free-icons"
+import {
+  Tick02Icon,
+  UserAdd01Icon,
+  UserGroupIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import type { RealtimeAgentSession } from "@repo/realtime-types"
@@ -16,12 +20,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
+import { useQuery } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import {
   type ThreadSubscriber,
   useThreadSubscribers,
 } from "@/hooks/use-thread-subscribers"
+import { channelQueryOptions } from "@/lib/channel-query"
 
 const VISIBLE_SUBSCRIBERS = 3
 
@@ -41,31 +47,41 @@ export function ThreadSubscribers({
 }) {
   const { data: authSession } = authClient.useSession()
   const currentUserId = authSession?.user.id
-  const { subscribers, setSubscribed } = useThreadSubscribers({
-    workspaceSlug,
-    channelId,
-    threadRootId,
-    session,
-  })
-  const people = useChannelPeople(workspaceSlug, channelId)
+  const { subscribers, setSubscribed, subscribeEveryone } =
+    useThreadSubscribers({
+      workspaceSlug,
+      channelId,
+      threadRootId,
+      session,
+    })
+  const members = useChannelPeople(workspaceSlug, channelId)
+  const { data: channel } = useQuery(
+    channelQueryOptions(workspaceSlug, channelId)
+  )
   const [open, setOpen] = useState(false)
   // Frozen while the picker is open, so rows don't jump as you tick them.
   const [subscribedAtOpen, setSubscribedAtOpen] = useState<ReadonlySet<string>>(
     () => new Set()
   )
 
+  const people = useMemo(
+    () =>
+      members.map(
+        (member): ThreadSubscriber => ({
+          id: member.userId,
+          name: member.name,
+          image: member.image,
+          avatarColor: member.avatarColor,
+        })
+      ),
+    [members]
+  )
   // Subscribers who lost channel access stay listed so they can be removed.
   const candidates = useMemo(() => {
     const byId = new Map<string, ThreadSubscriber>()
     for (const subscriber of subscribers) byId.set(subscriber.id, subscriber)
-    for (const member of people) {
-      if (byId.has(member.userId)) continue
-      byId.set(member.userId, {
-        id: member.userId,
-        name: member.name,
-        image: member.image,
-        avatarColor: member.avatarColor,
-      })
+    for (const person of people) {
+      if (!byId.has(person.id)) byId.set(person.id, person)
     }
     return [...byId.values()].sort(
       (a, b) =>
@@ -73,6 +89,9 @@ export function ThreadSubscribers({
           Number(subscribedAtOpen.has(a.id)) || a.name.localeCompare(b.name)
     )
   }, [subscribers, people, subscribedAtOpen])
+  const subscribedIds = new Set(subscribers.map((person) => person.id))
+  const everyoneSubscribed =
+    people.length > 0 && people.every((person) => subscribedIds.has(person.id))
 
   const me = candidates.find((person) => person.id === currentUserId)
   const isSubscribed = subscribers.some((person) => person.id === currentUserId)
@@ -179,6 +198,29 @@ export function ThreadSubscribers({
                 />
                 <Kbd className="shrink-0 tracking-wide">⌘⇧S</Kbd>
               </div>
+              {/* Puts it in every member's sidebar without posting in the
+                  chat (a loop's "everyone in the channel" option). */}
+              {!everyoneSubscribed && people.length > 1 && (
+                <div className="border-border/70 border-b p-1">
+                  <button
+                    type="button"
+                    onClick={() => subscribeEveryone(people)}
+                    className="flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-left text-[13px] outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <span className="size-3.5 shrink-0" />
+                    <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                      <HugeiconsIcon
+                        icon={UserGroupIcon}
+                        size={14}
+                        strokeWidth={2}
+                      />
+                    </span>
+                    <span className="min-w-0 truncate">
+                      Everyone in #{channel?.name ?? "channel"}
+                    </span>
+                  </button>
+                </div>
+              )}
               <ComboboxPrimitive.Empty className="px-3 py-2 text-[13px] text-muted-foreground empty:hidden">
                 No people found
               </ComboboxPrimitive.Empty>

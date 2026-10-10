@@ -84,17 +84,20 @@ export function useLoopForCard(
 }
 
 // Run history for the loop detail panel, newest scheduled fire first.
+// The loop's recent runs, plus its session (where each run answered).
 export function useLoopRuns(loopId: string | null) {
   return useQuery({
     queryKey: ["loop-runs", loopId ?? ""],
     enabled: loopId !== null,
-    queryFn: async (): Promise<LoopRun[]> => {
+    queryFn: async (): Promise<{
+      sessionId: string | null
+      runs: LoopRun[]
+    }> => {
       const res = await apiClient.v1.loops[":loopId"].runs.$get({
         param: { loopId: loopId ?? "" },
       })
       if (!res.ok) throw new Error("Failed to fetch loop runs")
-      const payload = await res.json()
-      return payload.runs
+      return res.json()
     },
   })
 }

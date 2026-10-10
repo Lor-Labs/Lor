@@ -7,11 +7,11 @@ import { postLoopChannelEvent } from "@/lib/channel-events"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
-  adoptCardSession,
   completeLoopManually,
   deleteLoop as deleteLoopAction,
   discardDraftLoop as discardDraftLoopAction,
   emitLoopUpdated,
+  openLoopSession,
   pauseLoop as pauseLoopAction,
   resumeLoop as resumeLoopAction,
   runLoopNow as runLoopNowAction,
@@ -171,8 +171,8 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
   await emitLoopUpdated(activated).catch((err) =>
     logger.error({ err, loopId }, "Loop activation emit failed")
   )
-  await adoptCardSession(activated).catch((err) =>
-    logger.error({ err, loopId }, "Loop session adoption failed")
+  await openLoopSession(activated, currentUser.id).catch((err) =>
+    logger.error({ err, loopId }, "Loop session setup failed")
   )
 
   // Activation is the loop's public creation moment — the draft card was the
@@ -518,9 +518,13 @@ export const listLoopRuns: AppRouteHandler<ListLoopRunsRoute> = async (c) => {
       createdAt: schema.agentRun.createdAt,
       finishedAt: schema.agentRun.finishedAt,
       note: schema.agentRun.handoffNote,
+      // A run in the loop's session answers there; its reply is the note.
+      messageId: schema.agentRun.messageId,
+      reply: schema.message.content,
       creditsSpent: schema.agentRun.creditsSpent,
     })
     .from(schema.agentRun)
+    .leftJoin(schema.message, eq(schema.message.id, schema.agentRun.messageId))
     .where(eq(schema.agentRun.loopId, loopId))
     .orderBy(
       desc(
@@ -530,6 +534,12 @@ export const listLoopRuns: AppRouteHandler<ListLoopRunsRoute> = async (c) => {
     .limit(RUN_HISTORY_LIMIT)
 
   const runIds = runs.map((r) => r.id)
+  const session = await db
+    .select({ id: schema.agentSession.id })
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.loopId, loopId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
   const [plans, artifacts, effects] =
     runIds.length > 0
       ? await Promise.all([
@@ -580,6 +590,7 @@ export const listLoopRuns: AppRouteHandler<ListLoopRunsRoute> = async (c) => {
 
   return c.json(
     {
+      sessionId: session?.id ?? null,
       runs: runs.map((run) => ({
         id: run.id,
         state: run.state,
@@ -587,7 +598,8 @@ export const listLoopRuns: AppRouteHandler<ListLoopRunsRoute> = async (c) => {
         scheduledFor: run.scheduledFor ? run.scheduledFor.toISOString() : null,
         createdAt: run.createdAt.toISOString(),
         finishedAt: run.finishedAt ? run.finishedAt.toISOString() : null,
-        note: run.note,
+        note: run.note ?? (run.reply?.trim() || null),
+        inSession: Boolean(session && run.messageId),
         creditsSpent: run.creditsSpent,
         effects: (effectsByRun.get(run.id) ?? []).sort(),
         plans: plans

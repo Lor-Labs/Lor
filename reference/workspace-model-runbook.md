@@ -627,7 +627,7 @@ cards in chat.
 
 #### Step 16: loops as one session (~400)
 
-[ ] built · [ ] committed · [ ] db:push
+[x] built · [ ] committed · [ ] db:push
 
 - `ensureLoopSession` on fire; `sweep-due-loops.ts:135-166`;
   `api/lib/loops.ts:83-90` scope to the anchor, `:146-160` stop by `loopId`;
@@ -673,9 +673,23 @@ session with `ChannelEventRow` (document gutter). Deviations: no partial
 unique index on `loop_id` — one session per loop makes the existing
 one-active-run-per-scope index enforce one run per loop; loop sandboxes key
 on the session thread, not `loop.id`; the run-chain briefing is gone (the
-session transcript and continuation carry earlier runs). **16b next:**
-subscriptions at activation and setup, the "everyone in the channel" option,
-loop panel links into the session.
+session transcript and continuation carry earlier runs).
+
+**16b built** (no db:push): activation calls `openLoopSession`
+(`api/lib/loops.ts`): adopts the card's session or creates the loop's
+session right away (`ensureLoopSession`), and subscribes the creator and the
+activator, so it is in their sidebars before the first run. Mentions at setup
+need nothing new: the loop's session is the setup session, and mentions in a
+session already subscribe. "Everyone in the channel" is
+`POST …/threads/{threadRootId}/subscribers/everyone` (channel audience, bots
+out, no per-person "added you" notification), offered as an "Everyone in
+#channel" row in the "Change subscribers…" picker of any session or thread,
+optimistic like the rest. The loop panel gets an "Open session" header button;
+`GET /loops/{id}/runs` returns `sessionId` and per run `inSession`, and a
+run's `note` falls back to its reply in the session, so history rows preview
+the reply and open the session (legacy headless runs still expand their
+handoff note). Opening the session lands at its latest turn; jumping to one
+run's reply is not built.
 
 #### Step 17: Act runs in sessions (~350)
 

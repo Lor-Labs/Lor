@@ -1,6 +1,7 @@
 import {
   AlertCircleIcon,
   ArrowDown01Icon,
+  ArrowUpRight01Icon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
@@ -60,6 +61,7 @@ import {
   selectTriggerVariants,
 } from "@repo/ui/components/select"
 import { cn } from "@repo/ui/lib/utils"
+import { useNavigate } from "@tanstack/react-router"
 import { ChevronsUpDownIcon } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
@@ -274,16 +276,27 @@ const RUN_STATE_META: Record<
 // artifact chips). Expansion animates via the grid-rows 0fr→1fr trick — the
 // preview folds away as the detail unfolds, so the note reads as growing
 // in place.
-function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
+function LoopRunRow({
+  run,
+  view,
+  onOpen,
+}: {
+  run: LoopRun
+  view: LoopSidebarView
+  // Set for a run that answered in the loop's session: the row opens it
+  // instead of expanding, since the full reply lives there.
+  onOpen?: () => void
+}) {
   const { setView, isCollapsed, toggleCollapsed } = useRightSidebar()
   const [expanded, setExpanded] = useState(false)
   const meta = RUN_STATE_META[run.state]
   const hasDetail =
-    Boolean(run.note) ||
-    run.effects.length > 0 ||
-    run.plans.length > 0 ||
-    run.artifacts.length > 0 ||
-    Boolean(run.stopReason && run.stopReason !== "completed")
+    !onOpen &&
+    (Boolean(run.note) ||
+      run.effects.length > 0 ||
+      run.plans.length > 0 ||
+      run.artifacts.length > 0 ||
+      Boolean(run.stopReason && run.stopReason !== "completed"))
 
   const openPlanThread = (threadRootId: string) => {
     setView({
@@ -299,9 +312,11 @@ function LoopRunRow({ run, view }: { run: LoopRun; view: LoopSidebarView }) {
     <div>
       <button
         type="button"
-        aria-expanded={expanded}
-        onClick={() => hasDetail && setExpanded((v) => !v)}
-        className={cnRunRow(hasDetail)}
+        aria-expanded={onOpen ? undefined : expanded}
+        onClick={() =>
+          onOpen ? onOpen() : hasDetail && setExpanded((v) => !v)
+        }
+        className={cnRunRow(hasDetail || Boolean(onOpen))}
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -843,9 +858,20 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
   const { setView } = useRightSidebar()
   const { data } = useChannelLoops(view.channelId)
   const loop = data?.find((l) => l.id === view.loopId) ?? null
-  const { data: runs, isPending: runsPending } = useLoopRuns(
+  const { data: runHistory, isPending: runsPending } = useLoopRuns(
     loop && loop.status !== "draft" ? loop.id : null
   )
+  const runs = runHistory?.runs
+  const sessionId = runHistory?.sessionId ?? null
+  const navigate = useNavigate()
+  // Each run answered in the loop's session; the panel links there.
+  const openSession = sessionId
+    ? () =>
+        void navigate({
+          to: "/$workspaceSlug/session/$sessionId",
+          params: { workspaceSlug: view.workspaceSlug, sessionId },
+        })
+    : undefined
 
   // Edits are STAGED locally and persisted by the footer Save button — the
   // autosave-on-change model made it unclear anything was saved at all.
@@ -981,6 +1007,13 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
         actions={
           loop ? (
             <>
+              {openSession && (
+                <HeaderActionButton
+                  label="Open session"
+                  icon={ArrowUpRight01Icon}
+                  onClick={openSession}
+                />
+              )}
               {loop.status === "active" && (
                 <HeaderActionButton
                   label="Pause loop"
@@ -1109,7 +1142,12 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                   </p>
                 )}
                 {runs?.map((run) => (
-                  <LoopRunRow key={run.id} run={run} view={view} />
+                  <LoopRunRow
+                    key={run.id}
+                    run={run}
+                    view={view}
+                    onOpen={run.inSession ? openSession : undefined}
+                  />
                 ))}
               </div>
             </div>

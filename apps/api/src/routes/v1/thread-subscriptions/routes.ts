@@ -9,6 +9,7 @@ import {
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   listThreadSubscribersResponseSchema,
+  subscribeEveryoneResponseSchema,
   threadSubscriberParamsSchema,
   threadSubscribersParamsSchema,
   threadSubscriptionChangeResponseSchema,
@@ -64,6 +65,27 @@ export const addThreadSubscriber = createRoute({
 })
 
 export type AddThreadSubscriberRoute = typeof addThreadSubscriber
+
+export const subscribeEveryone = createRoute({
+  path: `${SUBSCRIBERS_PATH}/everyone`,
+  method: "post",
+  summary: "Subscribe everyone in the channel to a thread",
+  description:
+    "Subscribes every person who can see the channel, so the session or thread shows in each of their sidebars. Sends no per-person notification.",
+  tags: ["Threads"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: { params: threadSubscribersParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: subscribeEveryoneResponseSchema,
+      description: "How many people were newly subscribed",
+    }),
+    ...errorResponses,
+  },
+})
+
+export type SubscribeEveryoneRoute = typeof subscribeEveryone
 
 export const removeThreadSubscriber = createRoute({
   path: `${SUBSCRIBERS_PATH}/{userId}`,

@@ -27,3 +27,7 @@ export const listThreadSubscribersResponseSchema = z.object({
 export const threadSubscriptionChangeResponseSchema = z.object({
   success: z.literal(true),
 })
+
+export const subscribeEveryoneResponseSchema = z.object({
+  added: z.number().int(),
+})
