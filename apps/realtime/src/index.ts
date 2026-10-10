@@ -657,8 +657,13 @@ io.on("connection", (socket) => {
         // if their page joins the room late or not at all (Cmd+Enter).
         await socket.join(threadRoom(realtimeSession.threadRootId))
       }
-      // A new session or a post in one changes subscribers' sidebar rows.
-      if (session) {
+      // A new session or a post in one changes subscribers' sidebar rows. A
+      // new session Lor is about to answer waits for the run row (emitted
+      // below), or the row would flash idle before Lor's spinner.
+      if (
+        session &&
+        !(createdMessage.session && createdMessage.message.routedToLor)
+      ) {
         io.to(workspaceRoom(session.workspaceId)).emit(
           "workspace:activity:updated",
           { workspaceId: session.workspaceId }
@@ -1038,11 +1043,13 @@ io.on("connection", (socket) => {
                     io.to(channelRoom(parsed.channelId)).emit("plan:updated", {
                       plan: toRealtimePlan(plan),
                     })
-                    io.to(workspaceRoom(plan.workspaceId)).emit(
-                      "workspace:activity:updated",
-                      { workspaceId: plan.workspaceId }
-                    )
                   }
+                )
+                // A new session's row shows Lor working from the moment it
+                // was sent; with no run, it settles to the truth.
+                io.to(workspaceRoom(workspaceId)).emit(
+                  "workspace:activity:updated",
+                  { workspaceId }
                 )
               }
               throw err

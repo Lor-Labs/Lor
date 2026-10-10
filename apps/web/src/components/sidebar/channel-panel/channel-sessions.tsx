@@ -28,7 +28,6 @@ import { useUpdateAgentSession } from "@/hooks/use-agent-session"
 // Each channel lists at most this many of your sessions; a "N more" row
 // expands the rest in place.
 const SESSION_CAP = 3
-const STATE_RANK = { needs_you: 0, running: 1, unread: 2, idle: 3 } as const
 const COLLAPSED_KEY = "lor-collapsed-session-channels"
 
 function readCollapsedIds(): Set<string> {
@@ -138,10 +137,13 @@ export function ChannelSessionRows({
     }
   }
 
-  // Attention first; the server already orders by newest activity.
+  // Newest activity first, whatever the state (Jacob). Sorted here too, so
+  // an optimistic row lands in place before the server's order arrives.
   const ordered = useMemo(
     () =>
-      [...sessions].sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state]),
+      [...sessions].sort((a, b) =>
+        b.lastActivityAt.localeCompare(a.lastActivityAt)
+      ),
     [sessions]
   )
   const visible = collapsed

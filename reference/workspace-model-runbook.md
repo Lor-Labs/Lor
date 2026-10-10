@@ -333,7 +333,8 @@ replaces `LorChannelStatus`.
   session; `ChannelActivity` (`events.ts:11-14`) carries subscribed sessions
   and the rollup.
 - `channel-list.tsx` `SortableChannelItem` (`:1002-1206`): session rows after
-  the voice rows (`:1185-1187`). At most 3 per channel, ordered by attention,
+  the voice rows (`:1185-1187`). At most 3 per channel, ordered by attention
+  (changed 2026-10-10, Jacob: newest activity first, whatever the state),
   with a "N more" row that expands in place. Collapse toggle: the channel icon
   turns into a chevron only while the pointer is on the icon itself or it has
   keyboard focus, never on row hover. Rollup on the channel row only when

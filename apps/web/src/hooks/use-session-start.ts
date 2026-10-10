@@ -17,7 +17,6 @@ import {
 import {
   cancelSidebarFetch,
   patchSidebarSession,
-  settleSidebarSessions,
   sidebarRowFor,
 } from "@/hooks/use-workspace-activity"
 import type { Message } from "@/lib/api-types"
@@ -159,7 +158,8 @@ export function useSessionStart({
     ]) {
       void queryClient.invalidateQueries({ queryKey })
     }
-    settleSidebarSessions(queryClient, session.workspaceId)
+    // No sidebar refetch here: Lor's run row commits after the ack, and the
+    // server pushes the sidebar then. Refetching now would flash the row idle.
   }
 
   const failed = (start: SessionStart) => {
