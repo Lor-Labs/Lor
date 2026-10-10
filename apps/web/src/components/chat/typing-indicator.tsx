@@ -1,8 +1,7 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
-import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { AnimatePresence, motion } from "motion/react"
+import { UserAvatar } from "@/components/ui/user-avatar"
 
 type TypingUser = {
   userId: string
@@ -14,7 +13,7 @@ export type TypingPerson = TypingUser & {
   avatarColor: string | null
 }
 
-const MAX_TYPING_AVATARS = 3
+const MAX_TYPING_LINES = 3
 
 const DOT_DELAYS = [0, 200, 400]
 
@@ -70,70 +69,58 @@ export function TypingIndicator({
   )
 }
 
-// Session typing row: the typers' avatars on the avatar column and dots where
-// their text will go, in the slot above the reply line. It has no height and
-// the slot is always there, so it never moves the reply line or the caret.
+// Session typing lines: each typer gets a line shaped like the reply line
+// under it, their avatar in the gutter and dots where their text will go. The
+// lines grow in above the reply line; at the end of a long session the
+// scroller holds the bottom, so the reply line and caret stay put.
 export function DocumentTypingIndicator({
   people,
 }: {
   people: TypingPerson[]
 }) {
   return (
-    <div className="relative h-0">
-      <AnimatePresence>
-        {people.length > 0 && (
+    <div>
+      {people.length > 0 && (
+        <span className="sr-only">{formatTypingText(people)}</span>
+      )}
+      <AnimatePresence initial={false}>
+        {people.slice(0, MAX_TYPING_LINES).map((person) => (
           <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.18, ease: EASE_OUT }}
-            className="pointer-events-none absolute inset-x-0 bottom-0 flex h-5 items-center px-4"
+            key={person.userId}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: EASE_OUT }}
+            className="overflow-hidden"
           >
-            <span className="sr-only">{formatTypingText(people)}</span>
-            <div className="flex w-7 shrink-0 justify-center -space-x-1.5">
-              <AnimatePresence initial={false} mode="popLayout">
-                {people.slice(0, MAX_TYPING_AVATARS).map((person) => (
-                  <motion.span
-                    key={person.userId}
-                    layout
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    transition={{ duration: 0.18, ease: EASE_OUT }}
-                  >
-                    <Avatar className="size-5 ring-2 ring-background">
-                      {person.image && (
-                        <AvatarImage src={person.image} alt="" />
-                      )}
-                      <AvatarFallback
-                        avatarColor={person.avatarColor}
-                        fallbackSeed={person.name}
-                        className="font-semibold text-[8px]"
-                      >
-                        {getAvatarInitials(person.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                  </motion.span>
-                ))}
-              </AnimatePresence>
-            </div>
-            <span className="ml-3 flex items-center gap-[3px]">
-              {DOT_DELAYS.map((delay) => (
-                <motion.span
-                  key={delay}
-                  animate={{ opacity: [0.35, 1, 0.35], y: [0, -2, 0] }}
-                  transition={{
-                    duration: 1,
-                    delay: delay / 1000,
-                    repeat: Number.POSITIVE_INFINITY,
-                    ease: "easeInOut",
-                  }}
-                  className="size-1 rounded-full bg-muted-foreground"
+            <div className="px-4 pb-2">
+              <div className="relative py-1 pl-10">
+                <UserAvatar
+                  name={person.name}
+                  src={person.image}
+                  avatarColor={person.avatarColor}
+                  size="sm"
+                  className="absolute top-0.5 left-0 size-7"
                 />
-              ))}
-            </span>
+                <span className="flex h-6 items-center gap-1">
+                  {DOT_DELAYS.map((delay) => (
+                    <motion.span
+                      key={delay}
+                      animate={{ opacity: [0.35, 1, 0.35], y: [0, -2, 0] }}
+                      transition={{
+                        duration: 1,
+                        delay: delay / 1000,
+                        repeat: Number.POSITIVE_INFINITY,
+                        ease: "easeInOut",
+                      }}
+                      className="size-1.5 rounded-full bg-muted-foreground"
+                    />
+                  ))}
+                </span>
+              </div>
+            </div>
           </motion.div>
-        )}
+        ))}
       </AnimatePresence>
     </div>
   )

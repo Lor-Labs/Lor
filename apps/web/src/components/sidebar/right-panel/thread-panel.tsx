@@ -837,9 +837,7 @@ export function ThreadPanel({
   // last line, with its tools in the bar under the scroller.
   const composer = (
     <>
-      {sessionView ? (
-        <DocumentTypingIndicator people={typingPeople} />
-      ) : (
+      {!sessionView && (
         <TypingIndicator users={typingUsers} className="from-sidebar" />
       )}
       <RunQueuePill
@@ -850,6 +848,8 @@ export function ThreadPanel({
         steeringMessageId={queuedMessageSteering.steeringMessageId}
         variant={sessionView ? "document" : "box"}
       />
+      {/* Right above the reply line, like other people's draft lines. */}
+      {sessionView && <DocumentTypingIndicator people={typingPeople} />}
       <MessageInput
         key={view.threadRootId}
         composerDraft={view.composerDraft}
@@ -1192,11 +1192,10 @@ export function ThreadPanel({
               )}
 
               {/* Inline input line: the document's last line, reached by
-                  scrolling to the end like any document (never pinned).
-                  pt-5 is the typing row's slot, kept even when empty. */}
+                  scrolling to the end like any document (never pinned). */}
               {sessionView &&
                 !sessionView.archivedBar &&
-                !isAwaitingReplies && <div className="pt-5">{composer}</div>}
+                !isAwaitingReplies && <div className="pt-3">{composer}</div>}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerJumpToLatest
