@@ -11,6 +11,7 @@ import {
   PROPOSAL_SAMPLES,
   SAMPLE_CHANNEL_NAMES,
 } from "@/components/design/design-samples"
+import { SessionHeaderVariants } from "@/components/design/session-header-variants"
 
 // /design: every state of the cards Lor shows in a session, rendered with
 // sample data inside a session turn. Buttons respond but never call the API.
@@ -20,13 +21,13 @@ export function DesignPage() {
 
   return (
     <div className="h-dvh overflow-y-auto bg-background text-foreground">
-      <div className="mx-auto max-w-3xl px-6 py-12">
+      <div className="mx-auto max-w-5xl px-6 py-12">
         <header className="mb-12 flex items-end justify-between gap-6">
           <div>
             <h1 className="font-semibold text-xl tracking-tight">Design</h1>
             <p className="mt-1 text-muted-foreground text-sm">
-              Cards Lor shows in a session, in every state, with sample data.
-              Buttons respond but never call the API.
+              Session pieces in every state, with sample data. Buttons respond
+              but never call the API.
             </p>
           </div>
           <Button
@@ -38,53 +39,59 @@ export function DesignPage() {
           </Button>
         </header>
 
-        <Section title="Approval request">
-          {APPROVAL_SAMPLES.map((sample) => (
-            <Example
-              key={sample.label}
-              label={sample.label}
-              lorSays={sample.lorSays}
-            >
-              <div className="max-w-xl">
-                <ApprovalGateView
-                  approval={sample.approval}
-                  canResolve={sample.canResolve}
-                  pending={false}
-                  onResolve={() => {}}
-                  resolvedByName={sample.resolvedByName ?? null}
-                />
-              </div>
-            </Example>
-          ))}
+        <Section title="Session header">
+          <SessionHeaderVariants />
         </Section>
 
-        <Section title="Workspace change proposal">
-          {PROPOSAL_SAMPLES.map((sample) => (
+        <div className="max-w-3xl">
+          <Section title="Approval request">
+            {APPROVAL_SAMPLES.map((sample) => (
+              <Example
+                key={sample.label}
+                label={sample.label}
+                lorSays={sample.lorSays}
+              >
+                <div className="max-w-xl">
+                  <ApprovalGateView
+                    approval={sample.approval}
+                    canResolve={sample.canResolve}
+                    pending={false}
+                    onResolve={() => {}}
+                    resolvedByName={sample.resolvedByName ?? null}
+                  />
+                </div>
+              </Example>
+            ))}
+          </Section>
+
+          <Section title="Workspace change proposal">
+            {PROPOSAL_SAMPLES.map((sample) => (
+              <Example
+                key={sample.label}
+                label={sample.label}
+                lorSays={sample.lorSays}
+              >
+                <ProposalCardView
+                  proposal={sample.proposal}
+                  workspaceSlug={undefined}
+                  channelNames={SAMPLE_CHANNEL_NAMES}
+                  canResolve={sample.canResolve}
+                  resolverName={sample.resolverName ?? null}
+                  approving={false}
+                  rejectPending={false}
+                  onApprove={() => {}}
+                  onReject={(_note, done) => done()}
+                />
+              </Example>
+            ))}
             <Example
-              key={sample.label}
-              label={sample.label}
-              lorSays={sample.lorSays}
+              label="Before the proposal loads"
+              lorSays="I've filed a proposal to create #support."
             >
-              <ProposalCardView
-                proposal={sample.proposal}
-                workspaceSlug={undefined}
-                channelNames={SAMPLE_CHANNEL_NAMES}
-                canResolve={sample.canResolve}
-                resolverName={sample.resolverName ?? null}
-                approving={false}
-                rejectPending={false}
-                onApprove={() => {}}
-                onReject={(_note, done) => done()}
-              />
+              <ProposalCardFallback text="Proposed workspace changes: Create #support" />
             </Example>
-          ))}
-          <Example
-            label="Before the proposal loads"
-            lorSays="I've filed a proposal to create #support."
-          >
-            <ProposalCardFallback text="Proposed workspace changes: Create #support" />
-          </Example>
-        </Section>
+          </Section>
+        </div>
       </div>
     </div>
   )
