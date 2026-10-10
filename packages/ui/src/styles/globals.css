@@ -74,6 +74,11 @@
      @font-face in fonts.css, www via next/font). `inline` emits
      `font-family: var(--font-cinzel)` so `font-cinzel` works in both. */
   --font-cinzel: var(--font-cinzel);
+  /* Geist for Tailwind's font-sans and font-mono too (menus, ⌘K, code), not
+     just the body. Each app defines the vars: web in fonts.css, www via
+     next/font. */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
   --animate-skeleton: skeleton 2s -1s infinite linear;
   --animate-caret-blink: 1s ease-out infinite caret-blink;
   --animate-toast-success-odd: toast-success-odd 0.32s
