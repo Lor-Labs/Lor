@@ -30,7 +30,7 @@ type Step = {
 const STEPS: [Step, ...Step[]] = [
   {
     title: "Chat is for your team",
-    body: "Channels are where people talk. Lor never posts in the chat, so it stays easy to read.",
+    body: "Channels are where your team talks. Lor never posts here, but it reads the chat, so it knows what your team is working on.",
     Scene: ChatScene,
   },
   {
@@ -132,7 +132,7 @@ function HowLorWorksSteps({
 
   return (
     <>
-      <div className="relative h-[280px] shrink-0 overflow-hidden border-b bg-muted/50">
+      <div className="relative h-[300px] shrink-0 overflow-hidden border-b bg-muted/50">
         <AnimatePresence initial={false} mode="popLayout" custom={direction}>
           <motion.div
             key={step}

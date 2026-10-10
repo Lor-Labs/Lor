@@ -782,7 +782,11 @@ on top, the step text under it, step dots and Back/Next at the bottom.
   `TypewriterText` title, the "Started … · Open" note shows (a copy of
   `SessionStartedNote`, since the real one is a router link), a cursor
   clicks Open, and the session opens with the question on top,
-  Lor's "Working…" row and its answer typing out; a shared session where a teammate joins and replies
+  Lor's "Working…" row and its answer typing out. Channel context: the send
+  lights up the chat messages, the question carries a "# engineering · 2
+  messages" chip (like the Details panel's Context link), Lor's row reads
+  "Reading #engineering…", and the answer names Maya's fix from the chat.
+  Step 1's copy says Lor reads the chat; a shared session where a teammate joins and replies
   to Lor, then the pill switches to channel members and that turn lands
   muted. The mini sidebar uses the real workspace name, and "you" is the
   signed-in user.

@@ -22,8 +22,9 @@ const MAYA: ScenePerson = { name: "Maya Okafor", image: null }
 const TOMAS: ScenePerson = { name: "Tomás Reyes", image: null }
 const SESSION_TITLE = "Last night's deploy failure"
 const QUESTION = " why did last night's deploy fail?"
+// Names Maya's message from the chat, so the answer shows Lor read it.
 const LOR_ANSWER =
-  "A migration timed out on the invoices table. I opened a pull request that adds the index first."
+  "A migration timed out on the invoices table. Maya's billing fix adds the missing index."
 
 const appear = {
   initial: { opacity: 0, y: 6, filter: "blur(2px)" },
@@ -296,6 +297,7 @@ export function SessionStartScene({ workspaceName, you }: SceneProps) {
   const clicking = phase >= 6
   const inSession = phase >= 7
   const answered = phase >= 8
+  const readingChat = phase === 3 || phase === 4
 
   const startedNote = phase >= 3 && (
     <motion.div
@@ -329,13 +331,21 @@ export function SessionStartScene({ workspaceName, you }: SceneProps) {
   const channelPane = (
     <>
       <div className="border-b px-3 py-2 font-semibold"># engineering</div>
-      <div className="flex flex-1 flex-col justify-end gap-3 px-3 pb-3">
-        <MiniMessage person={MAYA}>
-          Deploy is green. Shipping the billing fix after lunch.
-        </MiniMessage>
-        <MiniMessage person={TOMAS}>
-          Nice, I'll keep an eye on error rates.
-        </MiniMessage>
+      <div className="flex flex-1 flex-col justify-end px-1.5 pb-1.5">
+        {/* The send lights up the chat Lor takes as context. */}
+        <div
+          className={cn(
+            "flex flex-col gap-3 rounded-lg px-1.5 py-1.5 ring-1 transition-[background-color,box-shadow] duration-500",
+            readingChat ? "bg-agent/8 ring-agent/25" : "ring-transparent"
+          )}
+        >
+          <MiniMessage person={MAYA}>
+            Deploy is green. Shipping the billing fix after lunch.
+          </MiniMessage>
+          <MiniMessage person={TOMAS}>
+            Nice, I'll keep an eye on error rates.
+          </MiniMessage>
+        </div>
       </div>
       <MiniComposer
         toLor={drafting}
@@ -375,13 +385,21 @@ export function SessionStartScene({ workspaceName, you }: SceneProps) {
         <MiniMessage person={you}>
           <LorChip />
           {QUESTION}
+          <span className="mt-1 flex w-fit items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+            <HugeiconsIcon
+              icon={HashtagIcon}
+              className="size-3"
+              strokeWidth={2}
+            />
+            engineering · 2 messages
+          </span>
         </MiniMessage>
         <div className="flex gap-2.5">
           <img src="/lor-mark.svg" alt="" className="mt-0.5 size-5" />
           <div className="min-w-0 space-y-1">
             <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
               {!answered && <SessionStateIndicator state="running" />}
-              {answered ? "Worked" : "Working…"}
+              {answered ? "Worked" : "Reading #engineering…"}
             </div>
             {/* Mounted empty first, so the answer types out when it lands. */}
             <p className="text-foreground/90">
