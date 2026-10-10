@@ -67,7 +67,10 @@ import {
   type PlanSourceFile,
   ThreadWorkHeader,
 } from "@/components/chat/thread-work-header"
-import { TypingIndicator } from "@/components/chat/typing-indicator"
+import {
+  DocumentTypingIndicator,
+  TypingIndicator,
+} from "@/components/chat/typing-indicator"
 import { SessionStartedNote } from "@/components/session/session-started-note"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -560,6 +563,25 @@ export function ThreadPanel({
     view.workspaceSlug,
     view.channelId
   )
+  // A typer who hasn't posted here yet still gets their photo from members.
+  const typingPeople = useMemo(
+    () =>
+      typingUsers.map((user) => {
+        const participant = participants.find(
+          (person) => person.id === user.userId
+        )
+        const member = mentionCandidates.find(
+          (candidate) => candidate.id === user.userId
+        )
+        const memberImage = member && "image" in member ? member.image : null
+        return {
+          ...user,
+          image: participant?.image ?? memberImage,
+          avatarColor: participant?.avatarColor ?? null,
+        }
+      }),
+    [typingUsers, participants, mentionCandidates]
+  )
   // Voice channel threads are call chats; their root is a silent placeholder.
   const isCallChat = channel?.type === "voice"
   const composerDestination = sessionView
@@ -815,10 +837,11 @@ export function ThreadPanel({
   // last line, with its tools in the bar under the scroller.
   const composer = (
     <>
-      <TypingIndicator
-        users={typingUsers}
-        className={sessionView ? undefined : "from-sidebar"}
-      />
+      {sessionView ? (
+        <DocumentTypingIndicator people={typingPeople} />
+      ) : (
+        <TypingIndicator users={typingUsers} className="from-sidebar" />
+      )}
       <RunQueuePill
         messages={queuedMessages}
         currentUserId={currentUserId}
@@ -1169,10 +1192,11 @@ export function ThreadPanel({
               )}
 
               {/* Inline input line: the document's last line, reached by
-                  scrolling to the end like any document (never pinned). */}
+                  scrolling to the end like any document (never pinned).
+                  pt-5 is the typing row's slot, kept even when empty. */}
               {sessionView &&
                 !sessionView.archivedBar &&
-                !isAwaitingReplies && <div className="pt-3">{composer}</div>}
+                !isAwaitingReplies && <div className="pt-5">{composer}</div>}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerJumpToLatest
