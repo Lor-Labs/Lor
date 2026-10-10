@@ -38,12 +38,16 @@ export function ThreadSubscribers({
   channelId,
   threadRootId,
   session,
+  facesOnly = false,
 }: {
   workspaceSlug: string
   channelId: string
   threadRootId: string
   // Set on a session page, so following it moves its sidebar row at once.
   session?: RealtimeAgentSession
+  // Session strip: only the faces show; you follow or leave by ticking
+  // yourself in the list.
+  facesOnly?: boolean
 }) {
   const { data: authSession } = authClient.useSession()
   const currentUserId = authSession?.user.id
@@ -135,7 +139,7 @@ export function ThreadSubscribers({
 
   return (
     <div className="flex items-center gap-1">
-      {me && (
+      {me && !facesOnly && (
         <button
           type="button"
           onClick={() => setSubscribed(me, !isSubscribed)}
@@ -163,13 +167,7 @@ export function ThreadSubscribers({
               />
             }
           >
-            {subscribers.length === 0 ? (
-              <HugeiconsIcon
-                icon={UserAdd01Icon}
-                className="size-4"
-                strokeWidth={2}
-              />
-            ) : (
+            {subscribers.length > 0 && (
               <AvatarGroup className="-space-x-1">
                 {visible.map((person) => (
                   <PersonAvatar key={person.id} person={person} />
@@ -180,6 +178,13 @@ export function ThreadSubscribers({
                   </AvatarGroupCount>
                 )}
               </AvatarGroup>
+            )}
+            {subscribers.length === 0 && (
+              <HugeiconsIcon
+                icon={UserAdd01Icon}
+                className="size-4"
+                strokeWidth={2}
+              />
             )}
           </TooltipTrigger>
           <TooltipContent side="bottom">Change subscribers</TooltipContent>

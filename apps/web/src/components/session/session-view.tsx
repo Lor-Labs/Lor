@@ -1,16 +1,32 @@
-import { Archive02Icon, HashtagIcon } from "@hugeicons/core-free-icons"
+import {
+  Archive02Icon,
+  HashtagIcon,
+  Link01Icon,
+  MoreHorizontalIcon,
+  PencilEdit02Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import type { RealtimeAgentSession } from "@repo/realtime-types"
+import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@repo/ui/components/menu"
+import { toast } from "@repo/ui/components/toast"
 import {
   Tooltip,
   TooltipContent,
   TooltipCreateHandle,
-  TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
+import { timeAgo } from "@repo/utils/date"
+import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
@@ -107,11 +123,20 @@ function SessionConversation({
   }
   const { data: auth } = authClient.useSession()
   const people = useChannelPeople(workspaceSlug, session.channelId)
-  const archivedBy =
-    session.archivedById === auth?.user.id
+  const nameOf = (userId: string | null) =>
+    userId === auth?.user.id
       ? "you"
-      : (people.find((person) => person.userId === session.archivedById)
-          ?.name ?? "someone")
+      : (people.find((person) => person.userId === userId)?.name ?? "someone")
+  const archivedBy = nameOf(session.archivedById)
+  const startedBy =
+    session.origin === "loop"
+      ? "Loop"
+      : session.origin === "trigger"
+        ? "Started by an automation"
+        : `Started by ${nameOf(session.creatorId)}`
+  const starter =
+    people.find((person) => person.userId === session.creatorId) ?? null
+  const [renaming, setRenaming] = useState(false)
 
   return (
     <ThreadPanel
@@ -123,12 +148,11 @@ function SessionConversation({
       }}
       sessionView={{
         header: ({ lorRunning }) => (
-          <SessionHeader
+          <SessionStrip
             session={session}
-            channelName={channel.name ?? "channel"}
             workView={workView}
             lorRunning={lorRunning}
-            onRename={(title) => updateSession.mutate({ ...change, title })}
+            onRename={() => setRenaming(true)}
             onArchive={() => {
               updateSession.mutate({ ...change, archived: true })
               // Nothing left to do here; back to the channel's chat.
@@ -137,6 +161,17 @@ function SessionConversation({
                 params: { workspaceSlug, channelId: session.channelId },
               })
             }}
+          />
+        ),
+        heading: (
+          <SessionHeading
+            session={session}
+            channelName={channel.name ?? "channel"}
+            startedBy={startedBy}
+            starter={starter}
+            renaming={renaming}
+            onRenamingChange={setRenaming}
+            onRename={(title) => updateSession.mutate({ ...change, title })}
           />
         ),
         archivedBar: session.archivedAt ? (
@@ -165,76 +200,79 @@ function SessionConversation({
   )
 }
 
-function SessionHeader({
+// A slim icon strip: the title opens the document instead (SessionHeading).
+function SessionStrip({
   session,
-  channelName,
   workView,
   lorRunning,
   onRename,
   onArchive,
 }: {
   session: RealtimeAgentSession
-  channelName: string
   workView: SessionWorkSidebarView
   lorRunning: boolean
-  onRename: (title: string) => void
+  onRename: () => void
   onArchive: () => void
 }) {
   const { workspaceSlug, channelId } = workView
   const archived = session.archivedAt !== null
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const copyLink = () =>
+    void navigator.clipboard
+      .writeText(window.location.href)
+      .then(() => toast.success("Link copied"))
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
-      <HeaderNavControls className="-ml-2" withDivider />
-      <SessionTitle
-        title={session.title}
-        generated={session.titleEditedAt === null}
-        readOnly={archived}
-        onRename={onRename}
-      />
-      <Link
-        to="/$workspaceSlug/$channelId"
-        params={{ workspaceSlug, channelId }}
-        className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-sm text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-      >
-        <HugeiconsIcon
-          icon={HashtagIcon}
-          className="size-3.5"
-          strokeWidth={2}
-        />
-        {channelName}
-      </Link>
-      <div className="ml-auto flex items-center gap-1">
+    <div className="flex h-11 shrink-0 items-center gap-1 px-3">
+      <HeaderNavControls className="-ml-1" />
+      <div className="ml-auto flex items-center gap-0.5">
         <ThreadSubscribers
           workspaceSlug={workspaceSlug}
           channelId={channelId}
           threadRootId={workView.threadRootId}
           session={session}
+          facesOnly
         />
-        {!archived && (
-          <TooltipTrigger
-            handle={tooltipHandle}
-            payload="Archive session"
+        <DropdownMenu>
+          <DropdownMenuTrigger
             render={
               <button
                 type="button"
-                aria-label="Archive session"
-                onClick={() =>
-                  lorRunning ? setConfirmArchive(true) : onArchive()
-                }
-                className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                aria-label="Session actions"
+                className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
               />
             }
           >
             <HugeiconsIcon
-              icon={Archive02Icon}
+              icon={MoreHorizontalIcon}
               className="size-4"
               strokeWidth={2}
             />
-          </TooltipTrigger>
-        )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="bottom" align="end">
+            {!archived && (
+              <DropdownMenuItem onClick={onRename}>
+                <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={2} />
+                Rename
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={copyLink}>
+              <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
+              Copy link
+            </DropdownMenuItem>
+            {!archived && (
+              <DropdownMenuItem
+                onClick={() =>
+                  lorRunning ? setConfirmArchive(true) : onArchive()
+                }
+              >
+                <HugeiconsIcon icon={Archive02Icon} strokeWidth={2} />
+                Archive
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <RightPanelToggle
           workspaceSlug={workspaceSlug}
           channelId={channelId}
@@ -254,34 +292,115 @@ function SessionHeader({
   )
 }
 
-// Click to rename, like a Linear issue title. Enter or leaving the field
-// saves; Escape cancels.
+// The document's opening: the title, then one quiet line of context.
+function SessionHeading({
+  session,
+  channelName,
+  startedBy,
+  starter,
+  renaming,
+  onRenamingChange,
+  onRename,
+}: {
+  session: RealtimeAgentSession
+  channelName: string
+  startedBy: string
+  // The person who started it; null for loops and automations.
+  starter: {
+    name: string
+    image: string | null
+    avatarColor: string | null
+  } | null
+  renaming: boolean
+  onRenamingChange: (renaming: boolean) => void
+  onRename: (title: string) => void
+}) {
+  const { workspaceSlug } = useParams({ strict: false })
+  return (
+    <div>
+      <SessionTitle
+        title={session.title}
+        generated={session.titleEditedAt === null}
+        readOnly={session.archivedAt !== null}
+        editing={renaming}
+        onEditingChange={onRenamingChange}
+        onRename={onRename}
+      />
+      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-muted-foreground text-sm">
+        {workspaceSlug ? (
+          <Link
+            to="/$workspaceSlug/$channelId"
+            params={{ workspaceSlug, channelId: session.channelId }}
+            className="inline-flex items-center gap-0.5 transition-colors hover:text-foreground"
+          >
+            <HugeiconsIcon
+              icon={HashtagIcon}
+              className="size-3.5"
+              strokeWidth={2}
+            />
+            {channelName}
+          </Link>
+        ) : null}
+        <span aria-hidden="true">·</span>
+        <span className="inline-flex items-center gap-1.5">
+          {starter && (
+            <Avatar className="size-4">
+              {starter.image && (
+                <AvatarImage src={starter.image} alt={starter.name} />
+              )}
+              <AvatarFallback
+                avatarColor={starter.avatarColor}
+                fallbackSeed={starter.name}
+                className="font-semibold text-[8px]"
+              >
+                {getAvatarInitials(starter.name)}
+              </AvatarFallback>
+            </Avatar>
+          )}
+          {startedBy}
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>{timeAgo(session.createdAt)}</span>
+      </p>
+      <div className="mt-6 border-border/50 border-t" />
+    </div>
+  )
+}
+
+// Click to rename, like a Linear issue title (or Rename in the strip's menu).
+// Enter or leaving the field saves; Escape cancels.
 function SessionTitle({
   title,
   generated,
   readOnly,
+  editing,
+  onEditingChange,
   onRename,
 }: {
   title: string
   // Lor's title types out; a person's rename shows at once.
   generated: boolean
   readOnly: boolean
+  editing: boolean
+  onEditingChange: (editing: boolean) => void
   onRename: (title: string) => void
 }) {
-  const [draft, setDraft] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const editing = draft !== null
   useEffect(() => {
     if (editing) inputRef.current?.select()
   }, [editing])
+  const heading = "font-semibold text-[26px] leading-tight tracking-tight"
 
-  if (draft === null) {
+  if (!editing || readOnly) {
     return (
       <button
         type="button"
         disabled={readOnly}
-        onClick={() => setDraft(title)}
-        className="-ml-1.5 min-w-0 cursor-text truncate rounded-md px-1.5 py-0.5 text-left font-semibold transition-colors hover:bg-foreground/[0.06] disabled:cursor-default disabled:hover:bg-transparent"
+        onClick={() => onEditingChange(true)}
+        className={cn(
+          heading,
+          "-ml-1.5 block max-w-full cursor-text rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-foreground/[0.06] disabled:cursor-default disabled:hover:bg-transparent"
+        )}
       >
         <TypewriterText text={title} animate={generated} />
       </button>
@@ -289,17 +408,16 @@ function SessionTitle({
   }
 
   const commit = () => {
-    const next = draft.trim()
-    setDraft(null)
+    const next = inputRef.current?.value.trim() ?? ""
+    onEditingChange(false)
     if (next && next !== title) onRename(next)
   }
   return (
     <input
       ref={inputRef}
-      value={draft}
+      defaultValue={title}
       maxLength={200}
       aria-label="Session title"
-      onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
@@ -307,10 +425,13 @@ function SessionTitle({
           commit()
         } else if (event.key === "Escape") {
           event.preventDefault()
-          setDraft(null)
+          onEditingChange(false)
         }
       }}
-      className="-ml-1.5 min-w-0 flex-1 rounded-md bg-foreground/[0.06] px-1.5 py-0.5 font-semibold outline-none"
+      className={cn(
+        heading,
+        "-ml-1.5 w-full rounded-md bg-foreground/[0.06] px-1.5 py-0.5 outline-none"
+      )}
     />
   )
 }

@@ -116,6 +116,8 @@ function DestinationPill({
   return (
     <button
       type="button"
+      // Switching mid-draft keeps the caret in the input line.
+      onMouseDown={(event) => event.preventDefault()}
       onClick={onSwitch}
       title="Switch who this message goes to"
       className={cn(

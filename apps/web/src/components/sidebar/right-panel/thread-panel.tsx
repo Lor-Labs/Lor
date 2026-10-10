@@ -161,6 +161,9 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
 // the right panel instead of the docked work header.
 export type SessionPresentation = {
   header: (state: { lorRunning: boolean }) => ReactNode
+  // Opens the document (title and context line); shows once the oldest page
+  // is loaded, so it scrolls with the transcript.
+  heading?: ReactNode
   // An archived session is read-only: this replaces its input line and tools.
   archivedBar?: ReactNode
 }
@@ -1037,6 +1040,12 @@ export function ThreadPanel({
                     </MorphText>
                     <div className="h-px flex-1 bg-border/60" />
                   </div>
+                </MessageScrollerItem>
+              )}
+
+              {sessionView?.heading && !hasOlder && (
+                <MessageScrollerItem className="px-4 pt-6 pb-3">
+                  {sessionView.heading}
                 </MessageScrollerItem>
               )}
 
