@@ -1,5 +1,6 @@
 import {
   ArrowTurnBackwardIcon,
+  ArrowTurnForwardIcon,
   MessageMultiple01Icon,
   MoreHorizontalIcon,
   Pin02Icon,
@@ -29,6 +30,8 @@ interface MessageActionBarProps {
   onReplyInThread?: () => void
   // Starts a new Lor session with this message attached.
   onAskLor?: () => void
+  // A session message: forward it into the channel chat.
+  onForward?: () => void
   onCopyText?: () => void
   onEdit?: () => void
   onDelete?: () => void
@@ -44,6 +47,7 @@ export function MessageActionBar({
   onReply,
   onReplyInThread,
   onAskLor,
+  onForward,
   onCopyText,
   onEdit,
   onDelete,
@@ -146,6 +150,29 @@ export function MessageActionBar({
           }
         >
           <img src="/lor-mark.svg" alt="" className="size-4" />
+        </TooltipTrigger>
+      )}
+
+      {onForward && (
+        <TooltipTrigger
+          handle={tooltipHandle}
+          payload="Forward"
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="size-7 pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-0.5"
+              onClick={onForward}
+              aria-label="Forward"
+            />
+          }
+        >
+          <HugeiconsIcon
+            icon={ArrowTurnForwardIcon}
+            className="size-4"
+            strokeWidth={1.5}
+          />
         </TooltipTrigger>
       )}
 

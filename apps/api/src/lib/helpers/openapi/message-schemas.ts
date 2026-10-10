@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi"
-import type { ChannelEventPayload } from "@repo/db/schema"
+import type { ChannelEventPayload, ForwardedMessage } from "@repo/db/schema"
 import { selectMessageSchema } from "@repo/db/schema"
 
 export const messageAuthorSchema = z.object({
@@ -163,6 +163,8 @@ export const messageWithAuthorSchema = selectMessageSchema
     // Typed passthrough — keeps the inferred client type as the payload union
     // instead of drizzle-zod's loose jsonb shape.
     eventPayload: z.custom<ChannelEventPayload | null>(),
+    // type "forward": the original as it was when forwarded.
+    forwarded: z.custom<ForwardedMessage | null>(),
     mentions: z.array(messageAuthorSchema),
     reactions: z.array(messageReactionSchema),
     embeds: z.array(messageEmbedSchema),

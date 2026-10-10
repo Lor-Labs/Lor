@@ -5,6 +5,7 @@ import type {
   Attachment,
   ChannelEventPayload,
   Embed,
+  ForwardedMessage,
   LorMemory,
   LorReasoningSegment,
   LorToolCall,
@@ -91,6 +92,7 @@ type BareMessageRow = {
   overrideName: string | null
   overrideAvatarUrl: string | null
   referencedMessageId: string | null
+  forwarded: ForwardedMessage | null
   threadRootId: string | null
   routedToLor: boolean | null
   editedAt: Date | null
@@ -121,6 +123,7 @@ export const messageSelect = {
   overrideName: message.overrideName,
   overrideAvatarUrl: message.overrideAvatarUrl,
   referencedMessageId: message.referencedMessageId,
+  forwarded: message.forwarded,
   threadRootId: message.threadRootId,
   routedToLor: message.routedToLor,
   editedAt: message.editedAt,
@@ -667,9 +670,11 @@ export async function fetchMessages({
     lorTriggerMessageId: lorTriggerByMessageId.get(msg.id) ?? null,
     mentions: mentionsByMessageId.get(msg.id) ?? [],
     reactions: Array.from(reactionsByMessageId.get(msg.id)?.values() ?? []),
-    referencedMessage: msg.referencedMessageId
-      ? (referencedMessagesById.get(msg.referencedMessageId) ?? null)
-      : null,
+    // A forward renders from its snapshot, not the original.
+    referencedMessage:
+      msg.referencedMessageId && !msg.forwarded
+        ? (referencedMessagesById.get(msg.referencedMessageId) ?? null)
+        : null,
     threadSummary: threadSummaryById.get(msg.id) ?? null,
   }))
 

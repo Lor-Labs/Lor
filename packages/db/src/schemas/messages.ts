@@ -48,6 +48,12 @@ export const messageTypeEnum = pgEnum("message_type", [
   // the session's messages. The row (see agent-sessions.ts) is looked up by
   // threadRootId.
   "agent_session",
+  // A forwarded message (Discord-style): `forwarded` holds a snapshot of the
+  // original, shown under the forwarder's note (content, may be empty);
+  // referencedMessageId points at the original while it exists. Today: a
+  // session message forwarded into its channel's chat (Lor never posts
+  // there itself); later, chat forwarded between channels.
+  "forward",
 ])
 
 // Kinds of channel events (message.type = "event"). Adding a kind means a new
@@ -103,6 +109,8 @@ export const message = pgTable(
       (): AnyPgColumn => message.id,
       { onDelete: "set null" }
     ),
+    // Set only when type = "forward": the original as it was when forwarded.
+    forwarded: jsonb("forwarded").$type<ForwardedMessage>(),
 
     // thread root — when set, this message is a thread reply and does NOT
     // appear in the channel feed. NULL = channel message (may itself host a thread).
@@ -257,6 +265,25 @@ export type LoopEventPayload = {
   // loop_paused only
   reason?: "failures" | "out_of_credits"
   via?: "proposal"
+}
+
+// A forwarded message's snapshot (message.forwarded). Self-contained so the
+// target channel can read it even when its members can't open the source
+// (channel-to-channel forwards), and after the source changes or is deleted.
+export type ForwardedMessage = {
+  messageId: string
+  author: { id: string; name: string; image: string | null }
+  content: string | null
+  // Resolves stored mention tokens without access to the source.
+  mentions: { id: string; name: string; image: string | null }[]
+  createdAt: string
+  // Where it was posted: a channel's chat, or a session in it.
+  source: {
+    channelId: string
+    channelName: string | null
+    sessionId: string | null
+    sessionTitle: string | null
+  }
 }
 
 export type TriggerRunPayload = {

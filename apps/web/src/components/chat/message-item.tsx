@@ -29,6 +29,7 @@ import { memo, useCallback, useEffect, useState } from "react"
 import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
+import { ForwardedMessageCard } from "@/components/chat/forwarded-message-card"
 import { LoopCard } from "@/components/chat/loop-card"
 import { LorMessageBody } from "@/components/chat/lor-message-body"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
@@ -66,6 +67,8 @@ interface MessageItemProps {
   onReplyInThread?: (message: Message) => void
   // Channel chat: start a Lor session with this message attached.
   onAskLor?: (message: Message) => void
+  // Session: forward a message into the channel chat.
+  onForward?: (message: Message) => void
   onOpenThread?: (rootMessageId: string) => void
   onDelete?: (messageId: string) => void
   onEdit?: (messageId: string, content: string) => void
@@ -305,6 +308,7 @@ export const MessageItem = memo(function MessageItem({
   onReply,
   onReplyInThread,
   onAskLor,
+  onForward,
   onOpenThread,
   onDelete,
   onEdit,
@@ -374,6 +378,18 @@ export const MessageItem = memo(function MessageItem({
   const handleAskLor = useCallback(() => {
     onAskLor?.(message)
   }, [message, onAskLor])
+
+  const handleForward = useCallback(() => {
+    onForward?.(message)
+  }, [message, onForward])
+  // A finished message with text, Lor's or a person's; never a placeholder,
+  // an event line or a card. Mirrors the gateway's loadForwardSnapshot.
+  const canForward =
+    Boolean(onForward) &&
+    (message.type === "default" || message.type === "reply") &&
+    message.status === "complete" &&
+    !message.streaming &&
+    Boolean(message.content?.trim())
 
   const handleOpenThread = useCallback(() => {
     onOpenThread?.(message.id)
@@ -594,6 +610,7 @@ export const MessageItem = memo(function MessageItem({
           onReply={handleReply}
           onReplyInThread={canStartThread ? handleReplyInThread : undefined}
           onAskLor={onAskLor ? handleAskLor : undefined}
+          onForward={canForward ? handleForward : undefined}
           onCopyText={handleCopyText}
           onEdit={isOwnMessage && onEdit ? handleEditRequest : undefined}
           onDelete={isOwnMessage && onDelete ? handleDeleteRequest : undefined}
@@ -797,6 +814,9 @@ export const MessageItem = memo(function MessageItem({
               editedAt={message.editedAt}
               onCitationJump={onJumpToMessage}
             />
+          )}
+          {message.type === "forward" && message.forwarded && (
+            <ForwardedMessageCard forwarded={message.forwarded} />
           )}
           {/* Policy-gated approval parked on this run's reply (LOR-81).
               lorTriggerMessageId marks run replies live and on reload. */}

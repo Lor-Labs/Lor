@@ -50,6 +50,7 @@ import { useDropzone } from "react-dropzone"
 import { ChannelEventRow } from "@/components/chat/channel-event-row"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
+import { ForwardDialog } from "@/components/chat/forward-dialog"
 import { MessageItem } from "@/components/chat/message-item"
 import { scrollToMessage } from "@/components/chat/message-list"
 import {
@@ -249,6 +250,8 @@ export function ThreadPanel({
   const { data: channel } = useQuery(
     channelQueryOptions(view.workspaceSlug, view.channelId)
   )
+  // Session: the message being forwarded into the channel chat.
+  const [forwarding, setForwarding] = useState<Message | null>(null)
   // @Lor in a human thread starts a session seeded with the thread.
   const sessionStart = useSessionStart({
     workspaceSlug: view.workspaceSlug,
@@ -903,6 +906,17 @@ export function ThreadPanel({
       className="@container relative flex h-full w-full flex-col"
     >
       <DropZoneOverlay isDragActive={isDragActive} />
+      {sessionView && (
+        <ForwardDialog
+          message={forwarding}
+          workspaceSlug={view.workspaceSlug}
+          target={{
+            channelId: view.channelId,
+            channelName: channel?.name ?? "channel",
+          }}
+          onClose={() => setForwarding(null)}
+        />
+      )}
       {sessionView ? (
         sessionView.header({ lorRunning: Boolean(pendingLorMessage) })
       ) : (
@@ -1147,6 +1161,7 @@ export function ThreadPanel({
                         onEdit={handleEdit}
                         onJumpToMessage={handleJumpWithinThread}
                         mentionCandidates={mentionCandidates}
+                        onForward={sessionView ? setForwarding : undefined}
                       />
                     </MessageScrollerItem>
                   )

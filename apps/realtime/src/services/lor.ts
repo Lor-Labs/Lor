@@ -66,6 +66,8 @@ export async function sessionStartFor(args: {
 }): Promise<NewSessionInput | undefined> {
   const { payload, channel } = args
   if (!channel.workspaceId || channel.type !== "text") return undefined
+  // A forward into chat is a post, even if its note says @Lor.
+  if (payload.forward) return undefined
   const subscriberIds = [
     args.senderId,
     ...extractDirectMentionUserIds(payload.content ?? ""),

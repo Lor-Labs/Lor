@@ -11,7 +11,7 @@ import { LOR_USER_ID } from "@repo/db/constants"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
-import type { AgentSession } from "@repo/db/schema"
+import type { AgentSession, ForwardedMessage } from "@repo/db/schema"
 import { type CreateSessionArgs, createSession } from "@repo/lor/agent-sessions"
 import {
   buildReactionNotification,
@@ -190,6 +190,7 @@ export async function loadMessageByClientKey(args: {
       threadRootId: schema.message.threadRootId,
       routedToLor: schema.message.routedToLor,
       referencedMessageId: schema.message.referencedMessageId,
+      forwarded: schema.message.forwarded,
       attachments: schema.message.attachments,
       embeds: schema.message.embeds,
       pinned: schema.message.pinned,
@@ -247,12 +248,80 @@ export async function loadMessageByClientKey(args: {
     reactions: [],
     attachments: row.attachments ?? [],
     embeds: row.embeds ?? [],
-    referencedMessage: row.referencedMessageId
-      ? await loadReferencedMessage(row.referencedMessageId, args.workspaceId)
-      : null,
+    // A forward renders from its snapshot, not the original.
+    referencedMessage:
+      row.referencedMessageId && !row.forwarded
+        ? await loadReferencedMessage(row.referencedMessageId, args.workspaceId)
+        : null,
+    forwarded: row.forwarded,
     threadRootId: row.threadRootId,
     routedToLor: row.routedToLor,
     nonce: args.clientKey,
+  }
+}
+
+// The original as it is now, for a forward. Null when it can't be forwarded
+// here: today only a message in one of this channel's sessions goes to its
+// chat (chat between channels comes later).
+async function loadForwardSnapshot(
+  sourceId: string,
+  channel: AccessibleChannel
+): Promise<ForwardedMessage | null> {
+  const row = await db
+    .select({
+      id: schema.message.id,
+      content: schema.message.content,
+      type: schema.message.type,
+      status: schema.message.status,
+      createdAt: schema.message.createdAt,
+      threadRootId: schema.message.threadRootId,
+      authorId: schema.user.id,
+      authorName: schema.user.name,
+      authorImage: schema.user.image,
+    })
+    .from(schema.message)
+    .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+    .where(
+      and(
+        eq(schema.message.id, sourceId),
+        eq(schema.message.channelId, channel.id)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!row?.threadRootId || row.status !== "complete") return null
+  if (row.type !== "default" && row.type !== "reply") return null
+  const session = await findAgentSessionByThreadRoot(row.threadRootId)
+  if (!session) return null
+  const mentions = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      image: schema.user.image,
+    })
+    .from(schema.messageMention)
+    .innerJoin(
+      schema.user,
+      eq(schema.messageMention.mentionedUserId, schema.user.id)
+    )
+    .where(
+      and(
+        eq(schema.messageMention.messageId, row.id),
+        eq(schema.messageMention.mentionType, "direct")
+      )
+    )
+  return {
+    messageId: row.id,
+    author: { id: row.authorId, name: row.authorName, image: row.authorImage },
+    content: row.content,
+    mentions,
+    createdAt: row.createdAt.toISOString(),
+    source: {
+      channelId: channel.id,
+      channelName: channel.name ?? null,
+      sessionId: session.id,
+      sessionTitle: session.title,
+    },
   }
 }
 
@@ -323,9 +392,24 @@ export async function createMessage(input: CreateMessageInput) {
     input.userId
   )
 
-  // A session start carries its quoted message as context, not as a reply.
-  let hasReply = !!input.payload.referencedMessageId && !input.newSession
   const threadRootId: string | null = input.payload.threadRootId ?? null
+  // Forward: a chat post carrying a snapshot of the original, not a reply.
+  const forwardSourceId =
+    input.payload.forward && !threadRootId && !input.newSession
+      ? (input.payload.referencedMessageId ?? null)
+      : null
+  if (input.payload.forward && !forwardSourceId) {
+    throw new Error("A message can only be forwarded into the channel chat")
+  }
+  const forwarded = forwardSourceId
+    ? await loadForwardSnapshot(forwardSourceId, input.accessibleChannel)
+    : null
+  if (forwardSourceId && !forwarded) {
+    throw new Error("This message can't be forwarded")
+  }
+  // A session start carries its quoted message as context, not as a reply.
+  let hasReply =
+    !!input.payload.referencedMessageId && !input.newSession && !forwarded
 
   // Voice channels hold only session roots; people write in a session's chat,
   // and a live session's chat only while they're in the call.
@@ -450,10 +534,13 @@ export async function createMessage(input: CreateMessageInput) {
           channelId: input.payload.channelId,
           authorId: input.userId,
           content: input.payload.content ?? null,
-          type: input.type ?? (hasReply ? "reply" : "default"),
-          referencedMessageId: hasReply
-            ? (input.payload.referencedMessageId ?? null)
-            : null,
+          type:
+            input.type ??
+            (forwarded ? "forward" : hasReply ? "reply" : "default"),
+          referencedMessageId:
+            forwardSourceId ??
+            (hasReply ? (input.payload.referencedMessageId ?? null) : null),
+          forwarded,
           threadRootId: session?.threadRootId ?? threadRootId,
           routedToLor,
           attachments: input.payload.attachments ?? [],
@@ -561,6 +648,7 @@ export async function createMessage(input: CreateMessageInput) {
     attachments: input.payload.attachments ?? [],
     embeds: [],
     referencedMessage,
+    forwarded,
     threadRootId: messageWithAuthor.session?.threadRootId ?? threadRootId,
     routedToLor: messageWithAuthor.routedToLor,
   }

@@ -135,7 +135,7 @@ because nothing merges until the whole runbook lands.
 
 #### Step 1: schema and wire types (~250)
 
-[x] built 2026-10-08 · [x] committed · [ ] db:push
+[x] built 2026-10-08 · [x] committed · [x] db:push (dev)
 
 As built: `RealtimeAgentSession` and `session:updated` live in
 `realtime-types/src/events.ts`; `toRealtimeAgentSession` and its drift guard
@@ -169,7 +169,7 @@ response gained `sessionId`. `countsAsUnread` also skips anchors.
 
 #### Step 3: shared session and run helpers (~350)
 
-[x] built 2026-10-08 · [x] committed · [ ] backfill run (dev) · [ ] backfill run (prod)
+[x] built 2026-10-08 · [x] committed · [x] backfill run (dev, 2026-10-10) · [ ] backfill run (prod)
 
 As built (~290 lines): `createSession(tx, args)` and `ensureLoopSession(loop)`
 in `packages/lor/src/agent-sessions.ts`. `createSession` takes the caller's
@@ -266,7 +266,7 @@ under the run's reply. The session route takes `?artifactId` and mounts
 
 #### Step 7: composer states (~400)
 
-[x] built 2026-10-09 · [ ] committed
+[x] built 2026-10-09 · [x] committed
 
 As built (~400 lines): `MessageInput` takes `destination` (`channel` |
 `thread` | `session`). With one, the editor gets its own line and a toolbar
@@ -297,7 +297,7 @@ single-line composer. New placeholder and `lor_intro` hint copy.
 #### Step 8: sidebar sessions and New session (~400)
 
 Split in two. 8a: [x] built 2026-10-09 · [x] committed (server state and
-sidebar rows). 8b: [x] built 2026-10-09 · [ ] committed (New session button
+sidebar rows). 8b: [x] built 2026-10-09 · [x] committed (New session button
 and view, ⌘N, ⌘K, `last-location`).
 
 As built (8b, ~440 lines): the send payload's `startSession` flag starts a
@@ -347,7 +347,7 @@ replaces `LorChannelStatus`.
 
 #### Step 9a: session document view (~130)
 
-[x] built 2026-10-09 · [ ] committed · [ ] db:push (follow-up: `message.routed_to_lor`)
+[x] built 2026-10-09 · [x] committed · [x] db:push (dev; follow-up: `message.routed_to_lor`)
 
 Added 2026-10-09 (Jacob, after Delta DB's inline threads): a session reads as
 a document, not a chat thread, so it feels unlike a regular chat app. Rendering
@@ -382,7 +382,7 @@ The realtime send handler reads the stored value instead of recomputing.
 
 #### Step 9: chat cleanup (~300, mostly deletions)
 
-[x] built 2026-10-09 (narrowed, see Deviations) · [ ] committed
+[x] built 2026-10-09 (narrowed, see Deviations) · [x] committed
 
 As built (~400 lines): the channel page drops the channel-scope run queue,
 steering and `RunQueuePill` (chat messages never route to Lor). Thread
@@ -414,7 +414,7 @@ open the same view with `draft` prefilled.
 
 #### Step 10: subscription writers and API (~350)
 
-[x] built 2026-10-09 · [ ] committed
+[x] built 2026-10-09 · [x] committed
 
 As built (~320 lines): one writer, `subscribeToThread` in
 `@repo/db/queries/thread-subscriptions` (Lor filtered out, idempotent), used
@@ -436,7 +436,7 @@ sidebar through `notifyWorkspaceActivity`.
 
 #### Step 11: subscribed-only notifications (~300)
 
-[x] built 2026-10-09 · [ ] committed · [ ] db:push (destructive: drops
+[x] built 2026-10-09 · [x] committed · [x] db:push on dev (destructive: drops
 `user_notification_settings.lor_thread_notifications` and the
 `lor_thread_notification` enum)
 
@@ -466,7 +466,7 @@ mobile settings.
 
 #### Step 12: web subscriber header and settings (~300)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 As built (~450 lines): `ThreadSubscribers` (`components/chat/thread-subscribers.tsx`,
 replacing `thread-subscriber-stack.tsx`) sits in the session header and the
@@ -497,7 +497,7 @@ participants are still notified even after unsubscribing.
 
 #### Step 13: archive, titles, needs-you (~400)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - Server: channel session list (active, archived), archive and unarchive
   (stop via `runs/handlers.ts:300` `requestRunStop`, cancel queued rows),
@@ -572,7 +572,7 @@ their own copies of the resolver fallback.
 
 #### Step 14: Sessions view in the right panel (~300)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - `right-sidebar-types.ts:43-48`: `{ type: "sessions", channelId, filter }`.
   `right-sidebar-panel.tsx:18-23,38-44`, `right-sidebar-context.tsx:68-69`.
@@ -601,7 +601,7 @@ Opening a session from the list never subscribes you. The `subscribed` field is 
 
 #### Step 15: cards, reactions, prompt copy (~300)
 
-[x] built · [ ] committed · [ ] db:push
+[x] built · [x] committed · [x] db:push (dev)
 
 As built (~200 lines): `lor-respond` no longer posts a `plan_card`; a
 session's plan has no `cardMessageId` and shows in the Details panel (loop
@@ -637,7 +637,7 @@ cards in chat.
 
 #### Step 16: loops as one session (~400)
 
-[x] built · [ ] committed · [ ] db:push
+[x] built · [x] committed · [x] db:push (dev)
 
 - `ensureLoopSession` on fire; `sweep-due-loops.ts:135-166`;
   `api/lib/loops.ts:83-90` scope to the anchor, `:146-160` stop by `loopId`;
@@ -703,7 +703,7 @@ run's reply is not built.
 
 #### Step 17: Act runs in sessions (~350)
 
-[x] built · [x] committed · [ ] db:push
+[x] built · [x] committed · [x] db:push (dev)
 
 - `triggered-run.ts:113-150`, `act-runs.ts:122-151`: one session per run;
   partial unique index on active `trigger_id`; scoped briefing (hazard 11).
@@ -745,7 +745,7 @@ see the raw payload in the session (only Lor reads it).
 
 #### Step 18: call Summary tab (~300)
 
-[x] built 2026-10-09 · [ ] committed
+[x] built 2026-10-09 · [x] committed
 
 - Server: `voice-session-memory.ts:141-153` stops posting the card;
   `api/lib/voice/queries.ts:55-78,229`; summary routes keyed by session id.
@@ -786,7 +786,7 @@ from the push, and show no summary for new calls until Step 22.
 
 #### Step 19: onboarding touchpoints and share to chat (~300)
 
-[ ] built · [ ] committed
+[x] built 2026-10-10 · [ ] committed · [ ] db:push (`forward` in `message_type`, `message.forwarded`)
 
 - `packages/auth/src/lib/workspace-template.ts:21,45`: remove the Lor intro.
 - Hints: rewrite `lor_intro`; `lor_reply` moves into sessions with
@@ -794,6 +794,30 @@ from the push, and show no summary for new calls until Step 22.
 - Setup: `setup.tsx:141-151` Ask Lor opens `session.new` with the draft;
   drop the `@Lor` prefix (`setup-steps.tsx:261`).
 - "Share to #channel" on a Lor message in a session.
+
+As built: the template seeds channels only (existing intros were already
+hidden by `chatFeedMessage()`). `lor_intro` adds "or press ⌘N" on desktop
+(`isTauri`); `lor_reply` needed nothing, since `LorActivity` only renders on
+Lor's replies and those now live only in sessions. Setup's Ask Lor opens
+`/session/new?draft=…&channelId=…` and its suggestions lose the "@Lor"
+prefix. Share became **forwarding** (Jacob, Discord's model; chat will later
+forward between channels too, so it is built for that): a Forward button
+(`ArrowTurnForwardIcon`) on any finished text message in a session, Lor's or
+a person's, opens `ForwardDialog` (`components/chat/`, target channel as a
+prop for a future picker; optional note, preview, Cmd+Enter). It sends
+`message:send` with `forward: true` and `referencedMessageId` = the
+original; the gateway skips session start and builds a snapshot
+(`loadForwardSnapshot`: today only a complete default/reply message in one of
+this channel's sessions) into the new jsonb column `message.forwarded`
+(`ForwardedMessage`: author, content, mentions, createdAt, source channel and
+session with their names), type `forward`, note as content. Chat renders
+`ForwardedMessageCard` from the snapshot, so it reads the same for people who
+can't open the source and after the source changes or is deleted: a left
+rule, "↪ Forwarded", the author, the text (collapsing past ~15 lines), and a
+footer `#channel › session · date` that opens the source (a toast when it
+isn't available). The snapshot isn't in `content`, so search doesn't index
+the forwarded text again. Mobile shows only the note until Step 21 (a
+note-less forward is blank there).
 
 ### Phase F: mobile
 

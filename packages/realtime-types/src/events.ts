@@ -173,11 +173,15 @@ export const sendMessagePayloadSchema = z
     newSession: z
       .object({ id: z.string().uuid(), threadRootId: z.string().uuid() })
       .optional(),
+    // Forward: referencedMessageId is the original (today a session message
+    // in this channel); the content is an optional note.
+    forward: z.boolean().optional(),
   })
   .refine(
     (data) =>
       (data.content && data.content.length > 0) ||
-      (data.attachments && data.attachments.length > 0),
+      (data.attachments && data.attachments.length > 0) ||
+      (data.forward && data.referencedMessageId),
     { message: "Message must have content or at least one attachment" }
   )
 
@@ -234,6 +238,7 @@ export type RealtimeMessageType =
   | "voice_session"
   | "call_summary"
   | "agent_session"
+  | "forward"
 
 // Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
 // hand-copied like RealtimeMessageType so clients don't pull in drizzle.
@@ -304,6 +309,22 @@ export type RealtimeEmbed = {
   color?: string
 }
 
+// Mirrors ForwardedMessage in @repo/db (messages.ts), hand-copied so clients
+// don't pull in drizzle.
+export type RealtimeForwardedMessage = {
+  messageId: string
+  author: { id: string; name: string; image: string | null }
+  content: string | null
+  mentions: { id: string; name: string; image: string | null }[]
+  createdAt: string
+  source: {
+    channelId: string
+    channelName: string | null
+    sessionId: string | null
+    sessionTitle: string | null
+  }
+}
+
 export type RealtimeReferencedMessage = {
   id: string
   content: string | null
@@ -337,6 +358,8 @@ export type RealtimeMessage = {
   attachments: RealtimeAttachment[]
   embeds: RealtimeEmbed[]
   referencedMessage: RealtimeReferencedMessage | null
+  // type "forward": the original as it was when forwarded.
+  forwarded?: RealtimeForwardedMessage | null
   threadRootId?: string | null
   editedAt?: string
   nonce?: string
