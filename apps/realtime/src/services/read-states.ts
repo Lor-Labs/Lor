@@ -7,6 +7,7 @@ import {
   eq,
   gt,
   inArray,
+  LOR_USER_ID,
   ne,
   notInArray,
   schema,
@@ -23,12 +24,16 @@ import { assertUserCanAccessChannel } from "@/services/channel-access"
 
 // Voice and Lor session roots post silently, and a live session's chat counts
 // only for people in the call. Lor session activity never counts toward the
-// channel badge; the session's sidebar row shows it.
+// channel badge; the session's sidebar row shows it. Lor's old chat posts and
+// old threads turned into sessions are hidden from chat (chatFeedMessage), so
+// they never count either.
 function countsAsUnread(userId: string) {
   return and(
     notInArray(schema.message.type, ["voice_session", "agent_session"]),
+    ne(schema.message.authorId, LOR_USER_ID),
     visibleToSessionChatFilter(userId, schema.message.threadRootId),
-    sql`not exists (select 1 from agent_session s where s.thread_root_id = ${schema.message.threadRootId})`
+    sql`not exists (select 1 from agent_session s where s.thread_root_id = ${schema.message.threadRootId})`,
+    sql`not exists (select 1 from agent_session s where s.thread_root_id = ${schema.message.id})`
   )
 }
 

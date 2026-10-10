@@ -48,7 +48,11 @@ because nothing merges until the whole runbook lands.
    push cannot drop enum values.
 7. **Legacy Lor threads are backfilled, never deleted.** Deleting messages
    cascades into `agent_run` (`agent-runs.ts:77-82`) and the permanent
-   `agent_run_step` history. Legacy roots stay visible in chat.
+   `agent_run_step` history. Legacy roots stay in the database; since
+   2026-10-10 (Jacob, QA pass) chat hides them, along with every old
+   Lor-authored chat post: `chatFeedMessage()` leaves out Lor's messages and
+   any message that is a session's root, and the channel unread count
+   (`countsAsUnread`) follows it.
 8. **Shortcuts:** ⌘N on desktop (only ⌘, is bound today,
    `apps/desktop/src-tauri/src/lib.rs:47`). Web tabs cannot capture ⌘N, so
    "New session" also lives in the ⌘K menu (`workspace-command.tsx:85`) and as
