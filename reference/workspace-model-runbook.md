@@ -275,7 +275,8 @@ line under it holds attach, `composer/destination-bar.tsx` and send.
 nodes and the reply target. The Lor state tints the border and send button
 in the agent color and shows "New session in #channel", "New session from
 this thread" or "To Lor". The people state has a pill only in a session ("To
-channel members"); chat and threads already name the destination in the
+subscribers", renamed from "To channel members" on 2026-10-11: such a message
+notifies only the session's subscribers); chat and threads already name the destination in the
 placeholder. Both show who gets pinged ("Adds" or "Notifies" with avatars). In a
 session the pill switches by hand when nothing in the message decides the
 destination; the send then carries `toPeople`, and such a send mid-run does
@@ -372,7 +373,7 @@ input line; others appear through the typing indicator, never as presence
 
 Follow-up (2026-10-09): tighter rhythm (12px between turns, 15px/24px prose
 pinned on the inner `.prose`, avatar aligned to the first line, reply curve
-from the gutter avatar). Messages for channel members only render muted, with
+from the gutter avatar). Messages for the session's subscribers only render muted, with
 no label (Jacob: show it, don't say it); the inline input line dims the same
 way while it is headed to people, which teaches the rule. To show this on past
 messages the route is stored: new nullable `message.routed_to_lor` (db:push),

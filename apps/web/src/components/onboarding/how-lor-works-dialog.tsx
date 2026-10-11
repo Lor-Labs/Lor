@@ -40,7 +40,7 @@ const STEPS: [Step, ...Step[]] = [
   },
   {
     title: "Sessions are shared",
-    body: "Anyone in the channel can open a session and join in. Replies go to Lor unless you switch them to channel members, so you can talk it over without Lor answering.",
+    body: "Anyone in the channel can open a session and join in. Replies go to Lor unless you switch them to the session's subscribers, so you can talk it over without Lor answering.",
     Scene: SharedSessionScene,
   },
 ]

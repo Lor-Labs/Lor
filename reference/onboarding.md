@@ -366,7 +366,7 @@ The set:
 | `channels_intro` | First visit to a workspace sidebar where the user can create channels | The sidebar `+` Create button | Your starting channels. Rename, reorder, or add channels and projects here. | Opening the `+` menu | no |
 | `lor_intro` | First text channel visit, user has never mentioned Lor | Composer | Placeholder becomes "Message #general, or @Lor to start a session". Popover: Mention @Lor (or press ⌘N on desktop) to start a session. Lor works there, next to the chat. | Sending a message that mentions Lor | yes |
 | `sessions_intro` | A session row is visible in the open sidebar | The first session row | Lor works in sessions, listed under their channel. Anyone in the channel can open one and join in. | Opening a session from the sidebar | no |
-| `session_reply` | Typing in a session while the reply pill can switch | The reply pill | Replies go to Lor by default. Switch here to talk to channel members without Lor answering. | Switching the pill | no |
+| `session_reply` | Typing in a session while the reply pill can switch | The reply pill | Replies go to Lor by default. Switch here to talk only to the session's subscribers, without Lor answering. | Switching the pill | no |
 | `lor_reply` | First Lor reply to one of this user's messages finishes streaming | The reply's tool trail row | Lor shows its work. Open the trail to see what it checked. Reply in the thread to continue. | Expanding the trail | yes |
 | `voice_intro` | First voice channel lobby visit | The Start call button in `CallHero` | Calls are transcribed for the people in them. Say "Lor" during a call to ask it something. Lor writes notes when the call ends. | Joining a call | yes |
 | `connectors_intro` | Connectors tab opens with nothing connected, viewer holds `connector:manage` | The GitHub row | Connect GitHub first. Lor reads pull requests, issues, and code through it. | Connecting anything | no (no connectors screen) |
@@ -787,7 +787,7 @@ on top, the step text under it, step dots and Back/Next at the bottom.
   messages" chip (like the Details panel's Context link), Lor's row reads
   "Reading #engineering…", and the answer names Maya's fix from the chat.
   Step 1's copy says Lor reads the chat; a shared session where a teammate joins and replies
-  to Lor, then the pill switches to channel members and that turn lands
+  to Lor, then the pill switches to "To subscribers" and that turn lands
   muted. The mini sidebar uses the real workspace name, and "you" is the
   signed-in user.
 - `components/hints/hints-provider.tsx`: `usePageHint(key)`; no popover hint

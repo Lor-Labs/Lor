@@ -195,7 +195,7 @@ function TurnCard({ turn }: { turn: Turn }) {
             className="size-3.5"
             strokeWidth={2}
           />
-          To channel members
+          To subscribers
         </p>
       ) : (
         <p className="flex items-center gap-1.5 font-medium text-agent text-xs">

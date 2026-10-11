@@ -93,7 +93,7 @@ export function DestinationBar({
                 placeholder; only a session needs a pill to switch. */}
             {destination === "session" && (
               <DestinationPill onSwitch={onSwitch}>
-                To channel members
+                To subscribers
               </DestinationPill>
             )}
             {pinged.length > 0 && (

@@ -1186,7 +1186,7 @@ export function MessageInput({
               // Same column and prose size as the transcript above it.
               isInline &&
                 "pl-10 [&_.tiptap]:text-[15px] [&_.tiptap]:leading-6 [&_.tiptap]:transition-colors [&_.tiptap_p]:leading-6",
-              // Headed to channel members only: the text dims as it will in
+              // Headed to the session's subscribers only: the text dims as in
               // the transcript, so the route shows without a label.
               isInline &&
                 destination === "session" &&
@@ -1417,8 +1417,8 @@ export function MessageInput({
                   align="start"
                   onDismiss={sessionReplyHint.dismiss}
                 >
-                  Replies go to Lor by default. Switch here to talk to channel
-                  members without Lor answering.
+                  Replies go to Lor by default. Switch here to talk only to the
+                  session's subscribers, without Lor answering.
                 </HintPopover>
               </div>
             )}

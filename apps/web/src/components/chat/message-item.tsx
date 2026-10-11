@@ -718,7 +718,7 @@ export const MessageItem = memo(function MessageItem({
             // own size and leading, so pin both.
             isDocument &&
               "[&_.message-markdown]:text-[15px] [&_.message-markdown_.prose]:text-[15px] [&_.message-markdown_.prose]:leading-6",
-            // A message for channel members only (Lor didn't get it) reads
+            // A message for the session's subscribers only (Lor didn't get it) reads
             // as an aside: muted, never labelled.
             isDocument &&
               message.routedToLor === false &&

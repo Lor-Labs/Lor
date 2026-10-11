@@ -120,9 +120,9 @@ export const message = pgTable(
     ),
 
     // A person's message in a Lor session: whether it went to Lor, decided
-    // at send time by the session routing rule. false = for channel members
-    // only (shown as an aside). Null outside sessions and on Lor's own
-    // messages.
+    // at send time by the session routing rule. false = for the session's
+    // subscribers only (shown as an aside). Null outside sessions and on
+    // Lor's own messages.
     routedToLor: boolean("routed_to_lor"),
 
     // file attachments as JSON array
