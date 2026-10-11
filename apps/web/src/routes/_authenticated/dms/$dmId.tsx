@@ -21,6 +21,7 @@ import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
+import type { ListDMsResponse } from "@/lib/api-types"
 
 type DMSearchParams = {
   msgId?: string
@@ -79,6 +80,39 @@ function DMConversation() {
     channelId: dmId,
     currentUser: session?.user,
   })
+  // Your send moves this DM to the top of the DM list with its preview
+  // before the server answers; other people's messages refresh the list
+  // from the socket (DMList).
+  const sessionUser = session?.user
+  const sendAndPreview = useCallback(
+    (content: string, options?: Parameters<typeof handleSend>[1]) => {
+      const nonce = handleSend(content, options)
+      if (!nonce || !sessionUser || !content) return nonce
+      queryClient.setQueryData<ListDMsResponse>(["dms"], (list) => {
+        const dm = list?.data.find((item) => item.id === dmId)
+        if (!list || !dm) return list
+        const lastMessage = {
+          id: nonce,
+          content,
+          createdAt: new Date().toISOString(),
+          author: {
+            id: sessionUser.id,
+            name: sessionUser.name,
+            image: sessionUser.image ?? null,
+          },
+        }
+        return {
+          ...list,
+          data: [
+            { ...dm, lastMessage },
+            ...list.data.filter((item) => item.id !== dmId),
+          ],
+        }
+      })
+      return nonce
+    },
+    [handleSend, sessionUser, queryClient, dmId]
+  )
 
   const {
     messages,
@@ -245,7 +279,7 @@ function DMConversation() {
       <TypingIndicator users={typingUsers} />
       <MessageInput
         context={context}
-        onSend={handleSend}
+        onSend={sendAndPreview}
         currentUserId={currentUserId}
         mentionCandidates={mentionCandidates}
         replyingTo={replyingTo}

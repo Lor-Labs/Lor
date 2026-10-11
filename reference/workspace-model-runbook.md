@@ -919,7 +919,17 @@ to the subscriber list on send (`showWriteSubscribers`).
   refuse it (409, a run already going) and a loop has no running field.
   Proposal approve shows the server's own "approved" (Applying) state, and
   reject shows rejected with the resolver and note, closing the note box at
-  once. D2 (DMs, channels) is next. Planned text follows. Notification settings
+  once. D2 [x] built 2026-10-11 · [ ] committed: `useOpenDM` opens a
+  one-to-one DM straight from the cached `["dms"]` list, else the create
+  response seeds `["dms", id]`; the DM list refetches on DM
+  `notification:unread` (it had no live updates) and your own send moves the
+  DM to the top with its preview. `lib/channel-list-cache.ts` patches the
+  sidebar list: create puts the response into the list and the channel
+  query and navigates without waiting for a refetch; rename patches list
+  and header at once and takes the server's row on success; delete removes
+  it (a category's channels become uncategorized), closes and leaves at
+  once, and restores with a toast on failure. Planned text follows.
+  Notification settings
   (`settings/notification-settings.tsx`), loop actions
   (`loops/loop-actions.tsx`), proposal approve/reject (`hooks/use-proposals.ts`),
   opening a DM from a profile card (seed `["dms", id]` from the POST), and

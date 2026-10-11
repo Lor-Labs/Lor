@@ -8,10 +8,16 @@ import {
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
+import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { apiClient } from "@/lib/api-client"
 import type { Channel } from "@/lib/api-types"
+import {
+  patchChannelList,
+  removeChannel,
+  restoreChannelList,
+} from "@/lib/channel-list-cache"
 
 export function DeleteChannelDialog({
   channel,
@@ -39,21 +45,41 @@ export function DeleteChannelDialog({
         },
       })
       if (!res.ok) {
-        throw new Error("Failed to delete channel")
+        throw new Error(
+          `Failed to delete ${channel.type === "category" ? "category" : "channel"}`
+        )
       }
       return res.json()
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["channels", workspaceSlug] })
+    // The channel leaves the sidebar, the dialog closes and you leave the
+    // channel at once; a failure puts it back with a toast.
+    onMutate: async () => {
+      if (!workspaceSlug) return undefined
+      const previous = await patchChannelList(
+        queryClient,
+        workspaceSlug,
+        (list) => removeChannel(list, channel.id)
+      )
       onOpenChange(false)
-
-      // If we deleted the active channel, navigate to workspace root
       if (activeChannelId === channel.id) {
-        navigate({
+        void navigate({
           to: "/$workspaceSlug",
-          params: { workspaceSlug: workspaceSlug as string },
+          params: { workspaceSlug },
         })
       }
+      return { workspaceSlug, previous }
+    },
+    onError: (error, _vars, context) => {
+      if (context) {
+        restoreChannelList(queryClient, context.workspaceSlug, context.previous)
+      }
+      toast.error(error.message)
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["channels", workspaceSlug],
+        exact: true,
+      })
     },
   })
 
