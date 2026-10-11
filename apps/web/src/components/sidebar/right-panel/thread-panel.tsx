@@ -566,7 +566,8 @@ export function ThreadPanel({
 
   const mentionCandidates = useMentionCandidates(
     view.workspaceSlug,
-    view.channelId
+    view.channelId,
+    { broadcasts: !sessionView }
   )
   const channelPeople = useChannelPeople(view.workspaceSlug, view.channelId)
   // The writer and the people they mention join the subscribers at once.

@@ -827,7 +827,16 @@ so mobile ports the final behavior.
 
 #### Step 19b: no broadcast mentions in sessions (~80)
 
-[ ] built · [ ] committed
+[x] built 2026-10-11 · [ ] committed
+
+As built: broadcasts are plain text matched by regex, not tokens, so the
+server guard is what stops them. `buildMentionTargets` and
+`needsPresenceLookup` take `broadcasts`; send fanout passes `!session`, and
+`syncMessageMentions` (edits) now takes the message's `threadRootId` and looks
+the session up, so editing `@here` into a session message adds nothing.
+`useMentionCandidates` takes `{ broadcasts }`; the session view and the New
+session view pass false. The phone gets the server rule now and the popover
+change in Phase F.
 
 - Session composers drop `@everyone`, `@here` and `@channel` from the mention
   popover (`hooks/use-mention-candidates.ts`, `lib/broadcast-mentions.ts`).

@@ -36,7 +36,13 @@ function useChannelAudience(workspaceSlug: string, channelId: string) {
 // Composer @ suggestions: only people who can see the channel, the same
 // audience the server notifies. Bots (Lor) aren't channel members but can be
 // mentioned anywhere, except in voice session chats, which are human-only.
-export function useMentionCandidates(workspaceSlug: string, channelId: string) {
+// Session composers pass `broadcasts: false`: the server ignores @here,
+// @channel and @everyone in sessions.
+export function useMentionCandidates(
+  workspaceSlug: string,
+  channelId: string,
+  { broadcasts = true }: { broadcasts?: boolean } = {}
+) {
   const { members, channel, audience } = useChannelAudience(
     workspaceSlug,
     channelId
@@ -49,7 +55,7 @@ export function useMentionCandidates(workspaceSlug: string, channelId: string) {
       member.isBot ? !humanOnly : audienceIds.has(member.userId)
     )
     return [
-      ...broadcastMentionCandidates(audience?.audience),
+      ...(broadcasts ? broadcastMentionCandidates(audience?.audience) : []),
       ...people.map((member) => ({
         id: member.userId,
         label: member.name,
@@ -57,7 +63,7 @@ export function useMentionCandidates(workspaceSlug: string, channelId: string) {
         image: member.image,
       })),
     ]
-  }, [members, channel?.type, audience])
+  }, [members, channel?.type, audience, broadcasts])
 }
 
 // People who can see the channel, so who can follow its threads. Bots never

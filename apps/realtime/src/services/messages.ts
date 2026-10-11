@@ -771,6 +771,7 @@ export async function editMessage(
     authorId: messageRecord.authorId,
     channel: channelRecord,
     messageId: input.payload.messageId,
+    threadRootId: messageRecord.threadRootId,
     content: input.payload.content,
     redis: input.redis,
   })

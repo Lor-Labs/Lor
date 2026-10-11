@@ -153,6 +153,9 @@ function buildMentionTargets(args: {
   broadcastRecipients?: string[]
   messageContent: string
   onlineRecipientIds: Set<string>
+  // False in Lor sessions: every session message already notifies its
+  // subscribers, and the channel joins through the subscriber picker.
+  broadcasts: boolean
 }) {
   const broadcastRecipients = args.broadcastRecipients ?? args.recipients
   const directMentionedUserIds = extractDirectMentionUserIds(
@@ -163,8 +166,10 @@ function buildMentionTargets(args: {
   // @everyone additionally requires the audience to BE the workspace — in a
   // members-only channel it is rejected (no fanout), not narrowed.
   const isWorkspaceChannel =
-    args.audience === "workspace" || args.audience === "members"
+    args.broadcasts &&
+    (args.audience === "workspace" || args.audience === "members")
   const includeEveryone =
+    args.broadcasts &&
     args.audience === "workspace" &&
     EVERYONE_MENTION_REGEX.test(args.messageContent)
   const includeChannel =
@@ -208,9 +213,11 @@ function buildMentionTargets(args: {
 // presence round-trip.
 function needsPresenceLookup(
   audience: ChannelAudienceInfo["audience"],
-  content: string
+  content: string,
+  broadcasts: boolean
 ) {
   return (
+    broadcasts &&
     (audience === "workspace" || audience === "members") &&
     HERE_MENTION_REGEX.test(content) &&
     !EVERYONE_MENTION_REGEX.test(content) &&
@@ -257,16 +264,25 @@ export async function syncMessageMentions(input: {
   authorId: string
   channel: FanoutChannel
   messageId: string
+  threadRootId: string | null
   content: string
   redis?: PresenceRedisClient
 }): Promise<RealtimeMessageMention[]> {
-  const { audience, userIds: allRecipientIds } = await listRecipientAudience(
-    input.channel
-  )
+  const [{ audience, userIds: allRecipientIds }, session] = await Promise.all([
+    listRecipientAudience(input.channel),
+    input.threadRootId
+      ? findAgentSessionByThreadRoot(input.threadRootId)
+      : null,
+  ])
+  const broadcasts = !session
   const recipientIds = [...new Set(allRecipientIds)].filter(
     (id) => id !== input.authorId
   )
-  const onlineRecipientIds = needsPresenceLookup(audience, input.content)
+  const onlineRecipientIds = needsPresenceLookup(
+    audience,
+    input.content,
+    broadcasts
+  )
     ? await listOnlineRecipientIds(input.redis, recipientIds)
     : new Set<string>()
   const mentionTypeByUserId = buildMentionTargets({
@@ -274,6 +290,7 @@ export async function syncMessageMentions(input: {
     recipients: recipientIds,
     messageContent: input.content,
     onlineRecipientIds,
+    broadcasts,
   })
 
   const existingRows = await db
@@ -524,7 +541,8 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
 
   const onlineRecipientIds = needsPresenceLookup(
     audience,
-    input.message.content ?? ""
+    input.message.content ?? "",
+    !session
   )
     ? await listOnlineRecipientIds(input.redis, readerIds)
     : new Set<string>()
@@ -532,6 +550,7 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
     audience,
     recipients: recipientIds,
     broadcastRecipients: readerIds,
+    broadcasts: !session,
     messageContent: input.message.content ?? "",
     onlineRecipientIds,
   })

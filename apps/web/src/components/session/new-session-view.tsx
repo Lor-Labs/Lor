@@ -148,7 +148,9 @@ function NewSessionComposer({
   const queryClient = useQueryClient()
   const { data: authSession } = authClient.useSession()
   const fileUpload = useFileUpload(channel.id)
-  const mentionCandidates = useMentionCandidates(workspaceSlug, channel.id)
+  const mentionCandidates = useMentionCandidates(workspaceSlug, channel.id, {
+    broadcasts: false,
+  })
   const channelName = channel.name ?? "channel"
   const [composerDraft, setComposerDraft] = useState<
     { id: string; text: string } | undefined
