@@ -601,9 +601,16 @@ function ProposalCardBody({
       onApprove={(secrets) =>
         approve.mutate({ proposalId: proposal.id, secrets })
       }
-      onReject={(note, done) =>
-        reject.mutate({ proposalId: proposal.id, note }, { onSuccess: done })
-      }
+      onReject={(note, done) => {
+        if (!activeMember) return
+        // The card shows the rejection at once, so the note box closes now.
+        reject.mutate({
+          proposalId: proposal.id,
+          note,
+          userId: activeMember.userId,
+        })
+        done()
+      }}
     />
   )
 }

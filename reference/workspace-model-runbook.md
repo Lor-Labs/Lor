@@ -909,7 +909,17 @@ to the subscriber list on send (`showWriteSubscribers`).
   (`hooks/use-run-queue.ts` holds it in React state). Steer
   (`use-queued-message-steering.ts`), Remove (`run-queue-pill.tsx`) and Stop
   (`use-stop-lor-run.ts`) update in `onMutate`.
-- **D** [ ] built · [ ] committed. Notification settings
+- **D** D1 [x] built 2026-10-11 · [ ] committed · D2 [ ] built. D1 as
+  built: notification settings patch `["notification-settings"]` in
+  `onMutate`. Loop activate, pause, resume, complete, discard and delete patch
+  `["channel-loops", channelId]` through `patchLoops` (the context carries
+  the channel, so a removed loop can still be restored); a high-frequency
+  activation that needs confirming restores the draft; the loop panel leaves
+  a deleted loop at once. Run now stays server-confirmed: the server can
+  refuse it (409, a run already going) and a loop has no running field.
+  Proposal approve shows the server's own "approved" (Applying) state, and
+  reject shows rejected with the resolver and note, closing the note box at
+  once. D2 (DMs, channels) is next. Planned text follows. Notification settings
   (`settings/notification-settings.tsx`), loop actions
   (`loops/loop-actions.tsx`), proposal approve/reject (`hooks/use-proposals.ts`),
   opening a DM from a profile card (seed `["dms", id]` from the POST), and

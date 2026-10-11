@@ -1251,19 +1251,17 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
             <Button
               variant="destructive"
               loading={deleteLoop.isPending}
-              onClick={() =>
-                deleteLoop.mutate(undefined, {
-                  onSuccess: () => {
-                    setConfirmDelete(false)
-                    // The loop is gone — land back on the channel overview.
-                    setView({
-                      type: "workspace-members",
-                      workspaceSlug: view.workspaceSlug,
-                      channelId: view.channelId,
-                    })
-                  },
+              onClick={() => {
+                // The loop leaves at once (a failure brings it back with a
+                // toast), so land back on the channel overview now.
+                deleteLoop.mutate()
+                setConfirmDelete(false)
+                setView({
+                  type: "workspace-members",
+                  workspaceSlug: view.workspaceSlug,
+                  channelId: view.channelId,
                 })
-              }
+              }}
             >
               Delete loop
             </Button>

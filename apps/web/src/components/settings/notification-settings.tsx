@@ -55,6 +55,7 @@ export function NotificationSettings() {
     },
   })
 
+  // The select shows the new value at once; a failure puts the old one back.
   const { mutate: updateSettings } = useMutation({
     mutationFn: async (update: Partial<NotificationSettings>) => {
       const res = await apiClient.v1["notification-settings"].$patch({
@@ -63,10 +64,22 @@ export function NotificationSettings() {
       if (!res.ok) throw new Error("Failed to update notification settings")
       return res.json() as Promise<NotificationSettings>
     },
+    onMutate: async (update) => {
+      await queryClient.cancelQueries({ queryKey: ["notification-settings"] })
+      const previous = queryClient.getQueryData<NotificationSettings>([
+        "notification-settings",
+      ])
+      queryClient.setQueryData<NotificationSettings>(
+        ["notification-settings"],
+        (current) => (current ? { ...current, ...update } : current)
+      )
+      return { previous }
+    },
     onSuccess: (data) => {
       queryClient.setQueryData(["notification-settings"], data)
     },
-    onError: () => {
+    onError: (_err, _update, context) => {
+      queryClient.setQueryData(["notification-settings"], context?.previous)
       toast.error("Failed to update notification setting")
     },
   })
