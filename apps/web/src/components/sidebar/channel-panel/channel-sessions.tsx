@@ -211,7 +211,9 @@ function SessionRow({
   const { setOpen: setMobileSidebarOpen } = useMobileSidebar()
   const [confirmArchive, setConfirmArchive] = useState(false)
   const active = sessionId === session.id
-  const emphasized = session.state === "unread" || session.state === "needs_you"
+  // The session you're reading is read, before the read marker round trip.
+  const state = active && session.state === "unread" ? "idle" : session.state
+  const emphasized = state === "unread" || state === "needs_you"
   const rowRef = useRef<HTMLDivElement>(null)
   const { isMobile, open: sidebarOpen, openMobile } = useSidebar()
   // Taught on the first session row a person sees, usually the one their
@@ -264,7 +266,7 @@ function SessionRow({
           <TypewriterText text={session.title} animate={!session.titleEdited} />
         </span>
         <span className="flex group-hover/session:hidden">
-          <SessionStateIndicator state={session.state} />
+          <SessionStateIndicator state={state} />
         </span>
       </button>
       <Tooltip>

@@ -26,6 +26,7 @@ import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
+import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
@@ -45,6 +46,7 @@ import {
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { useChannelProposals } from "@/hooks/use-proposals"
+import { patchSidebarSession } from "@/hooks/use-workspace-activity"
 import { clearLastSessionId, writeLastSession } from "@/lib/last-location"
 
 export function SessionView({
@@ -89,9 +91,27 @@ function SessionConversation({
   // Approval and proposal cards render inline in the session; keep them live.
   useChannelApprovals(session.channelId, session.threadRootId)
   useChannelProposals(session.channelId)
+  const queryClient = useQueryClient()
   useEffect(() => {
     writeLastSession(workspaceSlug, session.id, session.channelId)
-  }, [workspaceSlug, session.id, session.channelId])
+    // Opening it reads it: the sidebar's unread state clears now, not after
+    // the read marker round trip.
+    patchSidebarSession(
+      queryClient,
+      {
+        workspaceId: session.workspaceId,
+        channelId: session.channelId,
+        sessionId: session.id,
+      },
+      { state: "idle", from: "unread" }
+    )
+  }, [
+    workspaceSlug,
+    session.id,
+    session.channelId,
+    session.workspaceId,
+    queryClient,
+  ])
 
   // The right panel shows this session's context, plan, files and activity
   // while the page is open, the way a channel page sets its own panel view.

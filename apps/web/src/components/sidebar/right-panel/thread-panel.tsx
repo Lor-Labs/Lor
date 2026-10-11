@@ -85,6 +85,7 @@ import { CallSummaryPanel } from "@/components/voice/call-summary"
 import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
+import { cachedSessionForThread } from "@/hooks/use-agent-session"
 import { useCallSummary } from "@/hooks/use-call-summary"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
@@ -109,17 +110,32 @@ import { useRunQueue } from "@/hooks/use-run-queue"
 import { useSessionStart } from "@/hooks/use-session-start"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import {
+  dropOptimisticLorTurns,
   type FetchPageParams,
   fetchThreadPage,
+  isOptimisticLorTurn,
+  showOptimisticLorTurn,
   useThreadMessages,
 } from "@/hooks/use-thread-messages"
-import { showWriteSubscribers } from "@/hooks/use-thread-subscribers"
+import {
+  showWriteSubscribers,
+  type ThreadSubscriber,
+  threadSubscribersKey,
+} from "@/hooks/use-thread-subscribers"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
+import {
+  cancelSidebarFetch,
+  patchSidebarSession,
+  settleSidebarSessions,
+  sidebarRowFor,
+} from "@/hooks/use-workspace-activity"
 import type { Message } from "@/lib/api-types"
 import { channelQueryOptions } from "@/lib/channel-query"
 import { PLAN_STATUS_META } from "@/lib/plan-ui"
 
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
+// How long a local Lor turn waits for the server's before it goes.
+const LOR_TURN_TIMEOUT_MS = 20_000
 
 const THREAD_SKELETON_GROUPS = [
   { key: "a", nameWidth: "4.5rem", lines: ["75%", "40%"] },
@@ -255,6 +271,7 @@ export function ThreadPanel({
   // Latest-ref indirection: useRunQueue mounts below (it needs the thread
   // messages), but a failed send must drop the nonce it mirrored there.
   const removeQueuedOptimisticRef = useRef<(id: string) => void>(() => {})
+  const undoSendRef = useRef<(nonce: string) => void>(() => {})
   const { data: channel } = useQuery(
     channelQueryOptions(view.workspaceSlug, view.channelId)
   )
@@ -271,7 +288,10 @@ export function ThreadPanel({
     channelId: view.channelId,
     currentUser: session?.user,
     threadRootId: view.threadRootId,
-    onSendFailed: (nonce) => removeQueuedOptimisticRef.current(nonce),
+    onSendFailed: (nonce) => {
+      removeQueuedOptimisticRef.current(nonce)
+      undoSendRef.current(nonce)
+    },
     sessionStart:
       !sessionView && channel?.type === "text"
         ? sessionStart.handlers
@@ -489,12 +509,28 @@ export function ThreadPanel({
     [messages]
   )
   const pendingLorMessageId = pendingLorMessage?.id
+  // The local Lor turn shown on send has no server id yet.
+  const serverPendingLorId =
+    pendingLorMessageId && !isOptimisticLorTurn(pendingLorMessageId)
+      ? pendingLorMessageId
+      : undefined
   const stopLor = useStopLorRun()
+  const stopLorRun = stopLor.mutate
+  // Stop pressed before Lor's real turn arrived: sent once it does.
+  const [stopOnStart, setStopOnStart] = useState(false)
+  useEffect(() => {
+    if (!stopOnStart) return
+    if (!pendingLorMessage) setStopOnStart(false)
+    else if (serverPendingLorId) {
+      stopLorRun(pendingLorMessage)
+      setStopOnStart(false)
+    }
+  }, [stopOnStart, pendingLorMessage, serverPendingLorId, stopLorRun])
   const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
     socket,
     channelId: view.channelId,
     threadRootId: view.threadRootId,
-    pendingLorMessageId,
+    pendingLorMessageId: serverPendingLorId,
   })
   useEffect(() => {
     removeQueuedOptimisticRef.current = removeOptimistic
@@ -570,10 +606,25 @@ export function ThreadPanel({
     { broadcasts: !sessionView }
   )
   const channelPeople = useChannelPeople(view.workspaceSlug, view.channelId)
-  // The writer and the people they mention join the subscribers at once.
-  // @Lor in a human thread starts a new session instead, so it skips this.
-  const showSendSubscribers = (mentions: Message["mentions"]) => {
+  // Local Lor turns by the nonce of the send that showed them.
+  const lorTurnsRef = useRef(new Map<string, string>())
+  // What a send changes before the server answers. The writer and the people
+  // they mention join the subscribers (and the writer's sidebar gets the
+  // session). In a session, a follow-up to an idle Lor shows Lor working: its
+  // turn, Stop and the sidebar spinner. @Lor in a human thread starts a new
+  // session instead, so it skips all of this.
+  const showSendEffects = (
+    nonce: string,
+    options?: { mentions: Message["mentions"]; toPeople?: boolean }
+  ) => {
+    const mentions = options?.mentions ?? []
     if (!sessionView && mentions.some((m) => m.id === LOR_USER_ID)) return
+    const wasSubscribed =
+      queryClient
+        .getQueryData<ThreadSubscriber[]>(
+          threadSubscribersKey(view.threadRootId)
+        )
+        ?.some((person) => person.id === currentUserId) ?? true
     const ids = new Set([currentUserId, ...mentions.map((m) => m.id)])
     showWriteSubscribers(
       queryClient,
@@ -587,7 +638,65 @@ export function ThreadPanel({
           avatarColor: person.avatarColor,
         }))
     )
+    const agentSession = sessionView
+      ? cachedSessionForThread(queryClient, view.threadRootId)
+      : undefined
+    if (!agentSession || agentSession.archivedAt) return
+    const toLor = !options?.toPeople && !pendingLorMessage
+    if (toLor) {
+      const lorAuthor = messages.find((m) => m.authorId === LOR_USER_ID)
+        ?.author ?? { id: LOR_USER_ID, name: "Lor", image: null }
+      const turnId = showOptimisticLorTurn(queryClient, view.threadRootId, {
+        nonce,
+        channelId: view.channelId,
+        lorAuthor,
+      })
+      lorTurnsRef.current.set(nonce, turnId)
+      // Nothing came back (a lost event): the refetched thread decides.
+      setTimeout(
+        () => dropOptimisticLorTurns(queryClient, view.threadRootId, turnId),
+        LOR_TURN_TIMEOUT_MS
+      )
+    }
+    const target = {
+      workspaceId: agentSession.workspaceId,
+      channelId: agentSession.channelId,
+      sessionId: agentSession.id,
+    }
+    void cancelSidebarFetch(queryClient, agentSession.workspaceId).then(() => {
+      if (!wasSubscribed) {
+        patchSidebarSession(queryClient, target, {
+          show: sidebarRowFor(agentSession),
+        })
+      }
+      if (toLor) {
+        patchSidebarSession(queryClient, target, {
+          state: "running",
+          lastActivityAt: new Date().toISOString(),
+        })
+      }
+    })
   }
+  // A failed send takes back what showSendEffects showed.
+  useEffect(() => {
+    undoSendRef.current = (nonce) => {
+      const turnId = lorTurnsRef.current.get(nonce)
+      if (turnId) {
+        lorTurnsRef.current.delete(nonce)
+        dropOptimisticLorTurns(queryClient, view.threadRootId, turnId)
+      }
+      void queryClient.invalidateQueries({
+        queryKey: threadSubscribersKey(view.threadRootId),
+      })
+      const agentSession = cachedSessionForThread(
+        queryClient,
+        view.threadRootId
+      )
+      if (agentSession) {
+        settleSidebarSessions(queryClient, agentSession.workspaceId)
+      }
+    }
+  }, [queryClient, view.threadRootId])
   // A typer who hasn't posted here yet still gets their photo from members.
   const typingPeople = useMemo(
     () =>
@@ -911,7 +1020,7 @@ export function ThreadPanel({
         }
         onSend={(content, options) => {
           const nonce = handleSend(content, options)
-          if (nonce) showSendSubscribers(options?.mentions ?? [])
+          if (nonce) showSendEffects(nonce, options)
           // Retire opening anchors so a later resize cannot recapture them.
           openingAnchorsRef.current.messageIds.clear()
           scrollToEndRef.current?.({ behavior: "auto" })
@@ -936,11 +1045,16 @@ export function ThreadPanel({
         onTyping={emitTyping}
         onStop={
           pendingLorMessage
-            ? () => stopLor.mutate(pendingLorMessage)
+            ? () =>
+                serverPendingLorId
+                  ? stopLorRun(pendingLorMessage)
+                  : setStopOnStart(true)
             : undefined
         }
         isStopping={
-          stopLor.isPending || Boolean(pendingLorMessage?.stopRequested)
+          stopLor.isPending ||
+          stopOnStart ||
+          Boolean(pendingLorMessage?.stopRequested)
         }
         canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
         onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}

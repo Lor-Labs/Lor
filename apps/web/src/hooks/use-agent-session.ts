@@ -50,6 +50,18 @@ export type AgentSessionDetail = NonNullable<
   ReturnType<typeof useAgentSession>["data"]
 >
 
+// The session a thread belongs to, from a session page already loaded, so a
+// send or an approval there can move its sidebar row optimistically.
+export function cachedSessionForThread(
+  queryClient: QueryClient,
+  threadRootId: string
+) {
+  return queryClient
+    .getQueriesData<AgentSessionDetail>({ queryKey: ["agent-session"] })
+    .map(([, detail]) => detail?.session)
+    .find((session) => session?.threadRootId === threadRootId)
+}
+
 function patchSessionCache(
   queryClient: QueryClient,
   sessionId: string,

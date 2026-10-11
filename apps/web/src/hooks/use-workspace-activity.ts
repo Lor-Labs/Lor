@@ -2,6 +2,7 @@ import type {
   ChannelActivity,
   RealtimeAgentSession,
   SidebarSession,
+  SidebarSessionState,
 } from "@repo/realtime-types"
 import {
   type QueryClient,
@@ -119,6 +120,13 @@ export type SidebarSessionChange =
   | { hide: true }
   | { show: SidebarSession }
   | { title: string; titleEdited: boolean }
+  // `from`: change only a row in that state (a read clears "unread" but
+  // must not stop a spinner).
+  | {
+      state: SidebarSessionState
+      from?: SidebarSessionState
+      lastActivityAt?: string
+    }
 
 // Await before patchSidebarSession: an in-flight fetch carries an older
 // snapshot, and a cancel that lands after the patch would revert it.
@@ -163,6 +171,22 @@ export function patchSidebarSession(
         return listed
           ? channel
           : { ...channel, sessions: [...channel.sessions, change.show] }
+      }
+      if ("state" in change) {
+        return {
+          ...channel,
+          sessions: channel.sessions.map((session) =>
+            session.id === target.sessionId &&
+            (!change.from || session.state === change.from)
+              ? {
+                  ...session,
+                  state: change.state,
+                  lastActivityAt:
+                    change.lastActivityAt ?? session.lastActivityAt,
+                }
+              : session
+          ),
+        }
       }
       return {
         ...channel,

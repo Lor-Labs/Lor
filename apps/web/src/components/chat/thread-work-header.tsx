@@ -252,7 +252,11 @@ export function ThreadWorkHeader({
       )}
       {pendingApproval && (
         <div className="mt-2">
-          <ApprovalGateCard channelId={channelId} approval={pendingApproval} />
+          <ApprovalGateCard
+            channelId={channelId}
+            threadRootId={threadRootId}
+            approval={pendingApproval}
+          />
         </div>
       )}
     </div>

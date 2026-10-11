@@ -7,7 +7,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import { cn } from "@repo/ui/lib/utils"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import {
   type ApprovalResolverSpec,
@@ -47,7 +47,11 @@ export function MessageApprovalCard({
   if (!approval) return null
   return (
     <div className="mt-2 max-w-xl">
-      <ApprovalGateCard channelId={channelId} approval={approval} />
+      <ApprovalGateCard
+        channelId={channelId}
+        threadRootId={threadRootId}
+        approval={approval}
+      />
     </div>
   )
 }
@@ -57,13 +61,15 @@ export function MessageApprovalCard({
 // server re-checks on resolve regardless.
 export function ApprovalGateCard({
   channelId,
+  threadRootId = null,
   approval,
 }: {
   channelId: string
+  // Lets a decision move the session's sidebar row at once.
+  threadRootId?: string | null
   approval: ApprovalCardData
 }) {
   const { workspaceSlug } = useParams({ strict: false })
-  const queryClient = useQueryClient()
   const resolve = useResolveChannelApproval(channelId)
 
   // Same queries the settings dialog runs, deduped by react-query.
@@ -101,18 +107,13 @@ export function ApprovalGateCard({
 
   const onResolve = (resolution: "approve" | "reject") => {
     if (!activeMember) return
-    resolve.mutate(
-      { approvalId: approval.id, resolution, userId: activeMember.userId },
-      {
-        onSettled: () => {
-          if (approval.planId) {
-            void queryClient.invalidateQueries({
-              queryKey: ["plan", approval.planId],
-            })
-          }
-        },
-      }
-    )
+    resolve.mutate({
+      approvalId: approval.id,
+      resolution,
+      userId: activeMember.userId,
+      planId: approval.planId,
+      threadRootId,
+    })
   }
 
   const resolvedByName =

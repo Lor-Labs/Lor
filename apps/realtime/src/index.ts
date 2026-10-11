@@ -658,12 +658,10 @@ io.on("connection", (socket) => {
         await socket.join(threadRoom(realtimeSession.threadRootId))
       }
       // A new session or a post in one changes subscribers' sidebar rows. A
-      // new session Lor is about to answer waits for the run row (emitted
-      // below), or the row would flash idle before Lor's spinner.
-      if (
-        session &&
-        !(createdMessage.session && createdMessage.message.routedToLor)
-      ) {
+      // message Lor is about to answer waits for its run (emitted below: the
+      // run row, or the active run it joins), or the row would flash idle
+      // over the sender's optimistic spinner.
+      if (session && !createdMessage.message.routedToLor) {
         io.to(workspaceRoom(session.workspaceId)).emit(
           "workspace:activity:updated",
           { workspaceId: session.workspaceId }
@@ -826,6 +824,11 @@ io.on("connection", (socket) => {
               runId: routed.runId,
               lorMessageId: routed.lorMessageId,
             })
+            // The post moved the session's row; the run is already going.
+            io.to(workspaceRoom(workspaceId)).emit(
+              "workspace:activity:updated",
+              { workspaceId }
+            )
           }
           const routed = await routeToActiveRun({
             scopeKey: lorScopeId,
@@ -1045,8 +1048,9 @@ io.on("connection", (socket) => {
                     })
                   }
                 )
-                // A new session's row shows Lor working from the moment it
-                // was sent; with no run, it settles to the truth.
+                // The sender's row shows Lor working from the moment it was
+                // sent (a new session or a follow-up); with no run, it settles
+                // to the truth.
                 io.to(workspaceRoom(workspaceId)).emit(
                   "workspace:activity:updated",
                   { workspaceId }

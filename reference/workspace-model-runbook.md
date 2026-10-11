@@ -860,7 +860,22 @@ Shared piece for part A: a `state` option on `patchSidebarSession`
 Already in (2026-10-11): a reply adds its writer and the people it mentions
 to the subscriber list on send (`showWriteSubscribers`).
 
-- **A** [ ] built · [ ] committed. The sidebar `state` option. Opening a
+- **A** [x] built 2026-10-11 · [ ] committed. As built: `patchSidebarSession`
+  takes `{ state, from?, lastActivityAt? }`; `cachedSessionForThread` finds a
+  thread's session in the session page's cache. The open session's row never
+  shows unread (`channel-sessions.tsx`), and opening one patches unread to
+  idle (`session-view.tsx`). A follow-up to an idle Lor inserts a local
+  pending Lor turn (`showOptimisticLorTurn`, id prefix `lor-pending-`, kept
+  out of stream replay, the run queue and Stop; Stop pressed early is sent
+  when the real turn lands), dropped when Lor's real message or
+  `message:routed` arrives, on a failed send, or after 20s. The server no
+  longer pushes `workspace:activity:updated` before the ack for a message
+  Lor will answer (it pushes after the run row, and now also when the
+  message joins a running run), so the optimistic spinner never flashes
+  idle. Approvals also patch `["plan", planId]` and the sidebar "!"
+  (needs_you to running). A reply that subscribes its writer shows the
+  session's sidebar row; a failed send refetches subscribers and the
+  sidebar. Planned text follows. The sidebar `state` option. Opening a
   session clears its unread dot at once (`hooks/use-mark-thread-read.ts`
   never patches the cache; `thread-panel.tsx` waits 500ms first). A
   follow-up to Lor shows a pending Lor turn, Stop and the sidebar spinner
