@@ -1111,7 +1111,8 @@ with Lor" no longer reaches Lor.
   with server mutators and permissions). Decided 2026-10-11 with Jacob: keep
   hand-patched React Query until then, and prefer pushes that carry the
   changed row over "refetch" pushes. Check both libraries' maturity, React
-  Native support and permissions first; never build our own.
+  Native support and permissions first; never build our own. Comparison and
+  checklist: `reference/planned/sync-engine.md`.
 
 ## Size
 

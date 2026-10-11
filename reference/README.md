@@ -65,6 +65,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `playbooks.md` | Working idea, not a spec |
 | `private-lor-questions.md` | Deferred platform decision (2026-09-28) |
 | `slack-connector-next.md` | Read-only Slack connector, not started |
+| `sync-engine.md` | TanStack DB vs Zero comparison and the post-merge spike plan. Decided 2026-10-11: React Query until the sessions branch merges |
 
 ## `archive/` — superseded or done
 
