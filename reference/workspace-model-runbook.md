@@ -240,7 +240,7 @@ started" toast with Open, until Step 7's composer note replaces it.
 
 #### Step 6: session rail (~350)
 
-[x] built 2026-10-08 · [x] committed · [ ] right-panel follow-up committed
+[x] built 2026-10-08 · [x] committed · [x] right-panel follow-up committed
 
 As built: the rail is a right-panel view, `{ type: "session-work" }`
 (`right-panel/session-work-panel.tsx`, "Details": Context, Plan, Files; the
@@ -787,7 +787,7 @@ from the push, and show no summary for new calls until Step 22.
 
 #### Step 19: onboarding touchpoints and share to chat (~300)
 
-[x] built 2026-10-10 · [ ] committed · [ ] db:push (`forward` in `message_type`, `message.forwarded`)
+[x] built 2026-10-10 · [x] committed · [ ] db:push (`forward` in `message_type`, `message.forwarded`)
 
 - `packages/auth/src/lib/workspace-template.ts:21,45`: remove the Lor intro.
 - Hints: rewrite `lor_intro`; `lor_reply` moves into sessions with

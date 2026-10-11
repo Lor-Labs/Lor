@@ -742,7 +742,7 @@ single-player AI chat expect Lor to answer in the chat. They need to learn
 that chat is for people, that Lor works in sessions next to the chat, and that
 sessions are shared.
 
-11a: [x] built 2026-10-10 · [ ] committed · [ ] db:push (3 `hint_key` values)
+11a: [x] built 2026-10-10 · [x] committed · [ ] db:push (3 `hint_key` values)
 
 - `packages/auth/src/lib/workspace-template.ts`: the seven-channel set above;
   `standup` moved to the end.
@@ -759,7 +759,7 @@ sessions are shared.
   (⌘N on desktop). Channels made in the app start with a `channel_created`
   event, so in practice this teaches on the seeded channels.
 
-11b: [x] built 2026-10-10 · [ ] committed
+11b: [x] built 2026-10-10 · [x] committed
 
 A medium dialog, not a full page (Jacob): it takes the place of the old
 community onboarding dialog that Step 3 deleted. 640px wide, an animated stage
