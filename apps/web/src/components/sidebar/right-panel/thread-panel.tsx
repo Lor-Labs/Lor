@@ -72,6 +72,7 @@ import {
   TypingIndicator,
 } from "@/components/chat/typing-indicator"
 import { SessionStartedNote } from "@/components/session/session-started-note"
+import { SessionTurnRail } from "@/components/session/session-turn-rail"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
@@ -1205,6 +1206,7 @@ export function ThreadPanel({
             viewportRef={scrollRef}
             isLorResponding={Boolean(pendingLorMessage)}
           />
+          {sessionView && <SessionTurnRail messages={orderedReplies} />}
         </MessageScroller>
 
         {sessionView?.archivedBar ? (
