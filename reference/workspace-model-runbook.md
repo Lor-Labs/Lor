@@ -817,61 +817,263 @@ can't open the source and after the source changes or is deleted: a left
 rule, "↪ Forwarded", the author, the text (collapsing past ~15 lines), and a
 footer `#channel › session · date` that opens the source (a toast when it
 isn't available). The snapshot isn't in `content`, so search doesn't index
-the forwarded text again. Mobile shows only the note until Step 21 (a
+the forwarded text again. Mobile shows only the note until Step 27 (a
 note-less forward is blank there).
 
-### Phase F: mobile
+### Phase E2: web polish before mobile (added 2026-10-11)
 
-#### Step 20: session screen (~400)
+Changes Jacob asked for after the 2026-10-10 QA run. They land before Phase F,
+so mobile ports the final behavior.
 
-[ ] built · [ ] committed
-
-- New session route lifting `components/thread-view.tsx` (526 lines); the
-  Details panel (context, plan, files, activity) as a sheet, not a block in
-  the transcript (`ThreadWorkHeader` at `:359-366`); archive bar.
-- The document look from Step 9a: one avatar per turn in a gutter, no name
-  rows, document prose, and the input line as the transcript's last line
-  (native composer; `planned/live-collaboration.md` keeps the chat composer
-  native).
-
-#### Step 21: composer and channel list (~400)
+#### Step 19b: no broadcast mentions in sessions (~80)
 
 [ ] built · [ ] committed
 
-- `message-composer.tsx`: destination state, copy (`:121-126,434-435,
-  494-497,590-595`).
-- `components/channel-list.tsx` (`:32-60,181,386-397`): session rows and
-  rollup; `hooks/use-workspace-activity.ts`; New session in `(tabs)/index.tsx`.
-- Channel screen cleanup: `app/channel/[channelId]/index.tsx:124-132,454-458`,
-  `message-row.tsx:189-236,583-600`.
+- Session composers drop `@everyone`, `@here` and `@channel` from the mention
+  popover (`hooks/use-mention-candidates.ts`, `lib/broadcast-mentions.ts`).
+  Every session message already notifies all subscribers, and "Everyone in
+  #channel" in the subscriber picker is how the channel is brought in.
+- The server ignores broadcast mentions in session messages
+  (`packages/messaging/src/index.ts`, `buildMentionTargets`), so pasted text,
+  the phone composer or Lor can't ping the channel from a session. Human
+  threads keep them.
 
-#### Step 22: subscriptions, calls, hints, navigation (~400)
+#### Step 19c: optimistic UI (five parts, ~300–400 each)
+
+From a 2026-10-11 audit of web actions that wait on the server. Pattern
+(`useResolveChannelApproval` in `hooks/use-approvals.ts`): `onMutate` cancels,
+snapshots and patches the React Query cache, `onError` restores, `onSettled`
+refetches. Lists that socket events also refresh run under a `mutationKey`
+that the refresh skips while it is in flight (`hooks/use-thread-subscribers.ts`).
+Shared piece for part A: a `state` option on `patchSidebarSession`
+(`hooks/use-workspace-activity.ts`), which can only show or hide a row today.
+
+Already in (2026-10-11): a reply adds its writer and the people it mentions
+to the subscriber list on send (`showWriteSubscribers`).
+
+- **A** [ ] built · [ ] committed. The sidebar `state` option. Opening a
+  session clears its unread dot at once (`hooks/use-mark-thread-read.ts`
+  never patches the cache; `thread-panel.tsx` waits 500ms first). A
+  follow-up to Lor shows a pending Lor turn, Stop and the sidebar spinner
+  before the server answers (`hooks/use-message-sending.ts`; the server's
+  placeholder replaces it by `lorTriggerMessageId`). Approve/Reject also
+  patches `["plan", planId]` and the sidebar "!" (`hooks/use-approvals.ts`).
+  Mention gaps: a reply that subscribes its writer shows the session's
+  sidebar row, and a failed send takes the optimistic subscribers back off.
+- **B** [ ] built · [ ] committed. Opening a session loads the session and
+  its thread in parallel (`session-view.tsx` fetches them one after the
+  other; `SidebarSession` needs `threadRootId`), with a prefetch on row
+  hover (`prefetchThread` in `hooks/use-thread-messages.ts`). Channel and DM
+  messages stop waiting on the channel or DM query (`$channelId.tsx`,
+  `dms/$dmId.tsx`).
+- **C** [ ] built · [ ] committed. The run queue moves into React Query
+  (`hooks/use-run-queue.ts` holds it in React state). Steer
+  (`use-queued-message-steering.ts`), Remove (`run-queue-pill.tsx`) and Stop
+  (`use-stop-lor-run.ts`) update in `onMutate`.
+- **D** [ ] built · [ ] committed. Notification settings
+  (`settings/notification-settings.tsx`), loop actions
+  (`loops/loop-actions.tsx`), proposal approve/reject (`hooks/use-proposals.ts`),
+  opening a DM from a profile card (seed `["dms", id]` from the POST), and
+  channel create, rename and delete.
+- **E** [ ] built · [ ] committed (optional). Member role and kick, connector
+  event toggles (`connectors-section.tsx`), approval policies
+  (`approvals-section.tsx`), then the rare admin forms (projects, invites,
+  workspace rename, profile).
+
+### Phase F: mobile (re-planned 2026-10-11)
+
+The first plan had 3 steps and about 1,200 lines. A 2026-10-11 audit found
+about 60 lines of session work on mobile so far, and a port of about
+4,500–5,200 changed lines plus about 350 deleted: 16 steps. Jacob's calls:
+all of Phase F (F1 and F2) lands before the branch merges, so the phone
+matches web on day one; a new EAS build is fine, so native modules are
+allowed.
+
+Decisions:
+
+- Optimistic session starts take their ids from `expo-crypto`
+  `randomUUID()`. Mobile has no UUID source today (nonces are `mobile-…`).
+- Push payloads gain `sessionId` on the server (`packages/messaging/src/push.ts`:
+  message, subscribed, approval, proposal and call_summary pushes) instead
+  of a location lookup on every tap.
+- The turn rail (`session-turn-rail.tsx`) stays web-only; it is a hover
+  feature.
+
+Broken on the phone today, all fixed in F1: `@Lor` in chat or a human thread
+starts a session the user can't see (the acked message is swapped into the
+list, `use-channel-messages.ts:495`, `use-thread-messages.ts:800`); a
+`trigger_run` line renders as a Lor message with the raw payload
+(`thread-message-list.tsx` sends events to `MessageRow`); new calls show no
+summary and their push opens Chat; the phone never marks threads read;
+decided approvals vanish; note-less forwards render blank; meeting "Explore
+with Lor" no longer reaches Lor.
+
+**F1: the phone works end to end**
+
+#### Step 20: send path (~425)
 
 [ ] built · [ ] committed
 
-- Subscriber sheet; remove the setting (`settings/notifications.tsx:28-29,
-  109-140,201-208`).
-- Summary tab (`voice-lobby.tsx:430-540`, `voice/call-summary-card.tsx`).
-- Hints copy (`use-hints.ts`); Ask Lor (`message-action-menu.tsx:43-45,115`,
-  `meeting-recording-card.tsx:43`).
-- Session navigation from push (`use-push-notifications.ts:103`,
-  `lib/push-target.ts`), `(tabs)/index.tsx:259`, `pins.tsx:55,73`.
+- `@Lor` in chat or a human thread starts a visible session: client-picked
+  ids (`newSession`), optimistic session and sidebar caches, then open the
+  session. Port `use-session-start.ts`; `sessionTitleFromPrompt` comes from
+  `@repo/realtime-types/sessions`.
+- Both send hooks (`use-channel-messages.ts:436-512`,
+  `use-thread-messages.ts:739-800`) send `newSession`, `startSession` and
+  `toPeople`, and read the ack's `session`.
+- Composer Lor state: "New session in #channel" pill and the new placeholder
+  (`message-composer.tsx:400-447,594-595`).
+
+#### Step 21: session route (~450)
+
+[ ] built · [ ] committed
+
+- New session route built on `components/thread-view.tsx`: the title heading
+  (title, #channel, started by, time) with live title updates, no "N
+  replies" divider, no "Thread" header.
+- Event replies render as muted lines (`loop_run`, `trigger_run`) through
+  `channel-event-row.tsx`, not `MessageRow`.
+- Mark threads read (`POST …/threads/{id}/read`); archived sessions are
+  read-only with an archived bar.
+
+#### Step 22: document look and session composer (~450)
+
+[ ] built · [ ] committed
+
+- One gutter avatar per turn, no name rows, 15px prose, people-only turns
+  muted (`routedToLor`, mapped in `lib/messages.ts` but unused).
+- "To Lor" / "To subscribers" switch that sends `toPeople`; queued turns in
+  the document style; Stop.
+
+#### Step 23: channel list session rows (~300)
+
+[ ] built · [ ] committed
+
+- Session rows under each channel from `ChannelActivity.sessions`: top 3 by
+  `lastActivityAt`, "N more", state indicators (`channel-list.tsx`,
+  `hooks/use-workspace-activity.ts`). Port `channel-sessions.tsx` and
+  `channel-activity.tsx`.
+
+#### Step 24: live sidebar (~250)
+
+[ ] built · [ ] committed
+
+- `session:updated` and `thread-read:updated` listeners, typed-out titles,
+  collapse; the activity hook moves to React Query without the 15s poll.
+- Remove the channel-level Lor spinner (`LorChannelStatus`): `lor` counts
+  sessions the user doesn't follow.
+
+#### Step 25: New session and Ask Lor (~330)
+
+[ ] built · [ ] committed
+
+- New session screen (channel picker, examples, draft) and a New session
+  entry on the Channels tab.
+- "Ask Lor about this" in `message-action-menu.tsx`; meeting follow-ups
+  (`meeting-recording-card.tsx:41-50,154-160`) open a new session again.
+
+#### Step 26: call Summary tab (~250)
+
+[ ] built · [ ] committed
+
+- Summary tab from the session-keyed routes (read-only); the lobby opens
+  Summary for ended calls (`voice-lobby.tsx:522-526` keys off
+  `hasSummaryCard`, false for new calls); the `call_summary` push opens it.
+- The old card route (`/voice/summary-cards/{messageId}`) is only needed for
+  calls from before Step 18.
+
+#### Step 27: approvals and forwards (~250)
+
+[ ] built · [ ] committed
+
+- Approvals in every state with "Approved by …" (`hooks/use-approvals.ts`
+  asks for pending only; `approval-card.tsx`), listed by `?threadRootId=`.
+- Forwarded-message card from `message.forwarded` (`message-row.tsx` has no
+  `forward` branch), opening the source session.
+
+#### Step 28: push, search and pins open sessions (~230)
+
+[ ] built · [ ] committed
+
+- Server: `sessionId` in push data. Mobile: `lib/push-target.ts`,
+  `use-push-notifications.ts:101-109`, search (`(tabs)/index.tsx:257-266`,
+  channel screen), pins (`pins.tsx:51-75`) open the session route.
+
+#### Step 29: chat cleanup (~300, mostly deletions)
+
+[ ] built · [ ] committed
+
+- Delete what chat no longer shows: channel-scope plans, approvals,
+  proposals and run queue (`app/channel/[channelId]/index.tsx:111-146`),
+  `LorRunControls`, `RoutedChip`, plan/loop/proposal branches and the
+  `lorWaiting` footer (`message-row.tsx`), Lor stream handlers
+  (`use-channel-messages.ts`).
+- New `lor_intro` copy ("start a session").
+
+**F2: parity with web**
+
+#### Step 30: subscribers (~450)
+
+[ ] built · [ ] committed
+
+- Subscriber sheet: view, add, remove, subscribe/unsubscribe, "Everyone in
+  #channel", subscribed people grouped first. "Added you" notification.
+
+#### Step 31: archive, rename, Sessions list (~480)
+
+[ ] built · [ ] committed
+
+- Archive/unarchive with Undo, rename (`PATCH /v1/sessions/{id}`), a
+  channel's Sessions list (Active, Archived).
+
+#### Step 32: Details sheet (~320)
+
+[ ] built · [ ] committed
+
+- Context link (needs message-location navigation), plan, files from Lor's
+  tool calls, proposals in the redesigned card.
+
+#### Step 33: forward, typing, hints (~300)
+
+[ ] built · [ ] committed
+
+- Forward action and sheet in sessions; avatar typing lines;
+  `sessions_intro` and `session_reply` hints.
+
+#### Step 34: How Lor works on mobile (~350)
+
+[ ] built · [ ] committed
+
+- A native version of the web dialog (`onboarding/how-lor-works-dialog.tsx`),
+  on the shared `how_lor_works` key.
+
+#### Step 35: cleanup (~150)
+
+[ ] built · [ ] committed
+
+- Server drops the fields kept only for mobile: `ChannelActivity.lor` and the
+  thread summary's `lorWaiting`.
+- Update `mobile-parity-todo.md` (its session items are stale since
+  2026-08-04), delete `/prototype` and the unused `/design` header variants.
 
 ### Docs
 
 - [x] Move `workspace-model.md` and this runbook to `reference/` root when
   Step 1 starts, with a link sweep. Add a `CLAUDE.md` section like the other
   runbooks. (Done in Step 1.)
-- [ ] Update `mobile-parity-todo.md` in Phase F.
+- [ ] Update `mobile-parity-todo.md` in Phase F (Step 35).
 - After the last step: delete the prototype (`apps/web/src/components/prototype/`,
   `apps/web/src/routes/prototype.tsx`). It is a flow reference, not code to
-  ship.
-- Then: the onboarding redo flagged in `onboarding.md`.
+  ship. (Step 35.)
+- [x] The onboarding redo flagged in `onboarding.md`: its Step 11 (How Lor
+  works dialog, session hints, empty channel state), built 2026-10-10.
 
 ## Size
 
 Research estimate: about 4,250 new, 1,300 modified and 1,400 deleted client
-lines, plus the server steps. 22 steps.
+lines, plus the server steps, in 22 steps. Re-planned 2026-10-11: Phase F
+alone is about 4,500–5,200 changed mobile lines (Steps 20–35), plus Phase E2
+(Steps 19b, 19c A–E). 38 steps in all.
 
 ## Deviations
 

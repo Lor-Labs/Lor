@@ -90,7 +90,10 @@ import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
-import { useMentionCandidates } from "@/hooks/use-mention-candidates"
+import {
+  useChannelPeople,
+  useMentionCandidates,
+} from "@/hooks/use-mention-candidates"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
@@ -110,6 +113,7 @@ import {
   fetchThreadPage,
   useThreadMessages,
 } from "@/hooks/use-thread-messages"
+import { showWriteSubscribers } from "@/hooks/use-thread-subscribers"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import type { Message } from "@/lib/api-types"
 import { channelQueryOptions } from "@/lib/channel-query"
@@ -564,6 +568,25 @@ export function ThreadPanel({
     view.workspaceSlug,
     view.channelId
   )
+  const channelPeople = useChannelPeople(view.workspaceSlug, view.channelId)
+  // The writer and the people they mention join the subscribers at once.
+  // @Lor in a human thread starts a new session instead, so it skips this.
+  const showSendSubscribers = (mentions: Message["mentions"]) => {
+    if (!sessionView && mentions.some((m) => m.id === LOR_USER_ID)) return
+    const ids = new Set([currentUserId, ...mentions.map((m) => m.id)])
+    showWriteSubscribers(
+      queryClient,
+      view.threadRootId,
+      channelPeople
+        .filter((person) => ids.has(person.userId))
+        .map((person) => ({
+          id: person.userId,
+          name: person.name,
+          image: person.image,
+          avatarColor: person.avatarColor,
+        }))
+    )
+  }
   // A typer who hasn't posted here yet still gets their photo from members.
   const typingPeople = useMemo(
     () =>
@@ -887,6 +910,7 @@ export function ThreadPanel({
         }
         onSend={(content, options) => {
           const nonce = handleSend(content, options)
+          if (nonce) showSendSubscribers(options?.mentions ?? [])
           // Retire opening anchors so a later resize cannot recapture them.
           openingAnchorsRef.current.messageIds.clear()
           scrollToEndRef.current?.({ behavior: "auto" })

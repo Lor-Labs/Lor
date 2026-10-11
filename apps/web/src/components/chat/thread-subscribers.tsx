@@ -20,6 +20,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
+import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
@@ -30,6 +31,11 @@ import {
 import { channelQueryOptions } from "@/lib/channel-query"
 
 const VISIBLE_SUBSCRIBERS = 3
+// The picker opens on ⌘⇧S, or Ctrl+Shift+S off a Mac.
+const PICKER_SHORTCUT =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+    ? "⌘⇧S"
+    : "Ctrl+Shift+S"
 
 // Session and thread header: Subscribe/Unsubscribe, the subscriber avatars,
 // and "Change subscribers…" (⌘⇧S), after Linear's issue subscribers.
@@ -93,6 +99,23 @@ export function ThreadSubscribers({
           Number(subscribedAtOpen.has(a.id)) || a.name.localeCompare(b.name)
     )
   }, [subscribers, people, subscribedAtOpen])
+  // Subscribed people first, then everyone else, split by a rule like Linear.
+  const groups = useMemo(
+    () =>
+      [
+        {
+          value: "subscribed",
+          items: candidates.filter((person) => subscribedAtOpen.has(person.id)),
+        },
+        {
+          value: "others",
+          items: candidates.filter(
+            (person) => !subscribedAtOpen.has(person.id)
+          ),
+        },
+      ].filter((group) => group.items.length > 0),
+    [candidates, subscribedAtOpen]
+  )
   const subscribedIds = new Set(subscribers.map((person) => person.id))
   const everyoneSubscribed =
     people.length > 0 && people.every((person) => subscribedIds.has(person.id))
@@ -150,7 +173,7 @@ export function ThreadSubscribers({
       )}
       <Combobox<ThreadSubscriber, true>
         multiple
-        items={candidates}
+        items={groups}
         value={subscribers}
         onValueChange={handleValueChange}
         itemToStringLabel={(person) => person.name}
@@ -161,9 +184,14 @@ export function ThreadSubscribers({
         <Tooltip>
           <TooltipTrigger
             render={
+              // A roomy round hover around the faces, like Linear's; the
+              // negative margins keep the header's spacing unchanged.
               <ComboboxPrimitive.Trigger
                 aria-label="Change subscribers"
-                className="flex h-7 cursor-pointer items-center rounded-full px-1 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5"
+                className={cn(
+                  "-mx-0.5 -my-0.5 flex h-8 cursor-pointer items-center rounded-full px-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground data-popup-open:bg-foreground/[0.06]",
+                  subscribers.length === 0 && "w-8 justify-center px-0"
+                )}
               />
             }
           >
@@ -187,7 +215,12 @@ export function ThreadSubscribers({
               />
             )}
           </TooltipTrigger>
-          <TooltipContent side="bottom">Change subscribers</TooltipContent>
+          <TooltipContent side="bottom">
+            <span className="flex items-center gap-1.5">
+              Change subscribers
+              <Kbd>{PICKER_SHORTCUT}</Kbd>
+            </span>
+          </TooltipContent>
         </Tooltip>
         <ComboboxPrimitive.Portal>
           <ComboboxPrimitive.Positioner
@@ -229,28 +262,41 @@ export function ThreadSubscribers({
               <ComboboxPrimitive.Empty className="px-3 py-2 text-[13px] text-muted-foreground empty:hidden">
                 No people found
               </ComboboxPrimitive.Empty>
-              <ComboboxPrimitive.List className="max-h-64 overflow-y-auto p-1 empty:hidden">
-                {(person: ThreadSubscriber) => (
-                  <ComboboxPrimitive.Item
-                    key={person.id}
-                    value={person}
-                    className="group flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+              <ComboboxPrimitive.List className="max-h-64 overflow-y-auto empty:hidden">
+                {(group: { value: string; items: ThreadSubscriber[] }) => (
+                  <ComboboxPrimitive.Group
+                    key={group.value}
+                    items={group.items}
+                    className="p-1 not-first:border-border/70 not-first:border-t"
                   >
-                    <span className="flex size-3.5 shrink-0 items-center justify-center rounded-[4px] border border-input opacity-0 transition-opacity group-data-highlighted:opacity-100 group-data-selected:border-primary group-data-selected:bg-primary group-data-selected:text-primary-foreground group-data-selected:opacity-100">
-                      <HugeiconsIcon
-                        icon={Tick02Icon}
-                        className="size-2.5 opacity-0 group-data-selected:opacity-100"
-                        strokeWidth={3}
-                      />
-                    </span>
-                    <PersonAvatar person={person} />
-                    <span className="min-w-0 truncate">
-                      {person.name}
-                      {person.id === currentUserId && (
-                        <span className="text-muted-foreground"> (you)</span>
+                    <ComboboxPrimitive.Collection>
+                      {(person: ThreadSubscriber) => (
+                        <ComboboxPrimitive.Item
+                          key={person.id}
+                          value={person}
+                          className="group flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                        >
+                          <span className="flex size-3.5 shrink-0 items-center justify-center rounded-[4px] border border-input opacity-0 transition-opacity group-data-highlighted:opacity-100 group-data-selected:border-primary group-data-selected:bg-primary group-data-selected:text-primary-foreground group-data-selected:opacity-100">
+                            <HugeiconsIcon
+                              icon={Tick02Icon}
+                              className="size-2.5 opacity-0 group-data-selected:opacity-100"
+                              strokeWidth={3}
+                            />
+                          </span>
+                          <PersonAvatar person={person} />
+                          <span className="min-w-0 truncate">
+                            {person.name}
+                            {person.id === currentUserId && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                (you)
+                              </span>
+                            )}
+                          </span>
+                        </ComboboxPrimitive.Item>
                       )}
-                    </span>
-                  </ComboboxPrimitive.Item>
+                    </ComboboxPrimitive.Collection>
+                  </ComboboxPrimitive.Group>
                 )}
               </ComboboxPrimitive.List>
             </ComboboxPrimitive.Popup>

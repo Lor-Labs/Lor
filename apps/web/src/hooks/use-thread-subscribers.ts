@@ -4,7 +4,12 @@ import type {
   RealtimeMessageThreadUpdated,
 } from "@repo/realtime-types"
 import { toast } from "@repo/ui/components/toast"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import {
@@ -35,6 +40,24 @@ export const threadSubscribersKey = (threadRootId: string) =>
 // Under the sidebar key: following a session moves its sidebar row.
 const subscriberMutationKey = (threadRootId: string) =>
   [...sidebarSessionMutationKey, "subscribers", threadRootId] as const
+
+// Writing in a thread subscribes the writer and the people it mentions
+// directly (realtime createMessage, messaging fanout). Shown on send; the
+// thread update that follows refetches the real list.
+export function showWriteSubscribers(
+  queryClient: QueryClient,
+  threadRootId: string,
+  people: ThreadSubscriber[]
+) {
+  const queryKey = threadSubscribersKey(threadRootId)
+  void queryClient.cancelQueries({ queryKey })
+  queryClient.setQueryData<ThreadSubscriber[]>(queryKey, (current) => {
+    if (!current) return current
+    const known = new Set(current.map((subscriber) => subscriber.id))
+    const added = people.filter((person) => !known.has(person.id))
+    return added.length > 0 ? [...current, ...added] : current
+  })
+}
 
 // Who follows a session or thread: its sidebar row and notifications reach
 // them. Writes are optimistic, and following or leaving a session moves its
