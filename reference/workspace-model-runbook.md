@@ -898,7 +898,14 @@ to the subscriber list on send (`showWriteSubscribers`).
   hover (`prefetchThread` in `hooks/use-thread-messages.ts`). Channel and DM
   messages stop waiting on the channel or DM query (`$channelId.tsx`,
   `dms/$dmId.tsx`).
-- **C** [ ] built · [ ] committed. The run queue moves into React Query
+- **C** [x] built 2026-10-11 · [ ] committed. As built: the queued ids live
+  under `runQueueKey(channelId, threadRootId)` with `gcTime: 0` (a remounted
+  panel starts empty, as the old local state did); socket events and the
+  late-join snapshot write there. `takeFromRunQueue` backs both optimistic
+  actions: Steer takes the message out of the queue, so it joins the
+  transcript at once; Remove also drops it from the transcript; failures
+  restore both. Stop marks `stopRequested` in `onMutate` and clears it on
+  error. Planned text follows. The run queue moves into React Query
   (`hooks/use-run-queue.ts` holds it in React state). Steer
   (`use-queued-message-steering.ts`), Remove (`run-queue-pill.tsx`) and Stop
   (`use-stop-lor-run.ts`) update in `onMutate`.

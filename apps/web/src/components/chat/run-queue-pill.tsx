@@ -5,11 +5,18 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "@repo/ui/components/toast"
-import { useMutation } from "@tanstack/react-query"
+import {
+  type InfiniteData,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
+import { messagesCacheKey } from "@/hooks/use-lor-stream"
+import { runQueueKey, takeFromRunQueue } from "@/hooks/use-run-queue"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
+import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 import { toSearchPreviewText } from "@/lib/search-preview"
 
 // Messages waiting while Lor works: each waits for the current answer unless
@@ -152,10 +159,31 @@ function QueuedTurn({
 
 // Withdraws a queued message: the queue row first (it needs the message to
 // still exist), then the message itself. A queued message was never visible
-// in the transcript, so removing it means it was never sent.
+// in the transcript, so removing it means it was never sent. Both leave the
+// screen at once; a failure brings both back.
 function useRemoveQueued(message: Message) {
   const socket = useSocket()
+  const queryClient = useQueryClient()
+  const messagesKey = messagesCacheKey(message.channelId, message.threadRootId)
   return useMutation({
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: messagesKey })
+      const previousMessages =
+        queryClient.getQueryData<InfiniteData<{ data: Message[] }>>(messagesKey)
+      queryClient.setQueryData<InfiniteData<{ data: Message[] }>>(
+        messagesKey,
+        (old) =>
+          old
+            ? updateMessagesAcrossPages(old, (messages) =>
+                messages.filter((m) => m.id !== message.id)
+              )
+            : old
+      )
+      return {
+        previousQueue: takeFromRunQueue(queryClient, message),
+        previousMessages,
+      }
+    },
     mutationFn: async () => {
       // Deleting needs the socket — withdrawing the queue row without the
       // delete would post the message instead of removing it.
@@ -177,7 +205,14 @@ function useRemoveQueued(message: Message) {
         }
       )
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err, _vars, context) => {
+      queryClient.setQueryData(
+        runQueueKey(message.channelId, message.threadRootId),
+        context?.previousQueue
+      )
+      queryClient.setQueryData(messagesKey, context?.previousMessages)
+      toast.error(err.message)
+    },
   })
 }
 

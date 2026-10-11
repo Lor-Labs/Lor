@@ -1,6 +1,7 @@
 import { toast } from "@repo/ui/components/toast"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { runQueueKey, takeFromRunQueue } from "@/hooks/use-run-queue"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 
@@ -38,11 +39,14 @@ export function useQueuedMessageSteering({
     [currentUserId, messages]
   )
 
+  // Steering hands the message to Lor's active run, so it leaves the queue
+  // (and joins the transcript) at once; a failure puts it back.
+  const queryClient = useQueryClient()
   const steer = useMutation({
-    mutationFn: async (messageId: string) => {
+    mutationFn: async (message: Message) => {
       const res = await apiClient.v1.runs["queued-messages"][
         ":messageId"
-      ].steer.$post({ param: { messageId } })
+      ].steer.$post({ param: { messageId: message.id } })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           message?: string
@@ -50,13 +54,22 @@ export function useQueuedMessageSteering({
         throw new Error(body?.message ?? "Couldn't steer this message")
       }
     },
-    onError: (error) => toast.error(error.message),
+    onMutate: (message) => ({
+      previous: takeFromRunQueue(queryClient, message),
+    }),
+    onError: (error, message, context) => {
+      queryClient.setQueryData(
+        runQueueKey(message.channelId, message.threadRootId),
+        context?.previous
+      )
+      toast.error(error.message)
+    },
   })
 
   const steerMessage = useCallback(
     (message: Message) => {
       if (steer.isPending || pendingNonces?.current.has(message.id)) return
-      steer.mutate(message.id)
+      steer.mutate(message)
     },
     [pendingNonces, steer]
   )
@@ -83,7 +96,7 @@ export function useQueuedMessageSteering({
       setSteerWhenReady(true)
       return
     }
-    steer.mutate(latestOwnMessage.id)
+    steer.mutate(latestOwnMessage)
   }, [currentUserId, latestOwnMessage, messages, pendingNonces, steer])
 
   // A thread send appears in the queue immediately under its optimistic
@@ -113,7 +126,7 @@ export function useQueuedMessageSteering({
     )
 
     clearDeferredSteering()
-    if (replacement) steer.mutate(replacement.id)
+    if (replacement) steer.mutate(replacement)
   }, [
     clearDeferredSteering,
     currentUserId,
@@ -129,7 +142,7 @@ export function useQueuedMessageSteering({
     steerLatestOwnMessage,
     steerMessage,
     steeringMessageId: steer.isPending
-      ? (steer.variables ?? null)
+      ? (steer.variables?.id ?? null)
       : steerWhenReady
         ? steerWhenReadyNonceRef.current
         : null,
