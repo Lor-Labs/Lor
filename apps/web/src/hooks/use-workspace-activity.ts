@@ -108,12 +108,29 @@ export function useWorkspaceActivity(workspaceId?: string) {
 export function sidebarRowFor(session: RealtimeAgentSession): SidebarSession {
   return {
     id: session.id,
+    threadRootId: session.threadRootId,
     title: session.title,
     titleEdited: session.titleEditedAt !== null,
     state: "idle",
     loop: session.loopId !== null,
     lastActivityAt: session.lastActivityAt,
   }
+}
+
+// A session's sidebar row and its channel, from any loaded snapshot.
+export function findSidebarSession(
+  queryClient: QueryClient,
+  sessionId: string
+) {
+  for (const [, channels] of queryClient.getQueriesData<ChannelActivity[]>({
+    queryKey: ["workspace-activity"],
+  })) {
+    for (const channel of channels ?? []) {
+      const session = channel.sessions.find((row) => row.id === sessionId)
+      if (session) return { channelId: channel.channelId, session }
+    }
+  }
+  return undefined
 }
 
 export type SidebarSessionChange =

@@ -16,6 +16,7 @@ import {
   type ChannelSession,
   channelSessionsKey,
 } from "@/hooks/use-channel-sessions"
+import { prefetchThread } from "@/hooks/use-thread-messages"
 import {
   type ThreadSubscriber,
   threadSubscribersKey,
@@ -28,6 +29,9 @@ import {
   sidebarSessionMutationKey,
 } from "@/hooks/use-workspace-activity"
 import { apiClient } from "@/lib/api-client"
+
+// Repeated hovers within this window reuse the prefetched pages.
+const PREFETCH_FRESH_MS = 10_000
 
 export function agentSessionQueryOptions(sessionId: string) {
   return {
@@ -49,6 +53,24 @@ export function useAgentSession(sessionId: string) {
 export type AgentSessionDetail = NonNullable<
   ReturnType<typeof useAgentSession>["data"]
 >
+
+// Warms a session's page and its first transcript page together (row hover,
+// click), so opening it doesn't wait for one and then the other.
+export function prefetchSession(
+  queryClient: QueryClient,
+  workspaceSlug: string,
+  row: { id: string; channelId: string; threadRootId: string }
+) {
+  void queryClient.prefetchQuery({
+    ...agentSessionQueryOptions(row.id),
+    staleTime: PREFETCH_FRESH_MS,
+  })
+  prefetchThread(
+    queryClient,
+    { workspaceSlug, channelId: row.channelId, threadRootId: row.threadRootId },
+    PREFETCH_FRESH_MS
+  )
+}
 
 // The session a thread belongs to, from a session page already loaded, so a
 // send or an approval there can move its sidebar row optimistically.

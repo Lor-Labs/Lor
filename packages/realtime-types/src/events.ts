@@ -14,6 +14,8 @@ export type SidebarSessionState = "needs_you" | "running" | "unread" | "idle"
 
 export type SidebarSession = {
   id: string
+  // Lets a client load the transcript alongside the session, not after it.
+  threadRootId: string
   title: string
   // A person renamed it. Only Lor's generated titles type out on web.
   titleEdited: boolean

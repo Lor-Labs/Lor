@@ -190,12 +190,18 @@ export function threadQueryOptions(
 }
 
 // Opening a past call's chat right after hovering its row is instant.
-export function prefetchThread(queryClient: QueryClient, target: ThreadTarget) {
-  void queryClient.prefetchInfiniteQuery(
-    threadQueryOptions(queryClient, target.threadRootId, (params) =>
+// `staleTime`: a hover prefetch skips a page fetched this recently.
+export function prefetchThread(
+  queryClient: QueryClient,
+  target: ThreadTarget,
+  staleTime?: number
+) {
+  void queryClient.prefetchInfiniteQuery({
+    ...threadQueryOptions(queryClient, target.threadRootId, (params) =>
       fetchThreadPage(target, params)
-    )
-  )
+    ),
+    staleTime,
+  })
 }
 
 interface UseThreadMessagesOptions {

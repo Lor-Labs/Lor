@@ -884,7 +884,15 @@ to the subscriber list on send (`showWriteSubscribers`).
   patches `["plan", planId]` and the sidebar "!" (`hooks/use-approvals.ts`).
   Mention gaps: a reply that subscribes its writer shows the session's
   sidebar row, and a failed send takes the optimistic subscribers back off.
-- **B** [ ] built · [ ] committed. Opening a session loads the session and
+- **B** [x] built 2026-10-11 · [ ] committed. As built: `SidebarSession`
+  carries `threadRootId`. `prefetchSession` warms the session and its first
+  transcript page (10s freshness, so repeated hovers don't refetch) on row
+  hover, focus and click; a session opened another way (⌘K, a link) starts
+  its transcript from the sidebar row (`findSidebarSession`) while the
+  session loads. Text channels load messages alongside the channel query
+  (known from the sidebar's channel list; voice channels still wait for
+  their type), and DMs alongside the DM query. Planned text follows.
+  Opening a session loads the session and
   its thread in parallel (`session-view.tsx` fetches them one after the
   other; `SidebarSession` needs `threadRootId`), with a prefetch on row
   hover (`prefetchThread` in `hooks/use-thread-messages.ts`). Channel and DM
@@ -1091,6 +1099,12 @@ with Lor" no longer reaches Lor.
   ship. (Step 35.)
 - [x] The onboarding redo flagged in `onboarding.md`: its Step 11 (How Lor
   works dialog, session hints, empty channel state), built 2026-10-10.
+- After the merge: a one-week sync-engine spike on one slice (sidebar and
+  sessions), TanStack DB (on top of React Query) against Zero (Postgres sync
+  with server mutators and permissions). Decided 2026-10-11 with Jacob: keep
+  hand-patched React Query until then, and prefer pushes that carry the
+  changed row over "refetch" pushes. Check both libraries' maturity, React
+  Native support and permissions first; never build our own.
 
 ## Size
 

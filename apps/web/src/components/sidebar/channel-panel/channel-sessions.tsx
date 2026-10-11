@@ -13,6 +13,7 @@ import {
 } from "@repo/ui/components/tooltip"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
@@ -26,7 +27,10 @@ import {
 } from "@/components/sidebar/channel-panel/channel-activity"
 import { TypewriterText } from "@/components/ui/typewriter-text"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
-import { useUpdateAgentSession } from "@/hooks/use-agent-session"
+import {
+  prefetchSession,
+  useUpdateAgentSession,
+} from "@/hooks/use-agent-session"
 
 // Each channel lists at most this many of your sessions; a "N more" row
 // expands the rest in place.
@@ -171,6 +175,7 @@ export function ChannelSessionRows({
           >
             <SessionRow
               session={session}
+              channelId={channelId}
               onArchive={() => archive(session.id)}
             />
           </motion.div>
@@ -201,13 +206,24 @@ function RollupIndicator({ sessions }: { sessions: SidebarSession[] }) {
 // Codex's task list.
 function SessionRow({
   session,
+  channelId,
   onArchive,
 }: {
   session: SidebarSession
+  channelId: string
   onArchive: () => void
 }) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { workspaceSlug, sessionId } = useParams({ strict: false })
+  const prefetch = () => {
+    if (!workspaceSlug) return
+    prefetchSession(queryClient, workspaceSlug, {
+      id: session.id,
+      channelId,
+      threadRootId: session.threadRootId,
+    })
+  }
   const { setOpen: setMobileSidebarOpen } = useMobileSidebar()
   const [confirmArchive, setConfirmArchive] = useState(false)
   const active = sessionId === session.id
@@ -239,8 +255,11 @@ function SessionRow({
       </HintPopover>
       <button
         type="button"
+        onPointerEnter={prefetch}
+        onFocus={prefetch}
         onClick={() => {
           sessionsHint.dismiss()
+          prefetch()
           if (!workspaceSlug) return
           void navigate({
             to: "/$workspaceSlug/session/$sessionId",

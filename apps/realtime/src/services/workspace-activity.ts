@@ -234,6 +234,7 @@ export async function getWorkspaceActivity(
           : "idle"
     entry(session.channelId).sessions.push({
       id: session.id,
+      threadRootId: session.threadRootId,
       title: session.title,
       titleEdited: session.titleEditedAt !== null,
       state,

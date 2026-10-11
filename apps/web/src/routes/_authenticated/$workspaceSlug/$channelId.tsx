@@ -51,6 +51,10 @@ import type { Message } from "@/lib/api-types"
 import { channelQueryOptions } from "@/lib/channel-query"
 import { writeLastChannelId } from "@/lib/last-location"
 import { canPinMessages } from "@/lib/permissions"
+import {
+  openTextChannels,
+  workspaceChannelsQueryOptions,
+} from "@/lib/workspace-channels-query"
 
 type ChannelSearchParams = {
   msgId?: string
@@ -178,6 +182,14 @@ function ChannelView() {
   const { data, isPending, isError, error } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)
   )
+  // The sidebar's list already knows a text channel, so its messages load
+  // alongside the channel's details instead of after them. Voice channels
+  // still wait: they show a lobby, not a feed.
+  const { data: listedAsText = false } = useQuery({
+    ...workspaceChannelsQueryOptions(workspaceSlug),
+    select: (channels) =>
+      openTextChannels(channels).some((channel) => channel.id === channelId),
+  })
 
   const fetchMessagesPage = useCallback(
     async (params: {
@@ -232,7 +244,7 @@ function ChannelView() {
     anchor: msgId ?? entry.anchor,
     anchorReady: Boolean(msgId) || entry.ready,
     fetchPage: fetchMessagesPage,
-    enabled: !!data,
+    enabled: !!data || listedAsText,
     socket,
     pendingNoncesRef: pendingNonces,
   })

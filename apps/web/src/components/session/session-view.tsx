@@ -39,6 +39,7 @@ import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
 import { TypewriterText } from "@/components/ui/typewriter-text"
 import {
   type AgentSessionDetail,
+  prefetchSession,
   useAgentSession,
   useAgentSessionUpdates,
   useUpdateAgentSession,
@@ -46,7 +47,10 @@ import {
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { useChannelProposals } from "@/hooks/use-proposals"
-import { patchSidebarSession } from "@/hooks/use-workspace-activity"
+import {
+  findSidebarSession,
+  patchSidebarSession,
+} from "@/hooks/use-workspace-activity"
 import { clearLastSessionId, writeLastSession } from "@/lib/last-location"
 
 export function SessionView({
@@ -57,6 +61,18 @@ export function SessionView({
   sessionId: string
 }) {
   const { data, isPending, isError } = useAgentSession(sessionId)
+  // Opened without a row hover (⌘K, a link, a notification): the sidebar row
+  // knows the thread, so the transcript loads alongside the session.
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    const listed = findSidebarSession(queryClient, sessionId)
+    if (!listed) return
+    prefetchSession(queryClient, workspaceSlug, {
+      id: sessionId,
+      channelId: listed.channelId,
+      threadRootId: listed.session.threadRootId,
+    })
+  }, [queryClient, sessionId, workspaceSlug])
   // A remembered session that no longer opens must not be the landing page.
   useEffect(() => {
     if (isError) clearLastSessionId(workspaceSlug)

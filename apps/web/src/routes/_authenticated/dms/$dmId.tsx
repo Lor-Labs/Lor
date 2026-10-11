@@ -95,8 +95,8 @@ function DMConversation() {
   } = useChannelMessages({
     channelId: dmId,
     anchor: msgId,
+    // A DM is always a conversation: its messages load alongside its details.
     fetchPage: fetchMessagesPage,
-    enabled: !!dm,
     socket,
     pendingNoncesRef: pendingNonces,
   })
