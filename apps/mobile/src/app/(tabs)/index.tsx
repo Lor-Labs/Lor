@@ -20,6 +20,7 @@ import { ChannelList } from "@/components/channel-list"
 import { CreateChannelSheet } from "@/components/create-channel-sheet"
 import { CreateInviteSheet } from "@/components/create-invite-sheet"
 import { FinishSetupCard } from "@/components/finish-setup-card"
+import { HowLorWorksSheet } from "@/components/how-lor-works-sheet"
 import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
@@ -58,9 +59,10 @@ export default function WorkspaceScreen() {
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [isWorkspaceSheetOpen, setIsWorkspaceSheetOpen] = useState(false)
+  const [isHowLorWorksOpen, setIsHowLorWorksOpen] = useState(false)
   const [actionChannel, setActionChannel] = useState<Channel | null>(null)
   const hasFocusedChannelsRef = useRef(false)
-  const inviteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const nextSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const permissions = useChannelPermissions(workspace?.id)
   const activeMember = useActiveMember(workspace?.id)
   const { data: session } = authClient.useSession()
@@ -75,7 +77,7 @@ export default function WorkspaceScreen() {
 
   useEffect(
     () => () => {
-      if (inviteTimeoutRef.current) clearTimeout(inviteTimeoutRef.current)
+      if (nextSheetTimeoutRef.current) clearTimeout(nextSheetTimeoutRef.current)
     },
     []
   )
@@ -202,9 +204,18 @@ export default function WorkspaceScreen() {
 
   const openInviteFromWorkspaceSheet = () => {
     setIsWorkspaceSheetOpen(false)
-    if (inviteTimeoutRef.current) clearTimeout(inviteTimeoutRef.current)
+    if (nextSheetTimeoutRef.current) clearTimeout(nextSheetTimeoutRef.current)
     // Let the workspace sheet finish closing before the invite sheet opens.
-    inviteTimeoutRef.current = setTimeout(() => setIsInviteOpen(true), 300)
+    nextSheetTimeoutRef.current = setTimeout(() => setIsInviteOpen(true), 300)
+  }
+
+  const openHowLorWorks = () => {
+    setIsWorkspaceSheetOpen(false)
+    if (nextSheetTimeoutRef.current) clearTimeout(nextSheetTimeoutRef.current)
+    nextSheetTimeoutRef.current = setTimeout(
+      () => setIsHowLorWorksOpen(true),
+      300
+    )
   }
 
   const switchWorkspace = (workspaceId: string) => {
@@ -424,6 +435,7 @@ export default function WorkspaceScreen() {
         onInvite={openInviteFromWorkspaceSheet}
         onOpenAgentProfiles={openAgentProfiles}
         onOpenChange={setIsWorkspaceSheetOpen}
+        onOpenHowLorWorks={openHowLorWorks}
         onOpenInstructions={openInstructions}
         onOpenSettings={openWorkspaceSettings}
         onSelectWorkspace={switchWorkspace}
@@ -435,6 +447,10 @@ export default function WorkspaceScreen() {
         onOpenChange={setIsInviteOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
+      />
+      <HowLorWorksSheet
+        onClose={() => setIsHowLorWorksOpen(false)}
+        reopened={isHowLorWorksOpen}
       />
       {profileSheet}
     </Screen>

@@ -10,6 +10,7 @@ type MobileHintKey =
   | "voice_intro"
   | "sessions_intro"
   | "session_reply"
+  | "how_lor_works"
 
 const hintsQueryKey = ["hints"] as const
 
