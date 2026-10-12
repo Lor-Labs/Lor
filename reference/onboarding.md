@@ -782,9 +782,23 @@ on top, the step text under it, step dots and Back/Next at the bottom.
   under it. Lor has no live cursors yet; Jacob wants the multiplayer point made,
   and cursors come with later features. The phone's tour
   (workspace-model-runbook Step 34) has the same steps.
+  Reordered the same day after the positioning work (memory
+  `project_positioning`: "a channel is a shared agent"; the tour must not
+  lead with chat, since moving chat is the adoption cliff). The steps now:
+  1. "Welcome to Lor": "AI agents your whole team can steer."
+  2. "Every channel has an agent": instructions and tools set once, used for
+     everyone (scene: `#engineering`'s instructions type in, and GitHub,
+     Linear and Datadog switch on).
+  3. "Lor works in sessions": start one, or let it run on a schedule; the
+     chat stays for the team.
+  4. "Sessions are shared": anyone can see the work, step in, or approve.
+  The "Chat is for your team" step and its scene are gone; its point is a
+  line in step 3. The "To Lor" switch left step 4, since the `session_reply`
+  hint teaches it when it matters.
 - `components/onboarding/how-lor-works-scenes.tsx` (new): three mockups that
   play once per step and hold the last frame (reduced motion shows the last
-  frame): chat between people; `@Lor` + a question with the real
+  frame): chat between people (replaced 2026-10-12 by the channel setup
+  scene, `ChannelAgentScene`); `@Lor` + a question with the real
   `DestinationBar`, the send leaves the chat as it was, and a session row
   starts under `#engineering` with the real `SessionStateIndicator` and
   `TypewriterText` title, the "Started … · Open" note shows (a copy of

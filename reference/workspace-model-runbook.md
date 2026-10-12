@@ -1418,7 +1418,10 @@ reply, and "To Lor" flips to "To" with his face, so your turn lands muted.
 The scenes reuse the real `DestinationBar`, so they show the subscriber
 faces. Reduced motion shows each scene's last frame. Follow-up (Jacob,
 web and phone): a "Welcome to Lor" step first, a shared session worked by
-four named cursors and one line of pitch (see `onboarding.md` 11b).
+four named cursors and one line of pitch, then the tour reordered around
+"a channel is a shared agent": Welcome, Every channel has an agent (a new
+channel setup scene replaces the chat scene), Lor works in sessions,
+Sessions are shared (see `onboarding.md` 11b).
 
 #### Step 35: cleanup (~150)
 

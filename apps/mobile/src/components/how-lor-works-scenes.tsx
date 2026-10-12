@@ -21,6 +21,7 @@ import {
   DestinationBar,
   type PingedPerson,
 } from "@/components/composer-destination"
+import { ConnectorIcon } from "@/components/connector-icon"
 import { TypewriterText } from "@/components/typewriter-text"
 import { Avatar } from "@/components/ui/avatar"
 import { LorMark } from "@/components/voice/lor-window"
@@ -245,10 +246,11 @@ function SceneCursor({
 const WELCOME_ASK = " draft the launch post for Thursday"
 const WELCOME_DRAFT =
   "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
-const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4500, 5300] as const
+const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4900, 5300, 6300] as const
 
 // The tour's first step: a team working with Lor in one session. Zoe asks,
-// Lor drafts while its cursor writes, Rafael reacts, you approve the post.
+// Lor drafts while its cursor writes, Rafael reacts, then you approve the
+// post (one cursor at a time, so each action reads on its own).
 // Lor has no live cursors yet; this shows the idea. Rows have fixed heights
 // so each cursor's tip (pt from the card's top-left, per phase) lands on its
 // target.
@@ -260,17 +262,17 @@ export function WelcomeScene({ you }: SceneProps) {
     "muted",
   ])
   const asking = phase >= 1 && phase < 3
+  const approved = phase >= 8
   const zoe = phase >= 3 ? [298, 60] : phase >= 1 ? [24, 186] : [-80, 190]
-  const lor =
-    phase >= 7
-      ? [300, 120]
-      : phase >= 4
-        ? [262, 96]
-        : phase >= 3
-          ? [34, 78]
-          : [330, 10]
+  const lor = approved
+    ? [300, 120]
+    : phase >= 4
+      ? [262, 96]
+      : phase >= 3
+        ? [34, 78]
+        : [330, 10]
   const rafael = phase >= 7 ? [-20, 110] : phase >= 5 ? [48, 122] : [-80, 60]
-  const yours = phase >= 5 ? [251, 150] : [200, 260]
+  const yours = phase >= 7 ? [251, 150] : [200, 260]
   return (
     <View className="absolute inset-0 items-center justify-center">
       <Animated.View
@@ -340,7 +342,7 @@ export function WelcomeScene({ you }: SceneProps) {
                 className="h-full flex-row items-center gap-one rounded-lor-sm border border-border pl-two pr-one"
                 entering={appear}
               >
-                {phase >= 7 ? (
+                {approved ? (
                   <>
                     <HugeiconsIcon
                       color={muted}
@@ -410,31 +412,109 @@ export function WelcomeScene({ you }: SceneProps) {
   )
 }
 
-const CHAT_TIMES = [250, 1000, 1750] as const
+const CHANNEL_INSTRUCTIONS =
+  "Review PRs against our style guide. Flag anything that touches billing."
+const CHANNEL_TOOLS = [
+  { key: "github", name: "GitHub" },
+  { key: "linear", name: "Linear" },
+  { key: "datadog", name: "Datadog" },
+] as const
+const CHANNEL_TIMES = [300, 1900, 2300, 2700, 3400] as const
 
-export function ChatScene({ you }: SceneProps) {
-  const phase = usePhase(CHAT_TIMES)
+// The accent layer fades in over the track, so no color math on theme tokens.
+function MiniSwitch({ on }: { on: boolean }) {
+  const progress = useSharedValue(on ? 1 : 0)
+  useEffect(() => {
+    progress.value = withTiming(on ? 1 : 0, { duration: 200 })
+  }, [on, progress])
+  const fill = useAnimatedStyle(() => ({ opacity: progress.value }))
+  const thumb = useAnimatedStyle(() => ({
+    transform: [{ translateX: progress.value * 10 }],
+  }))
+  return (
+    <View className="h-3.5 w-6 justify-center overflow-hidden rounded-full bg-default px-0.5">
+      <Animated.View className="absolute inset-0 bg-accent" style={fill} />
+      <Animated.View
+        className="size-2.5 rounded-full bg-background"
+        style={thumb}
+      />
+    </View>
+  )
+}
+
+// A channel set up once for everyone: its instructions type in and its
+// tools switch on, then Lor is ready for the whole channel.
+export function ChannelAgentScene({ you }: SceneProps) {
+  const phase = usePhase(CHANNEL_TIMES)
+  const foreground = useThemeColor("foreground")
   return (
     <MiniPhone>
-      <MiniHeader title="# engineering" />
-      <View className="flex-1 justify-end gap-three px-three pb-three">
-        {phase >= 1 ? (
-          <MiniMessage person={ZOE}>
-            Deploy is green. Shipping the billing fix after lunch.
-          </MiniMessage>
-        ) : null}
-        {phase >= 2 ? (
-          <MiniMessage person={RAFAEL}>
-            Nice, I'll keep an eye on error rates.
-          </MiniMessage>
-        ) : null}
-        {phase >= 3 ? (
-          <MiniMessage person={you}>Lunch at 1? I'll book a table.</MiniMessage>
-        ) : null}
+      <MiniHeader
+        right={
+          <View className="flex-row">
+            {[ZOE, RAFAEL, you].map((person, index) => (
+              <View className={index === 0 ? "" : "-ml-one"} key={person.name}>
+                <PersonAvatar person={person} />
+              </View>
+            ))}
+          </View>
+        }
+        title="# engineering"
+      />
+      <View className="flex-1 px-three pt-two">
+        <Text className="text-[10px] text-muted">Instructions</Text>
+        <View className="mt-one min-h-10 rounded-lor-sm border border-border px-two py-[6px]">
+          <Text className="text-[11px] leading-4 text-foreground">
+            <TypewriterText
+              animate
+              text={phase >= 1 ? CHANNEL_INSTRUCTIONS : ""}
+            />
+          </Text>
+        </View>
+        <Text className="mt-two text-[10px] text-muted">Tools</Text>
+        <View className="mt-one rounded-lor-sm border border-border">
+          {CHANNEL_TOOLS.map((tool, index) => {
+            const on = phase >= 2 + index
+            return (
+              <View
+                className={`h-6 flex-row items-center gap-two px-two ${
+                  index > 0 ? "border-t border-border" : ""
+                }`}
+                key={tool.key}
+              >
+                <View style={{ opacity: on ? 1 : 0.5 }}>
+                  <ConnectorIcon
+                    color={foreground}
+                    connector={tool.key}
+                    size={12}
+                  />
+                </View>
+                <Text
+                  className={`flex-1 text-[11px] ${
+                    on ? "text-foreground" : "text-muted"
+                  }`}
+                >
+                  {tool.name}
+                </Text>
+                <MiniSwitch on={on} />
+              </View>
+            )
+          })}
+        </View>
+        <View className="mt-two h-4">
+          {phase >= 5 ? (
+            <Animated.View
+              className="flex-row items-center gap-one"
+              entering={appear}
+            >
+              <LorMark size={12} />
+              <Text className="text-[10px] text-muted">
+                Lor uses these for everyone in #engineering
+              </Text>
+            </Animated.View>
+          ) : null}
+        </View>
       </View>
-      <MiniComposer>
-        <Text className="text-muted">Message #engineering</Text>
-      </MiniComposer>
     </MiniPhone>
   )
 }

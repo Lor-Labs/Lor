@@ -18,6 +18,7 @@ import { type ReactNode, useEffect, useState } from "react"
 import { DestinationBar } from "@/components/chat/composer/destination-bar"
 import { SessionStateIndicator } from "@/components/sidebar/channel-panel/channel-activity"
 import { TypewriterText } from "@/components/ui/typewriter-text"
+import { connectorLogo } from "@/lib/connector-ui"
 
 // Small animated mockups of the app for the How Lor works dialog. Each scene
 // plays once when its step opens and holds its last frame.
@@ -325,29 +326,30 @@ function SceneCursor({
 const WELCOME_ASK = " draft the launch post for Thursday"
 const WELCOME_DRAFT =
   "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
-const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4500, 5300] as const
+const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4900, 5300, 6300] as const
 
 // The tour's first step: a team working with Lor in one session. Zoe asks,
-// Lor drafts while its cursor writes, Rafael reacts, you approve the post.
+// Lor drafts while its cursor writes, Rafael reacts, then you approve the
+// post (one cursor at a time, so each action reads on its own).
 // Lor has no live cursors yet; this shows the idea. Rows have fixed heights
 // so each cursor's tip (px from the card's top-left, per phase) lands on its
 // target.
 export function WelcomeScene({ you }: SceneProps) {
   const phase = usePhase(WELCOME_TIMES)
   const asking = phase >= 1 && phase < 3
+  const approved = phase >= 8
   const zoe: readonly [number, number] =
     phase >= 3 ? [380, 70] : phase >= 1 ? [28, 222] : [-170, 230]
-  const lor: readonly [number, number] =
-    phase >= 7
-      ? [390, 150]
-      : phase >= 4
-        ? [330, 112]
-        : phase >= 3
-          ? [40, 92]
-          : [520, 20]
+  const lor: readonly [number, number] = approved
+    ? [390, 150]
+    : phase >= 4
+      ? [330, 112]
+      : phase >= 3
+        ? [40, 92]
+        : [520, 20]
   const rafael: readonly [number, number] =
     phase >= 7 ? [-60, 120] : phase >= 5 ? [52, 138] : [-170, 60]
-  const yours: readonly [number, number] = phase >= 5 ? [317, 170] : [240, 330]
+  const yours: readonly [number, number] = phase >= 7 ? [317, 170] : [240, 330]
   return (
     <div className="absolute top-1/2 left-1/2 w-[360px] -translate-x-1/2 -translate-y-1/2">
       <div className="relative rounded-xl border bg-background p-3 text-[12px] shadow-lg/5">
@@ -407,7 +409,7 @@ export function WelcomeScene({ you }: SceneProps) {
                 {...appear}
                 className="flex h-full items-center gap-2 rounded-lg border pr-1 pl-2.5"
               >
-                {phase >= 7 ? (
+                {approved ? (
                   <span className="flex flex-1 items-center gap-1.5 text-muted-foreground">
                     <HugeiconsIcon
                       icon={Tick02Icon}
@@ -456,37 +458,91 @@ export function WelcomeScene({ you }: SceneProps) {
   )
 }
 
-const CHAT_TIMES = [250, 1000, 1750] as const
+const CHANNEL_INSTRUCTIONS =
+  "Review PRs against our style guide. Flag anything that touches billing."
+const CHANNEL_TOOLS = [
+  { key: "github", name: "GitHub" },
+  { key: "linear", name: "Linear" },
+  { key: "datadog", name: "Datadog" },
+] as const
+const CHANNEL_TIMES = [300, 1900, 2300, 2700, 3400] as const
 
-export function ChatScene({ workspaceName, you }: SceneProps) {
-  const phase = usePhase(CHAT_TIMES)
+function MiniSwitch({ on }: { on: boolean }) {
   return (
-    <MiniWindow>
-      <MiniSidebar workspaceName={workspaceName} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b px-3 py-2 font-semibold"># engineering</div>
-        <div className="flex flex-1 flex-col justify-end gap-3 px-3 pb-3">
-          {phase >= 1 && (
-            <MiniMessage person={ZOE}>
-              Deploy is green. Shipping the billing fix after lunch.
-            </MiniMessage>
-          )}
-          {phase >= 2 && (
-            <MiniMessage person={RAFAEL}>
-              Nice, I'll keep an eye on error rates.
-            </MiniMessage>
-          )}
-          {phase >= 3 && (
-            <MiniMessage person={you}>
-              Lunch at 1? I'll book a table.
-            </MiniMessage>
-          )}
+    <span
+      className={cn(
+        "relative h-3.5 w-6 shrink-0 rounded-full transition-colors duration-200",
+        on ? "bg-agent" : "bg-foreground/15"
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-0.5 left-0.5 size-2.5 rounded-full bg-background transition-transform duration-200",
+          on && "translate-x-2.5"
+        )}
+      />
+    </span>
+  )
+}
+
+// A channel set up once for everyone: its instructions type in and its
+// tools switch on, then Lor is ready for the whole channel.
+export function ChannelAgentScene({ you }: SceneProps) {
+  const phase = usePhase(CHANNEL_TIMES)
+  return (
+    <div className="absolute top-1/2 left-1/2 w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-background p-3 text-[12px] shadow-lg/5">
+      <div className="flex items-center gap-2 border-b pb-2">
+        <span className="flex-1 font-semibold text-[13px]"># engineering</span>
+        <div className="flex -space-x-1.5">
+          <PersonAvatar person={ZOE} />
+          <PersonAvatar person={RAFAEL} />
+          <PersonAvatar person={you} />
         </div>
-        <MiniComposer toLor={false}>
-          <span className="text-muted-foreground">Message #engineering</span>
-        </MiniComposer>
       </div>
-    </MiniWindow>
+      <div className="mt-2.5 text-[11px] text-muted-foreground">
+        Instructions
+      </div>
+      <p className="mt-1 min-h-12 rounded-md border px-2 py-1.5 text-foreground/90">
+        <TypewriterText text={phase >= 1 ? CHANNEL_INSTRUCTIONS : ""} animate />
+      </p>
+      <div className="mt-2.5 text-[11px] text-muted-foreground">Tools</div>
+      <div className="mt-1 divide-y rounded-md border">
+        {CHANNEL_TOOLS.map((tool, index) => {
+          const Logo = connectorLogo(tool.key)
+          const on = phase >= 2 + index
+          return (
+            <div key={tool.key} className="flex h-7 items-center gap-2 px-2">
+              <Logo
+                className={cn(
+                  "size-3.5 transition-opacity duration-200",
+                  !on && "opacity-50"
+                )}
+              />
+              <span
+                className={cn(
+                  "flex-1 transition-colors duration-200",
+                  !on && "text-muted-foreground"
+                )}
+              >
+                {tool.name}
+              </span>
+              <MiniSwitch on={on} />
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-2.5 h-5">
+        {phase >= 5 && (
+          <motion.div
+            {...appear}
+            className="flex items-center gap-1.5 text-muted-foreground"
+          >
+            <img src="/lor-mark.svg" alt="" className="size-3.5" />
+            Lor uses these for everyone in #engineering
+          </motion.div>
+        )}
+      </div>
+    </div>
   )
 }
 

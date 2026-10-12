@@ -8,7 +8,7 @@ import Animated, {
   FadeOut,
 } from "react-native-reanimated"
 import {
-  ChatScene,
+  ChannelAgentScene,
   type SceneProps,
   SessionStartScene,
   SharedSessionScene,
@@ -27,22 +27,22 @@ type Step = {
 const STEPS: [Step, ...Step[]] = [
   {
     title: "Welcome to Lor",
-    body: "The multiplayer AI workspace, where your team and Lor work side by side.",
+    body: "AI agents your whole team can steer.",
     Scene: WelcomeScene,
   },
   {
-    title: "Chat is for your team",
-    body: "Channels are where your team talks. Lor never posts here, but it reads the chat, so it knows what your team is working on.",
-    Scene: ChatScene,
+    title: "Every channel has an agent",
+    body: "Give a channel instructions and tools, like GitHub or Attio, once. Lor uses them for everyone in it.",
+    Scene: ChannelAgentScene,
   },
   {
     title: "Lor works in sessions",
-    body: "A session is where Lor works on one task. Mention @Lor in any channel, or tap the pencil on the Channels tab, to start one. It shows up under its channel, and the chat stays for your team.",
+    body: "Mention @Lor or tap the pencil on the Channels tab to start one, or let it run on a schedule. The chat stays for your team.",
     Scene: SessionStartScene,
   },
   {
     title: "Sessions are shared",
-    body: "Anyone in the channel can open a session and join in. Replies go to Lor unless you switch them to the session's subscribers, so you can talk it over without Lor answering.",
+    body: "Anyone in the channel can see the work, step in, or approve what Lor sends.",
     Scene: SharedSessionScene,
   },
 ]
