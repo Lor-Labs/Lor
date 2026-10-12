@@ -58,6 +58,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Status |
 |---|---|
+| `agent-browser.md` | Cloud browser Lor drives in a session: live view, take over, per-channel logins. Research and design 2026-10-12; builds after the sessions branch merges; vendor (Browserbase or Steel) decided by a spike |
 | `linear-projects.md` | Lor projects linked to Linear projects. Split from onboarding 2026-10-07; open for its own design thread |
 | `code-channels.md` | Multiplayer AI coding architecture, design agreed 2026-10-05 |
 | `context-engine.md` | Unblocked-style linked, ranked, permission-safe context. Research + proposed design 2026-10-10; decisions in §8 open |
