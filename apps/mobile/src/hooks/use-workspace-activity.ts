@@ -21,6 +21,11 @@ const FETCH_TIMEOUT_MS = 10_000
 export const workspaceActivityKey = (workspaceId: string) =>
   ["workspace-activity", workspaceId] as const
 
+// Every change that moves a session row (archive, rename) runs under this
+// key. Pushes wait while one is in flight, so a snapshot taken before the
+// server saved it can't undo the optimistic row. Same key as web.
+export const sidebarSessionMutationKey = ["sidebar-session"] as const
+
 function fetchWorkspaceActivity(socket: AppSocket, workspaceId: string) {
   return new Promise<ChannelActivity[]>((resolve, reject) => {
     if (!socket.connected) {
@@ -65,6 +70,11 @@ export function useWorkspaceActivity(workspaceId?: string) {
       if (coalesceTimer) return
       coalesceTimer = setTimeout(() => {
         coalesceTimer = undefined
+        if (
+          queryClient.isMutating({ mutationKey: sidebarSessionMutationKey }) > 0
+        ) {
+          return
+        }
         void queryClient.invalidateQueries({
           queryKey: workspaceActivityKey(workspaceId),
         })

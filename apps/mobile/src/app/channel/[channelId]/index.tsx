@@ -511,6 +511,13 @@ function ChannelScreen() {
           })
           setIsOptionsOpen(false)
         }}
+        onOpenSessions={() => {
+          router.push({
+            pathname: "/channel/[channelId]/sessions",
+            params: { channelId },
+          })
+          setIsOptionsOpen(false)
+        }}
         onOpenChange={setIsOptionsOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}

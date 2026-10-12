@@ -10,14 +10,20 @@ import { router } from "expo-router"
 import * as SecureStore from "expo-secure-store"
 import { useThemeColor } from "heroui-native/hooks"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ActivityIndicator, Pressable, Text, View } from "react-native"
+import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native"
 import Animated, {
   FadeIn,
   FadeOut,
   LinearTransition,
 } from "react-native-reanimated"
+import { confirmArchiveSession } from "@/components/session-actions-sheet"
 import { TypewriterText } from "@/components/typewriter-text"
-import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
+import { triggerHaptic } from "@/components/ui/haptics"
+import { useWorkspace } from "@/context/workspace-context"
+import {
+  agentSessionQueryOptions,
+  useUpdateAgentSession,
+} from "@/hooks/use-agent-session"
 
 // Each channel lists at most this many of your sessions; a "N more" row
 // expands the rest in place. Mirrors web's channel-sessions.tsx.
@@ -144,9 +150,11 @@ export function SessionStateIndicator({
 // Your sessions in a channel, under its row: newest activity first, whatever
 // the state.
 export function ChannelSessionRows({
+  channelId,
   sessions,
   collapsed,
 }: {
+  channelId: string
   sessions: SidebarSession[] | undefined
   collapsed: boolean
 }) {
@@ -178,7 +186,7 @@ export function ChannelSessionRows({
           key={session.id}
           layout={rowLayout}
         >
-          <SessionRow session={session} />
+          <SessionRow channelId={channelId} session={session} />
         </Animated.View>
       ))}
       {!collapsed && ordered.length > SESSION_CAP ? (
@@ -203,18 +211,48 @@ export function ChannelSessionRows({
   )
 }
 
-function SessionRow({ session }: { session: SidebarSession }) {
+// Long-press archives it, like the archive button on web's row hover.
+function SessionRow({
+  channelId,
+  session,
+}: {
+  channelId: string
+  session: SidebarSession
+}) {
   const muted = useThemeColor("muted")
   const queryClient = useQueryClient()
+  const { workspace } = useWorkspace()
+  const updateSession = useUpdateAgentSession()
   const emphasized = session.state === "unread" || session.state === "needs_you"
   const stateLabel =
     session.state === "idle" ? "" : `, ${STATE_LABELS[session.state]}`
+  const archive = () => {
+    if (!workspace) return
+    confirmArchiveSession(session.state === "running", () =>
+      updateSession.mutate({
+        workspaceId: workspace.id,
+        channelId,
+        sessionId: session.id,
+        archived: true,
+      })
+    )
+  }
 
   return (
     <Pressable
+      accessibilityActions={[{ label: "Archive", name: "archive" }]}
       accessibilityLabel={`Open session ${session.title}${stateLabel}`}
       accessibilityRole="button"
       className="min-h-9 flex-row items-center gap-two rounded-lor-sm px-two active:bg-surface-secondary"
+      delayLongPress={350}
+      onAccessibilityAction={archive}
+      onLongPress={() => {
+        triggerHaptic("medium")
+        Alert.alert(session.title, undefined, [
+          { style: "cancel", text: "Cancel" },
+          { style: "destructive", text: "Archive", onPress: archive },
+        ])
+      }}
       // Warm the session's page during the press, so it opens filled.
       onPressIn={() =>
         void queryClient.prefetchQuery(agentSessionQueryOptions(session.id))

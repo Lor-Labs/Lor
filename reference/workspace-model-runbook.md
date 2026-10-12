@@ -1308,10 +1308,31 @@ As built (2026-10-11):
 
 #### Step 31: archive, rename, Sessions list (~480)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - Archive/unarchive with Undo, rename (`PATCH /v1/sessions/{id}`), a
   channel's Sessions list (Active, Archived).
+
+As built (2026-10-11):
+
+- `useUpdateAgentSession` (`use-agent-session.ts`) ports web's: rename,
+  archive and unarchive patch the session, its Channels-tab row and the
+  channel's Sessions list at once (unarchive re-adds the row only if you
+  follow it); archive shows a "Session archived" toast with Undo; a
+  failure rolls back with an alert. It runs under `sidebarSessionMutationKey`
+  (`["sidebar-session"]`, web's), which the activity, Sessions list and
+  subscriber refetches now wait on.
+- Session screen: a "…" button opens `components/session-actions-sheet.tsx`
+  (Rename, with a title field; Archive or Unarchive). Archiving while Lor
+  runs asks first (web's dialog copy, `confirmArchiveSession`) and goes
+  back. The archived bar has Unarchive.
+- `app/channel/[channelId]/sessions.tsx` + `hooks/use-channel-sessions.ts`:
+  Active / Archived tabs, rows with the creator (or the loop icon), title,
+  byline and time, a spinner while Lor runs, pull to refresh, a New
+  session button; long-press archives or unarchives. Opened from
+  "Sessions" in the channel's options sheet.
+- Long-press a session row on the Channels tab to archive it (web's hover
+  button).
 
 #### Step 32: Details sheet (~320)
 

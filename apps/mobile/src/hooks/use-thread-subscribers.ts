@@ -7,6 +7,7 @@ import {
   cancelSidebarFetch,
   patchSidebarSession,
   sidebarRowFor,
+  sidebarSessionMutationKey,
   workspaceActivityKey,
 } from "@/hooks/use-workspace-activity"
 import { useWorkspaceMembers } from "@/hooks/use-workspace-members"
@@ -31,8 +32,9 @@ type ThreadRef = {
 export const threadSubscribersKey = (threadRootId: string) =>
   ["thread-subscribers", threadRootId] as const
 
+// Under the sidebar key: following a session moves its Channels-tab row.
 const subscriberMutationKey = (threadRootId: string) =>
-  ["thread-subscribers-change", threadRootId] as const
+  [...sidebarSessionMutationKey, "subscribers", threadRootId] as const
 
 // Who follows a session or thread: its Channels-tab row and notifications
 // reach them. Writes are optimistic, and following or leaving a session

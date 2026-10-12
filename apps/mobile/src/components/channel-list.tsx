@@ -506,7 +506,11 @@ export function ChannelList({
             participants={inCall.get(channel.id)}
           />
         ) : (
-          <ChannelSessionRows collapsed={collapsed} sessions={sessions} />
+          <ChannelSessionRows
+            channelId={channel.id}
+            collapsed={collapsed}
+            sessions={sessions}
+          />
         )}
       </Fragment>
     )

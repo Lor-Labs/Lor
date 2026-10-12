@@ -13,6 +13,7 @@ import {
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
 import { RunQueuePill } from "@/components/run-queue-pill"
+import { SessionActionsSheet } from "@/components/session-actions-sheet"
 import { SessionHeading } from "@/components/session-heading"
 import {
   ThreadMessageList,
@@ -25,6 +26,7 @@ import {
   ThreadWorkHeader,
 } from "@/components/thread-work-header"
 import { TypingIndicator } from "@/components/typing-indicator"
+import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { StatePanel } from "@/components/ui/state-panel"
 import { Tabs } from "@/components/ui/tabs"
@@ -34,6 +36,7 @@ import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useUpdateAgentSession } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
@@ -92,6 +95,8 @@ export function ThreadView({
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   // The session's heading is on screen, so the bar leaves its title out.
   const [headingVisible, setHeadingVisible] = useState(true)
+  const [isActionsOpen, setIsActionsOpen] = useState(false)
+  const updateSession = useUpdateAgentSession()
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const { requestStop, stoppingMessageId } = useStopLorRun()
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
@@ -397,6 +402,20 @@ export function ThreadView({
         <Text className="min-w-0 flex-1 text-sm text-muted" numberOfLines={1}>
           Archived by {nameOf(lorSession.archivedById)}
         </Text>
+        <Button
+          onPress={() =>
+            updateSession.mutate({
+              workspaceId: lorSession.workspaceId,
+              channelId: lorSession.channelId,
+              sessionId: lorSession.id,
+              archived: false,
+            })
+          }
+          size="sm"
+          variant="ghost"
+        >
+          Unarchive
+        </Button>
       </View>
     </View>
   ) : null
@@ -504,6 +523,19 @@ export function ThreadView({
           workspaceSlug={workspace.slug}
         />
       )}
+      {lorSession ? (
+        <IconButton
+          accessibilityLabel="Session actions"
+          onPress={() => setIsActionsOpen(true)}
+          variant="ghost"
+        >
+          <SymbolView
+            name={{ ios: "ellipsis", android: "more_horiz", web: "more_horiz" }}
+            size={20}
+            tintColor={foreground}
+          />
+        </IconButton>
+      ) : null}
     </View>
   )
 
@@ -687,6 +719,14 @@ export function ThreadView({
           ) : null
         }
       />
+      {lorSession ? (
+        <SessionActionsSheet
+          isOpen={isActionsOpen}
+          lorRunning={Boolean(pendingLorMessage)}
+          onOpenChange={setIsActionsOpen}
+          session={lorSession}
+        />
+      ) : null}
       <UserProfileSheet
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}

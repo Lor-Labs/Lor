@@ -160,7 +160,12 @@ function SubscribersSheet({
     <BottomSheet isOpen={isOpen} onOpenChange={onOpenChange}>
       <BottomSheet.Portal unstable_accessibilityContainerViewIsModal>
         <BottomSheet.Overlay className="bg-neutral-950/50" />
-        <BottomSheet.Content enableDynamicSizing={false} snapPoints={["70%"]}>
+        <BottomSheet.Content
+          enableDynamicSizing={false}
+          keyboardBehavior="interactive"
+          keyboardBlurBehavior="restore"
+          snapPoints={["70%", "92%"]}
+        >
           <View className="flex-row items-start gap-three px-one pb-three">
             <View className="min-w-0 flex-1 gap-px">
               <BottomSheet.Title>Subscribers</BottomSheet.Title>
