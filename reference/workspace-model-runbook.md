@@ -1336,7 +1336,7 @@ As built (2026-10-11):
 
 #### Step 32: Details sheet (~320)
 
-[ ] built (details done; proposal card next) · [ ] committed
+[x] built · [ ] committed
 
 - Context link (needs message-location navigation), plan, files from Lor's
   tool calls, proposals in the redesigned card.
@@ -1349,9 +1349,17 @@ it was said via `lib/message-location.ts`), Plan (steps and done count, or
 version first, then plan artifacts they don't cover, then attachments; each
 opens in the in-app browser), then Rename and Archive / Unarchive. Sessions
 no longer show the thread work strip: plan and files live in the sheet,
-approvals inline on Lor's replies, tool activity on the replies. Still to
-do: the phone's proposal card is the pre-redesign one (web redesigned it
-2026-10-09, `4c681ad5`).
+approvals inline on Lor's replies, tool activity on the replies.
+
+Proposal card (second chunk): `components/proposal-card.tsx` follows web's
+2026-10-09 redesign (`4c681ad5`): one framed card, each change a row with a
+32pt icon tile (tick when applied, alert on error) and names in code style,
+details in two lines, instructions, secret inputs, results; a reject or
+failure note quoted under the changes; Lor's reason and favicon source
+badges (through `/v1/favicon`) behind "Why"; one action row with the status
+mark and text ("Needs your approval", "Applying", "Approved by …") and
+Reject / Approve. Approve and reject are optimistic now
+(`use-proposals.ts`), so the reject note box closes at once.
 
 #### Step 33: forward, typing, hints (~300)
 
