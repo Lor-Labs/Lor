@@ -809,6 +809,7 @@ export function SharedSessionScene({ workspaceName, you, onDone }: SceneProps) {
                 channelName="engineering"
                 toLor={phase < 3}
                 pinged={[]}
+                subscribers={[{ id: "rafael", ...RAFAEL, avatarColor: null }]}
               />
             )
           }
