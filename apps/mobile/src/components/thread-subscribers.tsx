@@ -10,6 +10,7 @@ import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { Fragment, useMemo, useState } from "react"
 import { Pressable, Text, View } from "react-native"
+import { KeyboardController } from "react-native-keyboard-controller"
 import { Avatar } from "@/components/ui/avatar"
 import { triggerHaptic } from "@/components/ui/haptics"
 import {
@@ -164,6 +165,13 @@ function SubscribersSheet({
           enableDynamicSizing={false}
           keyboardBehavior="interactive"
           keyboardBlurBehavior="restore"
+          // The composer's keyboard would cover the list.
+          onAnimate={(fromIndex, toIndex) => {
+            if (fromIndex !== -1 || toIndex < 0) return
+            requestAnimationFrame(() => {
+              void KeyboardController.dismiss().catch(() => undefined)
+            })
+          }}
           snapPoints={["70%", "92%"]}
         >
           <View className="flex-row items-start gap-three px-one pb-three">

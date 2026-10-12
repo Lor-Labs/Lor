@@ -8,6 +8,7 @@ import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
+import { KeyboardController } from "react-native-keyboard-controller"
 import { Button } from "@/components/ui/button"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { useUpdateAgentSession } from "@/hooks/use-agent-session"
@@ -77,6 +78,13 @@ export function SessionActionsSheet({
           enableDynamicSizing={false}
           keyboardBehavior="interactive"
           keyboardBlurBehavior="restore"
+          // The composer's keyboard would cover the actions.
+          onAnimate={(fromIndex, toIndex) => {
+            if (fromIndex !== -1 || toIndex < 0) return
+            requestAnimationFrame(() => {
+              void KeyboardController.dismiss().catch(() => undefined)
+            })
+          }}
           snapPoints={["40%"]}
         >
           <View className="flex-row items-start gap-three px-one pb-four">

@@ -12,6 +12,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useState } from "react"
 import { Pressable, Text, View } from "react-native"
+import { KeyboardController } from "react-native-keyboard-controller"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import { MessageComposer } from "@/components/message-composer"
 import { messageDisplayName } from "@/components/message-row"
@@ -364,7 +365,17 @@ function ChannelPickerSheet({
     <BottomSheet isOpen={isOpen} onOpenChange={onOpenChange}>
       <BottomSheet.Portal unstable_accessibilityContainerViewIsModal>
         <BottomSheet.Overlay className="bg-neutral-950/50" />
-        <BottomSheet.Content enableDynamicSizing={false} snapPoints={["55%"]}>
+        <BottomSheet.Content
+          enableDynamicSizing={false}
+          // The composer's keyboard would cover the list.
+          onAnimate={(fromIndex, toIndex) => {
+            if (fromIndex !== -1 || toIndex < 0) return
+            requestAnimationFrame(() => {
+              void KeyboardController.dismiss().catch(() => undefined)
+            })
+          }}
+          snapPoints={["55%"]}
+        >
           <View className="flex-row items-center px-one pb-three">
             <BottomSheet.Title className="flex-1">Channel</BottomSheet.Title>
             <BottomSheet.Close />
