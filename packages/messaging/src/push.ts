@@ -497,7 +497,7 @@ export async function sendSubscribedPush(input: {
 }
 
 // Lor finished a call's summary: everyone who was in the call, like a
-// mention. Phones open the call's chat until they have a Summary tab.
+// mention. Phones open the call on its Summary tab.
 export async function sendCallSummaryPush(input: {
   userIds: string[]
   notification: CallSummaryNotification

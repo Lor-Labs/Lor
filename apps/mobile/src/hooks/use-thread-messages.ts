@@ -57,6 +57,8 @@ export type ThreadSnapshot = {
   // Set when the thread is a call's chat; the title once Lor summarized it.
   voiceSessionId: string | null
   voiceSessionTitle: string | null
+  // The call has ended, so it has a Summary tab.
+  voiceSessionEnded: boolean
 }
 
 function participantsFromMessages(
@@ -105,6 +107,7 @@ export function useThreadMessages({
   const [voiceSessionTitle, setVoiceSessionTitle] = useState<string | null>(
     null
   )
+  const [voiceSessionEnded, setVoiceSessionEnded] = useState(false)
   const [totalReplyCount, setTotalReplyCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -263,6 +266,7 @@ export function useThreadMessages({
           setParticipants(nextParticipants)
           setVoiceSessionId(payload.voiceSessionId)
           setVoiceSessionTitle(payload.voiceSessionTitle)
+          setVoiceSessionEnded(payload.voiceSessionEnded)
           beforeCursorRef.current = payload.beforeCursor
           setReachedOldest(payload.reachedOldest)
           setTotalReplyCount(nextTotalReplyCount)
@@ -277,6 +281,7 @@ export function useThreadMessages({
               reachedOldest: payload.reachedOldest,
               voiceSessionId: payload.voiceSessionId,
               voiceSessionTitle: payload.voiceSessionTitle,
+              voiceSessionEnded: payload.voiceSessionEnded,
             })
           }
           return { data: payload.data, root: payload.root ?? null }
@@ -330,6 +335,7 @@ export function useThreadMessages({
     setParticipants(cached?.participants ?? [])
     setVoiceSessionId(cached?.voiceSessionId ?? null)
     setVoiceSessionTitle(cached?.voiceSessionTitle ?? null)
+    setVoiceSessionEnded(cached?.voiceSessionEnded ?? false)
     setTotalReplyCount(cached?.totalReplyCount ?? 0)
     setIsRefreshing(false)
     setIsLoadingOlder(false)
@@ -1129,6 +1135,7 @@ export function useThreadMessages({
     participants,
     voiceSessionId,
     voiceSessionTitle,
+    voiceSessionEnded,
     totalReplyCount,
     isLoading,
     isRefreshing,

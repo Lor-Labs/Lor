@@ -1166,13 +1166,33 @@ As built (2026-10-11):
 
 #### Step 26: call Summary tab (~250)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - Summary tab from the session-keyed routes (read-only); the lobby opens
   Summary for ended calls (`voice-lobby.tsx:522-526` keys off
   `hasSummaryCard`, false for new calls); the `call_summary` push opens it.
 - The old card route (`/voice/summary-cards/{messageId}`) is only needed for
   calls from before Step 18.
+
+As built (2026-10-11):
+
+- `CallTab` = summary | chat | transcript (`thread-view.tsx`), web's rule:
+  an unset tab is Summary for an ended call, else Chat; Summary shows only
+  once the call has ended (`voiceSessionEnded`, now kept by
+  `useThreadMessages`). The call drawer stays Chat | Transcript. Read
+  marking runs only on Chat.
+- `CallSummaryPanel` (`voice/call-summary-card.tsx`) is the tab body, read
+  only, on `useCallSummary` (`["voice-summary", sessionId]`, same key as
+  web, refetched by voice pushes): day, length and faces, then the summary,
+  "Lor is writing the summary…" before processing, or "Lor didn't write a
+  summary for this call." Rows with a time switch to the Transcript tab
+  there. It shares one body with the old `CallSummaryCard`.
+- Old summary cards are filtered out of call chats, like web; the card (and
+  its route) stays for pins and search.
+- Lobby: past calls open on Summary when titled, else Chat when people
+  wrote, else Transcript; the phone no longer reads `hasSummaryCard`.
+- The `call_summary` push opens the call on Summary (`push-target.ts`
+  `tab`); the server comment in `push.ts` updated.
 
 #### Step 27: approvals and forwards (~250)
 

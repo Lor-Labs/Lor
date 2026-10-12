@@ -28,6 +28,7 @@ import { IconButton } from "@/components/ui/icon-button"
 import { StatePanel } from "@/components/ui/state-panel"
 import { Tabs } from "@/components/ui/tabs"
 import { UserProfileSheet } from "@/components/user-profile-sheet"
+import { CallSummaryPanel } from "@/components/voice/call-summary-card"
 import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
@@ -50,6 +51,9 @@ import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-can
 import type { AgentSession, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
+// A call's chat: Summary (ended calls only), Chat, Transcript.
+export type CallTab = "summary" | "chat" | "transcript"
+
 const titleFadeIn = FadeIn.duration(160)
 const titleFadeOut = FadeOut.duration(120)
 
@@ -62,7 +66,7 @@ export type ThreadViewProps = {
   // the chat shows.
   embedded?: boolean
   focusMessageId?: string
-  tab?: "chat" | "transcript"
+  tab?: CallTab
   threadRootId: string
   // A Lor session's transcript.
   session?: AgentSession
@@ -117,6 +121,18 @@ export function ThreadView({
     deferLoad: sessionPending,
     sessionStart: startsSessions ? sessionStart : undefined,
   })
+  // A call's chat: an unset tab means Summary for an ended call, else Chat;
+  // Summary shows only once the call has ended. The call drawer is chat only.
+  const voiceSessionId = thread.voiceSessionId
+  const hasSummary = thread.voiceSessionEnded
+  const callTab: CallTab =
+    !voiceSessionId || embedded
+      ? "chat"
+      : tab === "transcript" || tab === "chat"
+        ? tab
+        : hasSummary
+          ? "summary"
+          : "chat"
   useAutoMarkRead(channelId)
   const newestReply = thread.messages[0]
   useMarkThreadRead({
@@ -124,7 +140,7 @@ export function ThreadView({
     channelId,
     threadRootId,
     newestKey: newestReply ? `${newestReply.id}:${newestReply.status}` : null,
-    enabled: !sessionPending && tab !== "transcript",
+    enabled: !sessionPending && callTab === "chat",
   })
   // Approval cards in this thread read the channel-approvals cache; the
   // socket handlers live here so a thread opened directly stays live too.
@@ -154,10 +170,16 @@ export function ThreadView({
     [queuedIds, thread.messages]
   )
   // Queued messages live only in the composer's queue pill until the drain
-  // releases them — the transcript skips them (Codex model).
+  // releases them — the transcript skips them (Codex model). An old call's
+  // summary card leaves its chat: the Summary tab shows it.
   const visibleMessages = useMemo(
-    () => thread.messages.filter((message) => !queuedIds.includes(message.id)),
-    [thread.messages, queuedIds]
+    () =>
+      thread.messages.filter(
+        (message) =>
+          !queuedIds.includes(message.id) &&
+          !(voiceSessionId && message.type === "call_summary")
+      ),
+    [thread.messages, queuedIds, voiceSessionId]
   )
   const { typingUsers, emitTyping } = useTypingIndicator({
     socket,
@@ -377,23 +399,30 @@ export function ThreadView({
       </View>
     </View>
   ) : null
-  // A call's chat also holds its transcript.
-  const voiceSessionId = thread.voiceSessionId
-  const showTranscript = tab === "transcript" && voiceSessionId !== null
+  // A call's chat also holds its summary and transcript.
+  const showTranscript = callTab === "transcript"
+  const showSummary = callTab === "summary"
+  const showCallRecord = showTranscript || showSummary
   const callTabs =
     voiceSessionId && !embedded ? (
       <View className="border-b border-separator px-four py-two">
         <Tabs
           onValueChange={(value) =>
             router.setParams({
-              tab: value === "transcript" ? "transcript" : "chat",
+              tab:
+                value === "transcript" || value === "summary" ? value : "chat",
               at: undefined,
             })
           }
-          value={showTranscript ? "transcript" : "chat"}
+          value={callTab}
         >
           <Tabs.List>
             <Tabs.Indicator />
+            {hasSummary ? (
+              <Tabs.Trigger value="summary">
+                <Tabs.Label>Summary</Tabs.Label>
+              </Tabs.Trigger>
+            ) : null}
             <Tabs.Trigger value="chat">
               <Tabs.Label>Chat</Tabs.Label>
             </Tabs.Trigger>
@@ -469,7 +498,7 @@ export function ThreadView({
     <>
       {header}
       {callTabs}
-      {showWorkHeader && !showTranscript ? (
+      {showWorkHeader && !showCallRecord ? (
         <ThreadWorkHeader
           activityMessage={activityMessage}
           channelId={channelId}
@@ -484,7 +513,7 @@ export function ThreadView({
           onInputLayout,
         }) =>
           archivedBar ??
-          (isReady && !thread.isMissing && !thread.error && !showTranscript ? (
+          (isReady && !thread.isMissing && !thread.error && !showCallRecord ? (
             <MessageComposer
               accessibilityLabel={lorSession ? "Reply" : "Reply in thread"}
               currentUserId={session?.user.id}
@@ -563,7 +592,9 @@ export function ThreadView({
           ) : null)
         }
         renderMessageList={(keyboardProps) =>
-          showTranscript ? (
+          showSummary && voiceSessionId ? (
+            <CallSummaryPanel sessionId={voiceSessionId} />
+          ) : showTranscript && voiceSessionId ? (
             <CallTranscript
               // A new moment remounts, so it scrolls again.
               atMs={at && /^\d+$/.test(at) ? Number(at) : undefined}
@@ -638,7 +669,7 @@ export function ThreadView({
           )
         }
         typingIndicator={
-          isReady && !thread.isMissing && !thread.error && !showTranscript ? (
+          isReady && !thread.isMissing && !thread.error && !showCallRecord ? (
             <TypingIndicator users={typingUsers} />
           ) : null
         }

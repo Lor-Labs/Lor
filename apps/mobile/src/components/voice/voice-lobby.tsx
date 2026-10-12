@@ -29,6 +29,7 @@ import {
 } from "react-native"
 import { MentionBadge } from "@/components/channel-list"
 import { HintCard } from "@/components/hint-card"
+import type { CallTab } from "@/components/thread-view"
 import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { triggerHaptic } from "@/components/ui/haptics"
@@ -443,7 +444,7 @@ export function VoiceLobby({
   workspaceId: string | undefined
   joining: boolean
   onJoin: (devices: JoinDevices) => void
-  onOpenCall: (threadRootId: string, tab: "chat" | "transcript") => void
+  onOpenCall: (threadRootId: string, tab: CallTab) => void
   // This phone is in a call in another channel.
   otherCallName: string | undefined
 }) {
@@ -520,8 +521,11 @@ export function VoiceLobby({
           <View>
             {past.map((session) => {
               const threadRootId = session.threadRootId
-              const tab =
-                session.hasSummaryCard || session.replyCount > 0
+              // Summary when Lor wrote one, else Chat when people wrote,
+              // else Transcript (web's order).
+              const tab: CallTab = session.title
+                ? "summary"
+                : session.replyCount > 0
                   ? "chat"
                   : "transcript"
               return (

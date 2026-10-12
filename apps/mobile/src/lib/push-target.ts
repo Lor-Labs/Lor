@@ -5,6 +5,8 @@ export type PushTarget =
       workspaceId: string | null
       threadRootId: string | null
       messageId: string | null
+      // A call summary push opens the call on its Summary tab.
+      tab?: "summary"
     }
   | {
       kind: "instructions-proposal"
@@ -34,5 +36,6 @@ export function parsePushTarget(
     threadRootId:
       typeof data.threadRootId === "string" ? data.threadRootId : null,
     messageId: typeof data.messageId === "string" ? data.messageId : null,
+    ...(data.type === "call_summary" ? { tab: "summary" as const } : {}),
   }
 }

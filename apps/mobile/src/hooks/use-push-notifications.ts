@@ -105,6 +105,7 @@ export function usePushNotifications() {
             channelId: target.channelId,
             threadRootId: target.threadRootId,
             ...(target.messageId ? { focusMessageId: target.messageId } : {}),
+            ...(target.tab ? { tab: target.tab } : {}),
           },
         } as never)
       } else {

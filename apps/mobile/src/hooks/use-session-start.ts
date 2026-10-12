@@ -134,6 +134,7 @@ export function useSessionStart(
       reachedOldest: true,
       voiceSessionId: null,
       voiceSessionTitle: null,
+      voiceSessionEnded: false,
     })
     openSession(start.id, replace)
   }
