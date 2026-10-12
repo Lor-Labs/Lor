@@ -1413,7 +1413,7 @@ port of web's desktop ones: `components/how-lor-works-scenes.tsx` draws the
 top of a phone, with no cursor. Chat: three messages arrive in
 #engineering. Session start: "@Lor why did…" types out over "New session in
 #engineering", then the session opens with the question, its context chip,
-Lor reading and the answer. Shared: Tomás joins and replies, you type a
+Lor reading and the answer. Shared: Rafael joins and replies, you type a
 reply, and "To Lor" flips to "To" with his face, so your turn lands muted.
 The scenes reuse the real `DestinationBar`, so they show the subscriber
 faces. Reduced motion shows each scene's last frame. Follow-up (Jacob,

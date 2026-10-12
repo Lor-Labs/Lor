@@ -25,13 +25,15 @@ import { TypewriterText } from "@/components/ui/typewriter-text"
 export type ScenePerson = { name: string; image: string | null }
 export type SceneProps = { workspaceName: string; you: ScenePerson }
 
-const MAYA: ScenePerson = { name: "Maya Okafor", image: null }
-const TOMAS: ScenePerson = { name: "Tomás Reyes", image: null }
+// DiceBear Lorelei (CC0), downloaded once into public/tour; the phone
+// bundles the same files.
+const ZOE: ScenePerson = { name: "Zoe Brandt", image: "/tour/zoe.png" }
+const RAFAEL: ScenePerson = { name: "Rafael Ortiz", image: "/tour/rafael.png" }
 const SESSION_TITLE = "Last night's deploy failure"
 const QUESTION = " why did last night's deploy fail?"
-// Names Maya's message from the chat, so the answer shows Lor read it.
+// Names Zoe's message from the chat, so the answer shows Lor read it.
 const LOR_ANSWER =
-  "A migration timed out on the invoices table. Maya's billing fix adds the missing index."
+  "A migration timed out on the invoices table. Zoe's billing fix adds the missing index."
 
 const appear = {
   initial: { opacity: 0, y: 6, filter: "blur(2px)" },
@@ -325,15 +327,15 @@ const WELCOME_DRAFT =
   "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
 const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4500, 5300] as const
 
-// The tour's first step: a team working with Lor in one session. Maya asks,
-// Lor drafts while its cursor writes, Tomás reacts, you approve the post.
+// The tour's first step: a team working with Lor in one session. Zoe asks,
+// Lor drafts while its cursor writes, Rafael reacts, you approve the post.
 // Lor has no live cursors yet; this shows the idea. Rows have fixed heights
 // so each cursor's tip (px from the card's top-left, per phase) lands on its
 // target.
 export function WelcomeScene({ you }: SceneProps) {
   const phase = usePhase(WELCOME_TIMES)
   const asking = phase >= 1 && phase < 3
-  const maya: readonly [number, number] =
+  const zoe: readonly [number, number] =
     phase >= 3 ? [380, 70] : phase >= 1 ? [28, 222] : [-170, 230]
   const lor: readonly [number, number] =
     phase >= 7
@@ -343,7 +345,7 @@ export function WelcomeScene({ you }: SceneProps) {
         : phase >= 3
           ? [40, 92]
           : [520, 20]
-  const tomas: readonly [number, number] =
+  const rafael: readonly [number, number] =
     phase >= 7 ? [-60, 120] : phase >= 5 ? [52, 138] : [-170, 60]
   const yours: readonly [number, number] = phase >= 5 ? [317, 170] : [240, 330]
   return (
@@ -354,8 +356,8 @@ export function WelcomeScene({ you }: SceneProps) {
             Launch post
           </span>
           <div className="flex -space-x-1.5">
-            <PersonAvatar person={MAYA} />
-            <PersonAvatar person={TOMAS} />
+            <PersonAvatar person={ZOE} />
+            <PersonAvatar person={RAFAEL} />
             <PersonAvatar person={you} />
           </div>
         </div>
@@ -363,7 +365,7 @@ export function WelcomeScene({ you }: SceneProps) {
           <div className="h-7">
             {phase >= 3 && (
               <motion.div {...appear} className="flex items-center gap-2">
-                <PersonAvatar person={MAYA} />
+                <PersonAvatar person={ZOE} />
                 <span className="text-foreground/90">
                   <LorChip />
                   {WELCOME_ASK}
@@ -441,9 +443,9 @@ export function WelcomeScene({ you }: SceneProps) {
             <span className="text-muted-foreground">Reply…</span>
           )}
         </div>
-        <SceneCursor name="Maya" colors={COLOR_ROSE} at={maya} />
+        <SceneCursor name="Zoe" colors={COLOR_ROSE} at={zoe} />
         <SceneCursor name="Lor" colors={LOR_CURSOR} at={lor} />
-        <SceneCursor name="Tomás" colors={COLOR_EMERALD} at={tomas} />
+        <SceneCursor name="Rafael" colors={COLOR_EMERALD} at={rafael} />
         <SceneCursor
           name={you.name.split(" ")[0] ?? "You"}
           colors={COLOR_BLUE}
@@ -465,12 +467,12 @@ export function ChatScene({ workspaceName, you }: SceneProps) {
         <div className="border-b px-3 py-2 font-semibold"># engineering</div>
         <div className="flex flex-1 flex-col justify-end gap-3 px-3 pb-3">
           {phase >= 1 && (
-            <MiniMessage person={MAYA}>
+            <MiniMessage person={ZOE}>
               Deploy is green. Shipping the billing fix after lunch.
             </MiniMessage>
           )}
           {phase >= 2 && (
-            <MiniMessage person={TOMAS}>
+            <MiniMessage person={RAFAEL}>
               Nice, I'll keep an eye on error rates.
             </MiniMessage>
           )}
@@ -543,10 +545,10 @@ export function SessionStartScene({ workspaceName, you }: SceneProps) {
             readingChat ? "bg-agent/8 ring-agent/25" : "ring-transparent"
           )}
         >
-          <MiniMessage person={MAYA}>
+          <MiniMessage person={ZOE}>
             Deploy is green. Shipping the billing fix after lunch.
           </MiniMessage>
-          <MiniMessage person={TOMAS}>
+          <MiniMessage person={RAFAEL}>
             Nice, I'll keep an eye on error rates.
           </MiniMessage>
         </div>
@@ -676,7 +678,7 @@ export function SharedSessionScene({ workspaceName, you }: SceneProps) {
             <AnimatePresence>
               {phase >= 1 && (
                 <motion.div {...appear}>
-                  <PersonAvatar person={TOMAS} />
+                  <PersonAvatar person={RAFAEL} />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -688,7 +690,9 @@ export function SharedSessionScene({ workspaceName, you }: SceneProps) {
             <p className="text-foreground/90">{LOR_ANSWER}</p>
           </div>
           {phase >= 1 && (
-            <MiniMessage person={TOMAS}>Can you check staging too?</MiniMessage>
+            <MiniMessage person={RAFAEL}>
+              Can you check staging too?
+            </MiniMessage>
           )}
           {phase >= 4 && (
             <MiniMessage person={you} muted>

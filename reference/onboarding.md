@@ -775,8 +775,8 @@ on top, the step text under it, step dots and Back/Next at the bottom.
   (no "pill"): step 2 says ⌘N on desktop and New session in the sidebar on
   the web. Since 2026-10-12 (Jacob) a "Welcome to Lor" step comes first: a
   session the team works in at once, each with a named cursor (people in
-  avatar palette colors, Lor in the agent color). Maya asks @Lor for the
-  launch post, Lor drafts it while its cursor writes, Tomás reacts, and you
+  avatar palette colors, Lor in the agent color). Zoe asks @Lor for the
+  launch post, Lor drafts it while its cursor writes, Rafael reacts, and you
   approve "Post to #announcements?". A doc version was dropped: Lor has no
   docs, and it didn't show people working with an AI. One line of pitch
   under it. Lor has no live cursors yet; Jacob wants the multiplayer point made,
@@ -793,7 +793,19 @@ on top, the step text under it, step dots and Back/Next at the bottom.
   Lor's "Working…" row and its answer typing out. Channel context: the send
   lights up the chat messages, the question carries a "# engineering · 2
   messages" chip (like the Details panel's Context link), Lor's row reads
-  "Reading #engineering…", and the answer names Maya's fix from the chat.
+  "Reading #engineering…", and the answer names Zoe's fix from the chat.
+  The people are Zoe Brandt and Rafael Ortiz with cartoon avatars (Jacob,
+  2026-10-12): DiceBear Lorelei, CC0, downloaded once as 256px PNGs into
+  web's `public/tour` and the phone's `assets/images/tour`; nothing calls
+  DiceBear at runtime. Black and white (Jacob): a white fill, which also
+  keeps the black line art visible in dark mode. Zoe:
+  `10.x/lorelei/png?seed=zoe-3&beardProbability=0&backgroundColor=ffffff&size=256`.
+  Rafael: `10.x/lorelei/png?seed=rafael-8&backgroundColor=ffffff&size=256`.
+  You keep your own photo or initials; a cartoon "you" was tried and
+  dropped (Jacob).
+  Lorelei faces vary a lot per seed (beards, androgynous looks), so pick by
+  eye. Before that they were Maya and Tomás with initials (Notionists was
+  tried first).
   Step 1's copy says Lor reads the chat; a shared session where a teammate joins and replies
   to Lor, then the pill switches to "To subscribers" and that turn lands
   muted. The mini sidebar uses the real workspace name, and "you" is the

@@ -4,7 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react-native"
 import { AVATAR_COLOR_STYLES } from "@repo/utils/avatar-colors"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useEffect, useState } from "react"
-import { Text, View } from "react-native"
+import { Image, Text, View } from "react-native"
 import Animated, {
   Easing,
   FadeIn,
@@ -24,6 +24,8 @@ import {
 import { TypewriterText } from "@/components/typewriter-text"
 import { Avatar } from "@/components/ui/avatar"
 import { LorMark } from "@/components/voice/lor-window"
+import rafaelAvatar from "../../assets/images/tour/rafael.png"
+import zoeAvatar from "../../assets/images/tour/zoe.png"
 
 // Small animated mockups of the phone app for the How Lor works sheet. Each
 // scene plays once when its step opens and holds its last frame. Mirrors
@@ -32,19 +34,25 @@ import { LorMark } from "@/components/voice/lor-window"
 export type ScenePerson = { name: string; image: string | null }
 export type SceneProps = { you: ScenePerson }
 
-const MAYA: ScenePerson = { name: "Maya Okafor", image: null }
-const TOMAS: ScenePerson = { name: "Tomás Reyes", image: null }
-const TOMAS_FACE: PingedPerson = {
-  id: "tomas",
-  name: TOMAS.name,
-  image: null,
+// DiceBear Lorelei (CC0), the same files as web's public/tour.
+const ZOE: ScenePerson = {
+  name: "Zoe Brandt",
+  image: Image.resolveAssetSource(zoeAvatar).uri,
+}
+const RAFAEL: ScenePerson = {
+  name: "Rafael Ortiz",
+  image: Image.resolveAssetSource(rafaelAvatar).uri,
+}
+const RAFAEL_FACE: PingedPerson = {
+  id: "rafael",
+  ...RAFAEL,
   avatarColor: null,
 }
 const SESSION_TITLE = "Last night's deploy failure"
 const QUESTION = " why did last night's deploy fail?"
-// Names Maya's message from the chat, so the answer shows Lor read it.
+// Names Zoe's message from the chat, so the answer shows Lor read it.
 const LOR_ANSWER =
-  "A migration timed out on the invoices table. Maya's billing fix adds the missing index."
+  "A migration timed out on the invoices table. Zoe's billing fix adds the missing index."
 const PEOPLE_REPLY = "Looks good to me, let's ship it."
 
 const appear = FadeInDown.duration(250)
@@ -239,8 +247,8 @@ const WELCOME_DRAFT =
   "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
 const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4500, 5300] as const
 
-// The tour's first step: a team working with Lor in one session. Maya asks,
-// Lor drafts while its cursor writes, Tomás reacts, you approve the post.
+// The tour's first step: a team working with Lor in one session. Zoe asks,
+// Lor drafts while its cursor writes, Rafael reacts, you approve the post.
 // Lor has no live cursors yet; this shows the idea. Rows have fixed heights
 // so each cursor's tip (pt from the card's top-left, per phase) lands on its
 // target.
@@ -252,7 +260,7 @@ export function WelcomeScene({ you }: SceneProps) {
     "muted",
   ])
   const asking = phase >= 1 && phase < 3
-  const maya = phase >= 3 ? [298, 60] : phase >= 1 ? [24, 186] : [-80, 190]
+  const zoe = phase >= 3 ? [298, 60] : phase >= 1 ? [24, 186] : [-80, 190]
   const lor =
     phase >= 7
       ? [300, 120]
@@ -261,7 +269,7 @@ export function WelcomeScene({ you }: SceneProps) {
         : phase >= 3
           ? [34, 78]
           : [330, 10]
-  const tomas = phase >= 7 ? [-20, 110] : phase >= 5 ? [48, 122] : [-80, 60]
+  const rafael = phase >= 7 ? [-20, 110] : phase >= 5 ? [48, 122] : [-80, 60]
   const yours = phase >= 5 ? [251, 150] : [200, 260]
   return (
     <View className="absolute inset-0 items-center justify-center">
@@ -274,7 +282,7 @@ export function WelcomeScene({ you }: SceneProps) {
             Launch post
           </Text>
           <View className="flex-row">
-            {[MAYA, TOMAS, you].map((person, index) => (
+            {[ZOE, RAFAEL, you].map((person, index) => (
               <Avatar
                 className={index === 0 ? "size-5" : "-ml-one size-5"}
                 image={person.image}
@@ -292,7 +300,7 @@ export function WelcomeScene({ you }: SceneProps) {
                 className="flex-row items-center gap-two"
                 entering={appear}
               >
-                <PersonAvatar person={MAYA} />
+                <PersonAvatar person={ZOE} />
                 <Text className="min-w-0 flex-1 text-[11px] text-foreground">
                   <LorChip />
                   {WELCOME_ASK}
@@ -378,7 +386,7 @@ export function WelcomeScene({ you }: SceneProps) {
             )}
           </Text>
         </View>
-        <SceneCursor colors={COLOR_ROSE} name="Maya" x={maya[0]} y={maya[1]} />
+        <SceneCursor colors={COLOR_ROSE} name="Zoe" x={zoe[0]} y={zoe[1]} />
         <SceneCursor
           colors={{ background: accent, foreground: accentForeground }}
           name="Lor"
@@ -387,9 +395,9 @@ export function WelcomeScene({ you }: SceneProps) {
         />
         <SceneCursor
           colors={COLOR_EMERALD}
-          name="Tomás"
-          x={tomas[0]}
-          y={tomas[1]}
+          name="Rafael"
+          x={rafael[0]}
+          y={rafael[1]}
         />
         <SceneCursor
           colors={COLOR_BLUE}
@@ -411,12 +419,12 @@ export function ChatScene({ you }: SceneProps) {
       <MiniHeader title="# engineering" />
       <View className="flex-1 justify-end gap-three px-three pb-three">
         {phase >= 1 ? (
-          <MiniMessage person={MAYA}>
+          <MiniMessage person={ZOE}>
             Deploy is green. Shipping the billing fix after lunch.
           </MiniMessage>
         ) : null}
         {phase >= 2 ? (
-          <MiniMessage person={TOMAS}>
+          <MiniMessage person={RAFAEL}>
             Nice, I'll keep an eye on error rates.
           </MiniMessage>
         ) : null}
@@ -445,10 +453,10 @@ export function SessionStartScene({ you }: SceneProps) {
     <>
       <MiniHeader title="# engineering" />
       <View className="flex-1 justify-end gap-three px-three pb-three">
-        <MiniMessage person={MAYA}>
+        <MiniMessage person={ZOE}>
           Deploy is green. Shipping the billing fix after lunch.
         </MiniMessage>
-        <MiniMessage person={TOMAS}>
+        <MiniMessage person={RAFAEL}>
           Nice, I'll keep an eye on error rates.
         </MiniMessage>
       </View>
@@ -543,7 +551,7 @@ export function SharedSessionScene({ you }: SceneProps) {
             <PersonAvatar person={you} />
             {phase >= 1 ? (
               <Animated.View className="-ml-one" entering={appear}>
-                <PersonAvatar person={TOMAS} />
+                <PersonAvatar person={RAFAEL} />
               </Animated.View>
             ) : null}
           </View>
@@ -560,7 +568,7 @@ export function SharedSessionScene({ you }: SceneProps) {
           </Text>
         </View>
         {phase >= 1 ? (
-          <MiniMessage named={false} person={TOMAS}>
+          <MiniMessage named={false} person={RAFAEL}>
             Can you check staging too?
           </MiniMessage>
         ) : null}
@@ -577,7 +585,7 @@ export function SharedSessionScene({ you }: SceneProps) {
               channelName="engineering"
               destination="session"
               pinged={[]}
-              subscribers={[TOMAS_FACE]}
+              subscribers={[RAFAEL_FACE]}
               toLor={phase < 3}
             />
           ) : null
