@@ -169,6 +169,7 @@ export function ThreadView({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
     channelAudience: channelState.channel?.audience,
+    broadcasts: !lorSession,
   })
   const avatarColorByUserId = useMemo(
     () =>
@@ -486,7 +487,10 @@ export function ThreadView({
           (isReady && !thread.isMissing && !thread.error && !showTranscript ? (
             <MessageComposer
               accessibilityLabel={lorSession ? "Reply" : "Reply in thread"}
-              destination={startsSessions ? "thread" : undefined}
+              currentUserId={session?.user.id}
+              destination={
+                lorSession ? "session" : startsSessions ? "thread" : undefined
+              }
               initialDraft={composerDraft}
               channelId={channelId}
               channelName={channelName}
@@ -514,23 +518,28 @@ export function ThreadView({
                   setIsSavingEdit(false)
                 }
               }}
-              onSend={async (content, attachments) => {
+              onSend={async (content, attachments, { toPeople }) => {
                 // Lor is mid-answer in this thread, so the reply will
                 // queue — show it in the pill immediately instead of waiting
                 // for the routed round trip. A failed send drops the nonce
                 // again, so a late created echo can't hide the real message.
+                // A message for the subscribers only never queues for Lor.
                 let nonce: string | undefined
                 try {
                   await thread.sendMessage(
                     content,
                     replyingTo ?? undefined,
                     attachments,
-                    pendingLorMessageId
-                      ? (id) => {
-                          nonce = id
-                          addOptimistic(id)
-                        }
-                      : undefined
+                    {
+                      onOptimistic:
+                        pendingLorMessageId && !toPeople
+                          ? (id) => {
+                              nonce = id
+                              addOptimistic(id)
+                            }
+                          : undefined,
+                      toPeople,
+                    }
                   )
                 } catch (error) {
                   if (nonce) removeOptimistic(nonce)
@@ -542,10 +551,13 @@ export function ThreadView({
               placeholder={lorSession ? "Reply…" : "Reply in thread"}
               replyingTo={replyingTo}
               topAccessory={
-                <RunQueuePill
-                  currentUserId={session?.user.id}
-                  messages={queuedMessages}
-                />
+                // A session lists its queued turns in the transcript.
+                lorSession ? undefined : (
+                  <RunQueuePill
+                    currentUserId={session?.user.id}
+                    messages={queuedMessages}
+                  />
+                )
               }
             />
           ) : null)
@@ -585,6 +597,16 @@ export function ThreadView({
               heading={sessionHeading}
               onHeadingVisibleChange={setHeadingVisible}
               resolveUserName={(userId) => memberById(userId)?.name}
+              layout={lorSession ? "document" : "chat"}
+              footer={
+                lorSession ? (
+                  <RunQueuePill
+                    currentUserId={session?.user.id}
+                    messages={queuedMessages}
+                    variant="document"
+                  />
+                ) : undefined
+              }
               currentUserId={session?.user.id}
               editingMessageId={editingMessage?.id}
               focusMessageId={focusMessageId}

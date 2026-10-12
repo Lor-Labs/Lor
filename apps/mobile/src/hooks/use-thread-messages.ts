@@ -762,10 +762,17 @@ export function useThreadMessages({
       content: string,
       referencedMessage?: Message,
       attachments: NonNullable<Message["attachments"]> = [],
-      // Invoked with the optimistic reply's id (the send nonce) before the
-      // socket round trip — lets callers mirror the send into other
-      // optimistic state (e.g. the run queue pill).
-      onOptimistic?: (id: string) => void
+      {
+        onOptimistic,
+        toPeople = false,
+      }: {
+        // Invoked with the optimistic reply's id (the send nonce) before the
+        // socket round trip — lets callers mirror the send into other
+        // optimistic state (e.g. the run queue pill).
+        onOptimistic?: (id: string) => void
+        // A session's "To subscribers": Lor doesn't run.
+        toPeople?: boolean
+      } = {}
     ) => {
       const trimmed = content.trim()
       if ((!trimmed && attachments.length === 0) || sendingRef.current) return
@@ -803,24 +810,28 @@ export function useThreadMessages({
       if (start) {
         handlers?.starting(start)
       } else {
-        const optimistic = createOptimisticMessage({
-          nonce,
-          channelId,
-          content: trimmed || null,
-          author: currentUser,
-          attachments,
-          threadRootId,
-          referencedMessage: referencedMessage
-            ? {
-                id: referencedMessage.id,
-                content: referencedMessage.content,
-                author: referencedMessage.author,
-                overrideName: referencedMessage.overrideName,
-                overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
-                mentions: referencedMessage.mentions,
-              }
-            : null,
-        })
+        const optimistic = {
+          ...createOptimisticMessage({
+            nonce,
+            channelId,
+            content: trimmed || null,
+            author: currentUser,
+            attachments,
+            threadRootId,
+            referencedMessage: referencedMessage
+              ? {
+                  id: referencedMessage.id,
+                  content: referencedMessage.content,
+                  author: referencedMessage.author,
+                  overrideName: referencedMessage.overrideName,
+                  overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
+                  mentions: referencedMessage.mentions,
+                }
+              : null,
+          }),
+          // Muted at once; the server decides the rest of the routing.
+          routedToLor: toPeople ? false : null,
+        }
         updateMessages((current) => mergeMessages([optimistic], current))
         setTotalReplyCount((current) => current + 1)
         onOptimistic?.(nonce)
@@ -838,6 +849,7 @@ export function useThreadMessages({
             threadRootId,
             referencedMessageId: referencedMessage?.id,
             newSession: startIds ?? undefined,
+            toPeople: toPeople || undefined,
           })
         if (!result.ok) throw new Error(result.error)
 

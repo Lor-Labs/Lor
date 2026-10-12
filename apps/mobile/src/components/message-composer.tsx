@@ -43,18 +43,23 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { AttachmentPickerPanel } from "@/components/attachment-picker-panel"
 import { ComposerAttachmentPreview } from "@/components/composer-attachment-preview"
+import {
+  type ComposerDestination,
+  composerRouting,
+  DestinationBar,
+} from "@/components/composer-destination"
 import { HintCard } from "@/components/hint-card"
 import { MentionSuggestionMenu } from "@/components/mention-suggestion-menu"
 import { messageDisplayName } from "@/components/message-row"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
-import { LorMark } from "@/components/voice/lor-window"
 import { useHint } from "@/hooks/use-hints"
 import { useMessageAttachments } from "@/hooks/use-message-attachments"
 import type { RecentPhoto } from "@/hooks/use-recent-photos"
 import type { Message } from "@/lib/api-types"
 import { filterMentionCandidates, type MentionCandidate } from "@/lib/mentions"
 import {
+  draftMentionIds,
   MENTION_SCHEME,
   toDisplayMarkdown,
   toStoredMessageMarkdown,
@@ -96,6 +101,7 @@ export function MessageComposer({
   topAccessory,
   lorIntro = false,
   destination,
+  currentUserId,
 }: {
   channelId: string
   channelName: string
@@ -103,7 +109,9 @@ export function MessageComposer({
   isConnected: boolean
   onSend: (
     content: string,
-    attachments: NonNullable<Message["attachments"]>
+    attachments: NonNullable<Message["attachments"]>,
+    // A session's "To subscribers": Lor doesn't run.
+    options: { toPeople: boolean }
   ) => Promise<void>
   onStop?: () => Promise<void> | void
   isStopping?: boolean
@@ -129,9 +137,11 @@ export function MessageComposer({
   // Main channel composer only: teaches @Lor through the placeholder and the
   // lor_intro hint.
   lorIntro?: boolean
-  // Channel chat and human threads, where @Lor starts a session instead of
-  // posting here.
-  destination?: "channel" | "thread"
+  // Chat and human threads, where @Lor starts a session instead of posting
+  // here, and sessions, where a message goes to Lor or its subscribers.
+  destination?: ComposerDestination
+  // A reply to your own message addresses no one.
+  currentUserId?: string
 }) {
   const lorHint = useHint("lor_intro")
   const showLorIntro = lorIntro && !lorHint.dismissed
@@ -190,10 +200,21 @@ export function MessageComposer({
     !hasMessage &&
     attachmentUpload.attachments.length === 0
   const canActivateSubmit = isStopMode ? !isStopping : canSend
-  const startsSession =
-    Boolean(destination) &&
-    !isEditing &&
-    content.includes(`${MENTION_SCHEME}${LOR_USER_ID}`)
+  const [manualToPeople, setManualToPeople] = useState(false)
+  const mentionedIds = useMemo(() => draftMentionIds(content), [content])
+  const routing = composerRouting({
+    destination,
+    mentionedIds,
+    replyingTo,
+    currentUserId,
+    candidates: mentionCandidates,
+    manualToPeople,
+  })
+  const isSession = destination === "session"
+  // A session always shows where the message goes; chat and threads only
+  // once @Lor makes it start a session.
+  const showDestination =
+    Boolean(destination) && !isEditing && (isSession || routing.toLor)
   const isExpanded =
     isEditing ||
     isFocused ||
@@ -444,8 +465,11 @@ export function MessageComposer({
     closeMentionMenu()
     setSubmitError(null)
     try {
-      await onSend(storedContent, attachmentUpload.uploadedAttachments)
+      await onSend(storedContent, attachmentUpload.uploadedAttachments, {
+        toPeople: isSession && !routing.toLor,
+      })
       attachmentUpload.clearAttachments()
+      setManualToPeople(false)
       // Asking Lor is what the lor_intro hint teaches, from any composer.
       if (storedContent.includes(`<@${LOR_USER_ID}>`)) lorHint.dismiss()
     } catch (cause) {
@@ -634,26 +658,34 @@ export function MessageComposer({
                 }
               />
             ) : null}
-            {/* @Lor swaps the shortcuts for where the message goes, under
-                the text so the field never moves. */}
-            {startsSession ? (
+            {/* Where the message goes replaces the shortcuts, under the
+                text so the field never moves. */}
+            {showDestination && destination ? (
               <Animated.View
-                className="min-w-0 flex-1 flex-row"
+                className="min-w-0 flex-1 flex-row items-center gap-one"
                 entering={toolbarSwapIn}
                 exiting={toolbarSwapOut}
-                key="lor"
+                key="destination"
               >
-                <View className="min-w-0 shrink flex-row items-center gap-[6px] rounded-lor-sm bg-accent-soft px-two py-1">
-                  <LorMark size={14} />
-                  <Text
-                    className="shrink text-xs font-medium text-accent"
-                    numberOfLines={1}
-                  >
-                    {destination === "thread"
-                      ? "New session from this thread"
-                      : `New session in #${channelName}`}
-                  </Text>
-                </View>
+                {isSession ? (
+                  <ComposerShortcut
+                    accessibilityLabel="Mention someone"
+                    color={muted}
+                    icon={AtSignIcon}
+                    onPress={startMention}
+                  />
+                ) : null}
+                <DestinationBar
+                  channelName={channelName}
+                  destination={destination}
+                  onSwitch={
+                    routing.canSwitch
+                      ? () => setManualToPeople((current) => !current)
+                      : undefined
+                  }
+                  pinged={routing.pinged}
+                  toLor={routing.toLor}
+                />
               </Animated.View>
             ) : (
               <Animated.View

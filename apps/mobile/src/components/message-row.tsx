@@ -7,6 +7,7 @@ import { LOR_USER_ID } from "@repo/db/constants"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateDivider, formatDateTime, timeAgo } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
+import { useMemo } from "react"
 import { Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { MessageApprovalCard } from "@/components/approval-card"
@@ -19,7 +20,10 @@ import {
   MeetingRecordingCard,
 } from "@/components/meeting-recording-card"
 import { MessageAttachments } from "@/components/message-attachments"
-import { MessageContent } from "@/components/message-content"
+import {
+  MessageContent,
+  MessageProseContext,
+} from "@/components/message-content"
 import { MessageEmbed } from "@/components/message-embed"
 import { PlanCard } from "@/components/plan-card"
 import { ProposalCard } from "@/components/proposal-card"
@@ -63,12 +67,14 @@ export function areMessagesOnSameDay(left: string, right: string) {
 
 function MessageAvatar({
   avatarColor,
+  className,
   message,
   size = "sm",
 }: {
   avatarColor?: string | null
+  className?: string
   message: Message
-  size?: "sm" | "md"
+  size?: "xs" | "sm" | "md"
 }) {
   const foreground = useThemeColor("foreground")
   const isLor = message.authorId === LOR_USER_ID
@@ -79,6 +85,7 @@ function MessageAvatar({
   return (
     <Avatar
       avatarColor={avatarColor}
+      className={className}
       color={isLor ? "accent" : "default"}
       fallback={
         connector ? (
@@ -329,6 +336,7 @@ export function MessageRow({
   isActionHighlighted = false,
   onToggleReaction,
   showLorRunControls = true,
+  layout = "chat",
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
@@ -340,7 +348,19 @@ export function MessageRow({
   isActionHighlighted?: boolean
   onToggleReaction?: (message: Message, emoji: string) => void
   showLorRunControls?: boolean
+  // A session transcript reads as a document: a small avatar in the gutter
+  // on each turn's first message (Lor's too), no name row. Mirrors web's
+  // message-item.tsx document layout.
+  layout?: "chat" | "document"
 }) {
+  const isDocument = layout === "document"
+  const prose = useMemo(
+    () => ({
+      document: isDocument,
+      muted: isDocument && message.routedToLor === false,
+    }),
+    [isDocument, message.routedToLor]
+  )
   if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
@@ -349,6 +369,60 @@ export function MessageRow({
     hour: "numeric",
     minute: "2-digit",
   })
+  const avatarColor =
+    message.author.avatarColor ?? avatarColorByUserId?.get(message.author.id)
+
+  if (isDocument) {
+    return (
+      <View
+        className={`${showHeader ? "pt-three" : ""} ${
+          isHighlighted ? "bg-accent-soft" : ""
+        } relative flex-row gap-three px-four pb-[3px]`}
+      >
+        {isActionHighlighted ? (
+          <Animated.View
+            className="absolute inset-0 bg-surface-secondary"
+            entering={FadeIn.duration(70)}
+            exiting={FadeOut.duration(180)}
+            pointerEvents="none"
+          />
+        ) : null}
+        {isHighlighted ? (
+          <View className="absolute inset-y-0 left-0 w-[3px] bg-accent" />
+        ) : null}
+        <View className="w-7 pt-px">
+          {showHeader ? (
+            <Pressable
+              accessibilityElementsHidden
+              accessible={false}
+              disabled={!authorPress}
+              importantForAccessibility="no-hide-descendants"
+              onPress={authorPress}
+            >
+              <MessageAvatar
+                avatarColor={avatarColor}
+                className="size-7"
+                message={message}
+                size="xs"
+              />
+            </Pressable>
+          ) : null}
+        </View>
+        <View className="min-w-0 flex-1 gap-[2px]">
+          {message.pinned ? <PinnedBadge /> : null}
+          <MessageProseContext.Provider value={prose}>
+            <MessageRowBody
+              message={message}
+              onJumpToMessage={onJumpToMessage}
+              onOpenThread={onOpenThread}
+              onToggleReaction={onToggleReaction}
+              showLorRunControls={showLorRunControls}
+            />
+          </MessageProseContext.Provider>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View
@@ -376,13 +450,7 @@ export function MessageRow({
             importantForAccessibility="no-hide-descendants"
             onPress={authorPress}
           >
-            <MessageAvatar
-              avatarColor={
-                message.author.avatarColor ??
-                avatarColorByUserId?.get(message.author.id)
-              }
-              message={message}
-            />
+            <MessageAvatar avatarColor={avatarColor} message={message} />
           </Pressable>
         ) : null}
       </View>

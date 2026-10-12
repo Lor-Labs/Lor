@@ -1054,12 +1054,39 @@ As built (2026-10-11):
 
 #### Step 22: document look and session composer (~450)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - One gutter avatar per turn, no name rows, 15px prose, people-only turns
   muted (`routedToLor`, mapped in `lib/messages.ts` but unused).
 - "To Lor" / "To subscribers" switch that sends `toPeople`; queued turns in
   the document style; Stop.
+
+As built (2026-10-11):
+
+- `MessageRow` `layout="document"`: a 28px gutter avatar on each turn's
+  first message (tap opens the profile), no name row or time. Prose stays
+  16px (the phone's chat size; 15px would read smaller than chat) with 24px
+  leading instead of 22. `MessageProseContext` (`message-content.tsx`)
+  carries the document leading and the muted color for a turn with
+  `routedToLor === false`, so Lor's body, tool trail and cards need no new
+  props.
+- `components/composer-destination.tsx`: `composerRouting` (web's
+  `computeRouting`: mentions and a reply to a teammate decide; the manual
+  switch only when nothing does) and `DestinationBar`. Sessions show "To Lor"
+  (quiet) or "To subscribers" in the toolbar, with a swap icon when the
+  switch is allowed, and "Notifies Maya" with faces for addressed people.
+  Step 20's "New session in #channel" chip moved in here ("Adds Maya" when
+  it names people). The switch resets after a send.
+- `useThreadMessages.sendMessage` takes `{ onOptimistic, toPeople }`; the
+  optimistic turn is muted at once (`routedToLor: false`), and a
+  subscribers-only send never enters the run queue.
+- Queued turns: `RunQueuePill variant="document"` is the session
+  transcript's footer (faded gutter avatar, three-line preview, "Queued for
+  Lor · Steer now · Remove"); threads keep the box above the composer. The
+  steer/remove logic moved into one `useQueueActions` hook.
+- Stop: the composer's existing Stop mode (empty field while Lor runs).
+- Sessions drop @here, @channel and @everyone from the mention list
+  (`useWorkspaceMentionCandidates({ broadcasts })`), as on web.
 
 #### Step 23: channel list session rows (~300)
 

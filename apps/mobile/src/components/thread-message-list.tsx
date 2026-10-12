@@ -45,6 +45,8 @@ export function ThreadMessageList({
   heading,
   onHeadingVisibleChange,
   resolveUserName,
+  layout = "chat",
+  footer,
   root,
   messages,
   totalReplyCount,
@@ -72,6 +74,10 @@ export function ThreadMessageList({
   heading?: ReactNode
   onHeadingVisibleChange?: (visible: boolean) => void
   resolveUserName?: ResolveUserName
+  // "document" in a session (see MessageRow).
+  layout?: "chat" | "document"
+  // After the last reply: a session's queued turns.
+  footer?: ReactNode
   // Null in a Lor session, whose root is a hidden anchor.
   root: Message | null
   messages: Message[]
@@ -455,6 +461,7 @@ export function ThreadMessageList({
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)
                     }
+                    layout={layout}
                     showLorRunControls={false}
                     showHeader={showHeader}
                   />
@@ -473,6 +480,7 @@ export function ThreadMessageList({
                   </Text>
                 </View>
               ) : null}
+              {footer}
             </View>
           }
           showsVerticalScrollIndicator={false}

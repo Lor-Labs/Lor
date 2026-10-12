@@ -1,0 +1,220 @@
+import ArrowDataTransferHorizontalIcon from "@hugeicons/core-free-icons/ArrowDataTransferHorizontalIcon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
+import { LOR_USER_ID } from "@repo/db/constants"
+import { useThemeColor } from "heroui-native/hooks"
+import type { ReactNode } from "react"
+import { Pressable, Text, View } from "react-native"
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
+import { Avatar } from "@/components/ui/avatar"
+import { LorMark } from "@/components/voice/lor-window"
+import type { Message } from "@/lib/api-types"
+import type { MentionCandidate } from "@/lib/mentions"
+
+// Where the composer's message goes: channel chat and human threads start a
+// session on @Lor; inside a session a message goes to Lor or to the session's
+// subscribers. Mirrors web's destination-bar.tsx.
+export type ComposerDestination = "channel" | "thread" | "session"
+
+type PingedPerson = {
+  id: string
+  name: string
+  image: string | null
+  avatarColor: string | null
+}
+
+const swapIn = FadeIn.duration(160)
+const swapOut = FadeOut.duration(120)
+
+// The session routing rule as the sender sees it. The server decides the
+// same way (sessionMessageRunsLor in apps/realtime lor-routing.ts): a plain
+// message goes to Lor; addressing a teammate (mention, or reply to someone
+// else) leaves Lor out unless Lor is addressed too.
+export function composerRouting({
+  destination,
+  mentionedIds,
+  replyingTo,
+  currentUserId,
+  candidates,
+  manualToPeople,
+}: {
+  destination: ComposerDestination | undefined
+  mentionedIds: string[]
+  replyingTo: Message | null | undefined
+  currentUserId: string | undefined
+  candidates: MentionCandidate[]
+  manualToPeople: boolean
+}) {
+  const isSession = destination === "session"
+  const pinged = new Map<string, PingedPerson>()
+  for (const id of mentionedIds) {
+    const candidate = candidates.find((item) => item.id === id)
+    if (!candidate || id === LOR_USER_ID) continue
+    pinged.set(id, {
+      id,
+      name: candidate.name,
+      image: candidate.image ?? null,
+      avatarColor: candidate.avatarColor ?? null,
+    })
+  }
+  const replyAuthor = replyingTo?.author
+  if (
+    isSession &&
+    replyAuthor &&
+    replyAuthor.id !== LOR_USER_ID &&
+    replyAuthor.id !== currentUserId
+  ) {
+    pinged.set(replyAuthor.id, {
+      id: replyAuthor.id,
+      name: replyAuthor.name,
+      image: replyAuthor.image ?? null,
+      avatarColor: null,
+    })
+  }
+  const addressesLor =
+    mentionedIds.includes(LOR_USER_ID) ||
+    (isSession && replyingTo?.author.id === LOR_USER_ID)
+  const toLor = isSession
+    ? addressesLor || (!manualToPeople && pinged.size === 0)
+    : addressesLor
+  return {
+    toLor,
+    pinged: [...pinged.values()],
+    canSwitch: isSession && !addressesLor && pinged.size === 0,
+  }
+}
+
+// In the toolbar under the text, so the field never moves while someone
+// types "@Lor"; the Lor and people states fade into each other.
+export function DestinationBar({
+  destination,
+  channelName,
+  toLor,
+  pinged,
+  onSwitch,
+}: {
+  destination: ComposerDestination
+  channelName: string
+  toLor: boolean
+  pinged: PingedPerson[]
+  // Session only, when nothing in the message decides the destination.
+  onSwitch?: () => void
+}) {
+  const isSession = destination === "session"
+  return (
+    <View className="min-w-0 flex-1 flex-row items-center">
+      {toLor ? (
+        <Animated.View
+          className="min-w-0 flex-1 flex-row items-center gap-two"
+          entering={swapIn}
+          exiting={swapOut}
+          key="lor"
+        >
+          {/* Quiet in a session, where Lor is the default; chat and threads
+              tint it, since there it changes what the send does. */}
+          <DestinationPill onSwitch={onSwitch} tinted={!isSession}>
+            <LorMark size={14} />
+            <Text
+              className={`shrink text-xs font-medium ${
+                isSession ? "text-muted" : "text-accent"
+              }`}
+              numberOfLines={1}
+            >
+              {isSession
+                ? "To Lor"
+                : destination === "thread"
+                  ? "New session from this thread"
+                  : `New session in #${channelName}`}
+            </Text>
+          </DestinationPill>
+          {pinged.length > 0 ? (
+            <PingedPeople
+              label={isSession ? "Notifies" : "Adds"}
+              people={pinged}
+            />
+          ) : null}
+        </Animated.View>
+      ) : (
+        <Animated.View
+          className="min-w-0 flex-1 flex-row items-center gap-two"
+          entering={swapIn}
+          exiting={swapOut}
+          key="people"
+        >
+          {isSession ? (
+            <DestinationPill onSwitch={onSwitch}>
+              <Text className="text-xs font-medium text-muted">
+                To subscribers
+              </Text>
+            </DestinationPill>
+          ) : null}
+          {pinged.length > 0 ? (
+            <PingedPeople label="Notifies" people={pinged} />
+          ) : null}
+        </Animated.View>
+      )}
+    </View>
+  )
+}
+
+function DestinationPill({
+  onSwitch,
+  tinted = false,
+  children,
+}: {
+  onSwitch?: () => void
+  tinted?: boolean
+  children: ReactNode
+}) {
+  const muted = useThemeColor("muted")
+  const className = `min-h-7 shrink flex-row items-center gap-[6px] rounded-lor-sm px-two ${
+    tinted ? "bg-accent-soft" : ""
+  }`
+  if (!onSwitch) return <View className={className}>{children}</View>
+  return (
+    <Pressable
+      accessibilityHint="Switches who this message goes to"
+      accessibilityRole="button"
+      className={`${className} active:bg-default`}
+      hitSlop={6}
+      onPress={onSwitch}
+    >
+      {children}
+      <HugeiconsIcon
+        color={muted}
+        icon={ArrowDataTransferHorizontalIcon}
+        size={12}
+      />
+    </Pressable>
+  )
+}
+
+function PingedPeople({
+  people,
+  label,
+}: {
+  people: PingedPerson[]
+  label: string
+}) {
+  const background = useThemeColor("background")
+  return (
+    <View className="min-w-0 shrink flex-row items-center gap-[6px]">
+      <View className="flex-row">
+        {people.slice(0, 3).map((person, index) => (
+          <Avatar
+            avatarColor={person.avatarColor}
+            className={index === 0 ? "size-4" : "-ml-one size-4"}
+            fallback={person.name.charAt(0).toUpperCase()}
+            image={person.image}
+            key={person.id}
+            name={person.name}
+            size="xs"
+            style={{ borderColor: background, borderWidth: 1 }}
+          />
+        ))}
+      </View>
+      <Text className="shrink text-xs text-muted" numberOfLines={1}>
+        {label} {people.map((person) => person.name.split(" ")[0]).join(", ")}
+      </Text>
+    </View>
+  )
+}
