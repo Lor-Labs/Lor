@@ -138,13 +138,27 @@ function MiniComposer({
       }`}
     >
       <Text className="min-h-4 text-[12px] text-foreground">{children}</Text>
-      {bar ? <View className="mt-one">{bar}</View> : null}
+      {/* A row, as in the real composer: the bar stretches across it. The
+          pill's own padding is pulled back so "To" lines up with the text. */}
+      {bar ? <View className="-ml-two mt-one flex-row">{bar}</View> : null}
     </View>
   )
 }
 
 function LorChip() {
   return <Text className="font-medium text-accent">@Lor</Text>
+}
+
+// The tour's first step: just the mark.
+export function WelcomeScene() {
+  return (
+    <Animated.View
+      className="absolute inset-0 items-center justify-center"
+      entering={FadeIn.duration(400)}
+    >
+      <LorMark size={64} />
+    </Animated.View>
+  )
 }
 
 const CHAT_TIMES = [250, 1000, 1750] as const

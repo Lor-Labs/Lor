@@ -250,6 +250,20 @@ function LorChip() {
   )
 }
 
+// The tour's first step: just the mark.
+export function WelcomeScene() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.4, ease: EASE_OUT }}
+      className="absolute inset-0 flex items-center justify-center"
+    >
+      <img src="/lor-mark.svg" alt="" className="size-16" />
+    </motion.div>
+  )
+}
+
 const CHAT_TIMES = [250, 1000, 1750] as const
 
 export function ChatScene({ workspaceName, you }: SceneProps) {

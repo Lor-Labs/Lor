@@ -773,7 +773,10 @@ on top, the step text under it, step dots and Back/Next at the bottom.
   it. The last step's "Start a session" dismisses it and opens the New
   session view for the current channel. Copy names only what people see
   (no "pill"): step 2 says ⌘N on desktop and New session in the sidebar on
-  the web.
+  the web. Since 2026-10-12 (Jacob) a "Welcome to Lor" step comes first: the
+  mark and one line, "The multiplayer AI workspace, where your team and Lor
+  work side by side." The phone's tour (workspace-model-runbook Step 34)
+  has the same steps.
 - `components/onboarding/how-lor-works-scenes.tsx` (new): three mockups that
   play once per step and hold the last frame (reduced motion shows the last
   frame): chat between people; `@Lor` + a question with the real

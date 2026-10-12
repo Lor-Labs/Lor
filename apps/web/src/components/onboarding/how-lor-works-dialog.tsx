@@ -18,6 +18,7 @@ import {
   type SceneProps,
   SessionStartScene,
   SharedSessionScene,
+  WelcomeScene,
 } from "@/components/onboarding/how-lor-works-scenes"
 import { useOpenNewSession } from "@/hooks/use-open-new-session"
 
@@ -28,6 +29,11 @@ type Step = {
 }
 
 const STEPS: [Step, ...Step[]] = [
+  {
+    title: "Welcome to Lor",
+    body: "The multiplayer AI workspace, where your team and Lor work side by side.",
+    Scene: WelcomeScene,
+  },
   {
     title: "Chat is for your team",
     body: "Channels are where your team talks. Lor never posts here, but it reads the chat, so it knows what your team is working on.",
