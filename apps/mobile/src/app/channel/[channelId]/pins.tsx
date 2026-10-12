@@ -19,6 +19,7 @@ import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { usePinnedMessages } from "@/hooks/use-pinned-messages"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
+import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
 
 export default function PinnedMessagesScreen() {
   const [pendingMessageId, setPendingMessageId] = useState<string | null>(null)
@@ -48,17 +49,22 @@ export default function PinnedMessagesScreen() {
     } else router.replace("/")
   }
 
-  const openMessage = (message: Message) => {
+  const openMessage = async (message: Message) => {
     if (!channelId) return
     if (message.threadRootId) {
-      router.replace({
-        pathname: "/channel/[channelId]/thread/[threadRootId]",
-        params: {
+      // A pin in a Lor session opens the session page, not its thread.
+      const location = workspace?.slug
+        ? await fetchMessageLocation(workspace.slug, message.id)
+        : null
+      openMessageAt(
+        location ?? {
           channelId,
-          focusMessageId: message.id,
           threadRootId: message.threadRootId,
+          sessionId: null,
         },
-      })
+        message.id,
+        { replace: true }
+      )
       return
     }
     router.dismissTo({
@@ -180,7 +186,7 @@ export default function PinnedMessagesScreen() {
                   accessibilityLabel="View message in conversation"
                   accessibilityRole="button"
                   className="min-h-9 justify-center rounded-lor-sm px-three active:bg-surface-secondary"
-                  onPress={() => openMessage(item)}
+                  onPress={() => void openMessage(item)}
                 >
                   <Text className="text-sm font-semibold text-accent">
                     View in conversation

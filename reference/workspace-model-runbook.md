@@ -1225,11 +1225,26 @@ As built (2026-10-11):
 
 #### Step 28: push, search and pins open sessions (~230)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - Server: `sessionId` in push data. Mobile: `lib/push-target.ts`,
   `use-push-notifications.ts:101-109`, search (`(tabs)/index.tsx:257-266`,
   channel screen), pins (`pins.tsx:51-75`) open the session route.
+
+As built (2026-10-11):
+
+- `push.ts`: message pushes pass the notification's `sessionId`; subscribed
+  pushes pass theirs; reaction, approval and proposal pushes look the
+  session up from `threadRootId` (`sessionData`,
+  `findAgentSessionByThreadRoot`). The call-summary push gets none: its
+  `sessionId` field is the voice session's.
+- Phone: `PushTarget.sessionId`; a push with one opens `/session/[id]` at
+  the message instead of the thread screen (which can't show a session's
+  hidden root).
+- `lib/message-location.ts` (`fetchMessageLocation`, `openMessageAt`):
+  search on the Channels tab and in a channel, and pins inside threads,
+  open sessions at the message. The location route already returned
+  `sessionId`.
 
 #### Step 29: chat cleanup (~300, mostly deletions)
 

@@ -5,6 +5,8 @@ export type PushTarget =
       workspaceId: string | null
       threadRootId: string | null
       messageId: string | null
+      // Set when the thread is a Lor session: it opens as the session page.
+      sessionId: string | null
       // A call summary push opens the call on its Summary tab.
       tab?: "summary"
     }
@@ -36,6 +38,7 @@ export function parsePushTarget(
     threadRootId:
       typeof data.threadRootId === "string" ? data.threadRootId : null,
     messageId: typeof data.messageId === "string" ? data.messageId : null,
+    sessionId: typeof data.sessionId === "string" ? data.sessionId : null,
     ...(data.type === "call_summary" ? { tab: "summary" as const } : {}),
   }
 }

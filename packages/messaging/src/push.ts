@@ -1,4 +1,5 @@
 import { and, db, eq, inArray, schema } from "@repo/db"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
   type ApprovalNotification,
   buildApprovalNotificationContent,
@@ -18,6 +19,16 @@ import {
 
 // A push for someone mentioned from a live call they aren't in.
 export type CallMentionPush = Omit<UnreadNotification, "messageId">
+
+// Phones open a Lor session as its own page: its thread root is a hidden
+// anchor that a thread screen can't show.
+async function sessionData(
+  threadRootId: string | null
+): Promise<Record<string, string>> {
+  if (!threadRootId) return {}
+  const session = await findAgentSessionByThreadRoot(threadRootId)
+  return session ? { sessionId: session.id } : {}
+}
 
 // Structural subset of the node-redis client so realtime, worker, and api can
 // all pass their own instance without this package depending on "redis".
@@ -250,6 +261,7 @@ export async function sendMessagePushNotifications(input: {
           channelId: payload.channelId,
           workspaceId: payload.workspaceId,
           threadRootId: payload.threadRootId,
+          ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
           ...("messageId" in payload ? { messageId: payload.messageId } : {}),
           senderId: payload.authorUserId,
           senderName: payload.authorName,
@@ -313,6 +325,7 @@ export async function sendReactionPushNotification(input: {
   if (tokens.length === 0) return
 
   const conversationName = buildNotificationConversationName(input.notification)
+  const session = await sessionData(input.notification.threadRootId)
   await deliverExpoPush(
     tokens.map((row) => ({
       to: row.token,
@@ -334,6 +347,7 @@ export async function sendReactionPushNotification(input: {
         channelId: input.notification.channelId,
         workspaceId: input.notification.workspaceId,
         threadRootId: input.notification.threadRootId,
+        ...session,
         messageId: input.notification.messageId,
         emoji: input.notification.emoji,
         senderId: input.notification.actorUserId,
@@ -403,6 +417,7 @@ export async function sendApprovalPush(input: {
       workspaceId: input.notification.workspaceId,
       channelId: input.notification.channelId,
       threadRootId: input.notification.threadRootId,
+      ...(await sessionData(input.notification.threadRootId)),
       messageId: input.notification.messageId,
     },
   })
@@ -426,6 +441,7 @@ export async function sendProposalPush(input: {
       workspaceId: input.notification.workspaceId,
       channelId: input.notification.channelId,
       threadRootId: input.notification.threadRootId,
+      ...(await sessionData(input.notification.threadRootId)),
       messageId: input.notification.cardMessageId,
     },
   })
@@ -491,6 +507,7 @@ export async function sendSubscribedPush(input: {
       workspaceId: notification.workspaceId,
       channelId: notification.channelId,
       threadRootId: notification.threadRootId,
+      ...(notification.sessionId ? { sessionId: notification.sessionId } : {}),
       messageId: null,
     },
   })

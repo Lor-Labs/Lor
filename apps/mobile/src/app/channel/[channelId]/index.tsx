@@ -46,9 +46,9 @@ import { useRunQueue } from "@/hooks/use-run-queue"
 import { useSessionStart } from "@/hooks/use-session-start"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
-import { api } from "@/lib/api"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
 
 export default function ChannelRoute() {
   const { workspace } = useWorkspace()
@@ -309,23 +309,11 @@ function ChannelScreen() {
   const selectSearchResult = async (result: ChannelSearchResult) => {
     setIsSearchOpen(false)
     try {
-      const response = await api.v1.workspaces[":workspaceSlug"].messages[
-        ":messageId"
-      ].$get({
-        param: { workspaceSlug: workspace.slug, messageId: result.id },
-      })
-      if (!response.ok) throw new Error("Message unavailable")
-      const location = await response.json()
-
-      if (location.threadRootId) {
-        router.push({
-          pathname: "/channel/[channelId]/thread/[threadRootId]",
-          params: {
-            channelId: location.channelId,
-            focusMessageId: result.id,
-            threadRootId: location.threadRootId,
-          },
-        })
+      const location = await fetchMessageLocation(workspace.slug, result.id)
+      if (!location) throw new Error("Message unavailable")
+      // In a thread or session: open it there; in chat: scroll to it here.
+      if (location.threadRootId || location.sessionId) {
+        openMessageAt(location, result.id)
         return
       }
 

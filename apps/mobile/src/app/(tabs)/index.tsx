@@ -41,6 +41,7 @@ import type {
   ChannelSearchResult,
 } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
 import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels"
 
 export default function WorkspaceScreen() {
@@ -233,12 +234,7 @@ export default function WorkspaceScreen() {
   }
 
   const openSearchMessage = async (message: ChannelSearchResult) => {
-    const location = await api.v1.workspaces[":workspaceSlug"].messages[
-      ":messageId"
-    ]
-      .$get({ param: { workspaceSlug: workspace.slug, messageId: message.id } })
-      .then((response) => (response.ok ? response.json() : null))
-      .catch(() => null)
+    const location = await fetchMessageLocation(workspace.slug, message.id)
     if (!location) {
       Alert.alert(
         "Message unavailable",
@@ -246,21 +242,7 @@ export default function WorkspaceScreen() {
       )
       return
     }
-    if (location.threadRootId) {
-      router.push({
-        pathname: "/channel/[channelId]/thread/[threadRootId]",
-        params: {
-          channelId: location.channelId,
-          focusMessageId: message.id,
-          threadRootId: location.threadRootId,
-        },
-      } as never)
-      return
-    }
-    router.push({
-      pathname: "/channel/[channelId]",
-      params: { channelId: location.channelId, focusMessageId: message.id },
-    } as never)
+    openMessageAt(location, message.id)
   }
 
   return (

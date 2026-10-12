@@ -98,7 +98,15 @@ export function usePushNotifications() {
           return
         }
       }
-      if (target.threadRootId) {
+      if (target.sessionId) {
+        router.push({
+          pathname: "/session/[sessionId]",
+          params: {
+            sessionId: target.sessionId,
+            ...(target.messageId ? { focusMessageId: target.messageId } : {}),
+          },
+        })
+      } else if (target.threadRootId) {
         router.push({
           pathname: "/channel/[channelId]/thread/[threadRootId]",
           params: {
