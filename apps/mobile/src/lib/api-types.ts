@@ -92,6 +92,11 @@ export type PlanArtifact = InferResponseType<
   200
 >["artifacts"][number]
 
+export type AgentSessionDetail = InferResponseType<
+  Client["v1"]["sessions"][":sessionId"]["$get"],
+  200
+>
+
 export type ChannelLoopList = InferResponseType<
   Client["v1"]["channels"][":channelId"]["loops"]["$get"],
   200

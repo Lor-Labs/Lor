@@ -1,13 +1,20 @@
-import type {
-  RealtimeMessage,
-  RealtimeMessageThreadUpdated,
-  ServerToClientEvents,
+import {
+  type RealtimeMessage,
+  type RealtimeMessageThreadUpdated,
+  type ServerToClientEvents,
+  sessionTitleFromPrompt,
 } from "@repo/realtime-types"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useChannelRoom } from "@/hooks/use-channel-room"
+import {
+  newSessionIds,
+  type SessionStart,
+  type SessionStartHandlers,
+} from "@/hooks/use-session-start"
 import { api } from "@/lib/api"
 import type { Message, ThreadMessageList } from "@/lib/api-types"
+import { lorMention, mentionsLor } from "@/lib/mentions"
 import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
@@ -39,9 +46,10 @@ type CurrentUser = {
 
 type ThreadParticipant = ThreadMessageList["participants"][number]
 
-type ThreadSnapshot = {
+export type ThreadSnapshot = {
   messages: Message[]
-  root: Message
+  // Null for a Lor session: its root is a hidden anchor.
+  root: Message | null
   participants: ThreadParticipant[]
   totalReplyCount: number
   beforeCursor: string | null
@@ -70,13 +78,24 @@ export function useThreadMessages({
   threadRootId,
   socket,
   currentUser,
+  isSession = false,
+  deferLoad = false,
+  sessionStart,
 }: {
   workspaceSlug: string
   channelId: string
   threadRootId: string
   socket: AppSocket | null
   currentUser?: CurrentUser
+  isSession?: boolean
+  // A session start the server hasn't confirmed: show the seeded snapshot
+  // and wait, since the thread doesn't exist yet.
+  deferLoad?: boolean
+  // A human thread: @Lor starts a session seeded with the thread.
+  sessionStart?: SessionStartHandlers
 }) {
+  const sessionStartRef = useRef(sessionStart)
+  sessionStartRef.current = sessionStart
   useChannelRoom(socket, channelId)
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<Message[]>([])
@@ -247,11 +266,11 @@ export function useThreadMessages({
           beforeCursorRef.current = payload.beforeCursor
           setReachedOldest(payload.reachedOldest)
           setTotalReplyCount(nextTotalReplyCount)
-          setIsMissing(!payload.root)
-          if (payload.root) {
+          setIsMissing(!payload.root && !isSession)
+          if (payload.root || isSession) {
             queryClient.setQueryData<ThreadSnapshot>(["thread", threadRootId], {
               messages: payload.data,
-              root: payload.root,
+              root: payload.root ?? null,
               participants: nextParticipants,
               totalReplyCount: nextTotalReplyCount,
               beforeCursor: payload.beforeCursor,
@@ -289,6 +308,7 @@ export function useThreadMessages({
       workspaceSlug,
       channelId,
       threadRootId,
+      isSession,
       queryClient,
       updateMessages,
       updateRoot,
@@ -301,7 +321,7 @@ export function useThreadMessages({
     const cached = threadRootId
       ? queryClient.getQueryData<ThreadSnapshot>(["thread", threadRootId])
       : undefined
-    const seeded = Boolean(cached?.root)
+    const seeded = Boolean(cached && (cached.root || isSession))
     messagesRef.current = cached?.messages ?? []
     rootRef.current = cached?.root ?? null
     beforeCursorRef.current = cached?.beforeCursor ?? null
@@ -318,8 +338,8 @@ export function useThreadMessages({
     setIsMissing(false)
     loadingOlderRef.current = false
     if (seeded) setIsLoading(false)
-    void reload({ replace: seeded, silent: seeded })
-  }, [reload, threadRootId, queryClient])
+    if (!deferLoad) void reload({ replace: seeded, silent: seeded })
+  }, [reload, threadRootId, isSession, deferLoad, queryClient])
 
   const loadOlder = useCallback(async () => {
     const before = beforeCursorRef.current
@@ -412,7 +432,7 @@ export function useThreadMessages({
   )
 
   useEffect(() => {
-    if (!socket || !threadRootId) return
+    if (!socket || !threadRootId || deferLoad) return
 
     const joinThread = () => {
       socket.emit("thread:join", { threadRootId })
@@ -701,6 +721,7 @@ export function useThreadMessages({
     socket,
     channelId,
     threadRootId,
+    deferLoad,
     reload,
     updateMessages,
     updateRoot,
@@ -759,29 +780,52 @@ export function useThreadMessages({
       }
 
       const nonce = `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const optimistic = createOptimisticMessage({
-        nonce,
-        channelId,
-        content: trimmed || null,
-        author: currentUser,
-        attachments,
-        threadRootId,
-        referencedMessage: referencedMessage
-          ? {
-              id: referencedMessage.id,
-              content: referencedMessage.content,
-              author: referencedMessage.author,
-              overrideName: referencedMessage.overrideName,
-              overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
-              mentions: referencedMessage.mentions,
-            }
-          : null,
-      })
+      const handlers = sessionStartRef.current
+      const startIds = handlers && mentionsLor(trimmed) ? newSessionIds() : null
+      const start: SessionStart | null = startIds
+        ? {
+            ...startIds,
+            title: sessionTitleFromPrompt(trimmed),
+            message: {
+              ...createOptimisticMessage({
+                nonce,
+                channelId,
+                content: trimmed || null,
+                author: currentUser,
+                attachments,
+                threadRootId: startIds.threadRootId,
+              }),
+              mentions: [lorMention],
+            },
+          }
+        : null
       sendingRef.current = true
-      updateMessages((current) => mergeMessages([optimistic], current))
-      setTotalReplyCount((current) => current + 1)
+      if (start) {
+        handlers?.starting(start)
+      } else {
+        const optimistic = createOptimisticMessage({
+          nonce,
+          channelId,
+          content: trimmed || null,
+          author: currentUser,
+          attachments,
+          threadRootId,
+          referencedMessage: referencedMessage
+            ? {
+                id: referencedMessage.id,
+                content: referencedMessage.content,
+                author: referencedMessage.author,
+                overrideName: referencedMessage.overrideName,
+                overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
+                mentions: referencedMessage.mentions,
+              }
+            : null,
+        })
+        updateMessages((current) => mergeMessages([optimistic], current))
+        setTotalReplyCount((current) => current + 1)
+        onOptimistic?.(nonce)
+      }
       setIsSending(true)
-      onOptimistic?.(nonce)
 
       try {
         const result = await socket
@@ -793,10 +837,20 @@ export function useThreadMessages({
             nonce,
             threadRootId,
             referencedMessageId: referencedMessage?.id,
+            newSession: startIds ?? undefined,
           })
         if (!result.ok) throw new Error(result.error)
 
         const confirmed = realtimeMessageToMessage(result.message)
+        if (start) {
+          // The server moved the message into a new Lor session.
+          if (confirmed.threadRootId !== threadRootId && result.session) {
+            handlers?.started(start, result.session, confirmed)
+            return
+          }
+          handlers?.failed(start)
+          setTotalReplyCount((current) => current + 1)
+        }
         updateMessages((current) => replaceMessage(current, nonce, confirmed))
         setParticipants((current) =>
           current.some((participant) => participant.id === confirmed.author.id)
@@ -804,18 +858,23 @@ export function useThreadMessages({
             : [...current, confirmed.author]
         )
       } catch (cause) {
-        // If message:created already reconciled the optimistic reply (e.g. the
-        // ack timed out after delivery), the send succeeded — don't roll back.
-        if (!messagesRef.current.some((message) => message.id === nonce)) {
-          return
+        if (start) {
+          handlers?.failed(start)
+        } else {
+          // If message:created already reconciled the optimistic reply (e.g.
+          // the ack timed out after delivery), the send succeeded — don't
+          // roll back.
+          if (!messagesRef.current.some((message) => message.id === nonce)) {
+            return
+          }
+          updateMessages(
+            (current) => rollbackOptimisticReply(current, nonce, 1).messages
+          )
+          setTotalReplyCount(
+            (current) =>
+              rollbackOptimisticReply([], nonce, current).totalReplyCount
+          )
         }
-        updateMessages(
-          (current) => rollbackOptimisticReply(current, nonce, 1).messages
-        )
-        setTotalReplyCount(
-          (current) =>
-            rollbackOptimisticReply([], nonce, current).totalReplyCount
-        )
         const errorMessage =
           cause instanceof Error && cause.message === "operation has timed out"
             ? "Message delivery timed out. Please try again."

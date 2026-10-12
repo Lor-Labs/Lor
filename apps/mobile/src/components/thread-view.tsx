@@ -37,6 +37,7 @@ import { usePlanForThread } from "@/hooks/use-plans"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import { useSessionStart } from "@/hooks/use-session-start"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
@@ -55,9 +56,11 @@ export type ThreadViewProps = {
   focusMessageId?: string
   tab?: "chat" | "transcript"
   threadRootId: string
+  // A Lor session's transcript. `pending`: its start isn't confirmed yet.
+  session?: { title: string; pending: boolean }
 }
 
-// A thread: the thread screen, and the chat in a call's drawer.
+// A thread: the thread screen, a Lor session, and the chat in a call's drawer.
 export function ThreadView({
   at,
   channelId,
@@ -66,6 +69,7 @@ export function ThreadView({
   focusMessageId,
   tab,
   threadRootId,
+  session: lorSession,
 }: ThreadViewProps) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
@@ -83,12 +87,22 @@ export function ThreadView({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
   })
+  const sessionStart = useSessionStart({
+    id: channelId,
+    name: channelState.channel?.name ?? null,
+  })
+  // A human thread: @Lor starts a session. Call chats live in voice
+  // channels, where it starts nothing.
+  const startsSessions = !lorSession && channelState.channel?.type === "text"
   const thread = useThreadMessages({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
     threadRootId: threadRootId ?? "",
     socket,
     currentUser: session?.user,
+    isSession: Boolean(lorSession),
+    deferLoad: lorSession?.pending,
+    sessionStart: startsSessions ? sessionStart : undefined,
   })
   useAutoMarkRead(channelId)
   // Approval cards in this thread read the channel-approvals cache; the
@@ -280,6 +294,8 @@ export function ThreadView({
   }
 
   const channelName = channelState.channel?.name ?? "channel"
+  // A session has no visible root to wait for.
+  const isReady = Boolean(thread.root || lorSession)
   // A call's chat also holds its transcript.
   const voiceSessionId = thread.voiceSessionId
   const showTranscript = tab === "transcript" && voiceSessionId !== null
@@ -331,11 +347,13 @@ export function ThreadView({
           className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
           numberOfLines={1}
         >
-          {isPlanThread
-            ? "Plan"
-            : voiceSessionId
-              ? (thread.voiceSessionTitle ?? "Call")
-              : "Thread"}
+          {lorSession
+            ? lorSession.title
+            : isPlanThread
+              ? "Plan"
+              : voiceSessionId
+                ? (thread.voiceSessionTitle ?? "Call")
+                : "Thread"}
         </Text>
         <Text
           className="text-xs font-medium leading-4 text-muted"
@@ -370,12 +388,10 @@ export function ThreadView({
           onCustomInputViewChange,
           onInputLayout,
         }) =>
-          thread.root &&
-          !thread.isMissing &&
-          !thread.error &&
-          !showTranscript ? (
+          isReady && !thread.isMissing && !thread.error && !showTranscript ? (
             <MessageComposer
-              accessibilityLabel="Reply in thread"
+              accessibilityLabel={lorSession ? "Reply" : "Reply in thread"}
+              destination={startsSessions ? "thread" : undefined}
               initialDraft={composerDraft}
               channelId={channelId}
               channelName={channelName}
@@ -385,7 +401,10 @@ export function ThreadView({
               isStopping={stoppingMessageId === pendingLorMessageId}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
-              isSending={thread.isSending || isSavingEdit}
+              // The thread doesn't exist until the start is confirmed.
+              isSending={
+                thread.isSending || isSavingEdit || Boolean(lorSession?.pending)
+              }
               mentionCandidates={mentions.candidates}
               mentionCandidatesError={mentions.error}
               mentionRef={composerMentionRef}
@@ -427,7 +446,7 @@ export function ThreadView({
                 setReplyingTo(null)
               }}
               onStop={pendingLorMessage ? stopPendingLor : undefined}
-              placeholder="Reply in thread"
+              placeholder={lorSession ? "Reply…" : "Reply in thread"}
               replyingTo={replyingTo}
               topAccessory={
                 <RunQueuePill
@@ -456,7 +475,7 @@ export function ThreadView({
               detail="The original message may have been deleted, or this thread is no longer available."
               title="Thread not found"
             />
-          ) : thread.error || !thread.root ? (
+          ) : thread.error || !isReady ? (
             <StatePanel
               action={{
                 label: "Try again",
@@ -501,10 +520,7 @@ export function ThreadView({
           )
         }
         typingIndicator={
-          thread.root &&
-          !thread.isMissing &&
-          !thread.error &&
-          !showTranscript ? (
+          isReady && !thread.isMissing && !thread.error && !showTranscript ? (
             <TypingIndicator users={typingUsers} />
           ) : null
         }

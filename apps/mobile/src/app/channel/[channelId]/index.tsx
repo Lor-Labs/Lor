@@ -43,6 +43,7 @@ import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import { useSessionStart } from "@/hooks/use-session-start"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import { api } from "@/lib/api"
@@ -99,6 +100,10 @@ function ChannelScreen() {
   // open composer flips to the archived notice without a reload.
   useProjectUpdates(workspace?.slug)
 
+  const sessionStart = useSessionStart({
+    id: channelId ?? "",
+    name: channelState.channel?.name ?? null,
+  })
   const chat = useChannelMessages({
     source: {
       kind: "channel",
@@ -107,6 +112,7 @@ function ChannelScreen() {
     },
     socket,
     currentUser: session?.user,
+    sessionStart,
   })
   // Screen-level plan subscription (mirrors web's route-level one): plan
   // cards mount their own listeners, but virtualized cards unmount — without
@@ -454,6 +460,7 @@ function ChannelScreen() {
               <MessageComposer
                 channelId={channelId}
                 channelName={channelName}
+                destination="channel"
                 editingMessage={editingMessage}
                 lorIntro
                 inputNativeID={inputNativeID}

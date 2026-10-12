@@ -35,7 +35,11 @@ import {
   type EnrichedMarkdownTextInputInstance,
 } from "react-native-enriched-markdown"
 import { KeyboardController } from "react-native-keyboard-controller"
-import Animated, { LinearTransition } from "react-native-reanimated"
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+} from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { AttachmentPickerPanel } from "@/components/attachment-picker-panel"
 import { ComposerAttachmentPreview } from "@/components/composer-attachment-preview"
@@ -44,6 +48,7 @@ import { MentionSuggestionMenu } from "@/components/mention-suggestion-menu"
 import { messageDisplayName } from "@/components/message-row"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
+import { LorMark } from "@/components/voice/lor-window"
 import { useHint } from "@/hooks/use-hints"
 import { useMessageAttachments } from "@/hooks/use-message-attachments"
 import type { RecentPhoto } from "@/hooks/use-recent-photos"
@@ -57,6 +62,8 @@ import {
 
 const composerLayoutTransition = LinearTransition.duration(100)
 const attachmentPanelGap = 8
+const toolbarSwapIn = FadeIn.duration(160)
+const toolbarSwapOut = FadeOut.duration(120)
 
 export type MessageComposerMentionHandle = {
   insertMention: (mention: { id: string; label: string }) => void
@@ -88,6 +95,7 @@ export function MessageComposer({
   onCustomInputViewChange,
   topAccessory,
   lorIntro = false,
+  destination,
 }: {
   channelId: string
   channelName: string
@@ -121,6 +129,9 @@ export function MessageComposer({
   // Main channel composer only: teaches @Lor through the placeholder and the
   // lor_intro hint.
   lorIntro?: boolean
+  // Channel chat and human threads, where @Lor starts a session instead of
+  // posting here.
+  destination?: "channel" | "thread"
 }) {
   const lorHint = useHint("lor_intro")
   const showLorIntro = lorIntro && !lorHint.dismissed
@@ -179,6 +190,10 @@ export function MessageComposer({
     !hasMessage &&
     attachmentUpload.attachments.length === 0
   const canActivateSubmit = isStopMode ? !isStopping : canSend
+  const startsSession =
+    Boolean(destination) &&
+    !isEditing &&
+    content.includes(`${MENTION_SCHEME}${LOR_USER_ID}`)
   const isExpanded =
     isEditing ||
     isFocused ||
@@ -592,7 +607,7 @@ export function MessageComposer({
               ? "Edit message"
               : (placeholder ??
                 (showLorIntro
-                  ? `Message #${channelName} or ask @Lor`
+                  ? `Message #${channelName}, or @Lor to start a session`
                   : `Message #${channelName}`))
           }
           placeholderTextColor={placeholderColor}
@@ -619,15 +634,45 @@ export function MessageComposer({
                 }
               />
             ) : null}
-            <ComposerShortcut color={muted} icon={TextFontIcon} />
-            <ComposerShortcut color={muted} icon={LaughingIcon} />
-            <ComposerShortcut
-              accessibilityLabel="Mention someone"
-              color={muted}
-              icon={AtSignIcon}
-              onPress={startMention}
-            />
-            <ComposerShortcut color={muted} icon={CommandLineIcon} />
+            {/* @Lor swaps the shortcuts for where the message goes, under
+                the text so the field never moves. */}
+            {startsSession ? (
+              <Animated.View
+                className="min-w-0 flex-1 flex-row"
+                entering={toolbarSwapIn}
+                exiting={toolbarSwapOut}
+                key="lor"
+              >
+                <View className="min-w-0 shrink flex-row items-center gap-[6px] rounded-lor-sm bg-accent-soft px-two py-1">
+                  <LorMark size={14} />
+                  <Text
+                    className="shrink text-xs font-medium text-accent"
+                    numberOfLines={1}
+                  >
+                    {destination === "thread"
+                      ? "New session from this thread"
+                      : `New session in #${channelName}`}
+                  </Text>
+                </View>
+              </Animated.View>
+            ) : (
+              <Animated.View
+                className="flex-row items-center gap-one"
+                entering={toolbarSwapIn}
+                exiting={toolbarSwapOut}
+                key="shortcuts"
+              >
+                <ComposerShortcut color={muted} icon={TextFontIcon} />
+                <ComposerShortcut color={muted} icon={LaughingIcon} />
+                <ComposerShortcut
+                  accessibilityLabel="Mention someone"
+                  color={muted}
+                  icon={AtSignIcon}
+                  onPress={startMention}
+                />
+                <ComposerShortcut color={muted} icon={CommandLineIcon} />
+              </Animated.View>
+            )}
             <ComposerSendButton
               accessibilityLabel={
                 isStopMode

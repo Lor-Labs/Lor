@@ -971,7 +971,7 @@ with Lor" no longer reaches Lor.
 
 #### Step 20: send path (~425)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - `@Lor` in chat or a human thread starts a visible session: client-picked
   ids (`newSession`), optimistic session and sidebar caches, then open the
@@ -983,13 +983,45 @@ with Lor" no longer reaches Lor.
 - Composer Lor state: "New session in #channel" pill and the new placeholder
   (`message-composer.tsx:400-447,594-595`).
 
+As built (2026-10-11):
+
+- `expo-crypto` added (`randomUUID()`); needs a new EAS build.
+- `hooks/use-session-start.ts` seeds `["agent-session", id]` (with a
+  client-only `pending: true`, fresh for 10s) and the `["thread", rootId]`
+  snapshot, then pushes `/session/[sessionId]`. The ack swaps the server's
+  first turn into the snapshot (a reload keeps `mobile-` sends, so it would
+  show twice) and refetches the session, which drops `pending`. A failed
+  start resets the session query: the screen shows "Session unavailable",
+  or the session if it landed despite a lost ack; the channel composer gets
+  the draft back with the error.
+- Both send hooks detect `<@Lor>` (`lib/mentions.ts` `mentionsLor`), send
+  `newSession`, keep the message out of chat or the thread, and seed the
+  first turn with Lor's mention so it reads "@Lor" before the ack. Only the
+  channel screen and human threads in text channels pass the handlers (not
+  DMs, sessions or call chats).
+- Moved in from Step 21: a minimal `app/session/[sessionId].tsx` (session
+  detail, then `ThreadView` with a `session` prop). Opening a session needs
+  a screen, and the thread screen showed a session's hidden root as "Thread
+  not found". `useThreadMessages` takes `isSession` (a null root is fine)
+  and `deferLoad` (no fetch or room join until the start is confirmed);
+  the composer waits on `pending`. Step 21 still owns the heading, event
+  lines, read marking and archived state.
+- No sidebar patch yet: the phone's sidebar has no session rows until
+  Steps 23–24. `startSession` and `toPeople` land with the screens that send
+  them (Steps 25 and 22).
+- Composer: `destination` prop ("channel" | "thread"); @Lor fades the
+  toolbar shortcuts out for a "New session in #channel" / "New session from
+  this thread" chip (`bg-accent-soft`, `LorMark`), so the text field never
+  moves. Placeholder: "Message #channel, or @Lor to start a session".
+
 #### Step 21: session route (~450)
 
 [ ] built · [ ] committed
 
-- New session route built on `components/thread-view.tsx`: the title heading
-  (title, #channel, started by, time) with live title updates, no "N
-  replies" divider, no "Thread" header.
+- The session route (a minimal one exists since Step 20, on
+  `components/thread-view.tsx`): the title heading (title, #channel, started
+  by, time) with live title updates, no "N replies" divider, no "Thread"
+  header.
 - Event replies render as muted lines (`loop_run`, `trigger_run`) through
   `channel-event-row.tsx`, not `MessageRow`.
 - Mark threads read (`POST …/threads/{id}/read`); archived sessions are

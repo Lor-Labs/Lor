@@ -53,7 +53,8 @@ export function ThreadMessageList({
   listKey,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
-  root: Message
+  // Null in a Lor session, whose root is a hidden anchor.
+  root: Message | null
   messages: Message[]
   totalReplyCount: number
   hasOlder: boolean
@@ -87,7 +88,7 @@ export function ThreadMessageList({
   const items = useMemo<ThreadListItem[]>(() => {
     // A call chat's root is the session itself, with nothing to read.
     const next: ThreadListItem[] =
-      root.type === "voice_session"
+      !root || root.type === "voice_session"
         ? []
         : [{ kind: "root", message: root }, { kind: "count" }]
     if (hasOlder || isLoadingOlder || paginationError) {
@@ -213,7 +214,7 @@ export function ThreadMessageList({
           initialScrollAtEnd={!openingPosition}
           initialScrollIndex={openingPosition}
           isLorResponding={
-            root.status === "pending" ||
+            root?.status === "pending" ||
             messages.some((message) => message.status === "pending")
           }
           keyboardProps={keyboardProps}
@@ -223,7 +224,7 @@ export function ThreadMessageList({
             }
             return item.kind
           }}
-          newestItemKey={orderedMessages.at(-1)?.id ?? `root-${root.id}`}
+          newestItemKey={orderedMessages.at(-1)?.id ?? `root-${root?.id}`}
           onFirstVisibleItemChanged={handleFirstVisibleItemChanged}
           onStartReached={() => {
             // Don't auto-retry after a failed page — that's the Try again button.
@@ -342,7 +343,8 @@ export function ThreadMessageList({
             const showDate = older
               ? !areMessagesOnSameDay(message.createdAt, older.createdAt)
               : !hasOlder &&
-                !areMessagesOnSameDay(message.createdAt, root.createdAt)
+                (!root ||
+                  !areMessagesOnSameDay(message.createdAt, root.createdAt))
             const canManageMessage =
               Boolean(currentUserId) &&
               message.authorId === currentUserId &&

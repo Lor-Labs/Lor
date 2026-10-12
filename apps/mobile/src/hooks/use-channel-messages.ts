@@ -1,12 +1,19 @@
-import type {
-  RealtimeMessageThreadUpdated,
-  ServerToClientEvents,
+import {
+  type RealtimeMessageThreadUpdated,
+  type ServerToClientEvents,
+  sessionTitleFromPrompt,
 } from "@repo/realtime-types"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useChannelRoom } from "@/hooks/use-channel-room"
+import {
+  newSessionIds,
+  type SessionStart,
+  type SessionStartHandlers,
+} from "@/hooks/use-session-start"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
+import { lorMention, mentionsLor } from "@/lib/mentions"
 import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
@@ -58,6 +65,7 @@ export function useChannelMessages({
   source,
   socket,
   currentUser,
+  sessionStart,
 }: {
   source: MessageSource
   socket: AppSocket | null
@@ -66,7 +74,11 @@ export function useChannelMessages({
     name: string
     image?: string | null
   }
+  // Channel chat: @Lor starts a session instead of posting here.
+  sessionStart?: SessionStartHandlers
 }) {
+  const sessionStartRef = useRef(sessionStart)
+  sessionStartRef.current = sessionStart
   const sourceKind = source.kind
   const workspaceSlug = source.kind === "channel" ? source.workspaceSlug : ""
   const channelId = source.kind === "channel" ? source.channelId : source.dmId
@@ -454,27 +466,52 @@ export function useChannelMessages({
       }
 
       const nonce = `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const optimistic = createOptimisticMessage({
-        nonce,
-        channelId,
-        content: trimmed || null,
-        author: currentUser,
-        attachments,
-        referencedMessage: referencedMessage
-          ? {
-              id: referencedMessage.id,
-              content: referencedMessage.content,
-              author: referencedMessage.author,
-              overrideName: referencedMessage.overrideName,
-              overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
-              // Carried so the optimistic preview resolves mention tokens
-              // straight away instead of showing raw ids until the ack.
-              mentions: referencedMessage.mentions,
-            }
-          : null,
-      })
+      const handlers = sessionStartRef.current
+      const startIds = handlers && mentionsLor(trimmed) ? newSessionIds() : null
+      // A session start carries the replied-to message as context, not as a
+      // reply, so its first turn shows no quote.
+      const start: SessionStart | null = startIds
+        ? {
+            ...startIds,
+            title: sessionTitleFromPrompt(trimmed),
+            message: {
+              ...createOptimisticMessage({
+                nonce,
+                channelId,
+                content: trimmed || null,
+                author: currentUser,
+                attachments,
+                threadRootId: startIds.threadRootId,
+              }),
+              mentions: [lorMention],
+            },
+          }
+        : null
       sendingRef.current = true
-      setMessages((current) => mergeMessages([optimistic], current))
+      if (start) {
+        handlers?.starting(start)
+      } else {
+        const optimistic = createOptimisticMessage({
+          nonce,
+          channelId,
+          content: trimmed || null,
+          author: currentUser,
+          attachments,
+          referencedMessage: referencedMessage
+            ? {
+                id: referencedMessage.id,
+                content: referencedMessage.content,
+                author: referencedMessage.author,
+                overrideName: referencedMessage.overrideName,
+                overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
+                // Carried so the optimistic preview resolves mention tokens
+                // straight away instead of showing raw ids until the ack.
+                mentions: referencedMessage.mentions,
+              }
+            : null,
+        })
+        setMessages((current) => mergeMessages([optimistic], current))
+      }
       setIsSending(true)
       setError(null)
 
@@ -487,13 +524,28 @@ export function useChannelMessages({
             attachments: attachments.length > 0 ? attachments : undefined,
             nonce,
             referencedMessageId: referencedMessage?.id,
+            newSession: startIds ?? undefined,
           })
 
         if (!result.ok) throw new Error(result.error)
 
         const confirmed = realtimeMessageToMessage(result.message)
-        setMessages((current) => replaceMessage(current, nonce, confirmed))
+        // The server moved the message into a new Lor session.
+        const movedToSession = confirmed.threadRootId !== null
+        if (start) {
+          if (movedToSession && result.session) {
+            handlers?.started(start, result.session, confirmed)
+          } else {
+            handlers?.failed(start)
+          }
+        }
+        setMessages((current) =>
+          movedToSession
+            ? removeMessage(current, nonce)
+            : replaceMessage(current, nonce, confirmed)
+        )
       } catch (cause) {
+        if (start) handlers?.failed(start)
         setMessages((current) => removeMessage(current, nonce))
         const errorMessage =
           cause instanceof Error && cause.message === "operation has timed out"
