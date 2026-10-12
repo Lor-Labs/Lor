@@ -1417,8 +1417,8 @@ Lor reading and the answer. Shared: Tomás joins and replies, you type a
 reply, and "To Lor" flips to "To" with his face, so your turn lands muted.
 The scenes reuse the real `DestinationBar`, so they show the subscriber
 faces. Reduced motion shows each scene's last frame. Follow-up (Jacob,
-web and phone): a "Welcome to Lor" step first, the mark and one line (see
-`onboarding.md` 11b).
+web and phone): a "Welcome to Lor" step first, a shared session worked by
+four named cursors and one line of pitch (see `onboarding.md` 11b).
 
 #### Step 35: cleanup (~150)
 

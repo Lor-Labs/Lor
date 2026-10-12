@@ -773,10 +773,15 @@ on top, the step text under it, step dots and Back/Next at the bottom.
   it. The last step's "Start a session" dismisses it and opens the New
   session view for the current channel. Copy names only what people see
   (no "pill"): step 2 says ⌘N on desktop and New session in the sidebar on
-  the web. Since 2026-10-12 (Jacob) a "Welcome to Lor" step comes first: the
-  mark and one line, "The multiplayer AI workspace, where your team and Lor
-  work side by side." The phone's tour (workspace-model-runbook Step 34)
-  has the same steps.
+  the web. Since 2026-10-12 (Jacob) a "Welcome to Lor" step comes first: a
+  session the team works in at once, each with a named cursor (people in
+  avatar palette colors, Lor in the agent color). Maya asks @Lor for the
+  launch post, Lor drafts it while its cursor writes, Tomás reacts, and you
+  approve "Post to #announcements?". A doc version was dropped: Lor has no
+  docs, and it didn't show people working with an AI. One line of pitch
+  under it. Lor has no live cursors yet; Jacob wants the multiplayer point made,
+  and cursors come with later features. The phone's tour
+  (workspace-model-runbook Step 34) has the same steps.
 - `components/onboarding/how-lor-works-scenes.tsx` (new): three mockups that
   play once per step and hold the last frame (reduced motion shows the last
   frame): chat between people; `@Lor` + a question with the real

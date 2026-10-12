@@ -1,11 +1,21 @@
+import ThumbsUpIcon from "@hugeicons/core-free-icons/ThumbsUpIcon"
+import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
+import { AVATAR_COLOR_STYLES } from "@repo/utils/avatar-colors"
+import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useEffect, useState } from "react"
 import { Text, View } from "react-native"
 import Animated, {
+  Easing,
   FadeIn,
   FadeInDown,
   FadeOut,
+  useAnimatedStyle,
   useReducedMotion,
+  useSharedValue,
+  withTiming,
 } from "react-native-reanimated"
+import Svg, { Path } from "react-native-svg"
 import { SessionStateIndicator } from "@/components/channel-sessions"
 import {
   DestinationBar,
@@ -149,15 +159,246 @@ function LorChip() {
   return <Text className="font-medium text-accent">@Lor</Text>
 }
 
-// The tour's first step: just the mark.
-export function WelcomeScene() {
+type CursorColors = { background: string; foreground: string }
+
+const cursorEasing = { duration: 800, easing: Easing.out(Easing.cubic) }
+
+// People take avatar palette colors; Lor takes the accent.
+const COLOR_ROSE: CursorColors = {
+  background: AVATAR_COLOR_STYLES.rose.backgroundColor,
+  foreground: AVATAR_COLOR_STYLES.rose.foregroundColor,
+}
+const COLOR_EMERALD: CursorColors = {
+  background: AVATAR_COLOR_STYLES.emerald.backgroundColor,
+  foreground: AVATAR_COLOR_STYLES.emerald.foregroundColor,
+}
+const COLOR_BLUE: CursorColors = {
+  background: AVATAR_COLOR_STYLES.blue.backgroundColor,
+  foreground: AVATAR_COLOR_STYLES.blue.foregroundColor,
+}
+
+// A named cursor whose tip glides to x, y (pt from the doc's top-left).
+function SceneCursor({
+  name,
+  colors,
+  x,
+  y,
+}: {
+  name: string
+  colors: CursorColors
+  x: number
+  y: number
+}) {
+  const outline = useThemeColor("background")
+  const left = useSharedValue(x)
+  const top = useSharedValue(y)
+  useEffect(() => {
+    left.value = withTiming(x, cursorEasing)
+    top.value = withTiming(y, cursorEasing)
+  }, [x, y, left, top])
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateX: left.value }, { translateY: top.value }],
+  }))
   return (
     <Animated.View
-      className="absolute inset-0 items-center justify-center"
-      entering={FadeIn.duration(400)}
+      accessibilityElementsHidden
+      // Wide enough for the name: an absolute label only gets its parent's
+      // width, and a cursor-sized box cut "Lor" to "L".
+      className="absolute left-0 top-0 w-[120px]"
+      importantForAccessibility="no-hide-descendants"
+      pointerEvents="none"
+      style={style}
     >
-      <LorMark size={64} />
+      <Svg height={20} viewBox="0 0 16 20" width={16}>
+        <Path
+          d="M1 1V15.5L4.8 11.9L7.4 18L9.9 16.9L7.4 10.9H12.6L1 1Z"
+          fill={colors.background}
+          stroke={outline}
+          strokeLinejoin="round"
+          strokeWidth={1.2}
+        />
+      </Svg>
+      <View
+        className="absolute left-3 top-4 rounded-full px-[6px] py-px"
+        style={{ backgroundColor: colors.background }}
+      >
+        <Text
+          className="text-[10px] font-medium"
+          numberOfLines={1}
+          style={{ color: colors.foreground }}
+        >
+          {name}
+        </Text>
+      </View>
     </Animated.View>
+  )
+}
+
+const WELCOME_ASK = " draft the launch post for Thursday"
+const WELCOME_DRAFT =
+  "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
+const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4500, 5300] as const
+
+// The tour's first step: a team working with Lor in one session. Maya asks,
+// Lor drafts while its cursor writes, Tomás reacts, you approve the post.
+// Lor has no live cursors yet; this shows the idea. Rows have fixed heights
+// so each cursor's tip (pt from the card's top-left, per phase) lands on its
+// target.
+export function WelcomeScene({ you }: SceneProps) {
+  const phase = usePhase(WELCOME_TIMES)
+  const [accent, accentForeground, muted] = useThemeColor([
+    "accent",
+    "accent-foreground",
+    "muted",
+  ])
+  const asking = phase >= 1 && phase < 3
+  const maya = phase >= 3 ? [298, 60] : phase >= 1 ? [24, 186] : [-80, 190]
+  const lor =
+    phase >= 7
+      ? [300, 120]
+      : phase >= 4
+        ? [262, 96]
+        : phase >= 3
+          ? [34, 78]
+          : [330, 10]
+  const tomas = phase >= 7 ? [-20, 110] : phase >= 5 ? [48, 122] : [-80, 60]
+  const yours = phase >= 5 ? [251, 150] : [200, 260]
+  return (
+    <View className="absolute inset-0 items-center justify-center">
+      <Animated.View
+        className="w-[290px] rounded-lor-lg border border-border bg-background p-[10px]"
+        entering={FadeIn.duration(300)}
+      >
+        <View className="h-7 flex-row items-center gap-two border-b border-separator pb-one">
+          <Text className="min-w-0 flex-1 text-[12px] font-semibold text-foreground">
+            Launch post
+          </Text>
+          <View className="flex-row">
+            {[MAYA, TOMAS, you].map((person, index) => (
+              <Avatar
+                className={index === 0 ? "size-5" : "-ml-one size-5"}
+                image={person.image}
+                key={person.name}
+                name={person.name}
+                size="xs"
+              />
+            ))}
+          </View>
+        </View>
+        <View className="mt-two h-[120px] gap-one">
+          <View className="h-6">
+            {phase >= 3 ? (
+              <Animated.View
+                className="flex-row items-center gap-two"
+                entering={appear}
+              >
+                <PersonAvatar person={MAYA} />
+                <Text className="min-w-0 flex-1 text-[11px] text-foreground">
+                  <LorChip />
+                  {WELCOME_ASK}
+                </Text>
+              </Animated.View>
+            ) : null}
+          </View>
+          <View className="h-9 flex-row gap-two">
+            {phase >= 3 ? (
+              <>
+                <View className="w-6 items-center pt-px">
+                  <LorMark size={16} />
+                </View>
+                <Text className="min-w-0 flex-1 text-[11px] leading-4 text-foreground">
+                  <TypewriterText
+                    animate
+                    text={phase >= 4 ? WELCOME_DRAFT : ""}
+                  />
+                </Text>
+              </>
+            ) : null}
+          </View>
+          <View className="h-4 flex-row pl-eight">
+            {phase >= 6 ? (
+              <Animated.View
+                className="flex-row items-center gap-one rounded-full border border-border px-[6px]"
+                entering={appear}
+              >
+                <HugeiconsIcon color={muted} icon={ThumbsUpIcon} size={10} />
+                <Text className="text-[10px] text-muted">1</Text>
+              </Animated.View>
+            ) : null}
+          </View>
+          <View className="h-8">
+            {phase >= 5 ? (
+              <Animated.View
+                className="h-full flex-row items-center gap-one rounded-lor-sm border border-border pl-two pr-one"
+                entering={appear}
+              >
+                {phase >= 7 ? (
+                  <>
+                    <HugeiconsIcon
+                      color={muted}
+                      icon={Tick02Icon}
+                      size={12}
+                      strokeWidth={2}
+                    />
+                    <Text className="text-[11px] text-muted">
+                      Approved by you
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text
+                      className="min-w-0 flex-1 text-[11px] text-foreground"
+                      numberOfLines={1}
+                    >
+                      Post to #announcements?
+                    </Text>
+                    <Text className="px-two text-[10px] text-muted">
+                      Reject
+                    </Text>
+                    <View className="rounded-lor-sm bg-foreground px-two py-[3px]">
+                      <Text className="text-[10px] font-medium text-background">
+                        Approve
+                      </Text>
+                    </View>
+                  </>
+                )}
+              </Animated.View>
+            ) : null}
+          </View>
+        </View>
+        <View className="mt-two h-7 justify-center rounded-lor-sm border border-border px-two">
+          <Text className="text-[11px] text-foreground" numberOfLines={1}>
+            {asking ? (
+              <>
+                <LorChip />
+                <TypewriterText animate text={phase >= 2 ? WELCOME_ASK : ""} />
+              </>
+            ) : (
+              <Text className="text-muted">Reply…</Text>
+            )}
+          </Text>
+        </View>
+        <SceneCursor colors={COLOR_ROSE} name="Maya" x={maya[0]} y={maya[1]} />
+        <SceneCursor
+          colors={{ background: accent, foreground: accentForeground }}
+          name="Lor"
+          x={lor[0]}
+          y={lor[1]}
+        />
+        <SceneCursor
+          colors={COLOR_EMERALD}
+          name="Tomás"
+          x={tomas[0]}
+          y={tomas[1]}
+        />
+        <SceneCursor
+          colors={COLOR_BLUE}
+          name={you.name.split(" ")[0] || "You"}
+          x={yours[0]}
+          y={yours[1]}
+        />
+      </Animated.View>
+    </View>
   )
 }
 
