@@ -399,11 +399,7 @@ function ChannelScreen() {
           </IconButton>
         </View>
         <ChatKeyboardLayout
-          renderComposer={({
-            inputNativeID,
-            onCustomInputViewChange,
-            onInputLayout,
-          }) =>
+          renderComposer={({ inputNativeID, onCustomInputViewChange }) =>
             channel.archivedAt ? (
               <ArchivedChannelNotice archivedAt={channel.archivedAt} />
             ) : (
@@ -414,7 +410,6 @@ function ChannelScreen() {
                 editingMessage={editingMessage}
                 lorIntro
                 inputNativeID={inputNativeID}
-                onInputLayout={onInputLayout}
                 isConnected={isSocketConnected}
                 isMentionCandidatesLoading={mentions.isLoading}
                 isSending={chat.isSending || isSavingEdit}

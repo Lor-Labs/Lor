@@ -561,11 +561,7 @@ export function ThreadView({
         />
       ) : null}
       <ChatKeyboardLayout
-        renderComposer={({
-          inputNativeID,
-          onCustomInputViewChange,
-          onInputLayout,
-        }) =>
+        renderComposer={({ inputNativeID, onCustomInputViewChange }) =>
           archivedBar ??
           (isReady && !thread.isMissing && !thread.error && !showCallRecord ? (
             <MessageComposer
@@ -579,7 +575,6 @@ export function ThreadView({
               channelName={channelName}
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
-              onInputLayout={onInputLayout}
               isStopping={stoppingMessageId === pendingLorMessageId}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}

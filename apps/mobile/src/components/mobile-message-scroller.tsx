@@ -154,7 +154,6 @@ export function MobileMessageScroller<ItemT>({
         alignItemsAtEnd={alignItemsAtEnd}
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
-        contentInsetEndAdjustment={keyboardProps.contentInsetEndAdjustment}
         freeze={keyboardProps.freeze}
         keyboardDismissMode="interactive"
         keyboardLiftBehavior="whenAtEnd"

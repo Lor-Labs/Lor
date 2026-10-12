@@ -23,13 +23,7 @@ import {
   useRef,
   useState,
 } from "react"
-import {
-  Keyboard,
-  type LayoutChangeEvent,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native"
+import { Keyboard, Text, useWindowDimensions, View } from "react-native"
 import {
   EnrichedMarkdownTextInput,
   type EnrichedMarkdownTextInputInstance,
@@ -96,7 +90,6 @@ export function MessageComposer({
   mentionRef,
   onTyping,
   inputNativeID,
-  onInputLayout,
   onCustomInputViewChange,
   topAccessory,
   lorIntro = false,
@@ -129,7 +122,6 @@ export function MessageComposer({
   mentionRef?: Ref<MessageComposerMentionHandle>
   onTyping?: () => void
   inputNativeID?: string
-  onInputLayout?: (event: LayoutChangeEvent) => void
   onCustomInputViewChange?: (isOpen: boolean) => void
   // Rendered flush above the input card so accessories (run queue) can tuck
   // behind its top edge.
@@ -539,7 +531,6 @@ export function MessageComposer({
       <Animated.View
         className="relative overflow-hidden rounded-lor-sm border border-border bg-surface"
         layout={composerLayoutTransition}
-        onLayout={onInputLayout}
       >
         {editingMessage ? (
           <View className="min-h-10 flex-row items-center gap-two border-b border-border px-three py-two">

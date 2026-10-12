@@ -214,11 +214,7 @@ function NewSessionComposer({
   return (
     <>
       <ChatKeyboardLayout
-        renderComposer={({
-          inputNativeID,
-          onCustomInputViewChange,
-          onInputLayout,
-        }) => (
+        renderComposer={({ inputNativeID, onCustomInputViewChange }) => (
           <MessageComposer
             accessibilityLabel="Ask Lor"
             channelId={channel.id}
@@ -232,7 +228,6 @@ function NewSessionComposer({
             mentionCandidates={mentions.candidates}
             mentionCandidatesError={mentions.error}
             onCustomInputViewChange={onCustomInputViewChange}
-            onInputLayout={onInputLayout}
             onSend={async (content, attachments) => {
               setIsSending(true)
               try {
