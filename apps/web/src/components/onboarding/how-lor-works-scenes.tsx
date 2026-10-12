@@ -345,20 +345,25 @@ function SceneCursor({
 const WELCOME_ASK = " draft the launch post for Thursday"
 const WELCOME_DRAFT =
   "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
-const WELCOME_TIMES = [400, 1300, 2900, 3800, 5200, 6200, 6800, 7900] as const
+const WELCOME_TIMES = [
+  400, 1300, 2900, 3800, 5200, 6200, 6700, 7200, 8300,
+] as const
 
 // The tour's first step: a team working with Lor in one session. Zoe asks,
 // Lor drafts while its cursor writes, Rafael reacts, then you approve the
 // post (one cursor at a time, so each action reads on its own).
 // Lor has no live cursors yet; this shows the idea. Rows have fixed heights
 // so each cursor's tip (px from the card's top-left, per phase) lands on its
-// target.
+// target. Off-stage starts clear the name label too, which hangs to the
+// cursor's right.
 export function WelcomeScene({ you, onDone }: SceneProps) {
   const phase = usePhase(WELCOME_TIMES, onDone)
   const asking = phase >= 1 && phase < 3
-  const approved = phase >= 8
+  // The approval card waits for Rafael's reaction.
+  const asked = phase >= 7
+  const approved = phase >= 9
   const zoe: readonly [number, number] =
-    phase >= 3 ? [380, 70] : phase >= 1 ? [28, 222] : [-170, 230]
+    phase >= 3 ? [380, 70] : phase >= 1 ? [28, 222] : [-300, 230]
   const lor: readonly [number, number] = approved
     ? [390, 150]
     : phase >= 4
@@ -367,8 +372,8 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
         ? [40, 92]
         : [520, 20]
   const rafael: readonly [number, number] =
-    phase >= 7 ? [-60, 120] : phase >= 5 ? [52, 138] : [-170, 60]
-  const yours: readonly [number, number] = phase >= 7 ? [317, 170] : [240, 330]
+    phase >= 8 ? [-60, 120] : phase >= 5 ? [52, 138] : [-300, 60]
+  const yours: readonly [number, number] = phase >= 8 ? [317, 170] : [240, 330]
   return (
     <div className="absolute top-1/2 left-1/2 w-[360px] -translate-x-1/2 -translate-y-1/2">
       <div className="relative rounded-xl border bg-background p-3 text-[12px] shadow-lg/5">
@@ -423,7 +428,7 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
             )}
           </div>
           <div className="h-9">
-            {phase >= 5 && (
+            {asked && (
               <motion.div
                 {...appear}
                 className="flex h-full items-center gap-2 rounded-lg border pr-1 pl-2.5"

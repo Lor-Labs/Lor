@@ -264,7 +264,9 @@ function SceneCursor({
 const WELCOME_ASK = " draft the launch post for Thursday"
 const WELCOME_DRAFT =
   "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
-const WELCOME_TIMES = [400, 1300, 2900, 3800, 5200, 6200, 6800, 7900] as const
+const WELCOME_TIMES = [
+  400, 1300, 2900, 3800, 5200, 6200, 6700, 7200, 8300,
+] as const
 
 // The tour's first step: a team working with Lor in one session. Zoe asks,
 // Lor drafts while its cursor writes, Rafael reacts, then you approve the
@@ -280,8 +282,11 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
     "muted",
   ])
   const asking = phase >= 1 && phase < 3
-  const approved = phase >= 8
-  const zoe = phase >= 3 ? [298, 60] : phase >= 1 ? [24, 186] : [-80, 190]
+  // The approval card waits for Rafael's reaction.
+  const asked = phase >= 7
+  const approved = phase >= 9
+  // Off-stage starts clear the name label too, which hangs to the right.
+  const zoe = phase >= 3 ? [298, 60] : phase >= 1 ? [24, 186] : [-200, 190]
   const lor = approved
     ? [300, 120]
     : phase >= 4
@@ -289,8 +294,8 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
       : phase >= 3
         ? [34, 78]
         : [330, 10]
-  const rafael = phase >= 7 ? [-20, 110] : phase >= 5 ? [48, 122] : [-80, 60]
-  const yours = phase >= 7 ? [251, 150] : [200, 260]
+  const rafael = phase >= 8 ? [-20, 110] : phase >= 5 ? [48, 122] : [-200, 60]
+  const yours = phase >= 8 ? [251, 150] : [200, 260]
   return (
     <View className="absolute inset-0 items-center justify-center">
       <Animated.View
@@ -355,7 +360,7 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
             ) : null}
           </View>
           <View className="h-8">
-            {phase >= 5 ? (
+            {asked ? (
               <Animated.View
                 className="h-full flex-row items-center gap-one rounded-lor-sm border border-border pl-two pr-one"
                 entering={appear}

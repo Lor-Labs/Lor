@@ -1419,9 +1419,9 @@ The scenes reuse the real `DestinationBar`, so they show the subscriber
 faces. Reduced motion shows each scene's last frame. Follow-up (Jacob,
 web and phone): a "Welcome to Lor" step first, a shared session worked by
 four named cursors and one line of pitch, then the tour reordered around
-"a channel is a shared agent": Welcome, Every channel has an agent (a new
-channel setup scene replaces the chat scene), Lor works in sessions,
-Sessions are shared (see `onboarding.md` 11b).
+"a channel is a shared agent": Welcome, Lor works in sessions, Sessions
+are shared, Every channel has its own agent (a new #gtm setup scene with
+tools and a loop replaces the chat scene; see `onboarding.md` 11b).
 
 #### Step 35: cleanup (~150)
 
