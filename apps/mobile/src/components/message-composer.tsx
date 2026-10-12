@@ -41,6 +41,7 @@ import {
   type ComposerDestination,
   composerRouting,
   DestinationBar,
+  type PingedPerson,
 } from "@/components/composer-destination"
 import { HintCard } from "@/components/hint-card"
 import { MentionSuggestionMenu } from "@/components/mention-suggestion-menu"
@@ -94,6 +95,7 @@ export function MessageComposer({
   topAccessory,
   lorIntro = false,
   destination,
+  subscribers,
   currentUserId,
 }: {
   channelId: string
@@ -132,6 +134,9 @@ export function MessageComposer({
   // Chat and human threads, where @Lor starts a session instead of posting
   // here, and sessions, where a message goes to Lor or its subscribers.
   destination?: ComposerDestination
+  // Session only: the other subscribers, shown as faces when a message goes
+  // to people.
+  subscribers?: PingedPerson[]
   // A reply to your own message addresses no one.
   currentUserId?: string
 }) {
@@ -693,6 +698,7 @@ export function MessageComposer({
                       : undefined
                   }
                   pinged={routing.pinged}
+                  subscribers={subscribers}
                   toLor={routing.toLor}
                 />
               </Animated.View>

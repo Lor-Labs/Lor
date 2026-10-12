@@ -62,6 +62,7 @@ import {
   type ComposerDestination,
   DestinationBar,
   type PingedPerson,
+  type SubscriberFace,
 } from "@/components/chat/composer/destination-bar"
 import {
   MentionSuggestionList,
@@ -137,6 +138,9 @@ interface MessageInputProps {
   // Shows where the message goes (Lor or people) in a toolbar row under the
   // editor. Omit for DMs and call chats, which never reach Lor.
   destination?: ComposerDestination
+  // Session only: the other subscribers, shown as faces when a message goes
+  // to people.
+  subscribers?: SubscriberFace[]
   // New session only: chooses the session's channel, in the destination bar.
   channelPicker?: ReactNode
   // Floats just above the composer, e.g. the "Started … · Open" note.
@@ -545,6 +549,7 @@ export function MessageInput({
   contextScopeKey,
   lorIntro = false,
   destination,
+  subscribers,
   channelPicker,
   notice,
   variant = "box",
@@ -1400,6 +1405,7 @@ export function MessageInput({
                   channelName={context.name}
                   toLor={routing.toLor}
                   pinged={routing.pinged}
+                  subscribers={subscribers}
                   channelPicker={channelPicker}
                   lorPillRef={lorPillRef}
                   onSwitch={

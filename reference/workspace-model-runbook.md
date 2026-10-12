@@ -1386,6 +1386,10 @@ As built (2026-10-11):
   tapping "To Lor" dismisses it. `sessions_intro` under the first expanded
   channel's session rows on the Channels tab; opening any session dismisses
   it.
+- Follow-up (Jacob, web and phone): the session composer's people pill
+  reads "To" and up to 3 faces of the other subscribers (+N), from
+  `threadSubscribersQueryOptions`; "To subscribers" when no one else
+  follows.
 
 #### Step 34: How Lor works on mobile (~350)
 

@@ -1,6 +1,7 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
+import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
@@ -54,6 +55,7 @@ import { useRunQueue } from "@/hooks/use-run-queue"
 import { useSessionStart } from "@/hooks/use-session-start"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
+import { threadSubscribersQueryOptions } from "@/hooks/use-thread-subscribers"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { AgentSession, Message } from "@/lib/api-types"
@@ -265,6 +267,20 @@ export function ThreadView({
   }, [pendingLorMessage?.id, requestStop])
 
   const channelName = channelState.channel?.name ?? "channel"
+  // Who a message "To subscribers" reaches, shown as faces in the composer.
+  const subscriberQuery = threadSubscribersQueryOptions({
+    workspaceSlug: workspace?.slug ?? "",
+    channelId,
+    threadRootId,
+  })
+  const { data: subscribers } = useQuery({
+    ...subscriberQuery,
+    enabled: subscriberQuery.enabled && Boolean(lorSession),
+  })
+  const otherSubscribers = useMemo(
+    () => subscribers?.filter((person) => person.id !== session?.user.id),
+    [subscribers, session?.user.id]
+  )
   const memberById = useCallback(
     (userId: string | null) =>
       mentions.members.find((member) => member.userId === userId),
@@ -590,6 +606,7 @@ export function ThreadView({
                 lorSession ? "session" : startsSessions ? "thread" : undefined
               }
               initialDraft={composerDraft}
+              subscribers={otherSubscribers}
               channelId={channelId}
               channelName={channelName}
               editingMessage={editingMessage}

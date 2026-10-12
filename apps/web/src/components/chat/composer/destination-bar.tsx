@@ -12,6 +12,10 @@ export type ComposerDestination = "channel" | "thread" | "session" | "new"
 
 export type PingedPerson = { id: string; name: string; image: string | null }
 
+export type SubscriberFace = PingedPerson & { avatarColor: string | null }
+
+const MAX_SUBSCRIBER_FACES = 3
+
 // The bar swaps between the Lor and people states in the toolbar row under
 // the editor, so the text field never moves while someone types "@Lor".
 const swap = {
@@ -26,6 +30,7 @@ export function DestinationBar({
   channelName,
   toLor,
   pinged,
+  subscribers = [],
   onSwitch,
   channelPicker,
   lorPillRef,
@@ -34,6 +39,8 @@ export function DestinationBar({
   channelName: string
   toLor: boolean
   pinged: PingedPerson[]
+  // Session only: who a message to people reaches, without you.
+  subscribers?: SubscriberFace[]
   // Session only, when nothing in the message decides the destination.
   onSwitch?: () => void
   // New session only: chooses the session's channel.
@@ -93,7 +100,21 @@ export function DestinationBar({
                 placeholder; only a session needs a pill to switch. */}
             {destination === "session" && (
               <DestinationPill onSwitch={onSwitch}>
-                To subscribers
+                {subscribers.length > 0 ? (
+                  <>
+                    To
+                    <Faces
+                      people={subscribers.slice(0, MAX_SUBSCRIBER_FACES)}
+                    />
+                    {subscribers.length > MAX_SUBSCRIBER_FACES &&
+                      `+${subscribers.length - MAX_SUBSCRIBER_FACES}`}
+                    <span className="sr-only">
+                      {subscribers.map((person) => person.name).join(", ")}
+                    </span>
+                  </>
+                ) : (
+                  "To subscribers"
+                )}
               </DestinationPill>
             )}
             {pinged.length > 0 && (
@@ -146,21 +167,34 @@ function PingedPeople({
 }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
-      <span className="flex shrink-0 -space-x-1">
-        {people.map((person) => (
-          <Avatar key={person.id} className="size-4 ring-2 ring-background">
-            {person.image && (
-              <AvatarImage src={person.image} alt={person.name} />
-            )}
-            <AvatarFallback fallbackSeed={person.name} className="text-[8px]">
-              {getAvatarInitials(person.name)}
-            </AvatarFallback>
-          </Avatar>
-        ))}
-      </span>
+      <Faces people={people} />
       <span className="truncate">
         {label} {people.map((person) => person.name.split(" ")[0]).join(", ")}
       </span>
+    </span>
+  )
+}
+
+// Names are always in text beside the faces, so the images stay unlabeled.
+function Faces({
+  people,
+}: {
+  people: (PingedPerson & { avatarColor?: string | null })[]
+}) {
+  return (
+    <span className="flex shrink-0 -space-x-1">
+      {people.map((person) => (
+        <Avatar key={person.id} className="size-4 ring-2 ring-background">
+          {person.image && <AvatarImage src={person.image} alt="" />}
+          <AvatarFallback
+            avatarColor={person.avatarColor}
+            fallbackSeed={person.name}
+            className="text-[8px]"
+          >
+            {getAvatarInitials(person.name)}
+          </AvatarFallback>
+        </Avatar>
+      ))}
     </span>
   )
 }

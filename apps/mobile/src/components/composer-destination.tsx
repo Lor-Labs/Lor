@@ -15,13 +15,14 @@ import type { MentionCandidate } from "@/lib/mentions"
 // subscribers. Mirrors web's destination-bar.tsx.
 export type ComposerDestination = "channel" | "thread" | "session"
 
-type PingedPerson = {
+export type PingedPerson = {
   id: string
   name: string
   image: string | null
   avatarColor: string | null
 }
 
+const MAX_SUBSCRIBER_FACES = 3
 const swapIn = FadeIn.duration(160)
 const swapOut = FadeOut.duration(120)
 
@@ -90,16 +91,20 @@ export function DestinationBar({
   channelName,
   toLor,
   pinged,
+  subscribers = [],
   onSwitch,
 }: {
   destination: ComposerDestination
   channelName: string
   toLor: boolean
   pinged: PingedPerson[]
+  // Session only: who a message to people reaches, without you.
+  subscribers?: PingedPerson[]
   // Session only, when nothing in the message decides the destination.
   onSwitch?: () => void
 }) {
   const isSession = destination === "session"
+  const extraSubscribers = subscribers.length - MAX_SUBSCRIBER_FACES
   return (
     <View className="min-w-0 flex-1 flex-row items-center">
       {toLor ? (
@@ -141,10 +146,25 @@ export function DestinationBar({
           key="people"
         >
           {isSession ? (
-            <DestinationPill onSwitch={onSwitch}>
+            <DestinationPill
+              accessibilityLabel={
+                subscribers.length > 0
+                  ? `To ${subscribers.map((person) => person.name).join(", ")}`
+                  : undefined
+              }
+              onSwitch={onSwitch}
+            >
               <Text className="text-xs font-medium text-muted">
-                To subscribers
+                {subscribers.length > 0 ? "To" : "To subscribers"}
               </Text>
+              {subscribers.length > 0 ? (
+                <Faces people={subscribers.slice(0, MAX_SUBSCRIBER_FACES)} />
+              ) : null}
+              {extraSubscribers > 0 ? (
+                <Text className="text-xs font-medium text-muted">
+                  +{extraSubscribers}
+                </Text>
+              ) : null}
             </DestinationPill>
           ) : null}
           {pinged.length > 0 ? (
@@ -157,10 +177,12 @@ export function DestinationBar({
 }
 
 function DestinationPill({
+  accessibilityLabel,
   onSwitch,
   tinted = false,
   children,
 }: {
+  accessibilityLabel?: string
   onSwitch?: () => void
   tinted?: boolean
   children: ReactNode
@@ -169,10 +191,21 @@ function DestinationPill({
   const className = `min-h-7 shrink flex-row items-center gap-[6px] rounded-lor-sm px-two ${
     tinted ? "bg-accent-soft" : ""
   }`
-  if (!onSwitch) return <View className={className}>{children}</View>
+  if (!onSwitch) {
+    return (
+      <View
+        accessibilityLabel={accessibilityLabel}
+        accessible={Boolean(accessibilityLabel)}
+        className={className}
+      >
+        {children}
+      </View>
+    )
+  }
   return (
     <Pressable
       accessibilityHint="Switches who this message goes to"
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       className={`${className} active:bg-default`}
       hitSlop={6}
@@ -195,26 +228,32 @@ function PingedPeople({
   people: PingedPerson[]
   label: string
 }) {
-  const background = useThemeColor("background")
   return (
     <View className="min-w-0 shrink flex-row items-center gap-[6px]">
-      <View className="flex-row">
-        {people.slice(0, 3).map((person, index) => (
-          <Avatar
-            avatarColor={person.avatarColor}
-            className={index === 0 ? "size-4" : "-ml-one size-4"}
-            fallback={person.name.charAt(0).toUpperCase()}
-            image={person.image}
-            key={person.id}
-            name={person.name}
-            size="xs"
-            style={{ borderColor: background, borderWidth: 1 }}
-          />
-        ))}
-      </View>
+      <Faces people={people.slice(0, 3)} />
       <Text className="shrink text-xs text-muted" numberOfLines={1}>
         {label} {people.map((person) => person.name.split(" ")[0]).join(", ")}
       </Text>
+    </View>
+  )
+}
+
+function Faces({ people }: { people: PingedPerson[] }) {
+  const background = useThemeColor("background")
+  return (
+    <View className="flex-row">
+      {people.map((person, index) => (
+        <Avatar
+          avatarColor={person.avatarColor}
+          className={index === 0 ? "size-4" : "-ml-one size-4"}
+          fallback={person.name.charAt(0).toUpperCase()}
+          image={person.image}
+          key={person.id}
+          name={person.name}
+          size="xs"
+          style={{ borderColor: background, borderWidth: 1 }}
+        />
+      ))}
     </View>
   )
 }

@@ -121,6 +121,7 @@ import {
   showWriteSubscribers,
   type ThreadSubscriber,
   threadSubscribersKey,
+  threadSubscribersQueryOptions,
 } from "@/hooks/use-thread-subscribers"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import {
@@ -723,6 +724,15 @@ export function ThreadPanel({
     : channel?.type === "text"
       ? "thread"
       : undefined
+  // Who a message "To subscribers" reaches, shown as faces in the composer.
+  const { data: subscribers } = useQuery({
+    ...threadSubscribersQueryOptions(view),
+    enabled: Boolean(sessionView),
+  })
+  const otherSubscribers = useMemo(
+    () => subscribers?.filter((person) => person.id !== currentUserId),
+    [subscribers, currentUserId]
+  )
 
   // Threads render top-down (oldest → newest). The API + cache hold
   // newest-first, so reverse for display.
@@ -993,6 +1003,7 @@ export function ThreadPanel({
         contextScopeKey={view.threadRootId}
         placeholder={composerPlaceholder}
         destination={composerDestination}
+        subscribers={otherSubscribers}
         variant={sessionView ? "inline" : "box"}
         toolbarTarget={toolbarTarget}
         onTypeToFocus={

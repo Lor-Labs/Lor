@@ -32,6 +32,29 @@ type ThreadRef = {
 export const threadSubscribersKey = (threadRootId: string) =>
   ["thread-subscribers", threadRootId] as const
 
+// Read-only callers (the session composer's faces) share the list with
+// useThreadSubscribers, which keeps it live.
+export function threadSubscribersQueryOptions({
+  workspaceSlug,
+  channelId,
+  threadRootId,
+}: ThreadRef) {
+  return {
+    queryKey: threadSubscribersKey(threadRootId),
+    enabled: Boolean(workspaceSlug && channelId && threadRootId),
+    queryFn: async (): Promise<ThreadSubscriber[]> => {
+      const res = await api.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].threads[":threadRootId"].subscribers.$get({
+        param: { workspaceSlug, channelId, threadRootId },
+      })
+      if (!res.ok) throw new Error("Failed to fetch subscribers")
+      const body = await res.json()
+      return body.subscribers
+    },
+  }
+}
+
 // Under the sidebar key: following a session moves its Channels-tab row.
 const subscriberMutationKey = (threadRootId: string) =>
   [...sidebarSessionMutationKey, "subscribers", threadRootId] as const
@@ -53,20 +76,9 @@ export function useThreadSubscribers({
   const queryKey = threadSubscribersKey(threadRootId)
   const mutationKey = subscriberMutationKey(threadRootId)
 
-  const { data: subscribers = [] } = useQuery({
-    queryKey,
-    enabled: Boolean(workspaceSlug && channelId && threadRootId),
-    queryFn: async (): Promise<ThreadSubscriber[]> => {
-      const res = await api.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].threads[":threadRootId"].subscribers.$get({
-        param: { workspaceSlug, channelId, threadRootId },
-      })
-      if (!res.ok) throw new Error("Failed to fetch subscribers")
-      const body = await res.json()
-      return body.subscribers
-    },
-  })
+  const { data: subscribers = [] } = useQuery(
+    threadSubscribersQueryOptions({ workspaceSlug, channelId, threadRootId })
+  )
 
   // Replies and mentions subscribe people; the subscriber routes emit
   // workspace activity.
