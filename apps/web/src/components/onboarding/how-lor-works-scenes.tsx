@@ -1,5 +1,6 @@
 import {
   HashtagIcon,
+  RepeatIcon,
   ThumbsUpIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
@@ -270,10 +271,10 @@ function MiniCursor({ clicking }: { clicking: boolean }) {
   )
 }
 
-function LorChip() {
+function MentionChip({ name = "Lor" }: { name?: string }) {
   return (
     <span className="rounded bg-primary/15 px-1 py-0.5 font-medium text-primary">
-      @Lor
+      @{name}
     </span>
   )
 }
@@ -387,7 +388,7 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
               <motion.div {...appear} className="flex items-center gap-2">
                 <PersonAvatar person={ZOE} />
                 <span className="text-foreground/90">
-                  <LorChip />
+                  <MentionChip />
                   {WELCOME_ASK}
                 </span>
               </motion.div>
@@ -456,7 +457,7 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
         <div className="mt-2 flex h-8 items-center rounded-lg border px-3">
           {asking ? (
             <span className="text-foreground/90">
-              <LorChip />
+              <MentionChip />
               <TypewriterText text={phase >= 2 ? WELCOME_ASK : ""} animate />
             </span>
           ) : (
@@ -477,8 +478,9 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
 }
 
 // #gtm, the positioning's first example (memory project_positioning): Lor
-// drafts, a person approves before anything is sent.
-const CHANNEL_INSTRUCTIONS =
+// drafts, a person approves before anything is sent. Channels have tools
+// (agent profiles) and loops, not instructions of their own.
+const CHANNEL_LOOP =
   "Find startups hiring a first designer and draft intros. Never send without approval."
 // Null is the built-in web search (the globe).
 const CHANNEL_TOOLS = [
@@ -486,7 +488,7 @@ const CHANNEL_TOOLS = [
   { key: "attio", name: "Attio" },
   { key: "notion", name: "Notion" },
 ] as const
-const CHANNEL_TIMES = [300, 1900, 2300, 2700, 3400] as const
+const CHANNEL_TIMES = [400, 800, 1200, 1900, 3500] as const
 
 function MiniSwitch({ on }: { on: boolean }) {
   return (
@@ -506,8 +508,8 @@ function MiniSwitch({ on }: { on: boolean }) {
   )
 }
 
-// A channel set up once for everyone: its instructions type in and its
-// tools switch on, then Lor is ready for the whole channel.
+// A channel set up once for everyone: its tools switch on, then a loop
+// gives Lor work on a schedule.
 export function ChannelAgentScene({ you, onDone }: SceneProps) {
   const phase = usePhase(CHANNEL_TIMES, onDone)
   return (
@@ -520,17 +522,11 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
           <PersonAvatar person={you} />
         </div>
       </div>
-      <div className="mt-2.5 text-[11px] text-muted-foreground">
-        Instructions
-      </div>
-      <p className="mt-1 min-h-12 rounded-md border px-2 py-1.5 text-foreground/90">
-        <TypewriterText text={phase >= 1 ? CHANNEL_INSTRUCTIONS : ""} animate />
-      </p>
       <div className="mt-2.5 text-[11px] text-muted-foreground">Tools</div>
       <div className="mt-1 divide-y rounded-md border">
         {CHANNEL_TOOLS.map((tool, index) => {
           const Logo = connectorLogo(tool.key)
-          const on = phase >= 2 + index
+          const on = phase >= 1 + index
           return (
             <div key={tool.name} className="flex h-7 items-center gap-2 px-2">
               <Logo
@@ -552,6 +548,22 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
           )
         })}
       </div>
+      <div className="mt-2.5 flex h-4 items-center justify-between text-[11px] text-muted-foreground">
+        Loop
+        {phase >= 4 && (
+          <motion.span {...appear} className="flex items-center gap-1">
+            <HugeiconsIcon
+              icon={RepeatIcon}
+              className="size-3"
+              strokeWidth={2}
+            />
+            Weekdays at 9:00
+          </motion.span>
+        )}
+      </div>
+      <p className="mt-1 min-h-12 rounded-md border px-2 py-1.5 text-foreground/90">
+        <TypewriterText text={phase >= 4 ? CHANNEL_LOOP : ""} animate />
+      </p>
       <div className="mt-2.5 h-5">
         {phase >= 5 && (
           <motion.div
@@ -559,7 +571,7 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
             className="flex items-center gap-1.5 text-muted-foreground"
           >
             <img src="/lor-mark.svg" alt="" className="size-3.5" />
-            Lor uses these for everyone in #gtm
+            Shared with everyone in #gtm
           </motion.div>
         )}
       </div>
@@ -646,7 +658,7 @@ export function SessionStartScene({ workspaceName, you, onDone }: SceneProps) {
       >
         {drafting ? (
           <>
-            <LorChip />
+            <MentionChip />
             <TypewriterText text={phase >= 2 ? QUESTION : ""} animate />
           </>
         ) : (
@@ -666,7 +678,7 @@ export function SessionStartScene({ workspaceName, you, onDone }: SceneProps) {
       </div>
       <div className="flex flex-1 flex-col gap-3 px-3 pt-3 pb-3">
         <MiniMessage person={you}>
-          <LorChip />
+          <MentionChip />
           {QUESTION}
           <span className="mt-1 flex w-fit items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">
             <HugeiconsIcon
@@ -768,7 +780,8 @@ export function SharedSessionScene({ workspaceName, you, onDone }: SceneProps) {
           </div>
           {phase >= 1 && (
             <MiniMessage person={RAFAEL}>
-              Can you check staging too?
+              <MentionChip name={you.name.split(" ")[0] || "you"} /> can you
+              check staging too?
             </MiniMessage>
           )}
           {phase >= 4 && (

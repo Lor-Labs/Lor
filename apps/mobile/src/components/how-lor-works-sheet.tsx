@@ -35,19 +35,20 @@ const STEPS: [Step, ...Step[]] = [
     Scene: WelcomeScene,
   },
   {
-    title: "Every channel has an agent",
-    body: "Give a channel instructions and tools, like GitHub or Attio, once. Lor uses them for everyone in it.",
-    Scene: ChannelAgentScene,
-  },
-  {
     title: "Lor works in sessions",
-    body: "Mention @Lor or tap the pencil on the Channels tab to start one, or let it run on a schedule. The chat stays for your team.",
+    body: "Mention @Lor or tap the pencil on the Channels tab to start one. Each session belongs to a channel, and the chat stays for your team.",
     Scene: SessionStartScene,
   },
   {
     title: "Sessions are shared",
     body: "Anyone in the channel can see the work, step in, or approve what Lor sends.",
     Scene: SharedSessionScene,
+  },
+  // Last, once people know what a session is: a loop's runs land in one.
+  {
+    title: "Every channel has its own agent",
+    body: "Choose which tools Lor can use in each channel, and give it work on a schedule, like finding leads in #gtm every weekday.",
+    Scene: ChannelAgentScene,
   },
 ]
 

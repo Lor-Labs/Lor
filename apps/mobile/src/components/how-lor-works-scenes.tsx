@@ -1,3 +1,4 @@
+import RepeatIcon from "@hugeicons/core-free-icons/RepeatIcon"
 import ThumbsUpIcon from "@hugeicons/core-free-icons/ThumbsUpIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
@@ -181,8 +182,8 @@ function MiniComposer({
   )
 }
 
-function LorChip() {
-  return <Text className="font-medium text-accent">@Lor</Text>
+function MentionChip({ name = "Lor" }: { name?: string }) {
+  return <Text className="font-medium text-accent">@{name}</Text>
 }
 
 type CursorColors = { background: string; foreground: string }
@@ -321,7 +322,7 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
               >
                 <PersonAvatar person={ZOE} />
                 <Text className="min-w-0 flex-1 text-[11px] text-foreground">
-                  <LorChip />
+                  <MentionChip />
                   {WELCOME_ASK}
                 </Text>
               </Animated.View>
@@ -397,7 +398,7 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
           <Text className="text-[11px] text-foreground" numberOfLines={1}>
             {asking ? (
               <>
-                <LorChip />
+                <MentionChip />
                 <TypewriterText animate text={phase >= 2 ? WELCOME_ASK : ""} />
               </>
             ) : (
@@ -430,8 +431,9 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
 }
 
 // #gtm, the positioning's first example: Lor drafts, a person approves
-// before anything is sent. Same copy as web.
-const CHANNEL_INSTRUCTIONS =
+// before anything is sent. Same copy as web. Channels have tools (agent
+// profiles) and loops, not instructions of their own.
+const CHANNEL_LOOP =
   "Find startups hiring a first designer and draft intros. Never send without approval."
 // Null is the built-in web search (the globe).
 const CHANNEL_TOOLS = [
@@ -439,7 +441,7 @@ const CHANNEL_TOOLS = [
   { key: "attio", name: "Attio" },
   { key: "notion", name: "Notion" },
 ] as const
-const CHANNEL_TIMES = [300, 1900, 2300, 2700, 3400] as const
+const CHANNEL_TIMES = [400, 800, 1200, 1900, 3500] as const
 
 // The accent layer fades in over the track, so no color math on theme tokens.
 function MiniSwitch({ on }: { on: boolean }) {
@@ -462,11 +464,11 @@ function MiniSwitch({ on }: { on: boolean }) {
   )
 }
 
-// A channel set up once for everyone: its instructions type in and its
-// tools switch on, then Lor is ready for the whole channel.
+// A channel set up once for everyone: its tools switch on, then a loop
+// gives Lor work on a schedule.
 export function ChannelAgentScene({ you, onDone }: SceneProps) {
   const phase = usePhase(CHANNEL_TIMES, onDone)
-  const foreground = useThemeColor("foreground")
+  const [foreground, muted] = useThemeColor(["foreground", "muted"])
   return (
     <MiniPhone>
       <MiniHeader
@@ -482,19 +484,10 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
         title="# gtm"
       />
       <View className="flex-1 px-three pt-two">
-        <Text className="text-[10px] text-muted">Instructions</Text>
-        <View className="mt-one min-h-10 rounded-lor-sm border border-border px-two py-[6px]">
-          <Text className="text-[11px] leading-4 text-foreground">
-            <TypewriterText
-              animate
-              text={phase >= 1 ? CHANNEL_INSTRUCTIONS : ""}
-            />
-          </Text>
-        </View>
-        <Text className="mt-two text-[10px] text-muted">Tools</Text>
+        <Text className="text-[10px] text-muted">Tools</Text>
         <View className="mt-one rounded-lor-sm border border-border">
           {CHANNEL_TOOLS.map((tool, index) => {
-            const on = phase >= 2 + index
+            const on = phase >= 1 + index
             return (
               <View
                 className={`h-6 flex-row items-center gap-two px-two ${
@@ -521,6 +514,23 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
             )
           })}
         </View>
+        <View className="mt-two h-4 flex-row items-center justify-between">
+          <Text className="text-[10px] text-muted">Loop</Text>
+          {phase >= 4 ? (
+            <Animated.View
+              className="flex-row items-center gap-one"
+              entering={appear}
+            >
+              <HugeiconsIcon color={muted} icon={RepeatIcon} size={10} />
+              <Text className="text-[10px] text-muted">Weekdays at 9:00</Text>
+            </Animated.View>
+          ) : null}
+        </View>
+        <View className="mt-one min-h-10 rounded-lor-sm border border-border px-two py-[6px]">
+          <Text className="text-[11px] leading-4 text-foreground">
+            <TypewriterText animate text={phase >= 4 ? CHANNEL_LOOP : ""} />
+          </Text>
+        </View>
         <View className="mt-two h-4">
           {phase >= 5 ? (
             <Animated.View
@@ -529,7 +539,7 @@ export function ChannelAgentScene({ you, onDone }: SceneProps) {
             >
               <LorMark size={12} />
               <Text className="text-[10px] text-muted">
-                Lor uses these for everyone in #gtm
+                Shared with everyone in #gtm
               </Text>
             </Animated.View>
           ) : null}
@@ -575,7 +585,7 @@ export function SessionStartScene({ you, onDone }: SceneProps) {
       >
         {phase >= 1 ? (
           <>
-            <LorChip />
+            <MentionChip />
             <TypewriterText animate text={phase >= 2 ? QUESTION : ""} />
           </>
         ) : (
@@ -593,7 +603,7 @@ export function SessionStartScene({ you, onDone }: SceneProps) {
       />
       <View className="flex-1 gap-three px-three pt-three">
         <MiniMessage named={false} person={you}>
-          <LorChip />
+          <MentionChip />
           {QUESTION}
         </MiniMessage>
         <View className="ml-eight self-start rounded-lor-sm border border-border px-two py-px">
@@ -669,7 +679,8 @@ export function SharedSessionScene({ you, onDone }: SceneProps) {
         </View>
         {phase >= 1 ? (
           <MiniMessage named={false} person={RAFAEL}>
-            Can you check staging too?
+            <MentionChip name={you.name.split(" ")[0] || "you"} /> can you check
+            staging too?
           </MiniMessage>
         ) : null}
         {phase >= 4 ? (

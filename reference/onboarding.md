@@ -786,17 +786,25 @@ on top, the step text under it, step dots and Back/Next at the bottom.
   `project_positioning`: "a channel is a shared agent"; the tour must not
   lead with chat, since moving chat is the adoption cliff). The steps now:
   1. "Welcome to Lor": "AI agents your whole team can steer."
-  2. "Every channel has an agent": instructions and tools set once, used for
-     everyone (scene: `#gtm`'s instructions type in, "Find startups hiring a
-     first designer and draft intros. Never send without approval.", and Web
-     search, Attio and Notion switch on). It was `#engineering` reviewing
-     PRs with GitHub, Linear and Datadog; Jacob found that example overused.
-     Only this scene is #gtm; the session scenes stay on `#engineering`.
-  3. "Lor works in sessions": start one, or let it run on a schedule; the
-     chat stays for the team.
-  4. "Sessions are shared": anyone can see the work, step in, or approve.
+  2. "Lor works in sessions": start one; each session belongs to a channel,
+     and the chat stays for the team.
+  3. "Sessions are shared": anyone can see the work, step in, or approve.
+  4. "Every channel has its own agent": "Choose which tools Lor can use in
+     each channel, and give it work on a schedule, like finding leads in
+     #gtm every weekday." Scene: `#gtm`'s Web search, Attio and Notion
+     switch on, then a loop ("Weekdays at 9:00") types in: "Find startups
+     hiring a first designer and draft intros. Never send without
+     approval." Last on purpose (Jacob): a loop only makes sense once
+     people know what a session is, since its runs land in one, and the
+     per-channel setup leads into "Start a session". It first showed an
+     Instructions box, but channels have no instructions of their own (only
+     workspace instructions, loops and Act triggers do; per channel there
+     are tools, through agent profiles), so the box became the loop. It was
+     `#engineering` reviewing PRs with GitHub, Linear and Datadog before
+     that; Jacob found it overused. Only this scene is #gtm; the session
+     scenes stay on `#engineering`.
   The "Chat is for your team" step and its scene are gone; its point is a
-  line in step 3. The "To Lor" switch left step 4, since the `session_reply`
+  line in step 2. The "To Lor" switch left step 3, since the `session_reply`
   hint teaches it when it matters.
 - `components/onboarding/how-lor-works-scenes.tsx` (new): three mockups that
   play once per step and hold the last frame (reduced motion shows the last
