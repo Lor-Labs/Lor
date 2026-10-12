@@ -1,3 +1,4 @@
+import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon"
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useQuery } from "@tanstack/react-query"
@@ -40,6 +41,7 @@ import type {
   ChannelSearchResult,
 } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels"
 
 export default function WorkspaceScreen() {
   const theme = useTheme()
@@ -78,17 +80,7 @@ export default function WorkspaceScreen() {
   )
 
   const workspaceSlug = workspace?.slug ?? ""
-  const channelsQuery = useQuery({
-    queryKey: ["channels", workspaceSlug],
-    enabled: Boolean(workspaceSlug),
-    queryFn: async () => {
-      const response = await api.v1.workspaces[":workspaceSlug"].channels.$get({
-        param: { workspaceSlug },
-      })
-      if (!response.ok) throw new Error("Could not load channels")
-      return response.json()
-    },
-  })
+  const channelsQuery = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
   const { refetch: refetchChannels } = channelsQuery
   const channels = channelsQuery.data ?? null
   const isLoadingChannels = Boolean(workspaceSlug) && channelsQuery.isPending
@@ -315,6 +307,17 @@ export default function WorkspaceScreen() {
               <HugeiconsIcon color={theme.text} icon={PlusSignIcon} size={20} />
             </IconButton>
           ) : null}
+          <IconButton
+            accessibilityLabel="New session"
+            onPress={() => router.push("/session/new")}
+            variant="ghost"
+          >
+            <HugeiconsIcon
+              color={theme.text}
+              icon={PencilEdit02Icon}
+              size={20}
+            />
+          </IconButton>
         </View>
 
         <View className="mt-two px-four">

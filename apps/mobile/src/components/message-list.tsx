@@ -34,6 +34,7 @@ export function MessageList({
   emptyState,
   onRetry,
   onOpenThread,
+  onAskLor,
   onReply,
   onLoadAround,
   onEdit,
@@ -57,6 +58,8 @@ export function MessageList({
   emptyState?: { title: string; detail: string }
   onRetry: () => void
   onOpenThread?: (message: Message) => void
+  // Channel chat: start a session about the message.
+  onAskLor?: (message: Message) => void
   onReply: (message: Message) => void
   onLoadAround?: (messageId: string) => Promise<boolean>
   onEdit?: (message: Message) => void
@@ -192,6 +195,15 @@ export function MessageList({
     setSelectedMessage(null)
     onReply(message)
   }
+
+  const askLorAboutSelected = onAskLor
+    ? () => {
+        if (!selectedMessage) return
+        const message = selectedMessage
+        setSelectedMessage(null)
+        onAskLor(message)
+      }
+    : undefined
 
   return (
     <>
@@ -373,6 +385,11 @@ export function MessageList({
           if (!isOpen) setSelectedMessage(null)
         }}
         onOpenThread={openSelectedThread}
+        onAskLor={
+          selectedMessage && !isOptimisticMessage(selectedMessage)
+            ? askLorAboutSelected
+            : undefined
+        }
         onReply={replyToSelectedMessage}
         onEdit={
           selectedMessage &&

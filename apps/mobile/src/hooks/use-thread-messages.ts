@@ -792,6 +792,7 @@ export function useThreadMessages({
       const start: SessionStart | null = startIds
         ? {
             ...startIds,
+            origin: "chat",
             title: sessionTitleFromPrompt(trimmed),
             message: {
               ...createOptimisticMessage({

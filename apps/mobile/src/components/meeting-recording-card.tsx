@@ -38,13 +38,14 @@ export function MeetingRecordingCard({
   const recordingUrl =
     embed.url && /^https?:\/\//i.test(embed.url) ? embed.url : null
 
+  // Opens a new session about this recording with the question prefilled.
   function ask(prompt: string) {
     router.push({
-      pathname: "/channel/[channelId]/thread/[threadRootId]",
+      pathname: "/session/new",
       params: {
         channelId: message.channelId,
-        threadRootId: message.id,
-        composerDraft: prompt,
+        aboutMessageId: message.id,
+        draft: prompt || undefined,
       },
     })
   }
@@ -154,7 +155,7 @@ export function MeetingRecordingCard({
             <Pressable
               accessibilityRole="button"
               className="min-h-11 justify-center rounded-lg border border-dashed border-border px-2.5 py-1.5 active:opacity-60"
-              onPress={() => onOpenThread(message)}
+              onPress={() => ask("")}
             >
               <Text className="text-xs text-muted">Ask a follow-up ↗</Text>
             </Pressable>

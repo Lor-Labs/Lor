@@ -1136,12 +1136,33 @@ As built, Steps 23 and 24 (2026-10-11):
 
 #### Step 25: New session and Ask Lor (~330)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - New session screen (channel picker, examples, draft) and a New session
   entry on the Channels tab.
 - "Ask Lor about this" in `message-action-menu.tsx`; meeting follow-ups
   (`meeting-recording-card.tsx:41-50,154-160`) open a new session again.
+
+As built (2026-10-11):
+
+- `app/session/new.tsx` (params `channelId`, `aboutMessageId`, `draft`):
+  a faint Lor mark, "Get started with some examples" (dismissal kept in
+  SecureStore), and the composer ("Ask Lor…", no broadcast mentions) with
+  "New session in #channel ▾" above it; the chevron opens a channel sheet
+  (`openTextChannels`, `lib/workspace-channels.ts`, which the Channels tab
+  now shares). Asking about a message fixes the channel and shows an
+  "About …" card from the channel's message cache, removable. Picking an
+  example remounts the composer with it as the draft.
+- `useSendNewSession` (`use-session-start.ts`) sends `startSession` and
+  `newSession`, with the asked-about message as `referencedMessageId`.
+  `SessionStart` gained `origin`. The session replaces the New session
+  screen, so Back returns to where you came from; a failed start lands on
+  "Session unavailable" (the draft isn't restored).
+- Channels tab header: a New session button (pencil, as on web) next to
+  Create channel.
+- "Ask Lor" tile (Lor mark) in the long-press menu of channel chat
+  messages; meeting cards' follow-ups and "Ask a follow-up" open a new
+  session about the recording instead of its thread.
 
 #### Step 26: call Summary tab (~250)
 

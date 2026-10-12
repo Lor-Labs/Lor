@@ -1,8 +1,12 @@
-import type { RealtimeAgentSession } from "@repo/realtime-types"
+import {
+  type RealtimeAgentSession,
+  sessionTitleFromPrompt,
+} from "@repo/realtime-types"
 import { useQueryClient } from "@tanstack/react-query"
 import { randomUUID } from "expo-crypto"
 import { router } from "expo-router"
 import { useRef } from "react"
+import { useSocket } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { agentSessionKey, type SessionDetail } from "@/hooks/use-agent-session"
 import type { ThreadSnapshot } from "@/hooks/use-thread-messages"
@@ -13,7 +17,12 @@ import {
 } from "@/hooks/use-workspace-activity"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
-import { replaceMessage } from "@/lib/messages"
+import { lorMention, mentionsLor } from "@/lib/mentions"
+import {
+  createOptimisticMessage,
+  realtimeMessageToMessage,
+  replaceMessage,
+} from "@/lib/messages"
 
 // The seeded session counts as fresh this long, so its screen doesn't fetch a
 // row the server hasn't inserted yet; the ack refetches it sooner.
@@ -22,6 +31,8 @@ const PENDING_MS = 10_000
 export type SessionStart = {
   id: string
   threadRootId: string
+  // "new": the New session screen; "chat": @Lor in chat or a thread.
+  origin: "chat" | "new"
   title: string
   // The sender's message, the session's first turn.
   message: Message
@@ -44,14 +55,23 @@ export function newSessionIds() {
   return { id: randomUUID(), threadRootId: randomUUID() }
 }
 
-function openSession(sessionId: string) {
-  router.push({ pathname: "/session/[sessionId]", params: { sessionId } })
+function openSession(sessionId: string, replace: boolean) {
+  const href = {
+    pathname: "/session/[sessionId]",
+    params: { sessionId },
+  } as const
+  if (replace) router.replace(href)
+  else router.push(href)
 }
 
 // @Lor in chat or a human thread starts a session optimistically: its screen
 // and first turn exist before the server confirms, and it opens at once.
 // Mirrors web's use-session-start.ts.
-export function useSessionStart(channel: { id: string; name: string | null }) {
+export function useSessionStart(
+  channel: { id: string; name: string | null },
+  // The New session screen gives its place to the session.
+  { replace = false }: { replace?: boolean } = {}
+) {
   const queryClient = useQueryClient()
   const { workspace } = useWorkspace()
   const { data: auth } = authClient.useSession()
@@ -69,7 +89,7 @@ export function useSessionStart(channel: { id: string; name: string | null }) {
       channelId: channel.id,
       threadRootId: start.threadRootId,
       creatorId: user.id,
-      origin: "chat",
+      origin: start.origin,
       title: start.title,
       titleEditedAt: null,
       loopId: null,
@@ -115,7 +135,7 @@ export function useSessionStart(channel: { id: string; name: string | null }) {
       voiceSessionId: null,
       voiceSessionTitle: null,
     })
-    openSession(start.id)
+    openSession(start.id, replace)
   }
 
   const started = (
@@ -124,7 +144,7 @@ export function useSessionStart(channel: { id: string; name: string | null }) {
     message: Message
   ) => {
     if (!optimistic.current.delete(start.id)) {
-      openSession(session.id)
+      openSession(session.id, replace)
       return
     }
     // A reload keeps unacked `mobile-` sends, so swap in the server's copy
@@ -174,4 +194,73 @@ export function useSessionStart(channel: { id: string; name: string | null }) {
 
   const handlers: SessionStartHandlers = { starting, started, failed }
   return handlers
+}
+
+// The New session screen: the message starts a session in `channel` with no
+// chat context, @Lor or not. "Ask Lor about this" passes the asked-about
+// message as its only context.
+export function useSendNewSession(channel: {
+  id: string
+  name: string | null
+}) {
+  const socket = useSocket()
+  const { data: auth } = authClient.useSession()
+  const handlers = useSessionStart(channel, { replace: true })
+
+  return async (
+    content: string,
+    attachments: NonNullable<Message["attachments"]>,
+    contextMessageId: string | undefined
+  ) => {
+    const user = auth?.user
+    if (!socket?.connected) {
+      throw new Error("You're offline. Reconnect and try again.")
+    }
+    if (!user) {
+      throw new Error("Your session is unavailable. Please sign in again.")
+    }
+    const nonce = `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const ids = newSessionIds()
+    const start: SessionStart = {
+      ...ids,
+      origin: "new",
+      title: sessionTitleFromPrompt(content),
+      message: {
+        ...createOptimisticMessage({
+          nonce,
+          channelId: channel.id,
+          content: content || null,
+          author: user,
+          attachments,
+          threadRootId: ids.threadRootId,
+        }),
+        mentions: mentionsLor(content) ? [lorMention] : [],
+      },
+    }
+    handlers.starting(start)
+    try {
+      const result = await socket.timeout(12_000).emitWithAck("message:send", {
+        channelId: channel.id,
+        content: content || undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
+        nonce,
+        startSession: true,
+        newSession: ids,
+        referencedMessageId: contextMessageId,
+      })
+      if (!result.ok) throw new Error(result.error)
+      if (!result.session) throw new Error("Couldn't start the session")
+      handlers.started(
+        start,
+        result.session,
+        realtimeMessageToMessage(result.message)
+      )
+    } catch (cause) {
+      handlers.failed(start)
+      throw cause instanceof Error &&
+        cause.message === "operation has timed out"
+        ? new Error("Starting the session timed out. Please try again.")
+        : cause
+    }
+  }
 }

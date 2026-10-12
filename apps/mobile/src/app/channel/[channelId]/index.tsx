@@ -516,6 +516,12 @@ function ChannelScreen() {
               messages={visibleMessages}
               onLoadAround={chat.loadAround}
               onOpenThread={openThread}
+              onAskLor={(message) =>
+                router.push({
+                  pathname: "/session/new",
+                  params: { channelId, aboutMessageId: message.id },
+                })
+              }
               onDelete={confirmDelete}
               onEdit={startEditing}
               onPressAuthor={openAuthorProfile}
