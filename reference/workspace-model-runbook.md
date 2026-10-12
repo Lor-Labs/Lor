@@ -1336,10 +1336,22 @@ As built (2026-10-11):
 
 #### Step 32: Details sheet (~320)
 
-[ ] built · [ ] committed
+[ ] built (details done; proposal card next) · [ ] committed
 
 - Context link (needs message-location navigation), plan, files from Lor's
   tool calls, proposals in the redesigned card.
+
+As built so far (2026-10-11): the "…" sheet became the session's sheet,
+`components/session-sheet.tsx` (renamed from `session-actions-sheet.tsx`):
+Context (#channel · N messages, opening the newest context message where
+it was said via `lib/message-location.ts`), Plan (steps and done count, or
+"No plan yet"), Files (tool-call files from the loaded transcript, latest
+version first, then plan artifacts they don't cover, then attachments; each
+opens in the in-app browser), then Rename and Archive / Unarchive. Sessions
+no longer show the thread work strip: plan and files live in the sheet,
+approvals inline on Lor's replies, tool activity on the replies. Still to
+do: the phone's proposal card is the pre-redesign one (web redesigned it
+2026-10-09, `4c681ad5`).
 
 #### Step 33: forward, typing, hints (~300)
 

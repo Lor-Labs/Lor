@@ -13,8 +13,8 @@ import {
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
 import { RunQueuePill } from "@/components/run-queue-pill"
-import { SessionActionsSheet } from "@/components/session-actions-sheet"
 import { SessionHeading } from "@/components/session-heading"
+import { SessionSheet } from "@/components/session-sheet"
 import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
@@ -550,7 +550,9 @@ export function ThreadView({
     <>
       {header}
       {callTabs}
-      {showWorkHeader && !showCallRecord ? (
+      {/* A session keeps its plan and files in its sheet ("…"), and its
+          approvals inline on Lor's replies. */}
+      {showWorkHeader && !showCallRecord && !lorSession ? (
         <ThreadWorkHeader
           activityMessage={activityMessage}
           channelId={channelId}
@@ -727,9 +729,10 @@ export function ThreadView({
         }
       />
       {lorSession ? (
-        <SessionActionsSheet
+        <SessionSheet
           isOpen={isActionsOpen}
           lorRunning={Boolean(pendingLorMessage)}
+          messages={thread.messages}
           onOpenChange={setIsActionsOpen}
           session={lorSession}
         />

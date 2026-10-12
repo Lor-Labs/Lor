@@ -15,7 +15,7 @@ import {
   Text,
   View,
 } from "react-native"
-import { confirmArchiveSession } from "@/components/session-actions-sheet"
+import { confirmArchiveSession } from "@/components/session-sheet"
 import { Avatar } from "@/components/ui/avatar"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"

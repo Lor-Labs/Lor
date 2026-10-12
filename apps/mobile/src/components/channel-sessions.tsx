@@ -16,7 +16,7 @@ import Animated, {
   FadeOut,
   LinearTransition,
 } from "react-native-reanimated"
-import { confirmArchiveSession } from "@/components/session-actions-sheet"
+import { confirmArchiveSession } from "@/components/session-sheet"
 import { TypewriterText } from "@/components/typewriter-text"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { useWorkspace } from "@/context/workspace-context"
