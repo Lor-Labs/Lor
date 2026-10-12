@@ -427,7 +427,9 @@ covers hazard 13; broadcasts never subscribe); approval resolve (the
 resolver). Routes in `routes/v1/thread-subscriptions`: GET/PUT/DELETE
 `/workspaces/{slug}/channels/{channelId}/threads/{threadRootId}/subscribers[/{userId}]`,
 gated like thread read (real root in the workspace channel, caller sees the
-channel; adding someone also requires that they see it). Changes refresh the
+channel; adding someone also requires that they see it). Initial session
+subscribers are filtered through the channel audience in the creation
+transaction, including inherited private-channel access. Changes refresh the
 sidebar through `notifyWorkspaceActivity`.
 
 - Subscribe on start, mention, send, act (approve, answer) and add, plus
@@ -447,8 +449,10 @@ call chats) and sets one server-decided flag per recipient, `notify`, which
 replaces `isLorThread`/`isSubscribedToThread` and the client-side preference:
 channel messages notify everyone; thread and session messages, Lor's
 included, notify only subscribers. Session messages
-reach only the people they notify, with `unreadCountDelta: 0`. Push and web
-browser notifications obey `notify`; direct mentions still always push.
+reach only the people they notify, with `unreadCountDelta: 0`. Authorized
+direct mentions subscribe before the current message's fanout is built, so
+the first mention notifies too. Push and web browser notifications obey
+`notify`; direct mentions still always push.
 Unread, mention and thread-summary payloads carry `sessionId`: the web and
 mobile mention badges skip session mentions, the web thread-activity dock
 skips session threads, browser notifications for sessions open the session
@@ -561,8 +565,9 @@ teammate's, shows at once. On the session page,
 in-flight sidebar fetch) in the same tick as the header, so both type
 together; the sidebar refetch that follows finds the same title. Changed
 2026-10-10 (Jacob, QA pass: no typewriter away from the session): the title
-job also sends `session:updated` to every subscriber's user room, and the
-sidebar's activity provider applies it (`useWorkspaceSessionUpdates`), so the
+job also sends `session:updated` to each subscriber who still has channel
+access through their user room, and the sidebar's activity provider applies
+it (`useWorkspaceSessionUpdates`), so the
 title types out in the sidebar wherever you are and an open-later session
 page shows it without waiting for its cache to go stale. "Needs you" in
 `workspace-activity.ts`: a plan waiting for input marks every subscriber
@@ -740,9 +745,11 @@ the Act toggle copy says each event starts a session. Deleted:
 binding, `ctx.sandboxKey`; both names stay in `RESERVED_TOOL_NAMES` and left
 `SIDE_EFFECT_TOOLS` (hazard 6). Deviation: the design did not say who follows
 an Act session. The person who connected the source (`integration_connection.
-created_by`) is subscribed when they can see the channel; Lor's prompt says
-to mention anyone else, and its mentions subscribe them. Not built: a way to
-see the raw payload in the session (only Lor reads it).
+created_by`) is subscribed when they can see the channel. Every OAuth/API
+connect and reconnect now records that user; older connections with no
+creator use the workspace owner, still gated by channel access. Lor's prompt
+says to mention anyone else, and its mentions subscribe them. Not built: a
+way to see the raw payload in the session (only Lor reads it).
 
 #### Step 18: call Summary tab (~300)
 

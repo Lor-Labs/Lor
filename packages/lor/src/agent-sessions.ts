@@ -7,6 +7,7 @@ import {
   LOR_USER_ID,
   schema,
 } from "@repo/db"
+import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, Loop } from "@repo/db/schema"
 import type { RealtimeAgentSession } from "@repo/realtime-types/events"
@@ -114,7 +115,16 @@ export async function createSession(
     }
   }
 
-  await subscribeToThread(anchor.id, args.subscriberIds ?? [], tx)
+  if (args.subscriberIds?.length) {
+    const audience = new Set(
+      await listChannelAudienceUserIds(args.channelId, tx)
+    )
+    await subscribeToThread(
+      anchor.id,
+      args.subscriberIds.filter((userId) => audience.has(userId)),
+      tx
+    )
+  }
 
   return session
 }

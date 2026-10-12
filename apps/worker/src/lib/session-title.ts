@@ -11,6 +11,7 @@ import {
   schema,
 } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { generateSessionTitle, type OnUsage } from "@repo/lor"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
@@ -86,14 +87,20 @@ export async function titleSessionAfterFirstReply(input: {
 
   // Subscribers get it wherever they are, so the title types out in their
   // sidebar even when the session isn't open (a refetch shows it at once).
-  const subscribers = await db
-    .select({ userId: schema.threadSubscription.userId })
-    .from(schema.threadSubscription)
-    .where(eq(schema.threadSubscription.threadRootId, updated.threadRootId))
+  const [subscribers, audienceIds] = await Promise.all([
+    db
+      .select({ userId: schema.threadSubscription.userId })
+      .from(schema.threadSubscription)
+      .where(eq(schema.threadSubscription.threadRootId, updated.threadRootId)),
+    listChannelAudienceUserIds(updated.channelId),
+  ])
+  const audience = new Set(audienceIds)
   input.emitter
     .to([
       channelRoom(updated.channelId),
-      ...subscribers.map((row) => userRoom(row.userId)),
+      ...subscribers
+        .filter((row) => audience.has(row.userId))
+        .map((row) => userRoom(row.userId)),
     ])
     .emit("session:updated", { session: toRealtimeAgentSession(updated) })
   notifyWorkspaceActivity(updated.workspaceId)

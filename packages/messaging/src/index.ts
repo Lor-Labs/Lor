@@ -1,4 +1,4 @@
-import { and, db, eq, inArray, schema } from "@repo/db"
+import { and, db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
   type ChannelAudienceInfo,
@@ -510,9 +510,40 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
       ? `sent ${input.message.attachments.length} attachment${input.message.attachments.length > 1 ? "s" : ""}`
       : null)
 
+  const { subscriberIds, session } = threadContext
+  const onlineRecipientIds = needsPresenceLookup(
+    audience,
+    input.message.content ?? "",
+    !session
+  )
+    ? await listOnlineRecipientIds(input.redis, readerIds)
+    : new Set<string>()
+  const mentionTypeByUserId = buildMentionTargets({
+    audience,
+    recipients: recipientIds,
+    broadcastRecipients: readerIds,
+    broadcasts: !session,
+    messageContent: input.message.content ?? "",
+    onlineRecipientIds,
+  })
+
+  const messageMentions = await listMentionUsers(mentionTypeByUserId)
+
+  // Subscribe authorized direct mentions before this message's fanout, so
+  // their first mention notifies them too. Broadcasts never subscribe.
+  if (threadRootId) {
+    const directlyMentionedIds = [...mentionTypeByUserId]
+      .filter(
+        ([userId, mentionType]) =>
+          mentionType === "direct" && userId !== LOR_USER_ID
+      )
+      .map(([userId]) => userId)
+    await subscribeToThread(threadRootId, directlyMentionedIds)
+    for (const userId of directlyMentionedIds) subscriberIds?.add(userId)
+  }
+
   // Who gets an OS or push notification. Channel messages: everyone. Threads
   // and sessions: their subscribers.
-  const { subscriberIds, session } = threadContext
   const notifies = (userId: string) =>
     !subscriberIds || subscriberIds.has(userId)
   const unreadPayload = (userId: string): UnreadNotification => ({
@@ -538,35 +569,6 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
     readerIds
       .filter((userId) => !session || notifies(userId))
       .map((userId) => ({ userId, payload: unreadPayload(userId) }))
-
-  const onlineRecipientIds = needsPresenceLookup(
-    audience,
-    input.message.content ?? "",
-    !session
-  )
-    ? await listOnlineRecipientIds(input.redis, readerIds)
-    : new Set<string>()
-  const mentionTypeByUserId = buildMentionTargets({
-    audience,
-    recipients: recipientIds,
-    broadcastRecipients: readerIds,
-    broadcasts: !session,
-    messageContent: input.message.content ?? "",
-    onlineRecipientIds,
-  })
-
-  const messageMentions = await listMentionUsers(mentionTypeByUserId)
-
-  // A direct mention in a thread subscribes the person to it; this covers
-  // people's and Lor's messages alike. Broadcasts (@here) never subscribe.
-  if (threadRootId) {
-    await subscribeToThread(
-      threadRootId,
-      [...mentionTypeByUserId]
-        .filter(([, mentionType]) => mentionType === "direct")
-        .map(([userId]) => userId)
-    )
-  }
 
   if (mentionTypeByUserId.size === 0) {
     return {

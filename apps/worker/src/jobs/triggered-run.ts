@@ -104,6 +104,7 @@ export function createTriggeredRunProcessor(
         enabled: schema.connectorTrigger.enabled,
         actInstructions: schema.connectorTrigger.actInstructions,
         connectedById: schema.integrationConnection.createdBy,
+        workspaceOwnerId: schema.workspace.ownerId,
       })
       .from(schema.connectorTrigger)
       .leftJoin(
@@ -112,6 +113,10 @@ export function createTriggeredRunProcessor(
           schema.connectorTrigger.connectionId,
           schema.integrationConnection.id
         )
+      )
+      .leftJoin(
+        schema.workspace,
+        eq(schema.workspace.id, schema.integrationConnection.workspaceId)
       )
       .where(eq(schema.connectorTrigger.id, run.triggerId))
       .then((rows) => rows[0])
@@ -131,7 +136,9 @@ export function createTriggeredRunProcessor(
         workspaceId: run.workspaceId,
         channelId: run.channelId,
         triggerId: run.triggerId,
-        connectedById: trigger.connectedById ?? null,
+        // Older connections have no creator; channel access is still checked.
+        connectedById:
+          trigger.connectedById ?? trigger.workspaceOwnerId ?? null,
         label,
         payload,
       }
