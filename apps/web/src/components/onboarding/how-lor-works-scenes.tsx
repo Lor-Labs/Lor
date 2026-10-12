@@ -1,9 +1,4 @@
-import {
-  HashtagIcon,
-  RepeatIcon,
-  ThumbsUpIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons"
+import { HashtagIcon, RepeatIcon, Tick02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { SidebarSessionState } from "@repo/realtime-types"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
@@ -48,6 +43,10 @@ const appear = {
   exit: { opacity: 0, transition: { duration: 0.12 } },
   transition: { duration: 0.25, ease: EASE_OUT },
 }
+
+// A reaction landing: a soft spring (damping ratio 0.5) with a small
+// overshoot, livelier than the app's crisp snaps.
+const reactionPop = { type: "spring", stiffness: 400, damping: 20 } as const
 
 // Opening a session: the main pane cross-fades from the chat to it.
 const paneSwap = {
@@ -372,8 +371,8 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
         ? [40, 92]
         : [520, 20]
   const rafael: readonly [number, number] =
-    phase >= 8 ? [-60, 120] : phase >= 5 ? [52, 138] : [-300, 60]
-  const yours: readonly [number, number] = phase >= 8 ? [317, 170] : [240, 330]
+    phase >= 8 ? [-60, 120] : phase >= 5 ? [52, 140] : [-300, 60]
+  const yours: readonly [number, number] = phase >= 8 ? [317, 174] : [240, 330]
   return (
     <div className="absolute top-1/2 left-1/2 w-[360px] -translate-x-1/2 -translate-y-1/2">
       <div className="relative rounded-xl border bg-background p-3 text-[12px] shadow-lg/5">
@@ -412,17 +411,22 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
               </>
             )}
           </div>
-          <div className="h-5 pl-7">
+          <div className="h-6 pl-7">
+            {/* The app's reaction chip (message-item.tsx), popping in. */}
             {phase >= 6 && (
               <motion.span
-                {...appear}
-                className="inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[11px] text-muted-foreground"
+                initial={{ scale: 0.4, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={reactionPop}
+                className="inline-flex origin-left items-center gap-1 rounded-full border border-border/70 bg-background px-2 py-0.5 text-muted-foreground text-xs"
               >
-                <HugeiconsIcon
-                  icon={ThumbsUpIcon}
-                  className="size-3"
-                  strokeWidth={2}
-                />
+                <motion.span
+                  initial={{ scale: 0.6, rotate: -20 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ ...reactionPop, delay: 0.06 }}
+                >
+                  👍
+                </motion.span>
                 1
               </motion.span>
             )}
@@ -784,7 +788,8 @@ export function SharedSessionScene({ workspaceName, you, onDone }: SceneProps) {
             <p className="text-foreground/90">{LOR_ANSWER}</p>
           </div>
           {phase >= 1 && (
-            <MiniMessage person={RAFAEL}>
+            // Mentions you, not Lor: a turn for people, so it's muted.
+            <MiniMessage person={RAFAEL} muted>
               <MentionChip name={you.name.split(" ")[0] || "you"} /> can you
               check staging too?
             </MiniMessage>

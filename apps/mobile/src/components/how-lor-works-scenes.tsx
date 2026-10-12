@@ -1,5 +1,4 @@
 import RepeatIcon from "@hugeicons/core-free-icons/RepeatIcon"
-import ThumbsUpIcon from "@hugeicons/core-free-icons/ThumbsUpIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { AVATAR_COLOR_STYLES } from "@repo/utils/avatar-colors"
@@ -15,6 +14,7 @@ import Animated, {
   useReducedMotion,
   useSharedValue,
   withTiming,
+  ZoomIn,
 } from "react-native-reanimated"
 import Svg, { Path } from "react-native-svg"
 import { SessionStateIndicator } from "@/components/channel-sessions"
@@ -62,6 +62,9 @@ const LOR_ANSWER =
 const PEOPLE_REPLY = "Looks good to me, let's ship it."
 
 const appear = FadeInDown.duration(250)
+// A reaction landing: a soft spring (damping ratio 0.5) with a small
+// overshoot, livelier than the app's crisp snaps. Same as web's.
+const reactionPop = ZoomIn.springify().stiffness(400).damping(20)
 const paneIn = FadeIn.duration(300)
 const paneOut = FadeOut.duration(200)
 
@@ -286,7 +289,7 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
   const asked = phase >= 7
   const approved = phase >= 9
   // Off-stage starts clear the name label too, which hangs to the right.
-  const zoe = phase >= 3 ? [298, 60] : phase >= 1 ? [24, 186] : [-200, 190]
+  const zoe = phase >= 3 ? [298, 60] : phase >= 1 ? [24, 190] : [-200, 190]
   const lor = approved
     ? [300, 120]
     : phase >= 4
@@ -294,8 +297,8 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
       : phase >= 3
         ? [34, 78]
         : [330, 10]
-  const rafael = phase >= 8 ? [-20, 110] : phase >= 5 ? [48, 122] : [-200, 60]
-  const yours = phase >= 8 ? [251, 150] : [200, 260]
+  const rafael = phase >= 8 ? [-20, 110] : phase >= 5 ? [48, 124] : [-200, 60]
+  const yours = phase >= 8 ? [251, 154] : [200, 260]
   return (
     <View className="absolute inset-0 items-center justify-center">
       <Animated.View
@@ -318,7 +321,7 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
             ))}
           </View>
         </View>
-        <View className="mt-two h-[120px] gap-one">
+        <View className="mt-two h-[124px] gap-one">
           <View className="h-6">
             {phase >= 3 ? (
               <Animated.View
@@ -348,14 +351,15 @@ export function WelcomeScene({ you, onDone }: SceneProps) {
               </>
             ) : null}
           </View>
-          <View className="h-4 flex-row pl-eight">
+          <View className="h-5 flex-row pl-eight">
+            {/* The app's reaction chip (message-row.tsx), scaled down. */}
             {phase >= 6 ? (
               <Animated.View
-                className="flex-row items-center gap-one rounded-full border border-border px-[6px]"
-                entering={appear}
+                className="flex-row items-center gap-one rounded-full border border-border bg-background px-[6px] py-px"
+                entering={reactionPop}
               >
-                <HugeiconsIcon color={muted} icon={ThumbsUpIcon} size={10} />
-                <Text className="text-[10px] text-muted">1</Text>
+                <Text className="text-[10px]">👍</Text>
+                <Text className="text-[10px] font-semibold text-muted">1</Text>
               </Animated.View>
             ) : null}
           </View>
@@ -683,7 +687,8 @@ export function SharedSessionScene({ you, onDone }: SceneProps) {
           </Text>
         </View>
         {phase >= 1 ? (
-          <MiniMessage named={false} person={RAFAEL}>
+          // Mentions you, not Lor: a turn for people, so it's muted.
+          <MiniMessage muted named={false} person={RAFAEL}>
             <MentionChip name={you.name.split(" ")[0] || "you"} /> can you check
             staging too?
           </MiniMessage>
