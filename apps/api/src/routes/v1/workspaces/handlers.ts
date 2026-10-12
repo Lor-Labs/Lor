@@ -422,15 +422,11 @@ export const createWorkspace: AppRouteHandler<CreateWorkspaceRoute> = async (
     })
   }
 
-  const icon = await siteIcon
-  const logo = icon ? await storeWorkspaceIcon(created.id, icon) : null
-
   const [workspace] = await db
     .update(schema.workspace)
     .set({
       description: body.description || null,
       website,
-      logo,
       // Join by email domain starts on when the creator's verified domain
       // qualifies; setup and General settings can turn it off.
       joinDomain: verifiedCompanyDomain(user),
@@ -443,8 +439,21 @@ export const createWorkspace: AppRouteHandler<CreateWorkspaceRoute> = async (
     })
   }
 
+  // The icon is best effort, so it lands after the setup fields are saved.
+  const icon = await siteIcon
+  const logo = icon ? await storeWorkspaceIcon(created.id, icon) : null
+  if (logo) {
+    await db
+      .update(schema.workspace)
+      .set({ logo })
+      .where(eq(schema.workspace.id, created.id))
+  }
+
   return c.json(
-    { workspace, firstChannelId: await firstTextChannelId(workspace.id) },
+    {
+      workspace: { ...workspace, logo: logo ?? workspace.logo },
+      firstChannelId: await firstTextChannelId(workspace.id),
+    },
     HttpStatusCodes.CREATED
   )
 }

@@ -91,7 +91,7 @@ export default function OnboardingScreen() {
 
   // Workspaces open to this person's verified company domain.
   const { data: joinable = [] } = useQuery({
-    queryKey: ["workspaces", "joinable"],
+    queryKey: ["workspaces", "joinable", session?.user.id],
     enabled: !!session,
     queryFn: async () => {
       const response = await api.v1.workspaces.joinable.$get()

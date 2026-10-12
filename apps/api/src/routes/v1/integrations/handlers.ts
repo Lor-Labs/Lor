@@ -352,7 +352,7 @@ export const completeGithubSetup: AppRouteHandler<
   const { installationId, state } = c.req.valid("json")
 
   const stateSlug = state ? verifyOAuthState(state, user.id) : null
-  const intentWorkspaceId = stateSlug
+  const intentWorkspaceId = state
     ? null
     : await readGithubConnectIntent(user.id).catch(() => null)
   const target = stateSlug
