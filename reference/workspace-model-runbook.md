@@ -1196,12 +1196,32 @@ As built (2026-10-11):
 
 #### Step 27: approvals and forwards (~250)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - Approvals in every state with "Approved by …" (`hooks/use-approvals.ts`
   asks for pending only; `approval-card.tsx`), listed by `?threadRootId=`.
 - Forwarded-message card from `message.forwarded` (`message-row.tsx` has no
   `forward` branch), opening the source session.
+
+As built (2026-10-11):
+
+- `use-approvals.ts` mirrors web's keys: `["channel-approvals", channelId,
+  threadRootId]`; a session screen lists every approval in it
+  (`?threadRootId=`), chat stays pending only. `useMessageApproval` takes
+  the thread (only in the document layout, via `MessageRowBody`'s
+  `sessionThreadRootId`). Resolving is optimistic (status, resolvedBy,
+  resolvedAt; rolled back with the alert on failure). No sidebar
+  needs-you → running patch yet; the server's activity push moves the row.
+- `ApprovalGateCard` follows web's `ApprovalGateView`: pending is a quiet
+  bordered row (lock tile, description, "Needs your approval" or who can
+  approve · tool name, Reject / Approve); decided shows a tick or cross
+  tile with "Approved by Maya" / "Rejected by you" / "Expired".
+- `components/forwarded-message-card.tsx`: "Forwarded", the original's
+  author and content from the snapshot (collapsed past 240pt with Show
+  more), and a footer (#channel › session title · time) that opens the
+  source session at the message. Note-less forwards no longer render blank.
+- The session route takes `focusMessageId` (used by forwards now, search
+  and pins in Step 28).
 
 #### Step 28: push, search and pins open sessions (~230)
 

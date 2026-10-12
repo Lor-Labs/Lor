@@ -144,7 +144,7 @@ export function ThreadView({
   })
   // Approval cards in this thread read the channel-approvals cache; the
   // socket handlers live here so a thread opened directly stays live too.
-  useChannelApprovals(channelId ?? "")
+  useChannelApprovals(channelId ?? "", lorSession ? threadRootId : null)
   // A proposal card opened as a thread root reads the same cache.
   useChannelProposals(channelId ?? "")
   // Messages queued behind the active Lor run — surfaced above the

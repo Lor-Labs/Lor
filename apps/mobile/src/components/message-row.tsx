@@ -12,6 +12,7 @@ import { Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { MessageApprovalCard } from "@/components/approval-card"
 import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
+import { ForwardedMessageCard } from "@/components/forwarded-message-card"
 import { LoopCard } from "@/components/loop-card"
 import { LorMessageBody } from "@/components/lor-message-body"
 import { LorReasoning } from "@/components/lor-reasoning"
@@ -168,12 +169,15 @@ function MessageRowBody({
   onJumpToMessage,
   onToggleReaction,
   showLorRunControls = true,
+  sessionThreadRootId = null,
 }: {
   message: Message
   onOpenThread?: (message: Message) => void
   onJumpToMessage?: (messageId: string) => void
   onToggleReaction?: (message: Message, emoji: string) => void
   showLorRunControls?: boolean
+  // In a session: its approval cards stay after the decision.
+  sessionThreadRootId?: string | null
 }) {
   const accent = useThemeColor("accent")
   const isLor = message.authorId === LOR_USER_ID
@@ -228,6 +232,9 @@ function MessageRowBody({
               streaming={isStreaming}
             />
           ) : null}
+          {message.type === "forward" && message.forwarded ? (
+            <ForwardedMessageCard forwarded={message.forwarded} />
+          ) : null}
           {isStreaming && !message.content && !hasTimeline ? (
             <ThinkingIndicator />
           ) : null}
@@ -243,6 +250,7 @@ function MessageRowBody({
             <MessageApprovalCard
               channelId={message.channelId}
               messageId={message.id}
+              threadRootId={sessionThreadRootId}
             />
           ) : null}
           {message.routedOutcome === "steered" ? <RoutedChip /> : null}
@@ -416,6 +424,7 @@ export function MessageRow({
               onJumpToMessage={onJumpToMessage}
               onOpenThread={onOpenThread}
               onToggleReaction={onToggleReaction}
+              sessionThreadRootId={message.threadRootId}
               showLorRunControls={showLorRunControls}
             />
           </MessageProseContext.Provider>

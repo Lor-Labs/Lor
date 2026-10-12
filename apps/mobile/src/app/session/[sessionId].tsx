@@ -10,7 +10,11 @@ import {
 } from "@/hooks/use-agent-session"
 
 export default function SessionScreen() {
-  const { sessionId } = useLocalSearchParams<{ sessionId: string }>()
+  // `focusMessageId`: a forward, search result or pin lands on its message.
+  const { sessionId, focusMessageId } = useLocalSearchParams<{
+    sessionId: string
+    focusMessageId?: string
+  }>()
   const { data, error } = useAgentSession(sessionId ?? "")
   useAgentSessionUpdates(sessionId ?? "")
   const goBack = () => {
@@ -23,6 +27,7 @@ export default function SessionScreen() {
       {data ? (
         <ThreadView
           channelId={data.session.channelId}
+          focusMessageId={focusMessageId}
           session={data.session}
           sessionPending={data.pending === true}
           threadRootId={data.session.threadRootId}
