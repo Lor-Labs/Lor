@@ -155,6 +155,8 @@ export function realtimeMessageToMessage(message: RealtimeMessage): Message {
     threadSummary: null,
     lorReasoning: null,
     lorReasoningSegments: [],
+    // Marks a run reply live, so its approval card shows without a reload.
+    lorTriggerMessageId: message.lorTriggerMessageId ?? null,
     overrideName: message.overrideName ?? null,
     overrideAvatarUrl: message.overrideAvatarUrl ?? null,
   }
