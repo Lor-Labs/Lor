@@ -1,8 +1,12 @@
+import ReplayIcon from "@hugeicons/core-free-icons/ReplayIcon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import { router } from "expo-router"
 import { BottomSheet } from "heroui-native/bottom-sheet"
+import { useThemeColor } from "heroui-native/hooks"
 import { type ComponentType, useState } from "react"
-import { Pressable, View } from "react-native"
+import { Pressable, Text, View } from "react-native"
 import Animated, {
+  FadeIn,
   FadeInLeft,
   FadeInRight,
   FadeOut,
@@ -50,6 +54,7 @@ const STEPS: [Step, ...Step[]] = [
 const forwardIn = FadeInRight.duration(250)
 const backIn = FadeInLeft.duration(250)
 const stepOut = FadeOut.duration(150)
+const replayIn = FadeIn.duration(200)
 
 // The one-time explainer of the workspace model, on web's how_lor_works key:
 // dismissed on either, gone on both. Opens by itself until dismissed, and
@@ -111,6 +116,7 @@ export function HowLorWorksSheet({
 
 function HowLorWorksSteps({ onStart }: { onStart: () => void }) {
   const { data: auth } = authClient.useSession()
+  const foreground = useThemeColor("foreground")
   const [[step, direction], setStep] = useState<[number, number]>([0, 1])
   const go = (next: number) => setStep([next, next > step ? 1 : -1])
   const current = STEPS[step] ?? STEPS[0]
@@ -121,6 +127,10 @@ function HowLorWorksSteps({ onStart }: { onStart: () => void }) {
   }
   const { Scene } = current
   const stepIn = direction > 0 ? forwardIn : backIn
+  // Replay remounts the scene; the button shows once it has played.
+  const [replays, setReplays] = useState(0)
+  const [playedScene, setPlayedScene] = useState<string | null>(null)
+  const sceneKey = `${step}-${replays}`
 
   return (
     <View className="flex-1 gap-five pb-six">
@@ -132,10 +142,29 @@ function HowLorWorksSteps({ onStart }: { onStart: () => void }) {
           className="absolute inset-0"
           entering={stepIn}
           exiting={stepOut}
-          key={step}
+          key={sceneKey}
         >
-          <Scene you={you} />
+          <Scene onDone={() => setPlayedScene(sceneKey)} you={you} />
         </Animated.View>
+        {playedScene === sceneKey ? (
+          <Animated.View
+            className="absolute left-two top-two"
+            entering={replayIn}
+          >
+            <Pressable
+              accessibilityLabel="Replay"
+              accessibilityRole="button"
+              className="flex-row items-center gap-one rounded-full border border-border bg-background px-two py-one active:opacity-70"
+              hitSlop={6}
+              onPress={() => setReplays((count) => count + 1)}
+            >
+              <HugeiconsIcon color={foreground} icon={ReplayIcon} size={12} />
+              <Text className="text-[12px] font-medium text-foreground">
+                Replay
+              </Text>
+            </Pressable>
+          </Animated.View>
+        ) : null}
       </View>
       <Animated.View
         className="gap-two px-one"

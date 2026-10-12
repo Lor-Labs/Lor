@@ -3,7 +3,7 @@ import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { AVATAR_COLOR_STYLES } from "@repo/utils/avatar-colors"
 import { useThemeColor } from "heroui-native/hooks"
-import { type ReactNode, useEffect, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Image, Text, View } from "react-native"
 import Animated, {
   Easing,
@@ -33,7 +33,11 @@ import zoeAvatar from "../../assets/images/tour/zoe.png"
 // web's how-lor-works-scenes.tsx, drawn as a phone instead of a desktop.
 
 export type ScenePerson = { name: string; image: string | null }
-export type SceneProps = { you: ScenePerson }
+export type SceneProps = {
+  you: ScenePerson
+  // Once the scene has played (never under reduced motion): shows Replay.
+  onDone?: () => void
+}
 
 // DiceBear Lorelei (CC0), the same files as web's public/tour.
 const ZOE: ScenePerson = {
@@ -60,14 +64,27 @@ const appear = FadeInDown.duration(250)
 const paneIn = FadeIn.duration(300)
 const paneOut = FadeOut.duration(200)
 
+// Done fires after the last phase settles (typing, cursor travel).
+const SCENE_SETTLE_MS = 1200
+
 // Phase n begins at times[n - 1] ms. Reduced motion shows the last frame.
-function usePhase(times: readonly number[]) {
+function usePhase(times: readonly number[], onDone?: () => void) {
   const reduce = useReducedMotion()
   const [phase, setPhase] = useState(reduce ? times.length : 0)
+  const onDoneRef = useRef(onDone)
+  useEffect(() => {
+    onDoneRef.current = onDone
+  })
   useEffect(() => {
     if (reduce) return
     const timers = times.map((ms, index) =>
       setTimeout(() => setPhase(index + 1), ms)
+    )
+    timers.push(
+      setTimeout(
+        () => onDoneRef.current?.(),
+        (times.at(-1) ?? 0) + SCENE_SETTLE_MS
+      )
     )
     return () => {
       for (const timer of timers) clearTimeout(timer)
@@ -246,7 +263,7 @@ function SceneCursor({
 const WELCOME_ASK = " draft the launch post for Thursday"
 const WELCOME_DRAFT =
   "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
-const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4900, 5300, 6300] as const
+const WELCOME_TIMES = [400, 1300, 2900, 3800, 5200, 6200, 6800, 7900] as const
 
 // The tour's first step: a team working with Lor in one session. Zoe asks,
 // Lor drafts while its cursor writes, Rafael reacts, then you approve the
@@ -254,8 +271,8 @@ const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4900, 5300, 6300] as const
 // Lor has no live cursors yet; this shows the idea. Rows have fixed heights
 // so each cursor's tip (pt from the card's top-left, per phase) lands on its
 // target.
-export function WelcomeScene({ you }: SceneProps) {
-  const phase = usePhase(WELCOME_TIMES)
+export function WelcomeScene({ you, onDone }: SceneProps) {
+  const phase = usePhase(WELCOME_TIMES, onDone)
   const [accent, accentForeground, muted] = useThemeColor([
     "accent",
     "accent-foreground",
@@ -412,12 +429,15 @@ export function WelcomeScene({ you }: SceneProps) {
   )
 }
 
+// #gtm, the positioning's first example: Lor drafts, a person approves
+// before anything is sent. Same copy as web.
 const CHANNEL_INSTRUCTIONS =
-  "Review PRs against our style guide. Flag anything that touches billing."
+  "Find startups hiring a first designer and draft intros. Never send without approval."
+// Null is the built-in web search (the globe).
 const CHANNEL_TOOLS = [
-  { key: "github", name: "GitHub" },
-  { key: "linear", name: "Linear" },
-  { key: "datadog", name: "Datadog" },
+  { key: null, name: "Web search" },
+  { key: "attio", name: "Attio" },
+  { key: "notion", name: "Notion" },
 ] as const
 const CHANNEL_TIMES = [300, 1900, 2300, 2700, 3400] as const
 
@@ -444,8 +464,8 @@ function MiniSwitch({ on }: { on: boolean }) {
 
 // A channel set up once for everyone: its instructions type in and its
 // tools switch on, then Lor is ready for the whole channel.
-export function ChannelAgentScene({ you }: SceneProps) {
-  const phase = usePhase(CHANNEL_TIMES)
+export function ChannelAgentScene({ you, onDone }: SceneProps) {
+  const phase = usePhase(CHANNEL_TIMES, onDone)
   const foreground = useThemeColor("foreground")
   return (
     <MiniPhone>
@@ -459,7 +479,7 @@ export function ChannelAgentScene({ you }: SceneProps) {
             ))}
           </View>
         }
-        title="# engineering"
+        title="# gtm"
       />
       <View className="flex-1 px-three pt-two">
         <Text className="text-[10px] text-muted">Instructions</Text>
@@ -480,7 +500,7 @@ export function ChannelAgentScene({ you }: SceneProps) {
                 className={`h-6 flex-row items-center gap-two px-two ${
                   index > 0 ? "border-t border-border" : ""
                 }`}
-                key={tool.key}
+                key={tool.name}
               >
                 <View style={{ opacity: on ? 1 : 0.5 }}>
                   <ConnectorIcon
@@ -509,7 +529,7 @@ export function ChannelAgentScene({ you }: SceneProps) {
             >
               <LorMark size={12} />
               <Text className="text-[10px] text-muted">
-                Lor uses these for everyone in #engineering
+                Lor uses these for everyone in #gtm
               </Text>
             </Animated.View>
           ) : null}
@@ -524,8 +544,8 @@ export function ChannelAgentScene({ you }: SceneProps) {
 // chat it read, Lor working, then its answer.
 const START_TIMES = [500, 800, 2300, 3100, 4300] as const
 
-export function SessionStartScene({ you }: SceneProps) {
-  const phase = usePhase(START_TIMES)
+export function SessionStartScene({ you, onDone }: SceneProps) {
+  const phase = usePhase(START_TIMES, onDone)
   const inSession = phase >= 3
   const answered = phase >= 5
 
@@ -620,8 +640,8 @@ export function SessionStartScene({ you }: SceneProps) {
 // it over: that turn stays muted and Lor does not answer it.
 const SHARED_TIMES = [600, 1500, 2900, 3900] as const
 
-export function SharedSessionScene({ you }: SceneProps) {
-  const phase = usePhase(SHARED_TIMES)
+export function SharedSessionScene({ you, onDone }: SceneProps) {
+  const phase = usePhase(SHARED_TIMES, onDone)
   const drafting = phase >= 2 && phase < 4
   return (
     <MiniPhone>

@@ -787,8 +787,11 @@ on top, the step text under it, step dots and Back/Next at the bottom.
   lead with chat, since moving chat is the adoption cliff). The steps now:
   1. "Welcome to Lor": "AI agents your whole team can steer."
   2. "Every channel has an agent": instructions and tools set once, used for
-     everyone (scene: `#engineering`'s instructions type in, and GitHub,
-     Linear and Datadog switch on).
+     everyone (scene: `#gtm`'s instructions type in, "Find startups hiring a
+     first designer and draft intros. Never send without approval.", and Web
+     search, Attio and Notion switch on). It was `#engineering` reviewing
+     PRs with GitHub, Linear and Datadog; Jacob found that example overused.
+     Only this scene is #gtm; the session scenes stay on `#engineering`.
   3. "Lor works in sessions": start one, or let it run on a schedule; the
      chat stays for the team.
   4. "Sessions are shared": anyone can see the work, step in, or approve.

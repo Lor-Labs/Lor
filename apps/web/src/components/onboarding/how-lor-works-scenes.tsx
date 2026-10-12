@@ -14,7 +14,7 @@ import {
   getAvatarInitials,
 } from "@repo/utils/avatar-colors"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { type ReactNode, useEffect, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { DestinationBar } from "@/components/chat/composer/destination-bar"
 import { SessionStateIndicator } from "@/components/sidebar/channel-panel/channel-activity"
 import { TypewriterText } from "@/components/ui/typewriter-text"
@@ -24,7 +24,12 @@ import { connectorLogo } from "@/lib/connector-ui"
 // plays once when its step opens and holds its last frame.
 
 export type ScenePerson = { name: string; image: string | null }
-export type SceneProps = { workspaceName: string; you: ScenePerson }
+export type SceneProps = {
+  workspaceName: string
+  you: ScenePerson
+  // Once the scene has played (never under reduced motion): shows Replay.
+  onDone?: () => void
+}
 
 // DiceBear Lorelei (CC0), downloaded once into public/tour; the phone
 // bundles the same files.
@@ -52,9 +57,16 @@ const paneSwap = {
 }
 
 // Phase n begins at times[n - 1] ms. Reduced motion shows the last frame.
-function usePhase(times: readonly number[]) {
+// Done fires after the last phase settles (typing, cursor travel).
+const SCENE_SETTLE_MS = 1200
+
+function usePhase(times: readonly number[], onDone?: () => void) {
   const reduce = useReducedMotion()
   const [phase, setPhase] = useState(() => (reduce ? times.length : 0))
+  const onDoneRef = useRef(onDone)
+  useEffect(() => {
+    onDoneRef.current = onDone
+  })
   useEffect(() => {
     if (reduce) {
       setPhase(times.length)
@@ -62,6 +74,12 @@ function usePhase(times: readonly number[]) {
     }
     const timers = times.map((ms, index) =>
       setTimeout(() => setPhase(index + 1), ms)
+    )
+    timers.push(
+      setTimeout(
+        () => onDoneRef.current?.(),
+        (times.at(-1) ?? 0) + SCENE_SETTLE_MS
+      )
     )
     return () => {
       for (const timer of timers) clearTimeout(timer)
@@ -326,7 +344,7 @@ function SceneCursor({
 const WELCOME_ASK = " draft the launch post for Thursday"
 const WELCOME_DRAFT =
   "Here's a draft for #announcements: shared sessions ship Thursday, for every team."
-const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4900, 5300, 6300] as const
+const WELCOME_TIMES = [400, 1300, 2900, 3800, 5200, 6200, 6800, 7900] as const
 
 // The tour's first step: a team working with Lor in one session. Zoe asks,
 // Lor drafts while its cursor writes, Rafael reacts, then you approve the
@@ -334,8 +352,8 @@ const WELCOME_TIMES = [300, 900, 2300, 2700, 4000, 4900, 5300, 6300] as const
 // Lor has no live cursors yet; this shows the idea. Rows have fixed heights
 // so each cursor's tip (px from the card's top-left, per phase) lands on its
 // target.
-export function WelcomeScene({ you }: SceneProps) {
-  const phase = usePhase(WELCOME_TIMES)
+export function WelcomeScene({ you, onDone }: SceneProps) {
+  const phase = usePhase(WELCOME_TIMES, onDone)
   const asking = phase >= 1 && phase < 3
   const approved = phase >= 8
   const zoe: readonly [number, number] =
@@ -458,12 +476,15 @@ export function WelcomeScene({ you }: SceneProps) {
   )
 }
 
+// #gtm, the positioning's first example (memory project_positioning): Lor
+// drafts, a person approves before anything is sent.
 const CHANNEL_INSTRUCTIONS =
-  "Review PRs against our style guide. Flag anything that touches billing."
+  "Find startups hiring a first designer and draft intros. Never send without approval."
+// Null is the built-in web search (the globe).
 const CHANNEL_TOOLS = [
-  { key: "github", name: "GitHub" },
-  { key: "linear", name: "Linear" },
-  { key: "datadog", name: "Datadog" },
+  { key: null, name: "Web search" },
+  { key: "attio", name: "Attio" },
+  { key: "notion", name: "Notion" },
 ] as const
 const CHANNEL_TIMES = [300, 1900, 2300, 2700, 3400] as const
 
@@ -487,12 +508,12 @@ function MiniSwitch({ on }: { on: boolean }) {
 
 // A channel set up once for everyone: its instructions type in and its
 // tools switch on, then Lor is ready for the whole channel.
-export function ChannelAgentScene({ you }: SceneProps) {
-  const phase = usePhase(CHANNEL_TIMES)
+export function ChannelAgentScene({ you, onDone }: SceneProps) {
+  const phase = usePhase(CHANNEL_TIMES, onDone)
   return (
     <div className="absolute top-1/2 left-1/2 w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-background p-3 text-[12px] shadow-lg/5">
       <div className="flex items-center gap-2 border-b pb-2">
-        <span className="flex-1 font-semibold text-[13px]"># engineering</span>
+        <span className="flex-1 font-semibold text-[13px]"># gtm</span>
         <div className="flex -space-x-1.5">
           <PersonAvatar person={ZOE} />
           <PersonAvatar person={RAFAEL} />
@@ -511,7 +532,7 @@ export function ChannelAgentScene({ you }: SceneProps) {
           const Logo = connectorLogo(tool.key)
           const on = phase >= 2 + index
           return (
-            <div key={tool.key} className="flex h-7 items-center gap-2 px-2">
+            <div key={tool.name} className="flex h-7 items-center gap-2 px-2">
               <Logo
                 className={cn(
                   "size-3.5 transition-opacity duration-200",
@@ -538,7 +559,7 @@ export function ChannelAgentScene({ you }: SceneProps) {
             className="flex items-center gap-1.5 text-muted-foreground"
           >
             <img src="/lor-mark.svg" alt="" className="size-3.5" />
-            Lor uses these for everyone in #engineering
+            Lor uses these for everyone in #gtm
           </motion.div>
         )}
       </div>
@@ -552,8 +573,8 @@ export function ChannelAgentScene({ you }: SceneProps) {
 // question on top, Lor working, and its answer.
 const START_TIMES = [500, 800, 2100, 2800, 3300, 4100, 4400, 5900] as const
 
-export function SessionStartScene({ workspaceName, you }: SceneProps) {
-  const phase = usePhase(START_TIMES)
+export function SessionStartScene({ workspaceName, you, onDone }: SceneProps) {
+  const phase = usePhase(START_TIMES, onDone)
   const drafting = phase >= 1 && phase < 3
   const titled = phase >= 4
   const clicking = phase >= 6
@@ -714,8 +735,8 @@ export function SessionStartScene({ workspaceName, you }: SceneProps) {
 const SHARED_TIMES = [600, 1500, 2700, 3700] as const
 const PEOPLE_REPLY = "Looks good to me, let's ship it."
 
-export function SharedSessionScene({ workspaceName, you }: SceneProps) {
-  const phase = usePhase(SHARED_TIMES)
+export function SharedSessionScene({ workspaceName, you, onDone }: SceneProps) {
+  const phase = usePhase(SHARED_TIMES, onDone)
   const drafting = phase >= 2 && phase < 4
   return (
     <MiniWindow>

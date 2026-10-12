@@ -1,3 +1,5 @@
+import { ReplayIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { isTauri } from "@repo/auth/tauri-fetch"
 import { Button } from "@repo/ui/components/button"
@@ -135,13 +137,17 @@ function HowLorWorksSteps({
     image: authSession?.user.image ?? null,
   }
   const { Scene } = current
+  // Replay remounts the scene; the button shows once it has played.
+  const [replays, setReplays] = useState(0)
+  const [playedScene, setPlayedScene] = useState<string | null>(null)
+  const sceneKey = `${step}-${replays}`
 
   return (
     <>
       <div className="relative h-[300px] shrink-0 overflow-hidden border-b bg-muted/50">
         <AnimatePresence initial={false} mode="popLayout" custom={direction}>
           <motion.div
-            key={step}
+            key={sceneKey}
             custom={direction}
             variants={slide}
             initial="enter"
@@ -149,9 +155,24 @@ function HowLorWorksSteps({
             exit="exit"
             className="absolute inset-0"
           >
-            <Scene workspaceName={workspaceName} you={you} />
+            <Scene
+              workspaceName={workspaceName}
+              you={you}
+              onDone={() => setPlayedScene(sceneKey)}
+            />
           </motion.div>
         </AnimatePresence>
+        {playedScene === sceneKey && (
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => setReplays((count) => count + 1)}
+            className="absolute top-3 left-3 z-10 animate-in fade-in duration-200"
+          >
+            <HugeiconsIcon icon={ReplayIcon} strokeWidth={2} />
+            Replay
+          </Button>
+        )}
       </div>
       <div className="relative h-[124px] shrink-0 overflow-hidden px-6 pt-5">
         <AnimatePresence initial={false} mode="popLayout" custom={direction}>
