@@ -104,7 +104,18 @@ export function DestinationBar({
   onSwitch?: () => void
 }) {
   const isSession = destination === "session"
-  const extraSubscribers = subscribers.length - MAX_SUBSCRIBER_FACES
+  // A session message reaches its subscribers, and the people it mentions
+  // follow once it sends: mentioned first, so "+N" never hides them.
+  const reached = [
+    ...pinged.map(
+      (person) =>
+        subscribers.find((subscriber) => subscriber.id === person.id) ?? person
+    ),
+    ...subscribers.filter(
+      (subscriber) => !pinged.some((person) => person.id === subscriber.id)
+    ),
+  ]
+  const extraFaces = reached.length - MAX_SUBSCRIBER_FACES
   return (
     <View className="min-w-0 flex-1 flex-row items-center">
       {toLor ? (
@@ -148,26 +159,26 @@ export function DestinationBar({
           {isSession ? (
             <DestinationPill
               accessibilityLabel={
-                subscribers.length > 0
-                  ? `To ${subscribers.map((person) => person.name).join(", ")}`
+                reached.length > 0
+                  ? `To ${reached.map((person) => person.name).join(", ")}`
                   : undefined
               }
               onSwitch={onSwitch}
             >
               <Text className="text-xs font-medium text-muted">
-                {subscribers.length > 0 ? "To" : "To subscribers"}
+                {reached.length > 0 ? "To" : "To subscribers"}
               </Text>
-              {subscribers.length > 0 ? (
-                <Faces people={subscribers.slice(0, MAX_SUBSCRIBER_FACES)} />
+              {reached.length > 0 ? (
+                <Faces people={reached.slice(0, MAX_SUBSCRIBER_FACES)} />
               ) : null}
-              {extraSubscribers > 0 ? (
+              {extraFaces > 0 ? (
                 <Text className="text-xs font-medium text-muted">
-                  +{extraSubscribers}
+                  +{extraFaces}
                 </Text>
               ) : null}
             </DestinationPill>
           ) : null}
-          {pinged.length > 0 ? (
+          {!isSession && pinged.length > 0 ? (
             <PingedPeople label="Notifies" people={pinged} />
           ) : null}
         </Animated.View>

@@ -57,6 +57,21 @@ export function DestinationBar({
         : destination === "new"
           ? "New session in"
           : `New session in #${channelName}`
+  const isSession = destination === "session"
+  // A session message reaches its subscribers, and the people it mentions
+  // follow once it sends: mentioned first, so "+N" never hides them.
+  const reached: SubscriberFace[] = [
+    ...pinged.map(
+      (person) =>
+        subscribers.find((subscriber) => subscriber.id === person.id) ?? {
+          ...person,
+          avatarColor: null,
+        }
+    ),
+    ...subscribers.filter(
+      (subscriber) => !pinged.some((person) => person.id === subscriber.id)
+    ),
+  ]
 
   return (
     <div className="relative flex min-w-0 items-center">
@@ -73,7 +88,7 @@ export function DestinationBar({
               <DestinationPill
                 onSwitch={onSwitch}
                 className={
-                  destination === "session"
+                  isSession
                     ? "text-muted-foreground hover:text-foreground"
                     : "bg-agent/10 font-medium text-agent"
                 }
@@ -86,7 +101,7 @@ export function DestinationBar({
             {pinged.length > 0 && (
               <PingedPeople
                 people={pinged}
-                label={destination === "session" ? "Notifies" : "Adds"}
+                label={isSession ? "Notifies" : "Adds"}
               />
             )}
           </motion.div>
@@ -98,18 +113,16 @@ export function DestinationBar({
           >
             {/* Chat and threads already name the destination in the
                 placeholder; only a session needs a pill to switch. */}
-            {destination === "session" && (
+            {isSession && (
               <DestinationPill onSwitch={onSwitch}>
-                {subscribers.length > 0 ? (
+                {reached.length > 0 ? (
                   <>
                     To
-                    <Faces
-                      people={subscribers.slice(0, MAX_SUBSCRIBER_FACES)}
-                    />
-                    {subscribers.length > MAX_SUBSCRIBER_FACES &&
-                      `+${subscribers.length - MAX_SUBSCRIBER_FACES}`}
+                    <Faces people={reached.slice(0, MAX_SUBSCRIBER_FACES)} />
+                    {reached.length > MAX_SUBSCRIBER_FACES &&
+                      `+${reached.length - MAX_SUBSCRIBER_FACES}`}
                     <span className="sr-only">
-                      {subscribers.map((person) => person.name).join(", ")}
+                      {reached.map((person) => person.name).join(", ")}
                     </span>
                   </>
                 ) : (
@@ -117,7 +130,7 @@ export function DestinationBar({
                 )}
               </DestinationPill>
             )}
-            {pinged.length > 0 && (
+            {!isSession && pinged.length > 0 && (
               <PingedPeople people={pinged} label="Notifies" />
             )}
           </motion.div>

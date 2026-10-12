@@ -1389,7 +1389,11 @@ As built (2026-10-11):
 - Follow-up (Jacob, web and phone): the session composer's people pill
   reads "To" and up to 3 faces of the other subscribers (+N), from
   `threadSubscribersQueryOptions`; "To subscribers" when no one else
-  follows.
+  follows. People it mentions join the faces first (they follow once it
+  sends), so the people side drops "Notifies …"; "To Lor · Notifies …" and
+  chat's "Adds …" stay. Web's session strip fades the title in once the
+  heading scrolls away (an IntersectionObserver in `thread-panel.tsx`), as
+  the phone's bar does.
 
 #### Step 34: How Lor works on mobile (~350)
 

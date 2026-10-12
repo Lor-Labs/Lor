@@ -23,11 +23,13 @@ import {
   TooltipCreateHandle,
 } from "@repo/ui/components/tooltip"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
+import { AnimatePresence, motion } from "motion/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
@@ -183,11 +185,12 @@ function SessionConversation({
         threadRootId: session.threadRootId,
       }}
       sessionView={{
-        header: ({ lorRunning }) => (
+        header: ({ lorRunning, headingVisible }) => (
           <SessionStrip
             session={session}
             workView={workView}
             lorRunning={lorRunning}
+            showTitle={!headingVisible}
             onRename={() => setRenaming(true)}
             onArchive={() => {
               updateSession.mutate({ ...change, archived: true })
@@ -236,17 +239,20 @@ function SessionConversation({
   )
 }
 
-// A slim icon strip: the title opens the document instead (SessionHeading).
+// A slim icon strip: the title opens the document instead (SessionHeading),
+// and fades in here once the heading scrolls away, like the phone's bar.
 function SessionStrip({
   session,
   workView,
   lorRunning,
+  showTitle,
   onRename,
   onArchive,
 }: {
   session: RealtimeAgentSession
   workView: SessionWorkSidebarView
   lorRunning: boolean
+  showTitle: boolean
   onRename: () => void
   onArchive: () => void
 }) {
@@ -262,7 +268,21 @@ function SessionStrip({
   return (
     <div className="flex h-11 shrink-0 items-center gap-1 px-3">
       <HeaderNavControls className="-ml-1" />
-      <div className="ml-auto flex items-center gap-0.5">
+      <AnimatePresence initial={false}>
+        {showTitle && (
+          <motion.span
+            key="title"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16, ease: EASE_OUT }}
+            className="min-w-0 truncate px-1 text-[13px] font-medium"
+          >
+            {session.title}
+          </motion.span>
+        )}
+      </AnimatePresence>
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <ThreadSubscribers
           workspaceSlug={workspaceSlug}
           channelId={channelId}

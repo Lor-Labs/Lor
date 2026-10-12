@@ -186,7 +186,8 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
 // header and no thread root. Its context, plan, files and activity live in
 // the right panel instead of the docked work header.
 export type SessionPresentation = {
-  header: (state: { lorRunning: boolean }) => ReactNode
+  // headingVisible: the header shows the title once the heading is gone.
+  header: (state: { lorRunning: boolean; headingVisible: boolean }) => ReactNode
   // Opens the document (title and context line); shows once the oldest page
   // is loaded, so it scrolls with the transcript.
   heading?: ReactNode
@@ -888,6 +889,26 @@ export function ThreadPanel({
     return () => observer.disconnect()
   }, [hasOlder, isFetchingOlder, fetchOlder])
 
+  // A session's heading renders once the oldest page is loaded; until then,
+  // and once it scrolls away, the header carries the title.
+  const [headingElement, setHeadingElement] = useState<HTMLDivElement | null>(
+    null
+  )
+  const [headingVisible, setHeadingVisible] = useState(true)
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!headingElement || !container) {
+      if (hasOlder) setHeadingVisible(false)
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => setHeadingVisible(entries[0]?.isIntersecting ?? false),
+      { root: container }
+    )
+    observer.observe(headingElement)
+    return () => observer.disconnect()
+  }, [headingElement, hasOlder])
+
   const channelContext = useMemo(
     () => ({
       type: "channel" as const,
@@ -1092,7 +1113,10 @@ export function ThreadPanel({
         />
       )}
       {sessionView ? (
-        sessionView.header({ lorRunning: Boolean(pendingLorMessage) })
+        sessionView.header({
+          lorRunning: Boolean(pendingLorMessage),
+          headingVisible,
+        })
       ) : (
         <RightPanelHeader
           // A call chat takes Lor's name for the call once it's summarized.
@@ -1233,7 +1257,7 @@ export function ThreadPanel({
 
               {sessionView?.heading && !hasOlder && (
                 <MessageScrollerItem className="px-4 pt-6 pb-3">
-                  {sessionView.heading}
+                  <div ref={setHeadingElement}>{sessionView.heading}</div>
                 </MessageScrollerItem>
               )}
 
