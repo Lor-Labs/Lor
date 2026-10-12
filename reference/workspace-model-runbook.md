@@ -1280,10 +1280,31 @@ Lor's messages, so nothing Lor-driven reaches chat or DMs.
 
 #### Step 30: subscribers (~450)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - Subscriber sheet: view, add, remove, subscribe/unsubscribe, "Everyone in
   #channel", subscribed people grouped first. "Added you" notification.
+
+As built (2026-10-11):
+
+- `hooks/use-thread-subscribers.ts` ports web's: `["thread-subscribers",
+  threadRootId]`, optimistic ticks and "Everyone in #channel", refetches
+  held while a change is in flight, and following or leaving a session
+  moves its Channels-tab row at once (then the activity refetches).
+  `useChannelPeople` (workspace members ∩ the channel audience, web's keys)
+  lists who can be added.
+- `components/thread-subscribers.tsx`: the session and thread headers show
+  the subscriber faces (3 and +N, or an add icon) instead of the
+  participant stack; call chats keep the participant stack. Tapping opens a
+  sheet: search, "Everyone in #channel", then subscribed people (frozen at
+  open) above a rule and everyone else, each a checkbox row ("(you)" marks
+  you). You follow or leave by ticking yourself, like web's session strip.
+- Session starts seed you as the subscriber (fresh for 10s), refetch on the
+  ack, and drop it on failure.
+- "Added you": online, a toast with the push's wording and Open (to the
+  session or thread; not across workspaces), via `useSubscribedToasts` in
+  the root `PushNotifications`; offline, the server's push (Step 28 opens
+  it on the session).
 
 #### Step 31: archive, rename, Sessions list (~480)
 

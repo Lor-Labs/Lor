@@ -19,6 +19,7 @@ import {
   ThreadMessageListSkeleton,
 } from "@/components/thread-message-list"
 import { ThreadParticipantStack } from "@/components/thread-participant-stack"
+import { ThreadSubscribers } from "@/components/thread-subscribers"
 import {
   type PlanSourceFile,
   ThreadWorkHeader,
@@ -486,11 +487,23 @@ export function ThreadView({
           </Text>
         </View>
       )}
-      <ThreadParticipantStack
-        members={mentions.members}
-        onPressMember={openMemberProfile}
-        participants={thread.participants}
-      />
+      {/* Sessions and threads list who follows them; a call's chat lists
+          who took part. */}
+      {voiceSessionId ? (
+        <ThreadParticipantStack
+          members={mentions.members}
+          onPressMember={openMemberProfile}
+          participants={thread.participants}
+        />
+      ) : (
+        <ThreadSubscribers
+          channelId={channelId}
+          channelName={channelName}
+          session={lorSession}
+          threadRootId={threadRootId}
+          workspaceSlug={workspace.slug}
+        />
+      )}
     </View>
   )
 

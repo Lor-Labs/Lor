@@ -11,6 +11,10 @@ import { useWorkspace } from "@/context/workspace-context"
 import { agentSessionKey, type SessionDetail } from "@/hooks/use-agent-session"
 import type { ThreadSnapshot } from "@/hooks/use-thread-messages"
 import {
+  type ThreadSubscriber,
+  threadSubscribersKey,
+} from "@/hooks/use-thread-subscribers"
+import {
   cancelSidebarFetch,
   patchSidebarSession,
   sidebarRowFor,
@@ -136,6 +140,18 @@ export function useSessionStart(
       voiceSessionTitle: null,
       voiceSessionEnded: false,
     })
+    queryClient.setQueryData<ThreadSubscriber[]>(
+      threadSubscribersKey(start.threadRootId),
+      [
+        {
+          id: user.id,
+          name: user.name,
+          image: user.image ?? null,
+          avatarColor: null,
+        },
+      ],
+      { updatedAt: Date.now() + PENDING_MS }
+    )
     openSession(start.id, replace)
   }
 
@@ -166,6 +182,10 @@ export function useSessionStart(
     void queryClient.invalidateQueries({
       queryKey: agentSessionKey(session.id),
     })
+    // Mentioned people are subscribed too.
+    void queryClient.invalidateQueries({
+      queryKey: threadSubscribersKey(session.threadRootId),
+    })
   }
 
   const failed = (start: SessionStart) => {
@@ -181,10 +201,12 @@ export function useSessionStart(
         { hide: true }
       )
     }
-    queryClient.removeQueries({
-      queryKey: ["thread", start.threadRootId],
-      exact: true,
-    })
+    for (const queryKey of [
+      ["thread", start.threadRootId],
+      threadSubscribersKey(start.threadRootId),
+    ]) {
+      queryClient.removeQueries({ queryKey, exact: true })
+    }
     // An open session screen refetches: it shows the session if the start
     // landed despite a lost ack, and "unavailable" if it didn't.
     void queryClient.resetQueries({
