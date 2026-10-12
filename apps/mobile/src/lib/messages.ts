@@ -80,7 +80,6 @@ export function applyThreadSummaryUpdate(
       : {
           replyCount: update.replyCount,
           lastReplyAt: update.lastReplyAt,
-          lorWaiting: update.lorWaiting,
           participants: update.participants,
         }
 

@@ -827,7 +827,7 @@ so mobile ports the final behavior.
 
 #### Step 19b: no broadcast mentions in sessions (~80)
 
-[x] built 2026-10-11 · [ ] committed
+[x] built 2026-10-11 · [x] committed
 
 As built: broadcasts are plain text matched by regex, not tokens, so the
 server guard is what stops them. `buildMentionTargets` and
@@ -860,7 +860,7 @@ Shared piece for part A: a `state` option on `patchSidebarSession`
 Already in (2026-10-11): a reply adds its writer and the people it mentions
 to the subscriber list on send (`showWriteSubscribers`).
 
-- **A** [x] built 2026-10-11 · [ ] committed. As built: `patchSidebarSession`
+- **A** [x] built 2026-10-11 · [x] committed. As built: `patchSidebarSession`
   takes `{ state, from?, lastActivityAt? }`; `cachedSessionForThread` finds a
   thread's session in the session page's cache. The open session's row never
   shows unread (`channel-sessions.tsx`), and opening one patches unread to
@@ -884,7 +884,7 @@ to the subscriber list on send (`showWriteSubscribers`).
   patches `["plan", planId]` and the sidebar "!" (`hooks/use-approvals.ts`).
   Mention gaps: a reply that subscribes its writer shows the session's
   sidebar row, and a failed send takes the optimistic subscribers back off.
-- **B** [x] built 2026-10-11 · [ ] committed. As built: `SidebarSession`
+- **B** [x] built 2026-10-11 · [x] committed. As built: `SidebarSession`
   carries `threadRootId`. `prefetchSession` warms the session and its first
   transcript page (10s freshness, so repeated hovers don't refetch) on row
   hover, focus and click; a session opened another way (⌘K, a link) starts
@@ -898,7 +898,7 @@ to the subscriber list on send (`showWriteSubscribers`).
   hover (`prefetchThread` in `hooks/use-thread-messages.ts`). Channel and DM
   messages stop waiting on the channel or DM query (`$channelId.tsx`,
   `dms/$dmId.tsx`).
-- **C** [x] built 2026-10-11 · [ ] committed. As built: the queued ids live
+- **C** [x] built 2026-10-11 · [x] committed. As built: the queued ids live
   under `runQueueKey(channelId, threadRootId)` with `gcTime: 0` (a remounted
   panel starts empty, as the old local state did); socket events and the
   late-join snapshot write there. `takeFromRunQueue` backs both optimistic
@@ -909,7 +909,7 @@ to the subscriber list on send (`showWriteSubscribers`).
   (`hooks/use-run-queue.ts` holds it in React state). Steer
   (`use-queued-message-steering.ts`), Remove (`run-queue-pill.tsx`) and Stop
   (`use-stop-lor-run.ts`) update in `onMutate`.
-- **D** D1 [x] built 2026-10-11 · [ ] committed · D2 [ ] built. D1 as
+- **D** D1 [x] built 2026-10-11 · [x] committed. D1 as
   built: notification settings patch `["notification-settings"]` in
   `onMutate`. Loop activate, pause, resume, complete, discard and delete patch
   `["channel-loops", channelId]` through `patchLoops` (the context carries
@@ -919,7 +919,7 @@ to the subscriber list on send (`showWriteSubscribers`).
   refuse it (409, a run already going) and a loop has no running field.
   Proposal approve shows the server's own "approved" (Applying) state, and
   reject shows rejected with the resolver and note, closing the note box at
-  once. D2 [x] built 2026-10-11 · [ ] committed: `useOpenDM` opens a
+  once. D2 [x] built 2026-10-11 · [x] committed: `useOpenDM` opens a
   one-to-one DM straight from the cached `["dms"]` list, else the create
   response seeds `["dms", id]`; the DM list refetches on DM
   `notification:unread` (it had no live updates) and your own send moves the
@@ -934,7 +934,8 @@ to the subscriber list on send (`showWriteSubscribers`).
   (`loops/loop-actions.tsx`), proposal approve/reject (`hooks/use-proposals.ts`),
   opening a DM from a profile card (seed `["dms", id]` from the POST), and
   channel create, rename and delete.
-- **E** [ ] built · [ ] committed (optional). Member role and kick, connector
+- **E** [ ] built · [ ] committed (optional; skipped for the merge, Jacob
+  2026-10-12). Member role and kick, connector
   event toggles (`connectors-section.tsx`), approval policies
   (`approvals-section.tsx`), then the rare admin forms (projects, invites,
   workspace rename, profile).
@@ -971,7 +972,7 @@ with Lor" no longer reaches Lor.
 
 #### Step 20: send path (~425)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - `@Lor` in chat or a human thread starts a visible session: client-picked
   ids (`newSession`), optimistic session and sidebar caches, then open the
@@ -1016,7 +1017,7 @@ As built (2026-10-11):
 
 #### Step 21: session route (~450)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - The session route (a minimal one exists since Step 20, on
   `components/thread-view.tsx`): the title heading (title, #channel, started
@@ -1054,7 +1055,7 @@ As built (2026-10-11):
 
 #### Step 22: document look and session composer (~450)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - One gutter avatar per turn, no name rows, 15px prose, people-only turns
   muted (`routedToLor`, mapped in `lib/messages.ts` but unused).
@@ -1090,7 +1091,7 @@ As built (2026-10-11):
 
 #### Step 23: channel list session rows (~300)
 
-[x] built · [ ] committed (with Step 24, one commit)
+[x] built · [x] committed (with Step 24, one commit)
 
 - Session rows under each channel from `ChannelActivity.sessions`: top 3 by
   `lastActivityAt`, "N more", state indicators (`channel-list.tsx`,
@@ -1099,7 +1100,7 @@ As built (2026-10-11):
 
 #### Step 24: live sidebar (~250)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - `session:updated` and `thread-read:updated` listeners, typed-out titles,
   collapse; the activity hook moves to React Query without the 15s poll.
@@ -1136,7 +1137,7 @@ As built, Steps 23 and 24 (2026-10-11):
 
 #### Step 25: New session and Ask Lor (~330)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - New session screen (channel picker, examples, draft) and a New session
   entry on the Channels tab.
@@ -1166,7 +1167,7 @@ As built (2026-10-11):
 
 #### Step 26: call Summary tab (~250)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - Summary tab from the session-keyed routes (read-only); the lobby opens
   Summary for ended calls (`voice-lobby.tsx:522-526` keys off
@@ -1196,7 +1197,7 @@ As built (2026-10-11):
 
 #### Step 27: approvals and forwards (~250)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - Approvals in every state with "Approved by …" (`hooks/use-approvals.ts`
   asks for pending only; `approval-card.tsx`), listed by `?threadRootId=`.
@@ -1225,7 +1226,7 @@ As built (2026-10-11):
 
 #### Step 28: push, search and pins open sessions (~230)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - Server: `sessionId` in push data. Mobile: `lib/push-target.ts`,
   `use-push-notifications.ts:101-109`, search (`(tabs)/index.tsx:257-266`,
@@ -1248,7 +1249,7 @@ As built (2026-10-11):
 
 #### Step 29: chat cleanup (~300, mostly deletions)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 As built (2026-10-11, ~200 lines removed): the server only runs Lor in
 sessions (`routedToLor` is set only there), and the chat feed leaves out
@@ -1280,7 +1281,7 @@ Lor's messages, so nothing Lor-driven reaches chat or DMs.
 
 #### Step 30: subscribers (~450)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - Subscriber sheet: view, add, remove, subscribe/unsubscribe, "Everyone in
   #channel", subscribed people grouped first. "Added you" notification.
@@ -1308,7 +1309,7 @@ As built (2026-10-11):
 
 #### Step 31: archive, rename, Sessions list (~480)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - Archive/unarchive with Undo, rename (`PATCH /v1/sessions/{id}`), a
   channel's Sessions list (Active, Archived).
@@ -1336,7 +1337,7 @@ As built (2026-10-11):
 
 #### Step 32: Details sheet (~320)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - Context link (needs message-location navigation), plan, files from Lor's
   tool calls, proposals in the redesigned card.
@@ -1363,7 +1364,7 @@ Reject / Approve. Approve and reject are optimistic now
 
 #### Step 33: forward, typing, hints (~300)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - Forward action and sheet in sessions; avatar typing lines;
   `sessions_intro` and `session_reply` hints.
@@ -1397,7 +1398,7 @@ As built (2026-10-11):
 
 #### Step 34: How Lor works on mobile (~350)
 
-[x] built · [ ] committed
+[x] built · [x] committed
 
 - A native version of the web dialog (`onboarding/how-lor-works-dialog.tsx`),
   on the shared `how_lor_works` key.
@@ -1425,22 +1426,42 @@ tools and a loop replaces the chat scene; see `onboarding.md` 11b).
 
 #### Step 35: cleanup (~150)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - Server drops the fields kept only for mobile: `ChannelActivity.lor` and the
   thread summary's `lorWaiting`.
 - Update `mobile-parity-todo.md` (its session items are stale since
   2026-08-04), delete `/prototype` and the unused `/design` header variants.
 
+As built (2026-10-12):
+
+- `ChannelActivity.lor` is gone (`realtime-types`, the realtime
+  `getWorkspaceActivity`, both clients' row inserts). The activity query
+  keeps runs, waiting plans and pending approvals only for session states,
+  so the plan query reads `waiting_for_input` only and nothing reads
+  channel ids. A channel with no subscribed sessions now has no entry.
+- `lorWaiting` is gone from `RealtimeMessageThreadUpdated`, the API thread
+  summary schema and its query (two queries fewer per channel page),
+  `loadThreadSummary` (`loadThreadWaiting` deleted) and both clients'
+  summary patches. Nothing rendered it after Steps 9 and 29.
+- Jacob: keep `/prototype` and `/design` instead of deleting them. Their
+  routes throw `notFound()` outside dev builds; the code stays.
+- `mobile-parity-todo.md`: a Sessions section (Steps 20–34 and two small
+  gaps), stale approval, proposal, summary and Lor-activity entries
+  corrected, the missing `lor_reply` hint and summary editing listed.
+- Old TestFlight builds read `lor` and `lorWaiting`; with them gone they
+  show no channel Lor spinner and no footer chip. The new EAS build drops
+  both reads.
+
 ### Docs
 
 - [x] Move `workspace-model.md` and this runbook to `reference/` root when
   Step 1 starts, with a link sweep. Add a `CLAUDE.md` section like the other
   runbooks. (Done in Step 1.)
-- [ ] Update `mobile-parity-todo.md` in Phase F (Step 35).
-- After the last step: delete the prototype (`apps/web/src/components/prototype/`,
-  `apps/web/src/routes/prototype.tsx`). It is a flow reference, not code to
-  ship. (Step 35.)
+- [x] Update `mobile-parity-todo.md` in Phase F (Step 35).
+- [x] After the last step: delete the prototype (`apps/web/src/components/prototype/`,
+  `apps/web/src/routes/prototype.tsx`). Changed in Step 35 (Jacob): kept, but
+  dev builds only.
 - [x] The onboarding redo flagged in `onboarding.md`: its Step 11 (How Lor
   works dialog, session hints, empty channel state), built 2026-10-10.
 - After the merge: a one-week sync-engine spike on one slice (sidebar and

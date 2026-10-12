@@ -146,10 +146,7 @@ export function patchSidebarSession(
         (channel) => channel.channelId === target.channelId
       )
         ? channels
-        : [
-            ...channels,
-            { channelId: target.channelId, lor: null, sessions: [] },
-          ]
+        : [...channels, { channelId: target.channelId, sessions: [] }]
       return withChannel.map((channel) => {
         if (channel.channelId !== target.channelId) return channel
         if ("hide" in change) {

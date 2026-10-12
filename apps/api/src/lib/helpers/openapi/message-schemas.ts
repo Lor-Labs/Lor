@@ -148,8 +148,6 @@ export const threadSummarySchema = z
   .object({
     replyCount: z.number().int().nonnegative(),
     lastReplyAt: z.string(),
-    // Blocked on a human: pending approval or plan waiting for input.
-    lorWaiting: z.enum(["needs_approval", "needs_input"]).nullable(),
     participants: z.array(threadParticipantSchema),
   })
   .nullable()

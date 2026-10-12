@@ -10,12 +10,8 @@ import type { ChannelActivity, SidebarSessionState } from "@repo/realtime-types"
 // channel's session list and search.
 const SESSION_LIMIT = 200
 
-// Per-channel Lor state for the sidebar, aggregated across every thread in
-// the channel and filtered to what the requesting user can access, plus the
-// user's subscribed sessions with their own state. Precedence:
-// needs_approval > working/finalizing > queued > needs_input — an approval
-// gate outranks active work; it's the state that needs a human and a
-// concurrent run in another thread must not mask it.
+// The sidebar's session rows: the user's subscribed sessions in channels they
+// can access, grouped by channel, each with its own state.
 export async function getWorkspaceActivity(
   userId: string,
   workspaceId: string
@@ -59,11 +55,7 @@ export async function getWorkspaceActivity(
 
   const [runs, plans, approvals, sessions] = await Promise.all([
     db
-      .select({
-        channelId: schema.agentRun.channelId,
-        threadRootId: schema.agentRun.threadRootId,
-        state: schema.agentRun.state,
-      })
+      .select({ threadRootId: schema.agentRun.threadRootId })
       .from(schema.agentRun)
       .where(
         and(
@@ -72,32 +64,24 @@ export async function getWorkspaceActivity(
           inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
         )
       ),
+    // A plan waiting for approval always has its approval row, so the
+    // approvals below decide that case.
     db
-      .select({
-        channelId: schema.plan.channelId,
-        threadRootId: schema.plan.threadRootId,
-        status: schema.plan.status,
-      })
+      .select({ threadRootId: schema.plan.threadRootId })
       .from(schema.plan)
       .where(
         and(
           eq(schema.plan.workspaceId, workspaceId),
           inArray(schema.plan.channelId, channelIds),
-          inArray(schema.plan.status, [
-            "waiting_for_input",
-            "waiting_for_approval",
-          ])
+          eq(schema.plan.status, "waiting_for_input")
         )
       ),
     // Pending approvals directly: a policy-parked approval on a plan-less run
-    // has no waiting plan and its run has already ended its turn, so neither
-    // query above sees it. The approval row has no channel — resolve it
-    // through the plan or run it anchors to.
+    // has no waiting plan. The approval row has no thread; resolve it through
+    // the plan or run it anchors to.
     db
       .select({
-        planChannelId: schema.plan.channelId,
         planThreadRootId: schema.plan.threadRootId,
-        runChannelId: schema.agentRun.channelId,
         runThreadRootId: schema.agentRun.threadRootId,
         target: schema.approval.target,
         resolverKind: schema.approvalPolicy.resolverKind,
@@ -163,51 +147,18 @@ export async function getWorkspaceActivity(
       .limit(SESSION_LIMIT),
   ])
 
-  const rank = {
-    needs_input: 1,
-    queued: 2,
-    working: 3,
-    needs_approval: 4,
-  } as const
-  const channels = new Map<string, ChannelActivity>()
-  const entry = (channelId: string) => {
-    let activity = channels.get(channelId)
-    if (!activity) {
-      activity = { channelId, lor: null, sessions: [] }
-      channels.set(channelId, activity)
-    }
-    return activity
-  }
-  const bump = (channelId: string, state: keyof typeof rank) => {
-    const activity = entry(channelId)
-    if (!activity.lor || rank[state] > rank[activity.lor]) {
-      activity.lor = state
-    }
-  }
   // Session state is keyed by the session's thread root.
   const running = new Set<string>()
   const needsYou = new Set<string>()
   for (const run of runs) {
-    bump(run.channelId, run.state === "queued" ? "queued" : "working")
     if (run.threadRootId) running.add(run.threadRootId)
   }
   // "Needs you": a question from Lor needs anyone in the session; an
-  // approval needs only the people allowed to resolve it. A plan waiting for
-  // approval always has its approval row, so the approval decides.
+  // approval needs only the people allowed to resolve it.
   for (const plan of plans) {
-    bump(
-      plan.channelId,
-      plan.status === "waiting_for_approval" ? "needs_approval" : "needs_input"
-    )
-    if (plan.threadRootId && plan.status === "waiting_for_input") {
-      needsYou.add(plan.threadRootId)
-    }
+    if (plan.threadRootId) needsYou.add(plan.threadRootId)
   }
   for (const approval of approvals) {
-    const channelId = approval.planChannelId ?? approval.runChannelId
-    if (channelId && accessible.has(channelId)) {
-      bump(channelId, "needs_approval")
-    }
     const threadRootId = approval.planThreadRootId ?? approval.runThreadRootId
     const spec = approvalResolverSpecFor(
       approval.target,
@@ -224,7 +175,13 @@ export async function getWorkspaceActivity(
       : authority.isOwner
     if (threadRootId && canResolve) needsYou.add(threadRootId)
   }
+  const channels = new Map<string, ChannelActivity>()
   for (const session of sessions) {
+    let activity = channels.get(session.channelId)
+    if (!activity) {
+      activity = { channelId: session.channelId, sessions: [] }
+      channels.set(session.channelId, activity)
+    }
     const state: SidebarSessionState = needsYou.has(session.threadRootId)
       ? "needs_you"
       : running.has(session.threadRootId)
@@ -232,7 +189,7 @@ export async function getWorkspaceActivity(
         : session.unread
           ? "unread"
           : "idle"
-    entry(session.channelId).sessions.push({
+    activity.sessions.push({
       id: session.id,
       threadRootId: session.threadRootId,
       title: session.title,
