@@ -9,7 +9,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { router } from "expo-router"
 import * as SecureStore from "expo-secure-store"
 import { useThemeColor } from "heroui-native/hooks"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native"
 import Animated, {
   FadeIn,
@@ -153,10 +153,15 @@ export function ChannelSessionRows({
   channelId,
   sessions,
   collapsed,
+  hint,
+  onOpenSession,
 }: {
   channelId: string
   sessions: SidebarSession[] | undefined
   collapsed: boolean
+  // Under the rows: the sessions_intro hint, on the first channel with any.
+  hint?: ReactNode
+  onOpenSession?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const ordered = useMemo(
@@ -186,7 +191,11 @@ export function ChannelSessionRows({
           key={session.id}
           layout={rowLayout}
         >
-          <SessionRow channelId={channelId} session={session} />
+          <SessionRow
+            channelId={channelId}
+            onOpen={onOpenSession}
+            session={session}
+          />
         </Animated.View>
       ))}
       {!collapsed && ordered.length > SESSION_CAP ? (
@@ -207,6 +216,7 @@ export function ChannelSessionRows({
           </Pressable>
         </Animated.View>
       ) : null}
+      {collapsed ? null : hint}
     </View>
   )
 }
@@ -214,9 +224,11 @@ export function ChannelSessionRows({
 // Long-press archives it, like the archive button on web's row hover.
 function SessionRow({
   channelId,
+  onOpen,
   session,
 }: {
   channelId: string
+  onOpen?: () => void
   session: SidebarSession
 }) {
   const muted = useThemeColor("muted")
@@ -257,12 +269,13 @@ function SessionRow({
       onPressIn={() =>
         void queryClient.prefetchQuery(agentSessionQueryOptions(session.id))
       }
-      onPress={() =>
+      onPress={() => {
+        onOpen?.()
         router.push({
           pathname: "/session/[sessionId]",
           params: { sessionId: session.id },
         })
-      }
+      }}
     >
       {session.loop ? (
         <HugeiconsIcon

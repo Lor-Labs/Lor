@@ -16,6 +16,7 @@ import {
   type ResolveUserName,
 } from "@/components/channel-event-row"
 import type { ChatMessageListKeyboardProps } from "@/components/chat-keyboard-layout"
+import { canForwardMessage } from "@/components/forward-sheet"
 import { MessageActionMenu } from "@/components/message-action-menu"
 import {
   areMessagesOnSameDay,
@@ -56,6 +57,7 @@ export function ThreadMessageList({
   paginationError,
   onLoadOlder,
   onReply,
+  onForward,
   onLoadAround,
   onEdit,
   onDelete,
@@ -89,6 +91,8 @@ export function ThreadMessageList({
   onLoadOlder: () => void
   // Unset where nothing can be sent (an archived session).
   onReply?: (message: Message) => void
+  // Sessions only.
+  onForward?: (message: Message) => void
   onLoadAround: (messageId: string) => Promise<boolean>
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
@@ -213,6 +217,13 @@ export function ThreadMessageList({
     const message = selectedMessage
     setSelectedMessage(null)
     onReply?.(message)
+  }
+
+  const forwardSelectedMessage = () => {
+    if (!selectedMessage) return
+    const message = selectedMessage
+    setSelectedMessage(null)
+    onForward?.(message)
   }
 
   const jumpToMessage = useCallback(
@@ -500,6 +511,11 @@ export function ThreadMessageList({
           if (!isOpen) setSelectedMessage(null)
         }}
         onReply={onReply ? replyToSelectedMessage : undefined}
+        onForward={
+          onForward && selectedMessage && canForwardMessage(selectedMessage)
+            ? forwardSelectedMessage
+            : undefined
+        }
         onEdit={
           selectedMessage &&
           currentUserId === selectedMessage.authorId &&

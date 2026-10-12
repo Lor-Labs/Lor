@@ -203,6 +203,15 @@ export function MessageComposer({
     manualToPeople,
   })
   const isSession = destination === "session"
+  // Taught once the person types in a session, when the destination button
+  // decides who gets the message.
+  const sessionReplyHint = useHint("session_reply")
+  const showSessionReplyHint =
+    !sessionReplyHint.dismissed &&
+    !isEditing &&
+    routing.canSwitch &&
+    routing.toLor &&
+    hasMessage
   // A session always shows where the message goes; chat and threads only
   // once @Lor makes it start a session.
   const showDestination =
@@ -527,6 +536,12 @@ export function MessageComposer({
           Mention @Lor to start a session. Lor works there, next to the chat.
         </HintCard>
       ) : null}
+      {showSessionReplyHint ? (
+        <HintCard onDismiss={sessionReplyHint.dismiss}>
+          Replies go to Lor by default. Tap To Lor to talk only to the session's
+          subscribers, without Lor answering.
+        </HintCard>
+      ) : null}
       {topAccessory}
       <Animated.View
         className="relative overflow-hidden rounded-lor-sm border border-border bg-surface"
@@ -671,7 +686,10 @@ export function MessageComposer({
                   destination={destination}
                   onSwitch={
                     routing.canSwitch
-                      ? () => setManualToPeople((current) => !current)
+                      ? () => {
+                          setManualToPeople((current) => !current)
+                          sessionReplyHint.dismiss()
+                        }
                       : undefined
                   }
                   pinged={routing.pinged}

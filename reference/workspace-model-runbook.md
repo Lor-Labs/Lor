@@ -1363,10 +1363,29 @@ Reject / Approve. Approve and reject are optimistic now
 
 #### Step 33: forward, typing, hints (~300)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - Forward action and sheet in sessions; avatar typing lines;
   `sessions_intro` and `session_reply` hints.
+
+As built (2026-10-11):
+
+- Forward: a Forward tile in a session message's long-press menu, for a
+  finished text message that isn't optimistic (`canForwardMessage`, web's
+  rule). `components/forward-sheet.tsx` ports `ForwardDialog`: "Forward to
+  #channel", an optional note, the message as a `ForwardedMessageCard`
+  preview (no source footer), Cancel / Forward. It sends `message:send` with
+  `forward: true`; success shows a "Forwarded to #channel" toast with View
+  (opens the channel at the post).
+- Typing: a session shows `DocumentTypingIndicator` above the composer: a
+  line per typer (3 at most), their avatar in the document gutter and three
+  bouncing dots. Photos and colors come from the workspace members. Threads
+  keep the text indicator.
+- Hints (inline `HintCard`s, as mobile does): `session_reply` above the
+  session composer once you type a reply to Lor that you could switch;
+  tapping "To Lor" dismisses it. `sessions_intro` under the first expanded
+  channel's session rows on the Channels tab; opening any session dismisses
+  it.
 
 #### Step 34: How Lor works on mobile (~350)
 

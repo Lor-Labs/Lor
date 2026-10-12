@@ -22,6 +22,7 @@ import {
   strongestSessionState,
   useSessionCollapse,
 } from "@/components/channel-sessions"
+import { HintCard } from "@/components/hint-card"
 import { Avatar } from "@/components/ui/avatar"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { SectionLabel } from "@/components/ui/section-label"
@@ -30,6 +31,7 @@ import { useUnread } from "@/context/unread-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useWorkspaceSessionUpdates } from "@/hooks/use-agent-session"
+import { useHint } from "@/hooks/use-hints"
 import { useVoicePresence } from "@/hooks/use-voice-presence"
 import type { VoiceParticipant } from "@/hooks/use-voice-sessions"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
@@ -388,6 +390,7 @@ export function ChannelList({
   const activity = useWorkspaceActivity(workspace?.id)
   useWorkspaceSessionUpdates(workspace?.id)
   const sessionCollapse = useSessionCollapse(activity)
+  const sessionsHint = useHint("sessions_intro")
   const sessionsByChannel = useMemo(
     () =>
       new Map(
@@ -475,6 +478,21 @@ export function ChannelList({
   const archivedCategories = data.categories.filter((category) =>
     archivedCategoryIds?.has(category.id)
   )
+  // Taught under the first session rows a person sees, usually the ones
+  // their first @Lor just started.
+  const sessionsHintChannelId = sessionsHint.dismissed
+    ? null
+    : [
+        ...data.uncategorized,
+        ...activeCategories
+          .filter((category) => !collapsedSections.has(category.id))
+          .flatMap((category) => category.channels),
+      ].find(
+        (channel) =>
+          channel.type !== "voice" &&
+          !sessionCollapse.collapsed.has(channel.id) &&
+          (sessionsByChannel.get(channel.id)?.length ?? 0) > 0
+      )?.id
 
   const renderRow = (channel: Channel) => {
     const sessions = sessionsByChannel.get(channel.id) ?? []
@@ -509,6 +527,18 @@ export function ChannelList({
           <ChannelSessionRows
             channelId={channel.id}
             collapsed={collapsed}
+            hint={
+              channel.id === sessionsHintChannelId ? (
+                <HintCard
+                  className="mx-two mt-one"
+                  onDismiss={sessionsHint.dismiss}
+                >
+                  Lor works in sessions, listed under their channel. Anyone in
+                  the channel can open one and join in.
+                </HintCard>
+              ) : undefined
+            }
+            onOpenSession={sessionsHint.dismiss}
             sessions={sessions}
           />
         )}

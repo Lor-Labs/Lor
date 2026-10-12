@@ -18,7 +18,14 @@ const COLLAPSED_HEIGHT = 240
 // forwarded, under the forwarder's note. Drawn from the snapshot, so it
 // reads the same for people who can't open the source; the footer names the
 // source and opens it. Mirrors web's forwarded-message-card.tsx.
-export function ForwardedMessageCard({ forwarded }: { forwarded: Forwarded }) {
+export function ForwardedMessageCard({
+  forwarded,
+  preview = false,
+}: {
+  forwarded: Forwarded
+  // The forward sheet's preview: no source footer.
+  preview?: boolean
+}) {
   const muted = useThemeColor("muted")
   const [expanded, setExpanded] = useState(false)
   const [contentHeight, setContentHeight] = useState(0)
@@ -93,20 +100,22 @@ export function ForwardedMessageCard({ forwarded }: { forwarded: Forwarded }) {
           </Text>
         </Pressable>
       ) : null}
-      <Pressable
-        accessibilityHint="Opens the original message"
-        accessibilityRole="button"
-        className="mt-[6px] min-h-7 flex-row items-center gap-one self-start active:opacity-60"
-        onPress={openSource}
-      >
-        <Text className="shrink text-xs text-muted" numberOfLines={1}>
-          {where}
-        </Text>
-        <Text className="text-xs text-muted">·</Text>
-        <Text className="text-xs text-muted">
-          {formatDateTime(forwarded.createdAt)}
-        </Text>
-      </Pressable>
+      {preview ? null : (
+        <Pressable
+          accessibilityHint="Opens the original message"
+          accessibilityRole="button"
+          className="mt-[6px] min-h-7 flex-row items-center gap-one self-start active:opacity-60"
+          onPress={openSource}
+        >
+          <Text className="shrink text-xs text-muted" numberOfLines={1}>
+            {where}
+          </Text>
+          <Text className="text-xs text-muted">·</Text>
+          <Text className="text-xs text-muted">
+            {formatDateTime(forwarded.createdAt)}
+          </Text>
+        </Pressable>
+      )}
     </View>
   )
 }

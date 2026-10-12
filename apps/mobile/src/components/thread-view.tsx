@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
+import { ForwardSheet } from "@/components/forward-sheet"
 import {
   MessageComposer,
   type MessageComposerMentionHandle,
@@ -25,7 +26,10 @@ import {
   type PlanSourceFile,
   ThreadWorkHeader,
 } from "@/components/thread-work-header"
-import { TypingIndicator } from "@/components/typing-indicator"
+import {
+  DocumentTypingIndicator,
+  TypingIndicator,
+} from "@/components/typing-indicator"
 import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { StatePanel } from "@/components/ui/state-panel"
@@ -96,6 +100,8 @@ export function ThreadView({
   // The session's heading is on screen, so the bar leaves its title out.
   const [headingVisible, setHeadingVisible] = useState(true)
   const [isActionsOpen, setIsActionsOpen] = useState(false)
+  // Session: the message being forwarded into the channel chat.
+  const [forwarding, setForwarding] = useState<Message | null>(null)
   const updateSession = useUpdateAgentSession()
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const { requestStop, stoppingMessageId } = useStopLorRun()
@@ -271,6 +277,18 @@ export function ThreadView({
         : (memberById(userId)?.name ?? "someone"),
     [memberById, session?.user.id]
   )
+  const typingPeople = useMemo(
+    () =>
+      typingUsers.map((user) => {
+        const member = memberById(user.userId)
+        return {
+          ...user,
+          image: member?.image ?? null,
+          avatarColor: member?.avatarColor ?? null,
+        }
+      }),
+    [typingUsers, memberById]
+  )
   // Memoized: the list re-renders its rows only when its items change, and
   // the heading is one, so it changes them exactly when its content does.
   const sessionHeading = useMemo(() => {
@@ -305,6 +323,7 @@ export function ThreadView({
   useEffect(() => {
     setReplyingTo(null)
     setEditingMessage(null)
+    setForwarding(null)
     setIsSavingEdit(false)
     resetProfileSheet()
   }, [channelId, threadRootId, resetProfileSheet])
@@ -702,6 +721,7 @@ export function ThreadView({
               onEdit={archivedBar ? undefined : startEditing}
               onPressAuthor={openAuthorProfile}
               onReply={archivedBar ? undefined : startReply}
+              onForward={lorSession ? setForwarding : undefined}
               onToggleReaction={thread.toggleReaction}
               onTogglePin={
                 canPinMessages
@@ -718,9 +738,14 @@ export function ThreadView({
           )
         }
         typingIndicator={
-          isReady && !thread.isMissing && !thread.error && !showCallRecord ? (
+          !isReady ||
+          thread.isMissing ||
+          thread.error ||
+          showCallRecord ? null : lorSession ? (
+            <DocumentTypingIndicator people={typingPeople} />
+          ) : (
             <TypingIndicator users={typingUsers} />
-          ) : null
+          )
         }
       />
       {lorSession ? (
@@ -730,6 +755,13 @@ export function ThreadView({
           messages={thread.messages}
           onOpenChange={setIsActionsOpen}
           session={lorSession}
+        />
+      ) : null}
+      {lorSession ? (
+        <ForwardSheet
+          channel={{ id: channelId, name: channelName }}
+          message={forwarding}
+          onClose={() => setForwarding(null)}
         />
       ) : null}
       <UserProfileSheet

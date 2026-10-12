@@ -1,3 +1,4 @@
+import ArrowTurnForwardIcon from "@hugeicons/core-free-icons/ArrowTurnForwardIcon"
 import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon"
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon"
 import Edit02Icon from "@hugeicons/core-free-icons/Edit02Icon"
@@ -24,6 +25,7 @@ export function MessageActionMenu({
   onReply,
   onOpenThread,
   onAskLor,
+  onForward,
   onEdit,
   onDelete,
   onToggleReaction,
@@ -36,6 +38,8 @@ export function MessageActionMenu({
   onOpenThread?: () => void
   // Channel chat: start a session about this message.
   onAskLor?: () => void
+  // Session: post this message into the channel chat.
+  onForward?: () => void
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
@@ -108,7 +112,7 @@ export function MessageActionMenu({
             </ScrollView>
           ) : null}
 
-          {onReply || onOpenThread || onAskLor ? (
+          {onReply || onOpenThread || onAskLor || onForward ? (
             <View className="flex-row gap-three">
               {onReply ? (
                 <ActionTile
@@ -133,6 +137,14 @@ export function MessageActionMenu({
                   glyph={<LorMark size={28} />}
                   label="Ask Lor"
                   onPress={onAskLor}
+                />
+              ) : null}
+              {onForward ? (
+                <ActionTile
+                  icon={ArrowTurnForwardIcon}
+                  label="Forward"
+                  onPress={onForward}
+                  tint={foreground}
                 />
               ) : null}
             </View>
