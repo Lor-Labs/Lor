@@ -1,15 +1,19 @@
+import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import {
   MessageComposer,
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
 import { RunQueuePill } from "@/components/run-queue-pill"
+import { SessionHeading } from "@/components/session-heading"
 import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
@@ -32,6 +36,7 @@ import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
+import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { usePlanForThread } from "@/hooks/use-plans"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
@@ -42,8 +47,11 @@ import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
-import type { Message } from "@/lib/api-types"
+import type { AgentSession, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+
+const titleFadeIn = FadeIn.duration(160)
+const titleFadeOut = FadeOut.duration(120)
 
 export type ThreadViewProps = {
   // A moment of the call, in ms, for the transcript to open at.
@@ -56,8 +64,10 @@ export type ThreadViewProps = {
   focusMessageId?: string
   tab?: "chat" | "transcript"
   threadRootId: string
-  // A Lor session's transcript. `pending`: its start isn't confirmed yet.
-  session?: { title: string; pending: boolean }
+  // A Lor session's transcript.
+  session?: AgentSession
+  // The session's start isn't confirmed yet.
+  sessionPending?: boolean
 }
 
 // A thread: the thread screen, a Lor session, and the chat in a call's drawer.
@@ -70,13 +80,16 @@ export function ThreadView({
   tab,
   threadRootId,
   session: lorSession,
+  sessionPending = false,
 }: ThreadViewProps) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  // The session's heading is on screen, so the bar leaves its title out.
+  const [headingVisible, setHeadingVisible] = useState(true)
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const { requestStop, stoppingMessageId } = useStopLorRun()
-  const foreground = useThemeColor("foreground")
+  const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
@@ -101,10 +114,18 @@ export function ThreadView({
     socket,
     currentUser: session?.user,
     isSession: Boolean(lorSession),
-    deferLoad: lorSession?.pending,
+    deferLoad: sessionPending,
     sessionStart: startsSessions ? sessionStart : undefined,
   })
   useAutoMarkRead(channelId)
+  const newestReply = thread.messages[0]
+  useMarkThreadRead({
+    workspaceSlug: workspace?.slug ?? "",
+    channelId,
+    threadRootId,
+    newestKey: newestReply ? `${newestReply.id}:${newestReply.status}` : null,
+    enabled: !sessionPending && tab !== "transcript",
+  })
   // Approval cards in this thread read the channel-approvals cache; the
   // socket handlers live here so a thread opened directly stays live too.
   useChannelApprovals(channelId ?? "")
@@ -208,6 +229,50 @@ export function ThreadView({
     await requestStop(messageId)
   }, [pendingLorMessage?.id, requestStop])
 
+  const channelName = channelState.channel?.name ?? "channel"
+  const memberById = useCallback(
+    (userId: string | null) =>
+      mentions.members.find((member) => member.userId === userId),
+    [mentions.members]
+  )
+  const nameOf = useCallback(
+    (userId: string | null) =>
+      userId === session?.user.id
+        ? "you"
+        : (memberById(userId)?.name ?? "someone"),
+    [memberById, session?.user.id]
+  )
+  // Memoized: the list re-renders its rows only when its items change, and
+  // the heading is one, so it changes them exactly when its content does.
+  const sessionHeading = useMemo(() => {
+    if (!lorSession) return undefined
+    const starter = memberById(lorSession.creatorId)
+    return (
+      <SessionHeading
+        channelName={channelName}
+        createdAt={lorSession.createdAt}
+        generatedTitle={lorSession.titleEditedAt === null}
+        startedBy={
+          lorSession.origin === "loop"
+            ? "Loop"
+            : lorSession.origin === "trigger"
+              ? "Started by an automation"
+              : `Started by ${nameOf(lorSession.creatorId)}`
+        }
+        starter={
+          starter
+            ? {
+                name: starter.name,
+                image: starter.image,
+                avatarColor: starter.avatarColor,
+              }
+            : null
+        }
+        title={lorSession.title}
+      />
+    )
+  }, [lorSession, channelName, memberById, nameOf])
+
   useEffect(() => {
     setReplyingTo(null)
     setEditingMessage(null)
@@ -293,9 +358,24 @@ export function ThreadView({
     )
   }
 
-  const channelName = channelState.channel?.name ?? "channel"
   // A session has no visible root to wait for.
   const isReady = Boolean(thread.root || lorSession)
+  // Archived sessions are read-only.
+  const archivedBar = lorSession?.archivedAt ? (
+    <View className="bg-background px-three pb-three pt-two">
+      <View className="min-h-11 flex-row items-center gap-two rounded-lor-sm border border-border px-three">
+        <HugeiconsIcon
+          color={muted}
+          icon={Archive02Icon}
+          size={16}
+          strokeWidth={2}
+        />
+        <Text className="min-w-0 flex-1 text-sm text-muted" numberOfLines={1}>
+          Archived by {nameOf(lorSession.archivedById)}
+        </Text>
+      </View>
+    </View>
+  ) : null
   // A call's chat also holds its transcript.
   const voiceSessionId = thread.voiceSessionId
   const showTranscript = tab === "transcript" && voiceSessionId !== null
@@ -341,27 +421,41 @@ export function ThreadView({
           tintColor={foreground}
         />
       </IconButton>
-      <View className="min-w-0 flex-1 gap-px">
-        {/* A call chat takes Lor's name for the call once it's summarized. */}
-        <Text
-          className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
-          numberOfLines={1}
-        >
-          {lorSession
-            ? lorSession.title
-            : isPlanThread
+      {lorSession ? (
+        // The heading carries the title until it scrolls away.
+        <View className="min-w-0 flex-1">
+          {headingVisible ? null : (
+            <Animated.Text
+              className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
+              entering={titleFadeIn}
+              exiting={titleFadeOut}
+              numberOfLines={1}
+            >
+              {lorSession.title}
+            </Animated.Text>
+          )}
+        </View>
+      ) : (
+        <View className="min-w-0 flex-1 gap-px">
+          {/* A call chat takes Lor's name for the call once it's summarized. */}
+          <Text
+            className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
+            numberOfLines={1}
+          >
+            {isPlanThread
               ? "Plan"
               : voiceSessionId
                 ? (thread.voiceSessionTitle ?? "Call")
                 : "Thread"}
-        </Text>
-        <Text
-          className="text-xs font-medium leading-4 text-muted"
-          numberOfLines={1}
-        >
-          #{channelName}
-        </Text>
-      </View>
+          </Text>
+          <Text
+            className="text-xs font-medium leading-4 text-muted"
+            numberOfLines={1}
+          >
+            #{channelName}
+          </Text>
+        </View>
+      )}
       <ThreadParticipantStack
         members={mentions.members}
         onPressMember={openMemberProfile}
@@ -388,7 +482,8 @@ export function ThreadView({
           onCustomInputViewChange,
           onInputLayout,
         }) =>
-          isReady && !thread.isMissing && !thread.error && !showTranscript ? (
+          archivedBar ??
+          (isReady && !thread.isMissing && !thread.error && !showTranscript ? (
             <MessageComposer
               accessibilityLabel={lorSession ? "Reply" : "Reply in thread"}
               destination={startsSessions ? "thread" : undefined}
@@ -402,9 +497,7 @@ export function ThreadView({
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
               // The thread doesn't exist until the start is confirmed.
-              isSending={
-                thread.isSending || isSavingEdit || Boolean(lorSession?.pending)
-              }
+              isSending={thread.isSending || isSavingEdit || sessionPending}
               mentionCandidates={mentions.candidates}
               mentionCandidatesError={mentions.error}
               mentionRef={composerMentionRef}
@@ -455,7 +548,7 @@ export function ThreadView({
                 />
               }
             />
-          ) : null
+          ) : null)
         }
         renderMessageList={(keyboardProps) =>
           showTranscript ? (
@@ -489,6 +582,9 @@ export function ThreadView({
           ) : (
             <ThreadMessageList
               avatarColorByUserId={avatarColorByUserId}
+              heading={sessionHeading}
+              onHeadingVisibleChange={setHeadingVisible}
+              resolveUserName={(userId) => memberById(userId)?.name}
               currentUserId={session?.user.id}
               editingMessageId={editingMessage?.id}
               focusMessageId={focusMessageId}
@@ -501,9 +597,9 @@ export function ThreadView({
               onLoadAround={thread.loadAround}
               onLoadOlder={() => void thread.loadOlder()}
               onDelete={confirmDelete}
-              onEdit={startEditing}
+              onEdit={archivedBar ? undefined : startEditing}
               onPressAuthor={openAuthorProfile}
-              onReply={startReply}
+              onReply={archivedBar ? undefined : startReply}
               onToggleReaction={thread.toggleReaction}
               onTogglePin={
                 canPinMessages

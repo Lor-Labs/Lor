@@ -4,11 +4,15 @@ import { View } from "react-native"
 import { ThreadView } from "@/components/thread-view"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
-import { useAgentSession } from "@/hooks/use-agent-session"
+import {
+  useAgentSession,
+  useAgentSessionUpdates,
+} from "@/hooks/use-agent-session"
 
 export default function SessionScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>()
   const { data, error } = useAgentSession(sessionId ?? "")
+  useAgentSessionUpdates(sessionId ?? "")
   const goBack = () => {
     if (router.canGoBack()) router.back()
     else router.replace("/")
@@ -19,10 +23,8 @@ export default function SessionScreen() {
       {data ? (
         <ThreadView
           channelId={data.session.channelId}
-          session={{
-            title: data.session.title,
-            pending: data.pending === true,
-          }}
+          session={data.session}
+          sessionPending={data.pending === true}
           threadRootId={data.session.threadRootId}
         />
       ) : error ? (

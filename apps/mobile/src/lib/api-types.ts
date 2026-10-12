@@ -96,6 +96,7 @@ export type AgentSessionDetail = InferResponseType<
   Client["v1"]["sessions"][":sessionId"]["$get"],
   200
 >
+export type AgentSession = AgentSessionDetail["session"]
 
 export type ChannelLoopList = InferResponseType<
   Client["v1"]["channels"][":channelId"]["loops"]["$get"],

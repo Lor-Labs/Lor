@@ -4,7 +4,9 @@ import { Screen } from "@/components/ui/screen"
 
 export default function ThreadScreen() {
   const params =
-    useLocalSearchParams<Omit<ThreadViewProps, "embedded" | "session">>()
+    useLocalSearchParams<
+      Omit<ThreadViewProps, "embedded" | "session" | "sessionPending">
+    >()
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
       <ThreadView {...params} />

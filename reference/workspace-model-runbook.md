@@ -1016,7 +1016,7 @@ As built (2026-10-11):
 
 #### Step 21: session route (~450)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - The session route (a minimal one exists since Step 20, on
   `components/thread-view.tsx`): the title heading (title, #channel, started
@@ -1026,6 +1026,31 @@ As built (2026-10-11):
   `channel-event-row.tsx`, not `MessageRow`.
 - Mark threads read (`POST …/threads/{id}/read`); archived sessions are
   read-only with an archived bar.
+
+As built (2026-10-11):
+
+- `components/session-heading.tsx` is the transcript's first list item
+  (title, #channel · started by with avatar · time ago, then a rule). The
+  top bar shows the title only once the heading scrolls away (iOS large
+  title), via `onFirstVisibleItemChanged`. LegendList re-renders a row only
+  when the data array changes, so `thread-view.tsx` memoizes the heading
+  and the items change exactly when it does.
+- Live titles: `useAgentSessionUpdates` (`hooks/use-agent-session.ts`)
+  patches the session cache from `session:updated`; generated titles type
+  out (`components/typewriter-text.tsx`, a port of web's, reused by the
+  sidebar in Step 24).
+- Event replies (`type === "event"`) render through `ChannelEventRow` in
+  `thread-message-list.tsx`; a session's first turn has no date divider
+  (the heading shows when it started).
+- `hooks/use-mark-thread-read.ts`: every thread and session, on focus, on a
+  new reply or a finished Lor reply, and when the app comes back; throttled
+  4s with a trailing send flushed on leave. Off while a start is pending
+  and on a call's transcript tab.
+- Archived: the composer is replaced by "Archived by …" (Unarchive comes in
+  Step 31); long-press drops Reply and Edit (`onReply` is now optional in
+  `ThreadMessageList` and `MessageActionMenu`).
+- Not yet: the thread work header (plan, activity) still shows on sessions
+  until the Details sheet (Step 32).
 
 #### Step 22: document look and session composer (~450)
 

@@ -28,7 +28,8 @@ export function MessageActionMenu({
 }: {
   message: Message | null
   onOpenChange: (isOpen: boolean) => void
-  onReply: () => void
+  // Unset where nothing can be sent (an archived session).
+  onReply?: () => void
   onOpenThread?: () => void
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
@@ -102,22 +103,26 @@ export function MessageActionMenu({
             </ScrollView>
           ) : null}
 
-          <View className="flex-row gap-three">
-            <ActionTile
-              icon={MessageCircleReplyIcon}
-              label="Reply"
-              onPress={onReply}
-              tint={foreground}
-            />
-            {onOpenThread ? (
-              <ActionTile
-                icon={ThreadIcon}
-                label={threadActionLabel}
-                onPress={onOpenThread}
-                tint={accent}
-              />
-            ) : null}
-          </View>
+          {onReply || onOpenThread ? (
+            <View className="flex-row gap-three">
+              {onReply ? (
+                <ActionTile
+                  icon={MessageCircleReplyIcon}
+                  label="Reply"
+                  onPress={onReply}
+                  tint={foreground}
+                />
+              ) : null}
+              {onOpenThread ? (
+                <ActionTile
+                  icon={ThreadIcon}
+                  label={threadActionLabel}
+                  onPress={onOpenThread}
+                  tint={accent}
+                />
+              ) : null}
+            </View>
+          ) : null}
 
           {message?.content || (message && (onEdit || onTogglePin)) ? (
             <View className="overflow-hidden rounded-lor-lg bg-surface-secondary">
