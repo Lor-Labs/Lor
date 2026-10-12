@@ -327,7 +327,6 @@ export function ThreadMessageList({
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)
                     }
-                    showLorRunControls={false}
                   />
                 </Pressable>
               )
@@ -462,7 +461,6 @@ export function ThreadMessageList({
                       onToggleReaction?.(message.id, emoji)
                     }
                     layout={layout}
-                    showLorRunControls={false}
                     showHeader={showHeader}
                   />
                 </View>

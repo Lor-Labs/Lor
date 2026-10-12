@@ -215,9 +215,6 @@ export function MessageList({
           data={orderedMessages}
           estimatedItemSize={88}
           initialScrollAtEnd
-          isLorResponding={messages.some(
-            (message) => message.status === "pending"
-          )}
           keyExtractor={(message) => message.id}
           keyboardProps={keyboardProps}
           newestItemKey={orderedMessages.at(-1)?.id}

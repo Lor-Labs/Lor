@@ -1,7 +1,6 @@
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import Brain01Icon from "@hugeicons/core-free-icons/Brain01Icon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
-import StopIcon from "@hugeicons/core-free-icons/StopIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
@@ -31,7 +30,6 @@ import { ProposalCard } from "@/components/proposal-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import { CallSummaryCard } from "@/components/voice/call-summary-card"
-import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import { isOptimisticMessage } from "@/lib/messages"
@@ -120,37 +118,6 @@ function AppBadge() {
   )
 }
 
-// Steer status + explicit Stop for an in-flight Lor reply. Stop is honored
-// by the run at its next safe step boundary; whatever streamed is kept.
-function LorRunControls({ message }: { message: Message }) {
-  const muted = useThemeColor("muted")
-  const { requestStop, stoppingMessageId } = useStopLorRun()
-  const isStopping = stoppingMessageId === message.id
-
-  return (
-    <View className="mt-one flex-row items-center gap-three">
-      {message.steeringBy ? (
-        <Text className="text-xs italic text-accent">
-          Applying {message.steeringBy}&apos;s new direction…
-        </Text>
-      ) : null}
-      {isStopping ? (
-        <Text className="text-xs italic text-muted">Stopping…</Text>
-      ) : (
-        <Pressable
-          accessibilityLabel="Stop Lor's reply"
-          accessibilityRole="button"
-          className="min-h-7 flex-row items-center gap-one self-start rounded-lor-sm border border-border px-two py-one"
-          onPress={() => void requestStop(message.id)}
-        >
-          <HugeiconsIcon color={muted} icon={StopIcon} size={12} />
-          <Text className="text-xs font-semibold text-muted">Stop</Text>
-        </Pressable>
-      )}
-    </View>
-  )
-}
-
 // A mid-run send was absorbed into the active run's next step boundary.
 // (Queued sends surface in the composer's run-queue pill instead.)
 function RoutedChip() {
@@ -168,14 +135,12 @@ function MessageRowBody({
   onOpenThread,
   onJumpToMessage,
   onToggleReaction,
-  showLorRunControls = true,
   sessionThreadRootId = null,
 }: {
   message: Message
   onOpenThread?: (message: Message) => void
   onJumpToMessage?: (messageId: string) => void
   onToggleReaction?: (message: Message, emoji: string) => void
-  showLorRunControls?: boolean
   // In a session: its approval cards stay after the decision.
   sessionThreadRootId?: string | null
 }) {
@@ -242,9 +207,6 @@ function MessageRowBody({
             <Text className="text-sm italic text-muted">
               Lor couldn&apos;t respond to that.
             </Text>
-          ) : null}
-          {showLorRunControls && isStreaming ? (
-            <LorRunControls message={message} />
           ) : null}
           {isLor && message.lorTriggerMessageId ? (
             <MessageApprovalCard
@@ -343,7 +305,6 @@ export function MessageRow({
   isHighlighted = false,
   isActionHighlighted = false,
   onToggleReaction,
-  showLorRunControls = true,
   layout = "chat",
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
@@ -355,7 +316,6 @@ export function MessageRow({
   isHighlighted?: boolean
   isActionHighlighted?: boolean
   onToggleReaction?: (message: Message, emoji: string) => void
-  showLorRunControls?: boolean
   // A session transcript reads as a document: a small avatar in the gutter
   // on each turn's first message (Lor's too), no name row. Mirrors web's
   // message-item.tsx document layout.
@@ -425,7 +385,6 @@ export function MessageRow({
               onOpenThread={onOpenThread}
               onToggleReaction={onToggleReaction}
               sessionThreadRootId={message.threadRootId}
-              showLorRunControls={showLorRunControls}
             />
           </MessageProseContext.Provider>
         </View>
@@ -493,7 +452,6 @@ export function MessageRow({
           onJumpToMessage={onJumpToMessage}
           onOpenThread={onOpenThread}
           onToggleReaction={onToggleReaction}
-          showLorRunControls={showLorRunControls}
         />
       </View>
     </View>
@@ -508,7 +466,6 @@ export function ThreadRootMessage({
   onJumpToMessage,
   onPressAuthor,
   onToggleReaction,
-  showLorRunControls = true,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
@@ -517,7 +474,6 @@ export function ThreadRootMessage({
   onJumpToMessage?: (messageId: string) => void
   onPressAuthor?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
-  showLorRunControls?: boolean
 }) {
   if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
@@ -591,7 +547,6 @@ export function ThreadRootMessage({
           message={message}
           onJumpToMessage={onJumpToMessage}
           onToggleReaction={onToggleReaction}
-          showLorRunControls={showLorRunControls}
         />
       </View>
     </View>
@@ -665,15 +620,10 @@ function ThreadFooter({
   const replyLabel = `${summary.replyCount} ${
     summary.replyCount === 1 ? "reply" : "replies"
   }`
-  const waitingLabel = summary.lorWaiting
-    ? summary.lorWaiting === "needs_approval"
-      ? "Needs approval"
-      : "Needs input"
-    : null
 
   return (
     <Pressable
-      accessibilityLabel={`${replyLabel}. ${waitingLabel ?? `Last reply ${timeAgo(summary.lastReplyAt)}`}`}
+      accessibilityLabel={`${replyLabel}. Last reply ${timeAgo(summary.lastReplyAt)}`}
       accessibilityRole="button"
       className="mt-two min-h-9 flex-row items-center gap-two rounded-lor-sm py-one pr-two"
       onPress={() => onOpenThread(message)}
@@ -695,28 +645,9 @@ function ThreadFooter({
       <Text className="text-[13px] font-semibold text-accent">
         {replyLabel}
       </Text>
-      {waitingLabel ? (
-        <View className="min-w-0 flex-1 flex-row items-center gap-one">
-          <View className="size-4 items-center justify-center rounded-full bg-warning-soft">
-            <Text className="text-[10px] font-bold leading-[12px] text-warning-soft-foreground">
-              !
-            </Text>
-          </View>
-          <Text
-            className="text-[13px] font-medium text-warning-soft-foreground"
-            numberOfLines={1}
-          >
-            {waitingLabel}
-          </Text>
-        </View>
-      ) : (
-        <Text
-          className="min-w-0 flex-1 text-[13px] text-muted"
-          numberOfLines={1}
-        >
-          Last reply {timeAgo(summary.lastReplyAt)}
-        </Text>
-      )}
+      <Text className="min-w-0 flex-1 text-[13px] text-muted" numberOfLines={1}>
+        Last reply {timeAgo(summary.lastReplyAt)}
+      </Text>
       <HugeiconsIcon color={muted} icon={ArrowRight01Icon} size={15} />
     </Pressable>
   )

@@ -1248,7 +1248,26 @@ As built (2026-10-11):
 
 #### Step 29: chat cleanup (~300, mostly deletions)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
+
+As built (2026-10-11, ~200 lines removed): the server only runs Lor in
+sessions (`routedToLor` is set only there), and the chat feed leaves out
+Lor's messages, so nothing Lor-driven reaches chat or DMs.
+
+- `use-channel-messages.ts`: the Lor stream, reasoning, tool, memory,
+  steer, routed and run-queue handlers and the late-join replay are gone.
+- Channel screen: the plan, approval and proposal subscriptions, the
+  channel-scope run queue and its `RunQueuePill` are gone.
+- `message-row.tsx`: `LorRunControls` and the `showLorRunControls` prop
+  (sessions stop runs from the composer); the thread footer's `lorWaiting`
+  badge (the session row shows it). `message-list.tsx`: the Lor streaming
+  follow.
+- Kept, unlike the plan above: the plan, loop and proposal card branches
+  and `RoutedChip`. Sessions render through `MessageRow` (proposals and
+  plans in a session, a steered turn), the same reason web kept them in
+  Step 9.
+- `lor_intro`: "Mention @Lor to start a session. Lor works there, next to
+  the chat." (web's copy without ⌘N).
 
 - Delete what chat no longer shows: channel-scope plans, approvals,
   proposals and run queue (`app/channel/[channelId]/index.tsx:111-146`),

@@ -532,7 +532,7 @@ export function MessageComposer({
       ) : null}
       {showLorIntro && !isEditing ? (
         <HintCard onDismiss={lorHint.dismiss}>
-          Mention @Lor to ask about code, issues, or past conversations.
+          Mention @Lor to start a session. Lor works there, next to the chat.
         </HintCard>
       ) : null}
       {topAccessory}
