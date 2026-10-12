@@ -1090,7 +1090,7 @@ As built (2026-10-11):
 
 #### Step 23: channel list session rows (~300)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed (with Step 24, one commit)
 
 - Session rows under each channel from `ChannelActivity.sessions`: top 3 by
   `lastActivityAt`, "N more", state indicators (`channel-list.tsx`,
@@ -1099,12 +1099,40 @@ As built (2026-10-11):
 
 #### Step 24: live sidebar (~250)
 
-[ ] built · [ ] committed
+[x] built · [ ] committed
 
 - `session:updated` and `thread-read:updated` listeners, typed-out titles,
   collapse; the activity hook moves to React Query without the 15s poll.
 - Remove the channel-level Lor spinner (`LorChannelStatus`): `lor` counts
   sessions the user doesn't follow.
+
+As built, Steps 23 and 24 (2026-10-11):
+
+- `components/channel-sessions.tsx` (port of web's channel-sessions and
+  channel-activity): rows under each text channel, aligned with its name,
+  newest activity first, top 3 then "N more" / "Show less" with the hidden
+  rows' strongest state; loop icon; generated titles type out
+  (`TypewriterText`); unread and needs-you rows emphasized. State: "!"
+  (needs you), accent spinner (running), accent dot (unread; the phone has
+  no info token). Rows fade in and out with a layout transition. A press
+  prefetches the session (`agentSessionQueryOptions`) and opens it.
+- Collapse: the phone has no hover, so a channel with sessions gets a small
+  chevron at the right of its row instead of web's icon-turns-chevron. A
+  collapsed channel shows its strongest session state there. Remembered per
+  device in SecureStore (`lor.collapsed-session-channels`); a new session
+  in a collapsed channel expands it.
+- `hooks/use-workspace-activity.ts` is React Query under
+  `["workspace-activity", id]`, like web: no poll; `workspace:activity:updated`,
+  `thread-read:updated`, reconnects and coming back to the app refetch
+  (coalesced 100ms). `patchSidebarSession` / `cancelSidebarFetch` /
+  `sidebarRowFor` ported (hide, show, title only so far).
+- `useWorkspaceSessionUpdates` (mounted by the channel list) and
+  `useAgentSessionUpdates` share `applySessionUpdate`: titles and archives
+  patch the row and the session cache in the same tick.
+- Session starts now add their row at once ("running"), and a failed start
+  removes it (the Step 20 deferral).
+- `LorChannelStatus` and the `lor` reads are gone from the phone; the server
+  field stays until Step 35.
 
 #### Step 25: New session and Ask Lor (~330)
 

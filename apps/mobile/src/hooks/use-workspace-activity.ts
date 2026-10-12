@@ -1,127 +1,175 @@
-import type { ChannelActivity } from "@repo/realtime-types"
-import { useEffect, useState } from "react"
+import type {
+  ChannelActivity,
+  RealtimeAgentSession,
+  SidebarSession,
+} from "@repo/realtime-types"
+import {
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useEffect } from "react"
 import { AppState } from "react-native"
 import { useSocket } from "@/context/socket-context"
+import type { AppSocket } from "@/lib/socket"
 
-const POLL_MS = 15_000
 // Bursty invalidations (run transition + plan update) collapse into one
-// snapshot request. Fixed deadline: a constant stream cannot postpone it.
+// fetch. Fixed deadline: a constant stream cannot postpone it.
 const COALESCE_MS = 100
+const FETCH_TIMEOUT_MS = 10_000
 
-// Lor channel activity for the sidebar (spinner / needs-attention states).
-// Push-invalidated: workspace:activity:updated triggers a coalesced refetch;
-// the poll is recovery for missed emits, not the update mechanism. Mirrors
-// web's use-workspace-activity.ts with AppState as the focus signal.
+export const workspaceActivityKey = (workspaceId: string) =>
+  ["workspace-activity", workspaceId] as const
+
+function fetchWorkspaceActivity(socket: AppSocket, workspaceId: string) {
+  return new Promise<ChannelActivity[]>((resolve, reject) => {
+    if (!socket.connected) {
+      reject(new Error("Socket disconnected"))
+      return
+    }
+    const timer = setTimeout(
+      () => reject(new Error("Workspace activity timed out")),
+      FETCH_TIMEOUT_MS
+    )
+    socket.emit("workspace:activity", { workspaceId }, (result) => {
+      clearTimeout(timer)
+      if (result.ok) resolve(result.channels)
+      else reject(new Error("Workspace activity failed"))
+    })
+  })
+}
+
+// Your session rows for the Channels tab, fetched over the socket.
+// Push-driven, no polling: workspace:activity:updated and thread reads
+// refetch; reconnects and coming back to the app refetch as a check for
+// missed pushes. Mirrors web's use-workspace-activity.ts.
 export function useWorkspaceActivity(workspaceId?: string) {
   const socket = useSocket()
-  const [snapshot, setSnapshot] = useState<{
-    workspaceId: string
-    channels: ChannelActivity[]
-  } | null>(null)
+  const queryClient = useQueryClient()
+  const { data } = useQuery({
+    queryKey: workspaceActivityKey(workspaceId ?? ""),
+    queryFn: () => {
+      if (!socket || !workspaceId) throw new Error("No workspace")
+      return fetchWorkspaceActivity(socket, workspaceId)
+    },
+    enabled: Boolean(socket && workspaceId),
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
 
   useEffect(() => {
-    setSnapshot(null)
     if (!socket || !workspaceId) return
-    let disposed = false
-    let generation = 0
-    let timer: ReturnType<typeof setTimeout> | undefined
     let coalesceTimer: ReturnType<typeof setTimeout> | undefined
-    let pending = false
-    let refreshQueued = false
-    let failures = 0
-    let previous = ""
-    const clear = () => {
-      generation += 1
-      pending = false
-      refreshQueued = false
-      failures = 0
-      previous = ""
-      if (timer) clearTimeout(timer)
-      if (coalesceTimer) {
-        clearTimeout(coalesceTimer)
-        coalesceTimer = undefined
-      }
-      setSnapshot(null)
-    }
     const refresh = () => {
-      if (disposed || !socket.connected) return
-      if (AppState.currentState !== "active") return
-      if (pending) {
-        refreshQueued = true
-        return
-      }
-      if (timer) clearTimeout(timer)
-      pending = true
-      const attempt = ++generation
-      const fail = () => {
-        if (disposed || attempt !== generation) return
-        // Invalidate the attempt: an ack landing after the timeout must not
-        // fail the same attempt twice or clobber the scheduled retry.
-        generation += 1
-        pending = false
-        failures += 1
-        // Keep the last healthy snapshot through a transient failure; only
-        // repeated failure clears it so stale data can't pose as current.
-        if (failures >= 3) {
-          previous = ""
-          setSnapshot(null)
+      if (coalesceTimer) return
+      coalesceTimer = setTimeout(() => {
+        coalesceTimer = undefined
+        void queryClient.invalidateQueries({
+          queryKey: workspaceActivityKey(workspaceId),
+        })
+      }, COALESCE_MS)
+    }
+    const onActivityUpdated = (payload: { workspaceId: string }) => {
+      if (payload.workspaceId === workspaceId) refresh()
+    }
+    const appState = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh()
+    })
+    socket.on("connect", refresh)
+    socket.on("workspace:activity:updated", onActivityUpdated)
+    // Reading a session (on any of the user's devices) clears its dot.
+    socket.on("thread-read:updated", refresh)
+    return () => {
+      if (coalesceTimer) clearTimeout(coalesceTimer)
+      appState.remove()
+      socket.off("connect", refresh)
+      socket.off("workspace:activity:updated", onActivityUpdated)
+      socket.off("thread-read:updated", refresh)
+    }
+  }, [socket, workspaceId, queryClient])
+
+  return data
+}
+
+// A row for a session the snapshot doesn't list yet (a session start).
+export function sidebarRowFor(session: RealtimeAgentSession): SidebarSession {
+  return {
+    id: session.id,
+    threadRootId: session.threadRootId,
+    title: session.title,
+    titleEdited: session.titleEditedAt !== null,
+    state: "idle",
+    loop: session.loopId !== null,
+    lastActivityAt: session.lastActivityAt,
+  }
+}
+
+export type SidebarSessionChange =
+  | { hide: true }
+  | { show: SidebarSession }
+  | { title: string; titleEdited: boolean }
+
+// Await before patchSidebarSession: an in-flight fetch carries an older
+// snapshot, and a cancel that lands after the patch would revert it.
+export function cancelSidebarFetch(
+  queryClient: QueryClient,
+  workspaceId: string
+) {
+  return queryClient.cancelQueries({
+    queryKey: workspaceActivityKey(workspaceId),
+  })
+}
+
+// Edits one session row in place. Synchronous, so a caller can patch the
+// session page in the same tick and both type a new title out together.
+export function patchSidebarSession(
+  queryClient: QueryClient,
+  target: { workspaceId: string; channelId: string; sessionId: string },
+  change: SidebarSessionChange
+) {
+  queryClient.setQueryData<ChannelActivity[]>(
+    workspaceActivityKey(target.workspaceId),
+    (channels) => {
+      if (!channels) return channels
+      const withChannel = channels.some(
+        (channel) => channel.channelId === target.channelId
+      )
+        ? channels
+        : [
+            ...channels,
+            { channelId: target.channelId, lor: null, sessions: [] },
+          ]
+      return withChannel.map((channel) => {
+        if (channel.channelId !== target.channelId) return channel
+        if ("hide" in change) {
+          return {
+            ...channel,
+            sessions: channel.sessions.filter(
+              (session) => session.id !== target.sessionId
+            ),
+          }
         }
-        timer = setTimeout(refresh, 5_000)
-      }
-      timer = setTimeout(fail, 10_000)
-      socket.emit("workspace:activity", { workspaceId }, (result) => {
-        if (disposed || attempt !== generation) return
-        if (timer) clearTimeout(timer)
-        if (!result.ok) {
-          fail()
-          return
+        if ("show" in change) {
+          return channel.sessions.some(
+            (session) => session.id === target.sessionId
+          )
+            ? channel
+            : { ...channel, sessions: [...channel.sessions, change.show] }
         }
-        pending = false
-        failures = 0
-        const serialized = JSON.stringify(result.channels)
-        if (serialized !== previous) {
-          previous = serialized
-          setSnapshot({ workspaceId, channels: result.channels })
-        }
-        if (refreshQueued) {
-          refreshQueued = false
-          timer = setTimeout(refresh, 0)
-        } else {
-          timer = setTimeout(refresh, POLL_MS)
+        return {
+          ...channel,
+          sessions: channel.sessions.map((session) =>
+            session.id === target.sessionId
+              ? {
+                  ...session,
+                  title: change.title,
+                  titleEdited: change.titleEdited,
+                }
+              : session
+          ),
         }
       })
     }
-    const onActivityUpdated = (payload: { workspaceId: string }) => {
-      if (payload.workspaceId !== workspaceId || coalesceTimer) return
-      coalesceTimer = setTimeout(() => {
-        coalesceTimer = undefined
-        refresh()
-      }, COALESCE_MS)
-    }
-    // Backgrounding pauses native timers and usually drops the socket (the
-    // SocketProvider discards stale sockets on foreground) — clear rather than
-    // trust a frozen snapshot, and refetch on return.
-    const appStateSubscription = AppState.addEventListener(
-      "change",
-      (state) => {
-        if (state === "active") refresh()
-        else clear()
-      }
-    )
-    socket.on("connect", refresh)
-    socket.on("disconnect", clear)
-    socket.on("workspace:activity:updated", onActivityUpdated)
-    refresh()
-    return () => {
-      disposed = true
-      if (timer) clearTimeout(timer)
-      if (coalesceTimer) clearTimeout(coalesceTimer)
-      appStateSubscription.remove()
-      socket.off("connect", refresh)
-      socket.off("disconnect", clear)
-      socket.off("workspace:activity:updated", onActivityUpdated)
-    }
-  }, [socket, workspaceId])
-
-  return snapshot?.workspaceId === workspaceId ? snapshot?.channels : undefined
+  )
 }

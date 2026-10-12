@@ -6,6 +6,11 @@ import { useRef } from "react"
 import { useWorkspace } from "@/context/workspace-context"
 import { agentSessionKey, type SessionDetail } from "@/hooks/use-agent-session"
 import type { ThreadSnapshot } from "@/hooks/use-thread-messages"
+import {
+  cancelSidebarFetch,
+  patchSidebarSession,
+  sidebarRowFor,
+} from "@/hooks/use-workspace-activity"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 import { replaceMessage } from "@/lib/messages"
@@ -58,31 +63,40 @@ export function useSessionStart(channel: { id: string; name: string | null }) {
     if (!workspace || !user) return
     optimistic.current.add(start.id)
     const now = new Date().toISOString()
+    const session: RealtimeAgentSession = {
+      id: start.id,
+      workspaceId: workspace.id,
+      channelId: channel.id,
+      threadRootId: start.threadRootId,
+      creatorId: user.id,
+      origin: "chat",
+      title: start.title,
+      titleEditedAt: null,
+      loopId: null,
+      triggerId: null,
+      archivedAt: null,
+      archivedById: null,
+      lastActivityAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }
     queryClient.setQueryData<SessionDetail>(
       agentSessionKey(start.id),
-      {
-        session: {
-          id: start.id,
+      { session, channel, context: [], pending: true },
+      { updatedAt: Date.now() + PENDING_MS }
+    )
+    // No refetch when it's confirmed: Lor's run row commits after the ack,
+    // and the server pushes the sidebar then.
+    void cancelSidebarFetch(queryClient, workspace.id).then(() =>
+      patchSidebarSession(
+        queryClient,
+        {
           workspaceId: workspace.id,
           channelId: channel.id,
-          threadRootId: start.threadRootId,
-          creatorId: user.id,
-          origin: "chat",
-          title: start.title,
-          titleEditedAt: null,
-          loopId: null,
-          triggerId: null,
-          archivedAt: null,
-          archivedById: null,
-          lastActivityAt: now,
-          createdAt: now,
-          updatedAt: now,
+          sessionId: start.id,
         },
-        channel,
-        context: [],
-        pending: true,
-      },
-      { updatedAt: Date.now() + PENDING_MS }
+        { show: { ...sidebarRowFor(session), state: "running" } }
+      )
     )
     queryClient.setQueryData<ThreadSnapshot>(["thread", start.threadRootId], {
       messages: [start.message],
@@ -135,6 +149,17 @@ export function useSessionStart(channel: { id: string; name: string | null }) {
 
   const failed = (start: SessionStart) => {
     if (!optimistic.current.delete(start.id)) return
+    if (workspace) {
+      patchSidebarSession(
+        queryClient,
+        {
+          workspaceId: workspace.id,
+          channelId: channel.id,
+          sessionId: start.id,
+        },
+        { hide: true }
+      )
+    }
     queryClient.removeQueries({
       queryKey: ["thread", start.threadRootId],
       exact: true,
