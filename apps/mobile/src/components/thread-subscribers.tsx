@@ -53,7 +53,7 @@ export function ThreadSubscribers({
         accessibilityHint="Opens the subscriber list"
         accessibilityLabel={`${subscribers.length} ${subscribers.length === 1 ? "subscriber" : "subscribers"}`}
         accessibilityRole="button"
-        className="min-h-9 flex-row items-center rounded-full px-two active:bg-surface-secondary"
+        className="min-h-9 flex-row items-center rounded-full px-one active:bg-surface-secondary"
         hitSlop={6}
         onPress={() => setIsOpen(true)}
       >

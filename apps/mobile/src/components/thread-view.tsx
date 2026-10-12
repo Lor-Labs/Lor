@@ -515,27 +515,34 @@ export function ThreadView({
           participants={thread.participants}
         />
       ) : (
-        <ThreadSubscribers
-          channelId={channelId}
-          channelName={channelName}
-          session={lorSession}
-          threadRootId={threadRootId}
-          workspaceSlug={workspace.slug}
-        />
-      )}
-      {lorSession ? (
-        <IconButton
-          accessibilityLabel="Session actions"
-          onPress={() => setIsActionsOpen(true)}
-          variant="ghost"
-        >
-          <SymbolView
-            name={{ ios: "ellipsis", android: "more_horiz", web: "more_horiz" }}
-            size={20}
-            tintColor={foreground}
+        // Grouped without the row's gap, so the faces sit by the "…".
+        <View className="flex-row items-center">
+          <ThreadSubscribers
+            channelId={channelId}
+            channelName={channelName}
+            session={lorSession}
+            threadRootId={threadRootId}
+            workspaceSlug={workspace.slug}
           />
-        </IconButton>
-      ) : null}
+          {lorSession ? (
+            <IconButton
+              accessibilityLabel="Session actions"
+              onPress={() => setIsActionsOpen(true)}
+              variant="ghost"
+            >
+              <SymbolView
+                name={{
+                  ios: "ellipsis",
+                  android: "more_horiz",
+                  web: "more_horiz",
+                }}
+                size={20}
+                tintColor={foreground}
+              />
+            </IconButton>
+          ) : null}
+        </View>
+      )}
     </View>
   )
 
