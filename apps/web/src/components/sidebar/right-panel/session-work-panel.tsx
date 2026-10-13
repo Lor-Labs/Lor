@@ -1,7 +1,11 @@
 import { HashtagIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "@repo/ui/components/toast"
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { type ReactNode, useMemo } from "react"
 import { PlanStepList } from "@/components/chat/plan-step-list"
 import {
@@ -15,6 +19,7 @@ import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/ri
 import { MorphText } from "@/components/ui/morph-text"
 import {
   type AgentSessionDetail,
+  sessionFilesQueryOptions,
   useAgentSession,
 } from "@/hooks/use-agent-session"
 import {
@@ -77,25 +82,33 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
       fetchThreadPage(view, params)
     )
   )
-  const { outputs: toolOutputs, sources } = useMemo(
+  const { outputs: liveOutputs, sources: liveSources } = useMemo(
     () => collectSessionWork(data?.pages ?? []),
     [data]
   )
-  const {
-    plan,
-    outputs: planOutputs,
-    doneCount,
-  } = useThreadWork(view.channelId, view.threadRootId, null)
+  const { data: files } = useQuery(sessionFilesQueryOptions(view.sessionId))
+  const { plan, doneCount } = useThreadWork(
+    view.channelId,
+    view.threadRootId,
+    null
+  )
 
-  // Plan artifacts can predate the loaded messages; tool-call files cover
-  // artifacts made without a plan.
+  // The API lists every file in the session; loaded messages add files that
+  // landed since it was fetched, at their newest version.
   const outputs = useMemo(() => {
-    const byId = new Map(toolOutputs.map((file) => [file.id, file]))
-    for (const artifact of planOutputs) {
-      if (!byId.has(artifact.id)) byId.set(artifact.id, artifact)
+    const byId = new Map(liveOutputs.map((file) => [file.id, file]))
+    for (const file of files?.outputs ?? []) {
+      if (!byId.has(file.id)) byId.set(file.id, file)
     }
     return [...byId.values()]
-  }, [toolOutputs, planOutputs])
+  }, [liveOutputs, files])
+  const sources = useMemo(() => {
+    const byUrl = new Map(files?.sources.map((file) => [file.url, file]))
+    for (const file of liveSources) {
+      if (!byUrl.has(file.url)) byUrl.set(file.url, file)
+    }
+    return [...byUrl.values()]
+  }, [liveSources, files])
   const fileCount = outputs.length + sources.length
   const steps = plan?.steps ?? []
   const { data: detail } = useAgentSession(view.sessionId)

@@ -13,6 +13,7 @@ import {
   channelSessionsQuerySchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  sessionFilesResponseSchema,
   sessionParamsSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
@@ -42,6 +43,31 @@ export const getAgentSession = createRoute({
 })
 
 export type GetAgentSessionRoute = typeof getAgentSession
+
+export const listSessionFiles = createRoute({
+  path: "/sessions/{sessionId}/files",
+  method: "get",
+  summary: "List a Lor session's files",
+  description:
+    "Returns every file Lor made in the session and every file people shared in it.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionFilesResponseSchema,
+      description: "Session outputs and sources",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListSessionFilesRoute = typeof listSessionFiles
 
 export const listChannelSessions = createRoute({
   path: "/channels/{channelId}/sessions",

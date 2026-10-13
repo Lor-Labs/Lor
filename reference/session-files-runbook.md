@@ -87,7 +87,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 4a: sessions own artifacts (~200)
 
-[x] built 2026-10-13 · [ ] committed · [ ] db:push (dev) · [ ] backfill (dev) · [ ] db:push (prod) · [ ] backfill (prod)
+[x] built 2026-10-13 · [x] committed · [ ] db:push (dev) · [ ] backfill (dev) · [ ] db:push (prod) · [ ] backfill (prod)
 
 - `artifact.threadRootId`, unique `(threadRootId, path)`; the plan's unique
   index becomes a plain `planId` index, so `planId` is provenance only.
@@ -101,12 +101,16 @@ Tick each step's boxes as it lands and record departures in "Deviations".
   the column fails every write; a deploy before the backfill makes planned
   sessions start a second copy of files they already have.
 
-#### Step 4b: session files API and rail (~250)
+#### Step 4b: session files API and rail (~170)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
 
-- `GET /sessions/{id}/artifacts`; the session rail's Files list reads it
-  instead of plan artifacts plus files found in loaded messages.
+- `GET /sessions/{id}/files`: every artifact the session owns (newest
+  first) and every upload in its thread. Same access check and 404 as
+  `GET /sessions/{id}` (shared `findAccessibleSession`).
+- The rail's Files list reads it instead of plan artifacts. Files in loaded
+  messages are still merged in, so files that land mid-run show without a
+  refetch.
 
 #### Step 5: chips everywhere (~350)
 
@@ -128,6 +132,9 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 - Plan header, `ThreadWorkHeader`, run queue / stop / steer, plan Markdown
   export, dead `PlanCard` and proposal thread paths.
+- `useThreadWork` stops fetching plan artifacts (the rail reads session
+  files since Step 4b); `GET /plans/{planId}/artifacts` goes once nothing
+  calls it.
 
 #### Step 8: flatten sandbox work in the tool trail (~350)
 
