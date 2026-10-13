@@ -1,10 +1,9 @@
 import {
   Globe02Icon,
   HashtagIcon,
+  Infinity01Icon,
   MoreHorizontalIcon,
-  PencilEdit02Icon,
   PlusSignIcon,
-  RepeatIcon,
   Search01Icon,
   SentIcon,
   SidebarRight01Icon,
@@ -13,6 +12,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
+import type { ReactNode } from "react"
 import { LorMark } from "@/app/components/lor-mark"
 import {
   Citation,
@@ -21,16 +21,18 @@ import {
   Mention,
   PersonAvatar,
   PlanStep,
+  RAFAEL,
   type SessionState,
   SessionStateDot,
   ToolStep,
   Turn,
   WorkLog,
+  ZOE,
 } from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
 
 // Hero mock: a #gtm loop session. Lor researched leads on its Monday run,
-// a teammate pulled Priya in, and Priya is steering the drafts.
+// Rafael pulled Zoe in, and Zoe is steering the drafts.
 
 function ChannelRow({
   name,
@@ -84,8 +86,8 @@ function SessionRow({
     >
       {loop ? (
         <HugeiconsIcon
-          icon={RepeatIcon}
-          size={12}
+          icon={Infinity01Icon}
+          size={13}
           strokeWidth={2}
           className="shrink-0 opacity-60"
         />
@@ -127,19 +129,7 @@ function MockSidebar() {
           <HugeiconsIcon icon={PlusSignIcon} size={13} />
         </span>
       </div>
-      <div className="mt-2 flex flex-col gap-px px-3">
-        <div className="flex items-center gap-2 rounded-md px-2 py-[5px] text-[13px] text-lor-text-secondary-dark">
-          <HugeiconsIcon
-            icon={PencilEdit02Icon}
-            size={14}
-            className="opacity-70"
-          />
-          New session
-          <span className="ml-auto text-[10px] text-lor-text-tertiary-dark">
-            ⌘N
-          </span>
-        </div>
-        <div className="h-3" />
+      <div className="mt-4 flex flex-col gap-px px-3">
         <ChannelRow name="general" />
         <ChannelRow name="gtm" />
         <SessionRow label="Weekly lead research" state="running" loop active />
@@ -151,14 +141,9 @@ function MockSidebar() {
         <ChannelRow name="customers" />
       </div>
       <div className="mt-auto flex items-center gap-2 px-4 py-3">
-        <PersonAvatar
-          initial="P"
-          className="bg-amber-700"
-          size="size-6"
-          text="text-[10px]"
-        />
+        <PersonAvatar src={ZOE} size="size-6" />
         <span className="font-medium text-[12.5px] text-lor-text-dark">
-          Priya
+          Zoe
         </span>
       </div>
     </div>
@@ -171,22 +156,14 @@ function SessionColumn() {
       <div className="flex h-11 shrink-0 items-center justify-end gap-3 px-3 text-lor-text-tertiary-dark">
         <span className="-space-x-1.5 flex">
           <PersonAvatar
-            initial="M"
-            className="bg-rose-700 ring-2 ring-lor-bg-dark"
+            src={RAFAEL}
+            className="ring-2 ring-lor-bg-dark"
             size="size-5"
-            text="text-[9px]"
           />
           <PersonAvatar
-            initial="S"
-            className="bg-sky-700 ring-2 ring-lor-bg-dark"
+            src={ZOE}
+            className="ring-2 ring-lor-bg-dark"
             size="size-5"
-            text="text-[9px]"
-          />
-          <PersonAvatar
-            initial="P"
-            className="bg-amber-700 ring-2 ring-lor-bg-dark"
-            size="size-5"
-            text="text-[9px]"
           />
         </span>
         <HugeiconsIcon icon={MoreHorizontalIcon} size={15} />
@@ -202,7 +179,7 @@ function SessionColumn() {
             <HugeiconsIcon icon={HashtagIcon} size={13} />
             gtm
             <span className="opacity-60">·</span>
-            <HugeiconsIcon icon={RepeatIcon} size={12} />
+            <HugeiconsIcon icon={Infinity01Icon} size={13} />
             Every Monday at 9:00 AM
           </p>
           <div className="mt-4 border-lor-border-dark/60 border-t" />
@@ -218,11 +195,7 @@ function SessionColumn() {
                 label="Checked 12 companies in Attio"
               />
               <ToolStep
-                icon={
-                  <span className="flex size-3 items-center justify-center overflow-hidden rounded-[2px] bg-foreground">
-                    <NotionLogo className="size-3" />
-                  </span>
-                }
+                icon={<NotionLogo className="size-3.5" />}
                 label="Read Outbound playbook"
               />
             </WorkLog>
@@ -253,11 +226,11 @@ function SessionColumn() {
             <FileCard name="outreach-drafts.md" detail="7 drafts" />
           </Turn>
 
-          <Turn avatar={<PersonAvatar initial="S" className="bg-sky-700" />}>
-            <Mention>@Priya</Mention> you met the Paygrove founder. Can you
-            check that one?
+          <Turn avatar={<PersonAvatar src={RAFAEL} />}>
+            <Mention>@Zoe</Mention> you met the Paygrove founder. Can you check
+            that one?
           </Turn>
-          <Turn avatar={<PersonAvatar initial="P" className="bg-amber-700" />}>
+          <Turn avatar={<PersonAvatar src={ZOE} />}>
             Mention the summit in the Paygrove email, and keep it under 80
             words.
           </Turn>
@@ -290,30 +263,33 @@ function SessionColumn() {
   )
 }
 
+function RailTitle({ title, aside }: { title: string; aside: ReactNode }) {
+  return (
+    <p className="flex items-center justify-between font-medium text-[11.5px] text-lor-text-tertiary-dark">
+      {title}
+      <span>{aside}</span>
+    </p>
+  )
+}
+
 function DetailsRail() {
   return (
-    <div className="hidden w-60 shrink-0 flex-col border-lor-border-dark/60 border-l lg:flex">
-      <p className="flex h-11 items-center px-4 font-semibold text-[13px] text-lor-text-dark">
+    <div className="hidden w-60 shrink-0 flex-col lg:flex">
+      <p className="flex h-[52px] shrink-0 items-center border-lor-border-dark/70 border-b px-4 font-semibold text-[14px] text-lor-text-dark">
         Details
       </p>
-      <div className="flex flex-col gap-6 px-4 pt-2">
+      <div className="flex flex-col gap-6 px-4 pt-4">
         <div>
-          <p className="flex items-center justify-between font-medium text-[11.5px] text-lor-text-tertiary-dark">
-            Plan
-            <span>3/4</span>
-          </p>
+          <RailTitle title="Plan" aside="3/4" />
           <div className="mt-3">
             <PlanStep status="done" label="Find fintech teams hiring sales" />
             <PlanStep status="done" label="Skip companies already in Attio" />
             <PlanStep status="done" label="Draft a first email for each" />
-            <PlanStep status="active" label="Apply Priya's edits" last />
+            <PlanStep status="active" label="Apply Zoe's edits" last />
           </div>
         </div>
         <div>
-          <p className="flex items-center justify-between font-medium text-[11.5px] text-lor-text-tertiary-dark">
-            Files
-            <span>1</span>
-          </p>
+          <RailTitle title="Files" aside="1" />
           <p className="mt-2.5 truncate text-[12px] text-lor-text-secondary-dark">
             outreach-drafts.md
           </p>
@@ -331,10 +307,10 @@ export function AppMock() {
         className="flex h-[480px] bg-lor-sidebar-dark text-left md:h-[668px]"
       >
         <MockSidebar />
-        <div className="m-2 flex min-w-0 flex-1 overflow-hidden rounded-xl border border-lor-border-dark/60 bg-lor-bg-dark md:ml-0">
+        <div className="m-2 flex min-w-0 flex-1 overflow-hidden rounded-xl border border-lor-border-dark/60 bg-lor-bg-dark md:ml-0 lg:mr-0">
           <SessionColumn />
-          <DetailsRail />
         </div>
+        <DetailsRail />
       </div>
     </MockShell>
   )

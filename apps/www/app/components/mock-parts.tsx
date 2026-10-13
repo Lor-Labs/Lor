@@ -7,29 +7,35 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
+import Image from "next/image"
 import type { ReactNode } from "react"
 import { LorMark } from "@/app/components/lor-mark"
 
 // Shared pieces for the product mocks. They copy the web app's session UI
 // (apps/web/src/components/session, chat/) at a smaller scale.
 
+// Same DiceBear Lorelei (CC0) people as the web app's onboarding tour
+// (apps/web/public/tour).
+export const ZOE = "/avatars/zoe.png"
+export const RAFAEL = "/avatars/rafael.png"
+
 export function PersonAvatar({
-  initial,
+  src,
   className = "",
   size = "size-7",
-  text = "text-[12px]",
 }: {
-  initial: string
+  src: string
   className?: string
   size?: string
-  text?: string
 }) {
   return (
-    <span
-      className={`flex ${size} shrink-0 select-none items-center justify-center rounded-full font-medium ${text} text-white/90 ${className}`}
-    >
-      {initial}
-    </span>
+    <Image
+      src={src}
+      alt=""
+      width={64}
+      height={64}
+      className={`${size} shrink-0 select-none rounded-full ${className}`}
+    />
   )
 }
 
