@@ -22,6 +22,13 @@ const HERE_MENTION_REGEX = /(^|\s)@here\b/gi
 const BROADCAST_MENTION_TOKENS = new Set(["everyone", "channel", "here"])
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
 
+// User ids mentioned in the composer's draft markdown, broadcasts left out.
+export function draftMentionIds(markdown: string) {
+  return [...markdown.matchAll(ENRICHED_MENTION_REGEX)]
+    .map((match) => match[1] ?? "")
+    .filter((id) => id && !BROADCAST_MENTION_TOKENS.has(id.toLowerCase()))
+}
+
 function getMentionLabel(mention: Message["mentions"][number]) {
   return mention.name
 }

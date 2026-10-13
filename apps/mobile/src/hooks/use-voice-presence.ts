@@ -10,7 +10,7 @@ const POLL_MS = 60_000
 // Voice pushes carry no data (restricted channels must not leak through the
 // workspace room), so each push refetches an access-checked query.
 export function useInvalidateOnVoiceUpdate(
-  queryName: "voice-presence" | "voice-sessions",
+  queryName: "voice-presence" | "voice-sessions" | "voice-summary",
   queryParam: string | undefined,
   workspaceId: string | undefined
 ) {

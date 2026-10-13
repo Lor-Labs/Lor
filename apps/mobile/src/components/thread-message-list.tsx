@@ -1,10 +1,22 @@
 import type { LegendListRef } from "@legendapp/list/react-native"
 import { formatDateDivider } from "@repo/utils/date"
 import { Spinner } from "heroui-native/spinner"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { Pressable, Text, View } from "react-native"
 import Animated, { FadeInUp, FadeOutUp } from "react-native-reanimated"
+import {
+  ChannelEventRow,
+  type ResolveUserName,
+} from "@/components/channel-event-row"
 import type { ChatMessageListKeyboardProps } from "@/components/chat-keyboard-layout"
+import { canForwardMessage } from "@/components/forward-sheet"
 import { MessageActionMenu } from "@/components/message-action-menu"
 import {
   areMessagesOnSameDay,
@@ -27,9 +39,15 @@ type ThreadListItem =
   | { kind: "pagination" }
   | { kind: "count" }
   | { kind: "root"; message: Message }
+  | { kind: "heading" }
 
 export function ThreadMessageList({
   avatarColorByUserId,
+  heading,
+  onHeadingVisibleChange,
+  resolveUserName,
+  layout = "chat",
+  footer,
   root,
   messages,
   totalReplyCount,
@@ -39,6 +57,7 @@ export function ThreadMessageList({
   paginationError,
   onLoadOlder,
   onReply,
+  onForward,
   onLoadAround,
   onEdit,
   onDelete,
@@ -53,7 +72,16 @@ export function ThreadMessageList({
   listKey,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
-  root: Message
+  // A session's title block, the transcript's first item.
+  heading?: ReactNode
+  onHeadingVisibleChange?: (visible: boolean) => void
+  resolveUserName?: ResolveUserName
+  // "document" in a session (see MessageRow).
+  layout?: "chat" | "document"
+  // After the last reply: a session's queued turns.
+  footer?: ReactNode
+  // Null in a Lor session, whose root is a hidden anchor.
+  root: Message | null
   messages: Message[]
   totalReplyCount: number
   hasOlder: boolean
@@ -61,7 +89,10 @@ export function ThreadMessageList({
   isLoadingOlder: boolean
   paginationError: string | null
   onLoadOlder: () => void
-  onReply: (message: Message) => void
+  // Unset where nothing can be sent (an archived session).
+  onReply?: (message: Message) => void
+  // Sessions only.
+  onForward?: (message: Message) => void
   onLoadAround: (messageId: string) => Promise<boolean>
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
@@ -87,9 +118,10 @@ export function ThreadMessageList({
   const items = useMemo<ThreadListItem[]>(() => {
     // A call chat's root is the session itself, with nothing to read.
     const next: ThreadListItem[] =
-      root.type === "voice_session"
+      !root || root.type === "voice_session"
         ? []
         : [{ kind: "root", message: root }, { kind: "count" }]
+    if (heading) next.unshift({ kind: "heading" })
     if (hasOlder || isLoadingOlder || paginationError) {
       next.push({ kind: "pagination" })
     }
@@ -101,15 +133,23 @@ export function ThreadMessageList({
       }))
     )
     return next
-  }, [orderedMessages, hasOlder, isLoadingOlder, paginationError, root])
+  }, [
+    orderedMessages,
+    hasOlder,
+    isLoadingOlder,
+    paginationError,
+    root,
+    heading,
+  ])
 
   const handleFirstVisibleItemChanged = useCallback(
     ({ item }: { item: ThreadListItem }) => {
       setStickyDate(
         item.kind === "reply" ? formatDateDivider(item.message.createdAt) : null
       )
+      onHeadingVisibleChange?.(item.kind === "heading")
     },
-    []
+    [onHeadingVisibleChange]
   )
 
   const openingPositionRef = useRef<{
@@ -176,7 +216,14 @@ export function ThreadMessageList({
     if (!selectedMessage) return
     const message = selectedMessage
     setSelectedMessage(null)
-    onReply(message)
+    onReply?.(message)
+  }
+
+  const forwardSelectedMessage = () => {
+    if (!selectedMessage) return
+    const message = selectedMessage
+    setSelectedMessage(null)
+    onForward?.(message)
   }
 
   const jumpToMessage = useCallback(
@@ -213,7 +260,7 @@ export function ThreadMessageList({
           initialScrollAtEnd={!openingPosition}
           initialScrollIndex={openingPosition}
           isLorResponding={
-            root.status === "pending" ||
+            root?.status === "pending" ||
             messages.some((message) => message.status === "pending")
           }
           keyboardProps={keyboardProps}
@@ -223,7 +270,7 @@ export function ThreadMessageList({
             }
             return item.kind
           }}
-          newestItemKey={orderedMessages.at(-1)?.id ?? `root-${root.id}`}
+          newestItemKey={orderedMessages.at(-1)?.id ?? `root-${root?.id}`}
           onFirstVisibleItemChanged={handleFirstVisibleItemChanged}
           onStartReached={() => {
             // Don't auto-retry after a failed page — that's the Try again button.
@@ -231,12 +278,15 @@ export function ThreadMessageList({
           }}
           onStartReachedThreshold={0.25}
           renderItem={({ item }) => {
+            if (item.kind === "heading") return <View>{heading}</View>
             if (item.kind === "root") {
               const canManageMessage =
                 Boolean(currentUserId) &&
                 item.message.authorId === currentUserId &&
                 !isOptimisticMessage(item.message)
-              const accessibilityActions = [{ label: "Reply", name: "reply" }]
+              const accessibilityActions = onReply
+                ? [{ label: "Reply", name: "reply" }]
+                : []
               if (canManageMessage && item.message.content?.trim() && onEdit) {
                 accessibilityActions.push({
                   label: "Edit message",
@@ -257,7 +307,7 @@ export function ThreadMessageList({
                   delayLongPress={350}
                   onAccessibilityAction={(event) => {
                     if (event.nativeEvent.actionName === "reply") {
-                      onReply(item.message)
+                      onReply?.(item.message)
                       return
                     }
                     if (event.nativeEvent.actionName === "edit") {
@@ -288,7 +338,6 @@ export function ThreadMessageList({
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)
                     }
-                    showLorRunControls={false}
                   />
                 </Pressable>
               )
@@ -330,24 +379,44 @@ export function ThreadMessageList({
 
             const { message, replyIndex } = item
             const older = orderedMessages[replyIndex - 1]
+            // The oldest loaded reply compares against the root only once all
+            // older replies are loaded — unloaded days may sit in between. A
+            // session has no root; its heading shows when it started.
+            const showDate = older
+              ? !areMessagesOnSameDay(message.createdAt, older.createdAt)
+              : !hasOlder &&
+                root !== null &&
+                !areMessagesOnSameDay(message.createdAt, root.createdAt)
+            // A loop or automation run in a session: a muted line, not a
+            // message (its content is the payload Lor reads).
+            if (message.type === "event") {
+              return (
+                <View>
+                  {showDate ? (
+                    <MessageDateDivider date={message.createdAt} />
+                  ) : null}
+                  <ChannelEventRow
+                    events={[message]}
+                    resolveUserName={resolveUserName}
+                  />
+                </View>
+              )
+            }
             const showHeader =
               !older ||
               message.type === "reply" ||
               older.authorId !== message.authorId ||
+              older.type === "event" ||
               new Date(message.createdAt).getTime() -
                 new Date(older.createdAt).getTime() >
                 MESSAGE_GROUP_WINDOW_MS
-            // The oldest loaded reply compares against the root only once all
-            // older replies are loaded — unloaded days may sit in between.
-            const showDate = older
-              ? !areMessagesOnSameDay(message.createdAt, older.createdAt)
-              : !hasOlder &&
-                !areMessagesOnSameDay(message.createdAt, root.createdAt)
             const canManageMessage =
               Boolean(currentUserId) &&
               message.authorId === currentUserId &&
               !isOptimisticMessage(message)
-            const accessibilityActions = [{ label: "Reply", name: "reply" }]
+            const accessibilityActions = onReply
+              ? [{ label: "Reply", name: "reply" }]
+              : []
             if (canManageMessage && message.content?.trim() && onEdit) {
               accessibilityActions.push({
                 label: "Edit message",
@@ -369,7 +438,7 @@ export function ThreadMessageList({
                 delayLongPress={350}
                 onAccessibilityAction={(event) => {
                   if (event.nativeEvent.actionName === "reply") {
-                    onReply(message)
+                    onReply?.(message)
                     return
                   }
                   if (event.nativeEvent.actionName === "edit") {
@@ -402,7 +471,7 @@ export function ThreadMessageList({
                     onToggleReaction={(message, emoji) =>
                       onToggleReaction?.(message.id, emoji)
                     }
-                    showLorRunControls={false}
+                    layout={layout}
                     showHeader={showHeader}
                   />
                 </View>
@@ -413,13 +482,14 @@ export function ThreadMessageList({
           // left a gap under the first reply.
           ListFooterComponent={
             <View>
-              {messages.length === 0 ? (
+              {messages.length === 0 && !heading ? (
                 <View className="items-center px-five py-eight">
                   <Text className="text-sm font-medium text-muted">
                     No replies yet
                   </Text>
                 </View>
               ) : null}
+              {footer}
             </View>
           }
           showsVerticalScrollIndicator={false}
@@ -440,7 +510,12 @@ export function ThreadMessageList({
         onOpenChange={(isOpen) => {
           if (!isOpen) setSelectedMessage(null)
         }}
-        onReply={replyToSelectedMessage}
+        onReply={onReply ? replyToSelectedMessage : undefined}
+        onForward={
+          onForward && selectedMessage && canForwardMessage(selectedMessage)
+            ? forwardSelectedMessage
+            : undefined
+        }
         onEdit={
           selectedMessage &&
           currentUserId === selectedMessage.authorId &&

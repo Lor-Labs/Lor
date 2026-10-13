@@ -1,12 +1,19 @@
-import type {
-  RealtimeMessageThreadUpdated,
-  ServerToClientEvents,
+import {
+  type RealtimeMessageThreadUpdated,
+  type ServerToClientEvents,
+  sessionTitleFromPrompt,
 } from "@repo/realtime-types"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useChannelRoom } from "@/hooks/use-channel-room"
+import {
+  newSessionIds,
+  type SessionStart,
+  type SessionStartHandlers,
+} from "@/hooks/use-session-start"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
+import { lorMention, mentionsLor } from "@/lib/mentions"
 import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
@@ -18,14 +25,6 @@ import {
   replaceMessage,
   updateMessageContent,
 } from "@/lib/messages"
-import {
-  applyLorFrame,
-  gateRunFrame,
-  type LorFrame,
-  releaseRunReplay,
-  retainRunReplay,
-  startRunReplay,
-} from "@/lib/run-replay"
 import type { AppSocket } from "@/lib/socket"
 
 export type MessageSource =
@@ -58,6 +57,7 @@ export function useChannelMessages({
   source,
   socket,
   currentUser,
+  sessionStart,
 }: {
   source: MessageSource
   socket: AppSocket | null
@@ -66,7 +66,11 @@ export function useChannelMessages({
     name: string
     image?: string | null
   }
+  // Channel chat: @Lor starts a session instead of posting here.
+  sessionStart?: SessionStartHandlers
 }) {
+  const sessionStartRef = useRef(sessionStart)
+  sessionStartRef.current = sessionStart
   const sourceKind = source.kind
   const workspaceSlug = source.kind === "channel" ? source.workspaceSlug : ""
   const channelId = source.kind === "channel" ? source.channelId : source.dmId
@@ -161,54 +165,6 @@ export function useChannelMessages({
     messagesRef.current = messages
   }, [messages])
 
-  const applyFrame = useCallback((frame: LorFrame) => {
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === frame.payload.messageId
-          ? applyLorFrame(message, frame)
-          : message
-      )
-    )
-  }, [])
-
-  const applyRunPatch = useCallback(
-    (messageId: string, patch: Partial<Message>) => {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === messageId ? { ...message, ...patch } : message
-        )
-      )
-    },
-    []
-  )
-
-  // Late-join trace recovery: replay the durable event log of any pending
-  // Lor placeholder in view (no-ops for already-started replays). Started
-  // replays are released on unmount — this hook's message state dies with it,
-  // so a remount mid-run must be able to replay again.
-  const startedReplays = useRef(new Set<string>())
-  useEffect(() => {
-    for (const message of messages) {
-      if (message.status !== "pending") continue
-      if (!startedReplays.current.has(message.id)) {
-        startedReplays.current.add(message.id)
-        retainRunReplay(message.id)
-      }
-      startRunReplay({
-        messageId: message.id,
-        applyPatch: applyRunPatch,
-        applyFrame,
-        onTerminal: () => void reload({ silent: true }),
-      })
-    }
-  }, [messages, applyRunPatch, applyFrame, reload])
-  useEffect(
-    () => () => {
-      for (const id of startedReplays.current) releaseRunReplay(id)
-    },
-    []
-  )
-
   // Seed from the last cached page so returning to a channel renders
   // instantly; the silent replace-reload reconciles against the server.
   useEffect(() => {
@@ -271,73 +227,6 @@ export function useChannelMessages({
       if (payload.channelId !== channelId) return
       setMessages((current) => removeMessage(current, payload.messageId))
     }
-    const streamMessage: ServerToClientEvents["message:stream"] = (payload) => {
-      if (payload.channelId !== channelId || payload.threadRootId) return
-      const frame: LorFrame = { type: "stream", payload }
-      if (gateRunFrame(frame)) return
-      applyFrame(frame)
-    }
-    const updateReasoning: ServerToClientEvents["lor:reasoning"] = (
-      payload
-    ) => {
-      if (payload.channelId !== channelId || payload.threadRootId) return
-      const frame: LorFrame = { type: "reasoning", payload }
-      if (gateRunFrame(frame)) return
-      applyFrame(frame)
-    }
-    const updateTool: ServerToClientEvents["lor:tool"] = (payload) => {
-      if (payload.channelId !== channelId || payload.threadRootId) return
-      const frame: LorFrame = { type: "tool", payload }
-      if (gateRunFrame(frame)) return
-      applyFrame(frame)
-    }
-    const updateMemory: ServerToClientEvents["lor:memory"] = (payload) => {
-      if (payload.channelId !== channelId || payload.threadRootId) return
-      const frame: LorFrame = { type: "memory", payload }
-      if (gateRunFrame(frame)) return
-      applyFrame(frame)
-    }
-    // A mid-run send was absorbed by the active run — chip the sender's
-    // message with what happened (steered vs queued).
-    const routeMessage: ServerToClientEvents["message:routed"] = (payload) => {
-      if (payload.channelId !== channelId || payload.threadRootId) return
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? { ...message, routedOutcome: payload.outcome }
-            : message
-        )
-      )
-    }
-    // The queue row settled (drained, rejected, or withdrawn) — drop the chip.
-    const settleQueued: ServerToClientEvents["run:queue:updated"] = (
-      payload
-    ) => {
-      if (payload.channelId !== channelId) return
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === payload.messageId
-            ? { ...message, routedOutcome: undefined }
-            : message
-        )
-      )
-    }
-    // A steered message was injected — the placeholder shows who's steering.
-    const steerMessage: ServerToClientEvents["lor:steer"] = (payload) => {
-      if (payload.channelId !== channelId) return
-      // Chip clear is ungated: chips aren't replayed state.
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === payload.steeredMessageId
-            ? { ...message, routedOutcome: undefined }
-            : message
-        )
-      )
-      if (payload.threadRootId) return
-      const frame: LorFrame = { type: "steer", payload }
-      if (gateRunFrame(frame)) return
-      applyFrame(frame)
-    }
     const updateEmbeds: ServerToClientEvents["message:embeds:updated"] = (
       payload
     ) => {
@@ -377,13 +266,6 @@ export function useChannelMessages({
     socket.on("message:created", receiveMessage)
     socket.on("message:updated", updateMessage)
     socket.on("message:deleted", deleteMessage)
-    socket.on("message:stream", streamMessage)
-    socket.on("lor:reasoning", updateReasoning)
-    socket.on("lor:tool", updateTool)
-    socket.on("lor:memory", updateMemory)
-    socket.on("message:routed", routeMessage)
-    socket.on("run:queue:updated", settleQueued)
-    socket.on("lor:steer", steerMessage)
     socket.on("message:embeds:updated", updateEmbeds)
     socket.on("message:reaction:updated", updateReaction)
     socket.on("message:pin:toggled", updatePin)
@@ -394,19 +276,12 @@ export function useChannelMessages({
       socket.off("message:created", receiveMessage)
       socket.off("message:updated", updateMessage)
       socket.off("message:deleted", deleteMessage)
-      socket.off("message:stream", streamMessage)
-      socket.off("lor:reasoning", updateReasoning)
-      socket.off("lor:tool", updateTool)
-      socket.off("lor:memory", updateMemory)
-      socket.off("message:routed", routeMessage)
-      socket.off("run:queue:updated", settleQueued)
-      socket.off("lor:steer", steerMessage)
       socket.off("message:embeds:updated", updateEmbeds)
       socket.off("message:reaction:updated", updateReaction)
       socket.off("message:pin:toggled", updatePin)
       socket.off("message:thread:updated", updateThreadSummary)
     }
-  }, [socket, channelId, reload, currentUser?.id, applyFrame])
+  }, [socket, channelId, reload, currentUser?.id])
 
   const loadAround = useCallback(
     async (messageId: string) => {
@@ -454,27 +329,53 @@ export function useChannelMessages({
       }
 
       const nonce = `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const optimistic = createOptimisticMessage({
-        nonce,
-        channelId,
-        content: trimmed || null,
-        author: currentUser,
-        attachments,
-        referencedMessage: referencedMessage
-          ? {
-              id: referencedMessage.id,
-              content: referencedMessage.content,
-              author: referencedMessage.author,
-              overrideName: referencedMessage.overrideName,
-              overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
-              // Carried so the optimistic preview resolves mention tokens
-              // straight away instead of showing raw ids until the ack.
-              mentions: referencedMessage.mentions,
-            }
-          : null,
-      })
+      const handlers = sessionStartRef.current
+      const startIds = handlers && mentionsLor(trimmed) ? newSessionIds() : null
+      // A session start carries the replied-to message as context, not as a
+      // reply, so its first turn shows no quote.
+      const start: SessionStart | null = startIds
+        ? {
+            ...startIds,
+            origin: "chat",
+            title: sessionTitleFromPrompt(trimmed),
+            message: {
+              ...createOptimisticMessage({
+                nonce,
+                channelId,
+                content: trimmed || null,
+                author: currentUser,
+                attachments,
+                threadRootId: startIds.threadRootId,
+              }),
+              mentions: [lorMention],
+            },
+          }
+        : null
       sendingRef.current = true
-      setMessages((current) => mergeMessages([optimistic], current))
+      if (start) {
+        handlers?.starting(start)
+      } else {
+        const optimistic = createOptimisticMessage({
+          nonce,
+          channelId,
+          content: trimmed || null,
+          author: currentUser,
+          attachments,
+          referencedMessage: referencedMessage
+            ? {
+                id: referencedMessage.id,
+                content: referencedMessage.content,
+                author: referencedMessage.author,
+                overrideName: referencedMessage.overrideName,
+                overrideAvatarUrl: referencedMessage.overrideAvatarUrl,
+                // Carried so the optimistic preview resolves mention tokens
+                // straight away instead of showing raw ids until the ack.
+                mentions: referencedMessage.mentions,
+              }
+            : null,
+        })
+        setMessages((current) => mergeMessages([optimistic], current))
+      }
       setIsSending(true)
       setError(null)
 
@@ -487,13 +388,28 @@ export function useChannelMessages({
             attachments: attachments.length > 0 ? attachments : undefined,
             nonce,
             referencedMessageId: referencedMessage?.id,
+            newSession: startIds ?? undefined,
           })
 
         if (!result.ok) throw new Error(result.error)
 
         const confirmed = realtimeMessageToMessage(result.message)
-        setMessages((current) => replaceMessage(current, nonce, confirmed))
+        // The server moved the message into a new Lor session.
+        const movedToSession = confirmed.threadRootId !== null
+        if (start) {
+          if (movedToSession && result.session) {
+            handlers?.started(start, result.session, confirmed)
+          } else {
+            handlers?.failed(start)
+          }
+        }
+        setMessages((current) =>
+          movedToSession
+            ? removeMessage(current, nonce)
+            : replaceMessage(current, nonce, confirmed)
+        )
       } catch (cause) {
+        if (start) handlers?.failed(start)
         setMessages((current) => removeMessage(current, nonce))
         const errorMessage =
           cause instanceof Error && cause.message === "operation has timed out"

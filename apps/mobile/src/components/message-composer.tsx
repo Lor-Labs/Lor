@@ -23,22 +23,26 @@ import {
   useRef,
   useState,
 } from "react"
-import {
-  Keyboard,
-  type LayoutChangeEvent,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native"
+import { Keyboard, Text, useWindowDimensions, View } from "react-native"
 import {
   EnrichedMarkdownTextInput,
   type EnrichedMarkdownTextInputInstance,
 } from "react-native-enriched-markdown"
 import { KeyboardController } from "react-native-keyboard-controller"
-import Animated, { LinearTransition } from "react-native-reanimated"
+import Animated, {
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+} from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { AttachmentPickerPanel } from "@/components/attachment-picker-panel"
 import { ComposerAttachmentPreview } from "@/components/composer-attachment-preview"
+import {
+  type ComposerDestination,
+  composerRouting,
+  DestinationBar,
+  type PingedPerson,
+} from "@/components/composer-destination"
 import { HintCard } from "@/components/hint-card"
 import { MentionSuggestionMenu } from "@/components/mention-suggestion-menu"
 import { messageDisplayName } from "@/components/message-row"
@@ -50,6 +54,7 @@ import type { RecentPhoto } from "@/hooks/use-recent-photos"
 import type { Message } from "@/lib/api-types"
 import { filterMentionCandidates, type MentionCandidate } from "@/lib/mentions"
 import {
+  draftMentionIds,
   MENTION_SCHEME,
   toDisplayMarkdown,
   toStoredMessageMarkdown,
@@ -57,6 +62,8 @@ import {
 
 const composerLayoutTransition = LinearTransition.duration(100)
 const attachmentPanelGap = 8
+const toolbarSwapIn = FadeIn.duration(160)
+const toolbarSwapOut = FadeOut.duration(120)
 
 export type MessageComposerMentionHandle = {
   insertMention: (mention: { id: string; label: string }) => void
@@ -84,10 +91,12 @@ export function MessageComposer({
   mentionRef,
   onTyping,
   inputNativeID,
-  onInputLayout,
   onCustomInputViewChange,
   topAccessory,
   lorIntro = false,
+  destination,
+  subscribers,
+  currentUserId,
 }: {
   channelId: string
   channelName: string
@@ -95,7 +104,9 @@ export function MessageComposer({
   isConnected: boolean
   onSend: (
     content: string,
-    attachments: NonNullable<Message["attachments"]>
+    attachments: NonNullable<Message["attachments"]>,
+    // A session's "To subscribers": Lor doesn't run.
+    options: { toPeople: boolean }
   ) => Promise<void>
   onStop?: () => Promise<void> | void
   isStopping?: boolean
@@ -113,7 +124,6 @@ export function MessageComposer({
   mentionRef?: Ref<MessageComposerMentionHandle>
   onTyping?: () => void
   inputNativeID?: string
-  onInputLayout?: (event: LayoutChangeEvent) => void
   onCustomInputViewChange?: (isOpen: boolean) => void
   // Rendered flush above the input card so accessories (run queue) can tuck
   // behind its top edge.
@@ -121,6 +131,14 @@ export function MessageComposer({
   // Main channel composer only: teaches @Lor through the placeholder and the
   // lor_intro hint.
   lorIntro?: boolean
+  // Chat and human threads, where @Lor starts a session instead of posting
+  // here, and sessions, where a message goes to Lor or its subscribers.
+  destination?: ComposerDestination
+  // Session only: the other subscribers, shown as faces when a message goes
+  // to people.
+  subscribers?: PingedPerson[]
+  // A reply to your own message addresses no one.
+  currentUserId?: string
 }) {
   const lorHint = useHint("lor_intro")
   const showLorIntro = lorIntro && !lorHint.dismissed
@@ -179,6 +197,30 @@ export function MessageComposer({
     !hasMessage &&
     attachmentUpload.attachments.length === 0
   const canActivateSubmit = isStopMode ? !isStopping : canSend
+  const [manualToPeople, setManualToPeople] = useState(false)
+  const mentionedIds = useMemo(() => draftMentionIds(content), [content])
+  const routing = composerRouting({
+    destination,
+    mentionedIds,
+    replyingTo,
+    currentUserId,
+    candidates: mentionCandidates,
+    manualToPeople,
+  })
+  const isSession = destination === "session"
+  // Taught once the person types in a session, when the destination button
+  // decides who gets the message.
+  const sessionReplyHint = useHint("session_reply")
+  const showSessionReplyHint =
+    !sessionReplyHint.dismissed &&
+    !isEditing &&
+    routing.canSwitch &&
+    routing.toLor &&
+    hasMessage
+  // A session always shows where the message goes; chat and threads only
+  // once @Lor makes it start a session.
+  const showDestination =
+    Boolean(destination) && !isEditing && (isSession || routing.toLor)
   const isExpanded =
     isEditing ||
     isFocused ||
@@ -429,8 +471,11 @@ export function MessageComposer({
     closeMentionMenu()
     setSubmitError(null)
     try {
-      await onSend(storedContent, attachmentUpload.uploadedAttachments)
+      await onSend(storedContent, attachmentUpload.uploadedAttachments, {
+        toPeople: isSession && !routing.toLor,
+      })
       attachmentUpload.clearAttachments()
+      setManualToPeople(false)
       // Asking Lor is what the lor_intro hint teaches, from any composer.
       if (storedContent.includes(`<@${LOR_USER_ID}>`)) lorHint.dismiss()
     } catch (cause) {
@@ -493,14 +538,19 @@ export function MessageComposer({
       ) : null}
       {showLorIntro && !isEditing ? (
         <HintCard onDismiss={lorHint.dismiss}>
-          Mention @Lor to ask about code, issues, or past conversations.
+          Mention @Lor to start a session. Lor works there, next to the chat.
+        </HintCard>
+      ) : null}
+      {showSessionReplyHint ? (
+        <HintCard onDismiss={sessionReplyHint.dismiss}>
+          Replies go to Lor by default. Tap To Lor to talk only to the session's
+          subscribers, without Lor answering.
         </HintCard>
       ) : null}
       {topAccessory}
       <Animated.View
         className="relative overflow-hidden rounded-lor-sm border border-border bg-surface"
         layout={composerLayoutTransition}
-        onLayout={onInputLayout}
       >
         {editingMessage ? (
           <View className="min-h-10 flex-row items-center gap-two border-b border-border px-three py-two">
@@ -592,7 +642,7 @@ export function MessageComposer({
               ? "Edit message"
               : (placeholder ??
                 (showLorIntro
-                  ? `Message #${channelName} or ask @Lor`
+                  ? `Message #${channelName}, or @Lor to start a session`
                   : `Message #${channelName}`))
           }
           placeholderTextColor={placeholderColor}
@@ -619,15 +669,57 @@ export function MessageComposer({
                 }
               />
             ) : null}
-            <ComposerShortcut color={muted} icon={TextFontIcon} />
-            <ComposerShortcut color={muted} icon={LaughingIcon} />
-            <ComposerShortcut
-              accessibilityLabel="Mention someone"
-              color={muted}
-              icon={AtSignIcon}
-              onPress={startMention}
-            />
-            <ComposerShortcut color={muted} icon={CommandLineIcon} />
+            {/* Where the message goes replaces the shortcuts, under the
+                text so the field never moves. */}
+            {showDestination && destination ? (
+              <Animated.View
+                className="min-w-0 flex-1 flex-row items-center gap-one"
+                entering={toolbarSwapIn}
+                exiting={toolbarSwapOut}
+                key="destination"
+              >
+                {isSession ? (
+                  <ComposerShortcut
+                    accessibilityLabel="Mention someone"
+                    color={muted}
+                    icon={AtSignIcon}
+                    onPress={startMention}
+                  />
+                ) : null}
+                <DestinationBar
+                  channelName={channelName}
+                  destination={destination}
+                  onSwitch={
+                    routing.canSwitch
+                      ? () => {
+                          setManualToPeople((current) => !current)
+                          sessionReplyHint.dismiss()
+                        }
+                      : undefined
+                  }
+                  pinged={routing.pinged}
+                  subscribers={subscribers}
+                  toLor={routing.toLor}
+                />
+              </Animated.View>
+            ) : (
+              <Animated.View
+                className="flex-row items-center gap-one"
+                entering={toolbarSwapIn}
+                exiting={toolbarSwapOut}
+                key="shortcuts"
+              >
+                <ComposerShortcut color={muted} icon={TextFontIcon} />
+                <ComposerShortcut color={muted} icon={LaughingIcon} />
+                <ComposerShortcut
+                  accessibilityLabel="Mention someone"
+                  color={muted}
+                  icon={AtSignIcon}
+                  onPress={startMention}
+                />
+                <ComposerShortcut color={muted} icon={CommandLineIcon} />
+              </Animated.View>
+            )}
             <ComposerSendButton
               accessibilityLabel={
                 isStopMode

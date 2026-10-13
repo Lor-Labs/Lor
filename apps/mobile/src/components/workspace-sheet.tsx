@@ -1,4 +1,5 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
+import HelpCircleIcon from "@hugeicons/core-free-icons/HelpCircleIcon"
 import MagicWand01Icon from "@hugeicons/core-free-icons/MagicWand01Icon"
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import ScrollIcon from "@hugeicons/core-free-icons/ScrollIcon"
@@ -21,6 +22,7 @@ export function WorkspaceSheet({
   onInvite,
   onOpenAgentProfiles,
   onOpenChange,
+  onOpenHowLorWorks,
   onOpenInstructions,
   onOpenSettings,
   onSelectWorkspace,
@@ -34,6 +36,7 @@ export function WorkspaceSheet({
   onInvite: () => void
   onOpenAgentProfiles: () => void
   onOpenChange: (isOpen: boolean) => void
+  onOpenHowLorWorks: () => void
   onOpenInstructions: () => void
   onOpenSettings: () => void
   onSelectWorkspace: (workspaceId: string) => void
@@ -106,6 +109,13 @@ export function WorkspaceSheet({
                   />
                 </>
               ) : null}
+              <SheetActionRow
+                detail="Chat, sessions, and where Lor works"
+                hint="Opens a short tour"
+                icon={HelpCircleIcon}
+                label="How Lor works"
+                onPress={onOpenHowLorWorks}
+              />
             </View>
 
             <View className="gap-three px-one">

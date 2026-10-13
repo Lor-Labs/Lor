@@ -13,15 +13,22 @@ import { useActiveMember } from "@/hooks/use-active-member"
 import { useWorkspaceRoles } from "@/hooks/use-workspace-roles"
 import { api } from "@/lib/api"
 import type { ChannelApproval } from "@/lib/api-types"
+import { authClient } from "@/lib/auth-client"
 
 export type ApprovalResolverSpec = ChannelApproval["resolver"]
 
 export const channelApprovalsQueryKey = (channelId: string) =>
   ["channel-approvals", channelId] as const
 
-function channelApprovalsQueryOptions(channelId: string) {
+// With a session's thread: every approval in it, so resolved cards show who
+// decided. Without: the channel's pending ones (old chat cards). Same keys as
+// web.
+function channelApprovalsQueryOptions(
+  channelId: string,
+  threadRootId: string | null
+) {
   return {
-    queryKey: channelApprovalsQueryKey(channelId),
+    queryKey: [...channelApprovalsQueryKey(channelId), threadRootId] as const,
     // Message rows mount useMessageApproval against the same key; a short
     // staleTime keeps each new observer from refetching the whole channel
     // (approval:created/updated invalidations keep it live regardless).
@@ -30,6 +37,7 @@ function channelApprovalsQueryOptions(channelId: string) {
     queryFn: async (): Promise<ChannelApproval[]> => {
       const res = await api.v1.channels[":channelId"].approvals.$get({
         param: { channelId },
+        query: threadRootId ? { threadRootId } : {},
       })
       if (!res.ok) throw new Error("Failed to fetch channel approvals")
       const payload = await res.json()
@@ -38,13 +46,16 @@ function channelApprovalsQueryOptions(channelId: string) {
   }
 }
 
-// Pending policy-gated approvals for the channel, kept live by
-// approval:created/updated (channel room). Mount once per channel screen; the
-// per-message hook below reads the same cache without its own socket work.
-export function useChannelApprovals(channelId: string) {
+// Approvals kept live by approval:created/updated (channel room). Mount once
+// per screen; the per-message hook below reads the same cache without its
+// own socket work.
+export function useChannelApprovals(
+  channelId: string,
+  threadRootId: string | null = null
+) {
   const socket = useSocket()
   const queryClient = useQueryClient()
-  const query = useQuery(channelApprovalsQueryOptions(channelId))
+  const query = useQuery(channelApprovalsQueryOptions(channelId, threadRootId))
 
   useEffect(() => {
     if (!socket) return
@@ -67,17 +78,17 @@ export function useChannelApprovals(channelId: string) {
   return query
 }
 
-// The pending approval anchored to one Lor message, if any.
+// The approval anchored to one Lor message, if any: in a session, pending or
+// resolved; in chat, pending only.
 export function useMessageApproval(
   channelId: string,
-  messageId: string
+  messageId: string,
+  threadRootId: string | null
 ): ChannelApproval | null {
   const { data } = useQuery({
-    ...channelApprovalsQueryOptions(channelId),
+    ...channelApprovalsQueryOptions(channelId, threadRootId),
     select: (approvals: ChannelApproval[]) =>
-      approvals.find(
-        (a) => a.messageId === messageId && a.status === "pending"
-      ) ?? null,
+      approvals.find((a) => a.messageId === messageId) ?? null,
   })
   return data ?? null
 }
@@ -110,6 +121,8 @@ export { approvalResolverLabel as resolverLabel }
 
 export function useResolveChannelApproval(channelId: string) {
   const queryClient = useQueryClient()
+  const { data: auth } = authClient.useSession()
+  const queryKey = channelApprovalsQueryKey(channelId)
   return useMutation({
     mutationFn: async (args: {
       approvalId: string
@@ -125,16 +138,38 @@ export function useResolveChannelApproval(channelId: string) {
       if (!res.ok) throw new Error("Failed to resolve approval")
       return res.json()
     },
-    onError: (_error, args) => {
+    // The card shows the decision at once; a failure puts it back.
+    onMutate: async ({ approvalId, resolution }) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueriesData<ChannelApproval[]>({
+        queryKey,
+      })
+      const status = resolution === "approve" ? "approved" : "rejected"
+      queryClient.setQueriesData<ChannelApproval[]>({ queryKey }, (current) =>
+        current?.map((approval) =>
+          approval.id === approvalId
+            ? {
+                ...approval,
+                status,
+                resolvedBy: auth?.user.id ?? null,
+                resolvedAt: new Date().toISOString(),
+              }
+            : approval
+        )
+      )
+      return { previous }
+    },
+    onError: (_error, args, context) => {
+      for (const [key, data] of context?.previous ?? []) {
+        queryClient.setQueryData(key, data)
+      }
       Alert.alert(
         args.resolution === "approve" ? "Couldn't approve" : "Couldn't reject",
         "Please try again in a moment."
       )
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: channelApprovalsQueryKey(channelId),
-      })
+      void queryClient.invalidateQueries({ queryKey })
     },
   })
 }

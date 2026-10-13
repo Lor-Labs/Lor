@@ -80,7 +80,6 @@ export function applyThreadSummaryUpdate(
       : {
           replyCount: update.replyCount,
           lastReplyAt: update.lastReplyAt,
-          lorWaiting: update.lorWaiting,
           participants: update.participants,
         }
 
@@ -140,8 +139,10 @@ export function realtimeMessageToMessage(message: RealtimeMessage): Message {
     status: message.status ?? (message.streaming ? "pending" : "complete"),
     createdAt: message.createdAt,
     author: message.author,
-    referencedMessageId: message.referencedMessage?.id ?? null,
+    referencedMessageId:
+      message.referencedMessage?.id ?? message.forwarded?.messageId ?? null,
     referencedMessage: message.referencedMessage ?? null,
+    forwarded: message.forwarded ?? null,
     attachments: message.attachments ?? [],
     embeds: message.embeds ?? [],
     pinned: message.pinned,
@@ -149,9 +150,12 @@ export function realtimeMessageToMessage(message: RealtimeMessage): Message {
     mentions: message.mentions,
     reactions: message.reactions,
     threadRootId: message.threadRootId ?? null,
+    routedToLor: message.routedToLor ?? null,
     threadSummary: null,
     lorReasoning: null,
     lorReasoningSegments: [],
+    // Marks a run reply live, so its approval card shows without a reload.
+    lorTriggerMessageId: message.lorTriggerMessageId ?? null,
     overrideName: message.overrideName ?? null,
     overrideAvatarUrl: message.overrideAvatarUrl ?? null,
   }
@@ -195,6 +199,7 @@ export function createOptimisticMessage({
     },
     referencedMessageId: referencedMessage?.id ?? null,
     referencedMessage,
+    forwarded: null,
     attachments,
     embeds: [],
     pinned: false,
@@ -202,6 +207,7 @@ export function createOptimisticMessage({
     mentions: [],
     reactions: [],
     threadRootId,
+    routedToLor: null,
     threadSummary: null,
     lorReasoning: null,
     lorReasoningSegments: [],

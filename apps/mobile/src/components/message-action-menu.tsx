@@ -1,3 +1,4 @@
+import ArrowTurnForwardIcon from "@hugeicons/core-free-icons/ArrowTurnForwardIcon"
 import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon"
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon"
 import Edit02Icon from "@hugeicons/core-free-icons/Edit02Icon"
@@ -9,9 +10,11 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import * as Clipboard from "expo-clipboard"
 import { useThemeColor } from "heroui-native/hooks"
 import { Menu } from "heroui-native/menu"
+import type { ReactNode } from "react"
 import { Pressable, ScrollView, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
 import { triggerHaptic } from "@/components/ui/haptics"
+import { LorMark } from "@/components/voice/lor-window"
 import type { Message } from "@/lib/api-types"
 
 const QUICK_REACTIONS = ["👍", "😂", "❤️", "🎉", "👀", "🔥"] as const
@@ -21,6 +24,8 @@ export function MessageActionMenu({
   onOpenChange,
   onReply,
   onOpenThread,
+  onAskLor,
+  onForward,
   onEdit,
   onDelete,
   onToggleReaction,
@@ -28,8 +33,13 @@ export function MessageActionMenu({
 }: {
   message: Message | null
   onOpenChange: (isOpen: boolean) => void
-  onReply: () => void
+  // Unset where nothing can be sent (an archived session).
+  onReply?: () => void
   onOpenThread?: () => void
+  // Channel chat: start a session about this message.
+  onAskLor?: () => void
+  // Session: post this message into the channel chat.
+  onForward?: () => void
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
@@ -102,22 +112,43 @@ export function MessageActionMenu({
             </ScrollView>
           ) : null}
 
-          <View className="flex-row gap-three">
-            <ActionTile
-              icon={MessageCircleReplyIcon}
-              label="Reply"
-              onPress={onReply}
-              tint={foreground}
-            />
-            {onOpenThread ? (
-              <ActionTile
-                icon={ThreadIcon}
-                label={threadActionLabel}
-                onPress={onOpenThread}
-                tint={accent}
-              />
-            ) : null}
-          </View>
+          {onReply || onOpenThread || onAskLor || onForward ? (
+            <View className="flex-row gap-three">
+              {onReply ? (
+                <ActionTile
+                  icon={MessageCircleReplyIcon}
+                  label="Reply"
+                  onPress={onReply}
+                  tint={foreground}
+                />
+              ) : null}
+              {onOpenThread ? (
+                <ActionTile
+                  icon={ThreadIcon}
+                  label={threadActionLabel}
+                  onPress={onOpenThread}
+                  tint={accent}
+                />
+              ) : null}
+              {onAskLor ? (
+                <ActionTile
+                  accessibilityLabel="Ask Lor about this"
+                  // The mark is wide; 28 wide sits level with 25px icons.
+                  glyph={<LorMark size={28} />}
+                  label="Ask Lor"
+                  onPress={onAskLor}
+                />
+              ) : null}
+              {onForward ? (
+                <ActionTile
+                  icon={ArrowTurnForwardIcon}
+                  label="Forward"
+                  onPress={onForward}
+                  tint={foreground}
+                />
+              ) : null}
+            </View>
+          ) : null}
 
           {message?.content || (message && (onEdit || onTogglePin)) ? (
             <View className="overflow-hidden rounded-lor-lg bg-surface-secondary">
@@ -216,24 +247,32 @@ function ActionRow({
 }
 
 function ActionTile({
+  accessibilityLabel,
+  glyph,
   icon,
   label,
   onPress,
   tint,
 }: {
-  icon: IconSvgElement
+  accessibilityLabel?: string
+  // Drawn instead of an icon (the Lor mark).
+  glyph?: ReactNode
+  icon?: IconSvgElement
   label: string
   onPress: () => void
-  tint: string
+  tint?: string
 }) {
   return (
     <Pressable
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       className="min-h-24 flex-1 items-center justify-center gap-two rounded-lor-lg bg-surface-secondary px-three py-four active:bg-surface-tertiary"
       onPress={onPress}
     >
-      <HugeiconsIcon color={tint} icon={icon} size={25} strokeWidth={1.8} />
+      {glyph ??
+        (icon ? (
+          <HugeiconsIcon color={tint} icon={icon} size={25} strokeWidth={1.8} />
+        ) : null)}
       <Text className="text-sm font-semibold text-foreground">{label}</Text>
     </Pressable>
   )

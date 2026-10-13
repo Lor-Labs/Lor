@@ -12,6 +12,7 @@ import { useActiveMember } from "@/hooks/use-active-member"
 import { useWorkspaceRoles } from "@/hooks/use-workspace-roles"
 import { api } from "@/lib/api"
 import type { ChannelProposal } from "@/lib/api-types"
+import { authClient } from "@/lib/auth-client"
 
 export const channelProposalsQueryKey = (channelId: string) =>
   ["channel-proposals", channelId] as const
@@ -102,8 +103,27 @@ export function useCanResolveProposal(
 // ride the approve request only.
 export type ProposalSecretsPayload = Record<string, Record<string, string>>
 
+// The card shows a decision at once; a failure puts it back. Mirrors web.
+function useOptimisticProposal(channelId: string) {
+  const queryClient = useQueryClient()
+  const queryKey = channelProposalsQueryKey(channelId)
+  return {
+    patch: async (proposalId: string, change: Partial<ChannelProposal>) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<ChannelProposal[]>(queryKey)
+      queryClient.setQueryData<ChannelProposal[]>(queryKey, (proposals) =>
+        proposals?.map((p) => (p.id === proposalId ? { ...p, ...change } : p))
+      )
+      return { previous }
+    },
+    restore: (context: { previous?: ChannelProposal[] } | undefined) =>
+      queryClient.setQueryData(queryKey, context?.previous),
+  }
+}
+
 export function useApproveProposal(channelId: string) {
   const queryClient = useQueryClient()
+  const optimistic = useOptimisticProposal(channelId)
   return useMutation({
     mutationFn: async (args: {
       proposalId: string
@@ -116,6 +136,10 @@ export function useApproveProposal(channelId: string) {
       if (!res.ok) throw new Error("Failed to approve the proposal")
       return res.json()
     },
+    // "approved" is the server's own applying state; the card reads it as
+    // "Applying" until the apply lands as applied or failed.
+    onMutate: ({ proposalId }) =>
+      optimistic.patch(proposalId, { status: "approved" }),
     onSuccess: (payload) => {
       // 200 with status "failed": the apply transaction rolled back — the
       // card shows the failing operation's error.
@@ -126,7 +150,8 @@ export function useApproveProposal(channelId: string) {
         )
       }
     },
-    onError: () => {
+    onError: (_error, _args, context) => {
+      optimistic.restore(context)
       Alert.alert("Couldn't approve", "Please try again in a moment.")
     },
     onSettled: () => {
@@ -139,6 +164,8 @@ export function useApproveProposal(channelId: string) {
 
 export function useRejectProposal(channelId: string) {
   const queryClient = useQueryClient()
+  const optimistic = useOptimisticProposal(channelId)
+  const { data: auth } = authClient.useSession()
   return useMutation({
     mutationFn: async (args: { proposalId: string; note?: string }) => {
       const res = await api.v1.proposals[":proposalId"].reject.$post({
@@ -148,7 +175,15 @@ export function useRejectProposal(channelId: string) {
       if (!res.ok) throw new Error("Failed to reject the proposal")
       return res.json()
     },
-    onError: () => {
+    onMutate: ({ proposalId, note }) =>
+      optimistic.patch(proposalId, {
+        status: "rejected",
+        resolvedByUserId: auth?.user.id ?? null,
+        resolvedAt: new Date().toISOString(),
+        resolutionNote: note ?? null,
+      }),
+    onError: (_error, _args, context) => {
+      optimistic.restore(context)
       Alert.alert("Couldn't reject", "Please try again in a moment.")
     },
     onSettled: () => {

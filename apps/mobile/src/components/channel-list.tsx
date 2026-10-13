@@ -6,7 +6,7 @@ import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
 import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon"
 import VolumeHighIcon from "@hugeicons/core-free-icons/VolumeHighIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import type { ChannelActivity } from "@repo/realtime-types"
+import type { SidebarSessionState } from "@repo/realtime-types"
 import {
   type OwnVoicePresence,
   withOwnVoicePresence,
@@ -16,6 +16,13 @@ import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { Fragment, type ReactNode, useMemo, useState } from "react"
 import { ActivityIndicator, Pressable, Text, View } from "react-native"
+import {
+  ChannelSessionRows,
+  SessionStateIndicator,
+  strongestSessionState,
+  useSessionCollapse,
+} from "@/components/channel-sessions"
+import { HintCard } from "@/components/hint-card"
 import { Avatar } from "@/components/ui/avatar"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { SectionLabel } from "@/components/ui/section-label"
@@ -23,52 +30,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useUnread } from "@/context/unread-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useWorkspaceSessionUpdates } from "@/hooks/use-agent-session"
+import { useHint } from "@/hooks/use-hints"
 import { useVoicePresence } from "@/hooks/use-voice-presence"
 import type { VoiceParticipant } from "@/hooks/use-voice-sessions"
 import { useWorkspaceActivity } from "@/hooks/use-workspace-activity"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
-
-type LorState = NonNullable<ChannelActivity["lor"]>
-
-const lorLabels: Record<LorState, string> = {
-  working: "Lor is working",
-  queued: "Lor is queued",
-  needs_input: "Lor needs input",
-  needs_approval: "Awaiting approval",
-}
-
-function LorChannelStatus({ state }: { state: LorState }) {
-  const accent = useThemeColor("accent")
-  if (state === "working") {
-    return (
-      <ActivityIndicator
-        accessibilityLabel={lorLabels.working}
-        color={accent}
-        size="small"
-        style={{ transform: [{ scale: 0.7 }] }}
-      />
-    )
-  }
-  if (state === "queued") {
-    return (
-      <View
-        accessibilityLabel={lorLabels.queued}
-        className="size-1.5 rounded-full bg-accent opacity-60"
-      />
-    )
-  }
-  return (
-    <View
-      accessibilityLabel={lorLabels[state]}
-      className="size-4 items-center justify-center rounded-full bg-warning-soft"
-    >
-      <Text className="text-[10px] font-bold leading-[12px] text-warning-soft-foreground">
-        !
-      </Text>
-    </View>
-  )
-}
 
 export function MentionBadge({ count }: { count: number }) {
   return (
@@ -82,17 +50,23 @@ export function MentionBadge({ count }: { count: number }) {
 
 export function ChannelRow({
   channel,
-  lorState,
   mentionCount,
   onLongPress,
   onPress,
+  sessionToggle,
   unread,
 }: {
   channel: Channel
-  lorState?: LorState
   mentionCount: number
   onLongPress?: (channel: Channel) => void
   onPress: (channel: Channel) => void
+  // Set when the channel lists your sessions. `rollup`: the strongest state
+  // among them while collapsed.
+  sessionToggle?: {
+    collapsed: boolean
+    onToggle: () => void
+    rollup: SidebarSessionState | undefined
+  }
   unread: boolean
 }) {
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
@@ -113,7 +87,7 @@ export function ChannelRow({
           : unread
             ? ", unread messages"
             : ""
-      }${lorState ? `, ${lorLabels[lorState]}` : ""}`}
+      }`}
       accessibilityActions={
         onLongPress
           ? [{ label: "Channel options", name: "channel-options" }]
@@ -178,7 +152,33 @@ export function ChannelRow({
         {channel.name ?? "untitled"}
       </Text>
       {mentionCount > 0 ? <MentionBadge count={mentionCount} /> : null}
-      {lorState ? <LorChannelStatus state={lorState} /> : null}
+      {sessionToggle?.collapsed && sessionToggle.rollup ? (
+        <SessionStateIndicator state={sessionToggle.rollup} />
+      ) : null}
+      {sessionToggle ? (
+        <Pressable
+          accessibilityLabel={
+            sessionToggle.collapsed ? "Show sessions" : "Hide sessions"
+          }
+          accessibilityRole="button"
+          accessibilityState={{ expanded: !sessionToggle.collapsed }}
+          className="size-7 items-center justify-center rounded-lor-sm active:bg-surface-tertiary"
+          hitSlop={6}
+          onPress={() => {
+            void Haptics.selectionAsync()
+            sessionToggle.onToggle()
+          }}
+        >
+          <View className={sessionToggle.collapsed ? "-rotate-90" : ""}>
+            <HugeiconsIcon
+              color={muted}
+              icon={ChevronDownIcon}
+              size={12}
+              strokeWidth={2.2}
+            />
+          </View>
+        </Pressable>
+      ) : null}
     </Pressable>
   )
 }
@@ -388,13 +388,16 @@ export function ChannelList({
   const { call, joining, join, ownVoiceChannel } = useVoiceCall()
   const { data: auth } = authClient.useSession()
   const activity = useWorkspaceActivity(workspace?.id)
-  const lorStates = useMemo(() => {
-    const map = new Map<string, LorState>()
-    for (const channel of activity ?? []) {
-      if (channel.lor) map.set(channel.channelId, channel.lor)
-    }
-    return map
-  }, [activity])
+  useWorkspaceSessionUpdates(workspace?.id)
+  const sessionCollapse = useSessionCollapse(activity)
+  const sessionsHint = useHint("sessions_intro")
+  const sessionsByChannel = useMemo(
+    () =>
+      new Map(
+        (activity ?? []).map((channel) => [channel.channelId, channel.sessions])
+      ),
+    [activity]
+  )
   const presence = useVoicePresence(workspace?.slug, workspace?.id)
   const user = auth?.user
   const inCall = useMemo(() => {
@@ -475,26 +478,73 @@ export function ChannelList({
   const archivedCategories = data.categories.filter((category) =>
     archivedCategoryIds?.has(category.id)
   )
+  // Taught under the first session rows a person sees, usually the ones
+  // their first @Lor just started.
+  const sessionsHintChannelId = sessionsHint.dismissed
+    ? null
+    : [
+        ...data.uncategorized,
+        ...activeCategories
+          .filter((category) => !collapsedSections.has(category.id))
+          .flatMap((category) => category.channels),
+      ].find(
+        (channel) =>
+          channel.type !== "voice" &&
+          !sessionCollapse.collapsed.has(channel.id) &&
+          (sessionsByChannel.get(channel.id)?.length ?? 0) > 0
+      )?.id
 
-  const renderRow = (channel: Channel) => (
-    <Fragment key={channel.id}>
-      <ChannelRow
-        channel={channel}
-        lorState={lorStates.get(channel.id)}
-        mentionCount={getMentionCount(channel.id)}
-        onLongPress={onLongPress}
-        onPress={onPress}
-        unread={getUnreadCount(channel.id) > 0}
-      />
-      {channel.type === "voice" ? (
-        <VoiceParticipantRows
-          channelName={channel.name ?? "voice"}
-          onJoin={() => joinCall(channel)}
-          participants={inCall.get(channel.id)}
+  const renderRow = (channel: Channel) => {
+    const sessions = sessionsByChannel.get(channel.id) ?? []
+    const collapsed = sessionCollapse.collapsed.has(channel.id)
+    return (
+      <Fragment key={channel.id}>
+        <ChannelRow
+          channel={channel}
+          mentionCount={getMentionCount(channel.id)}
+          onLongPress={onLongPress}
+          onPress={onPress}
+          sessionToggle={
+            sessions.length > 0
+              ? {
+                  collapsed,
+                  onToggle: () => sessionCollapse.toggle(channel.id),
+                  rollup: collapsed
+                    ? strongestSessionState(sessions)
+                    : undefined,
+                }
+              : undefined
+          }
+          unread={getUnreadCount(channel.id) > 0}
         />
-      ) : null}
-    </Fragment>
-  )
+        {channel.type === "voice" ? (
+          <VoiceParticipantRows
+            channelName={channel.name ?? "voice"}
+            onJoin={() => joinCall(channel)}
+            participants={inCall.get(channel.id)}
+          />
+        ) : (
+          <ChannelSessionRows
+            channelId={channel.id}
+            collapsed={collapsed}
+            hint={
+              channel.id === sessionsHintChannelId ? (
+                <HintCard
+                  className="mx-two mt-one"
+                  onDismiss={sessionsHint.dismiss}
+                >
+                  Lor works in sessions, listed under their channel. Anyone in
+                  the channel can open one and join in.
+                </HintCard>
+              ) : undefined
+            }
+            onOpenSession={sessionsHint.dismiss}
+            sessions={sessions}
+          />
+        )}
+      </Fragment>
+    )
+  }
 
   return (
     <View className="gap-four pb-seven">
