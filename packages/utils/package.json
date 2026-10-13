@@ -11,6 +11,7 @@
     "./crypto": "./src/crypto.ts",
     "./avatar-colors": "./src/avatar-colors.ts",
     "./domain": "./src/domain.ts",
+    "./html": "./src/html.ts",
     "./short-code": "./src/short-code.ts"
   },
   "scripts": {

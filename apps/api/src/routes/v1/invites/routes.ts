@@ -14,6 +14,9 @@ import {
   createInviteRequestSchema,
   createInviteResponseSchema,
   deleteInviteResponseSchema,
+  invitationIdParamsSchema,
+  invitationPreviewQuerySchema,
+  invitationPreviewResponseSchema,
   inviteCodeParamsSchema,
   invitePreviewResponseSchema,
   listInvitesResponseSchema,
@@ -28,7 +31,7 @@ export const createInvite = createRoute({
   method: "post",
   summary: "Create a workspace invite link",
   description:
-    "Generates a shareable invite code for the workspace. Any workspace member can create invite links.",
+    "Generates a shareable invite code for the workspace. Requires admin or higher role.",
   tags: ["Invites"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
@@ -148,3 +151,28 @@ export const acceptInvite = createRoute({
 })
 
 export type AcceptInviteRoute = typeof acceptInvite
+
+// Email invitations are created and accepted through better-auth's
+// organization endpoints; this only previews one before sign-in.
+export const previewInvitation = createRoute({
+  path: "/invitations/{invitationId}",
+  method: "get",
+  summary: "Preview an email invitation",
+  description:
+    "Returns workspace info for a signed email invitation link. Public, so the invite page can show it to logged-out visitors.",
+  tags: ["Invites"],
+  request: {
+    params: invitationIdParamsSchema,
+    query: invitationPreviewQuerySchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: invitationPreviewResponseSchema,
+      description: "Invitation preview",
+    }),
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type PreviewInvitationRoute = typeof previewInvitation
