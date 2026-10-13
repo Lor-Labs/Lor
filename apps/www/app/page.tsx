@@ -1,4 +1,4 @@
-import { Check, Github } from "lucide-react"
+import { Check } from "lucide-react"
 import { AgentBento } from "@/app/components/agent-bento"
 import { AppMock } from "@/app/components/app-mock"
 import { ClosingCTA } from "@/app/components/closing-cta"
@@ -13,13 +13,13 @@ import { OpenStack } from "@/app/components/open-stack"
 import { Pricing } from "@/app/components/pricing"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
-import { GITHUB_URL, SIGNUP_URL } from "@/app/lib/urls"
+import { SIGNUP_URL } from "@/app/lib/urls"
 
 const HERO_POINTS = [
-  { lead: "Ask Lor anything", rest: ", get answers with citations" },
-  { lead: "Connects GitHub, Linear, and Notion", rest: " to your chat" },
-  { lead: "Remembers every decision", rest: " your team makes" },
-  { lead: "Open source, open models", rest: ", self-host free" },
+  { lead: "Give each channel an agent", rest: " with your team's tools" },
+  { lead: "It works when you ask", rest: ", or on a schedule" },
+  { lead: "Everyone sees the work", rest: ", and anyone can step in" },
+  { lead: "You choose what needs approval", rest: ", and who gives it" },
 ]
 
 // ---------------------------------------------------------------------------
@@ -35,8 +35,10 @@ function Hero() {
       />
       <div className="relative mx-auto w-full max-w-6xl px-6 pt-40 md:pt-48">
         <Reveal>
-          <h1 className="max-w-[14ch] text-balance font-semibold text-[clamp(2.75rem,6.5vw,4.75rem)] leading-[1.03] tracking-[-0.035em]">
-            The <span className="text-agent">multiplayer</span> AI workspace.
+          <h1 className="max-w-[15ch] text-balance font-semibold text-[clamp(2.75rem,6.5vw,4.75rem)] leading-[1.03] tracking-[-0.035em]">
+            AI agents your{" "}
+            <span className="whitespace-nowrap text-agent">whole team</span> can
+            steer.
           </h1>
         </Reveal>
 
@@ -61,10 +63,7 @@ function Hero() {
             </ul>
             <div className="flex shrink-0 flex-col items-start gap-3 sm:flex-row sm:items-center">
               <CtaPrimary href={SIGNUP_URL}>Start free</CtaPrimary>
-              <CtaSecondary href={GITHUB_URL} external>
-                <Github className="size-4" strokeWidth={1.75} />
-                GitHub
-              </CtaSecondary>
+              <CtaSecondary href="/download">Download for Mac</CtaSecondary>
             </div>
           </div>
         </Reveal>

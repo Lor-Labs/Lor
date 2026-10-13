@@ -16,9 +16,9 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lor.chat"),
-  title: "Lor | The open source multiplayer AI workspace for teams",
+  title: "Lor | AI agents your whole team can steer",
   description:
-    "Lor is the open source multiplayer AI workspace for teams, powered entirely by open models. $20 per user per month with pooled AI credits, or self-host free under AGPL-3.0.",
+    "Lor gives each channel an AI agent your whole team can set up, steer, and check. It works when you ask or on a schedule. Everyone sees the work, anyone can step in, and you choose what needs approval.",
   icons: {
     icon: [
       { url: "/lor-icon.svg", type: "image/svg+xml" },
@@ -28,9 +28,9 @@ export const metadata: Metadata = {
     apple: "/lor-icon.png",
   },
   openGraph: {
-    title: "Lor | The open source multiplayer AI workspace for teams",
+    title: "Lor | AI agents your whole team can steer",
     description:
-      "The multiplayer AI workspace for teams. Open source, open models only, self-hostable under AGPL.",
+      "Give each channel an AI agent. It works when you ask or on a schedule, and everyone sees the work.",
     url: "https://lor.chat",
     siteName: "Lor",
     type: "website",

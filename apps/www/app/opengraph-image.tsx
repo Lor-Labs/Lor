@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og"
 
-export const alt = "Lor — the multiplayer AI workspace"
+export const alt = "Lor: AI agents your whole team can steer"
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 
@@ -23,18 +23,18 @@ export default function OpengraphImage() {
         letterSpacing: "-0.03em",
       }}
     >
-      <div style={{ display: "flex", alignItems: "baseline", gap: 24 }}>
+      <div
+        style={{
+          fontSize: 40,
+          fontWeight: 400,
+          color: "rgba(240,239,237,0.6)",
+          letterSpacing: "-0.02em",
+        }}
+      >
         Lor
-        <div
-          style={{
-            fontSize: 40,
-            fontWeight: 400,
-            color: "rgba(240,239,237,0.6)",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          The multiplayer AI workspace.
-        </div>
+      </div>
+      <div style={{ marginTop: 16, fontSize: 72, lineHeight: 1.05 }}>
+        AI agents your whole team can steer.
       </div>
       <div
         style={{
@@ -45,7 +45,7 @@ export default function OpengraphImage() {
           letterSpacing: "-0.01em",
         }}
       >
-        Ask Lor anything. Get answers with citations. Open source.
+        Works when you ask or on a schedule. Everyone sees the work.
       </div>
     </div>,
     size
