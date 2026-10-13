@@ -485,7 +485,9 @@ function WorkspaceSidebarInner() {
 
       <SidebarContent>
         <SidebarGroup className="min-h-0 flex-1 pt-1">
-          <div className="-mx-2 min-h-0 flex-1 overflow-hidden">
+          {/* Clip sideways only: a vertical clip here cut the list at the
+              window height, so SidebarContent's scroll area never scrolled. */}
+          <div className="-mx-2 overflow-x-clip">
             <ChannelActivityProvider workspaceId={activeWorkspace?.id}>
               <VoicePresenceProvider
                 workspaceSlug={activeWorkspace?.slug}
