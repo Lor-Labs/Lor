@@ -201,19 +201,25 @@ export const updateAgentSession: AppRouteHandler<
 
   const now = new Date()
   const archiving = body.archived === true && !session.archivedAt
-  const updated = await db
-    .update(schema.agentSession)
-    .set({
-      ...(body.title !== undefined && {
-        title: body.title,
-        titleEditedAt: now,
-      }),
-      ...(archiving && { archivedAt: now, archivedById: currentUser.id }),
-      ...(body.archived === false && { archivedAt: null, archivedById: null }),
-    })
-    .where(eq(schema.agentSession.id, sessionId))
-    .returning()
-    .then((rows) => rows[0] ?? session)
+  const patch = {
+    ...(body.title !== undefined && {
+      title: body.title,
+      titleEditedAt: now,
+    }),
+    ...(archiving && { archivedAt: now, archivedById: currentUser.id }),
+    ...(body.archived === false && { archivedAt: null, archivedById: null }),
+  }
+  // Archiving an already archived session changes nothing, and Drizzle
+  // rejects an empty set.
+  const updated =
+    Object.keys(patch).length === 0
+      ? session
+      : await db
+          .update(schema.agentSession)
+          .set(patch)
+          .where(eq(schema.agentSession.id, sessionId))
+          .returning()
+          .then((rows) => rows[0] ?? session)
 
   // The queue drain drops what is still queued once the session is archived.
   if (archiving) {
