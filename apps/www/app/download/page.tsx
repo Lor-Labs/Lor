@@ -2,12 +2,12 @@ import { ArrowUpRight, Download, Globe } from "lucide-react"
 import type { Metadata } from "next"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
-import { GITHUB_URL } from "@/app/lib/urls"
+import { GITHUB_URL, TESTFLIGHT_URL } from "@/app/lib/urls"
 
 export const metadata: Metadata = {
   title: "Download Lor",
   description:
-    "Download Lor for macOS. Windows, Linux, iOS, and Android are on the way.",
+    "Download Lor for macOS, or join the iOS alpha on TestFlight. Windows, Linux, and Android are on the way.",
 }
 
 const RELEASES_URL = `${GITHUB_URL}/releases`
@@ -78,12 +78,21 @@ const PLATFORMS: Platform[] = [
   },
 ]
 
-const MOBILE_PLATFORMS = [
+type MobilePlatform = {
+  name: string
+  icon: (props: { className?: string }) => React.ReactNode
+  subtitle: string
+  storeLabel: string
+  href?: string
+}
+
+const MOBILE_PLATFORMS: MobilePlatform[] = [
   {
     name: "iOS",
     icon: AppleIcon,
     subtitle: "iPhone and iPad",
-    storeLabel: "Coming to the App Store",
+    storeLabel: "Join the alpha on TestFlight",
+    href: TESTFLIGHT_URL,
   },
   {
     name: "Android",
@@ -92,6 +101,53 @@ const MOBILE_PLATFORMS = [
     storeLabel: "Coming to Google Play",
   },
 ]
+
+const CARD_CLASS =
+  "flex items-center gap-5 rounded-2xl border bg-card p-7 dark:bg-card/50"
+
+function MobileCard({ platform }: { platform: MobilePlatform }) {
+  const body = (
+    <>
+      <platform.icon className="size-8 shrink-0 text-foreground" />
+      <div className="flex-1">
+        <h2 className="flex flex-wrap items-center gap-x-2 font-medium text-base leading-tight">
+          <span>{platform.name} on your phone.</span>
+          <span className="text-muted-foreground">{platform.subtitle}.</span>
+          {platform.href ? (
+            <span className="rounded-full bg-agent/15 px-2 py-0.5 font-medium text-[11px] text-agent">
+              Alpha
+            </span>
+          ) : null}
+        </h2>
+        <p
+          className={`mt-1 text-[13px] ${
+            platform.href ? "text-foreground/80" : "text-muted-foreground"
+          }`}
+        >
+          {platform.storeLabel}
+        </p>
+      </div>
+      {platform.href ? (
+        <ArrowUpRight
+          className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground"
+          strokeWidth={1.75}
+        />
+      ) : null}
+    </>
+  )
+
+  if (!platform.href) return <div className={CARD_CLASS}>{body}</div>
+  return (
+    <a
+      href={platform.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`group ${CARD_CLASS} transition-colors hover:bg-card/80 dark:hover:bg-card/70`}
+    >
+      {body}
+    </a>
+  )
+}
 
 export default function DownloadPage() {
   return (
@@ -109,8 +165,8 @@ export default function DownloadPage() {
                 <span className="text-foreground/55">faster shell.</span>
               </h1>
               <p className="mt-5 max-w-[46ch] text-[16px] text-foreground/60 leading-relaxed">
-                Native for macOS today. Windows, Linux, iOS, and Android are on
-                the way.
+                Native for macOS today, and in alpha on iOS. Windows, Linux, and
+                Android are on the way.
               </p>
             </Reveal>
           </div>
@@ -177,23 +233,7 @@ export default function DownloadPage() {
           <Reveal>
             <div className="grid gap-2 md:grid-cols-2">
               {MOBILE_PLATFORMS.map((platform) => (
-                <div
-                  key={platform.name}
-                  className="flex items-center gap-5 rounded-2xl border bg-card p-7 dark:bg-card/50"
-                >
-                  <platform.icon className="size-8 shrink-0 text-foreground" />
-                  <div>
-                    <h2 className="font-medium text-base leading-tight">
-                      <span>{platform.name} on your phone.</span>{" "}
-                      <span className="text-muted-foreground">
-                        {platform.subtitle}.
-                      </span>
-                    </h2>
-                    <p className="mt-1 text-[13px] text-muted-foreground">
-                      {platform.storeLabel}
-                    </p>
-                  </div>
-                </div>
+                <MobileCard key={platform.name} platform={platform} />
               ))}
             </div>
           </Reveal>

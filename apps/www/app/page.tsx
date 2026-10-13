@@ -5,11 +5,11 @@ import { ClosingCTA } from "@/app/components/closing-cta"
 import { CtaPrimary, CtaSecondary } from "@/app/components/cta"
 import { ExampleChannels } from "@/app/components/example-channels"
 import { Pricing } from "@/app/components/pricing"
+import { ProblemVisual } from "@/app/components/problem-visual"
 import {
   ControlChapter,
   LoopsChapter,
   MemoryChapter,
-  ProblemSection,
   SetupChapter,
 } from "@/app/components/proof-chapters"
 import { Reveal } from "@/app/components/reveal"
@@ -109,7 +109,7 @@ export default function Home() {
   return (
     <div className="flex min-h-[100dvh] flex-col">
       <Hero />
-      <ProblemSection />
+      <ProblemVisual />
       <SetupChapter />
       <MemoryChapter />
       <LoopsChapter />

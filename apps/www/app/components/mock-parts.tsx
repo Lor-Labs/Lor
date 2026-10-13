@@ -14,10 +14,11 @@ import { LorMark } from "@/app/components/lor-mark"
 // Shared pieces for the product mocks. They copy the web app's session UI
 // (apps/web/src/components/session, chat/) at a smaller scale.
 
-// Same DiceBear Lorelei (CC0) people as the web app's onboarding tour
-// (apps/web/public/tour).
+// DiceBear Lorelei (CC0), the same style and people as the web app's
+// onboarding tour (apps/web/public/tour). Theo was downloaded for www only.
 export const ZOE = "/avatars/zoe.png"
 export const RAFAEL = "/avatars/rafael.png"
+export const THEO = "/avatars/theo.png"
 
 export function PersonAvatar({
   src,

@@ -1,4 +1,4 @@
-import { GITHUB_URL } from "@/app/lib/urls"
+import { GITHUB_URL, TESTFLIGHT_URL } from "@/app/lib/urls"
 
 type LinkGroup = {
   title: string
@@ -16,6 +16,7 @@ const GROUPS: LinkGroup[] = [
       { label: "Examples", href: "/#examples" },
       { label: "Pricing", href: "/#pricing" },
       { label: "Download", href: "/download" },
+      { label: "iOS alpha", href: TESTFLIGHT_URL, external: true },
       { label: "Self-host", href: "/#open-source" },
     ],
   },

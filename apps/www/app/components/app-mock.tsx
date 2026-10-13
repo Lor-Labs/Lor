@@ -108,10 +108,10 @@ function MockSidebar() {
       </div>
       <div className="flex items-center gap-2 px-4">
         <span className="flex size-6 items-center justify-center rounded-md bg-agent/20 font-semibold text-[11px] text-agent">
-          A
+          K
         </span>
         <span className="font-semibold text-[13.5px] text-lor-text-dark">
-          Acme
+          Kestrel
         </span>
         <HugeiconsIcon
           icon={UnfoldMoreIcon}
