@@ -2,6 +2,7 @@ import {
   ArrowRight01Icon,
   File01Icon,
   Loading03Icon,
+  LockKeyIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -168,6 +169,60 @@ export function FileCard({ name, detail }: { name: string; detail: string }) {
         </span>
       </span>
     </span>
+  )
+}
+
+// A person's message in channel chat: avatar, name and time, then the body.
+export function ChatLine({
+  avatar,
+  name,
+  time,
+  children,
+}: {
+  avatar: string
+  name: string
+  time: string
+  children: ReactNode
+}) {
+  return (
+    <div className="flex gap-2.5 pt-3">
+      <PersonAvatar src={avatar} size="size-6" />
+      <div className="min-w-0 text-[12.5px] text-lor-text-dark/90">
+        <p className="flex items-baseline gap-1.5">
+          <span className="font-medium text-lor-text-dark">{name}</span>
+          <span className="text-[10.5px] text-lor-text-tertiary-dark">
+            {time}
+          </span>
+        </p>
+        <div className="mt-0.5">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+export function ApprovalCard({ title, tool }: { title: string; tool: string }) {
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-lor-border-dark/60 bg-foreground/[0.025] py-2.5 ps-3 pe-2.5">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning-foreground">
+        <HugeiconsIcon icon={LockKeyIcon} size={15} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="font-medium text-[12.5px] text-lor-text-dark leading-5">
+          {title}
+        </p>
+        <p className="text-[11px] text-lor-text-tertiary-dark">
+          Needs your approval · <span className="font-mono">{tool}</span>
+        </p>
+      </div>
+      <span className="flex gap-1.5">
+        <span className="rounded-md px-2.5 py-1 font-medium text-[12px] text-lor-text-secondary-dark">
+          Reject
+        </span>
+        <span className="rounded-md bg-primary px-2.5 py-1 font-medium text-[12px] text-primary-foreground">
+          Approve
+        </span>
+      </span>
+    </div>
   )
 }
 

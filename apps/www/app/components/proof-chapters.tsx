@@ -2,7 +2,6 @@ import {
   Globe02Icon,
   HashtagIcon,
   Infinity01Icon,
-  LockKeyIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -14,6 +13,7 @@ import { NotionLogo } from "@repo/ui/components/logos/notion"
 import type { ReactNode } from "react"
 import { Chapter } from "@/app/components/chapter"
 import {
+  ApprovalCard,
   Citation,
   LorAvatar,
   PersonAvatar,
@@ -81,7 +81,7 @@ const PROFILE_TOOLS = [
   },
   { name: "Notion", on: true, icon: <NotionLogo className="size-4" /> },
   { name: "GitHub", on: false, icon: <GitHubLogo className="size-4" /> },
-  { name: "Linear", on: false, icon: <LinearLogo className="size-4" /> },
+  { name: "Linear", on: true, icon: <LinearLogo className="size-4" /> },
 ]
 
 function Toggle({ on }: { on: boolean }) {
@@ -98,7 +98,7 @@ function Toggle({ on }: { on: boolean }) {
   )
 }
 
-function SetupMock() {
+export function SetupMock() {
   return (
     <MockShell>
       <div aria-hidden className="flex flex-col gap-2.5 p-4 text-left md:p-5">
@@ -325,33 +325,6 @@ export function LoopsChapter() {
 // Your team stays in charge: a shared session paused on an approval
 // ---------------------------------------------------------------------------
 
-function ApprovalCard() {
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-lor-border-dark/60 bg-foreground/[0.025] py-2.5 ps-3 pe-2.5">
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning-foreground">
-        <HugeiconsIcon icon={LockKeyIcon} size={15} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="font-medium text-[12.5px] text-lor-text-dark leading-5">
-          Create a Linear issue for the checkout timeout
-        </p>
-        <p className="text-[11px] text-lor-text-tertiary-dark">
-          Needs your approval ·{" "}
-          <span className="font-mono">create_linear_issue</span>
-        </p>
-      </div>
-      <span className="flex gap-1.5">
-        <span className="rounded-md px-2.5 py-1 font-medium text-[12px] text-lor-text-secondary-dark">
-          Reject
-        </span>
-        <span className="rounded-md bg-primary px-2.5 py-1 font-medium text-[12px] text-primary-foreground">
-          Approve
-        </span>
-      </span>
-    </div>
-  )
-}
-
 function ControlMock() {
   return (
     <MockShell>
@@ -394,7 +367,10 @@ function ControlMock() {
             The errors started 40 minutes after 2.14 shipped. The new retry in
             #412 holds checkout open past the 10 second timeout.
           </p>
-          <ApprovalCard />
+          <ApprovalCard
+            title="Create a Linear issue for the checkout timeout"
+            tool="create_linear_issue"
+          />
         </Turn>
       </div>
     </MockShell>

@@ -6,15 +6,10 @@ import { CtaPrimary, CtaSecondary } from "@/app/components/cta"
 import { ExampleChannels } from "@/app/components/example-channels"
 import { Pricing } from "@/app/components/pricing"
 import { ProblemVisual } from "@/app/components/problem-visual"
-import {
-  ControlChapter,
-  LoopsChapter,
-  MemoryChapter,
-  SetupChapter,
-} from "@/app/components/proof-chapters"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
 import { TrustSection } from "@/app/components/trust-section"
+import { WeekInGtm } from "@/app/components/week-in-gtm"
 import { SIGNUP_URL } from "@/app/lib/urls"
 
 const HERO_POINTS = [
@@ -110,10 +105,7 @@ export default function Home() {
     <div className="flex min-h-[100dvh] flex-col">
       <Hero />
       <ProblemVisual />
-      <SetupChapter />
-      <MemoryChapter />
-      <LoopsChapter />
-      <ControlChapter />
+      <WeekInGtm />
       <ExampleChannels />
       <TrustSection />
       <Pricing />

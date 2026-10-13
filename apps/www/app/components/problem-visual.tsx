@@ -4,8 +4,8 @@ import {
   LockKeyIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import type { ReactNode } from "react"
 import {
+  ChatLine,
   FileCard,
   LorAvatar,
   PersonAvatar,
@@ -65,33 +65,6 @@ function PrivateChat({
           <p className="text-lor-text-secondary-dark">{reply}</p>
           <ListBars widths={[86, 70, 78, 62]} />
         </div>
-      </div>
-    </div>
-  )
-}
-
-function ChatLine({
-  avatar,
-  name,
-  time,
-  children,
-}: {
-  avatar: string
-  name: string
-  time: string
-  children: ReactNode
-}) {
-  return (
-    <div className="flex gap-2.5 pt-3">
-      <PersonAvatar src={avatar} size="size-6" />
-      <div className="min-w-0 text-[12.5px] text-lor-text-dark/90">
-        <p className="flex items-baseline gap-1.5">
-          <span className="font-medium text-lor-text-dark">{name}</span>
-          <span className="text-[10.5px] text-lor-text-tertiary-dark">
-            {time}
-          </span>
-        </p>
-        <div className="mt-0.5">{children}</div>
       </div>
     </div>
   )
