@@ -26,12 +26,20 @@ import { MorphText } from "@/components/ui/morph-text"
 import { SETTINGS_SURFACE } from "@/components/workspace/settings-group"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
+import { acceptInvitation } from "@/lib/invitations"
+import { formatWorkspaceRole } from "@/lib/permissions"
 
 export const Route = createFileRoute("/onboarding")({
   component: OnboardingPage,
 })
 
 type Step = "choose" | "create" | "join"
+
+// The client types listUserInvitations rows as an index signature (an Omit
+// over the inferred org schema), so restate the row shape.
+type UserInvitation = typeof authClient.$Infer.Invitation & {
+  organizationName: string
+}
 
 // Brief "Workspace ready" beat before leaving onboarding.
 const SUCCESS_BEAT_MS = 600
@@ -165,6 +173,35 @@ function OnboardingFlow({ email }: { email: string }) {
     onError: (err) => toast.error(err.message),
   })
 
+  // Pending email invites to this account; better-auth returns every status.
+  const { data: invitations } = useQuery({
+    queryKey: ["user-invitations"],
+    queryFn: async () => {
+      const res = await authClient.organization.listUserInvitations()
+      if (res.error) return []
+      return (res.data as UserInvitation[]).filter(
+        (invitation) =>
+          invitation.status === "pending" &&
+          new Date(invitation.expiresAt).getTime() > Date.now()
+      )
+    },
+  })
+  const acceptInvite = useMutation({
+    mutationFn: acceptInvitation,
+    onSuccess: async (workspace) => {
+      await queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      await navigate({
+        to: "/$workspaceSlug",
+        params: { workspaceSlug: workspace.slug },
+      })
+    },
+    onError: (err) => toast.error(err.message),
+  })
+  const invitedWorkspaceIds = new Set(
+    invitations?.map((invitation) => invitation.organizationId)
+  )
+  const domainJoinable = joinable?.filter((w) => !invitedWorkspaceIds.has(w.id))
+
   const goTo = (next: Step) => {
     setDirection(next === "choose" ? -1 : 1)
     setError(null)
@@ -261,20 +298,43 @@ function OnboardingFlow({ email }: { email: string }) {
                   title="Welcome to Lor"
                   subtitle="Set up a workspace for your team, or join one you were invited to."
                 />
-                {joinable && joinable.length > 0 && (
+                {invitations && invitations.length > 0 && (
+                  <div className="mb-5 space-y-2">
+                    <p className="px-1 text-xs font-medium text-muted-foreground">
+                      You're invited
+                    </p>
+                    <div className={cn(SETTINGS_SURFACE, "space-y-0.5 p-1")}>
+                      {invitations.map((invitation) => (
+                        <JoinRow
+                          key={invitation.id}
+                          name={invitation.organizationName}
+                          logo={null}
+                          detail={`Invited as ${formatWorkspaceRole(invitation.role)}`}
+                          joining={
+                            acceptInvite.isPending &&
+                            acceptInvite.variables === invitation.id
+                          }
+                          disabled={acceptInvite.isPending || join.isPending}
+                          onJoin={() => acceptInvite.mutate(invitation.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {domainJoinable && domainJoinable.length > 0 && (
                   <div className="mb-5 space-y-2">
                     <p className="px-1 text-xs font-medium text-muted-foreground">
                       Your team is already on Lor
                     </p>
                     <div className={cn(SETTINGS_SURFACE, "space-y-0.5 p-1")}>
-                      {joinable.map((w) => (
+                      {domainJoinable.map((w) => (
                         <JoinRow
                           key={w.id}
                           name={w.name}
                           logo={w.logo}
-                          memberCount={w.humanMemberCount}
+                          detail={`${w.humanMemberCount} ${w.humanMemberCount === 1 ? "member" : "members"}`}
                           joining={join.isPending && join.variables === w.slug}
-                          disabled={join.isPending}
+                          disabled={join.isPending || acceptInvite.isPending}
                           onJoin={() => join.mutate(w.slug)}
                         />
                       ))}
@@ -489,14 +549,14 @@ function ChoiceRow({
 function JoinRow({
   name,
   logo,
-  memberCount,
+  detail,
   joining,
   disabled,
   onJoin,
 }: {
   name: string
   logo: string | null
-  memberCount: number
+  detail: string
   joining: boolean
   disabled: boolean
   onJoin: () => void
@@ -511,9 +571,7 @@ function JoinRow({
       />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{name}</p>
-        <p className="text-sm text-muted-foreground">
-          {memberCount} {memberCount === 1 ? "member" : "members"}
-        </p>
+        <p className="text-sm text-muted-foreground">{detail}</p>
       </div>
       <Button size="sm" disabled={disabled} onClick={onJoin}>
         {joining && <Spinner className="size-4" />}
