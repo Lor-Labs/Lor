@@ -4,6 +4,7 @@ import { logger } from "../logger"
 import {
   type BlaxelSandbox,
   runPi,
+  sandboxFailureReason,
   withEphemeralSandbox,
   withWorkbenchSandbox,
   writeText,
@@ -332,6 +333,11 @@ export async function runWorkbenchSession(
       : await withEphemeralSandbox("wb", session)
   } catch (err) {
     logger.error({ err }, "Workbench: session failed")
-    return { error: "workbench session failed (sandbox error)" }
+    return {
+      error: sandboxFailureReason(
+        err,
+        "workbench session failed (sandbox error)"
+      ),
+    }
   }
 }

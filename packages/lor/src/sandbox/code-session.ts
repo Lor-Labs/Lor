@@ -7,6 +7,7 @@ import {
   execToCompletion,
   invalidatePersistentSandbox,
   runPi,
+  sandboxFailureReason,
   withPersistentSandbox,
   writeText,
 } from "./blaxel"
@@ -492,7 +493,9 @@ export async function prepareCodeChange(
     )
   } catch (err) {
     logger.error({ err, repoFullName }, "Code session: prepare failed")
-    return { error: "code session failed (sandbox error)" }
+    return {
+      error: sandboxFailureReason(err, "code session failed (sandbox error)"),
+    }
   }
 }
 
