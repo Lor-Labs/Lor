@@ -933,7 +933,8 @@ export function MessageInput({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
-      if (event.key.length !== 1) return
+      // Space keeps scrolling the page.
+      if (event.key.length !== 1 || event.key === " ") return
       const target = event.target instanceof Element ? event.target : null
       if (
         target?.closest(

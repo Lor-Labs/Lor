@@ -36,43 +36,41 @@ export function ForwardDialog({
   const [note, setNote] = useState("")
   const [sending, setSending] = useState(false)
 
-  const forward = () => {
+  // A lost ack (dropped connection) must not leave the button stuck.
+  const forward = async () => {
     if (!message || sending) return
     if (!socket?.connected) {
       toast.error("Connection lost — try again")
       return
     }
     setSending(true)
-    socket.emit(
-      "message:send",
-      {
+    try {
+      const result = await socket.timeout(12_000).emitWithAck("message:send", {
         channelId: target.channelId,
         content: note.trim() || undefined,
         referencedMessageId: message.id,
         forward: true,
         nonce: crypto.randomUUID(),
-      },
-      (result) => {
-        setSending(false)
-        if (!result.ok) {
-          toast.error("Couldn't forward the message")
-          return
-        }
-        setNote("")
-        onClose()
-        toast(`Forwarded to #${target.channelName}`, {
-          action: {
-            label: "View",
-            onClick: () =>
-              void navigate({
-                to: "/$workspaceSlug/$channelId",
-                params: { workspaceSlug, channelId: target.channelId },
-                search: { msgId: result.message.id },
-              }),
-          },
-        })
-      }
-    )
+      })
+      if (!result.ok) throw new Error(result.error)
+      setNote("")
+      onClose()
+      toast(`Forwarded to #${target.channelName}`, {
+        action: {
+          label: "View",
+          onClick: () =>
+            void navigate({
+              to: "/$workspaceSlug/$channelId",
+              params: { workspaceSlug, channelId: target.channelId },
+              search: { msgId: result.message.id },
+            }),
+        },
+      })
+    } catch {
+      toast.error("Couldn't forward the message")
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -93,7 +91,7 @@ export function ForwardDialog({
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault()
-                forward()
+                void forward()
               }
             }}
             placeholder="Add a note (optional)"
@@ -132,7 +130,7 @@ export function ForwardDialog({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={forward} disabled={sending}>
+          <Button onClick={() => void forward()} disabled={sending}>
             {sending ? "Forwarding…" : "Forward"}
           </Button>
         </DialogFooter>

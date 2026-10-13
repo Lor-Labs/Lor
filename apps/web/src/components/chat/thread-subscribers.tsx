@@ -234,7 +234,7 @@ export function ThreadSubscribers({
                   placeholder="Change subscribers…"
                   className="h-6 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
                 />
-                <Kbd className="shrink-0 tracking-wide">⌘⇧S</Kbd>
+                <Kbd className="shrink-0 tracking-wide">{PICKER_SHORTCUT}</Kbd>
               </div>
               {/* Puts it in every member's sidebar without posting in the
                   chat (a loop's "everyone in the channel" option). */}
