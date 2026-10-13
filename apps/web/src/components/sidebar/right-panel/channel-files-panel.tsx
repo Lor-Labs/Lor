@@ -122,6 +122,7 @@ function FileRow({
               id: source.messageId,
               channelId,
               threadRootId: source.threadRootId,
+              sessionId: source.sessionId,
             })
           }
         >

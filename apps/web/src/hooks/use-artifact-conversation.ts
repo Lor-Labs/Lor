@@ -11,14 +11,28 @@ export function useArtifactConversation() {
   return (args: {
     artifactId: string
     channelId: string
-    conversation?: { messageId: string; threadRootId: string | null } | null
+    conversation?: {
+      messageId: string
+      threadRootId: string | null
+      sessionId: string | null
+    } | null
     showConversation?: boolean
     from?: "files"
     fileSearch?: string
   }) => {
     if (!workspaceSlug) return
     const source = args.conversation
-    const showThread = source && (args.showConversation || !isMobile)
+    // A session's conversation is its page, never the thread panel.
+    if (source?.sessionId && args.showConversation) {
+      void navigate({
+        to: "/$workspaceSlug/session/$sessionId",
+        params: { workspaceSlug, sessionId: source.sessionId },
+        search: { artifactId: args.artifactId },
+      })
+      return
+    }
+    const showThread =
+      source && !source.sessionId && (args.showConversation || !isMobile)
     if (showThread) {
       const threadRootId = source.threadRootId ?? source.messageId
       setView({

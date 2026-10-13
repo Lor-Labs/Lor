@@ -8,6 +8,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { EASE_OUT } from "@repo/ui/lib/motion"
+import { useParams } from "@tanstack/react-router"
 import { motion } from "framer-motion"
 import { useEffect, useMemo, useState } from "react"
 import { ArtifactBody } from "@/components/artifacts/artifact-body"
@@ -61,6 +62,10 @@ export function ArtifactOverlay({
 }) {
   const { data, isPending, isError, refetch } = useArtifact(artifactId)
   const openConversation = useArtifactConversation()
+  // Hidden on the file's own session page: that is its conversation.
+  const { sessionId: routeSessionId } = useParams({ strict: false })
+  const conversation =
+    data?.conversation?.sessionId === routeSessionId ? null : data?.conversation
   const [selection, setSelection] = useState<{
     artifactId: string
     version: number
@@ -176,7 +181,7 @@ export function ArtifactOverlay({
                 ))}
               </select>
             )}
-            {data?.conversation && (
+            {data && conversation && (
               <button
                 type="button"
                 title="Open conversation"
@@ -186,7 +191,7 @@ export function ArtifactOverlay({
                   openConversation({
                     artifactId,
                     channelId: data.artifact.channelId,
-                    conversation: data.conversation,
+                    conversation,
                     showConversation: true,
                   })
                 }

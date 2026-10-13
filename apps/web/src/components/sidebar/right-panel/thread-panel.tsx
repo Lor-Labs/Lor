@@ -202,7 +202,7 @@ export function ThreadPanel({
   view: ThreadSidebarView
   sessionView?: SessionPresentation
 }) {
-  const { consumeComposerDraft, setView } = useRightSidebar()
+  const { consumeComposerDraft, setView, clearView } = useRightSidebar()
   const { call } = useVoiceCall()
   const queryClient = useQueryClient()
   const socket = useSocket()
@@ -307,6 +307,7 @@ export function ThreadPanel({
     voiceSessionId,
     voiceSessionTitle,
     voiceSessionEnded,
+    sessionId: threadSessionId,
     isLoading,
     fetchOlder,
     hasOlder,
@@ -319,6 +320,22 @@ export function ThreadPanel({
     socket,
     pendingNoncesRef: pendingNonces,
   })
+
+  // A Lor session never shows in the thread panel: ?threadId deep links,
+  // refresh and Back land on its page instead.
+  const redirectSessionId = sessionView ? null : threadSessionId
+  useEffect(() => {
+    if (!redirectSessionId) return
+    clearView()
+    void navigate({
+      to: "/$workspaceSlug/session/$sessionId",
+      params: {
+        workspaceSlug: view.workspaceSlug,
+        sessionId: redirectSessionId,
+      },
+      replace: true,
+    })
+  }, [redirectSessionId, clearView, navigate, view.workspaceSlug])
 
   const rootMessage = threadApiRoot ?? channelCacheRoot
   // A call chat's panel also holds the call's record: its summary (once the
@@ -835,6 +852,7 @@ export function ThreadPanel({
             id: loc.messageId,
             channelId: loc.channelId,
             threadRootId: loc.threadRootId,
+            sessionId: loc.sessionId,
           })
           return
         }
@@ -968,6 +986,8 @@ export function ThreadPanel({
       </TabsList>
     </Tabs>
   ) : null
+
+  if (redirectSessionId) return null
 
   if ((showTranscript || showSummary) && voiceSessionId) {
     return (

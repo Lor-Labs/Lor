@@ -107,6 +107,9 @@ export const listThreadRepliesResponseSchema =
     voiceSessionTitle: z.string().nullable(),
     // An ended call's panel opens on its Summary tab.
     voiceSessionEnded: z.boolean(),
+    // Set when the thread is a Lor session: it opens on the session page,
+    // never in the thread panel.
+    sessionId: z.string().uuid().nullable(),
   })
 
 // ── Pins ──────────────────────────────────────────

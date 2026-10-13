@@ -51,6 +51,7 @@ export const getArtifactResponseSchema = z.object({
     .object({
       messageId: z.string().uuid(),
       threadRootId: z.string().uuid().nullable(),
+      sessionId: z.string().uuid().nullable(),
     })
     .nullable(),
   // Newest first.
