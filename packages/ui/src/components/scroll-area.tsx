@@ -11,12 +11,15 @@ export function ScrollArea({
   scrollbarGutter = false,
   fill = false,
   clampContentMinWidth = true,
+  hideScrollbars = false,
   ...props
 }: ScrollAreaPrimitive.Root.Props & {
   scrollFade?: boolean
   scrollbarGutter?: boolean
   fill?: boolean
   clampContentMinWidth?: boolean
+  // Still scrolls (wheel, trackpad, keys); only the overlay bar is gone.
+  hideScrollbars?: boolean
 }): React.ReactElement {
   return (
     <ScrollAreaPrimitive.Root
@@ -41,9 +44,13 @@ export function ScrollArea({
           {children}
         </ScrollAreaPrimitive.Content>
       </ScrollAreaPrimitive.Viewport>
-      <ScrollBar orientation="vertical" />
-      <ScrollBar orientation="horizontal" />
-      <ScrollAreaPrimitive.Corner data-slot="scroll-area-corner" />
+      {!hideScrollbars && (
+        <>
+          <ScrollBar orientation="vertical" />
+          <ScrollBar orientation="horizontal" />
+          <ScrollAreaPrimitive.Corner data-slot="scroll-area-corner" />
+        </>
+      )}
     </ScrollAreaPrimitive.Root>
   )
 }
