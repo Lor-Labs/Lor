@@ -41,7 +41,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `attachment-search.md` | Attachment indexing + reranker. Steps 1–6 built; 4b and 7 parked behind triggers |
 | `onboarding.md` | First-run redesign for small tech startups: opaque workspace key, startup channel template, company prefill, setup checklist, domain join, per-user hints, permission changes. All 10 steps built 2026-10-08; prod db:push + rekey and live QA owed |
 | `workspace-model-runbook.md` | Human-only channel chat, Lor works in sessions: 22 steps on `app-redesign-sessions`. Started 2026-10-08 |
-| `session-files-runbook.md` | Right-rail file panel, one file chip, no Lor sessions in the thread panel, `ThreadPanel` split. 8 steps, started 2026-10-13 |
+| `session-files-runbook.md` | Right-rail file panel, one file chip, session-owned artifacts, no Lor sessions in the thread panel, `ThreadPanel` split. All steps built 2026-10-13; Step 4a `db:push` + backfill owed |
 
 ## Root — specs, how-tos, checklists
 

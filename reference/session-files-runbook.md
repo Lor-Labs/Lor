@@ -1,6 +1,7 @@
 # Session files runbook: right-rail file panel, no Lor threads in the thread panel
 
-> Status: in flight on `dev`, started 2026-10-13. Follows
+> Status: all steps built 2026-10-13 on `dev`; Step 4a's `db:push` and
+> backfill are still owed in each environment. Follows
 > `workspace-model-runbook.md` (sessions) and closes its open items on the
 > artifact viewer and `?threadId` deep links. File:line references are as of
 > that date; re-check them before each step.
@@ -153,7 +154,7 @@ No behavior change; `ThreadPanel` uses the extracted pieces.
 
 #### Step 7: strip Lor from the right-panel thread (+100 / −520)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - `ThreadPanel` loses the plan header and status, `ThreadWorkHeader`, Lor's
   run controls (pending turn, Stop, queue, steer, replay) and the plan
@@ -167,9 +168,17 @@ No behavior change; `ThreadPanel` uses the extracted pieces.
 - `GET /plans/{planId}/artifacts` stays: `PlanCard` in sessions still lists
   the plan's files from it.
 
-#### Step 8: flatten sandbox work in the tool trail (~350)
+#### Step 8: flatten sandbox work in the tool trail (+130 / −50)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
+
+- A sandbox step (one with sub-steps) opens by default and stays open when
+  it completes, so its sub-steps read as flat rows under "Worked".
+- `SubStepRow`: verb, mono target, diff counts, a "Failed" badge; a chip
+  that opens the file when the sub-step wrote one the run delivered; one
+  expansion with the diff and any output, without the repeated label or
+  "Success" line. Normal tool calls are unchanged.
+- `edit` and `create_artifacts` get the write glyph instead of the wrench.
 
 ## Deviations
 
