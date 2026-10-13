@@ -77,13 +77,15 @@ export function WorkspaceSheet({
             </View>
 
             <View className="gap-three px-one">
-              <SheetActionRow
-                detail="Share an invite link to bring in your team"
-                hint="Opens invite link options"
-                icon={UserAdd01Icon}
-                label="Invite people"
-                onPress={onInvite}
-              />
+              {canManageWorkspace ? (
+                <SheetActionRow
+                  detail="Invite by email or share a link"
+                  hint="Opens invite options"
+                  icon={UserAdd01Icon}
+                  label="Invite people"
+                  onPress={onInvite}
+                />
+              ) : null}
               <SheetActionRow
                 detail="What your team has taught Lor"
                 hint="Opens the workspace instructions"

@@ -1,15 +1,25 @@
-import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
-import Link01Icon from "@hugeicons/core-free-icons/Link01Icon"
+import {
+  BottomSheetScrollView,
+  BottomSheetTextInput,
+} from "@gorhom/bottom-sheet"
+import UserAdd01Icon from "@hugeicons/core-free-icons/UserAdd01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import {
+  assignableWorkspaceRoles,
+  formatWorkspaceRole,
+} from "@repo/auth/permissions"
 import * as Clipboard from "expo-clipboard"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { useEffect, useRef, useState } from "react"
 import { Pressable, Share, Text, View } from "react-native"
 import { Button } from "@/components/ui/button"
+import { triggerHaptic } from "@/components/ui/haptics"
 import { SectionLabel } from "@/components/ui/section-label"
+import { useWorkspaceRoles } from "@/hooks/use-workspace-roles"
 import { api, responseMessage } from "@/lib/api"
-import { inviteUrl } from "@/lib/invites"
+import { authClient } from "@/lib/auth-client"
+import { inviteUrl, parseEmailList } from "@/lib/invites"
 
 const EXPIRY_OPTIONS = [
   { label: "30 minutes", value: "30" },
@@ -34,14 +44,27 @@ const MAX_USES_OPTIONS = [
 export function CreateInviteSheet({
   isOpen,
   onOpenChange,
+  workspaceId,
   workspaceName,
   workspaceSlug,
 }: {
   isOpen: boolean
   onOpenChange: (isOpen: boolean) => void
+  workspaceId: string
   workspaceName: string
   workspaceSlug: string
 }) {
+  const [emails, setEmails] = useState("")
+  const [role, setRole] = useState("member")
+  const [isSending, setIsSending] = useState(false)
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [sentMessage, setSentMessage] = useState<string | null>(null)
+  const { data: customRoles } = useWorkspaceRoles(workspaceId)
+  // Only owners and admins invite, and both may invite at any non-owner role.
+  const roleOptions = [
+    ...assignableWorkspaceRoles,
+    ...(customRoles ?? []).map((customRole) => customRole.role),
+  ]
   const [expiresIn, setExpiresIn] = useState("1440")
   const [maxUses, setMaxUses] = useState("none")
   const [createdCode, setCreatedCode] = useState<string | null>(null)
@@ -53,6 +76,10 @@ export function CreateInviteSheet({
 
   useEffect(() => {
     if (!isOpen) return
+    setEmails("")
+    setRole("member")
+    setEmailError(null)
+    setSentMessage(null)
     setExpiresIn("1440")
     setMaxUses("none")
     setCreatedCode(null)
@@ -66,6 +93,43 @@ export function CreateInviteSheet({
     },
     []
   )
+
+  const sendInvites = async () => {
+    const { emails: addresses, invalid } = parseEmailList(emails)
+    if (isSending || addresses.length === 0) return
+    if (invalid.length > 0) {
+      setEmailError(`Not an email address: ${invalid.join(", ")}`)
+      return
+    }
+    setIsSending(true)
+    setEmailError(null)
+    setSentMessage(null)
+    try {
+      const results = await Promise.all(
+        addresses.map(async (email) => {
+          const { error } = await authClient.organization.inviteMember({
+            email,
+            role,
+            organizationId: workspaceId,
+          })
+          return { email, error: error ? (error.message ?? "Failed") : null }
+        })
+      )
+      const failed = results.filter((result) => result.error)
+      const sent = results.length - failed.length
+      if (sent > 0) {
+        triggerHaptic("success")
+        setSentMessage(sent === 1 ? "Invite sent" : `${sent} invites sent`)
+      }
+      // Keep only the failed addresses so they can be fixed and resent.
+      setEmails(failed.map((result) => result.email).join(", "))
+      setEmailError(failed[0] ? `${failed[0].email}: ${failed[0].error}` : null)
+    } catch {
+      setEmailError("Could not send invites")
+    } finally {
+      setIsSending(false)
+    }
+  }
 
   const createInvite = async () => {
     if (isCreating) return
@@ -122,16 +186,74 @@ export function CreateInviteSheet({
           >
             <View className="flex-row items-start gap-three px-one">
               <View className="size-10 items-center justify-center rounded-lor-sm bg-surface-secondary">
-                <HugeiconsIcon color={foreground} icon={Link01Icon} size={20} />
+                <HugeiconsIcon
+                  color={foreground}
+                  icon={UserAdd01Icon}
+                  size={20}
+                />
               </View>
               <View className="min-w-0 flex-1 gap-px">
                 <BottomSheet.Title>Invite people</BottomSheet.Title>
                 <BottomSheet.Description>
-                  Share a link that lets anyone join {workspaceName}.
+                  Invite teammates to {workspaceName} by email, or share a link.
                 </BottomSheet.Description>
               </View>
               <BottomSheet.Close />
             </View>
+
+            <View className="gap-two px-one">
+              <SectionLabel>Emails</SectionLabel>
+              <BottomSheetTextInput
+                accessibilityLabel="Emails"
+                autoCapitalize="none"
+                autoCorrect={false}
+                className="min-h-24 rounded-lor-sm border border-border bg-surface px-three py-three text-base text-foreground"
+                inputMode="email"
+                multiline
+                onChangeText={(value) => {
+                  setEmails(value)
+                  setEmailError(null)
+                  setSentMessage(null)
+                }}
+                placeholder="name@company.com, another@company.com"
+                placeholderTextColor="#737373"
+                textAlignVertical="top"
+                value={emails}
+              />
+            </View>
+            <View className="gap-two px-one">
+              <SectionLabel>Role</SectionLabel>
+              <View className="flex-row flex-wrap gap-two">
+                {roleOptions.map((option) => (
+                  <OptionChip
+                    isSelected={role === option}
+                    key={option}
+                    label={formatWorkspaceRole(option)}
+                    onPress={() => setRole(option)}
+                  />
+                ))}
+              </View>
+            </View>
+            {emailError ? (
+              <Text className="px-one text-sm font-medium text-danger">
+                {emailError}
+              </Text>
+            ) : null}
+            {sentMessage ? (
+              <Text className="px-one text-sm font-medium text-success">
+                {sentMessage}
+              </Text>
+            ) : null}
+            <View className="px-one">
+              <Button
+                isDisabled={isSending || !emails.trim()}
+                onPress={() => void sendInvites()}
+              >
+                {isSending ? "Sending…" : "Send invites"}
+              </Button>
+            </View>
+
+            <View className="mx-one h-px bg-separator" />
 
             {createdCode ? (
               <>
@@ -163,6 +285,14 @@ export function CreateInviteSheet({
               </>
             ) : (
               <>
+                <View className="gap-px px-one">
+                  <Text className="text-[15px] font-semibold text-foreground">
+                    Invite link
+                  </Text>
+                  <Text className="text-[13px] text-muted">
+                    Anyone with the link joins as a member.
+                  </Text>
+                </View>
                 <View className="gap-two px-one">
                   <SectionLabel>Expires after</SectionLabel>
                   <View className="flex-row flex-wrap gap-two">
