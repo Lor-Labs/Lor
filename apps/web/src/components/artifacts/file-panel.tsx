@@ -29,8 +29,8 @@ function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <Button
-      variant="ghost"
-      size="icon-sm"
+      variant="outline"
+      size="icon"
       aria-label="Copy contents"
       title="Copy contents"
       onClick={() => {
@@ -202,10 +202,10 @@ function FileView({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-border/70 border-b px-2.5">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-border/70 border-b px-3">
         <Button
-          variant="ghost"
-          size="icon-sm"
+          variant="outline"
+          size="icon"
           aria-label="Close file"
           title="Close file"
           onClick={close}
@@ -225,12 +225,12 @@ function FileView({
             </span>
           )}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {versionSelect}
           {sessionId && workspaceSlug && (
             <Button
-              variant="ghost"
-              size="icon-sm"
+              variant="outline"
+              size="icon"
               aria-label="Open session"
               title="Open session"
               onClick={() =>
@@ -254,7 +254,10 @@ function FileView({
               download={file.name}
               aria-label="Download"
               title="Download"
-              className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+              className={buttonVariants({
+                variant: "outline",
+                size: "icon",
+              })}
             >
               <HugeiconsIcon icon={Download01Icon} />
             </a>
