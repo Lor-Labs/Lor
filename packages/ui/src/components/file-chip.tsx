@@ -125,7 +125,27 @@ function FileChipAction({
   )
 }
 
-// Renders a <button> by default; pass `render={<a href=… />}` for a link.
+const TRIGGER_CLASS =
+  "absolute inset-0 z-10 cursor-pointer rounded-[inherit] outline-none disabled:cursor-default"
+
+// A chip that opens a URL (a download, a new tab) instead of running a
+// handler. `label` is read by screen readers; the chip shows the rest.
+function FileChipLink({
+  className,
+  label,
+  ...props
+}: Omit<React.ComponentProps<"a">, "children"> & { label: string }) {
+  return (
+    <a
+      data-slot="file-chip-trigger"
+      className={cn(TRIGGER_CLASS, className)}
+      {...props}
+    >
+      <span className="sr-only">{label}</span>
+    </a>
+  )
+}
+
 function FileChipTrigger({
   className,
   render,
@@ -137,10 +157,7 @@ function FileChipTrigger({
   const defaultProps = {
     "data-slot": "file-chip-trigger",
     type,
-    className: cn(
-      "absolute inset-0 z-10 cursor-pointer rounded-[inherit] outline-none disabled:cursor-default",
-      className
-    ),
+    className: cn(TRIGGER_CLASS, className),
   }
   return useRender({
     defaultTagName: "button",
@@ -155,6 +172,7 @@ export {
   FileChipActions,
   FileChipContent,
   FileChipDescription,
+  FileChipLink,
   FileChipMedia,
   FileChipTitle,
   FileChipTrigger,

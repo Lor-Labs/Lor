@@ -1,8 +1,19 @@
 import { Message01Icon, Search01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
+import {
+  FileChip,
+  FileChipAction,
+  FileChipActions,
+  FileChipContent,
+  FileChipDescription,
+  FileChipLink,
+  FileChipMedia,
+  FileChipTitle,
+  FileChipTrigger,
+} from "@repo/ui/components/file-chip"
+import { FileTypeIcon } from "@repo/ui/components/file-type-icon"
 import { Skeleton } from "@repo/ui/components/skeleton"
-import { cn } from "@repo/ui/lib/utils"
 import { useEffect, useState } from "react"
 import { AttachmentLightbox } from "@/components/chat/message-attachment"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
@@ -11,30 +22,27 @@ import type { AttachmentsSidebarView } from "@/components/sidebar/right-panel/ri
 import { type ChannelFile, useChannelFiles } from "@/hooks/use-channel-files"
 import { useOpenFile } from "@/hooks/use-file-panel"
 import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
-import { getFileKind } from "@/lib/attachments"
 
+// Images show a thumbnail; other files, or an image that fails to load,
+// show their type icon.
 function FileThumbnail({ file }: { file: ChannelFile }) {
-  const kind = getFileKind(file.contentType, file.name)
   const [failed, setFailed] = useState(false)
-  const isImage = file.contentType.startsWith("image/")
+  if (!file.contentType.startsWith("image/") || failed) {
+    return (
+      <FileChipMedia>
+        <FileTypeIcon filename={file.name} />
+      </FileChipMedia>
+    )
+  }
   return (
-    <span
-      className={cn(
-        "relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50",
-        kind.tint
-      )}
-    >
-      <kind.Icon className="size-4" />
-      {isImage && !failed && (
-        <img
-          src={file.url}
-          alt=""
-          loading="lazy"
-          onError={() => setFailed(true)}
-          className="absolute inset-0 size-full object-cover"
-        />
-      )}
-    </span>
+    <FileChipMedia variant="image">
+      <img
+        src={file.url}
+        alt=""
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    </FileChipMedia>
   )
 }
 
@@ -49,76 +57,57 @@ function FileRow({
   const [imageOpen, setImageOpen] = useState(false)
   const goToMessage = useMessageSearchNavigation()
   const source = file.conversation
-  const contents = (
-    <>
+  const { artifactId } = file
+  const title = `${file.name}\nUpdated ${new Date(file.updatedAt).toLocaleString()}`
+  return (
+    <FileChip className="w-full border-transparent bg-transparent">
       <FileThumbnail key={file.url} file={file} />
-      <span className="min-w-0 flex-1">
-        <span
-          className="line-clamp-2 break-words text-xs font-medium leading-snug"
-          title={file.name}
-        >
-          {file.name}
-        </span>
-        <span
-          className="block truncate text-[11px] text-muted-foreground"
-          title={`Updated ${new Date(file.updatedAt).toLocaleString()}`}
-        >
+      <FileChipContent>
+        <FileChipTitle>{file.name}</FileChipTitle>
+        <FileChipDescription>
           {file.authorName}
           {file.version !== null ? ` · v${file.version}` : ""}
           {` · ${new Date(file.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
-        </span>
-      </span>
-    </>
-  )
-  const rowClass =
-    "flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md px-1 py-2 text-left transition-colors hover:bg-foreground/[0.04] focus-visible:outline-2 focus-visible:outline-ring"
-  return (
-    <div className="flex min-w-0 items-center gap-0.5">
-      {file.artifactId ? (
-        <button
-          type="button"
-          className={rowClass}
-          onClick={() => {
-            if (file.artifactId) openFile(file.artifactId)
-          }}
-        >
-          {contents}
-        </button>
+        </FileChipDescription>
+      </FileChipContent>
+      {artifactId ? (
+        <FileChipTrigger
+          aria-label={`Open ${file.name}`}
+          title={title}
+          onClick={() => openFile(artifactId)}
+        />
       ) : file.contentType.startsWith("image/") ? (
-        <button
-          type="button"
-          className={rowClass}
+        <FileChipTrigger
+          aria-label={`View ${file.name}`}
+          title={title}
           onClick={() => setImageOpen(true)}
-        >
-          {contents}
-        </button>
+        />
       ) : (
-        <a
+        <FileChipLink
           href={file.url}
           target="_blank"
           rel="noopener noreferrer"
-          className={rowClass}
-        >
-          {contents}
-        </a>
+          label={`Open ${file.name}`}
+          title={title}
+        />
       )}
       {source && (
-        <button
-          type="button"
-          aria-label={`View conversation for ${file.name}`}
-          title="View conversation"
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={() =>
-            goToMessage({
-              id: source.messageId,
-              channelId,
-              threadRootId: source.threadRootId,
-              sessionId: source.sessionId,
-            })
-          }
-        >
-          <HugeiconsIcon icon={Message01Icon} size={15} />
-        </button>
+        <FileChipActions>
+          <FileChipAction
+            aria-label={`View conversation for ${file.name}`}
+            title="View conversation"
+            onClick={() =>
+              goToMessage({
+                id: source.messageId,
+                channelId,
+                threadRootId: source.threadRootId,
+                sessionId: source.sessionId,
+              })
+            }
+          >
+            <HugeiconsIcon icon={Message01Icon} />
+          </FileChipAction>
+        </FileChipActions>
       )}
       {imageOpen && (
         <AttachmentLightbox
@@ -135,7 +124,7 @@ function FileRow({
           onOpenChange={setImageOpen}
         />
       )}
-    </div>
+    </FileChip>
   )
 }
 

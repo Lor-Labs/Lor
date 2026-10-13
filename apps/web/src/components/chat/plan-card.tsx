@@ -171,10 +171,8 @@ export function PlanCard({
                 key={artifact.id}
                 artifactId={artifact.id}
                 name={artifact.path}
-                contentType={artifact.mime}
                 size={artifact.size}
-                variant="chip"
-                className="w-full max-w-none"
+                className="w-full"
               />
             ))}
           </div>

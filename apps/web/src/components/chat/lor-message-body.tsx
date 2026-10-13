@@ -328,7 +328,6 @@ export const LorMessageBody = memo(function LorMessageBody({
               key={file.artifactId}
               artifactId={file.artifactId}
               name={file.path}
-              contentType={file.contentType}
               size={file.size}
             />
           ))}

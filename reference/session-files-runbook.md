@@ -103,7 +103,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 4b: session files API and rail (~170)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - `GET /sessions/{id}/files`: every artifact the session owns (newest
   first) and every upload in its thread. Same access check and 404 as
@@ -114,10 +114,16 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 5: chips everywhere (~350)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
 
-- `ArtifactFileCard`, `WorkFileList` / `SourceRow`, the Files list rows and
-  upload tiles render the shared chip.
+- `ArtifactFileCard` (Lor's files, opens the panel) and the new
+  `UploadFileCard` (shared files, open in a new tab) are `FileChip`s; the
+  transcript, the session rail, plan cards, loop runs and message uploads
+  all use them. The channel Files list rows are surface-less chips that keep
+  their author · version · date line, with "View conversation" as a chip
+  action.
+- `getFileKind` and its Hugeicons glyph set are deleted; the composer's
+  pending uploads stay on the Nexus tile.
 
 #### Step 6: split `ThreadPanel` (~400, may split)
 
@@ -160,4 +166,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
   resets it and only plans reseeded it). Editing another session's file by
   id is recorded in `artifacts.md` as a requirement for live editing, not
   built here.
+- Step 5 added `FileChipLink` to `@repo/ui`: a link-backed trigger with a
+  screen-reader label, because Biome rejects an empty `<a>` passed as a
+  Base UI `render` element.
 

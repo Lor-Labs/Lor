@@ -7,14 +7,16 @@ import {
 } from "@repo/ui/components/popover"
 import { useMemo } from "react"
 import { ApprovalGateCard } from "@/components/chat/approval-card"
-import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
+import {
+  ArtifactFileCard,
+  UploadFileCard,
+} from "@/components/chat/artifact-file-card"
 import { LorToolTrail } from "@/components/chat/lor-tool-trail"
 import { PlanStepList } from "@/components/chat/plan-step-list"
 import { MorphText } from "@/components/ui/morph-text"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { usePlan, usePlanArtifacts } from "@/hooks/use-plan"
 import type { LorToolCallView, Message } from "@/lib/api-types"
-import { formatFileSize, getFileKind } from "@/lib/attachments"
 
 export type PlanSourceFile = {
   url: string
@@ -43,22 +45,6 @@ function SectionChevron() {
   )
 }
 
-function SourceRow({ source }: { source: PlanSourceFile }) {
-  const kind = getFileKind(source.contentType, source.filename)
-  return (
-    <a
-      href={source.url}
-      target="_blank"
-      rel="noreferrer noopener"
-      className="flex items-center gap-1.5 rounded-md px-1 py-0.5 text-muted-foreground text-sm transition-colors hover:bg-foreground/5 hover:text-foreground"
-    >
-      <kind.Icon className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate">{source.filename}</span>
-      <span className="shrink-0 text-xs">{formatFileSize(source.size)}</span>
-    </a>
-  )
-}
-
 export function WorkFileList({
   outputs,
   sources,
@@ -69,7 +55,7 @@ export function WorkFileList({
   return (
     <div className="space-y-2">
       {outputs.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {sources.length > 0 && (
             <p className="px-1 font-medium text-muted-foreground text-xs">
               Outputs
@@ -80,23 +66,27 @@ export function WorkFileList({
               key={artifact.id}
               artifactId={artifact.id}
               name={artifact.path}
-              contentType={artifact.mime}
               size={artifact.size}
-              variant="chip"
-              className="w-full max-w-none"
+              className="w-full"
             />
           ))}
         </div>
       )}
       {sources.length > 0 && (
-        <div className="space-y-0.5">
+        <div className="space-y-1.5">
           {outputs.length > 0 && (
             <p className="px-1 font-medium text-muted-foreground text-xs">
               Sources
             </p>
           )}
           {sources.map((source) => (
-            <SourceRow key={source.url} source={source} />
+            <UploadFileCard
+              key={source.url}
+              name={source.filename}
+              size={source.size}
+              url={source.url}
+              className="w-full"
+            />
           ))}
         </div>
       )}
