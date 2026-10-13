@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { DesktopSidebarTitlebar } from "@/components/desktop-titlebar"
 import { DesktopZoomRegion } from "@/components/desktop-zoom"
 import { UserBar } from "@/components/sidebar/channel-panel/user-bar"
+import { DesktopAppCard } from "@/components/sidebar/desktop-app-card"
 import { DMSidebarContent } from "@/components/sidebar/dm-sidebar"
 import {
   CENTER_MIN_WIDTH,
@@ -70,6 +71,7 @@ function LeftSidebar() {
         </AnimatePresence>
       </div>
       <SidebarFooter>
+        <DesktopAppCard />
         <CallBar />
         <UserBar />
       </SidebarFooter>

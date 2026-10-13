@@ -24,8 +24,8 @@ const HINT_PRIORITY = [
   "connectors_intro",
 ] as const
 
-// Stored like hints but shown as a page, never in the popover slot.
-const PAGE_HINTS = ["how_lor_works"] as const
+// Stored like hints but shown as a page or card, never in the popover slot.
+const PAGE_HINTS = ["how_lor_works", "desktop_app"] as const
 
 type PageHintKey = (typeof PAGE_HINTS)[number]
 export type HintKey = (typeof HINT_PRIORITY)[number] | PageHintKey
@@ -168,10 +168,15 @@ export function useHint(key: HintKey, eligible: boolean) {
   }
 }
 
-// A hint shown as a page or dialog: only its dismissal is shared.
+// A hint shown as a page, dialog or card: only its dismissal is shared.
+// `popoverShowing` lets a card wait so two hints never show at once.
 export function usePageHint(key: PageHintKey) {
   const context = useContext(HintsContext)
   const dismissKey = context?.dismiss
   const dismiss = useCallback(() => dismissKey?.(key), [dismissKey, key])
-  return { dismissed: context ? context.isDismissed(key) : true, dismiss }
+  return {
+    dismissed: context ? context.isDismissed(key) : true,
+    popoverShowing: context?.activeKey != null,
+    dismiss,
+  }
 }

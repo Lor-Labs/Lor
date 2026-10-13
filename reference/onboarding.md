@@ -370,6 +370,7 @@ The set:
 | `lor_reply` | First Lor reply to one of this user's messages finishes streaming | The reply's tool trail row | Lor shows its work. Open the trail to see what it checked. Reply in the thread to continue. | Expanding the trail | yes |
 | `voice_intro` | First voice channel lobby visit | The Start call button in `CallHero` | Calls are transcribed for the people in them. Say "Lor" during a call to ask it something. Lor writes notes when the call ends. | Joining a call | yes |
 | `connectors_intro` | Connectors tab opens with nothing connected, viewer holds `connector:manage` | The GitHub row | Connect GitHub first. Lor reads pull requests, issues, and code through it. | Connecting anything | no (no connectors screen) |
+| `desktop_app` | Web on a Mac (not the desktop app), after `how_lor_works` and 5 minutes of visible-tab use in that browser (`lor:active-seconds`), while no hint popover shows | A card above the user bar in the sidebar footer (`desktop-app-card.tsx`), not the popover slot | Lor for macOS. Get notified even after you close the window. Download | Download from the card or the user menu's "Download for Mac"; opening the desktop app once | no |
 
 Not hints: the Approvals card already explains itself; settings tabs are
 self-describing; invites are a setup card.
@@ -1015,3 +1016,7 @@ Redirect on update stays on. Creators cannot delete their own channels.
   for owners and admins (mobile has no custom-role grants), opens
   `{web}/{key}/setup` in the in-app browser, and its ✕ hides it on that
   device only. A native setup screen is in `reference/mobile-parity-todo.md`.
+- 2026-10-12 (Jacob): a desktop app nudge, `desktop_app`, a page hint shown
+  as a quiet sidebar card. Only Mac browsers see it, because only an Apple
+  Silicon build ships. The user menu keeps "Download for Mac" for good. The
+  `hint_key` enum gained `desktop_app` (db:push).
