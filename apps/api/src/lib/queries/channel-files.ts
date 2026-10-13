@@ -1,6 +1,29 @@
 import { z } from "@hono/zod-openapi"
-import { db, type SQL, sql } from "@repo/db"
+import {
+  and,
+  asc,
+  type Column,
+  db,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  type SQL,
+  sql,
+} from "@repo/db"
+import {
+  type Attachment,
+  agentRun,
+  agentSession,
+  artifact,
+  artifactVersion,
+  message,
+  plan,
+  user,
+} from "@repo/db/schema"
 import { env } from "@repo/env/server"
+import { alias } from "drizzle-orm/pg-core"
 
 export const fileCursorSchema = z.object({
   at: z.string().datetime(),
@@ -16,38 +39,64 @@ type Conversation = {
 // Old artifacts have no originRunId. Recover their source from persisted
 // tool results, with all lookups confined to the already-authorized channel.
 export async function artifactConversations(channelId: string, ids: string[]) {
-  if (ids.length === 0) return new Map<string, Conversation>()
-  const rows = await db.execute<{
-    artifactId: string
-    messageId: string | null
-    threadRootId: string | null
-    sessionId: string | null
-  }>(sql`
-    select a.id as "artifactId",
-      coalesce(source.id, legacy.id) as "messageId",
-      coalesce(source.thread_root_id, legacy.thread_root_id) as "threadRootId",
-      s.id as "sessionId"
-    from artifact a
-    left join plan p on p.id = a.plan_id and p.channel_id = a.channel_id
-    left join agent_run r on r.id = a.origin_run_id and r.channel_id = a.channel_id
-    left join message source on source.id = coalesce(p.thread_root_id, r.message_id, r.trigger_message_id)
-      and source.channel_id = a.channel_id
-    left join lateral (
-      select m.id, m.thread_root_id from message m
-      where source.id is null and m.channel_id = a.channel_id
-        and m.lor_tool_calls @> jsonb_build_array(jsonb_build_object(
-          'files', jsonb_build_array(jsonb_build_object('artifactId', a.id::text))))
-      order by m.created_at asc, m.id asc limit 1
-    ) legacy on true
-    left join agent_session s on s.thread_root_id = coalesce(
-      source.thread_root_id, legacy.thread_root_id, source.id, legacy.id)
-    where a.channel_id = ${channelId}::uuid
-      and a.id in (${sql.join(
-        ids.map((id) => sql`${id}::uuid`),
-        sql`, `
-      )})
-  `)
   const result = new Map<string, Conversation>()
+  if (ids.length === 0) return result
+  const source = alias(message, "source")
+  const legacyMessage = alias(message, "legacy_message")
+  const legacy = db
+    .select({ id: legacyMessage.id, threadRootId: legacyMessage.threadRootId })
+    .from(legacyMessage)
+    .where(
+      and(
+        isNull(source.id),
+        eq(legacyMessage.channelId, artifact.channelId),
+        sql`${legacyMessage.lorToolCalls} @> jsonb_build_array(jsonb_build_object(
+          'files', jsonb_build_array(jsonb_build_object('artifactId', ${artifact.id}::text))))`
+      )
+    )
+    .orderBy(asc(legacyMessage.createdAt), asc(legacyMessage.id))
+    .limit(1)
+    .as("legacy")
+  const rows = await db
+    .select({
+      artifactId: artifact.id,
+      messageId: sql<string | null>`coalesce(${source.id}, ${legacy.id})`,
+      threadRootId: sql<
+        string | null
+      >`coalesce(${source.threadRootId}, ${legacy.threadRootId})`,
+      sessionId: agentSession.id,
+    })
+    .from(artifact)
+    .leftJoin(
+      plan,
+      and(eq(plan.id, artifact.planId), eq(plan.channelId, artifact.channelId))
+    )
+    .leftJoin(
+      agentRun,
+      and(
+        eq(agentRun.id, artifact.originRunId),
+        eq(agentRun.channelId, artifact.channelId)
+      )
+    )
+    .leftJoin(
+      source,
+      and(
+        eq(
+          source.id,
+          sql`coalesce(${plan.threadRootId}, ${agentRun.messageId}, ${agentRun.triggerMessageId})`
+        ),
+        eq(source.channelId, artifact.channelId)
+      )
+    )
+    .leftJoinLateral(legacy, sql`true`)
+    .leftJoin(
+      agentSession,
+      eq(
+        agentSession.threadRootId,
+        sql`coalesce(${source.threadRootId}, ${legacy.threadRootId}, ${source.id}, ${legacy.id})`
+      )
+    )
+    .where(and(eq(artifact.channelId, channelId), inArray(artifact.id, ids)))
   for (const row of rows) {
     if (row.messageId)
       result.set(row.artifactId, {
@@ -59,21 +108,13 @@ export async function artifactConversations(channelId: string, ids: string[]) {
   return result
 }
 
-type FileRow = {
-  id: string
-  kind: "artifact" | "upload"
-  artifactId: string | null
-  name: string
-  contentType: string
-  size: number | null
-  url: string
-  version: number | null
-  authorName: string
-  updatedAt: string
-  messageId: string | null
-  threadRootId: string | null
-  sessionId: string | null
-}
+// Microseconds: a millisecond cursor would skip rows that share one.
+const cursorTime = (column: Column) =>
+  sql<string>`to_char(${column}, 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`
+
+// An upload is one element of message.attachments, exploded as `f` below.
+const attachmentField = (key: keyof Attachment) =>
+  sql<string>`f.value->>${sql.raw(`'${key}'`)}`
 
 export async function fetchChannelFiles(args: {
   channelId: string
@@ -85,67 +126,138 @@ export async function fetchChannelFiles(args: {
 }) {
   const { channelId, workspaceId, q, kind, limit, cursor } = args
   const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`
-  // Filter, order, and limit each branch so the message branch stops early on
-  // message_channelId_createdAt_idx instead of expanding every channel attachment.
-  const branchPage = (name: SQL, sortAt: SQL, id: SQL) => sql`
-    and ${q ? sql`${name} ilike ${pattern}` : sql`true`}
-    and ${cursor ? sql`(${sortAt}, ${id}) < (${cursor.at}::timestamp, ${cursor.id})` : sql`true`}
-    order by ${sortAt} desc, ${id} desc
-    limit ${limit + 1}`
-  const artifactFileId = sql`'artifact:' || a.id::text`
-  const uploadFileId = sql`'upload:' || m.id::text || ':' || f.ordinality::text`
-  const rows = await db.execute<FileRow>(sql`
-    with files as (
-      (select ${artifactFileId} as id, 'artifact' as kind,
-        a.id as "artifactId", a.path as name, v.content_type as "contentType",
-        v.size, ${`${env.S3_PUBLIC_URL}/`} || v.blob_key as url,
-        v.version, case when v.author_type = 'agent' then 'Lor'
-          else coalesce(u.name, 'Former member') end as "authorName",
-        a.updated_at as sort_at, null::uuid as "messageId", null::uuid as "threadRootId",
-        null::uuid as "sessionId"
-      from artifact a
-      join artifact_version v on v.artifact_id = a.id and v.version = a.current_version
-      left join "user" u on u.id = v.author_id
-      where a.channel_id = ${channelId}::uuid and a.workspace_id = ${workspaceId}::uuid
-        and ${kind !== "upload"}
-        ${branchPage(sql`a.path`, sql`a.updated_at`, artifactFileId)})
-      union all
-      (select ${uploadFileId}, 'upload',
-        null::uuid, f.value->>'filename', coalesce(f.value->>'contentType', 'application/octet-stream'),
-        (f.value->>'size')::integer, f.value->>'url', null::integer,
-        coalesce(m.override_name, u.name), m.created_at, m.id, m.thread_root_id, s.id
-      from message m
-      join "user" u on u.id = m.author_id
-      left join agent_session s on s.thread_root_id = coalesce(m.thread_root_id, m.id)
-      cross join lateral jsonb_array_elements(coalesce(m.attachments, '[]'::jsonb)) with ordinality f
-      where m.channel_id = ${channelId}::uuid
-        and ${kind !== "artifact"}
-        ${branchPage(sql`f.value->>'filename'`, sql`m.created_at`, uploadFileId)})
-    )
-    select id, kind, "artifactId", name, "contentType", size, url, version,
-      "authorName", "messageId", "threadRootId", "sessionId",
-      to_char(sort_at, 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "updatedAt"
-    from files
-    order by sort_at desc, id desc
-    limit ${limit + 1}
-  `)
-  const page = rows.slice(0, limit)
+  // Each query filters, orders and limits on its own index (the message one
+  // stops early on message_channelId_createdAt_idx); the page merges them.
+  const olderThanCursor = (sortAt: Column, id: SQL) =>
+    cursor
+      ? sql`(${sortAt}, ${id}) < (${cursor.at}::timestamp, ${cursor.id})`
+      : undefined
+  const artifactFileId = sql<string>`'artifact:' || ${artifact.id}::text`
+  const uploadFileId = sql<string>`'upload:' || ${message.id}::text || ':' || f.ordinality::text`
+  const uploadName = attachmentField("filename")
+
+  const [artifactRows, uploadRows] = await Promise.all([
+    db
+      .select({
+        id: artifactFileId,
+        artifactId: artifact.id,
+        name: artifact.path,
+        contentType: artifactVersion.contentType,
+        size: artifactVersion.size,
+        blobKey: artifactVersion.blobKey,
+        version: artifactVersion.version,
+        authorType: artifactVersion.authorType,
+        authorName: user.name,
+        updatedAt: cursorTime(artifact.updatedAt),
+      })
+      .from(artifact)
+      .innerJoin(
+        artifactVersion,
+        and(
+          eq(artifactVersion.artifactId, artifact.id),
+          eq(artifactVersion.version, artifact.currentVersion)
+        )
+      )
+      .leftJoin(user, eq(user.id, artifactVersion.authorId))
+      .where(
+        and(
+          kind === "upload" ? sql`false` : undefined,
+          eq(artifact.channelId, channelId),
+          workspaceId ? eq(artifact.workspaceId, workspaceId) : sql`false`,
+          q ? ilike(artifact.path, pattern) : undefined,
+          olderThanCursor(artifact.updatedAt, artifactFileId)
+        )
+      )
+      .orderBy(desc(artifact.updatedAt), desc(artifactFileId))
+      .limit(limit + 1),
+    db
+      .select({
+        id: uploadFileId,
+        name: uploadName,
+        contentType: sql<string>`coalesce(${attachmentField("contentType")}, 'application/octet-stream')`,
+        size: sql<number | null>`(${attachmentField("size")})::integer`,
+        url: attachmentField("url"),
+        overrideName: message.overrideName,
+        authorName: user.name,
+        updatedAt: cursorTime(message.createdAt),
+        messageId: message.id,
+        threadRootId: message.threadRootId,
+        sessionId: agentSession.id,
+      })
+      .from(message)
+      .innerJoin(user, eq(user.id, message.authorId))
+      .leftJoin(
+        agentSession,
+        eq(
+          agentSession.threadRootId,
+          sql`coalesce(${message.threadRootId}, ${message.id})`
+        )
+      )
+      .crossJoinLateral(
+        sql`jsonb_array_elements(coalesce(${message.attachments}, '[]'::jsonb)) with ordinality f`
+      )
+      .where(
+        and(
+          kind === "artifact" ? sql`false` : undefined,
+          eq(message.channelId, channelId),
+          q ? ilike(uploadName, pattern) : undefined,
+          olderThanCursor(message.createdAt, uploadFileId)
+        )
+      )
+      .orderBy(desc(message.createdAt), desc(uploadFileId))
+      .limit(limit + 1),
+  ])
+
+  const uploads = uploadRows.map((row) => ({
+    id: row.id,
+    kind: "upload" as const,
+    artifactId: null,
+    name: row.name,
+    contentType: row.contentType,
+    size: row.size,
+    url: row.url,
+    version: null,
+    authorName: row.overrideName ?? row.authorName,
+    updatedAt: row.updatedAt,
+    conversation: {
+      messageId: row.messageId,
+      threadRootId: row.threadRootId,
+      sessionId: row.sessionId,
+    },
+  }))
+  const artifacts = artifactRows.map((row) => ({
+    id: row.id,
+    kind: "artifact" as const,
+    artifactId: row.artifactId,
+    name: row.name,
+    contentType: row.contentType,
+    size: row.size,
+    url: `${env.S3_PUBLIC_URL}/${row.blobKey}`,
+    version: row.version,
+    authorName:
+      row.authorType === "agent" ? "Lor" : (row.authorName ?? "Former member"),
+    updatedAt: row.updatedAt,
+    conversation: null,
+  }))
+  // Stable sort: equal timestamps keep each query's order with uploads first,
+  // the same (updatedAt, id) desc order the cursor pages by.
+  const merged = [...uploads, ...artifacts].sort((a, b) =>
+    a.updatedAt === b.updatedAt ? 0 : a.updatedAt < b.updatedAt ? 1 : -1
+  )
+  const page = merged.slice(0, limit)
   const origins = await artifactConversations(
     channelId,
     page.flatMap((file) => (file.artifactId ? [file.artifactId] : []))
   )
   const last = page.at(-1)
   return {
-    files: page.map(({ messageId, threadRootId, sessionId, ...file }) => ({
-      ...file,
-      conversation: file.artifactId
-        ? (origins.get(file.artifactId) ?? null)
-        : messageId
-          ? { messageId, threadRootId, sessionId }
-          : null,
-    })),
+    files: page.map((file) =>
+      file.artifactId
+        ? { ...file, conversation: origins.get(file.artifactId) ?? null }
+        : file
+    ),
     nextCursor:
-      rows.length > limit && last
+      merged.length > limit && last
         ? Buffer.from(
             JSON.stringify({ at: last.updatedAt, id: last.id })
           ).toString("base64url")

@@ -35,7 +35,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 1: sessions never open in the thread panel (~250)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - API: `sessionId` on the thread replies response, on artifact
   `conversation` (`lib/queries/channel-files.ts` `artifactConversations`) and
@@ -48,6 +48,14 @@ Tick each step's boxes as it lands and record departures in "Deviations".
   conversation" and `useArtifactConversation` pass or resolve the session.
 - The overlay's "Open conversation" goes to the session page and hides on
   that session's own page.
+
+#### Step 1b: typed channel file queries (~150)
+
+[x] built 2026-10-13 · [ ] committed
+
+- `lib/queries/channel-files.ts` moves off `db.execute` casts to the Drizzle
+  query builder. The Files list runs its artifact and upload queries in
+  parallel and merges them in JS; the cursor format is unchanged.
 
 #### Step 2: file icon and chip primitives (~300)
 
