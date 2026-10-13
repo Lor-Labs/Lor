@@ -18,6 +18,8 @@ import {
   useSidebar,
 } from "@repo/ui/components/sidebar"
 import { ThemeSwitcher } from "@repo/ui/components/unlumen-ui/theme-switcher"
+import { useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { LogOut } from "lucide-react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSettings } from "@/hooks/use-settings"
@@ -34,15 +36,23 @@ export function UserBar() {
   const { data: session } = authClient.useSession()
   const { open: openSettings } = useSettings()
   const { isMobile } = useSidebar()
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const name = session?.user.name ?? "User"
   const email = session?.user.email ?? ""
 
+  // Go to /login explicitly, with no return path: the next person to sign in
+  // in this tab may be a different account, which must neither inherit this
+  // account's page nor see its cached queries.
   const handleLogout = async () => {
     try {
       await authClient.signOut()
     } catch (err) {
       console.error("Sign out failed:", err)
+      return
     }
+    queryClient.clear()
+    await navigate({ to: "/login", replace: true })
   }
 
   return (

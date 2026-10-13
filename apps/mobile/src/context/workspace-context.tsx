@@ -8,6 +8,8 @@ export type Workspace = {
   slug: string
   logo: string | null
   ownerId: string | null
+  // First-run setup checklist (web only) is still open.
+  setupPending: boolean
 }
 
 type WorkspaceContextValue = {
@@ -27,6 +29,7 @@ function toWorkspace(item: {
   slug: string
   logo?: string | null
   ownerId?: string | null
+  setupCompletedAt?: Date | string | null
 }): Workspace {
   return {
     id: item.id,
@@ -34,6 +37,7 @@ function toWorkspace(item: {
     slug: item.slug,
     logo: item.logo ?? null,
     ownerId: item.ownerId ?? null,
+    setupPending: !item.setupCompletedAt,
   }
 }
 

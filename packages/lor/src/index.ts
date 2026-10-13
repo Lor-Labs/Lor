@@ -216,6 +216,7 @@ How to answer:
 - For questions about THIS team/workspace, use search: it covers your memory pages (your brain) as well as chat history, screenshots and files people shared (by what they contain), and connected-tool activity. Nothing from your brain is preloaded, so search whenever the team's own context could matter. read opens a full memory page, and read_attachment reads more of a shared file than the search snippet. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; a moment in a call by its sessionId and the time into the call, e.g. [[call:0b9c…@12:40]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - Call transcripts are machine-transcribed speech, so names and terms can be misheard. A "(… not captured …)" line is a stretch with no transcript, not silence: never infer what was said there, and limit claims about what didn't happen to the captured part (say "nobody objected in the captured part of the call", not "nobody objected").
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
+- You can reach connected services (GitHub, Linear, Notion, …) only through the tools listed above. If someone asks about a service with no tools listed, it isn't connected for this channel: say so plainly, and mention that a workspace admin can connect it in Settings → Connectors.
 
 Use reactions naturally and sparingly to complement your response. Always still answer in text, and don't narrate the reaction or mention the tool use.
 
@@ -1893,15 +1894,29 @@ async function buildRunContext(ctx: RespondContext): Promise<AgentRunContext> {
 
   // Channel name so workspace instructions can express per-channel behavior
   // ("In #engineering, ..."). DM channels have no name — omitted.
-  const channelName = ctx.channelId
+  const channel = ctx.channelId
     ? await db
-        .select({ name: schema.channel.name })
+        .select({ name: schema.channel.name, topic: schema.channel.topic })
         .from(schema.channel)
         .where(eq(schema.channel.id, ctx.channelId))
         .limit(1)
-        .then((rows) => rows[0]?.name ?? undefined)
+        .then((rows) => rows[0])
         .catch(() => undefined)
     : undefined
+
+  // Cold start: who the team is, so a fresh workspace with an empty brain
+  // still gets answers grounded in what the company does.
+  const workspace = await db
+    .select({
+      name: schema.workspace.name,
+      website: schema.workspace.website,
+      description: schema.workspace.description,
+    })
+    .from(schema.workspace)
+    .where(eq(schema.workspace.id, ctx.workspaceId))
+    .limit(1)
+    .then((rows) => rows[0])
+    .catch(() => undefined)
 
   return {
     conversation: ctx.conversation,
@@ -1911,7 +1926,19 @@ async function buildRunContext(ctx: RespondContext): Promise<AgentRunContext> {
     ...(ctx.threadRootId ? { threadRootId: ctx.threadRootId } : {}),
     ...(ctx.triggerMessageId ? { triggerMessageId: ctx.triggerMessageId } : {}),
     rosterText,
-    ...(channelName ? { channelName } : {}),
+    ...(channel?.name ? { channelName: channel.name } : {}),
+    ...(channel?.topic ? { channelTopic: channel.topic } : {}),
+    ...(workspace
+      ? {
+          workspace: {
+            name: workspace.name,
+            ...(workspace.website ? { website: workspace.website } : {}),
+            ...(workspace.description
+              ? { description: workspace.description }
+              : {}),
+          },
+        }
+      : {}),
     ...(ctx.plan ? { plan: planContextSnapshot(ctx.plan) } : {}),
   }
 }

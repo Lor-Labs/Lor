@@ -101,3 +101,10 @@ export const connectorLookupRateLimit = rateLimiter({
   max: 60,
   keyExtractor: (c) => c.get("user")?.id ?? getIp(c),
 })
+
+/** Onboarding company-site lookups: 10/min per user, each costs Exa + model. */
+export const siteLookupRateLimit = rateLimiter({
+  prefix: "site-lookup",
+  max: 10,
+  keyExtractor: (c) => c.get("user")?.id ?? getIp(c),
+})

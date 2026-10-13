@@ -50,7 +50,9 @@ import { CodeBlock } from "@repo/ui/components/tool-ui/code-block"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { type Ref, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { HintPopover } from "@/components/hints/hint-popover"
+import { useHint } from "@/components/hints/hints-provider"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import {
   IconTile,
@@ -70,6 +72,7 @@ import type {
 } from "@/lib/api-types"
 import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
 import { connectorLogo } from "@/lib/connector-ui"
+import { openGithubConnect } from "@/lib/github-connect"
 import { openExternal } from "@/lib/open-external"
 
 // How many repositories to list before collapsing the rest into a "+N more".
@@ -93,8 +96,8 @@ type TriggerConfig = {
 
 // Why this viewer can't connect the connector right now, or null when they can.
 function connectBlocker(p: IntegrationStatus): string | null {
-  if (p.authType === "api-key") return p.available ? null : "Unavailable"
   if (!p.canManage) return "Admin only"
+  if (p.authType === "api-key") return p.available ? null : "Unavailable"
   return p.connectUrl ? null : "Unavailable"
 }
 
@@ -181,7 +184,8 @@ export function ConnectorsSection({
       setNotionConnect({ url: p.connectUrl, replacing: false })
       return
     }
-    openExternal(p.connectUrl)
+    if (p.id === "github") void openGithubConnect(workspaceSlug)
+    else openExternal(p.connectUrl)
     setPendingConnect(p.id)
   }
 
@@ -416,6 +420,15 @@ function ConnectorList({
         `${p.name} ${p.description}`.toLowerCase().includes(needle)
       )
     : providers
+
+  // Points a manager at GitHub while nothing is connected. Opening or
+  // connecting any connector counts as getting it.
+  const githubRowRef = useRef<HTMLDivElement>(null)
+  const github = providers.find((p) => p.id === "github")
+  const connectorsHint = useHint(
+    "connectors_intro",
+    !needle && !!github?.canManage && !providers.some((p) => p.connected)
+  )
   const groups = [
     { title: "Connected", providers: matches.filter((p) => p.connected) },
     { title: "Not connected", providers: matches.filter((p) => !p.connected) },
@@ -454,23 +467,42 @@ function ConnectorList({
               <ConnectorRow
                 key={p.id}
                 provider={p}
-                onOpen={() => onOpen(p)}
-                onConnect={() => onConnect(p)}
+                rowRef={p.id === "github" ? githubRowRef : undefined}
+                onOpen={() => {
+                  connectorsHint.dismiss()
+                  onOpen(p)
+                }}
+                onConnect={() => {
+                  connectorsHint.dismiss()
+                  onConnect(p)
+                }}
               />
             ))}
           </div>
         </section>
       ))}
+      <HintPopover
+        open={connectorsHint.show}
+        anchor={githubRowRef}
+        side="bottom"
+        align="start"
+        onDismiss={connectorsHint.dismiss}
+      >
+        Connect GitHub first. Lor reads pull requests, issues, and code through
+        it.
+      </HintPopover>
     </div>
   )
 }
 
 function ConnectorRow({
   provider: p,
+  rowRef,
   onOpen,
   onConnect,
 }: {
   provider: IntegrationStatus
+  rowRef?: Ref<HTMLDivElement>
   onOpen: () => void
   onConnect: () => void
 }) {
@@ -488,7 +520,10 @@ function ConnectorRow({
     : p.description
 
   return (
-    <div className="flex items-center rounded-xl transition-colors hover:bg-accent/50">
+    <div
+      ref={rowRef}
+      className="flex items-center rounded-xl transition-colors hover:bg-accent/50"
+    >
       <button
         type="button"
         data-connector={p.id}
@@ -641,6 +676,7 @@ function ConnectorDetail({
             connectorId={p.id}
             connectionId={p.connectionId}
             events={p.events}
+            canManage={p.canManage}
           />
         ) : (
           <SettingsSection
@@ -670,11 +706,13 @@ function EventRoutes({
   connectorId,
   connectionId,
   events,
+  canManage,
 }: {
   workspaceSlug: string
   connectorId: ConnectorKey
   connectionId: string
   events: IntegrationStatus["events"]
+  canManage: boolean
 }) {
   const queryClient = useQueryClient()
 
@@ -760,7 +798,7 @@ function EventRoutes({
                 <Select
                   items={notifyChannelItems}
                   value={ev.channelId ?? NOTIFY_OFF}
-                  disabled={busy}
+                  disabled={busy || !canManage}
                   onValueChange={(value) => {
                     send({ channelId: value === NOTIFY_OFF ? null : value })
                   }}
@@ -785,7 +823,7 @@ function EventRoutes({
                     channelLabel={
                       textChannels.find((ch) => ch.id === ev.channelId)?.name
                     }
-                    disabled={busy}
+                    disabled={busy || !canManage}
                     value={{
                       post: ev.post,
                       remember: ev.remember,
@@ -870,19 +908,22 @@ function Repositories({
           )}
         </SettingsGroup>
       </SettingsSection>
-      {p.id === "github" && p.connectionId && repos.length > 0 && (
-        <SettingsSection title="Pull request base branch">
-          <SettingsGroup>
-            <div className="py-3">
-              <GithubBaseBranchSettings
-                workspaceSlug={workspaceSlug}
-                connectionId={p.connectionId}
-                repos={repos}
-              />
-            </div>
-          </SettingsGroup>
-        </SettingsSection>
-      )}
+      {p.id === "github" &&
+        p.canManage &&
+        p.connectionId &&
+        repos.length > 0 && (
+          <SettingsSection title="Pull request base branch">
+            <SettingsGroup>
+              <div className="py-3">
+                <GithubBaseBranchSettings
+                  workspaceSlug={workspaceSlug}
+                  connectionId={p.connectionId}
+                  repos={repos}
+                />
+              </div>
+            </SettingsGroup>
+          </SettingsSection>
+        )}
     </>
   )
 }

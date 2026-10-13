@@ -12,6 +12,8 @@ import {
 } from "@repo/ui/components/collapsible"
 import { cn } from "@repo/ui/lib/utils"
 import { type ReactNode, useRef, useState } from "react"
+import { HintPopover } from "@/components/hints/hint-popover"
+import { useHint } from "@/components/hints/hints-provider"
 import { MorphText } from "@/components/ui/morph-text"
 
 export function LorActivity({
@@ -39,6 +41,10 @@ export function LorActivity({
   }
   if (active && !live) setLive(true)
 
+  // Taught on a reply the viewer watched finish, where the work is fresh.
+  const workHint = useHint("lor_reply", live && !active && toolCount > 0)
+  const dismissWorkHint = workHint.dismiss
+
   const label = active
     ? "Working…"
     : failed
@@ -48,7 +54,22 @@ export function LorActivity({
         : "Thought process"
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="my-1 min-w-0">
+    <Collapsible
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (next) dismissWorkHint()
+      }}
+      className="my-1 min-w-0"
+    >
+      <HintPopover
+        open={workHint.show}
+        anchor={triggerRef}
+        align="start"
+        onDismiss={dismissWorkHint}
+      >
+        Lor shows its work. Open this to see what it checked.
+      </HintPopover>
       <CollapsibleTrigger
         ref={triggerRef}
         className="group/activity flex max-w-full cursor-pointer items-center gap-2 rounded-sm py-1 text-left text-[13px] text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"

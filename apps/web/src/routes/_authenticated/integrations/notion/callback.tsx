@@ -68,9 +68,7 @@ function NotionCallback() {
       await navigate({
         to: "/$workspaceSlug",
         params: { workspaceSlug: slug },
-        search: connected
-          ? { settings: "workspace", tab: "connectors", connector: "notion" }
-          : {},
+        search: connected ? { connector: "notion" } : {},
         replace: true,
       })
     })()

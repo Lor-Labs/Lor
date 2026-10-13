@@ -8,9 +8,15 @@ import {
   notFoundSchema,
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
+import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
+  completeWorkspaceSetupResponseSchema,
+  createWorkspaceRequestSchema,
+  createWorkspaceResponseSchema,
   deleteWorkspaceRoleResponseSchema,
+  joinWorkspaceResponseSchema,
+  listJoinableWorkspacesResponseSchema,
   listWorkspaceMembersResponseSchema,
   moderateWorkspaceMemberResponseSchema,
   searchMessagesQuerySchema,
@@ -23,6 +29,99 @@ import {
   workspaceRoleParamsSchema,
   workspaceSlugParamsSchema,
 } from "@/routes/v1/workspaces/schema"
+
+export const createWorkspace = createRoute({
+  path: "/workspaces",
+  method: "post",
+  summary: "Create a workspace",
+  description:
+    "Creates a workspace owned by the caller, with a server-generated URL key, and seeds its default channels.",
+  tags: ["Workspaces"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    body: jsonContent({
+      schema: createWorkspaceRequestSchema,
+      description: "Workspace details",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.CREATED]: jsonContent({
+      schema: createWorkspaceResponseSchema,
+      description: "Created workspace and its first channel",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type CreateWorkspaceRoute = typeof createWorkspace
+
+export const listJoinableWorkspaces = createRoute({
+  path: "/workspaces/joinable",
+  method: "get",
+  summary: "List workspaces open to the caller's email domain",
+  description:
+    "Workspaces whose join domain equals the caller's verified company email domain, excluding ones they're already in.",
+  tags: ["Workspaces"],
+  middleware: [sessionAuthMiddleware] as const,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: listJoinableWorkspacesResponseSchema,
+      description: "Joinable workspaces",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+  },
+})
+
+export type ListJoinableWorkspacesRoute = typeof listJoinableWorkspaces
+
+export const joinWorkspace = createRoute({
+  path: "/workspaces/{workspaceSlug}/join",
+  method: "post",
+  summary: "Join a workspace by email domain",
+  description:
+    "Adds the caller as a member when the workspace's join domain equals their verified company email domain.",
+  tags: ["Workspaces"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: workspaceSlugParamsSchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: joinWorkspaceResponseSchema,
+      description: "Joined workspace and its first channel",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+
+export type JoinWorkspaceRoute = typeof joinWorkspace
+
+export const completeWorkspaceSetup = createRoute({
+  path: "/workspaces/{workspaceSlug}/setup/complete",
+  method: "post",
+  summary: "Mark workspace setup as finished",
+  description:
+    "Ends the first-run setup checklist for everyone in the workspace. Requires the connector:manage authority.",
+  tags: ["Workspaces"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: workspaceSlugParamsSchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: completeWorkspaceSetupResponseSchema,
+      description: "Setup completion time",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type CompleteWorkspaceSetupRoute = typeof completeWorkspaceSetup
 
 export const listWorkspaceMembers = createRoute({
   path: "/workspaces/{workspaceSlug}/members",
@@ -160,7 +259,7 @@ export const updateWorkspace = createRoute({
   method: "patch",
   summary: "Update workspace settings",
   description:
-    "Updates workspace name and/or logo. Requires the organization:update authority.",
+    "Updates workspace name, logo, description, or website. Requires the organization:update authority.",
   tags: ["Workspaces"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

@@ -1,5 +1,4 @@
 import { authClient } from "@repo/auth/client"
-import { useQuery } from "@tanstack/react-query"
 import {
   createFileRoute,
   Outlet,
@@ -7,8 +6,8 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
+import { HintsProvider } from "@/components/hints/hints-provider"
 import { OfflineScreen } from "@/components/offline-screen"
-import { OnboardingDialog } from "@/components/onboarding/onboarding-dialog"
 import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { Sidebar } from "@/components/sidebar/index"
 import { MobileSidebarProvider } from "@/context/mobile-sidebar-context"
@@ -137,15 +136,6 @@ function AuthenticatedLayout() {
     }
   }, [location.pathname])
 
-  const { data: workspaces } = useQuery({
-    queryKey: ["workspaces"],
-    queryFn: async () => {
-      const res = await authClient.organization.list()
-      return res.data
-    },
-    enabled: !!session,
-  })
-
   // Offline wins over the session fetch: with no connection it can only fail,
   // so waiting on it would leave a spinner where the reason belongs.
   if (!session && isOffline) {
@@ -166,34 +156,26 @@ function AuthenticatedLayout() {
     return isOffline ? <OfflineScreen /> : null
   }
 
-  // Onboarding is workspace setup only — both signup paths already collect the
-  // user's name — so it shows until the user creates or joins a workspace. The
-  // onboardingCompleted flag guards existing users whose flag defaulted to
-  // false.
-  const showOnboarding =
-    session.user.onboardingCompleted === false &&
-    workspaces != null &&
-    workspaces.length === 0
-
   return (
     <SocketProvider enabled={!!session}>
-      <UnreadProvider>
-        <MobileSidebarProvider>
-          <div className="flex h-screen overflow-hidden bg-background text-foreground">
-            <UpdateBanner />
-            <VoiceCallProvider>
-              <Sidebar>
-                {/* Inside the sidebar tree so notification clicks can open
+      <HintsProvider>
+        <UnreadProvider>
+          <MobileSidebarProvider>
+            <div className="flex h-screen overflow-hidden bg-background text-foreground">
+              <UpdateBanner />
+              <VoiceCallProvider>
+                <Sidebar>
+                  {/* Inside the sidebar tree so notification clicks can open
                     the right panel. */}
-                <BrowserNotifications />
-                <Outlet />
-              </Sidebar>
-            </VoiceCallProvider>
-            <OnboardingDialog open={showOnboarding} />
-            <SettingsDialog />
-          </div>
-        </MobileSidebarProvider>
-      </UnreadProvider>
+                  <BrowserNotifications />
+                  <Outlet />
+                </Sidebar>
+              </VoiceCallProvider>
+              <SettingsDialog />
+            </div>
+          </MobileSidebarProvider>
+        </UnreadProvider>
+      </HintsProvider>
     </SocketProvider>
   )
 }

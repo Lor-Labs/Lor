@@ -30,8 +30,10 @@ import { ApprovalsSection } from "@/components/workspace/approvals-section"
 import { BillingSection } from "@/components/workspace/billing-section"
 import { ConnectorsSection } from "@/components/workspace/connectors-section"
 import { CustomToolsSection } from "@/components/workspace/custom-tools-section"
+import { DomainJoinSwitch } from "@/components/workspace/domain-join-switch"
 import { InstructionsSection } from "@/components/workspace/instructions-section"
 import { MembersRolesSection } from "@/components/workspace/members-roles-section"
+import { SETTINGS_SURFACE } from "@/components/workspace/settings-group"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { useDesktopZoom } from "@/context/desktop-zoom-context"
 import { apiClient } from "@/lib/api-client"
@@ -60,6 +62,7 @@ type Workspace = {
   name: string
   slug: string
   logo?: string | null
+  joinDomain?: string | null
 }
 
 export type SectionId =
@@ -507,6 +510,11 @@ function GeneralSection({
           placeholder="My Awesome Workspace"
         />
       </div>
+
+      <DomainJoinSwitch
+        workspace={workspace}
+        className={cn(SETTINGS_SURFACE, "px-4")}
+      />
 
       <div className="flex justify-end">
         <Button

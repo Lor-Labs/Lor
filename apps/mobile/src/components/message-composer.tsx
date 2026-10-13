@@ -8,6 +8,7 @@ import StopIcon from "@hugeicons/core-free-icons/StopIcon"
 import TextFontIcon from "@hugeicons/core-free-icons/TextFontIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { Alert } from "heroui-native/alert"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
@@ -38,10 +39,12 @@ import Animated, { LinearTransition } from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { AttachmentPickerPanel } from "@/components/attachment-picker-panel"
 import { ComposerAttachmentPreview } from "@/components/composer-attachment-preview"
+import { HintCard } from "@/components/hint-card"
 import { MentionSuggestionMenu } from "@/components/mention-suggestion-menu"
 import { messageDisplayName } from "@/components/message-row"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
+import { useHint } from "@/hooks/use-hints"
 import { useMessageAttachments } from "@/hooks/use-message-attachments"
 import type { RecentPhoto } from "@/hooks/use-recent-photos"
 import type { Message } from "@/lib/api-types"
@@ -84,6 +87,7 @@ export function MessageComposer({
   onInputLayout,
   onCustomInputViewChange,
   topAccessory,
+  lorIntro = false,
 }: {
   channelId: string
   channelName: string
@@ -114,7 +118,12 @@ export function MessageComposer({
   // Rendered flush above the input card so accessories (run queue) can tuck
   // behind its top edge.
   topAccessory?: ReactNode
+  // Main channel composer only: teaches @Lor through the placeholder and the
+  // lor_intro hint.
+  lorIntro?: boolean
 }) {
+  const lorHint = useHint("lor_intro")
+  const showLorIntro = lorIntro && !lorHint.dismissed
   const { bottom: bottomInset } = useSafeAreaInsets()
   const { height: windowHeight } = useWindowDimensions()
   const [accent, danger, foreground, muted, placeholderColor] = useThemeColor([
@@ -422,6 +431,8 @@ export function MessageComposer({
     try {
       await onSend(storedContent, attachmentUpload.uploadedAttachments)
       attachmentUpload.clearAttachments()
+      // Asking Lor is what the lor_intro hint teaches, from any composer.
+      if (storedContent.includes(`<@${LOR_USER_ID}>`)) lorHint.dismiss()
     } catch (cause) {
       setContent(next)
       setPlainText(nextPlainText)
@@ -479,6 +490,11 @@ export function MessageComposer({
           isLoading={isMentionCandidatesLoading}
           onSelect={insertMention}
         />
+      ) : null}
+      {showLorIntro && !isEditing ? (
+        <HintCard onDismiss={lorHint.dismiss}>
+          Mention @Lor to ask about code, issues, or past conversations.
+        </HintCard>
       ) : null}
       {topAccessory}
       <Animated.View
@@ -574,7 +590,10 @@ export function MessageComposer({
           placeholder={
             isEditing
               ? "Edit message"
-              : (placeholder ?? `Message #${channelName}`)
+              : (placeholder ??
+                (showLorIntro
+                  ? `Message #${channelName} or ask @Lor`
+                  : `Message #${channelName}`))
           }
           placeholderTextColor={placeholderColor}
           ref={inputRef}

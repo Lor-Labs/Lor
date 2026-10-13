@@ -1,4 +1,5 @@
 import {
+  CheckListIcon,
   Folder02Icon,
   FolderAddIcon,
   GridViewIcon,
@@ -34,6 +35,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@repo/ui/components/sidebar"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import {
@@ -43,7 +45,9 @@ import {
 } from "@repo/ui/components/tooltip"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { HintPopover } from "@/components/hints/hint-popover"
+import { useHint } from "@/components/hints/hints-provider"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
 import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
 import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
@@ -53,7 +57,6 @@ import {
 } from "@/components/sidebar/channel-panel/create-channel-context"
 import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
-import { CreateWorkspaceDialog } from "@/components/sidebar/create-workspace-dialog"
 import {
   sidebarMenuHeader,
   sidebarMenuIcon,
@@ -70,6 +73,7 @@ import {
 } from "@/components/workspace/workspace-settings-dialog"
 import { useBillingUpdates } from "@/hooks/use-billing-updates"
 import { useSettings } from "@/hooks/use-settings"
+import { useWorkspaceSetup } from "@/hooks/use-workspace-setup"
 import { apiClient } from "@/lib/api-client"
 import { writeLastWorkspaceSlug } from "@/lib/last-location"
 import { canCreateChannels, isAdminOrOwner } from "@/lib/permissions"
@@ -106,8 +110,8 @@ function WorkspaceSidebarInner() {
   const { openCreateChannel, openCreateCategory, openCreateProject } =
     useCreateChannel()
   const { target, tab, open: openSettings, close, setTab } = useSettings()
-  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
+  const { status: setupStatus } = useWorkspaceSetup(workspaceSlug ?? "")
 
   const settingsOpen = target === "workspace"
   const settingsSection = toSectionId(tab)
@@ -167,6 +171,12 @@ function WorkspaceSidebarInner() {
           ownerId: workspaceMembersData.ownerId,
         })
       : false
+  const createButtonRef = useRef<HTMLSpanElement>(null)
+  const { isMobile, open: sidebarOpen, openMobile } = useSidebar()
+  const channelsHint = useHint(
+    "channels_intro",
+    canCreate && (isMobile ? openMobile : sidebarOpen)
+  )
 
   useBillingUpdates(
     activeWorkspace?.id,
@@ -265,6 +275,24 @@ function WorkspaceSidebarInner() {
                     />
                     Invite people
                   </DropdownMenuItem>
+                  {workspaceSlug && setupStatus === "open" && (
+                    <DropdownMenuItem
+                      className={sidebarMenuRow}
+                      onClick={() =>
+                        navigate({
+                          to: "/$workspaceSlug/setup",
+                          params: { workspaceSlug },
+                        })
+                      }
+                    >
+                      <HugeiconsIcon
+                        icon={CheckListIcon}
+                        className={sidebarMenuIcon}
+                        strokeWidth={1.5}
+                      />
+                      Finish setup
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator className={sidebarMenuSeparator} />
                 <DropdownMenuSub>
@@ -316,7 +344,7 @@ function WorkspaceSidebarInner() {
                     <DropdownMenuSeparator className={sidebarMenuSeparator} />
                     <DropdownMenuItem
                       className={sidebarMenuRow}
-                      onClick={() => setCreateWorkspaceOpen(true)}
+                      onClick={() => void navigate({ to: "/onboarding" })}
                     >
                       <HugeiconsIcon
                         icon={PlusSignIcon}
@@ -355,55 +383,78 @@ function WorkspaceSidebarInner() {
             <WorkspaceCommand />
           </div>
           {canCreate && (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <DropdownMenuTrigger
-                      render={
-                        <Button
-                          variant="outline"
-                          size="icon-sm"
-                          aria-label="Create"
-                          className="text-muted-foreground hover:text-foreground data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
-                        />
-                      }
+            <span ref={createButtonRef} className="flex">
+              <DropdownMenu
+                onOpenChange={(open) => {
+                  if (open) channelsHint.dismiss()
+                }}
+              >
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="outline"
+                            size="icon-sm"
+                            aria-label="Create"
+                            className="text-muted-foreground hover:text-foreground data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
+                          />
+                        }
+                      />
+                    }
+                  >
+                    <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
+                  </TooltipTrigger>
+                  <TooltipContent>Create</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={6}
+                  className="w-44"
+                >
+                  <DropdownMenuItem onClick={() => openCreateChannel()}>
+                    <HugeiconsIcon
+                      icon={HashtagIcon}
+                      className="size-4 mr-2"
+                      strokeWidth={2}
                     />
-                  }
-                >
-                  <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
-                </TooltipTrigger>
-                <TooltipContent>Create</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" sideOffset={6} className="w-44">
-                <DropdownMenuItem onClick={() => openCreateChannel()}>
-                  <HugeiconsIcon
-                    icon={HashtagIcon}
-                    className="size-4 mr-2"
-                    strokeWidth={2}
-                  />
-                  New channel
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={openCreateCategory}>
-                  <HugeiconsIcon icon={FolderAddIcon} className="size-4 mr-2" />
-                  New category
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <CustomMenuItem
-                  onClick={openCreateProject}
-                  tooltip="Channels scoped to one unit of work"
-                  side="right"
-                >
-                  <HugeiconsIcon
-                    icon={Folder02Icon}
-                    className="size-4 mr-2"
-                    strokeWidth={2}
-                  />
-                  New project
-                </CustomMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    New channel
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={openCreateCategory}>
+                    <HugeiconsIcon
+                      icon={FolderAddIcon}
+                      className="size-4 mr-2"
+                    />
+                    New category
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <CustomMenuItem
+                    onClick={openCreateProject}
+                    tooltip="Channels scoped to one unit of work"
+                    side="right"
+                  >
+                    <HugeiconsIcon
+                      icon={Folder02Icon}
+                      className="size-4 mr-2"
+                      strokeWidth={2}
+                    />
+                    New project
+                  </CustomMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span>
           )}
+          <HintPopover
+            open={channelsHint.show}
+            anchor={createButtonRef}
+            side="right"
+            align="start"
+            onDismiss={channelsHint.dismiss}
+          >
+            Your starting channels. Rename, reorder, or add channels and
+            projects here.
+          </HintPopover>
         </div>
 
         {workspaceSlug && (
@@ -429,10 +480,6 @@ function WorkspaceSidebarInner() {
         </SidebarGroup>
       </SidebarContent>
 
-      <CreateWorkspaceDialog
-        open={createWorkspaceOpen}
-        onOpenChange={setCreateWorkspaceOpen}
-      />
       {activeWorkspace && (
         <WorkspaceSettingsDialog
           open={settingsOpen}

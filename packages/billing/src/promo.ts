@@ -5,13 +5,11 @@ import { billingEnabled } from "./client"
 
 const logger = createLogger("billing")
 
-// One-time signup credits, granted when the workspace's first invite is
-// accepted. The promoGrantedAt claim is race-safe (conditional update) and
-// reverted if the Autumn grant fails, so the next accept retries it.
-// Never throws — call sites are fire-and-forget in the join path.
-export async function grantFirstInvitePromo(
-  workspaceId: string
-): Promise<void> {
+// One-time signup credits, granted when the workspace is created, so a new
+// team can try Lor before inviting anyone. The promoGrantedAt claim is
+// race-safe (conditional update) and reverted if the Autumn grant fails.
+// Never throws: workspace creation must not fail on billing.
+export async function grantSignupPromo(workspaceId: string): Promise<void> {
   if (!billingEnabled) return
   let claimed = false
   try {
@@ -28,7 +26,7 @@ export async function grantFirstInvitePromo(
     if (rows.length === 0) return
     claimed = true
     await grantPromoCredits(workspaceId)
-    logger.info({ workspaceId }, "Granted first-invite promo credits")
+    logger.info({ workspaceId }, "Granted signup promo credits")
   } catch (err) {
     logger.error({ err, workspaceId }, "Promo grant failed")
     if (!claimed) return

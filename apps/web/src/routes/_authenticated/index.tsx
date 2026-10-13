@@ -9,7 +9,8 @@ export const Route = createFileRoute("/_authenticated/")({
 })
 
 // Send returning users back to the last workspace/channel they were in; fall
-// back to DMs only when there's no valid last workspace.
+// back to DMs only when there's no valid last workspace. Users with no
+// workspace at all go to onboarding.
 function LandingRedirect() {
   const navigate = useNavigate()
   const { data: workspaces, isPending } = useQuery({
@@ -22,6 +23,11 @@ function LandingRedirect() {
 
   useEffect(() => {
     if (isPending) return
+
+    if (workspaces?.length === 0) {
+      void navigate({ to: "/onboarding", replace: true })
+      return
+    }
 
     const slug = readLastWorkspaceSlug()
     const isValid = !!slug && !!workspaces?.some((w) => w.slug === slug)

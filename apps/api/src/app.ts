@@ -15,12 +15,14 @@ import channelsRouter from "@/routes/v1/channels/index"
 import customToolsRouter from "@/routes/v1/custom-tools/index"
 import dmsRouter from "@/routes/v1/dms/index"
 import faviconRouter from "@/routes/v1/favicon/index"
+import hintsRouter from "@/routes/v1/hints/index"
 import instructionsRouter from "@/routes/v1/instructions/index"
 import integrationsRouter from "@/routes/v1/integrations/index"
 import invitesRouter from "@/routes/v1/invites/index"
 import loopsRouter from "@/routes/v1/loops/index"
 import mcpServersRouter from "@/routes/v1/mcp-servers/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
+import onboardingRouter from "@/routes/v1/onboarding/index"
 import plansRouter from "@/routes/v1/plans/index"
 import projectsRouter from "@/routes/v1/projects/index"
 import proposalsRouter from "@/routes/v1/proposals/index"
@@ -73,10 +75,12 @@ const routes = app
   .route("/v1", channelsRouter)
   .route("/v1", projectsRouter)
   .route("/v1", workspacesRouter)
+  .route("/v1", onboardingRouter)
   .route("/v1", invitesRouter)
   .route("/v1", notificationSettingsRouter)
   .route("/v1", pushTokensRouter)
   .route("/v1", channelMutesRouter)
+  .route("/v1", hintsRouter)
   .route("/v1", dmsRouter)
   .route("/v1", uploadsRouter)
   .route("/v1", usersRouter)

@@ -1,6 +1,7 @@
 import { Mail01Icon, MailValidation01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { isTauri } from "@repo/auth/tauri-fetch"
 import { Button } from "@repo/ui/components/button"
 import {
   Card,
@@ -13,6 +14,7 @@ import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { AuthLayout } from "@/components/auth/auth-layout"
 import { sanitizeRedirect } from "@/lib/auth-redirect"
+import { webOrigin } from "@/lib/web-origin"
 
 export const Route = createFileRoute("/check-email")({
   component: CheckEmailPage,
@@ -36,12 +38,18 @@ function CheckEmailPage() {
       if (!email) return
       const { error } = await authClient.sendVerificationEmail({
         email,
-        callbackURL: `${window.location.origin}${redirect ?? "/"}`,
+        callbackURL: `${webOrigin()}${redirect ?? "/"}`,
       })
       if (error)
         throw new Error(error.message ?? "Failed to resend verification email")
     },
   })
+
+  // The link opens in the browser, which can't hand the session back to the
+  // desktop app, so desktop users sign in here afterwards.
+  const instructions = isTauri
+    ? "Click the link in the email to verify your account, then come back here and sign in. If you don't see it, check your spam folder."
+    : "Click the link in the email to verify your account. If you don't see it, check your spam folder."
 
   return (
     <AuthLayout>
@@ -65,10 +73,7 @@ function CheckEmailPage() {
           </div>
         </CardHeader>
         <CardContent className="text-center">
-          <p className="text-sm text-muted-foreground">
-            Click the link in the email to verify your account. If you don't see
-            it, check your spam folder.
-          </p>
+          <p className="text-sm text-muted-foreground">{instructions}</p>
         </CardContent>
         <CardFooter className="flex flex-col gap-3 pb-8">
           {email && (

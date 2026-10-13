@@ -407,6 +407,11 @@ export type AgentRunContextPlan = {
   steps: PlanStep[]
   summary: string | null
 }
+export type AgentRunContextWorkspace = {
+  name: string
+  website?: string
+  description?: string
+}
 // Approval resume (LOR-81): a continuation started by resolving a policy gate
 // carries the tool-approval-response instead of a delta message. Replayed
 // verbatim so the parked tool call stays paired on every later replay —
@@ -429,6 +434,9 @@ export type AgentRunContext = {
   // Optional so pre-existing snapshots (and DM channels, which have no name)
   // keep parsing.
   channelName?: string
+  channelTopic?: string
+  // Cold-start context from onboarding; absent on older snapshots.
+  workspace?: AgentRunContextWorkspace
   plan?: AgentRunContextPlan
   // Continued runs only (agentRun.continuedFromRunId set): the exact rendered
   // delta message appended after the inherited transcript. Stored rather than

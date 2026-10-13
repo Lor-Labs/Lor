@@ -70,6 +70,7 @@ import {
   canDeleteChannels,
   canManageChannels,
 } from "@/lib/permissions"
+import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels-query"
 
 type ChannelMuteControls = ReturnType<typeof useChannelMutes>
 
@@ -165,21 +166,9 @@ export function ChannelList() {
   const queryClient = useQueryClient()
   const { setOpen: closeMobileSidebar } = useMobileSidebar()
 
-  const { data, isPending } = useQuery({
-    queryKey: ["channels", workspaceSlug],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels.$get(
-        {
-          param: { workspaceSlug: workspaceSlug as string },
-        }
-      )
-      if (!res.ok) {
-        throw new Error("Failed to fetch channels")
-      }
-      return res.json()
-    },
-    enabled: !!workspaceSlug,
-  })
+  const { data, isPending } = useQuery(
+    workspaceChannelsQueryOptions(workspaceSlug ?? "")
+  )
 
   const reorderMutation = useMutation({
     mutationFn: async (
@@ -1038,6 +1027,11 @@ function SortableChannelItem({
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
+  // Creators may rename their own channel and change its topic.
+  const { data: session } = authClient.useSession()
+  const isCreator = !!ch.creatorId && ch.creatorId === session?.user.id
+  const canEdit = canManage || isCreator
+
   const { getUnreadCount, getMentionCount } = useUnread()
   const { getMute, muteChannel, unmuteChannel } = muteControls
   const mute = getMute(ch.id)
@@ -1149,7 +1143,7 @@ function SortableChannelItem({
                   </DropdownMenuSub>
                 )}
                 <DropdownMenuSeparator />
-                {canManage && (
+                {canEdit && (
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation()
@@ -1192,11 +1186,12 @@ function SortableChannelItem({
           <VoiceParticipantRows channelId={ch.id} channelName={ch.name ?? ""} />
         )}
       </div>
-      {canManage && (
+      {canEdit && (
         <EditChannelDialog
           channel={ch}
           open={editOpen}
           onOpenChange={setEditOpen}
+          overviewOnly={!canManage}
         />
       )}
       {canDelete && (

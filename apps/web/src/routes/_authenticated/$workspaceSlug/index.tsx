@@ -1,7 +1,13 @@
+import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
+import { useWorkspaceSetup } from "@/hooks/use-workspace-setup"
 import { readLastChannelId } from "@/lib/last-location"
+import {
+  firstTextChannelId,
+  workspaceChannelsQueryOptions,
+} from "@/lib/workspace-channels-query"
 
 export const Route = createFileRoute("/_authenticated/$workspaceSlug/")({
   component: WorkspaceHome,
@@ -9,20 +15,53 @@ export const Route = createFileRoute("/_authenticated/$workspaceSlug/")({
 
 function WorkspaceHome() {
   const { workspaceSlug } = Route.useParams()
-  const { settings, tab, mcpServerId } = Route.useSearch()
+  const { settings, tab, mcpServerId, connector } = Route.useSearch()
   const navigate = useNavigate()
+  const { status: setupStatus } = useWorkspaceSetup(workspaceSlug)
+  const lastChannelId = readLastChannelId(workspaceSlug)
+  const { data: channels } = useQuery({
+    ...workspaceChannelsQueryOptions(workspaceSlug),
+    enabled: !lastChannelId,
+  })
 
+  // First visit (invite accept, new device): no remembered channel, so land
+  // in the first text channel rather than an empty page.
+  const targetChannelId =
+    lastChannelId ?? (channels ? firstTextChannelId(channels) : null)
+
+  // Connector callbacks return with only ?connector=<id>, so nothing opens on
+  // this page: unfinished setup shows the checklist, otherwise the
+  // connector's settings detail opens over the channel.
   useEffect(() => {
-    const lastChannelId = readLastChannelId(workspaceSlug)
-    if (lastChannelId) {
+    if (setupStatus === "loading") return
+    if (setupStatus === "open") {
       void navigate({
-        to: "/$workspaceSlug/$channelId",
-        params: { workspaceSlug, channelId: lastChannelId },
-        search: { settings, tab, mcpServerId },
+        to: "/$workspaceSlug/setup",
+        params: { workspaceSlug },
         replace: true,
       })
+      return
     }
-  }, [workspaceSlug, settings, tab, mcpServerId, navigate])
+    if (!targetChannelId) return
+    const isConnectorReturn = connector !== undefined && settings === undefined
+    void navigate({
+      to: "/$workspaceSlug/$channelId",
+      params: { workspaceSlug, channelId: targetChannelId },
+      search: isConnectorReturn
+        ? { settings: "workspace", tab: "connectors", connector }
+        : { settings, tab, mcpServerId, connector },
+      replace: true,
+    })
+  }, [
+    workspaceSlug,
+    setupStatus,
+    targetChannelId,
+    settings,
+    tab,
+    mcpServerId,
+    connector,
+    navigate,
+  ])
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
