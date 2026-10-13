@@ -23,6 +23,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native"
+import type { CallTab } from "@/components/thread-view"
 import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
@@ -242,10 +243,7 @@ export function VoiceCallScreen({
   const { call, joining, join, leave } = useVoiceCall()
   const inThisCall = call?.channelId === channelId
 
-  const openThread = (
-    threadRootId: string,
-    tab: "chat" | "transcript" = "chat"
-  ) =>
+  const openThread = (threadRootId: string, tab: CallTab = "chat") =>
     router.push({
       pathname: "/channel/[channelId]/thread/[threadRootId]",
       params: { channelId, threadRootId, tab },

@@ -27,8 +27,8 @@ function callLocationQuery(sessionId: string) {
 }
 
 /** Open a call's transcript, at a moment when given: a Lor [[call:…]]
- * citation, or Lor's summary card. Resolves false when the call isn't found.
- * Citations prefetch on hover. */
+ * citation. Resolves false when the call isn't found. Citations prefetch on
+ * hover. */
 export function useCallCitation() {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()

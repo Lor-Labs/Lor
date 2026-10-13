@@ -221,11 +221,12 @@ export async function listSessionHistory(input: {
         eq(voiceSession.channelId, input.channelId),
         input.before ? lt(voiceSession.startedAt, input.before) : undefined,
         // One-person sessions with nothing posted stay stored but hidden.
-        // Lor's summary card counts as posted.
+        // A summary (or an old call's summary card) counts as posted.
         or(
           isNull(voiceSession.endedAt),
           gte(participantCount, 2),
           gt(replyCount, 0),
+          isNotNull(voiceSession.summary),
           isNotNull(voiceSession.summaryCardMessageId)
         )
       )

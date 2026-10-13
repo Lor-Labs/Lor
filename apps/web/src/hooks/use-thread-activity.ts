@@ -111,7 +111,8 @@ export function useThreadActivity({
     if (!socket) return
 
     const handleThreadUpdated = (payload: RealtimeMessageThreadUpdated) => {
-      if (payload.channelId !== channelId) return
+      // Sessions show activity on their sidebar row, not in the chat's dock.
+      if (payload.channelId !== channelId || payload.sessionId) return
 
       setLive((prev) => {
         const existing = prev.find(

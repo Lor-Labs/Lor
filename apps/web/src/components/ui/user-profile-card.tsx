@@ -14,13 +14,12 @@ import {
   HoverCardTrigger,
 } from "@repo/ui/components/preview-card"
 import { Skeleton } from "@repo/ui/components/skeleton"
-import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarColorStyle } from "@repo/utils/avatar-colors"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
+import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
+import { useOpenDM } from "@/hooks/use-create-dm"
 import { apiClient } from "@/lib/api-client"
 
 function ProfileCardContent({
@@ -30,7 +29,6 @@ function ProfileCardContent({
   avatarColor?: string | null
   userId: string
 }) {
-  const queryClient = useQueryClient()
   const { data: session } = authClient.useSession()
 
   const { data, isPending, isError } = useQuery({
@@ -44,29 +42,7 @@ function ProfileCardContent({
     },
   })
 
-  const navigate = useNavigate()
-
-  const createDM = useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.v1.dms.$post({
-        json: { userIds: [userId] },
-      })
-      if (!res.ok) {
-        const body = await res.json()
-        throw new Error(
-          "message" in body ? body.message : "Failed to create DM"
-        )
-      }
-      return res.json()
-    },
-    onSuccess: (data) => {
-      void queryClient.invalidateQueries({ queryKey: ["dms"] })
-      void navigate({ to: "/dms/$dmId", params: { dmId: data.dm.id } })
-    },
-    onError: (error) => {
-      toast.error(error.message)
-    },
-  })
+  const { openDM, isPending: isOpeningDM } = useOpenDM()
 
   if (isPending) {
     return (
@@ -92,7 +68,7 @@ function ProfileCardContent({
 
   const user = data.user
   const isCurrentUser = session?.user?.id === userId
-  const isMutating = createDM.isPending
+  const isMutating = isOpeningDM
   const isOnline = user.presenceStatus === "online"
   const banner = getAvatarColorStyle(avatarColor, user.name)
 
@@ -163,7 +139,7 @@ function ProfileCardContent({
             variant="secondary"
             className="h-8 w-full gap-2"
             disabled={isMutating}
-            onClick={() => createDM.mutate()}
+            onClick={() => openDM(userId)}
           >
             <HugeiconsIcon
               icon={Message01Icon}

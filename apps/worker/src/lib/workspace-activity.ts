@@ -12,9 +12,9 @@ export function setWorkspaceActivityEmitter(e: Emitter<ServerToClientEvents>) {
 }
 
 // Best-effort sidebar invalidation after a COMMITTED run/plan state change.
-// Clients refetch an authorized snapshot on receipt and also poll every 15s,
-// so a missed emit only delays the update — a publish failure must never turn
-// a committed transition into a failed job.
+// Clients refetch an authorized snapshot on receipt; there is no poll, so a
+// missed emit waits for their next refocus or reconnect. A publish failure
+// must never turn a committed transition into a failed job.
 export function notifyWorkspaceActivity(workspaceId: string) {
   try {
     emitter

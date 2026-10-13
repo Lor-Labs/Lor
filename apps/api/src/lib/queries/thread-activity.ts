@@ -106,7 +106,9 @@ export async function fetchChannelThreadActivity({
           isNotNull(message.threadRootId),
           ne(message.authorId, currentUserId),
           gt(message.createdAt, windowStart),
-          visibleToSessionChatFilter(currentUserId, message.threadRootId)
+          visibleToSessionChatFilter(currentUserId, message.threadRootId),
+          // Lor sessions show activity on their sidebar row, not the dock.
+          sql`not exists (select 1 from agent_session s where s.thread_root_id = ${message.threadRootId})`
         )
       )
       .groupBy(message.threadRootId)

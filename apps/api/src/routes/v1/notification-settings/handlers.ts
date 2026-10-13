@@ -9,7 +9,6 @@ import type {
 const DEFAULT_SETTINGS = {
   desktopNotifications: "all_messages" as const,
   dmNotifications: "all_messages" as const,
-  lorThreadNotifications: "all_activity" as const,
 }
 
 export const getNotificationSettings: AppRouteHandler<
@@ -22,8 +21,6 @@ export const getNotificationSettings: AppRouteHandler<
       desktopNotifications:
         schema.userNotificationSettings.desktopNotifications,
       dmNotifications: schema.userNotificationSettings.dmNotifications,
-      lorThreadNotifications:
-        schema.userNotificationSettings.lorThreadNotifications,
     })
     .from(schema.userNotificationSettings)
     .where(eq(schema.userNotificationSettings.userId, currentUser.id))
@@ -53,8 +50,6 @@ export const updateNotificationSettings: AppRouteHandler<
       desktopNotifications:
         schema.userNotificationSettings.desktopNotifications,
       dmNotifications: schema.userNotificationSettings.dmNotifications,
-      lorThreadNotifications:
-        schema.userNotificationSettings.lorThreadNotifications,
     })
     .then((rows) => rows[0])
 

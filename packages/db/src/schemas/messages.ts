@@ -44,6 +44,16 @@ export const messageTypeEnum = pgEnum("message_type", [
   // Lor's summary of an ended call, posted in its chat. Renders the call's
   // current summary; the session row is looked up by summaryCardMessageId.
   "call_summary",
+  // A Lor session's anchor: blank, never shown in chat, the thread root of
+  // the session's messages. The row (see agent-sessions.ts) is looked up by
+  // threadRootId.
+  "agent_session",
+  // A forwarded message (Discord-style): `forwarded` holds a snapshot of the
+  // original, shown under the forwarder's note (content, may be empty);
+  // referencedMessageId points at the original while it exists. Today: a
+  // session message forwarded into its channel's chat (Lor never posts
+  // there itself); later, chat forwarded between channels.
+  "forward",
 ])
 
 // Kinds of channel events (message.type = "event"). Adding a kind means a new
@@ -57,6 +67,11 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "loop_created",
   "loop_paused",
   "loop_completed",
+  // One fire of a loop, the first line of its turn in the loop's session.
+  "loop_run",
+  // The connector event that started an Act session. Content is the event
+  // payload Lor reads; clients show the label.
+  "trigger_run",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Lor
@@ -94,6 +109,8 @@ export const message = pgTable(
       (): AnyPgColumn => message.id,
       { onDelete: "set null" }
     ),
+    // Set only when type = "forward": the original as it was when forwarded.
+    forwarded: jsonb("forwarded").$type<ForwardedMessage>(),
 
     // thread root — when set, this message is a thread reply and does NOT
     // appear in the channel feed. NULL = channel message (may itself host a thread).
@@ -101,6 +118,12 @@ export const message = pgTable(
       (): AnyPgColumn => message.id,
       { onDelete: "cascade" }
     ),
+
+    // A person's message in a Lor session: whether it went to Lor, decided
+    // at send time by the session routing rule. false = for the session's
+    // subscribers only (shown as an aside). Null outside sessions and on
+    // Lor's own messages.
+    routedToLor: boolean("routed_to_lor"),
 
     // file attachments as JSON array
     // [{ url, filename, size, contentType, width?, height? }]
@@ -244,12 +267,38 @@ export type LoopEventPayload = {
   via?: "proposal"
 }
 
+// A forwarded message's snapshot (message.forwarded). Self-contained so the
+// target channel can read it even when its members can't open the source
+// (channel-to-channel forwards), and after the source changes or is deleted.
+export type ForwardedMessage = {
+  messageId: string
+  author: { id: string; name: string; image: string | null }
+  content: string | null
+  // Resolves stored mention tokens without access to the source.
+  mentions: { id: string; name: string; image: string | null }[]
+  createdAt: string
+  // Where it was posted: a channel's chat, or a session in it.
+  source: {
+    channelId: string
+    channelName: string | null
+    sessionId: string | null
+    sessionTitle: string | null
+  }
+}
+
+export type TriggerRunPayload = {
+  triggerId: string
+  // Event source label, e.g. "GitHub · Pull request merged".
+  label: string
+}
+
 export type ChannelEventPayload =
   | ChannelCreatedPayload
   | ChannelRenamedPayload
   | MemberAddedPayload
   | MemberRemovedPayload
   | LoopEventPayload
+  | TriggerRunPayload
   | null
 
 // Type definitions for the JSONB fields

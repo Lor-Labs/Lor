@@ -260,10 +260,7 @@ export function AskLorSuggestions({
           onClick={() => onAsk(question)}
           className="group flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm outline-none transition-[background-color,transform] duration-150 ease-out hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.99] disabled:pointer-events-none disabled:opacity-64 dark:hover:bg-muted"
         >
-          <span className="min-w-0 flex-1 truncate">
-            <span className="text-muted-foreground">@Lor </span>
-            {question}
-          </span>
+          <span className="min-w-0 flex-1 truncate">{question}</span>
           <HugeiconsIcon
             icon={ArrowRight01Icon}
             className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out group-hover:translate-x-0.5"

@@ -282,7 +282,6 @@ export function useChannelMessages({
           : {
               replyCount: payload.replyCount,
               lastReplyAt: payload.lastReplyAt,
-              lorWaiting: payload.lorWaiting,
               participants: payload.participants,
             }
       queryClient.setQueryData<InfiniteData<MessagesPage, MessagesPageParam>>(

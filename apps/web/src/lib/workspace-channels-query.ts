@@ -18,7 +18,7 @@ export function workspaceChannelsQueryOptions(workspaceSlug: string) {
   })
 }
 
-function openTextChannels(channels: ListChannelsResponse) {
+export function openTextChannels(channels: ListChannelsResponse) {
   return [
     ...channels.uncategorized,
     ...channels.categories.flatMap((category) => category.channels),

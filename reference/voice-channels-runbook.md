@@ -1021,7 +1021,10 @@ chat when it's done, and everyone who was in the call follows that chat.
   show "↗ <channel> call". The gap rule is in Lor's chat prompt. Call times
   floor to the second so `nextFrom` never skips a line.
 
-- [x] 3 (built 2026-10-05, reworked 2026-10-06): the summary as Lor's card
+- [x] 3 (built 2026-10-05, reworked 2026-10-06; **superseded 2026-10-09** by
+  the call's Summary tab, `reference/workspace-model-runbook.md` Step 18: no
+  card is posted any more, and the routes are keyed by session id). The
+  summary as Lor's card
   in the call chat (Jacob: a structured notification, like Ergo's meeting
   emails, not a freeform recap; shown in one place only, not also on the
   Transcript tab). Summary shape: `title` (a meeting-style name),

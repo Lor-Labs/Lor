@@ -72,8 +72,7 @@ export const agentRun = pgTable(
       .references(() => channel.id, { onDelete: "cascade" }),
     // The placeholder message the run streams into — also the client's handle
     // for replay (clients know the message id, not the run id, on load). Null
-    // for headless triggered runs (Act effect), which have no channel message
-    // unless Lor posts one itself. See reference/automation-primitives.md §2.
+    // on an Act run until its session exists, and on old headless Act runs.
     messageId: uuid("message_id").references(() => message.id, {
       onDelete: "cascade",
     }),
@@ -83,10 +82,10 @@ export const agentRun = pgTable(
     triggerMessageId: uuid("trigger_message_id").references(() => message.id, {
       onDelete: "set null",
     }),
-    // Conversation scope = threadRootId ?? channelId (headless triggered runs
-    // use their deliveryId — each delivery is its own scope). The partial
-    // unique index below enforces one active run per scope — a mention during
-    // an active run steers or queues instead of creating a sibling.
+    // Conversation scope = threadRootId ?? channelId (an Act run holds its
+    // triggerId until its session exists). The partial unique index below
+    // enforces one active run per scope — a mention during an active run
+    // steers or queues instead of creating a sibling.
     scopeKey: uuid("scope_key").notNull(),
 
     // Trigger provenance (Act effect): which trigger + delivery started this
@@ -177,10 +176,10 @@ export const agentRun = pgTable(
     startedAt: timestamp("started_at"),
     finishedAt: timestamp("finished_at"),
 
-    // Triggered (Act) runs only: the run's own closing note, written for the
-    // NEXT run on the same trigger — what it concluded, what it did, what to
-    // watch for. Runs on a trigger are serialized (one active per scopeKey),
-    // so these form a coherent chain rather than interleaved chatter.
+    // Act runs only: the reply that answered the event, kept for the NEXT run
+    // on the same trigger — what it concluded, what it did, what to watch
+    // for. Runs on a trigger are serialized (one active per triggerId), so
+    // these form a coherent chain rather than interleaved chatter.
     // See reference/automation-primitives.md §5.
     handoffNote: text("handoff_note"),
 
@@ -211,6 +210,12 @@ export const agentRun = pgTable(
     uniqueIndex("agent_run_scopeKey_active_uidx")
       .on(table.scopeKey)
       .where(sql`state in ('queued', 'working', 'finalizing')`),
+    // One active Act run per trigger, whichever session it runs in.
+    uniqueIndex("agent_run_triggerId_active_uidx")
+      .on(table.triggerId)
+      .where(
+        sql`trigger_id is not null and state in ('queued', 'working', 'finalizing')`
+      ),
     index("agent_run_workspaceId_createdAt_idx").on(
       table.workspaceId,
       table.createdAt

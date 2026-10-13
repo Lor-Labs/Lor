@@ -39,14 +39,17 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `approval-policies.md` | Approval gates (LOR-81/83). P6 validation sweep + live QA |
 | `change-proposals.md` | Workspace change proposals (self-configuration pillar 3). P6 vertical-slice QA |
 | `attachment-search.md` | Attachment indexing + reranker. Steps 1–6 built; 4b and 7 parked behind triggers |
-| `onboarding.md` | First-run redesign for small tech startups: opaque workspace key, startup channel template, company prefill, setup checklist, domain join, per-user hints, permission changes. Step 1 of 10 built |
+| `onboarding.md` | First-run redesign for small tech startups: opaque workspace key, startup channel template, company prefill, setup checklist, domain join, per-user hints, permission changes. All 10 steps built 2026-10-08; prod db:push + rekey and live QA owed |
+| `workspace-model-runbook.md` | Human-only channel chat, Lor works in sessions: 22 steps on `app-redesign-sessions`. Started 2026-10-08 |
 
 ## Root — specs, how-tos, checklists
 
 | Doc | Use |
 |---|---|
 | `product-direction.md` | Current priorities and what is deferred |
+| `positioning.md` | Marketing and sales positioning, and how it differs from current www copy. Direction 2026-10-12, not locked |
 | `voice-channels.md` | Guiding product spec for voice; its "Voice channel model" decisions win over the runbook and research |
+| `workspace-model.md` | Locked design for channels, Lor sessions, subscriptions and archive; wins over its runbook on product behavior |
 | `adding-a-connector.md` | Runbook for wiring a new integration |
 | `mobile-release.md` | TestFlight / EAS release loop |
 | `mobile-parity-todo.md` | Living web ↔ mobile gap checklist |
@@ -55,13 +58,16 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Status |
 |---|---|
-| `workspace-model.md` | Human-only channel chat, Lor works in sessions. Design locked 2026-10-08; next mockups, then a runbook |
+| `agent-browser.md` | Cloud browser Lor drives in a session: live view, take over, per-channel logins. Research and design 2026-10-12; builds after the sessions branch merges; vendor (Browserbase or Steel) decided by a spike |
 | `linear-projects.md` | Lor projects linked to Linear projects. Split from onboarding 2026-10-07; open for its own design thread |
 | `code-channels.md` | Multiplayer AI coding architecture, design agreed 2026-10-05 |
+| `context-engine.md` | Unblocked-style linked, ranked, permission-safe context. Research + proposed design 2026-10-10; decisions in §8 open |
+| `live-collaboration.md` | Editor decision (TipTap over Plate, 2026-10-09) and the MIT build map for live multiplayer documents |
 | `self-configuration.md` | Vision for Lor proposing changes to itself; pillars 1–2 shipped (root runbooks), pillar 3 in flight |
 | `playbooks.md` | Working idea, not a spec |
 | `private-lor-questions.md` | Deferred platform decision (2026-09-28) |
 | `slack-connector-next.md` | Read-only Slack connector, not started |
+| `sync-engine.md` | Sync engine research (Zero, TanStack DB, Electric, PowerSync, Convex, local-first) and a proposed Zero-first spike with go/no-go gates. Not committed; only the timing is decided: React Query until the sessions branch merges |
 
 ## `archive/` — superseded or done
 

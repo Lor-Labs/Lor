@@ -474,7 +474,7 @@ async function resumeRequest(request: LoadedRequest, approvalId: string) {
 
 // Runs a request someone spoke to Lor in a call. A retried job (worker crash)
 // finds the request working and resumes its run from the last checkpoint.
-// `deps` posts the after-call recap in the call chat.
+// `deps` also tells everyone in a call that its summary is ready.
 export function createVoiceRequestProcessor(deps: LorMessageDeps) {
   return async (
     job: Job<

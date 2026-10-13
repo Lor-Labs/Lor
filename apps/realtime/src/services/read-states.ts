@@ -7,11 +7,13 @@ import {
   eq,
   gt,
   inArray,
-  isNull,
+  LOR_USER_ID,
   ne,
+  notInArray,
   schema,
   sql,
 } from "@repo/db"
+import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
@@ -20,13 +22,25 @@ import type {
 } from "@repo/realtime-types"
 import { assertUserCanAccessChannel } from "@/services/channel-access"
 
-// Session roots post silently, and a live session's chat counts only for
-// people in the call.
+// Voice and Lor session roots post silently, and a live session's chat counts
+// only for people in the call. Lor session activity never counts toward the
+// channel badge; the session's sidebar row shows it. Lor's old chat posts and
+// old threads turned into sessions are hidden from chat (chatFeedMessage), so
+// they never count either.
 function countsAsUnread(userId: string) {
   return and(
-    ne(schema.message.type, "voice_session"),
-    visibleToSessionChatFilter(userId, schema.message.threadRootId)
+    notInArray(schema.message.type, ["voice_session", "agent_session"]),
+    ne(schema.message.authorId, LOR_USER_ID),
+    visibleToSessionChatFilter(userId, schema.message.threadRootId),
+    sql`not exists (select 1 from agent_session s where s.thread_root_id = ${schema.message.threadRootId})`,
+    sql`not exists (select 1 from agent_session s where s.thread_root_id = ${schema.message.id})`
   )
+}
+
+// A mention inside a Lor session alerts on the session row, not the channel's
+// mention badge.
+function mentionOutsideSessions() {
+  return sql`not exists (select 1 from message m join agent_session s on s.thread_root_id = m.thread_root_id where m.id = ${schema.messageMention.messageId})`
 }
 
 type MarkChannelReadInput = {
@@ -44,7 +58,7 @@ function firstUnreadMessageIdQuery(channelId: string, userId: string) {
     .where(
       and(
         eq(schema.message.channelId, channelId),
-        isNull(schema.message.threadRootId),
+        chatFeedMessage(),
         ne(schema.message.authorId, userId),
         ne(schema.message.type, "event"),
         sql`${schema.message.createdAt} > coalesce((
@@ -177,7 +191,8 @@ export async function markChannelRead(
           eq(schema.messageMention.mentionedUserId, input.userId),
           // Only direct mentions drive badge counts; channel/here rows are notification-only
           eq(schema.messageMention.mentionType, "direct"),
-          gt(schema.messageMention.createdAt, persistedState.lastReadAt)
+          gt(schema.messageMention.createdAt, persistedState.lastReadAt),
+          mentionOutsideSessions()
         )
       )
       .then((rows) => rows[0]),
@@ -292,7 +307,8 @@ export async function getUnreadStatesForUser(
               eq(schema.messageMention.channelId, channelId),
               eq(schema.messageMention.mentionedUserId, userId),
               eq(schema.messageMention.mentionType, "direct"),
-              gt(schema.messageMention.createdAt, lastReadAt)
+              gt(schema.messageMention.createdAt, lastReadAt),
+              mentionOutsideSessions()
             )
           )
           .then((rows) => rows[0]),

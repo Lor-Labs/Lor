@@ -105,6 +105,8 @@ export const listThreadRepliesResponseSchema =
     voiceSessionId: z.string().uuid().nullable(),
     // Lor's name for the call once summarized, for the chat's header.
     voiceSessionTitle: z.string().nullable(),
+    // An ended call's panel opens on its Summary tab.
+    voiceSessionEnded: z.boolean(),
   })
 
 // ── Pins ──────────────────────────────────────────
@@ -140,6 +142,8 @@ export const messageLocationResponseSchema = z.object({
   messageId: z.string().uuid(),
   channelId: z.string().uuid(),
   threadRootId: z.string().uuid().nullable(),
+  // Set when the message is in a Lor session (or is its anchor).
+  sessionId: z.string().uuid().nullable(),
 })
 
 export const listPinnedMessagesResponseSchema = z.object({

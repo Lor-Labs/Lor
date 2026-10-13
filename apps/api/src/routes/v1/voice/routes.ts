@@ -14,6 +14,7 @@ import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   callSummaryBodySchema,
+  callSummaryResponseSchema,
   cancelVoiceRequestResponseSchema,
   chooseVoiceRequestBodySchema,
   deleteVoiceSessionParamsSchema,
@@ -22,7 +23,6 @@ import {
   removeVoiceParticipantParamsSchema,
   removeVoiceParticipantResponseSchema,
   summaryCardParamsSchema,
-  summaryCardResponseSchema,
   voiceCallResponseSchema,
   voiceChannelParamsSchema,
   voiceEntitiesResponseSchema,
@@ -242,12 +242,69 @@ export const getVoiceTranscript = createRoute({
 
 export type GetVoiceTranscriptRoute = typeof getVoiceTranscript
 
+export const getCallSummary = createRoute({
+  path: "/voice/sessions/{sessionId}/summary",
+  method: "get",
+  summary: "Get a call's summary",
+  description:
+    "What a call's Summary tab shows: the call (date, length, participants), its current summary (title, decisions, open questions, action items) with who last corrected it, and whether Lor has processed the call yet. Same access as the call's transcript.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceSessionParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: callSummaryResponseSchema,
+      description: "Call summary",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetCallSummaryRoute = typeof getCallSummary
+
+export const updateCallSummary = createRoute({
+  path: "/voice/sessions/{sessionId}/summary",
+  method: "put",
+  summary: "Correct a call's summary",
+  description:
+    "Replaces a call's summary and re-indexes it for Lor's search, recording who edited it. Anyone who can post in the channel can edit, once the call has ended.",
+  tags: ["Voice"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: voiceSessionParamsSchema,
+    body: jsonContent({
+      schema: callSummaryBodySchema,
+      description: "The corrected summary",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: callSummaryResponseSchema,
+      description: "Call summary",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type UpdateCallSummaryRoute = typeof updateCallSummary
+
+// Old calls' summary cards in the call chat. Phones read these until their
+// Summary tab lands.
 export const getSummaryCard = createRoute({
   path: "/voice/summary-cards/{messageId}",
   method: "get",
   summary: "Get a call summary card",
   description:
-    "What Lor's summary card in a call chat shows: the call (date, length, participants) and its current summary (title, decisions, open questions, action items), with who last corrected it. Same access as the call's transcript.",
+    "The summary behind Lor's card in an old call's chat: the same response as the call's summary, looked up by the card message.",
   tags: ["Voice"],
   middleware: [sessionAuthMiddleware] as const,
   request: {
@@ -256,7 +313,7 @@ export const getSummaryCard = createRoute({
   hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: summaryCardResponseSchema,
+      schema: callSummaryResponseSchema,
       description: "Call summary card",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
@@ -266,36 +323,6 @@ export const getSummaryCard = createRoute({
 })
 
 export type GetSummaryCardRoute = typeof getSummaryCard
-
-export const updateSummaryCard = createRoute({
-  path: "/voice/summary-cards/{messageId}",
-  method: "put",
-  summary: "Correct a call's summary",
-  description:
-    "Replaces the summary on Lor's card and re-indexes it for Lor's search, recording who edited it. Anyone who can post in the channel can edit.",
-  tags: ["Voice"],
-  middleware: [sessionAuthMiddleware] as const,
-  request: {
-    params: summaryCardParamsSchema,
-    body: jsonContent({
-      schema: callSummaryBodySchema,
-      description: "The corrected summary",
-    }),
-  },
-  hide: true,
-  responses: {
-    [HttpStatusCodes.OK]: jsonContent({
-      schema: summaryCardResponseSchema,
-      description: "Call summary card",
-    }),
-    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
-    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
-    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
-    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
-  },
-})
-
-export type UpdateSummaryCardRoute = typeof updateSummaryCard
 
 export const listVoiceRequests = createRoute({
   path: "/voice/sessions/{sessionId}/requests",

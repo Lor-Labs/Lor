@@ -228,14 +228,19 @@ category.
 |---|---|---|
 | `#general` | text | Team-wide updates and discussion. |
 | `#engineering` | text | Code, pull requests, and technical decisions. |
-| `standup` | voice | Daily sync. Lor takes notes. |
+| `#product` | text | Specs, roadmap, and what to build next. |
+| `#design` | text | Mockups, UI feedback, and design decisions. |
+| `#customers` | text | Customer feedback, requests, and calls. |
 | `#random` | text | Everything else. |
+| `standup` | voice | Daily sync. Lor takes notes. |
 
 Why this set:
 
-- Small teams start with one place for everyone and one place for building.
-  Teams add `#product` or `#design` when they need them, and members can now
-  create channels.
+- One place for everyone, then one channel per kind of work a small startup
+  does on day one. Each channel is a project with its own sessions, so the
+  sidebar shows where Lor work belongs. Grown from four channels on
+  2026-10-10 (Jacob): `#product`, `#design` and `#customers` added; `#bugs`
+  was considered and dropped for `#customers`.
 - One voice channel named for a concrete ritual beats a generic "Lounge". The
   standup is the first place voice memory earns its keep.
 - `#random` is expected and cheap. `#introductions`, `#rules`, `#help`,
@@ -253,14 +258,16 @@ put noise where people talk. A better later moment is a Lor change proposal
 pasting PR links. That belongs to the self-configuration work, not
 onboarding.
 
-Lor's intro, posted once in `#general` as `LOR_USER_ID`, `type: default`,
-`silent`, `excludedFromMemory: true`:
+**Removed 2026-10-10** (workspace model Step 19: Lor never writes in channel
+chat; existing intros are hidden by `chatFeedMessage()`). Step 11 teaches the
+model instead. The old intro, posted once in `#general` as
+`LOR_USER_ID`, `type: default`, `silent`, `excludedFromMemory: true`:
 
 > Hi, I'm Lor. Mention me with @Lor in any channel to ask about your code,
 > your issues, or anything this team has discussed. I show my work and cite
 > what I used.
 
-Nothing else is posted. No channel events are posted for seeded channels.
+Nothing is posted. No channel events are posted for seeded channels.
 
 The template lives in `packages/auth/src/lib/workspace-template.ts` and is
 called from the `afterCreateOrganization` hook. Each hook step runs
@@ -357,7 +364,9 @@ The set:
 | key | Shows when | Anchor | Copy | Also dismissed by | Mobile |
 |---|---|---|---|---|---|
 | `channels_intro` | First visit to a workspace sidebar where the user can create channels | The sidebar `+` Create button | Your starting channels. Rename, reorder, or add channels and projects here. | Opening the `+` menu | no |
-| `lor_intro` | First text channel visit, user has never mentioned Lor | Composer | Placeholder becomes "Message #general, or @Lor to ask a question". Popover: Mention @Lor to ask about code, issues, or past conversations. | Sending a message that mentions Lor | yes |
+| `lor_intro` | First text channel visit, user has never mentioned Lor | Composer | Placeholder becomes "Message #general, or @Lor to start a session". Popover: Mention @Lor (or press ⌘N on desktop) to start a session. Lor works there, next to the chat. | Sending a message that mentions Lor | yes |
+| `sessions_intro` | A session row is visible in the open sidebar | The first session row | Lor works in sessions, listed under their channel. Anyone in the channel can open one and join in. | Opening a session from the sidebar | no |
+| `session_reply` | Typing in a session while the reply pill can switch | The reply pill | Replies go to Lor by default. Switch here to talk only to the session's subscribers, without Lor answering. | Switching the pill | no |
 | `lor_reply` | First Lor reply to one of this user's messages finishes streaming | The reply's tool trail row | Lor shows its work. Open the trail to see what it checked. Reply in the thread to continue. | Expanding the trail | yes |
 | `voice_intro` | First voice channel lobby visit | The Start call button in `CallHero` | Calls are transcribed for the people in them. Say "Lor" during a call to ask it something. Lor writes notes when the call ends. | Joining a call | yes |
 | `connectors_intro` | Connectors tab opens with nothing connected, viewer holds `connector:manage` | The GitHub row | Connect GitHub first. Lor reads pull requests, issues, and code through it. | Connecting anything | no (no connectors screen) |
@@ -420,7 +429,8 @@ cached system prompt:
 | Site icon | Shown in the Website field; becomes the workspace icon when it declares at least 64px | Locked |
 | Join by email domain | Build it; admins set the domain they belong to; free email domains excluded | Locked |
 | Domain join default | Setup toggle starts on when the creator's domain qualifies | Locked |
-| Default channels | `#general`, `#engineering`, `standup` (voice), `#random`, with topics | Locked |
+| Default channels | `#general`, `#engineering`, `#product`, `#design`, `#customers`, `#random`, `standup` (voice), with topics | Locked |
+| Teaching the workspace model | One "How Lor works" dialog per user, then hints the first time each thing happens, and an empty channel state that explains sessions (Step 11). Overrides "no tour" for this one dialog | Locked |
 | Connector routing | Off by default; setup does not ask; Lor change proposals can suggest it later | Locked |
 | Lor intro message | One static Lor message in `#general`, excluded from memory | Recommended |
 | Setup state | `workspace.setupCompletedAt`; card states derived from rows | Recommended |
@@ -725,6 +735,109 @@ email with a callback too.
   because the verification link redirects to `tauri://localhost`, which the
   browser cannot open. A real deep-link handoff is its own project.
 
+### Step 11: teach the workspace model
+
+Added 2026-10-10 after workspace model Step 19. People who come from
+single-player AI chat expect Lor to answer in the chat. They need to learn
+that chat is for people, that Lor works in sessions next to the chat, and that
+sessions are shared.
+
+11a: [x] built 2026-10-10 · [x] committed · [ ] db:push (3 `hint_key` values)
+
+- `packages/auth/src/lib/workspace-template.ts`: the seven-channel set above;
+  `standup` moved to the end.
+- `packages/db/src/schemas/hint-dismissals.ts`: `sessions_intro`,
+  `session_reply`, `how_lor_works`. **db:push owed.** `how_lor_works` is
+  stored like a hint but is the 11b dialog, so the web provider keeps it out of
+  the popover slot (`PAGE_HINTS`).
+- `components/sidebar/channel-panel/channel-sessions.tsx`: `sessions_intro`
+  on the first visible session row, right of the row.
+- `components/chat/composer/message-input.tsx`: `session_reply` on the
+  destination bar, once the person types in a session.
+- `components/chat/message-list.tsx` and `$channelId.tsx`: the empty text
+  channel shows its topic, one line on sessions, and a New session button
+  (⌘N on desktop). Channels made in the app start with a `channel_created`
+  event, so in practice this teaches on the seeded channels.
+
+11b: [x] built 2026-10-10 · [x] committed
+
+A medium dialog, not a full page (Jacob): it takes the place of the old
+community onboarding dialog that Step 3 deleted. 640px wide, an animated stage
+on top, the step text under it, step dots and Back/Next at the bottom.
+
+- `components/onboarding/how-lor-works-dialog.tsx` (new):
+  `HowLorWorksDialog`, mounted in the `$workspaceSlug` layout. Opens while
+  `how_lor_works` is not dismissed, or with `?intro=true` (validated in
+  `_authenticated.tsx`, set by "How Lor works" in the workspace menu). X or
+  Escape dismisses it; a backdrop click does not, so a stray click can't lose
+  it. The last step's "Start a session" dismisses it and opens the New
+  session view for the current channel. Copy names only what people see
+  (no "pill"): step 2 says ⌘N on desktop and New session in the sidebar on
+  the web. Since 2026-10-12 (Jacob) a "Welcome to Lor" step comes first: a
+  session the team works in at once, each with a named cursor (people in
+  avatar palette colors, Lor in the agent color). Zoe asks @Lor for the
+  launch post, Lor drafts it while its cursor writes, Rafael reacts, and you
+  approve "Post to #announcements?". A doc version was dropped: Lor has no
+  docs, and it didn't show people working with an AI. One line of pitch
+  under it. Lor has no live cursors yet; Jacob wants the multiplayer point made,
+  and cursors come with later features. The phone's tour
+  (workspace-model-runbook Step 34) has the same steps.
+  Reordered the same day after the positioning work (memory
+  `project_positioning`: "a channel is a shared agent"; the tour must not
+  lead with chat, since moving chat is the adoption cliff). The steps now:
+  1. "Welcome to Lor": "AI agents your whole team can steer."
+  2. "Lor works in sessions": start one; each session belongs to a channel,
+     and the chat stays for the team.
+  3. "Sessions are shared": anyone can see the work, step in, or approve.
+  4. "Every channel has its own agent": "Choose which tools Lor can use in
+     each channel, and give it work on a schedule, like finding leads in
+     #gtm every weekday." Scene: `#gtm`'s Web search, Attio and Notion
+     switch on, then a loop ("Weekdays at 9:00") types in: "Find startups
+     hiring a first designer and draft intros. Never send without
+     approval." Last on purpose (Jacob): a loop only makes sense once
+     people know what a session is, since its runs land in one, and the
+     per-channel setup leads into "Start a session". It first showed an
+     Instructions box, but channels have no instructions of their own (only
+     workspace instructions, loops and Act triggers do; per channel there
+     are tools, through agent profiles), so the box became the loop. It was
+     `#engineering` reviewing PRs with GitHub, Linear and Datadog before
+     that; Jacob found it overused. Only this scene is #gtm; the session
+     scenes stay on `#engineering`.
+  The "Chat is for your team" step and its scene are gone; its point is a
+  line in step 2. The "To Lor" switch left step 3, since the `session_reply`
+  hint teaches it when it matters.
+- `components/onboarding/how-lor-works-scenes.tsx` (new): three mockups that
+  play once per step and hold the last frame (reduced motion shows the last
+  frame): chat between people (replaced 2026-10-12 by the channel setup
+  scene, `ChannelAgentScene`); `@Lor` + a question with the real
+  `DestinationBar`, the send leaves the chat as it was, and a session row
+  starts under `#engineering` with the real `SessionStateIndicator` and
+  `TypewriterText` title, the "Started … · Open" note shows (a copy of
+  `SessionStartedNote`, since the real one is a router link), a cursor
+  clicks Open, and the session opens with the question on top,
+  Lor's "Working…" row and its answer typing out. Channel context: the send
+  lights up the chat messages, the question carries a "# engineering · 2
+  messages" chip (like the Details panel's Context link), Lor's row reads
+  "Reading #engineering…", and the answer names Zoe's fix from the chat.
+  The people are Zoe Brandt and Rafael Ortiz with cartoon avatars (Jacob,
+  2026-10-12): DiceBear Lorelei, CC0, downloaded once as 256px PNGs into
+  web's `public/tour` and the phone's `assets/images/tour`; nothing calls
+  DiceBear at runtime. Black and white (Jacob): a white fill, which also
+  keeps the black line art visible in dark mode. Zoe:
+  `10.x/lorelei/png?seed=zoe-3&beardProbability=0&backgroundColor=ffffff&size=256`.
+  Rafael: `10.x/lorelei/png?seed=rafael-8&backgroundColor=ffffff&size=256`.
+  You keep your own photo or initials; a cartoon "you" was tried and
+  dropped (Jacob).
+  Lorelei faces vary a lot per seed (beards, androgynous looks), so pick by
+  eye. Before that they were Maya and Tomás with initials (Notionists was
+  tried first).
+  Step 1's copy says Lor reads the chat; a shared session where a teammate joins and replies
+  to Lor, then the pill switches to "To subscribers" and that turn lands
+  muted. The mini sidebar uses the real workspace name, and "you" is the
+  signed-in user.
+- `components/hints/hints-provider.tsx`: `usePageHint(key)`; no popover hint
+  shows until `how_lor_works` is dismissed, so none lands over the dialog.
+
 ### Docs
 
 - `reference/README.md`: moved from `planned/` to root on 2026-10-07 when
@@ -773,11 +886,9 @@ email with a callback too.
 
 ## Open questions
 
-Rework owed after `reference/planned/workspace-model.md` (2026-10-08):
-channel chat is now people only, and Lor works in sessions. The Lor intro
-message in `#general` (Step 2) goes away, and the `@Lor` hints (Steps 8 and 9)
-must teach "@Lor starts a session" and ⌘N. Jacob wants to redo how onboarding
-introduces Lor once the workspace model lands.
+Resolved 2026-10-10: the rework owed after `reference/workspace-model.md`
+(people-only chat, Lor in sessions) is Step 11. The Lor intro message is gone
+and the `@Lor` hint teaches sessions and ⌘N (workspace model Step 19).
 
 Before Step 5 is tested live, Jacob creates a dev GitHub App
 (checklist in `reference/github-connector.md`). Today dev shares the prod

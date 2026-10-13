@@ -24,11 +24,6 @@ const DM_OPTIONS = [
   { value: "nothing", label: "Nothing" },
 ] as const
 
-const LOR_THREAD_OPTIONS = [
-  { value: "all_activity", label: "All Activity" },
-  { value: "subscribed_only", label: "Subscribed Threads Only" },
-] as const
-
 function OptionGroup<Value extends string>({
   detail,
   onChange,
@@ -106,11 +101,6 @@ export default function NotificationSettingsScreen() {
       ...(patch.dmNotifications !== undefined
         ? { dmNotifications: settings.dmNotifications }
         : {}),
-      ...(patch.lorThreadNotifications !== undefined
-        ? {
-            lorThreadNotifications: settings.lorThreadNotifications,
-          }
-        : {}),
     }
     patchSettings((current) => ({ ...current, ...patch }))
     void api.v1["notification-settings"]
@@ -132,12 +122,6 @@ export default function NotificationSettingsScreen() {
             next.dmNotifications === patch.dmNotifications
           ) {
             next.dmNotifications = revert.dmNotifications
-          }
-          if (
-            revert.lorThreadNotifications !== undefined &&
-            next.lorThreadNotifications === patch.lorThreadNotifications
-          ) {
-            next.lorThreadNotifications = revert.lorThreadNotifications
           }
           return next
         })
@@ -197,15 +181,6 @@ export default function NotificationSettingsScreen() {
               options={DESKTOP_OPTIONS}
               title="Channel Notifications"
               value={settings.desktopNotifications}
-            />
-            <OptionGroup
-              detail="Replying in a Lor thread subscribes you automatically."
-              onChange={(lorThreadNotifications) =>
-                update({ lorThreadNotifications })
-              }
-              options={LOR_THREAD_OPTIONS}
-              title="Lor Thread Notifications"
-              value={settings.lorThreadNotifications}
             />
             <OptionGroup
               detail="Direct messages sent to you."

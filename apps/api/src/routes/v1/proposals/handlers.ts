@@ -2,6 +2,7 @@ import type { PermissionRequest } from "@repo/auth/permissions"
 import { workspaceAuthorityHasPermissions } from "@repo/auth/permissions"
 import { and, asc, db, desc, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { ChangeProposal, ChangeProposalOperation } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
@@ -18,6 +19,7 @@ import { resolveWorkspaceAuthority } from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { postScopeMessage, startScopeContinuationRun } from "@/lib/scope-runs"
 import type { AppRouteHandler, Workspace } from "@/lib/types/app-types"
+import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import type {
   ApproveProposalRoute,
   GetProposalRoute,
@@ -222,29 +224,38 @@ async function emitProposalUpdated(proposal: ChangeProposal): Promise<void> {
   }
 }
 
-// Post the resolution into the card thread as the resolver and start the
-// follow-up continuation run. Best-effort by design for approve (the config
-// is already applied); reject un-resolves on failure at its call site.
+// Post the resolution as the resolver and start the follow-up continuation
+// run: in the session the card is in, or the card's own thread for
+// pre-session proposals. Best-effort by design for approve (the config is
+// already applied); reject un-resolves on failure at its call site.
 async function postResolutionAndContinue(args: {
   proposal: ChangeProposal
   authorId: string
   content: string
 }): Promise<string | null> {
   const { proposal } = args
-  if (!proposal.cardMessageId) return null
+  const threadRootId = proposal.threadRootId ?? proposal.cardMessageId
+  if (!threadRootId) return null
   const messageId = await postScopeMessage({
     channelId: proposal.channelId,
-    threadRootId: proposal.cardMessageId,
+    threadRootId,
     authorId: args.authorId,
     content: args.content,
   }).catch(() => null)
   if (!messageId) return null
+  // Resolving joins the session, like resolving an approval does.
+  if (proposal.threadRootId) {
+    await subscribeToThread(proposal.threadRootId, [args.authorId]).catch(
+      () => {}
+    )
+    notifyWorkspaceActivity(proposal.workspaceId)
+  }
   try {
     await startScopeContinuationRun({
       workspaceId: proposal.workspaceId,
       channelId: proposal.channelId,
-      scopeKey: proposal.cardMessageId,
-      threadRootId: proposal.cardMessageId,
+      scopeKey: threadRootId,
+      threadRootId,
       triggerMessageId: messageId,
       senderId: args.authorId,
     })

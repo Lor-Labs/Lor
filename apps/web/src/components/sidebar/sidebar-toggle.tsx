@@ -7,6 +7,7 @@ import {
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
 import { cn } from "@repo/ui/lib/utils"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 
 /**
  * Left-sidebar toggle. Anchored to shadcn's `useSidebar` open state so the
@@ -55,11 +56,14 @@ export function LeftSidebarToggle({
 export function RightPanelToggle({
   workspaceSlug,
   channelId,
+  openView,
   tooltipHandle,
   className,
 }: {
   workspaceSlug: string
   channelId: string
+  // The page's own panel view; defaults to the channel overview (members).
+  openView?: RightSidebarView
   tooltipHandle: TooltipPrimitive.Handle<string>
   className?: string
 }) {
@@ -74,11 +78,7 @@ export function RightPanelToggle({
       toggleCollapsed()
       return
     }
-    setView({
-      type: "workspace-members",
-      workspaceSlug,
-      channelId,
-    })
+    setView(openView ?? { type: "workspace-members", workspaceSlug, channelId })
   }
 
   return (

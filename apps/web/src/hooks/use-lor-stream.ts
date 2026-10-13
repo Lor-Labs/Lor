@@ -6,6 +6,7 @@ import {
 } from "@repo/utils/lor"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useEffect, useSyncExternalStore } from "react"
+import { isOptimisticLorTurn } from "@/hooks/use-thread-messages"
 import { apiClient } from "@/lib/api-client"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 import type { AppSocket } from "@/lib/socket"
@@ -653,7 +654,7 @@ export function useLorRunReplay({
     getReplayRetryRevision
   )
   const pendingIds = messages
-    .filter((m) => m.status === "pending")
+    .filter((m) => m.status === "pending" && !isOptimisticLorTurn(m.id))
     .map((m) => `${m.id}:${m.threadRootId ?? ""}`)
     .join(",")
 

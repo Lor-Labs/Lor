@@ -9,6 +9,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { env } from "@repo/env/server"
 import { loadThreadSummary } from "@repo/messaging"
 import type { LorRespondJobData, RealtimeMessage } from "@repo/realtime-types"
@@ -130,6 +131,27 @@ async function runDrain(args: {
     }
   }
 
+  // An archived session takes no more Lor turns: its queue is dropped.
+  if (threadRootId) {
+    const session = await findAgentSessionByThreadRoot(threadRootId)
+    if (session?.archivedAt) {
+      await db
+        .update(schema.agentRunQueue)
+        .set({ state: "rejected" })
+        .where(
+          inArray(
+            schema.agentRunQueue.id,
+            rows.map((r) => r.id)
+          )
+        )
+      emitQueueUpdate(
+        rows.map((r) => r.messageId),
+        "rejected"
+      )
+      return
+    }
+  }
+
   // Dequeue reauthorization: queued work never rides send-time authorization.
   // The sender must still be a member of the run's workspace, and the message
   // must live in the run's channel (tenant binding). Walk in drain order to
@@ -176,92 +198,167 @@ async function runDrain(args: {
   }
   if (!winner) return
 
-  const triggerMessageId = winner.messageId
+  const started = await startScopeRun(
+    { emitter: args.emitter, respondQueue: args.respondQueue },
+    {
+      workspaceId: run.workspaceId,
+      channelId: run.channelId,
+      threadRootId,
+      scopeKey: run.scopeKey,
+      triggerMessageId: winner.messageId,
+      // A queued approval resolution keeps its resume: the follow-up run
+      // replays the parked transcript instead of building a delta.
+      resumeApprovalId: winner.resumeApprovalId,
+    },
+    {
+      // Release exactly this message: it leaves the pill, materializes in the
+      // transcript, and the new run's snapshot picks it up as the question.
+      // Deliberately BEFORE the enqueue — loadConversation excludes
+      // still-queued rows, so if the job started before this committed, the
+      // run would answer without its own question.
+      beforeEnqueue: async () => {
+        await db
+          .update(schema.agentRunQueue)
+          .set({ state: "consumed" })
+          .where(eq(schema.agentRunQueue.id, winner.id))
+        emitQueueUpdate([winner.messageId], "consumed")
+      },
+      // No job means nothing will ever work this run — the message goes back
+      // to queued (the next terminal retries).
+      onUnwind: async () => {
+        await db
+          .update(schema.agentRunQueue)
+          .set({ state: "queued" })
+          .where(eq(schema.agentRunQueue.id, winner.id))
+          .catch(() => {})
+      },
+    }
+  )
+  // Busy: the scope was re-occupied first (a fresh mention won the race).
+  // Queued rows stay out of every run's context until their own drain, so
+  // everything stays queued for the next terminal.
+  if (started !== "started") return
+
+  logger.info(
+    {
+      scopeKey: run.scopeKey,
+      messageId: winner.messageId,
+      remaining: rows.length - rejected.length - 1,
+    },
+    "Drained next queued message into follow-up run"
+  )
+}
+
+export type ScopeRunStart = {
+  workspaceId: string
+  channelId: string
+  threadRootId: string | null
+  scopeKey: string
+  triggerMessageId: string
+  // Loop fires carry their loop: pause stops runs by it, history lists by it.
+  loopId?: string
+  scheduledFor?: Date
+  resumeApprovalId?: string | null
+  // An Act run created before its session (its deliveries point at it) is
+  // moved into the scope instead of inserting a new run.
+  queuedRunId?: string
+}
+
+// Placeholder + run + respond job answering one trigger message in an idle
+// scope. "busy" means another run holds the scope (one active run per scope)
+// and nothing was started. `beforeEnqueue` runs once the run row commits;
+// if the enqueue then fails, everything unwinds and `onUnwind` runs. Shared
+// by the queue drain, loop fires and Act sessions.
+export async function startScopeRun(
+  deps: {
+    emitter: Emitter<ServerToClientEvents>
+    respondQueue: Queue<LorRespondJobData>
+  },
+  args: ScopeRunStart,
+  hooks: {
+    beforeEnqueue?: () => Promise<void>
+    onUnwind?: () => Promise<void>
+  } = {}
+): Promise<"started" | "busy" | "failed"> {
+  const { channelId, threadRootId, scopeKey } = args
+  const room = threadRootId ? threadRoom(threadRootId) : channelRoom(channelId)
 
   const lorUser = await db
-    .select({
-      name: schema.user.name,
-      image: schema.user.image,
-    })
+    .select({ name: schema.user.name, image: schema.user.image })
     .from(schema.user)
     .where(eq(schema.user.id, LOR_USER_ID))
     .then((r) => r[0])
-  if (!lorUser) return
+  if (!lorUser) return "failed"
 
   const placeholder = await db
     .insert(schema.message)
     .values({
-      channelId: run.channelId,
+      channelId,
       authorId: LOR_USER_ID,
       threadRootId,
       status: "pending",
     })
-    .returning({
-      id: schema.message.id,
-      createdAt: schema.message.createdAt,
-    })
+    .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
     .then((r) => r[0])
-  if (!placeholder) return
+  if (!placeholder) return "failed"
 
-  const newRun = await db
-    .insert(schema.agentRun)
-    .values({
-      workspaceId: run.workspaceId,
-      channelId: run.channelId,
-      messageId: placeholder.id,
-      threadRootId,
-      triggerMessageId,
-      scopeKey: run.scopeKey,
-      budgetSteps: env.AGENT_RUN_MAX_STEPS,
-      budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-      budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-      budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-      budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
-      budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
-      budgetCredits: env.AGENT_RUN_MAX_CREDITS,
-    })
-    .returning({ id: schema.agentRun.id })
+  let busy = false
+  const placement = {
+    messageId: placeholder.id,
+    threadRootId,
+    triggerMessageId: args.triggerMessageId,
+    scopeKey,
+  }
+  const placed: Promise<{ id: string }[]> = args.queuedRunId
+    ? db
+        .update(schema.agentRun)
+        .set(placement)
+        .where(
+          and(
+            eq(schema.agentRun.id, args.queuedRunId),
+            eq(schema.agentRun.state, "queued")
+          )
+        )
+        .returning({ id: schema.agentRun.id })
+    : db
+        .insert(schema.agentRun)
+        .values({
+          ...placement,
+          workspaceId: args.workspaceId,
+          channelId,
+          loopId: args.loopId ?? null,
+          scheduledFor: args.scheduledFor ?? null,
+          budgetSteps: env.AGENT_RUN_MAX_STEPS,
+          budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
+          budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
+          budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
+          budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
+          budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
+          budgetCredits: env.AGENT_RUN_MAX_CREDITS,
+        })
+        .returning({ id: schema.agentRun.id })
+  const newRun = await placed
     .then((r) => r[0] ?? null)
     .catch((err) => {
-      // Only the one-active-run-per-scope unique index is expected contention;
-      // anything else is a real failure worth surfacing (rows stay queued
-      // either way, so the next terminal retries).
-      if (!isUniqueViolation(err)) {
-        logger.error(
-          { err, scopeKey: run.scopeKey },
-          "Follow-up run insert failed"
-        )
-      }
+      // Only the one-active-run-per-scope unique index is expected contention.
+      if (isUniqueViolation(err)) busy = true
+      else logger.error({ err, scopeKey }, "Scope run insert failed")
       return null
     })
-
   if (!newRun) {
-    // The scope was re-occupied first (a fresh mention won the race). Queued
-    // rows are excluded from every run's context until their own drain, so
-    // nothing to consume — everything stays queued for the next terminal.
     await db
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
-    return
+    return busy ? "busy" : "failed"
   }
 
-  notifyWorkspaceActivity(run.workspaceId)
-
-  // Release exactly this message: it leaves the pill, materializes in the
-  // transcript, and the new run's snapshot picks it up as the question.
-  // Deliberately BEFORE the enqueue — loadConversation excludes still-queued
-  // rows, so if the job started before this committed, the run would answer
-  // without its own question. The enqueue-failure catch below compensates.
-  await db
-    .update(schema.agentRunQueue)
-    .set({ state: "consumed" })
-    .where(eq(schema.agentRunQueue.id, winner.id))
-  emitQueueUpdate([winner.messageId], "consumed")
+  notifyWorkspaceActivity(args.workspaceId)
+  await hooks.beforeEnqueue?.()
 
   const realtimePlaceholder: RealtimeMessage = {
     id: placeholder.id,
-    channelId: run.channelId,
+    channelId,
     content: null,
     type: "default",
     pinned: false,
@@ -280,25 +377,21 @@ async function runDrain(args: {
     threadRootId,
     status: "pending",
     streaming: true,
-    lorTriggerMessageId: triggerMessageId,
+    lorTriggerMessageId: args.triggerMessageId,
   }
-  args.emitter
-    .to(threadRootId ? threadRoom(threadRootId) : channelRoom(run.channelId))
-    .emit("message:created", realtimePlaceholder)
+  deps.emitter.to(room).emit("message:created", realtimePlaceholder)
   try {
-    await args.respondQueue.add(
+    await deps.respondQueue.add(
       "respond",
       {
         lorMessageId: placeholder.id,
-        channelId: run.channelId,
+        channelId,
         threadRootId,
         contextThreadRootId: threadRootId,
-        triggerMessageId,
+        triggerMessageId: args.triggerMessageId,
         runId: newRun.id,
-        // A queued approval resolution keeps its resume: the follow-up run
-        // replays the parked transcript instead of building a delta.
-        ...(winner.resumeApprovalId
-          ? { resumeApprovalId: winner.resumeApprovalId }
+        ...(args.resumeApprovalId
+          ? { resumeApprovalId: args.resumeApprovalId }
           : {}),
       },
       {
@@ -310,18 +403,11 @@ async function runDrain(args: {
       }
     )
   } catch (err) {
-    // No job means nothing will ever work this run — unwind so the message
-    // goes back to queued (next terminal retries) instead of being consumed
-    // by a run that never starts.
     logger.error(
-      { err, scopeKey: run.scopeKey, runId: newRun.id },
-      "Follow-up run enqueue failed; requeuing message"
+      { err, scopeKey, runId: newRun.id },
+      "Scope run enqueue failed; unwinding"
     )
-    await db
-      .update(schema.agentRunQueue)
-      .set({ state: "queued" })
-      .where(eq(schema.agentRunQueue.id, winner.id))
-      .catch(() => {})
+    await hooks.onUnwind?.()
     await db
       .delete(schema.agentRun)
       .where(eq(schema.agentRun.id, newRun.id))
@@ -330,39 +416,26 @@ async function runDrain(args: {
       .delete(schema.message)
       .where(eq(schema.message.id, placeholder.id))
       .catch(() => {})
-    args.emitter.to(scopeRoom).emit("message:deleted", {
-      channelId: run.channelId,
-      messageId: placeholder.id,
-    })
+    deps.emitter
+      .to(room)
+      .emit("message:deleted", { channelId, messageId: placeholder.id })
     // The queued run's indicator must clear now that the row is gone.
-    notifyWorkspaceActivity(run.workspaceId)
-    return
+    notifyWorkspaceActivity(args.workspaceId)
+    return "failed"
   }
   // Channel feeds only learn about threaded activity via
-  // message:thread:updated — without this, a follow-up run bumps nothing for
+  // message:thread:updated — without this, a new run bumps nothing for
   // viewers outside the thread until reload.
   if (threadRootId) {
-    await loadThreadSummary(run.channelId, threadRootId)
+    await loadThreadSummary(channelId, threadRootId)
       .then((summary) =>
-        args.emitter
-          .to(channelRoom(run.channelId))
+        deps.emitter
+          .to(channelRoom(channelId))
           .emit("message:thread:updated", summary)
       )
       .catch((err) =>
-        logger.warn(
-          { err, threadRootId },
-          "Follow-up thread summary emit failed"
-        )
+        logger.warn({ err, threadRootId }, "Scope run thread summary failed")
       )
   }
-
-  logger.info(
-    {
-      scopeKey: run.scopeKey,
-      runId: newRun.id,
-      messageId: winner.messageId,
-      remaining: rows.length - rejected.length - 1,
-    },
-    "Drained next queued message into follow-up run"
-  )
+  return "started"
 }

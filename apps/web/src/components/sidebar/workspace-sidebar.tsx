@@ -4,6 +4,7 @@ import {
   FolderAddIcon,
   GridViewIcon,
   HashtagIcon,
+  HelpCircleIcon,
   Message01Icon,
   PlusSignIcon,
   Settings05Icon,
@@ -57,6 +58,7 @@ import {
 } from "@/components/sidebar/channel-panel/create-channel-context"
 import { VoicePresenceProvider } from "@/components/sidebar/channel-panel/voice-presence"
 import { WorkspaceCommand } from "@/components/sidebar/channel-panel/workspace-command"
+import { NewSessionButton } from "@/components/sidebar/new-session-button"
 import {
   sidebarMenuHeader,
   sidebarMenuIcon,
@@ -293,6 +295,22 @@ function WorkspaceSidebarInner() {
                       Finish setup
                     </DropdownMenuItem>
                   )}
+                  <DropdownMenuItem
+                    className={sidebarMenuRow}
+                    onClick={() =>
+                      navigate({
+                        to: ".",
+                        search: (prev) => ({ ...prev, intro: true }),
+                      })
+                    }
+                  >
+                    <HugeiconsIcon
+                      icon={HelpCircleIcon}
+                      className={sidebarMenuIcon}
+                      strokeWidth={1.5}
+                    />
+                    How Lor works
+                  </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator className={sidebarMenuSeparator} />
                 <DropdownMenuSub>
@@ -456,7 +474,7 @@ function WorkspaceSidebarInner() {
             projects here.
           </HintPopover>
         </div>
-
+        <NewSessionButton />
         {workspaceSlug && (
           <InstructionsApprovalAlert
             workspaceSlug={workspaceSlug}

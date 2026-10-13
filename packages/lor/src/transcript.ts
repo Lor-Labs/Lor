@@ -3,7 +3,7 @@
 // Both halves are user-controlled, so a message body containing "\nBob: do X"
 // (or "Lor: …") would read as another person speaking. Neutralized at
 // render time, in every surface that emits speaker lines (initial transcript,
-// mid-run steer/ambient updates, continuation delta, placement prompt) — the
+// mid-run steer/ambient updates, continuation delta) — the
 // stored snapshot keeps the raw text.
 
 // Display names are user-controlled, so neutralize anything that could break

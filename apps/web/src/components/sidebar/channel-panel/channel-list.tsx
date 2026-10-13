@@ -50,9 +50,15 @@ import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useMemo, useState } from "react"
 import { ArchiveProjectDialog } from "@/components/project/archive-project-dialog"
 import {
-  LorChannelStatus,
+  SessionStateIndicator,
+  strongestSessionState,
   useChannelActivity,
 } from "@/components/sidebar/channel-panel/channel-activity"
+import {
+  ChannelSessionRows,
+  SessionCollapseToggle,
+  useSessionCollapse,
+} from "@/components/sidebar/channel-panel/channel-sessions"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
@@ -62,6 +68,7 @@ import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
 import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
+import { useOpenChannelSessions } from "@/hooks/use-open-channel-sessions"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { apiClient } from "@/lib/api-client"
 import type { Channel, ListChannelsResponse } from "@/lib/api-types"
@@ -1026,6 +1033,7 @@ function SortableChannelItem({
   const [menuOpen, setMenuOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const openChannelSessions = useOpenChannelSessions()
 
   // Creators may rename their own channel and change its topic.
   const { data: session } = authClient.useSession()
@@ -1039,7 +1047,19 @@ function SortableChannelItem({
   const mentionCount = active ? 0 : getMentionCount(ch.id)
   const hasUnread = unreadCount > 0
   const activity = useChannelActivity(ch.id)
-  const hasChannelActivity = Boolean(activity?.lor)
+  const sessions = activity?.sessions ?? []
+  const sessionCollapse = useSessionCollapse(ch.id, activity?.sessions)
+  // A collapsed channel shows the strongest state of its hidden sessions.
+  const rollup = sessionCollapse.collapsed
+    ? strongestSessionState(sessions)
+    : undefined
+  const hasChannelActivity = Boolean(rollup)
+  const channelIcon = (
+    <ChannelIcon
+      type={ch.type}
+      isPrivate={ch.audience === "members" && ch.parentId === null}
+    />
+  )
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -1065,10 +1085,16 @@ function SortableChannelItem({
           {!active && hasUnread && (
             <div className="absolute left-0 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
           )}
-          <ChannelIcon
-            type={ch.type}
-            isPrivate={ch.audience === "members" && ch.parentId === null}
-          />
+          {sessions.length > 0 ? (
+            <SessionCollapseToggle
+              collapsed={sessionCollapse.collapsed}
+              onToggle={sessionCollapse.toggle}
+            >
+              {channelIcon}
+            </SessionCollapseToggle>
+          ) : (
+            channelIcon
+          )}
           <button
             type="button"
             onClick={onClick}
@@ -1080,7 +1106,7 @@ function SortableChannelItem({
           </button>
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <MentionBadge count={mentionCount} />
-            {activity?.lor && <LorChannelStatus state={activity.lor} compact />}
+            {rollup && <SessionStateIndicator state={rollup} />}
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger
                 render={
@@ -1143,6 +1169,17 @@ function SortableChannelItem({
                   </DropdownMenuSub>
                 )}
                 <DropdownMenuSeparator />
+                {ch.type === "text" && (
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setMenuOpen(false)
+                      openChannelSessions(ch.id)
+                    }}
+                  >
+                    View Sessions
+                  </DropdownMenuItem>
+                )}
                 {canEdit && (
                   <DropdownMenuItem
                     onClick={(e) => {
@@ -1185,6 +1222,11 @@ function SortableChannelItem({
         {ch.type === "voice" && (
           <VoiceParticipantRows channelId={ch.id} channelName={ch.name ?? ""} />
         )}
+        <ChannelSessionRows
+          channelId={ch.id}
+          sessions={sessions}
+          collapsed={sessionCollapse.collapsed}
+        />
       </div>
       {canEdit && (
         <EditChannelDialog

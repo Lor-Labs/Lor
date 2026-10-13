@@ -1,21 +1,18 @@
-// Dev only: gives an ended call a made-up summary, its search passage, and
-// Lor's summary card in the call chat, so the card can be seen without
-// running the after-call job (reference/voice-channels-runbook.md V7). The
-// content is fake on purpose and never reads the transcript; item times are
-// spread across the call's length. The card is inserted without
-// notifications, and replaces any earlier Lor post in that call's chat.
+// Dev only: gives an ended call a made-up summary and its search passage, so
+// the call's Summary tab can be seen without running the after-call job
+// (reference/voice-channels-runbook.md V7). The content is fake on purpose and
+// never reads the transcript; item times are spread across the call's length.
 //
 //   pnpm --filter @repo/worker exec tsx src/scripts/seed-call-summary.ts <sessionId> [--edited]
 //
 // --edited also records a correction by the first person who joined, so
 // "Edited by" shows.
-import { and, asc, db, eq, LOR_USER_ID, schema } from "@repo/db"
+import { asc, db, eq, schema } from "@repo/db"
 import type { VoiceSessionSummary } from "@repo/db/schema"
 import { embedDocumentsWithUsage } from "@repo/lor/embeddings"
 import {
   saveCallMemory,
   saveEditedSummary,
-  setSummaryCard,
   summaryPassageFor,
 } from "@repo/voice/server"
 
@@ -28,20 +25,17 @@ if (!sessionId) {
 
 const [call] = await db
   .select({
-    channelId: schema.voiceSession.channelId,
-    threadRootId: schema.voiceSession.threadRootId,
     startedAt: schema.voiceSession.startedAt,
     endedAt: schema.voiceSession.endedAt,
   })
   .from(schema.voiceSession)
   .where(eq(schema.voiceSession.id, sessionId))
   .limit(1)
-if (!call?.endedAt || !call.threadRootId) {
-  console.error("No ended call with a chat for that id")
+if (!call?.endedAt) {
+  console.error("No ended call for that id")
   process.exit(1)
 }
-const endedAt = call.endedAt
-const length = endedAt.getTime() - call.startedAt.getTime()
+const length = call.endedAt.getTime() - call.startedAt.getTime()
 const at = (fraction: number) => Math.round(length * fraction)
 
 const [first] = await db
@@ -132,28 +126,6 @@ await saveCallMemory(sessionId, {
   summary: lorSummary,
   passages: [{ ...(await passageFor(lorSummary)), kind: "summary" }],
 })
-
-await db
-  .delete(schema.message)
-  .where(
-    and(
-      eq(schema.message.threadRootId, call.threadRootId),
-      eq(schema.message.authorId, LOR_USER_ID)
-    )
-  )
-const [card] = await db
-  .insert(schema.message)
-  .values({
-    channelId: call.channelId,
-    authorId: LOR_USER_ID,
-    type: "call_summary",
-    content: `${lorSummary.title}\n\n${lorSummary.summary}`,
-    threadRootId: call.threadRootId,
-    excludedFromMemory: true,
-    createdAt: new Date(endedAt.getTime() + 40_000),
-  })
-  .returning({ id: schema.message.id })
-if (card) await setSummaryCard(sessionId, card.id)
 
 if (edited && first) {
   await saveEditedSummary(sessionId, {

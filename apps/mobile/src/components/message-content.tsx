@@ -1,5 +1,5 @@
 import { useThemeColor } from "heroui-native/hooks"
-import { useCallback, useMemo } from "react"
+import { createContext, useCallback, useContext, useMemo } from "react"
 import {
   EnrichedMarkdownText,
   type MarkdownStyle,
@@ -29,13 +29,23 @@ type MessageTheme = {
   textTertiary: string
 }
 
-function buildMarkdownStyle(theme: MessageTheme): MarkdownStyle {
+// A session transcript reads as a document: roomier leading, and a turn for
+// the session's subscribers only (Lor left out) reads as a muted aside.
+export const MessageProseContext = createContext({
+  document: false,
+  muted: false,
+})
+
+function buildMarkdownStyle(
+  theme: MessageTheme,
+  document: boolean
+): MarkdownStyle {
   const chip = { color: theme.accent, backgroundColor: theme.accentMuted }
   return {
     paragraph: {
       color: theme.text,
       fontSize: 16,
-      lineHeight: 22,
+      lineHeight: document ? 24 : 22,
       marginTop: 0,
       marginBottom: 4,
     },
@@ -114,9 +124,10 @@ export function MessageContent({
     "surface-secondary",
     "muted",
   ])
+  const prose = useContext(MessageProseContext)
   const theme = useMemo<MessageTheme>(
     () => ({
-      text,
+      text: prose.muted ? textSecondary : text,
       accent,
       accentMuted,
       backgroundSelected,
@@ -126,6 +137,7 @@ export function MessageContent({
       textTertiary: textSecondary,
     }),
     [
+      prose.muted,
       text,
       accent,
       accentMuted,
@@ -139,7 +151,10 @@ export function MessageContent({
     () => toDisplayMarkdown(content, mentions),
     [content, mentions]
   )
-  const markdownStyle = useMemo(() => buildMarkdownStyle(theme), [theme])
+  const markdownStyle = useMemo(
+    () => buildMarkdownStyle(theme, prose.document),
+    [theme, prose.document]
+  )
   const openCallTranscript = useOpenCallTranscript()
 
   const onLinkPress = useCallback(

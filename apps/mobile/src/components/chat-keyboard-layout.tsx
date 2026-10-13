@@ -1,40 +1,24 @@
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-} from "react"
-import {
-  type LayoutChangeEvent,
-  StyleSheet,
-  useWindowDimensions,
-  View,
-} from "react-native"
+import { type ReactNode, useCallback, useId, useMemo } from "react"
+import { StyleSheet, View } from "react-native"
 import {
   KeyboardGestureArea,
   KeyboardStickyView,
 } from "react-native-keyboard-controller"
-import {
-  type SharedValue,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated"
+import { type SharedValue, useSharedValue } from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 
 const COMPOSER_INPUT_HEIGHT = 48
-const COMPOSER_RESIZE_DURATION_MS = 100
 
 export type ChatComposerKeyboardProps = {
   inputNativeID: string
   onCustomInputViewChange: (isOpen: boolean) => void
-  onInputLayout: (event: LayoutChangeEvent) => void
 }
 
+// The composer sits below the list in the layout, so its growth already
+// shrinks the list. No extra content inset for it: that counted it twice and
+// left a blank band above the composer after a scroll to the end.
 export type ChatMessageListKeyboardProps = {
   bottomOffset: number
-  contentInsetEndAdjustment: SharedValue<number>
   freeze: SharedValue<boolean>
 }
 
@@ -48,47 +32,12 @@ export function ChatKeyboardLayout({
   typingIndicator?: ReactNode
 }) {
   const { bottom: bottomInset } = useSafeAreaInsets()
-  const { fontScale, height, width } = useWindowDimensions()
   const reactId = useId()
   const inputNativeID = useMemo(
     () => `message-composer-${reactId.replaceAll(":", "")}`,
     [reactId]
   )
-  const contentInsetEndAdjustment = useSharedValue(0)
   const freeze = useSharedValue(false)
-  const baselineInputHeightRef = useRef<number | null>(null)
-  const measurementContext = `${width}:${height}:${fontScale}`
-  const baselineMeasurementContextRef = useRef(measurementContext)
-  const adjustmentMeasurementContextRef = useRef(measurementContext)
-
-  useEffect(() => {
-    if (adjustmentMeasurementContextRef.current === measurementContext) return
-    adjustmentMeasurementContextRef.current = measurementContext
-    contentInsetEndAdjustment.value = 0
-  }, [contentInsetEndAdjustment, measurementContext])
-
-  const onInputLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      const height = Math.round(event.nativeEvent.layout.height)
-      if (height <= 0) return
-
-      if (baselineMeasurementContextRef.current !== measurementContext) {
-        baselineMeasurementContextRef.current = measurementContext
-        baselineInputHeightRef.current = null
-      }
-
-      const previousBaseline = baselineInputHeightRef.current
-      const baseline =
-        previousBaseline === null ? height : Math.min(previousBaseline, height)
-
-      baselineInputHeightRef.current = baseline
-      contentInsetEndAdjustment.value = withTiming(
-        Math.max(height - baseline, 0),
-        { duration: COMPOSER_RESIZE_DURATION_MS }
-      )
-    },
-    [contentInsetEndAdjustment, measurementContext]
-  )
 
   const onCustomInputViewChange = useCallback(
     (isOpen: boolean) => {
@@ -98,12 +47,8 @@ export function ChatKeyboardLayout({
   )
 
   const messageListKeyboardProps = useMemo<ChatMessageListKeyboardProps>(
-    () => ({
-      bottomOffset: bottomInset,
-      contentInsetEndAdjustment,
-      freeze,
-    }),
-    [bottomInset, contentInsetEndAdjustment, freeze]
+    () => ({ bottomOffset: bottomInset, freeze }),
+    [bottomInset, freeze]
   )
 
   return (
@@ -117,11 +62,7 @@ export function ChatKeyboardLayout({
       <KeyboardStickyView offset={{ opened: bottomInset }}>
         <View collapsable={false}>
           {typingIndicator}
-          {renderComposer({
-            inputNativeID,
-            onCustomInputViewChange,
-            onInputLayout,
-          })}
+          {renderComposer({ inputNativeID, onCustomInputViewChange })}
         </View>
       </KeyboardStickyView>
     </KeyboardGestureArea>

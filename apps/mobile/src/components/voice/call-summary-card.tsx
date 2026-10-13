@@ -10,11 +10,15 @@ import {
 } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
 import type { ReactNode } from "react"
-import { Pressable, Text, View } from "react-native"
+import { Pressable, ScrollView, Text, View } from "react-native"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ParticipantStack } from "@/components/voice/voice-lobby"
-import { useSummaryCard } from "@/hooks/use-call-summary"
+import {
+  type CallSummary,
+  useCallSummary,
+  useSummaryCard,
+} from "@/hooks/use-call-summary"
 import { useOpenCallTranscript } from "@/hooks/use-open-call-transcript"
 import type { Message } from "@/lib/api-types"
 
@@ -74,29 +78,25 @@ function SummarySection({
   )
 }
 
-// Lor's summary of an ended call, posted in its chat. Read-only on the phone;
-// it draws the call's current summary, so edits made on web show here too.
-// Times open the transcript at that moment.
+function SummarySkeleton({ className }: { className: string }) {
+  return (
+    <View className={`${className} gap-two`}>
+      <Skeleton className="h-4 w-48" />
+      <Skeleton className="h-3 w-32" />
+      <Skeleton className="mt-two h-3 w-full" />
+      <Skeleton className="h-3 w-4/5" />
+    </View>
+  )
+}
+
+// Lor's summary card in an old call's chat (before the Summary tab), where
+// it still shows outside the call: pins, search. It draws the call's current
+// summary, so edits made on web show here too.
 export function CallSummaryCard({ message }: { message: Message }) {
   const { data, isPending, isError } = useSummaryCard(message.id)
-  const openTranscript = useOpenCallTranscript()
-  const [success, warning, accent, surfaceSecondary] = useThemeColor([
-    "success",
-    "warning",
-    "accent",
-    "surface-secondary",
-  ])
+  const surfaceSecondary = useThemeColor("surface-secondary")
 
-  if (isPending) {
-    return (
-      <View className={`${CARD} gap-two`}>
-        <Skeleton className="h-4 w-48" />
-        <Skeleton className="h-3 w-32" />
-        <Skeleton className="mt-two h-3 w-full" />
-        <Skeleton className="h-3 w-4/5" />
-      </View>
-    )
-  }
+  if (isPending) return <SummarySkeleton className={CARD} />
   // The posted text stands in when the card can't load.
   if (isError) {
     return (
@@ -105,7 +105,51 @@ export function CallSummaryCard({ message }: { message: Message }) {
       </Text>
     )
   }
+  return (
+    <View className={CARD}>
+      <SummaryBody data={data} ringColor={surfaceSecondary} transcriptButton />
+    </View>
+  )
+}
 
+// An ended call's Summary tab. Read-only on the phone; corrections happen on
+// web and land here through voice pushes. Mirrors web's CallSummaryPanel.
+export function CallSummaryPanel({ sessionId }: { sessionId: string }) {
+  const { data, isPending, isError } = useCallSummary(sessionId)
+  const background = useThemeColor("background")
+
+  return (
+    <ScrollView contentContainerClassName="px-four pb-eight pt-four">
+      {isPending ? (
+        <SummarySkeleton className="" />
+      ) : isError ? (
+        <Text className="text-[15px] text-muted">
+          Couldn't load the summary.
+        </Text>
+      ) : (
+        <SummaryBody data={data} ringColor={background} />
+      )}
+    </ScrollView>
+  )
+}
+
+// Times open the transcript at that moment.
+function SummaryBody({
+  data,
+  ringColor,
+  transcriptButton = false,
+}: {
+  data: CallSummary
+  ringColor: string
+  // The old card has no Transcript tab beside it.
+  transcriptButton?: boolean
+}) {
+  const openTranscript = useOpenCallTranscript()
+  const [success, warning, accent] = useThemeColor([
+    "success",
+    "warning",
+    "accent",
+  ])
   const { call, summary } = data
   const day = new Date(call.startedAt).toLocaleDateString(undefined, {
     weekday: "long",
@@ -118,7 +162,7 @@ export function CallSummaryCard({ message }: { message: Message }) {
   const openAt = (atMs?: number) => void openTranscript(data.sessionId, atMs)
 
   return (
-    <View className={CARD}>
+    <>
       <View className="flex-row items-start gap-three">
         <View className="min-w-0 flex-1 gap-px">
           <Text className="text-[16px] font-semibold leading-[21px] text-foreground">
@@ -130,7 +174,7 @@ export function CallSummaryCard({ message }: { message: Message }) {
         </View>
         <ParticipantStack
           participants={call.participants}
-          ringColor={surfaceSecondary}
+          ringColor={ringColor}
         />
       </View>
 
@@ -201,26 +245,31 @@ export function CallSummaryCard({ message }: { message: Message }) {
         </View>
       ) : (
         <Text className="mt-four text-[15px] leading-[22px] text-muted">
-          Lor couldn't write a summary for this call. Its transcript is indexed,
-          so you can still ask Lor about it.
+          {data.processed
+            ? "Lor didn't write a summary for this call."
+            : "Lor is writing the summary…"}
         </Text>
       )}
 
-      <View className="mt-four flex-row items-center gap-three">
-        <Button onPress={() => openAt()} size="sm" variant="secondary">
-          <Button.Label>Open transcript</Button.Label>
-        </Button>
-        {summary ? (
-          <Text
-            className="min-w-0 flex-1 text-right text-xs text-muted"
-            numberOfLines={1}
-          >
-            {data.editedAt
-              ? `Edited by ${data.editedBy?.name ?? "someone"} · ${formatDateTime(data.editedAt)}`
-              : "Written by Lor"}
-          </Text>
-        ) : null}
-      </View>
-    </View>
+      {transcriptButton || summary ? (
+        <View className="mt-four flex-row items-center gap-three">
+          {transcriptButton ? (
+            <Button onPress={() => openAt()} size="sm" variant="secondary">
+              <Button.Label>Open transcript</Button.Label>
+            </Button>
+          ) : null}
+          {summary ? (
+            <Text
+              className="min-w-0 flex-1 text-right text-xs text-muted"
+              numberOfLines={1}
+            >
+              {data.editedAt
+                ? `Edited by ${data.editedBy?.name ?? "someone"} · ${formatDateTime(data.editedAt)}`
+                : "Written by Lor"}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </>
   )
 }

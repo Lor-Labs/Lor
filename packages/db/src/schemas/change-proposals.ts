@@ -286,6 +286,11 @@ export const changeProposal = pgTable(
     cardMessageId: uuid("card_message_id").references(() => message.id, {
       onDelete: "set null",
     }),
+    // The Lor session the card posts in; resolution continues there. Null
+    // for proposals from before sessions, whose card is a channel message.
+    threadRootId: uuid("thread_root_id").references(() => message.id, {
+      onDelete: "cascade",
+    }),
     authorType: changeProposalAuthorEnum("author_type").notNull(),
     authorUserId: uuid("author_user_id").references(() => user.id, {
       onDelete: "set null",
@@ -311,12 +316,20 @@ export const changeProposal = pgTable(
       table.status
     ),
     uniqueIndex("changeProposal_cardMessageId_uidx").on(table.cardMessageId),
-    // One live card per channel, enforced against races too — the executor's
-    // supersede-then-insert normally maintains this; a concurrent loser hits
-    // this index and its compensation path.
+    // One live card per session (per channel for pre-session proposals),
+    // enforced against races too — the executor's supersede-then-insert
+    // normally maintains this; a concurrent loser hits the index and its
+    // compensation path. Parallel sessions never supersede each other.
+    uniqueIndex("changeProposal_session_pending_uidx")
+      .on(table.threadRootId)
+      .where(
+        sql`${table.status} = 'pending' and ${table.threadRootId} is not null`
+      ),
     uniqueIndex("changeProposal_channel_pending_uidx")
       .on(table.channelId)
-      .where(sql`${table.status} = 'pending'`),
+      .where(
+        sql`${table.status} = 'pending' and ${table.threadRootId} is null`
+      ),
   ]
 )
 

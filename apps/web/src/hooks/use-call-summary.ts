@@ -1,33 +1,42 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useInvalidateOnVoiceUpdate } from "@/hooks/use-voice-presence"
 import { apiClient } from "@/lib/api-client"
 
-async function fetchSummaryCard(messageId: string) {
-  const res = await apiClient.v1.voice["summary-cards"][":messageId"].$get({
-    param: { messageId },
+async function fetchCallSummary(sessionId: string) {
+  const res = await apiClient.v1.voice.sessions[":sessionId"].summary.$get({
+    param: { sessionId },
   })
   if (!res.ok) throw new Error("Failed to load the summary")
   return res.json()
 }
 
-export type SummaryCard = Awaited<ReturnType<typeof fetchSummaryCard>>
-export type CallSummaryContent = NonNullable<SummaryCard["summary"]>
+export type CallSummary = Awaited<ReturnType<typeof fetchCallSummary>>
+export type CallSummaryContent = NonNullable<CallSummary["summary"]>
 
-const summaryCardKey = (messageId: string) => ["voice-summary-card", messageId]
+const callSummaryKey = (sessionId: string | null) =>
+  ["voice-summary", sessionId] as const
 
-// Lor's summary card in a call chat, by the card message's id.
-export function useSummaryCard(messageId: string) {
+// An ended call's summary, for its Summary tab. Voice pushes refetch it: the
+// after-call job finishing, or someone's correction.
+export function useCallSummary(sessionId: string | null) {
+  useInvalidateOnVoiceUpdate("voice-summary", sessionId ?? undefined, undefined)
   return useQuery({
-    queryKey: summaryCardKey(messageId),
-    queryFn: () => fetchSummaryCard(messageId),
+    queryKey: callSummaryKey(sessionId),
+    queryFn: sessionId ? () => fetchCallSummary(sessionId) : skipToken,
   })
 }
 
-export function useSaveSummaryCard(messageId: string) {
+export function useSaveCallSummary(sessionId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (summary: CallSummaryContent) => {
-      const res = await apiClient.v1.voice["summary-cards"][":messageId"].$put({
-        param: { messageId },
+      const res = await apiClient.v1.voice.sessions[":sessionId"].summary.$put({
+        param: { sessionId },
         json: summary,
       })
       const body = await res.json()
@@ -38,8 +47,8 @@ export function useSaveSummaryCard(messageId: string) {
       }
       return body
     },
-    onSuccess: (card) => {
-      queryClient.setQueryData(summaryCardKey(messageId), card)
+    onSuccess: (summary) => {
+      queryClient.setQueryData(callSummaryKey(sessionId), summary)
     },
   })
 }

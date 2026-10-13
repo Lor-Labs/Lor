@@ -1,6 +1,8 @@
 import { HashtagIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { isTauri } from "@repo/auth/tauri-fetch"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { Button } from "@repo/ui/components/button"
 import {
   MessageScroller,
   MessageScrollerContent,
@@ -53,6 +55,9 @@ interface MessageListProps {
   onReact?: (messageId: string, emoji: string) => void
   onReply?: (message: Message) => void
   onReplyInThread?: (message: Message) => void
+  onAskLor?: (message: Message) => void
+  // Text channels only: the empty state explains sessions and starts one.
+  onNewSession?: () => void
   onOpenThread?: (rootMessageId: string) => void
   replyingToId?: string | null
   onDelete?: (messageId: string) => void
@@ -93,7 +98,13 @@ interface MessageListProps {
   onDismissThreadActivity?: (threadRootId: string) => void
 }
 
-function EmptyState({ context }: { context: ChatContext }) {
+function EmptyState({
+  context,
+  onNewSession,
+}: {
+  context: ChatContext
+  onNewSession?: () => void
+}) {
   return (
     <div className="flex flex-1 flex-col justify-end px-6 pb-4">
       <div className="flex flex-col items-start gap-3">
@@ -130,12 +141,30 @@ function EmptyState({ context }: { context: ChatContext }) {
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {context.type === "channel"
-              ? `This is the start of the #${context.name} channel.`
+              ? (context.topic ??
+                `This is the start of the #${context.name} channel.`)
               : context.type === "dm"
                 ? `This is the beginning of your direct message history with ${context.name}.`
                 : `This is the beginning of your group conversation.`}
           </p>
         </div>
+        {onNewSession && (
+          <div className="mt-2 flex max-w-md flex-col items-start gap-3">
+            <p className="text-sm text-pretty text-muted-foreground">
+              This chat is for your team. Lor works in sessions, next to the
+              chat. Mention @Lor in a message, or start a session here.
+            </p>
+            <Button variant="secondary" size="sm" onClick={onNewSession}>
+              <img src="/lor-mark.svg" alt="" className="size-3.5" />
+              New session
+              {isTauri && (
+                <kbd className="font-sans text-[11px] text-muted-foreground">
+                  ⌘N
+                </kbd>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -186,6 +215,8 @@ export function MessageList({
   onReact,
   onReply,
   onReplyInThread,
+  onAskLor,
+  onNewSession,
   onOpenThread,
   onDelete,
   onEdit,
@@ -237,9 +268,6 @@ export function MessageList({
   const resolveUserName = useCallback(
     (userId: string) => userNameById.get(userId),
     [userNameById]
-  )
-  const pendingLorMessage = messages.find(
-    (message) => message.status === "pending"
   )
   const contentVersion = `${messages.length}:${messages[0]?.id ?? ""}:${messages.at(-1)?.id ?? ""}`
   const oldestMessageId = orderedMessages[0]?.id
@@ -450,7 +478,7 @@ export function MessageList({
         </div>
       )
     }
-    return <EmptyState context={context} />
+    return <EmptyState context={context} onNewSession={onNewSession} />
   }
 
   return (
@@ -476,14 +504,12 @@ export function MessageList({
         <MessageScrollerViewport
           ref={scrollRef}
           onScroll={handleScroll}
-          reconcileFollowOutput={Boolean(pendingLorMessage)}
           onPointerDown={handleReaderPointerDown}
           data-message-scroll
           aria-label={`${context.name} messages`}
           className="select-text"
         >
           <MessageScrollerContent
-            aria-busy={Boolean(pendingLorMessage)}
             className={`relative justify-end pb-4 ${hasOlder ? "pt-16" : "pt-4"}`}
           >
             {orderedMessages.map((msg, i) => {
@@ -590,6 +616,7 @@ export function MessageList({
                     onReact={onReact}
                     onReply={onReply}
                     onReplyInThread={onReplyInThread}
+                    onAskLor={onAskLor}
                     onOpenThread={onOpenThread}
                     isReplyTarget={replyingToId === msg.id}
                     onDelete={onDelete}
@@ -623,7 +650,6 @@ export function MessageList({
         <MessageScrollerJumpToLatest
           newestMessageId={messages[0]?.id ?? null}
           viewportRef={scrollRef}
-          isLorResponding={Boolean(pendingLorMessage)}
           pendingCount={pendingCount}
           hasUnloadedNewer={Boolean(hasNewer)}
           onJumpToPresent={onJumpToPresent}

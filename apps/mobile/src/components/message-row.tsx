@@ -1,16 +1,17 @@
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import Brain01Icon from "@hugeicons/core-free-icons/Brain01Icon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
-import StopIcon from "@hugeicons/core-free-icons/StopIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateDivider, formatDateTime, timeAgo } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
+import { useMemo } from "react"
 import { Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { MessageApprovalCard } from "@/components/approval-card"
 import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
+import { ForwardedMessageCard } from "@/components/forwarded-message-card"
 import { LoopCard } from "@/components/loop-card"
 import { LorMessageBody } from "@/components/lor-message-body"
 import { LorReasoning } from "@/components/lor-reasoning"
@@ -19,14 +20,16 @@ import {
   MeetingRecordingCard,
 } from "@/components/meeting-recording-card"
 import { MessageAttachments } from "@/components/message-attachments"
-import { MessageContent } from "@/components/message-content"
+import {
+  MessageContent,
+  MessageProseContext,
+} from "@/components/message-content"
 import { MessageEmbed } from "@/components/message-embed"
 import { PlanCard } from "@/components/plan-card"
 import { ProposalCard } from "@/components/proposal-card"
 import { ThinkingIndicator } from "@/components/thinking-indicator"
 import { Avatar } from "@/components/ui/avatar"
 import { CallSummaryCard } from "@/components/voice/call-summary-card"
-import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import type { Message } from "@/lib/api-types"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import { isOptimisticMessage } from "@/lib/messages"
@@ -63,12 +66,14 @@ export function areMessagesOnSameDay(left: string, right: string) {
 
 function MessageAvatar({
   avatarColor,
+  className,
   message,
   size = "sm",
 }: {
   avatarColor?: string | null
+  className?: string
   message: Message
-  size?: "sm" | "md"
+  size?: "xs" | "sm" | "md"
 }) {
   const foreground = useThemeColor("foreground")
   const isLor = message.authorId === LOR_USER_ID
@@ -79,6 +84,7 @@ function MessageAvatar({
   return (
     <Avatar
       avatarColor={avatarColor}
+      className={className}
       color={isLor ? "accent" : "default"}
       fallback={
         connector ? (
@@ -112,37 +118,6 @@ function AppBadge() {
   )
 }
 
-// Steer status + explicit Stop for an in-flight Lor reply. Stop is honored
-// by the run at its next safe step boundary; whatever streamed is kept.
-function LorRunControls({ message }: { message: Message }) {
-  const muted = useThemeColor("muted")
-  const { requestStop, stoppingMessageId } = useStopLorRun()
-  const isStopping = stoppingMessageId === message.id
-
-  return (
-    <View className="mt-one flex-row items-center gap-three">
-      {message.steeringBy ? (
-        <Text className="text-xs italic text-accent">
-          Applying {message.steeringBy}&apos;s new direction…
-        </Text>
-      ) : null}
-      {isStopping ? (
-        <Text className="text-xs italic text-muted">Stopping…</Text>
-      ) : (
-        <Pressable
-          accessibilityLabel="Stop Lor's reply"
-          accessibilityRole="button"
-          className="min-h-7 flex-row items-center gap-one self-start rounded-lor-sm border border-border px-two py-one"
-          onPress={() => void requestStop(message.id)}
-        >
-          <HugeiconsIcon color={muted} icon={StopIcon} size={12} />
-          <Text className="text-xs font-semibold text-muted">Stop</Text>
-        </Pressable>
-      )}
-    </View>
-  )
-}
-
 // A mid-run send was absorbed into the active run's next step boundary.
 // (Queued sends surface in the composer's run-queue pill instead.)
 function RoutedChip() {
@@ -160,13 +135,14 @@ function MessageRowBody({
   onOpenThread,
   onJumpToMessage,
   onToggleReaction,
-  showLorRunControls = true,
+  sessionThreadRootId = null,
 }: {
   message: Message
   onOpenThread?: (message: Message) => void
   onJumpToMessage?: (messageId: string) => void
   onToggleReaction?: (message: Message, emoji: string) => void
-  showLorRunControls?: boolean
+  // In a session: its approval cards stay after the decision.
+  sessionThreadRootId?: string | null
 }) {
   const accent = useThemeColor("accent")
   const isLor = message.authorId === LOR_USER_ID
@@ -221,6 +197,9 @@ function MessageRowBody({
               streaming={isStreaming}
             />
           ) : null}
+          {message.type === "forward" && message.forwarded ? (
+            <ForwardedMessageCard forwarded={message.forwarded} />
+          ) : null}
           {isStreaming && !message.content && !hasTimeline ? (
             <ThinkingIndicator />
           ) : null}
@@ -229,13 +208,11 @@ function MessageRowBody({
               Lor couldn&apos;t respond to that.
             </Text>
           ) : null}
-          {showLorRunControls && isStreaming ? (
-            <LorRunControls message={message} />
-          ) : null}
           {isLor && message.lorTriggerMessageId ? (
             <MessageApprovalCard
               channelId={message.channelId}
               messageId={message.id}
+              threadRootId={sessionThreadRootId}
             />
           ) : null}
           {message.routedOutcome === "steered" ? <RoutedChip /> : null}
@@ -328,7 +305,7 @@ export function MessageRow({
   isHighlighted = false,
   isActionHighlighted = false,
   onToggleReaction,
-  showLorRunControls = true,
+  layout = "chat",
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
@@ -339,8 +316,20 @@ export function MessageRow({
   isHighlighted?: boolean
   isActionHighlighted?: boolean
   onToggleReaction?: (message: Message, emoji: string) => void
-  showLorRunControls?: boolean
+  // A session transcript reads as a document: a small avatar in the gutter
+  // on each turn's first message (Lor's too), no name row. Mirrors web's
+  // message-item.tsx document layout.
+  layout?: "chat" | "document"
 }) {
+  const isDocument = layout === "document"
+  const prose = useMemo(
+    () => ({
+      document: isDocument,
+      muted: isDocument && message.routedToLor === false,
+    }),
+    [isDocument, message.routedToLor]
+  )
+  if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
   const authorPress = authorPressHandler(message, onPressAuthor)
@@ -348,6 +337,60 @@ export function MessageRow({
     hour: "numeric",
     minute: "2-digit",
   })
+  const avatarColor =
+    message.author.avatarColor ?? avatarColorByUserId?.get(message.author.id)
+
+  if (isDocument) {
+    return (
+      <View
+        className={`${showHeader ? "pt-three" : ""} ${
+          isHighlighted ? "bg-accent-soft" : ""
+        } relative flex-row gap-three px-four pb-[3px]`}
+      >
+        {isActionHighlighted ? (
+          <Animated.View
+            className="absolute inset-0 bg-surface-secondary"
+            entering={FadeIn.duration(70)}
+            exiting={FadeOut.duration(180)}
+            pointerEvents="none"
+          />
+        ) : null}
+        {isHighlighted ? (
+          <View className="absolute inset-y-0 left-0 w-[3px] bg-accent" />
+        ) : null}
+        <View className="w-7 pt-px">
+          {showHeader ? (
+            <Pressable
+              accessibilityElementsHidden
+              accessible={false}
+              disabled={!authorPress}
+              importantForAccessibility="no-hide-descendants"
+              onPress={authorPress}
+            >
+              <MessageAvatar
+                avatarColor={avatarColor}
+                className="size-7"
+                message={message}
+                size="xs"
+              />
+            </Pressable>
+          ) : null}
+        </View>
+        <View className="min-w-0 flex-1 gap-[2px]">
+          {message.pinned ? <PinnedBadge /> : null}
+          <MessageProseContext.Provider value={prose}>
+            <MessageRowBody
+              message={message}
+              onJumpToMessage={onJumpToMessage}
+              onOpenThread={onOpenThread}
+              onToggleReaction={onToggleReaction}
+              sessionThreadRootId={message.threadRootId}
+            />
+          </MessageProseContext.Provider>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <View
@@ -375,13 +418,7 @@ export function MessageRow({
             importantForAccessibility="no-hide-descendants"
             onPress={authorPress}
           >
-            <MessageAvatar
-              avatarColor={
-                message.author.avatarColor ??
-                avatarColorByUserId?.get(message.author.id)
-              }
-              message={message}
-            />
+            <MessageAvatar avatarColor={avatarColor} message={message} />
           </Pressable>
         ) : null}
       </View>
@@ -415,7 +452,6 @@ export function MessageRow({
           onJumpToMessage={onJumpToMessage}
           onOpenThread={onOpenThread}
           onToggleReaction={onToggleReaction}
-          showLorRunControls={showLorRunControls}
         />
       </View>
     </View>
@@ -430,7 +466,6 @@ export function ThreadRootMessage({
   onJumpToMessage,
   onPressAuthor,
   onToggleReaction,
-  showLorRunControls = true,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
@@ -439,8 +474,8 @@ export function ThreadRootMessage({
   onJumpToMessage?: (messageId: string) => void
   onPressAuthor?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
-  showLorRunControls?: boolean
 }) {
+  if (message.type === "agent_session") return null
   const isLor = message.authorId === LOR_USER_ID
   const isApp = Boolean(message.overrideName || message.overrideAvatarUrl)
   const authorPress = authorPressHandler(message, onPressAuthor)
@@ -512,7 +547,6 @@ export function ThreadRootMessage({
           message={message}
           onJumpToMessage={onJumpToMessage}
           onToggleReaction={onToggleReaction}
-          showLorRunControls={showLorRunControls}
         />
       </View>
     </View>
@@ -586,15 +620,10 @@ function ThreadFooter({
   const replyLabel = `${summary.replyCount} ${
     summary.replyCount === 1 ? "reply" : "replies"
   }`
-  const waitingLabel = summary.lorWaiting
-    ? summary.lorWaiting === "needs_approval"
-      ? "Needs approval"
-      : "Needs input"
-    : null
 
   return (
     <Pressable
-      accessibilityLabel={`${replyLabel}. ${waitingLabel ?? `Last reply ${timeAgo(summary.lastReplyAt)}`}`}
+      accessibilityLabel={`${replyLabel}. Last reply ${timeAgo(summary.lastReplyAt)}`}
       accessibilityRole="button"
       className="mt-two min-h-9 flex-row items-center gap-two rounded-lor-sm py-one pr-two"
       onPress={() => onOpenThread(message)}
@@ -616,28 +645,9 @@ function ThreadFooter({
       <Text className="text-[13px] font-semibold text-accent">
         {replyLabel}
       </Text>
-      {waitingLabel ? (
-        <View className="min-w-0 flex-1 flex-row items-center gap-one">
-          <View className="size-4 items-center justify-center rounded-full bg-warning-soft">
-            <Text className="text-[10px] font-bold leading-[12px] text-warning-soft-foreground">
-              !
-            </Text>
-          </View>
-          <Text
-            className="text-[13px] font-medium text-warning-soft-foreground"
-            numberOfLines={1}
-          >
-            {waitingLabel}
-          </Text>
-        </View>
-      ) : (
-        <Text
-          className="min-w-0 flex-1 text-[13px] text-muted"
-          numberOfLines={1}
-        >
-          Last reply {timeAgo(summary.lastReplyAt)}
-        </Text>
-      )}
+      <Text className="min-w-0 flex-1 text-[13px] text-muted" numberOfLines={1}>
+        Last reply {timeAgo(summary.lastReplyAt)}
+      </Text>
       <HugeiconsIcon color={muted} icon={ArrowRight01Icon} size={15} />
     </Pressable>
   )

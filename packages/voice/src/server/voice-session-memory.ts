@@ -1,4 +1,4 @@
-import { and, asc, db, eq, isNotNull, isNull, schema } from "@repo/db"
+import { and, asc, db, eq, isNotNull, isNull, type SQL, schema } from "@repo/db"
 import type { NewVoicePassage, VoiceSessionSummary } from "@repo/db/schema"
 import { formatCallTime } from "@repo/realtime-types/call-transcript"
 
@@ -247,30 +247,37 @@ export function summaryPassageContext(
   return `Summary of a call in #${channelName} on ${date}. Speakers: ${speakers.join(", ")}.`
 }
 
-// The call behind Lor's summary card, with its summary and who last
-// corrected it.
-export async function loadSummaryCard(messageId: string) {
+// A call's summary, who last corrected it, and whether the after-call job has
+// run (a processed call with no summary was too short, or Lor failed).
+async function loadSummaryWhere(where: SQL) {
   const [row] = await db
     .select({
       sessionId: voiceSession.id,
       channelId: voiceSession.channelId,
       summary: voiceSession.summary,
+      processedAt: voiceSession.memoryProcessedAt,
       editedAt: voiceSession.summaryEditedAt,
       editorId: user.id,
       editorName: user.name,
     })
     .from(voiceSession)
     .leftJoin(user, eq(user.id, voiceSession.summaryEditedById))
-    .where(eq(voiceSession.summaryCardMessageId, messageId))
+    .where(where)
     .limit(1)
   return row ?? null
 }
 
-export async function setSummaryCard(sessionId: string, messageId: string) {
-  await db
-    .update(voiceSession)
-    .set({ summaryCardMessageId: messageId })
-    .where(eq(voiceSession.id, sessionId))
+export type CallSummaryRow = NonNullable<
+  Awaited<ReturnType<typeof loadSummaryWhere>>
+>
+
+export function loadCallSummary(sessionId: string) {
+  return loadSummaryWhere(eq(voiceSession.id, sessionId))
+}
+
+// Old calls' summary cards in the call chat, which phones still render.
+export function loadSummaryCard(messageId: string) {
+  return loadSummaryWhere(eq(voiceSession.summaryCardMessageId, messageId))
 }
 
 // The search passage for a corrected summary, labelled like the one the
