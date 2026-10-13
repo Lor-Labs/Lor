@@ -176,8 +176,10 @@ function errorText(output: unknown): string | null {
 const exportContext = z.object({
   workspaceId: z.string(),
   channelId: z.string(),
-  // Plan runs attach the file to the plan's artifact set. A getter because
-  // the plan may start mid-run (start_plan).
+  // The session that owns the file: re-exporting a filename versions it.
+  threadRootId: z.custom<string | null>(),
+  // Provenance for new artifacts. A getter because the plan may start
+  // mid-run (start_plan).
   getPlan: z.custom<() => { id: string } | null>(),
 })
 
@@ -293,6 +295,7 @@ export function createExportToolResultTool(opts: {
         const manifest = await writeArtifactVersion({
           workspaceId: context.workspaceId,
           channelId: context.channelId,
+          threadRootId: context.threadRootId,
           planId: context.getPlan()?.id ?? null,
           path,
           contentType: finalFormat === "csv" ? "text/csv" : "application/json",

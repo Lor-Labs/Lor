@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core"
 import { agentRun } from "./agent-runs"
 import { channel } from "./channels"
+import { message } from "./messages"
 import { plan } from "./plans"
 import { user } from "./users"
 import { workspace } from "./workspaces"
@@ -41,7 +42,13 @@ export const artifact = pgTable(
     channelId: uuid("channel_id")
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
-    // Null for artifacts produced by a plain (non-plan) answer.
+    // The session (thread) that owns the file: within it a path names one
+    // artifact and repeated writes version it. Null for channel-level
+    // artifacts from before sessions, where every write stood alone.
+    threadRootId: uuid("thread_root_id").references(() => message.id, {
+      onDelete: "set null",
+    }),
+    // Provenance only: the plan Lor was working when it created the file.
     planId: uuid("plan_id").references(() => plan.id, {
       onDelete: "set null",
     }),
@@ -51,7 +58,7 @@ export const artifact = pgTable(
     originRunId: uuid("origin_run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),
-    // Logical filename within the plan workspace, e.g. "report.md".
+    // Logical filename within the session's workspace, e.g. "report.md".
     path: text("path").notNull(),
     mime: text("mime").notNull(),
     // 0 = created but no committed version yet; bumped atomically by
@@ -62,12 +69,10 @@ export const artifact = pgTable(
     }),
   },
   (table) => [
-    // Within a plan, a path names one artifact — repeated writes version it.
-    // Also serves plain planId lookups (all of them filter non-null), so no
-    // standalone planId index.
-    uniqueIndex("artifact_plan_path_uidx")
-      .on(table.planId, table.path)
-      .where(sql`plan_id is not null`),
+    uniqueIndex("artifact_threadRootId_path_uidx")
+      .on(table.threadRootId, table.path)
+      .where(sql`thread_root_id is not null`),
+    index("artifact_planId_idx").on(table.planId),
     index("artifact_channelId_idx").on(table.channelId),
     index("artifact_originRunId_idx").on(table.originRunId),
     index("artifact_workspaceId_createdAt_idx").on(

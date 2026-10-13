@@ -237,7 +237,7 @@ export async function invalidatePersistentSandbox(
 
 // A named sandbox persists across sessions: it drops to standby (free)
 // between them and resumes with its filesystem intact. If the idle TTL
-// deletes it, plans reseed durable artifacts and code sessions re-clone;
+// deletes it, sessions reseed durable artifacts and code sessions re-clone;
 // unpublished code changes exist only until the code sandbox TTL expires.
 export async function withPersistentSandbox<T>(
   name: string,

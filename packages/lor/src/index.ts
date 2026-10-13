@@ -2259,6 +2259,7 @@ export async function respond(
               // Channel-scope one-shots stay ephemeral — no channelId
               // fallback here, unlike code sessions.
               sandboxKey: ctx.threadRootId ?? null,
+              threadRootId: ctx.threadRootId ?? null,
               // Getter, not a value: the plan may start mid-run.
               getPlan: () =>
                 planRef.current ? { id: planRef.current.id } : null,
@@ -2372,6 +2373,7 @@ export async function respond(
       ;(toolsContext as Record<string, unknown>)[EXPORT_TOOL_NAME] = {
         workspaceId: ctx.workspaceId,
         channelId: ctx.channelId,
+        threadRootId: ctx.threadRootId ?? null,
         getPlan: () => (planRef.current ? { id: planRef.current.id } : null),
       }
     }

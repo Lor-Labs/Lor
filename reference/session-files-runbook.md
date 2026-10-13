@@ -59,14 +59,14 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 2: file icon and chip primitives (~300)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - `packages/ui`: `FileTypeIcon` (custom SVG, extension → tone map) and the
   `FileChip` family, on Townhall tokens and Base UI `render`.
 
 #### Step 3: right-rail file panel, overlay deleted (+350 / −680)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - `?artifactId` on any page opens `FilePanel` in the right panel, over the
   current view (`RightSidebarPanel` reads `fileId` from the rail context).
@@ -84,6 +84,29 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 #### Step 4: folded into Step 3
 
 [x] see Step 3
+
+#### Step 4a: sessions own artifacts (~200)
+
+[x] built 2026-10-13 · [ ] committed · [ ] db:push (dev) · [ ] backfill (dev) · [ ] db:push (prod) · [ ] backfill (prod)
+
+- `artifact.threadRootId`, unique `(threadRootId, path)`; the plan's unique
+  index becomes a plain `planId` index, so `planId` is provenance only.
+- `writeArtifactVersion` takes `threadRootId`: within a session a path names
+  one artifact, plan or not. `create_artifacts` reseeds `/workspace/out`
+  from the session's artifacts on every run, and both artifact tools pass
+  the run's thread.
+- `packages/db/src/scripts/backfill-artifact-sessions.ts` scopes existing
+  artifacts from their plan or run.
+- Order: `db:push`, then the backfill, then deploy the worker. Code before
+  the column fails every write; a deploy before the backfill makes planned
+  sessions start a second copy of files they already have.
+
+#### Step 4b: session files API and rail (~250)
+
+[ ] built · [ ] committed
+
+- `GET /sessions/{id}/artifacts`; the session rail's Files list reads it
+  instead of plan artifacts plus files found in loaded messages.
 
 #### Step 5: chips everywhere (~350)
 
@@ -124,4 +147,10 @@ Tick each step's boxes as it lands and record departures in "Deviations".
   over the current view, not a `RightSidebarView` with a back pointer:
   closing a file needs no stored history, and deep links work unchanged.
   Escape no longer closes a file.
+- Steps 4a and 4b were added 2026-10-13 (Jacob): artifacts keyed on the plan
+  made sessions without one duplicate files on every rewrite and start every
+  workbench run with an empty `/workspace/out` (the persistent sandbox
+  resets it and only plans reseeded it). Editing another session's file by
+  id is recorded in `artifacts.md` as a requirement for live editing, not
+  built here.
 
