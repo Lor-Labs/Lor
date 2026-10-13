@@ -16,6 +16,7 @@ import {
   SettingsGroup,
   SettingsSection,
 } from "@/components/workspace/settings-group"
+import { useInviteAccess } from "@/hooks/use-invite-access"
 import { useWorkspaceSetup } from "@/hooks/use-workspace-setup"
 import { apiClient } from "@/lib/api-client"
 import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
@@ -55,6 +56,7 @@ function SetupPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { status, workspace, members } = useWorkspaceSetup(workspaceSlug)
+  const { canInvite } = useInviteAccess(workspaceSlug)
   const { data: channels } = useQuery(
     workspaceChannelsQueryOptions(workspaceSlug)
   )
@@ -195,10 +197,12 @@ function SetupPage() {
                     pitch="Lor finds, files, and updates your issues."
                   />
                 )}
-                <InviteStep
-                  workspaceSlug={workspaceSlug}
-                  joinedNames={joinedNames}
-                />
+                {canInvite && (
+                  <InviteStep
+                    workspaceSlug={workspaceSlug}
+                    joinedNames={joinedNames}
+                  />
+                )}
               </SettingsGroup>
               {workspace && <DomainJoinSwitch workspace={workspace} branch />}
             </div>
