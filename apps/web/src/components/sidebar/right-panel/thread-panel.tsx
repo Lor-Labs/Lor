@@ -29,23 +29,19 @@ import {
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
-  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
   useRef,
-  useState,
   useSyncExternalStore,
 } from "react"
 import { useDropzone } from "react-dropzone"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { ConversationMessages } from "@/components/chat/conversation-messages"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
-import { ForwardDialog } from "@/components/chat/forward-dialog"
 import { MessageItem } from "@/components/chat/message-item"
 import { scrollToMessage } from "@/components/chat/message-list"
 import {
-  jumpScrollBehavior,
   MessageScrollerCommandBridge,
   MessageScrollerJumpToLatest,
 } from "@/components/chat/message-scroller-controls"
@@ -55,12 +51,8 @@ import {
   type PlanSourceFile,
   ThreadWorkHeader,
 } from "@/components/chat/thread-work-header"
-import {
-  DocumentTypingIndicator,
-  TypingIndicator,
-} from "@/components/chat/typing-indicator"
+import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { SessionStartedNote } from "@/components/session/session-started-note"
-import { SessionTurnRail } from "@/components/session/session-turn-rail"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
@@ -68,12 +60,10 @@ import type {
   ThreadSidebarView,
 } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { MorphText } from "@/components/ui/morph-text"
-import { UserAvatar } from "@/components/ui/user-avatar"
 import { CallSummaryPanel } from "@/components/voice/call-summary"
 import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
-import { cachedSessionForThread } from "@/hooks/use-agent-session"
 import { useCallSummary } from "@/hooks/use-call-summary"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
 import { useConversationScroll } from "@/hooks/use-conversation-scroll"
@@ -92,31 +82,18 @@ import { usePlanArtifacts } from "@/hooks/use-plan"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useSessionStart } from "@/hooks/use-session-start"
 import {
-  dropOptimisticLorTurns,
   type FetchPageParams,
   fetchThreadPage,
-  showOptimisticLorTurn,
   useThreadMessages,
 } from "@/hooks/use-thread-messages"
 import {
   showWriteSubscribers,
-  type ThreadSubscriber,
   threadSubscribersKey,
-  threadSubscribersQueryOptions,
 } from "@/hooks/use-thread-subscribers"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
-import {
-  cancelSidebarFetch,
-  patchSidebarSession,
-  settleSidebarSessions,
-  sidebarRowFor,
-} from "@/hooks/use-workspace-activity"
 import type { Message } from "@/lib/api-types"
 import { channelQueryOptions } from "@/lib/channel-query"
 import { PLAN_STATUS_META } from "@/lib/plan-ui"
-
-// How long a local Lor turn waits for the server's before it goes.
-const LOR_TURN_TIMEOUT_MS = 20_000
 
 type ChannelMessagesCache = InfiniteData<{ data: Message[] }> | undefined
 
@@ -155,26 +132,9 @@ function messageToMarkdown(message: Message, headingLevel: 2 | 3): string {
   return lines.join("\n")
 }
 
-// A Lor session renders this same conversation in the main area, with its own
-// header and no thread root. Its context, plan, files and activity live in
-// the right panel instead of the docked work header.
-export type SessionPresentation = {
-  // headingVisible: the header shows the title once the heading is gone.
-  header: (state: { lorRunning: boolean; headingVisible: boolean }) => ReactNode
-  // Opens the document (title and context line); shows once the oldest page
-  // is loaded, so it scrolls with the transcript.
-  heading?: ReactNode
-  // An archived session is read-only: this replaces its input line and tools.
-  archivedBar?: ReactNode
-}
-
-export function ThreadPanel({
-  view,
-  sessionView,
-}: {
-  view: ThreadSidebarView
-  sessionView?: SessionPresentation
-}) {
+// A human thread or a call chat in the right panel. Lor sessions render on
+// their own page (SessionDocument) and never open here.
+export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
   const { consumeComposerDraft, setView, clearView } = useRightSidebar()
   const { call } = useVoiceCall()
   const queryClient = useQueryClient()
@@ -248,8 +208,6 @@ export function ThreadPanel({
   const { data: channel } = useQuery(
     channelQueryOptions(view.workspaceSlug, view.channelId)
   )
-  // Session: the message being forwarded into the channel chat.
-  const [forwarding, setForwarding] = useState<Message | null>(null)
   // @Lor in a human thread starts a session seeded with the thread.
   const sessionStart = useSessionStart({
     workspaceSlug: view.workspaceSlug,
@@ -265,16 +223,12 @@ export function ThreadPanel({
       removeQueuedOptimisticRef.current(nonce)
       undoSendRef.current(nonce)
     },
-    sessionStart:
-      !sessionView && channel?.type === "text"
-        ? sessionStart.handlers
-        : undefined,
+    sessionStart: channel?.type === "text" ? sessionStart.handlers : undefined,
   })
 
   const {
     messages,
     root: threadApiRoot,
-    participants,
     voiceSessionId,
     voiceSessionTitle,
     voiceSessionEnded,
@@ -294,7 +248,7 @@ export function ThreadPanel({
 
   // A Lor session never shows in the thread panel: ?threadId deep links,
   // refresh and Back land on its page instead.
-  const redirectSessionId = sessionView ? null : threadSessionId
+  const redirectSessionId = threadSessionId
   useEffect(() => {
     if (!redirectSessionId) return
     clearView()
@@ -378,7 +332,7 @@ export function ThreadPanel({
       ) ?? null,
     [messages]
   )
-  const showWorkHeader = !sessionView && (isPlan || activityMessage !== null)
+  const showWorkHeader = isPlan || activityMessage !== null
 
   const handleCopyAsMarkdown = useCallback(async () => {
     try {
@@ -556,28 +510,14 @@ export function ThreadPanel({
   const mentionCandidates = useMentionCandidates(
     view.workspaceSlug,
     view.channelId,
-    { broadcasts: !sessionView }
+    { broadcasts: true }
   )
   const channelPeople = useChannelPeople(view.workspaceSlug, view.channelId)
-  // Local Lor turns by the nonce of the send that showed them.
-  const lorTurnsRef = useRef(new Map<string, string>())
-  // What a send changes before the server answers. The writer and the people
-  // they mention join the subscribers (and the writer's sidebar gets the
-  // session). In a session, a follow-up to an idle Lor shows Lor working: its
-  // turn, Stop and the sidebar spinner. @Lor in a human thread starts a new
-  // session instead, so it skips all of this.
-  const showSendEffects = (
-    nonce: string,
-    options?: { mentions: Message["mentions"]; toPeople?: boolean }
-  ) => {
+  // The writer and the people they mention join the subscribers before the
+  // server answers. @Lor starts a new session instead, so it skips this.
+  const showSendEffects = (options?: { mentions: Message["mentions"] }) => {
     const mentions = options?.mentions ?? []
-    if (!sessionView && mentions.some((m) => m.id === LOR_USER_ID)) return
-    const wasSubscribed =
-      queryClient
-        .getQueryData<ThreadSubscriber[]>(
-          threadSubscribersKey(view.threadRootId)
-        )
-        ?.some((person) => person.id === currentUserId) ?? true
+    if (mentions.some((m) => m.id === LOR_USER_ID)) return
     const ids = new Set([currentUserId, ...mentions.map((m) => m.id)])
     showWriteSubscribers(
       queryClient,
@@ -591,100 +531,17 @@ export function ThreadPanel({
           avatarColor: person.avatarColor,
         }))
     )
-    const agentSession = sessionView
-      ? cachedSessionForThread(queryClient, view.threadRootId)
-      : undefined
-    if (!agentSession || agentSession.archivedAt) return
-    const toLor = !options?.toPeople && !pendingLorMessage
-    if (toLor) {
-      const lorAuthor = messages.find((m) => m.authorId === LOR_USER_ID)
-        ?.author ?? { id: LOR_USER_ID, name: "Lor", image: null }
-      const turnId = showOptimisticLorTurn(queryClient, view.threadRootId, {
-        nonce,
-        channelId: view.channelId,
-        lorAuthor,
-      })
-      lorTurnsRef.current.set(nonce, turnId)
-      // Nothing came back (a lost event): the refetched thread decides.
-      setTimeout(
-        () => dropOptimisticLorTurns(queryClient, view.threadRootId, turnId),
-        LOR_TURN_TIMEOUT_MS
-      )
-    }
-    const target = {
-      workspaceId: agentSession.workspaceId,
-      channelId: agentSession.channelId,
-      sessionId: agentSession.id,
-    }
-    void cancelSidebarFetch(queryClient, agentSession.workspaceId).then(() => {
-      if (!wasSubscribed) {
-        patchSidebarSession(queryClient, target, {
-          show: sidebarRowFor(agentSession),
-        })
-      }
-      if (toLor) {
-        patchSidebarSession(queryClient, target, {
-          state: "running",
-          lastActivityAt: new Date().toISOString(),
-        })
-      }
-    })
   }
   // A failed send takes back what showSendEffects showed.
   useEffect(() => {
-    undoSendRef.current = (nonce) => {
-      const turnId = lorTurnsRef.current.get(nonce)
-      if (turnId) {
-        lorTurnsRef.current.delete(nonce)
-        dropOptimisticLorTurns(queryClient, view.threadRootId, turnId)
-      }
+    undoSendRef.current = () => {
       void queryClient.invalidateQueries({
         queryKey: threadSubscribersKey(view.threadRootId),
       })
-      const agentSession = cachedSessionForThread(
-        queryClient,
-        view.threadRootId
-      )
-      if (agentSession) {
-        settleSidebarSessions(queryClient, agentSession.workspaceId)
-      }
     }
   }, [queryClient, view.threadRootId])
-  // A typer who hasn't posted here yet still gets their photo from members.
-  const typingPeople = useMemo(
-    () =>
-      typingUsers.map((user) => {
-        const participant = participants.find(
-          (person) => person.id === user.userId
-        )
-        const member = mentionCandidates.find(
-          (candidate) => candidate.id === user.userId
-        )
-        const memberImage = member && "image" in member ? member.image : null
-        return {
-          ...user,
-          image: participant?.image ?? memberImage,
-          avatarColor: participant?.avatarColor ?? null,
-        }
-      }),
-    [typingUsers, participants, mentionCandidates]
-  )
   // Voice channel threads are call chats; their root is a silent placeholder.
   const isCallChat = channel?.type === "voice"
-  const composerDestination = sessionView
-    ? "session"
-    : channel?.type === "text"
-      ? "thread"
-      : undefined
-  // Who a message "To subscribers" reaches, shown as faces in the composer.
-  const { data: subscribers } = useQuery({
-    ...threadSubscribersQueryOptions(view),
-    enabled: Boolean(sessionView),
-  })
-  const otherSubscribers = useMemo(
-    () => subscribers?.filter((person) => person.id !== currentUserId),
-    [subscribers, currentUserId]
-  )
 
   // Threads render top-down (oldest → newest). The API + cache hold
   // newest-first, so reverse for display.
@@ -698,7 +555,7 @@ export function ThreadPanel({
         .filter((m) => !queuedIds.includes(m.id) && m.type !== "call_summary"),
     [messages, queuedIds]
   )
-  // First load: the skeleton shows, and a session's input line waits.
+  // First load: the skeleton shows.
   const isAwaitingReplies = isLoading && orderedReplies.length === 0
   const scroll = useConversationScroll({
     threadRootId: view.threadRootId,
@@ -707,32 +564,7 @@ export function ThreadPanel({
     isLoading,
     ensureMessage,
   })
-  const { scrollRef, scrollToEndRef } = scroll
-  // Session only: the bar under the document the inline composer's tools
-  // render into.
-  const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
-    null
-  )
-
-  // A session's heading renders once the oldest page is loaded; until then,
-  // and once it scrolls away, the header carries the title.
-  const [headingElement, setHeadingElement] = useState<HTMLDivElement | null>(
-    null
-  )
-  const [headingVisible, setHeadingVisible] = useState(true)
-  useEffect(() => {
-    const container = scrollRef.current
-    if (!headingElement || !container) {
-      if (hasOlder) setHeadingVisible(false)
-      return
-    }
-    const observer = new IntersectionObserver(
-      (entries) => setHeadingVisible(entries[0]?.isIntersecting ?? false),
-      { root: container }
-    )
-    observer.observe(headingElement)
-    return () => observer.disconnect()
-  }, [headingElement, hasOlder])
+  const { scrollRef } = scroll
 
   const channelContext = useMemo(
     () => ({
@@ -747,12 +579,9 @@ export function ThreadPanel({
   // false the loaded array is the full thread.
   const summaryTotal = rootMessage?.threadSummary?.replyCount
   const dividerCount = hasOlder ? summaryTotal : orderedReplies.length
-  // A session's input line reads as the document's next line, with a faint
-  // placeholder so the eye finds where to write.
   const composerPlaceholder = isCallChat ? "Message the call…" : "Reply…"
   const showDivider =
     !isCallChat &&
-    !sessionView &&
     !isLoading &&
     orderedReplies.length > 0 &&
     dividerCount !== undefined &&
@@ -825,23 +654,17 @@ export function ThreadPanel({
     )
   }
 
-  // A thread's composer sits under the scroller; a session's is the document's
-  // last line, with its tools in the bar under the scroller.
   const composer = (
     <>
-      {!sessionView && (
-        <TypingIndicator users={typingUsers} className="from-sidebar" />
-      )}
+      <TypingIndicator users={typingUsers} className="from-sidebar" />
       <RunQueuePill
         messages={queuedMessages}
         currentUserId={currentUserId}
         pendingNonces={pendingNonces}
         onSteer={lorRun.steering.steerMessage}
         steeringMessageId={lorRun.steering.steeringMessageId}
-        variant={sessionView ? "document" : "box"}
+        variant="box"
       />
-      {/* Right above the reply line, like other people's draft lines. */}
-      {sessionView && <DocumentTypingIndicator people={typingPeople} />}
       <MessageInput
         key={view.threadRootId}
         composerDraft={view.composerDraft}
@@ -850,27 +673,7 @@ export function ThreadPanel({
         channelId={view.channelId}
         contextScopeKey={view.threadRootId}
         placeholder={composerPlaceholder}
-        destination={composerDestination}
-        subscribers={otherSubscribers}
-        variant={sessionView ? "inline" : "box"}
-        toolbarTarget={toolbarTarget}
-        onTypeToFocus={
-          sessionView
-            ? () => scrollToEndRef.current?.({ behavior: jumpScrollBehavior() })
-            : undefined
-        }
-        gutter={
-          <UserAvatar
-            name={session?.user.name}
-            src={session?.user.image}
-            avatarColor={
-              participants.find((person) => person.id === currentUserId)
-                ?.avatarColor
-            }
-            size="sm"
-            className="size-7"
-          />
-        }
+        destination={channel?.type === "text" ? "thread" : undefined}
         notice={
           <SessionStartedNote
             session={sessionStart.started}
@@ -879,7 +682,7 @@ export function ThreadPanel({
         }
         onSend={(content, options) => {
           const nonce = handleSend(content, options)
-          if (nonce) showSendEffects(nonce, options)
+          if (nonce) showSendEffects(options)
           scroll.scrollAfterSend()
           // Lor is mid-answer in this thread, so a message for Lor will
           // queue — show it in the pill immediately instead of waiting for
@@ -914,86 +717,68 @@ export function ThreadPanel({
       className="@container relative flex h-full w-full flex-col"
     >
       <DropZoneOverlay isDragActive={isDragActive} />
-      {sessionView && (
-        <ForwardDialog
-          message={forwarding}
-          workspaceSlug={view.workspaceSlug}
-          target={{
-            channelId: view.channelId,
-            channelName: channel?.name ?? "channel",
-          }}
-          onClose={() => setForwarding(null)}
-        />
-      )}
-      {sessionView ? (
-        sessionView.header({
-          lorRunning: Boolean(pendingLorMessage),
-          headingVisible,
-        })
-      ) : (
-        <RightPanelHeader
-          // A call chat takes Lor's name for the call once it's summarized.
-          title={isPlan ? "Plan" : isCallChat ? callTitle : "Thread"}
-          workspaceSlug={view.workspaceSlug}
-          channelId={view.channelId}
-          titleAdornment={
-            planStatusMeta ? (
-              <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
-                <HugeiconsIcon
-                  icon={planStatusMeta.icon}
-                  size={14}
-                  className={
-                    planStatusMeta.spin
-                      ? "animate-spin text-primary"
-                      : "text-primary"
-                  }
-                />
-                {planStatusMeta.label}
-              </span>
-            ) : undefined
-          }
-          className={showWorkHeader || callTabs ? "border-b-0" : undefined}
-          actions={
-            <>
-              <ThreadSubscribers
-                workspaceSlug={view.workspaceSlug}
-                channelId={view.channelId}
-                threadRootId={view.threadRootId}
+      <RightPanelHeader
+        // A call chat takes Lor's name for the call once it's summarized.
+        title={isPlan ? "Plan" : isCallChat ? callTitle : "Thread"}
+        workspaceSlug={view.workspaceSlug}
+        channelId={view.channelId}
+        titleAdornment={
+          planStatusMeta ? (
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+              <HugeiconsIcon
+                icon={planStatusMeta.icon}
+                size={14}
+                className={
+                  planStatusMeta.spin
+                    ? "animate-spin text-primary"
+                    : "text-primary"
+                }
               />
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <button
-                      ref={actionsMenuTriggerRef}
-                      type="button"
-                      aria-label={`${isPlan ? "Plan" : "Thread"} actions`}
-                      className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
-                    />
-                  }
-                >
-                  <HugeiconsIcon
-                    icon={MoreHorizontalIcon}
-                    className="size-4"
-                    strokeWidth={2}
+              {planStatusMeta.label}
+            </span>
+          ) : undefined
+        }
+        className={showWorkHeader || callTabs ? "border-b-0" : undefined}
+        actions={
+          <>
+            <ThreadSubscribers
+              workspaceSlug={view.workspaceSlug}
+              channelId={view.channelId}
+              threadRootId={view.threadRootId}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <button
+                    ref={actionsMenuTriggerRef}
+                    type="button"
+                    aria-label={`${isPlan ? "Plan" : "Thread"} actions`}
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-popup-open:bg-foreground/5 data-popup-open:text-foreground"
                   />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="bottom" align="end" className="w-60">
-                  {!isCallChat && (
-                    <DropdownMenuItem onClick={handleViewInChannel}>
-                      <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
-                      Go to message
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
-                    <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
-                    {`Copy ${isPlan ? "plan" : "thread"} as Markdown`}
+                }
+              >
+                <HugeiconsIcon
+                  icon={MoreHorizontalIcon}
+                  className="size-4"
+                  strokeWidth={2}
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="end" className="w-60">
+                {!isCallChat && (
+                  <DropdownMenuItem onClick={handleViewInChannel}>
+                    <HugeiconsIcon icon={CornerUpRightIcon} strokeWidth={2} />
+                    Go to message
                   </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          }
-        />
-      )}
+                )}
+                <DropdownMenuItem onClick={() => void handleCopyAsMarkdown()}>
+                  <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
+                  {`Copy ${isPlan ? "plan" : "thread"} as Markdown`}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        }
+      />
       {callTabs}
 
       {showWorkHeader && (
@@ -1027,13 +812,9 @@ export function ThreadPanel({
           >
             <MessageScrollerContent
               aria-busy={Boolean(pendingLorMessage)}
-              // A session reads top-down like a document; a thread hugs its
-              // composer like chat.
-              className={
-                sessionView ? "mx-auto w-full max-w-3xl pt-4" : "justify-end"
-              }
+              className="justify-end"
             >
-              {rootMessageForRender && !isCallChat && !sessionView && (
+              {rootMessageForRender && !isCallChat && (
                 <MessageScrollerItem
                   messageId={rootMessageForRender.id}
                   scrollAnchor={scroll.openingLorTriggerMessageIds.has(
@@ -1068,14 +849,8 @@ export function ThreadPanel({
                 </MessageScrollerItem>
               )}
 
-              {sessionView?.heading && !hasOlder && (
-                <MessageScrollerItem className="px-4 pt-6 pb-3">
-                  <div ref={setHeadingElement}>{sessionView.heading}</div>
-                </MessageScrollerItem>
-              )}
-
               <ConversationMessages
-                layout={sessionView ? "document" : "chat"}
+                layout="chat"
                 replies={orderedReplies}
                 isAwaitingReplies={isAwaitingReplies}
                 hasOlder={hasOlder}
@@ -1092,15 +867,8 @@ export function ThreadPanel({
                   onEdit: handleEdit,
                   onJumpToMessage: scroll.jumpToMessage,
                   mentionCandidates,
-                  onForward: sessionView ? setForwarding : undefined,
                 }}
               />
-
-              {/* Inline input line: the document's last line, reached by
-                  scrolling to the end like any document (never pinned). */}
-              {sessionView &&
-                !sessionView.archivedBar &&
-                !isAwaitingReplies && <div className="pt-3">{composer}</div>}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerJumpToLatest
@@ -1110,21 +878,8 @@ export function ThreadPanel({
             viewportRef={scrollRef}
             isLorResponding={Boolean(pendingLorMessage)}
           />
-          {sessionView && <SessionTurnRail messages={orderedReplies} />}
         </MessageScroller>
-
-        {sessionView?.archivedBar ? (
-          <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2 pb-3">
-            {sessionView.archivedBar}
-          </div>
-        ) : sessionView ? (
-          <div
-            ref={setToolbarTarget}
-            className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
-          />
-        ) : (
-          <div className="shrink-0 pt-2">{composer}</div>
-        )}
+        <div className="shrink-0 pt-2">{composer}</div>
       </MessageScrollerProvider>
     </div>
   )

@@ -127,7 +127,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 6a: extract the shared conversation pieces (~350, moves)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 No behavior change; `ThreadPanel` uses the extracted pieces.
 
@@ -138,12 +138,14 @@ No behavior change; `ThreadPanel` uses the extracted pieces.
 - `components/chat/conversation-messages.tsx`: skeleton, grouped replies
   and events, and the load-older sentinel, in `chat` or `document` layout.
 
-#### Step 6b: `SessionConversation` (~350)
+#### Step 6b: `SessionDocument` (~550 new, −370)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
 
-- `components/session/session-conversation.tsx` renders the session
+- `components/session/session-document.tsx` renders the session
   document from the 6a pieces plus the existing hooks; `SessionView` uses it.
+  (Named `SessionDocument` because `session-view.tsx` already has an
+  internal `SessionConversation`.)
 - `ThreadPanel` loses `sessionView` / `SessionPresentation` and every
   session branch: inline composer, toolbar target, heading, archived bar,
   forward, turn rail, document typing, subscriber faces, optimistic Lor
