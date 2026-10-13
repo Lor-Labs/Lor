@@ -14,6 +14,7 @@ import { workspace } from "../schemas/workspaces"
 const DM_CHANNEL_TYPES = ["dm", "group_dm"] as const
 
 type ChannelRow = typeof channel.$inferSelect
+type ReadExecutor = Pick<typeof db, "select">
 
 export type ResolvedChannelAccess = {
   channel: Pick<
@@ -135,9 +136,10 @@ export type ChannelAudienceInfo = {
 }
 
 export async function resolveChannelAudienceInfo(
-  channelId: string
+  channelId: string,
+  executor: ReadExecutor = db
 ): Promise<ChannelAudienceInfo> {
-  const row = await db
+  const row = await executor
     .select({
       id: channel.id,
       workspaceId: channel.workspaceId,
@@ -152,16 +154,19 @@ export async function resolveChannelAudienceInfo(
 
   // DMs / group DMs: the channel's member rows.
   if (!row.workspaceId) {
-    return { audience: "dm", userIds: await listChannelMemberUserIds(row.id) }
+    return {
+      audience: "dm",
+      userIds: await listChannelMemberUserIds(row.id, executor),
+    }
   }
 
-  const container = await resolveAccessContainer(row)
+  const container = await resolveAccessContainer(row, executor)
   if (container.audience === "members") {
     // Membership rows are the audience, but still gate on workspace
     // membership so a stale row for a kicked member never receives fanout.
     const [containerMembers, workspaceMembers] = await Promise.all([
-      listChannelMemberUserIds(container.id),
-      listWorkspaceMemberUserIds(row.workspaceId),
+      listChannelMemberUserIds(container.id, executor),
+      listWorkspaceMemberUserIds(row.workspaceId, executor),
     ])
     const workspaceSet = new Set(workspaceMembers)
     return {
@@ -172,7 +177,7 @@ export async function resolveChannelAudienceInfo(
 
   return {
     audience: "workspace",
-    userIds: await listWorkspaceMemberUserIds(row.workspaceId),
+    userIds: await listWorkspaceMemberUserIds(row.workspaceId, executor),
   }
 }
 
@@ -181,21 +186,25 @@ export async function resolveChannelAudienceInfo(
  * of `@channel`. Includes the author; callers drop them.
  */
 export async function listChannelAudienceUserIds(
-  channelId: string
+  channelId: string,
+  executor: ReadExecutor = db
 ): Promise<string[]> {
-  return (await resolveChannelAudienceInfo(channelId)).userIds
+  return (await resolveChannelAudienceInfo(channelId, executor)).userIds
 }
 
 // Container inheritance: a channel inside a category takes the category's
 // audience and member list. Per-channel overrides inside a container are
 // deliberately unsupported in v1 — one member list per project.
-async function resolveAccessContainer(row: {
-  id: string
-  audience: "workspace" | "members"
-  parentId: string | null
-}): Promise<{ id: string; audience: "workspace" | "members" }> {
+async function resolveAccessContainer(
+  row: {
+    id: string
+    audience: "workspace" | "members"
+    parentId: string | null
+  },
+  executor: ReadExecutor = db
+): Promise<{ id: string; audience: "workspace" | "members" }> {
   if (!row.parentId) return { id: row.id, audience: row.audience }
-  const parent = await db
+  const parent = await executor
     .select({ id: channel.id, audience: channel.audience })
     .from(channel)
     .where(eq(channel.id, row.parentId))
@@ -282,16 +291,22 @@ async function hasChannelMemberRow(
   return Boolean(row)
 }
 
-function listChannelMemberUserIds(containerChannelId: string) {
-  return db
+function listChannelMemberUserIds(
+  containerChannelId: string,
+  executor: ReadExecutor = db
+) {
+  return executor
     .select({ userId: channelMember.userId })
     .from(channelMember)
     .where(eq(channelMember.channelId, containerChannelId))
     .then((rows) => rows.map((row) => row.userId))
 }
 
-function listWorkspaceMemberUserIds(workspaceId: string) {
-  return db
+function listWorkspaceMemberUserIds(
+  workspaceId: string,
+  executor: ReadExecutor = db
+) {
+  return executor
     .select({ userId: workspaceMember.userId })
     .from(workspaceMember)
     .where(eq(workspaceMember.workspaceId, workspaceId))

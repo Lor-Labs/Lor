@@ -4,6 +4,7 @@ import { toast } from "@repo/ui/components/toast"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, Navigate, Outlet } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { HowLorWorksDialog } from "@/components/onboarding/how-lor-works-dialog"
 
 export const Route = createFileRoute("/_authenticated/$workspaceSlug")({
   component: WorkspaceLayout,
@@ -169,5 +170,10 @@ function WorkspaceLayout() {
     )
   }
 
-  return <Outlet />
+  return (
+    <>
+      <Outlet />
+      <HowLorWorksDialog workspaceName={workspace.name} />
+    </>
+  )
 }

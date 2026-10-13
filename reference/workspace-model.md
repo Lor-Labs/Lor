@@ -1,8 +1,9 @@
 # Workspace model: human chat, Lor sessions
 
 **Status:** Design locked with Jacob on 2026-10-08: the fundamentals and the
-pass over existing features. Not built. Next: mockups of the key screens, then
-an implementation runbook.
+pass over existing features. Building from `workspace-model-runbook.md` on the
+`app-redesign-sessions` branch. Prototype: `/prototype` in the web app
+(`apps/web/src/components/prototype/`).
 
 ## Problem
 
@@ -57,10 +58,12 @@ places.
    under the channel in the sidebar. Users can send many in a row, so sessions
    run in parallel. `@Lor @Sam` also adds Sam to the session and pings him.
 8. **The session gets the message plus the recent conversation it belongs
-   to.** The session shows this as a visible attached block ("From
-   #engineering: 6 messages"), so everyone sees what Lor was given. Lor
-   searches for more with its existing tools. Safe because the session and
-   the channel have the same audience.
+   to.** The session's Details panel links to these messages ("#general ·
+   6 messages") in a Context section, so everyone can see what Lor was given.
+   (Jacob moved it there on 2026-10-09 from a block at the top of the
+   transcript, and preferred a link to quoting the messages.) Lor searches for
+   more with its existing tools. Safe because the session and the channel
+   have the same audience.
 9. **Cost does not limit the design.** Parallel sessions are billed usage.
 10. **Session states reuse today's thread and plan indicators.** Spinner =
     running. Blue dot = unread. Alert icon = needs something (an approval,
@@ -71,10 +74,15 @@ places.
     and in the channel's full session list.
 12. **The sidebar is the attention surface. There is no inbox view.**
     - Each session row shows its own state.
-    - Each channel row shows the strongest state of your sessions in it:
-      alert, then spinner, then dot.
-    - "Needs you" always notifies. "Done" notifies the starter. Running never
-      notifies.
+    - Each channel shows at most 3 of your sessions, ordered alert, then
+      running, then unread, then the rest. A "N more" row shows the strongest
+      state of the hidden ones and expands the list in place.
+    - Hovering the channel's # (not the row) turns it into a chevron that
+      collapses the channel's sessions. A collapsed channel row shows the
+      strongest state of its sessions: alert, then spinner, then dot.
+    - Starting a session in a collapsed channel expands that channel.
+    - "Needs you" always notifies. "Done" notifies the session's subscribers.
+      Running never notifies.
     - Who is needed: a question from Lor goes to the starter (anyone in the
       session can answer). An approval goes to the people the approval
       policies allow to approve. A mention goes to the person mentioned.
@@ -120,7 +128,7 @@ places.
 
 17. **No private sessions in the MVP.** Every session is visible to its
     channel. An opt-in private mode can come later without breaking this
-    model (`private-lor-questions.md`).
+    model (`planned/private-lor-questions.md`).
 18. **The UI word is "session".** The collisions are in code only: the voice
     UI already says "calls", the reply window in `lor-session.ts` goes away
     with this model, and code-channel sessions are the same concept.
@@ -170,6 +178,9 @@ Features that put Lor or machine content in channel chat today.
      creator can choose "everyone in the channel". That puts the loop's
      session in each member's sidebar without posting in the chat. See
      item 4 for the subscription model.
+   - Locked: archiving a loop's session is a dismissal. The loop keeps
+     running, and its next run brings the session back. Only pausing,
+     cancelling or deleting the loop stops it.
 2. **Connector and webhook posts.** Locked: they stay in the chat. They are
    factual event feeds a person set up on purpose, not AI-written text. The
    rule: "Channel chat holds what people write, plus event feeds people set
@@ -220,4 +231,5 @@ The pass over existing features is complete as of 2026-10-08.
 | Personal archive (hides a session from your sidebar only) | Jacob wants one person to be able to close out the work for everyone |
 | A separate inbox view for sessions | The sidebar already groups sessions under channels; revisit only if it gets too long to scan |
 | A decision model (Jev, Clef) routes each session message | Brings back the placement-router problem; the composer would flip while typing; wrong calls cost trust. A model may suggest a mention, never reroute |
+| Call Lor's work "threads" (2026-10-08) | Collides with human reply threads, which stay. Only works if human threads are dropped for quoted replies; Jacob kept both |
 | One driver per session, or only the starter types | Less multiplayer. May come back for code sessions, where two people steering one working copy is a real conflict |

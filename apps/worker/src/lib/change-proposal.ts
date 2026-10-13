@@ -3,7 +3,7 @@ import {
   parseRolePermission,
   workspaceAuthorityHasPermissions,
 } from "@repo/auth/permissions"
-import { and, db, eq, LOR_USER_ID, schema } from "@repo/db"
+import { and, db, eq, isNull, LOR_USER_ID, schema } from "@repo/db"
 import type { ChangeOperation, ProposalEvidence } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
 import { sendProposalPush } from "@repo/messaging"
@@ -54,14 +54,17 @@ function proposedLabel(spec: ChangeOperation): string {
 }
 
 // The propose_workspace_change executor: proposal_card message + proposal/op
-// rows, same card-is-anchor shape as createLoopCard. A newer proposal
-// supersedes the channel's previous pending one — Lor revising after
-// feedback must not leave two live cards competing for approval.
+// rows, same card-is-anchor shape as createLoopCard. In a session the card
+// posts in the session. A newer proposal supersedes the previous pending one
+// in the same session (or channel, without one) — Lor revising after
+// feedback must not leave two live cards competing for approval, but
+// parallel sessions never cancel each other's.
 export async function createProposalCard(
   deps: ChangeProposalDeps,
   input: {
     workspaceId: string
     channelId: string
+    threadRootId: string | null
     rationale: string
     evidence: ProposalEvidence[]
     operations: ChangeOperation[]
@@ -74,6 +77,7 @@ export async function createProposalCard(
       channelId: input.channelId,
       content: `Proposed workspace changes:\n${lines.join("\n")}`,
       type: "proposal_card",
+      ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
     }
   )
 
@@ -90,8 +94,13 @@ export async function createProposalCard(
         })
         .where(
           and(
-            eq(schema.changeProposal.channelId, input.channelId),
-            eq(schema.changeProposal.status, "pending")
+            eq(schema.changeProposal.status, "pending"),
+            input.threadRootId
+              ? eq(schema.changeProposal.threadRootId, input.threadRootId)
+              : and(
+                  eq(schema.changeProposal.channelId, input.channelId),
+                  isNull(schema.changeProposal.threadRootId)
+                )
           )
         )
         .returning({ id: schema.changeProposal.id })
@@ -102,6 +111,7 @@ export async function createProposalCard(
         .values({
           workspaceId: input.workspaceId,
           channelId: input.channelId,
+          threadRootId: input.threadRootId,
           cardMessageId: cardId,
           authorType: "agent",
           authorUserId: LOR_USER_ID,
@@ -160,6 +170,7 @@ export async function createProposalCard(
       proposalId: proposal.id,
       workspaceId: input.workspaceId,
       channelId: input.channelId,
+      threadRootId: input.threadRootId,
       cardMessageId: cardId,
       rationale: input.rationale,
       operations: input.operations,
@@ -238,6 +249,7 @@ async function notifyProposalApprovers(
     proposalId: string
     workspaceId: string
     channelId: string
+    threadRootId: string | null
     cardMessageId: string
     rationale: string
     operations: ChangeOperation[]
@@ -267,6 +279,7 @@ async function notifyProposalApprovers(
     workspaceName: workspace?.name ?? "your workspace",
     channelId: input.channelId,
     channelName: channel?.name ?? null,
+    threadRootId: input.threadRootId,
     cardMessageId: input.cardMessageId,
     rationale: input.rationale,
   }

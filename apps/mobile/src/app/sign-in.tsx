@@ -90,7 +90,7 @@ export default function SignInScreen() {
               Welcome to Lor
             </Text>
             <Text className="text-base leading-[22px] text-lor-text-secondary dark:text-lor-text-secondary-dark">
-              Your team’s shared memory, in motion.
+              AI agents your whole team can steer.
             </Text>
           </View>
           <View className="gap-four">

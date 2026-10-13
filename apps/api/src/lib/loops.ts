@@ -3,13 +3,16 @@ import {
   db,
   eq,
   inArray,
+  isNull,
   isUniqueViolation,
   LOR_USER_ID,
   schema,
   sql,
 } from "@repo/db"
+import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { Loop } from "@repo/db/schema"
 import { env } from "@repo/env/server"
+import { ensureLoopSession } from "@repo/lor/agent-sessions"
 import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
 import {
@@ -62,10 +65,54 @@ function getLoopRunQueue(): Queue<LoopRunJobData> {
   return loopRunQueue
 }
 
-// Manual "Run now" from the loop panel: same rails as a sweep-claimed fire
-// (run row with scopeKey = loop.id, then the loop-run job), but the cadence
-// is untouched — nextRunAt stays where the schedule put it. The active-scope
-// unique index still enforces one run at a time.
+// At activation the loop's session exists right away: the session its draft
+// card sits in, or a new one. The creator and the person who activated it
+// follow it, so it is in their sidebars before the first run.
+export async function openLoopSession(
+  loop: Loop,
+  activatorId: string
+): Promise<void> {
+  await adoptCardSession(loop)
+  const session = await ensureLoopSession(loop)
+  await subscribeToThread(session.threadRootId, [
+    activatorId,
+    ...(loop.creatorId ? [loop.creatorId] : []),
+  ])
+  notifyWorkspaceActivity(loop.workspaceId)
+}
+
+// The session a loop's draft card sits in becomes the loop's session, so
+// every fire lands in the conversation where it was set up instead of a new
+// one. A session holds at most one loop; another loop set up there gets its
+// own session.
+async function adoptCardSession(loop: Loop): Promise<void> {
+  if (!loop.cardMessageId) return
+  const card = await db
+    .select({ threadRootId: schema.message.threadRootId })
+    .from(schema.message)
+    .where(eq(schema.message.id, loop.cardMessageId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!card?.threadRootId) return
+  await db
+    .update(schema.agentSession)
+    .set({ loopId: loop.id })
+    .where(
+      and(
+        eq(schema.agentSession.threadRootId, card.threadRootId),
+        eq(schema.agentSession.channelId, loop.channelId),
+        isNull(schema.agentSession.loopId)
+      )
+    )
+    .catch((err) => {
+      // The loop already has a session (agent_session_loopId_uidx).
+      if (!isUniqueViolation(err)) throw err
+    })
+}
+
+// Manual "Run now" from the loop panel: the same fire job the sweep queues
+// (a turn in the loop's session), but the cadence is untouched — nextRunAt
+// stays where the schedule put it. A fire still running refuses another.
 export async function runLoopNow(input: {
   loopId: string
 }): Promise<
@@ -80,52 +127,33 @@ export async function runLoopNow(input: {
   if (!loop || loop.status !== "active")
     return { ok: false, reason: "not_active" }
 
-  const run = await db
-    .insert(schema.agentRun)
-    .values({
-      workspaceId: loop.workspaceId,
-      channelId: loop.channelId,
-      scopeKey: loop.id,
-      loopId: loop.id,
-      scheduledFor: new Date(),
-      budgetSteps: env.AGENT_RUN_MAX_STEPS,
-      budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-      budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-      budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-      budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
-      budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
-      budgetCredits: env.AGENT_RUN_MAX_CREDITS,
-    })
-    .returning({ id: schema.agentRun.id })
+  const running = await db
+    .select({ id: schema.agentRun.id })
+    .from(schema.agentRun)
+    .where(
+      and(
+        eq(schema.agentRun.loopId, loop.id),
+        inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
+      )
+    )
+    .limit(1)
     .then((rows) => rows[0] ?? null)
-    .catch((err) => {
-      if (isUniqueViolation(err)) return null
-      throw err
-    })
-  if (!run) return { ok: false, reason: "already_running" }
+  if (running) return { ok: false, reason: "already_running" }
 
-  notifyWorkspaceActivity(loop.workspaceId)
+  const firedAt = new Date()
   try {
     await getLoopRunQueue().add(
       LOOP_RUN_JOB,
-      { runId: run.id, loopId: loop.id },
+      { loopId: loop.id, scheduledFor: firedAt.toISOString() },
       {
-        jobId: run.id,
+        jobId: `${loop.id}-now-${firedAt.getTime()}`,
         attempts: 2,
         backoff: { type: "fixed", delay: 5000 },
         removeOnComplete: true,
       }
     )
   } catch (err) {
-    // Same unwind as the sweep: a run row with no job would sit until the
-    // dead-run sweep force-fails it.
     logger.error({ err, loopId: loop.id }, "Run-now enqueue failed")
-    await db
-      .delete(schema.agentRun)
-      .where(eq(schema.agentRun.id, run.id))
-      .catch(() => {})
-    // The deleted queued run's indicator must clear.
-    notifyWorkspaceActivity(loop.workspaceId)
     return { ok: false, reason: "enqueue_failed" }
   }
 
@@ -155,7 +183,7 @@ async function stopInFlightRuns(
     })
     .where(
       and(
-        eq(schema.agentRun.scopeKey, loopId),
+        eq(schema.agentRun.loopId, loopId),
         inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
       )
     )

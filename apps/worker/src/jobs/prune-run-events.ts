@@ -26,8 +26,8 @@ import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import type { createClient } from "redis"
-import { settleLoopRun } from "@/jobs/loop-run"
 import { logger } from "@/lib/logger"
+import { settleLoopRun } from "@/lib/loop-session"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
@@ -105,8 +105,8 @@ export async function sweepDeadRuns(
   // One transaction per run: the failure and its placeholder settle together,
   // so a run can never go terminal while its message stays pending forever.
   // The update re-checks the dead predicate, keeping concurrent sweeps (and a
-  // claim that landed since the select) from double-failing a run. Headless
-  // triggered runs have no placeholder message — only the run row settles.
+  // claim that landed since the select) from double-failing a run. An Act run
+  // that never reached its session has no placeholder — only the row settles.
   const dead: {
     id: string
     messageId: string | null
@@ -246,8 +246,8 @@ export async function sweepDeadRuns(
   // transition — a force-failed dead run reached it here, not in the
   // processor, so the counter/auto-pause pass runs here too.
   for (const run of dead) {
-    if (!run.loopId) continue
-    await settleLoopRun({ emitter, redis }, run.loopId, {
+    if (!run.loopId || !run.threadRootId) continue
+    await settleLoopRun({ emitter, redis }, run.loopId, run.threadRootId, {
       outcome: "failed",
       stopReason: "error",
     }).catch((err) =>

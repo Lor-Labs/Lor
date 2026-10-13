@@ -24,10 +24,6 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "propose_instructions",
   "create_artifacts",
   "react_to_message",
-  // Triggered dispositions: without these a retried step posts the same
-  // message (or starts the same plan) twice.
-  "post_channel_message",
-  "create_plan",
   // Adopts the run's thread as a plan; replay must not create a duplicate.
   "start_plan",
   // Loop runs: a retried step must not double-complete the loop.

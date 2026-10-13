@@ -1,3 +1,4 @@
+import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon"
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useQuery } from "@tanstack/react-query"
@@ -19,6 +20,7 @@ import { ChannelList } from "@/components/channel-list"
 import { CreateChannelSheet } from "@/components/create-channel-sheet"
 import { CreateInviteSheet } from "@/components/create-invite-sheet"
 import { FinishSetupCard } from "@/components/finish-setup-card"
+import { HowLorWorksSheet } from "@/components/how-lor-works-sheet"
 import { Avatar } from "@/components/ui/avatar"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
@@ -40,6 +42,8 @@ import type {
   ChannelSearchResult,
 } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
+import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels"
 
 export default function WorkspaceScreen() {
   const theme = useTheme()
@@ -55,9 +59,10 @@ export default function WorkspaceScreen() {
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [isWorkspaceSheetOpen, setIsWorkspaceSheetOpen] = useState(false)
+  const [isHowLorWorksOpen, setIsHowLorWorksOpen] = useState(false)
   const [actionChannel, setActionChannel] = useState<Channel | null>(null)
   const hasFocusedChannelsRef = useRef(false)
-  const inviteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const nextSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const permissions = useChannelPermissions(workspace?.id)
   const activeMember = useActiveMember(workspace?.id)
   const { data: session } = authClient.useSession()
@@ -72,23 +77,13 @@ export default function WorkspaceScreen() {
 
   useEffect(
     () => () => {
-      if (inviteTimeoutRef.current) clearTimeout(inviteTimeoutRef.current)
+      if (nextSheetTimeoutRef.current) clearTimeout(nextSheetTimeoutRef.current)
     },
     []
   )
 
   const workspaceSlug = workspace?.slug ?? ""
-  const channelsQuery = useQuery({
-    queryKey: ["channels", workspaceSlug],
-    enabled: Boolean(workspaceSlug),
-    queryFn: async () => {
-      const response = await api.v1.workspaces[":workspaceSlug"].channels.$get({
-        param: { workspaceSlug },
-      })
-      if (!response.ok) throw new Error("Could not load channels")
-      return response.json()
-    },
-  })
+  const channelsQuery = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
   const { refetch: refetchChannels } = channelsQuery
   const channels = channelsQuery.data ?? null
   const isLoadingChannels = Boolean(workspaceSlug) && channelsQuery.isPending
@@ -209,9 +204,18 @@ export default function WorkspaceScreen() {
 
   const openInviteFromWorkspaceSheet = () => {
     setIsWorkspaceSheetOpen(false)
-    if (inviteTimeoutRef.current) clearTimeout(inviteTimeoutRef.current)
+    if (nextSheetTimeoutRef.current) clearTimeout(nextSheetTimeoutRef.current)
     // Let the workspace sheet finish closing before the invite sheet opens.
-    inviteTimeoutRef.current = setTimeout(() => setIsInviteOpen(true), 300)
+    nextSheetTimeoutRef.current = setTimeout(() => setIsInviteOpen(true), 300)
+  }
+
+  const openHowLorWorks = () => {
+    setIsWorkspaceSheetOpen(false)
+    if (nextSheetTimeoutRef.current) clearTimeout(nextSheetTimeoutRef.current)
+    nextSheetTimeoutRef.current = setTimeout(
+      () => setIsHowLorWorksOpen(true),
+      300
+    )
   }
 
   const switchWorkspace = (workspaceId: string) => {
@@ -241,12 +245,7 @@ export default function WorkspaceScreen() {
   }
 
   const openSearchMessage = async (message: ChannelSearchResult) => {
-    const location = await api.v1.workspaces[":workspaceSlug"].messages[
-      ":messageId"
-    ]
-      .$get({ param: { workspaceSlug: workspace.slug, messageId: message.id } })
-      .then((response) => (response.ok ? response.json() : null))
-      .catch(() => null)
+    const location = await fetchMessageLocation(workspace.slug, message.id)
     if (!location) {
       Alert.alert(
         "Message unavailable",
@@ -254,21 +253,7 @@ export default function WorkspaceScreen() {
       )
       return
     }
-    if (location.threadRootId) {
-      router.push({
-        pathname: "/channel/[channelId]/thread/[threadRootId]",
-        params: {
-          channelId: location.channelId,
-          focusMessageId: message.id,
-          threadRootId: location.threadRootId,
-        },
-      } as never)
-      return
-    }
-    router.push({
-      pathname: "/channel/[channelId]",
-      params: { channelId: location.channelId, focusMessageId: message.id },
-    } as never)
+    openMessageAt(location, message.id)
   }
 
   return (
@@ -315,6 +300,17 @@ export default function WorkspaceScreen() {
               <HugeiconsIcon color={theme.text} icon={PlusSignIcon} size={20} />
             </IconButton>
           ) : null}
+          <IconButton
+            accessibilityLabel="New session"
+            onPress={() => router.push("/session/new")}
+            variant="ghost"
+          >
+            <HugeiconsIcon
+              color={theme.text}
+              icon={PencilEdit02Icon}
+              size={20}
+            />
+          </IconButton>
         </View>
 
         <View className="mt-two px-four">
@@ -439,6 +435,7 @@ export default function WorkspaceScreen() {
         onInvite={openInviteFromWorkspaceSheet}
         onOpenAgentProfiles={openAgentProfiles}
         onOpenChange={setIsWorkspaceSheetOpen}
+        onOpenHowLorWorks={openHowLorWorks}
         onOpenInstructions={openInstructions}
         onOpenSettings={openWorkspaceSettings}
         onSelectWorkspace={switchWorkspace}
@@ -450,6 +447,10 @@ export default function WorkspaceScreen() {
         onOpenChange={setIsInviteOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
+      />
+      <HowLorWorksSheet
+        onClose={() => setIsHowLorWorksOpen(false)}
+        reopened={isHowLorWorksOpen}
       />
       {profileSheet}
     </Screen>

@@ -16,6 +16,10 @@ export const hintKeyEnum = pgEnum("hint_key", [
   "lor_reply",
   "voice_intro",
   "connectors_intro",
+  "sessions_intro",
+  "session_reply",
+  "how_lor_works",
+  "desktop_app",
 ])
 
 export type HintKey = (typeof hintKeyEnum.enumValues)[number]

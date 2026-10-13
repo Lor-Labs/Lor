@@ -14,11 +14,13 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { DesktopSidebarTitlebar } from "@/components/desktop-titlebar"
 import { DesktopZoomRegion } from "@/components/desktop-zoom"
 import { UserBar } from "@/components/sidebar/channel-panel/user-bar"
+import { DesktopAppCard } from "@/components/sidebar/desktop-app-card"
 import { DMSidebarContent } from "@/components/sidebar/dm-sidebar"
 import {
   CENTER_MIN_WIDTH,
   clampPanelWidth,
   RightSidebarProvider,
+  sizeClassForView,
   useRightSidebar,
 } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { RightSidebarPanel } from "@/components/sidebar/right-panel/right-sidebar-panel"
@@ -69,6 +71,7 @@ function LeftSidebar() {
         </AnimatePresence>
       </div>
       <SidebarFooter>
+        <DesktopAppCard />
         <CallBar />
         <UserBar />
       </SidebarFooter>
@@ -175,7 +178,7 @@ function RightPanelDock() {
         const newWidth = clampPanelWidth(
           startWidth + delta,
           viewportWidth,
-          view?.type !== "thread" && view?.type !== "loop"
+          sizeClassForView(view) === "compact"
         )
         if (panelRef.current) {
           panelRef.current.style.width = `${newWidth}px`
@@ -234,7 +237,7 @@ function RightPanelDock() {
         document.removeEventListener("mouseup", handleMouseUp)
       }
     },
-    [panelWidth, setPanelWidth, leftOpen, setLeftOpen, view?.type]
+    [panelWidth, setPanelWidth, leftOpen, setLeftOpen, view]
   )
 
   const showRightPanel = !!view && !!workspaceSlug

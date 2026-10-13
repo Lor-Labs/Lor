@@ -23,9 +23,10 @@ export const approvalStatusEnum = pgEnum("approval_status", [
 
 // A consequential action an agent wants a human to authorize. Workflow-
 // agnostic: a plan is one anchor (planId set), future workflows attach
-// their own. For plans, requesting one ends the run; resolution posts a
-// message into the plan thread, which starts the continuation run through the
-// normal thread-reply path.
+// their own. Requesting one ends the run; resolution posts nothing and starts
+// a continuation run that answers the run's reply, carrying the decision as
+// the AI SDK approval response (policy gates) or a decision line
+// (request_approval).
 export const approval = pgTable(
   "approval",
   {

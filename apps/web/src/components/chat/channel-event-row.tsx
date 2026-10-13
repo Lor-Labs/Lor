@@ -38,6 +38,7 @@ type LoopPayload = {
   reason?: "failures" | "out_of_credits"
   via?: "proposal"
 }
+type TriggerRunPayload = { triggerId: string; label: string }
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -399,6 +400,28 @@ function eventText(
         </>
       )
     }
+    case "loop_run": {
+      if (!payload) break
+      const p = payload as LoopPayload
+      return (
+        <>
+          The loop{" "}
+          <LoopName channelId={message.channelId} loopId={p.loopId}>
+            {p.loopName}
+          </LoopName>{" "}
+          ran on schedule
+        </>
+      )
+    }
+    // Content is the event payload Lor reads, never shown as the line.
+    case "trigger_run": {
+      const p = payload as TriggerRunPayload | null
+      return (
+        <>
+          <Name>{p?.label ?? "An automation"}</Name> started this session
+        </>
+      )
+    }
   }
   return message.content
 }
@@ -478,11 +501,14 @@ interface ChannelEventRowProps {
   // One or more consecutive same-kind events (only member kinds arrive >1).
   events: Message[]
   resolveUserName?: ResolveUserName
+  // A session's document rows have a 28px avatar gutter, chat's 40px.
+  layout?: "chat" | "document"
 }
 
 export function ChannelEventRow({
   events,
   resolveUserName,
+  layout = "chat",
 }: ChannelEventRowProps) {
   const [expanded, setExpanded] = useState(false)
   const first = events[0]
@@ -516,9 +542,14 @@ export function ChannelEventRow({
         return (
           <div
             key={message.id}
-            className="group/event my-2 flex items-center gap-3 px-4 py-1 hover:bg-muted/40"
+            className={cn(
+              "group/event flex items-center gap-3 px-4 py-1",
+              layout === "document" ? "mt-3" : "my-2 hover:bg-muted/40"
+            )}
           >
-            <div className="w-10 shrink-0" />
+            <div
+              className={cn("shrink-0", layout === "document" ? "w-7" : "w-10")}
+            />
             <div className="min-w-0 text-xs text-muted-foreground">
               {text} {expandHint}
               <span className="ml-1.5 text-[11px] text-muted-foreground/50 opacity-0 transition-opacity group-hover/event:opacity-100">

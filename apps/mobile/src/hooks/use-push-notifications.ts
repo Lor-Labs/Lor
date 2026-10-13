@@ -98,13 +98,22 @@ export function usePushNotifications() {
           return
         }
       }
-      if (target.threadRootId) {
+      if (target.sessionId) {
+        router.push({
+          pathname: "/session/[sessionId]",
+          params: {
+            sessionId: target.sessionId,
+            ...(target.messageId ? { focusMessageId: target.messageId } : {}),
+          },
+        })
+      } else if (target.threadRootId) {
         router.push({
           pathname: "/channel/[channelId]/thread/[threadRootId]",
           params: {
             channelId: target.channelId,
             threadRootId: target.threadRootId,
             ...(target.messageId ? { focusMessageId: target.messageId } : {}),
+            ...(target.tab ? { tab: target.tab } : {}),
           },
         } as never)
       } else {

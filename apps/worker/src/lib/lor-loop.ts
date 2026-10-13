@@ -15,8 +15,8 @@ export type LorLoopDeps = {
   redis: RedisClient
 }
 
-// The propose_loop executor: loop_card message + draft loop row, the same
-// card-is-anchor shape as createLorPlan. Nothing is scheduled here — the
+// The propose_loop executor: loop_card message + draft loop row, with the
+// card as the loop's anchor. Nothing is scheduled here — the
 // loop stays a draft until a human activates it (L2 activate route). The
 // card content is a plain-text fallback (mobile, search, clients without the
 // loop row); rich rendering reads the row via cardMessageId.
@@ -25,6 +25,8 @@ export async function createLoopCard(
   input: {
     workspaceId: string
     channelId: string
+    // The session Lor proposed it in; the draft card posts there.
+    threadRootId: string | null
     creatorId: string | null
     name: string
     instructions: string
@@ -40,6 +42,7 @@ export async function createLoopCard(
       channelId: input.channelId,
       content: `${input.name} — ${describeLoopSchedule(input.schedule, input.timezone)}`,
       type: "loop_card",
+      ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
     }
   )
   // Compensation: an orphan loop_card renders a benign fallback, but don't

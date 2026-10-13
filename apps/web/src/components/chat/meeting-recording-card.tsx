@@ -1,5 +1,4 @@
-import { useParams } from "@tanstack/react-router"
-import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import { useNavigate, useParams } from "@tanstack/react-router"
 import type { Message } from "@/lib/api-types"
 
 type Embed = Message["embeds"][number]
@@ -19,7 +18,7 @@ export function MeetingRecordingCard({
   message: Message
 }) {
   const { workspaceSlug } = useParams({ strict: false })
-  const { setView, isCollapsed, toggleCollapsed } = useRightSidebar()
+  const navigate = useNavigate()
   const meeting = embed.meeting
   const transcript = meeting?.transcript ?? embed.description
   const summary = meeting?.summary
@@ -28,16 +27,18 @@ export function MeetingRecordingCard({
     : embed.fields?.find((field) => field.name === "Duration")?.value
   const canAsk = Boolean(workspaceSlug && !message.threadRootId)
 
+  // Opens a new session about this recording with the question prefilled.
   function ask(prompt: string) {
     if (!workspaceSlug) return
-    setView({
-      type: "thread",
-      workspaceSlug,
-      channelId: message.channelId,
-      threadRootId: message.threadRootId ?? message.id,
-      composerDraft: { id: crypto.randomUUID(), text: prompt },
+    void navigate({
+      to: "/$workspaceSlug/session/new",
+      params: { workspaceSlug },
+      search: {
+        channelId: message.channelId,
+        about: message.id,
+        draft: prompt,
+      },
     })
-    if (isCollapsed) toggleCollapsed()
   }
 
   return (

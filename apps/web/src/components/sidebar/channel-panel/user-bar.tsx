@@ -1,4 +1,8 @@
-import { Settings01Icon, UnfoldMoreIcon } from "@hugeicons/core-free-icons"
+import {
+  LaptopIcon,
+  Settings01Icon,
+  UnfoldMoreIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import {
@@ -21,8 +25,13 @@ import { ThemeSwitcher } from "@repo/ui/components/unlumen-ui/theme-switcher"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { LogOut } from "lucide-react"
+import { usePageHint } from "@/components/hints/hints-provider"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSettings } from "@/hooks/use-settings"
+import {
+  canDownloadDesktopApp,
+  downloadDesktopApp,
+} from "@/lib/desktop-download"
 
 // The shortcut handler in settings-dialog accepts metaKey || ctrlKey, so the
 // label has to follow the platform rather than always showing ⌘ (the desktop
@@ -40,6 +49,7 @@ export function UserBar() {
   const navigate = useNavigate()
   const name = session?.user.name ?? "User"
   const email = session?.user.email ?? ""
+  const { dismiss: dismissDesktopHint } = usePageHint("desktop_app")
 
   // Go to /login explicitly, with no return path: the next person to sign in
   // in this tab may be a different account, which must neither inherit this
@@ -126,6 +136,17 @@ export function UserBar() {
                 Settings
                 <DropdownMenuShortcut>{SETTINGS_SHORTCUT}</DropdownMenuShortcut>
               </DropdownMenuItem>
+              {canDownloadDesktopApp && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    downloadDesktopApp()
+                    dismissDesktopHint()
+                  }}
+                >
+                  <HugeiconsIcon icon={LaptopIcon} strokeWidth={2} />
+                  Download for Mac
+                </DropdownMenuItem>
+              )}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={handleLogout}>

@@ -21,7 +21,6 @@ import {
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
 import { MessageList } from "@/components/message-list"
-import { RunQueuePill } from "@/components/run-queue-pill"
 import { TypingIndicator } from "@/components/typing-indicator"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { IconButton } from "@/components/ui/icon-button"
@@ -31,23 +30,20 @@ import { UserProfileSheet } from "@/components/user-profile-sheet"
 import { VoiceCallScreen } from "@/components/voice/voice-call-screen"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
-import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMemberModeration } from "@/hooks/use-member-moderation"
 import { useOpenDM } from "@/hooks/use-open-dm"
-import { useChannelPlans } from "@/hooks/use-plans"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
-import { useChannelProposals } from "@/hooks/use-proposals"
-import { useRunQueue } from "@/hooks/use-run-queue"
+import { useSessionStart } from "@/hooks/use-session-start"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
-import { api } from "@/lib/api"
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
 
 export default function ChannelRoute() {
   const { workspace } = useWorkspace()
@@ -99,6 +95,10 @@ function ChannelScreen() {
   // open composer flips to the archived notice without a reload.
   useProjectUpdates(workspace?.slug)
 
+  const sessionStart = useSessionStart({
+    id: channelId ?? "",
+    name: channelState.channel?.name ?? null,
+  })
   const chat = useChannelMessages({
     source: {
       kind: "channel",
@@ -107,43 +107,11 @@ function ChannelScreen() {
     },
     socket,
     currentUser: session?.user,
+    sessionStart,
   })
-  // Screen-level plan subscription (mirrors web's route-level one): plan
-  // cards mount their own listeners, but virtualized cards unmount — without
-  // this a terminal plan:updated lands with no listener and the list goes
-  // stale until a refetch.
-  useChannelPlans(channelId ?? "")
+  // Chat is people only: Lor's runs, plans, approvals, proposals and queues
+  // live in sessions.
   useAutoMarkRead(channelId)
-  // Live source for every approval card in this channel (message cards read
-  // the same cache); the socket handlers live here, once per screen.
-  useChannelApprovals(channelId ?? "")
-  // Proposal cards read this cache the same way.
-  useChannelProposals(channelId ?? "")
-  // Channel-scope queue (a send can land while a run is finalizing) —
-  // surfaced in the same composer pill as thread queues.
-  const pendingLorMessageId = useMemo(
-    () => chat.messages.find((message) => message.status === "pending")?.id,
-    [chat.messages]
-  )
-  const { queuedIds } = useRunQueue({
-    socket,
-    channelId: channelId ?? "",
-    threadRootId: null,
-    pendingLorMessageId,
-  })
-  const queuedMessages = useMemo(
-    () =>
-      queuedIds
-        .map((id) => chat.messages.find((message) => message.id === id))
-        .filter((message): message is Message => Boolean(message)),
-    [queuedIds, chat.messages]
-  )
-  // Queued messages live only in the composer's queue pill until the drain
-  // releases them — the transcript skips them (Codex model).
-  const visibleMessages = useMemo(
-    () => chat.messages.filter((message) => !queuedIds.includes(message.id)),
-    [chat.messages, queuedIds]
-  )
   const { typingUsers, emitTyping } = useTypingIndicator({
     socket,
     channelId: channelId ?? "",
@@ -303,23 +271,11 @@ function ChannelScreen() {
   const selectSearchResult = async (result: ChannelSearchResult) => {
     setIsSearchOpen(false)
     try {
-      const response = await api.v1.workspaces[":workspaceSlug"].messages[
-        ":messageId"
-      ].$get({
-        param: { workspaceSlug: workspace.slug, messageId: result.id },
-      })
-      if (!response.ok) throw new Error("Message unavailable")
-      const location = await response.json()
-
-      if (location.threadRootId) {
-        router.push({
-          pathname: "/channel/[channelId]/thread/[threadRootId]",
-          params: {
-            channelId: location.channelId,
-            focusMessageId: result.id,
-            threadRootId: location.threadRootId,
-          },
-        })
+      const location = await fetchMessageLocation(workspace.slug, result.id)
+      if (!location) throw new Error("Message unavailable")
+      // In a thread or session: open it there; in chat: scroll to it here.
+      if (location.threadRootId || location.sessionId) {
+        openMessageAt(location, result.id)
         return
       }
 
@@ -443,21 +399,17 @@ function ChannelScreen() {
           </IconButton>
         </View>
         <ChatKeyboardLayout
-          renderComposer={({
-            inputNativeID,
-            onCustomInputViewChange,
-            onInputLayout,
-          }) =>
+          renderComposer={({ inputNativeID, onCustomInputViewChange }) =>
             channel.archivedAt ? (
               <ArchivedChannelNotice archivedAt={channel.archivedAt} />
             ) : (
               <MessageComposer
                 channelId={channelId}
                 channelName={channelName}
+                destination="channel"
                 editingMessage={editingMessage}
                 lorIntro
                 inputNativeID={inputNativeID}
-                onInputLayout={onInputLayout}
                 isConnected={isSocketConnected}
                 isMentionCandidatesLoading={mentions.isLoading}
                 isSending={chat.isSending || isSavingEdit}
@@ -486,12 +438,6 @@ function ChannelScreen() {
                   setReplyingTo(null)
                 }}
                 replyingTo={replyingTo}
-                topAccessory={
-                  <RunQueuePill
-                    currentUserId={session?.user.id}
-                    messages={queuedMessages}
-                  />
-                }
               />
             )
           }
@@ -506,9 +452,15 @@ function ChannelScreen() {
               isLoading={chat.isLoading}
               keyboardProps={keyboardProps}
               listKey={`channel-${channelId}`}
-              messages={visibleMessages}
+              messages={chat.messages}
               onLoadAround={chat.loadAround}
               onOpenThread={openThread}
+              onAskLor={(message) =>
+                router.push({
+                  pathname: "/session/new",
+                  params: { channelId, aboutMessageId: message.id },
+                })
+              }
               onDelete={confirmDelete}
               onEdit={startEditing}
               onPressAuthor={openAuthorProfile}
@@ -550,6 +502,13 @@ function ChannelScreen() {
         onOpenPinnedMessages={() => {
           router.push({
             pathname: "/channel/[channelId]/pins",
+            params: { channelId },
+          })
+          setIsOptionsOpen(false)
+        }}
+        onOpenSessions={() => {
+          router.push({
+            pathname: "/channel/[channelId]/sessions",
             params: { channelId },
           })
           setIsOptionsOpen(false)

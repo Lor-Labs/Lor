@@ -1,4 +1,15 @@
+import { LOR_USER_ID } from "@repo/db/constants"
 import type { WorkspaceMember } from "@/lib/api-types"
+
+// @Lor in stored content: from chat or a human thread, the send starts a
+// session.
+export function mentionsLor(content: string) {
+  return content.includes(`<@${LOR_USER_ID}>`)
+}
+
+// The session's first turn shows "@Lor" before the server's copy resolves
+// its mentions (the bot user seeded in packages/db/src/seeds/lor.ts).
+export const lorMention = { id: LOR_USER_ID, name: "Lor", image: null }
 
 export type MentionCandidate = Pick<
   WorkspaceMember,

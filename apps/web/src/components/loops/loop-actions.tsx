@@ -9,10 +9,48 @@ import {
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  type QueryClient,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useState } from "react"
 import type { ChannelLoop } from "@/hooks/use-channel-loops"
 import { apiClient } from "@/lib/api-client"
+
+const loopsKey = (channelId: string) => ["channel-loops", channelId] as const
+
+// Loop actions patch the channel's loop list before the server answers. The
+// returned context restores it if the server refuses; it carries the channel
+// because a removed loop is gone from the list by then.
+async function patchLoops(
+  queryClient: QueryClient,
+  channelId: string,
+  update: (loops: ChannelLoop[]) => ChannelLoop[]
+) {
+  await queryClient.cancelQueries({ queryKey: loopsKey(channelId) })
+  const previous = queryClient.getQueryData<ChannelLoop[]>(loopsKey(channelId))
+  queryClient.setQueryData<ChannelLoop[]>(loopsKey(channelId), (loops) =>
+    loops ? update(loops) : loops
+  )
+  return { channelId, previous }
+}
+
+function restoreLoops(
+  queryClient: QueryClient,
+  context:
+    | { channelId: string; previous: ChannelLoop[] | undefined }
+    | undefined
+) {
+  if (context) {
+    queryClient.setQueryData(loopsKey(context.channelId), context.previous)
+  }
+}
+
+function setLoopStatus(loopId: string, status: ChannelLoop["status"]) {
+  return (loops: ChannelLoop[]) =>
+    loops.map((l) => (l.id === loopId ? { ...l, status } : l))
+}
 
 // Activation flow shared by the loop card's quick button and the loop detail
 // panel: POST activate with the given tz; a 422 requires_confirmation parks
@@ -46,8 +84,19 @@ export function useActivateLoop(loop: ChannelLoop | null, timezone: string) {
       const body = await res.json()
       return { kind: "activated" as const, loop: body.loop }
     },
-    onSuccess: (result) => {
+    // Shows active at once; a high-frequency schedule that needs confirming,
+    // or a failure, puts the draft back.
+    onMutate: async () =>
+      loop
+        ? patchLoops(
+            queryClient,
+            loop.channelId,
+            setLoopStatus(loop.id, "active")
+          )
+        : undefined,
+    onSuccess: (result, _opts, context) => {
       if (result.kind === "needs_confirmation") {
+        restoreLoops(queryClient, context)
         setConfirmFires(result.firesPerDay)
         return
       }
@@ -62,7 +111,8 @@ export function useActivateLoop(loop: ChannelLoop | null, timezone: string) {
         }
       )
     },
-    onError: (err) => {
+    onError: (err, _opts, context) => {
+      restoreLoops(queryClient, context)
       toast.error(
         err instanceof Error ? err.message : "Failed to create the loop"
       )
@@ -97,20 +147,14 @@ export function useDiscardDraftLoop(loop: ChannelLoop | null) {
       }
       return res.json()
     },
-    onSuccess: () => {
-      if (!loop) return
-      queryClient.setQueryData(
-        ["channel-loops", loop.channelId],
-        (existing: ChannelLoop[] | undefined) =>
-          existing?.filter((l) => l.id !== loop.id)
-      )
-    },
-    onError: (err) => {
-      if (loop) {
-        void queryClient.invalidateQueries({
-          queryKey: ["channel-loops", loop.channelId],
-        })
-      }
+    onMutate: async () =>
+      loop
+        ? patchLoops(queryClient, loop.channelId, (loops) =>
+            loops.filter((l) => l.id !== loop.id)
+          )
+        : undefined,
+    onError: (err, _vars, context) => {
+      restoreLoops(queryClient, context)
       toast.error(
         err instanceof Error ? err.message : "Failed to cancel loop creation"
       )
@@ -249,9 +293,16 @@ export function useUpdateLoop(loop: ChannelLoop | null) {
   }
 }
 
-// Pause / resume / mark-completed from the loop panel. All three return the
-// updated snapshot; wrong-state races land as 409s and just toast.
+// Pause / resume / mark-completed from the loop panel. Each shows its new
+// status at once; the server's snapshot replaces it, and a wrong-state race
+// (409) restores the old one and toasts.
 export type LoopLifecycleAction = "pause" | "resume" | "complete"
+
+const STATUS_AFTER: Record<LoopLifecycleAction, ChannelLoop["status"]> = {
+  pause: "paused",
+  resume: "active",
+  complete: "completed",
+}
 
 export function useLoopLifecycle(loop: ChannelLoop | null) {
   const queryClient = useQueryClient()
@@ -274,6 +325,14 @@ export function useLoopLifecycle(loop: ChannelLoop | null) {
       const body = await res.json()
       return body.loop
     },
+    onMutate: async (action) =>
+      loop
+        ? patchLoops(
+            queryClient,
+            loop.channelId,
+            setLoopStatus(loop.id, STATUS_AFTER[action])
+          )
+        : undefined,
     onSuccess: (updated) => {
       queryClient.setQueryData(
         ["channel-loops", updated.channelId],
@@ -284,7 +343,8 @@ export function useLoopLifecycle(loop: ChannelLoop | null) {
         }
       )
     },
-    onError: (err) => {
+    onError: (err, _action, context) => {
+      restoreLoops(queryClient, context)
       toast.error(err instanceof Error ? err.message : "Loop action failed")
     },
   })
@@ -329,7 +389,8 @@ export function useRunLoopNow(loop: ChannelLoop | null) {
 }
 
 // Hard delete from the … menu — the server removes the card message too and
-// broadcasts loop:deleted; the local cache removal here just beats the socket.
+// broadcasts loop:deleted. The loop leaves the list at once; a failure puts
+// it back.
 export function useDeleteLoop(loop: ChannelLoop | null) {
   const queryClient = useQueryClient()
 
@@ -345,16 +406,22 @@ export function useDeleteLoop(loop: ChannelLoop | null) {
       }
       return res.json()
     },
-    onSuccess: () => {
-      if (!loop) return
-      queryClient.setQueryData(
-        ["channel-loops", loop.channelId],
-        (existing: ChannelLoop[] | undefined) =>
-          existing?.filter((l) => l.id !== loop.id)
-      )
-      queryClient.removeQueries({ queryKey: ["loop-runs", loop.id] })
+    onMutate: async () =>
+      loop
+        ? {
+            ...(await patchLoops(queryClient, loop.channelId, (loops) =>
+              loops.filter((l) => l.id !== loop.id)
+            )),
+            loopId: loop.id,
+          }
+        : undefined,
+    onSuccess: (_data, _vars, context) => {
+      if (context) {
+        queryClient.removeQueries({ queryKey: ["loop-runs", context.loopId] })
+      }
     },
-    onError: (err) => {
+    onError: (err, _vars, context) => {
+      restoreLoops(queryClient, context)
       toast.error(
         err instanceof Error ? err.message : "Failed to delete the loop"
       )

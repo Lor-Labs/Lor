@@ -20,6 +20,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useState } from "react"
+import type { CallTab } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { CallHero } from "@/components/voice/call-hero"
 import { ParticipantAvatar } from "@/components/voice/participant-avatar"
 import type { JoinDevices } from "@/context/voice-call-context"
@@ -196,7 +197,7 @@ export function VoiceLobby({
   note: string | undefined
   onJoin: (devices: JoinDevices) => void
   openThreadRootId: string | null
-  onOpenSession: (threadRootId: string, tab: "chat" | "transcript") => void
+  onOpenSession: (threadRootId: string, tab: CallTab) => void
   // Only for people allowed to delete calls.
   onDeleteSession?: (session: VoiceSessionSummary) => void
 }) {
@@ -249,11 +250,11 @@ export function VoiceLobby({
             <ul className="flex flex-col">
               {past.map((session) => {
                 const threadRootId = session.threadRootId
-                // Chat holds Lor's summary card and anything people wrote,
-                // so a past call opens there; a call with an empty chat
-                // opens on its transcript.
-                const tab =
-                  session.hasSummaryCard || session.replyCount > 0
+                // A past call opens on its summary; without one, on its
+                // chat if people wrote there, else on its transcript.
+                const tab: CallTab = session.title
+                  ? "summary"
+                  : session.replyCount > 0
                     ? "chat"
                     : "transcript"
                 return (

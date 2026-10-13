@@ -12,7 +12,6 @@ import {
   type UsageEvent,
   writeBack,
 } from "../index"
-import { decideReplyPlacement } from "../placement"
 import { searchSources } from "../sources"
 import {
   type EvalCheck,
@@ -66,7 +65,6 @@ function logFixture(
   console.log(`${ok ? "✓" : "✗"} ${fixture.name} — ${passed}/${checks.length}`)
   console.log(`    ${fixture.description}`)
   if (result.answer) console.log(`    answer: ${truncate(result.answer)}`)
-  if (result.placement) console.log(`    placement: ${result.placement}`)
   if (result.citations.length > 0 || result.invalid > 0) {
     console.log(
       `    citations: ${result.citations.length ? result.citations.join(", ") : "none"}  (valid ${result.valid}, invalid ${result.invalid})`
@@ -173,12 +171,6 @@ async function runFixture(
   workspaceId: string,
   userName: string
 ): Promise<EvalResult> {
-  if (fixture.kind === "placement") {
-    return {
-      ...emptyResult(),
-      placement: (await decideReplyPlacement(fixture.conversation)).placement,
-    }
-  }
   if (fixture.kind === "retrieval") {
     if (fixture.corpus === "brain") {
       const embedded = await embedBrainQueryWithUsage(fixture.query)

@@ -31,8 +31,8 @@ function channelProposalsQueryOptions(channelId: string) {
 }
 
 // The channel's change proposals (all statuses — resolved cards render their
-// terminal state), kept live by proposal:updated (channel room). Mount once
-// per channel view; the per-message hook reads the same cache.
+// terminal state), kept live by proposal:updated (channel room). Mounted once
+// by the session page; the per-message hook reads the same cache.
 export function useChannelProposals(channelId: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()
@@ -96,8 +96,29 @@ export function useCanResolveProposal(
 // ride this request only.
 export type ProposalSecretsPayload = Record<string, Record<string, string>>
 
+// Approve and Reject show their result on the card before the server
+// answers; a failure restores the card and toasts.
+function useOptimisticProposal(channelId: string) {
+  const queryClient = useQueryClient()
+  const queryKey = channelProposalsQueryKey(channelId)
+  return {
+    queryKey,
+    patch: async (proposalId: string, change: Partial<ChannelProposal>) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<ChannelProposal[]>(queryKey)
+      queryClient.setQueryData<ChannelProposal[]>(queryKey, (proposals) =>
+        proposals?.map((p) => (p.id === proposalId ? { ...p, ...change } : p))
+      )
+      return { previous }
+    },
+    restore: (context: { previous?: ChannelProposal[] } | undefined) =>
+      queryClient.setQueryData(queryKey, context?.previous),
+  }
+}
+
 export function useApproveProposal(channelId: string) {
   const queryClient = useQueryClient()
+  const optimistic = useOptimisticProposal(channelId)
   return useMutation({
     mutationFn: async (args: {
       proposalId: string
@@ -115,6 +136,10 @@ export function useApproveProposal(channelId: string) {
       }
       return res.json()
     },
+    // "approved" is the server's own applying state; the card reads it as
+    // "Applying" until the apply lands as applied or failed.
+    onMutate: ({ proposalId }) =>
+      optimistic.patch(proposalId, { status: "approved" }),
     onSuccess: (payload) => {
       // 200 with status "failed" means the apply transaction rolled back —
       // the card shows the failing operation's error.
@@ -122,21 +147,25 @@ export function useApproveProposal(channelId: string) {
         toast.error("The changes could not be applied — see the card")
       }
     },
-    onError: (err) => {
+    onError: (err, _args, context) => {
+      optimistic.restore(context)
       toast.error(err.message)
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: channelProposalsQueryKey(channelId),
-      })
+      void queryClient.invalidateQueries({ queryKey: optimistic.queryKey })
     },
   })
 }
 
 export function useRejectProposal(channelId: string) {
   const queryClient = useQueryClient()
+  const optimistic = useOptimisticProposal(channelId)
   return useMutation({
-    mutationFn: async (args: { proposalId: string; note?: string }) => {
+    mutationFn: async (args: {
+      proposalId: string
+      note?: string
+      userId: string
+    }) => {
       const res = await apiClient.v1.proposals[":proposalId"].reject.$post({
         param: { proposalId: args.proposalId },
         json: { note: args.note },
@@ -149,13 +178,19 @@ export function useRejectProposal(channelId: string) {
       }
       return res.json()
     },
-    onError: (err) => {
+    onMutate: ({ proposalId, note, userId }) =>
+      optimistic.patch(proposalId, {
+        status: "rejected",
+        resolvedByUserId: userId,
+        resolvedAt: new Date().toISOString(),
+        resolutionNote: note ?? null,
+      }),
+    onError: (err, _args, context) => {
+      optimistic.restore(context)
       toast.error(err.message)
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: channelProposalsQueryKey(channelId),
-      })
+      void queryClient.invalidateQueries({ queryKey: optimistic.queryKey })
     },
   })
 }

@@ -20,6 +20,7 @@ import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
 import { Button } from "@/components/ui/button"
 import { SectionLabel } from "@/components/ui/section-label"
+import { LorMark } from "@/components/voice/lor-window"
 import {
   mutedUntilLabel,
   promptChannelMute,
@@ -38,6 +39,7 @@ export function ChannelOptionsSheet({
   onChannelDeleted,
   onChannelUpdated,
   onOpenPinnedMessages,
+  onOpenSessions,
   onOpenChange,
   workspaceName,
   workspaceSlug,
@@ -49,6 +51,7 @@ export function ChannelOptionsSheet({
   onChannelDeleted: () => void
   onChannelUpdated: (channel: ChannelDetail) => void
   onOpenPinnedMessages: () => void
+  onOpenSessions: () => void
   onOpenChange: (isOpen: boolean) => void
   workspaceName: string
   workspaceSlug: string
@@ -280,6 +283,36 @@ export function ChannelOptionsSheet({
 
                 <View className="gap-three px-one">
                   <SectionLabel>Channel content</SectionLabel>
+                  {channel.type === "text" ? (
+                    <Pressable
+                      accessibilityHint="Opens a scrollable list"
+                      accessibilityLabel="Sessions"
+                      accessibilityRole="button"
+                      className="min-h-14 flex-row items-center gap-three rounded-lor-sm bg-surface-secondary px-three py-three active:bg-surface-tertiary"
+                      onPress={onOpenSessions}
+                    >
+                      <View className="size-9 items-center justify-center rounded-lor-sm bg-surface-tertiary">
+                        <LorMark size={20} />
+                      </View>
+                      <View className="min-w-0 flex-1 gap-px">
+                        <Text className="text-[15px] font-semibold text-foreground">
+                          Sessions
+                        </Text>
+                        <Text className="text-xs leading-4 text-muted">
+                          Everyone's work with Lor in this channel
+                        </Text>
+                      </View>
+                      <SymbolView
+                        name={{
+                          ios: "chevron.right",
+                          android: "chevron_right",
+                          web: "chevron_right",
+                        }}
+                        size={17}
+                        tintColor={foreground}
+                      />
+                    </Pressable>
+                  ) : null}
                   <Pressable
                     accessibilityHint="Opens a scrollable list"
                     accessibilityLabel="Pinned messages"

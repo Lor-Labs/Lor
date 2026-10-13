@@ -13,6 +13,7 @@ import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   approvalParamsSchema,
   channelApprovalsParamsSchema,
+  channelApprovalsQuerySchema,
   listChannelApprovalsResponseSchema,
   resolveApprovalResponseSchema,
 } from "@/routes/v1/approvals/schema"
@@ -20,12 +21,15 @@ import {
 export const listChannelApprovals = createRoute({
   path: "/channels/{channelId}/approvals",
   method: "get",
-  summary: "List a channel's pending approvals",
+  summary: "List a channel's approvals",
   description:
-    "Returns pending policy-gated approvals for runs in this channel, anchored to the message whose run parked. Plan-scoped request_approval rows surface through the plan endpoints instead.",
+    "Returns approvals for runs in this channel, anchored to the message whose run parked: the pending ones, or with threadRootId every approval in that session (resolved ones show who decided).",
   tags: ["Approvals"],
   middleware: [sessionAuthMiddleware] as const,
-  request: { params: channelApprovalsParamsSchema },
+  request: {
+    params: channelApprovalsParamsSchema,
+    query: channelApprovalsQuerySchema,
+  },
   hidden: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({

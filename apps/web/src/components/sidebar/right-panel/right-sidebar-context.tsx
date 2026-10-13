@@ -25,6 +25,7 @@ const PANEL_COLLAPSED_KEY = "lor-right-panel-collapsed"
 const PANEL_WIDTH_KEYS = {
   wide: "lor-right-panel-width-wide",
   compact: "lor-right-panel-width-compact",
+  rail: "lor-right-panel-width-rail",
 } as const
 
 /**
@@ -32,11 +33,13 @@ const PANEL_WIDTH_KEYS = {
  * the viewport. Members / pinned / attachments are lists — they get a narrow
  * fixed width. Each class remembers its own user-dragged width. Loop detail
  * is a reading surface too (full prompt text), so it rides the wide class.
+ * A session's work rail opens narrow beside the session but resizes freely.
  */
 type PanelSizeClass = keyof typeof PANEL_WIDTH_KEYS
 
 const COMPACT_DEFAULT_WIDTH = 280
 const COMPACT_MAX_WIDTH = 320
+const RAIL_DEFAULT_WIDTH = 320
 const WIDE_DEFAULT_RATIO = 0.5
 
 export const MIN_PANEL_WIDTH = 240
@@ -65,8 +68,11 @@ export function clampPanelWidth(
   return Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
 }
 
-function sizeClassForView(view: RightSidebarView | null): PanelSizeClass {
-  return view?.type === "thread" || view?.type === "loop" ? "wide" : "compact"
+export function sizeClassForView(
+  view: RightSidebarView | null
+): PanelSizeClass {
+  if (view?.type === "thread" || view?.type === "loop") return "wide"
+  return view?.type === "session-work" ? "rail" : "compact"
 }
 
 function defaultWidth(
@@ -74,6 +80,7 @@ function defaultWidth(
   viewportWidth: number
 ): number {
   if (sizeClass === "compact") return COMPACT_DEFAULT_WIDTH
+  if (sizeClass === "rail") return RAIL_DEFAULT_WIDTH
   return clampPanelWidth(
     Math.round(
       Math.min(
@@ -118,6 +125,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   const [widths, setWidths] = useState<Record<PanelSizeClass, number>>({
     wide: COMPACT_DEFAULT_WIDTH,
     compact: COMPACT_DEFAULT_WIDTH,
+    rail: RAIL_DEFAULT_WIDTH,
   })
   const [isHydrated, setIsHydrated] = useState(false)
 
@@ -127,6 +135,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     setWidths({
       wide: getStoredWidth("wide"),
       compact: getStoredWidth("compact"),
+      rail: getStoredWidth("rail"),
     })
     setIsHydrated(true)
   }, [])
@@ -135,7 +144,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   const panelWidth =
     sizeClass === "compact"
       ? Math.min(widths.compact, COMPACT_MAX_WIDTH)
-      : widths.wide
+      : widths[sizeClass]
 
   const clearView = useCallback(() => {
     setView(null)

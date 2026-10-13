@@ -1,6 +1,7 @@
 import { Archive02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { toast } from "@repo/ui/components/toast"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
@@ -17,32 +18,31 @@ import {
   pinMessageForPanelReflow,
   scrollToMessage,
 } from "@/components/chat/message-list"
-import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
+import { SessionStartedNote } from "@/components/session/session-started-note"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
 import { useSocket } from "@/context/socket-context"
-import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useChannelEntry } from "@/hooks/use-channel-entry"
 import { useChannelFilesRealtime } from "@/hooks/use-channel-files"
 import { useChannelMessages } from "@/hooks/use-channel-messages"
-import { useChannelPlans } from "@/hooks/use-channel-plans"
 import { useFileUpload } from "@/hooks/use-file-upload"
-import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessagePinning } from "@/hooks/use-message-pinning"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
-import { useMessageIdNavigation } from "@/hooks/use-message-search-navigation"
+import {
+  useMessageIdNavigation,
+  useMessageLocation,
+} from "@/hooks/use-message-search-navigation"
 import { useMessageSending } from "@/hooks/use-message-sending"
-import { useChannelProposals } from "@/hooks/use-proposals"
-import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
+import { useOpenNewSession } from "@/hooks/use-open-new-session"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
-import { useRunQueue } from "@/hooks/use-run-queue"
+import { useSessionStart } from "@/hooks/use-session-start"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
@@ -51,6 +51,10 @@ import type { Message } from "@/lib/api-types"
 import { channelQueryOptions } from "@/lib/channel-query"
 import { writeLastChannelId } from "@/lib/last-location"
 import { canPinMessages } from "@/lib/permissions"
+import {
+  openTextChannels,
+  workspaceChannelsQueryOptions,
+} from "@/lib/workspace-channels-query"
 
 type ChannelSearchParams = {
   msgId?: string
@@ -69,6 +73,9 @@ type ChannelSearchParams = {
   // Prefills the composer with "@Lor <draft>" without sending (setup's Ask
   // Lor suggestions). Cleared once applied.
   draft?: string
+  // Opens the channel's Sessions list in the right panel (the channel menus'
+  // "View Sessions"). Cleared once applied.
+  panel?: "sessions"
 }
 
 export const Route = createFileRoute(
@@ -97,6 +104,7 @@ export const Route = createFileRoute(
         : undefined,
     draft:
       typeof search.draft === "string" ? search.draft.slice(0, 500) : undefined,
+    panel: search.panel === "sessions" ? "sessions" : undefined,
   }),
 })
 
@@ -135,6 +143,7 @@ function ChannelView() {
     artifactFrom,
     fileSearch,
     draft,
+    panel,
   } = Route.useSearch()
   const navigate = Route.useNavigate()
   const composerDraft = useMemo(
@@ -155,15 +164,6 @@ function ChannelView() {
     useRightSidebar()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
-  // Live source for every approval and proposal card in this channel (message
-  // cards read the same caches); the socket handlers live here, once per
-  // channel view.
-  useChannelApprovals(channelId)
-  useChannelProposals(channelId)
-  // Plans too — cards mount/unmount with scrolling, so without a route-level
-  // subscription a terminal plan:updated can arrive with no listener and the
-  // card spins on "running" until a refetch.
-  useChannelPlans(channelId)
   useChannelFilesRealtime(channelId)
 
   useEffect(() => {
@@ -171,11 +171,25 @@ function ChannelView() {
     writeLastChannelId(workspaceSlug, channelId)
   }, [workspaceSlug, channelId])
 
-  useThreadPanelUrlSync({ workspaceSlug, channelId, threadId, threadMessageId })
+  useThreadPanelUrlSync({
+    workspaceSlug,
+    channelId,
+    threadId,
+    threadMessageId,
+    panel,
+  })
 
   const { data, isPending, isError, error } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)
   )
+  // The sidebar's list already knows a text channel, so its messages load
+  // alongside the channel's details instead of after them. Voice channels
+  // still wait: they show a lobby, not a feed.
+  const { data: listedAsText = false } = useQuery({
+    ...workspaceChannelsQueryOptions(workspaceSlug),
+    select: (channels) =>
+      openTextChannels(channels).some((channel) => channel.id === channelId),
+  })
 
   const fetchMessagesPage = useCallback(
     async (params: {
@@ -200,11 +214,16 @@ function ChannelView() {
     [workspaceSlug, channelId]
   )
 
+  const sessionStart = useSessionStart({
+    workspaceSlug,
+    channel: { id: channelId, name: data?.name ?? null },
+  })
   const { handleSend, pendingNonces } = useMessageSending({
     socket,
     queryClient,
     channelId,
     currentUser: session?.user,
+    sessionStart: sessionStart.handlers,
   })
 
   const {
@@ -225,7 +244,7 @@ function ChannelView() {
     anchor: msgId ?? entry.anchor,
     anchorReady: Boolean(msgId) || entry.ready,
     fetchPage: fetchMessagesPage,
-    enabled: !!data,
+    enabled: !!data || listedAsText,
     socket,
     pendingNoncesRef: pendingNonces,
   })
@@ -258,17 +277,49 @@ function ChannelView() {
     [navigate, navigateToMessageId]
   )
 
+  // Lor threads from before sessions were backfilled into sessions, so they
+  // open on the session page; only threads Lor took part in need the lookup.
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const { resolve: resolveMessageLocation } = useMessageLocation()
   const handleOpenThread = useCallback(
     (rootMessageId: string) => {
-      setView({
-        type: "thread",
-        workspaceSlug,
-        channelId,
-        threadRootId: rootMessageId,
-      })
-      if (isCollapsed) toggleCollapsed()
+      const openPanel = () => {
+        setView({
+          type: "thread",
+          workspaceSlug,
+          channelId,
+          threadRootId: rootMessageId,
+        })
+        if (isCollapsed) toggleCollapsed()
+      }
+      const root = messagesRef.current.find((m) => m.id === rootMessageId)
+      const lorTookPart = root?.threadSummary?.participants.some(
+        (participant) => participant.id === LOR_USER_ID
+      )
+      if (!lorTookPart) {
+        openPanel()
+        return
+      }
+      void resolveMessageLocation(rootMessageId)
+        .then((location) => {
+          if (!location?.sessionId) return openPanel()
+          void navigate({
+            to: "/$workspaceSlug/session/$sessionId",
+            params: { workspaceSlug, sessionId: location.sessionId },
+          })
+        })
+        .catch(openPanel)
     },
-    [setView, workspaceSlug, channelId, isCollapsed, toggleCollapsed]
+    [
+      setView,
+      workspaceSlug,
+      channelId,
+      isCollapsed,
+      toggleCollapsed,
+      resolveMessageLocation,
+      navigate,
+    ]
   )
 
   // Opening, closing, or collapsing the thread panel animates the channel
@@ -299,6 +350,16 @@ function ChannelView() {
     (msg: Message) => handleOpenThread(msg.id),
     [handleOpenThread]
   )
+  const handleAskLor = useCallback(
+    (msg: Message) =>
+      void navigate({
+        to: "/$workspaceSlug/session/new",
+        params: { workspaceSlug },
+        search: { channelId, about: msg.id },
+      }),
+    [navigate, workspaceSlug, channelId]
+  )
+  const openNewSession = useOpenNewSession()
 
   const { data: workspaceMembersData } = useQuery({
     queryKey: ["workspace-members", workspaceSlug],
@@ -332,39 +393,6 @@ function ChannelView() {
     queryClient,
     channelId,
   })
-
-  useLorRunReplay({ queryClient, channelId, messages })
-
-  // Channel-scope queue (a send can land while a run is finalizing) —
-  // surfaced in the same composer pill as thread queues.
-  const pendingLorMessageId = useMemo(
-    () => messages.find((m) => m.status === "pending")?.id,
-    [messages]
-  )
-  const { queuedIds } = useRunQueue({
-    socket,
-    channelId,
-    threadRootId: null,
-    pendingLorMessageId,
-  })
-  const queuedMessages = useMemo(
-    () =>
-      queuedIds
-        .map((id) => messages.find((m) => m.id === id))
-        .filter((m): m is Message => Boolean(m)),
-    [queuedIds, messages]
-  )
-  const queuedMessageSteering = useQueuedMessageSteering({
-    messages: queuedMessages,
-    currentUserId,
-    pendingNonces,
-  })
-  // Queued messages live only in the composer's queue pill until the drain
-  // releases them — the transcript skips them (Codex model).
-  const visibleMessages = useMemo(
-    () => messages.filter((m) => !queuedIds.includes(m.id)),
-    [messages, queuedIds]
-  )
 
   const { data: activeMember } = useQuery({
     queryKey: ["active-workspace-member", workspaceSlug],
@@ -546,7 +574,7 @@ function ChannelView() {
       <MessageList
         key={channelId}
         context={context}
-        messages={visibleMessages}
+        messages={messages}
         hasOlder={hasOlder}
         onLoadOlder={() => fetchOlder()}
         isFetchingOlder={isFetchingOlder}
@@ -560,6 +588,10 @@ function ChannelView() {
         highlightScrollTarget={Boolean(msgId)}
         onJumpToMessage={handleJumpToMessage}
         onReplyInThread={handleReplyInThread}
+        onAskLor={data.type === "text" ? handleAskLor : undefined}
+        onNewSession={
+          data.type === "text" && !data.archivedAt ? openNewSession : undefined
+        }
         onOpenThread={handleOpenThread}
         threadActivities={threadActivities}
         onOpenThreadActivity={handleOpenThreadActivity}
@@ -576,13 +608,6 @@ function ChannelView() {
         isLoading={messagesLoading}
       />
       <TypingIndicator users={typingUsers} />
-      <RunQueuePill
-        messages={queuedMessages}
-        currentUserId={currentUserId}
-        pendingNonces={pendingNonces}
-        onSteer={queuedMessageSteering.steerMessage}
-        steeringMessageId={queuedMessageSteering.steeringMessageId}
-      />
       {data.archivedAt ? (
         // Archived: no composer — a terminal divider marks when it closed.
         <div className="px-4 pt-1 pb-5">
@@ -608,6 +633,13 @@ function ChannelView() {
           composerDraft={composerDraft}
           onComposerDraftConsumed={consumeComposerDraft}
           lorIntro
+          destination="channel"
+          notice={
+            <SessionStartedNote
+              session={sessionStart.started}
+              workspaceSlug={workspaceSlug}
+            />
+          }
           context={context}
           channelId={channelId}
           onSend={handleSend}
@@ -622,9 +654,6 @@ function ChannelView() {
           getUploadedAttachments={fileUpload.getUploadedAttachments}
           isUploading={fileUpload.isUploading}
           onTyping={emitTyping}
-          canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
-          onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
-          isSteeringQueued={queuedMessageSteering.isSteering}
         />
       )}
       <AnimatePresence>

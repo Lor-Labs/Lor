@@ -191,9 +191,9 @@ async function bootstrap() {
     )
   })
 
-  // Headless triggered runs (the Act effect). Uses the respond queue as a
-  // producer when Lor's disposition is create_plan, and its own queue to
-  // re-arm a coalescing window that's waiting on an in-flight run.
+  // The Act effect: each prepared run starts a session and enqueues its
+  // respond job. Its own queue re-arms a coalescing window that's waiting
+  // on an in-flight run.
   const triggeredRunQueue = new Queue<TriggeredRunJobData | ActFlushJobData>(
     TRIGGERED_RUN_QUEUE,
     {

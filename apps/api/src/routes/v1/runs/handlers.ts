@@ -7,6 +7,7 @@ import {
   gt,
   inArray,
   isNotNull,
+  isNull,
   schema,
   sql,
 } from "@repo/db"
@@ -103,7 +104,10 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
       .where(
         and(
           eq(schema.agentRunQueue.scopeKey, run.scopeKey),
-          eq(schema.agentRunQueue.state, "queued")
+          eq(schema.agentRunQueue.state, "queued"),
+          // An approval resume waits on Lor's own reply, not a person's
+          // message, so it never shows in the queue.
+          isNull(schema.agentRunQueue.resumeApprovalId)
         )
       )
       .orderBy(asc(schema.agentRunQueue.createdAt)),
@@ -295,9 +299,9 @@ type StopOutcome = {
   stopped: boolean
 }
 
-// Shared stop core (Stop button + queued-message steer). Null = the run was
-// already terminal.
-async function requestRunStop(
+// Shared stop core (Stop button, queued-message steer, session archive).
+// Null = the run was already terminal.
+export async function requestRunStop(
   run: StopTargetRun,
   requestedBy: string
 ): Promise<StopOutcome | null> {
@@ -544,7 +548,8 @@ export const steerQueuedMessage: AppRouteHandler<
     .then((rows) => rows[0])
 
   // Conversational scopes always carry a placeholder message; a null here
-  // can't happen for them (headless runs live on delivery-id scopes).
+  // can't happen for them (an Act run is message-less only before its
+  // session exists).
   const outcome = active?.messageId
     ? await requestRunStop(
         { ...active, messageId: active.messageId },

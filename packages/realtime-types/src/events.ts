@@ -8,9 +8,26 @@ export const presenceSubscribePayloadSchema = z.object({
   workspaceId: z.string().uuid(),
 })
 
+// A sidebar session's state, strongest first: needs_you (an approval or a
+// question from Lor), running, unread, idle.
+export type SidebarSessionState = "needs_you" | "running" | "unread" | "idle"
+
+export type SidebarSession = {
+  id: string
+  // Lets a client load the transcript alongside the session, not after it.
+  threadRootId: string
+  title: string
+  // A person renamed it. Only Lor's generated titles type out on web.
+  titleEdited: boolean
+  state: SidebarSessionState
+  loop: boolean
+  lastActivityAt: string
+}
+
 export type ChannelActivity = {
   channelId: string
-  lor: "working" | "queued" | "needs_input" | "needs_approval" | null
+  // The caller's subscribed, unarchived sessions here, newest activity first.
+  sessions: SidebarSession[]
 }
 
 export type WorkspaceActivityAck = (
@@ -144,11 +161,27 @@ export const sendMessagePayloadSchema = z
       .array(attachmentPayloadSchema)
       .max(MAX_ATTACHMENTS_PER_MESSAGE)
       .optional(),
+    // Session composer switched to "To people": Lor doesn't run and nobody
+    // is pinged.
+    toPeople: z.boolean().optional(),
+    // New session view: the message starts a session in this channel with
+    // no chat context, @Lor or not.
+    startSession: z.boolean().optional(),
+    // Ids the sender chose for the session this send starts (New session or
+    // @Lor), so it can show the session before the ack. Ignored when the
+    // send starts none.
+    newSession: z
+      .object({ id: z.string().uuid(), threadRootId: z.string().uuid() })
+      .optional(),
+    // Forward: referencedMessageId is the original (today a session message
+    // in this channel); the content is an optional note.
+    forward: z.boolean().optional(),
   })
   .refine(
     (data) =>
       (data.content && data.content.length > 0) ||
-      (data.attachments && data.attachments.length > 0),
+      (data.attachments && data.attachments.length > 0) ||
+      (data.forward && data.referencedMessageId),
     { message: "Message must have content or at least one attachment" }
   )
 
@@ -204,6 +237,8 @@ export type RealtimeMessageType =
   | "proposal_card"
   | "voice_session"
   | "call_summary"
+  | "agent_session"
+  | "forward"
 
 // Mirrors channel_event_type / ChannelEventPayload in @repo/db (messages.ts) —
 // hand-copied like RealtimeMessageType so clients don't pull in drizzle.
@@ -216,6 +251,8 @@ export type RealtimeChannelEventType =
   | "loop_created"
   | "loop_paused"
   | "loop_completed"
+  | "loop_run"
+  | "trigger_run"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -228,6 +265,7 @@ export type RealtimeChannelEventPayload =
       reason?: "failures" | "out_of_credits"
       via?: "proposal"
     }
+  | { triggerId: string; label: string }
   | null
 
 export type RealtimeAuthor = {
@@ -271,6 +309,22 @@ export type RealtimeEmbed = {
   color?: string
 }
 
+// Mirrors ForwardedMessage in @repo/db (messages.ts), hand-copied so clients
+// don't pull in drizzle.
+export type RealtimeForwardedMessage = {
+  messageId: string
+  author: { id: string; name: string; image: string | null }
+  content: string | null
+  mentions: { id: string; name: string; image: string | null }[]
+  createdAt: string
+  source: {
+    channelId: string
+    channelName: string | null
+    sessionId: string | null
+    sessionTitle: string | null
+  }
+}
+
 export type RealtimeReferencedMessage = {
   id: string
   content: string | null
@@ -304,6 +358,8 @@ export type RealtimeMessage = {
   attachments: RealtimeAttachment[]
   embeds: RealtimeEmbed[]
   referencedMessage: RealtimeReferencedMessage | null
+  // type "forward": the original as it was when forwarded.
+  forwarded?: RealtimeForwardedMessage | null
   threadRootId?: string | null
   editedAt?: string
   nonce?: string
@@ -321,6 +377,9 @@ export type RealtimeMessage = {
   // The human message that started this Lor response. Present only on
   // Lor placeholders so chat scrollers can anchor the start of the turn.
   lorTriggerMessageId?: string | null
+  // A person's session message: whether it went to Lor. false = for channel
+  // members only. Null outside sessions.
+  routedToLor?: boolean | null
 }
 
 export type RealtimeMessagePinToggled = {
@@ -352,11 +411,11 @@ export type RealtimeMessageReactionUpdated = {
 export type RealtimeMessageThreadUpdated = {
   channelId: string
   threadRootId: string
+  // Set when the thread is a Lor session; the chat's thread-activity dock
+  // skips sessions (their sidebar row shows activity).
+  sessionId?: string | null
   replyCount: number
   lastReplyAt: string | null
-  // The thread is blocked on a human — a pending approval or an open plan
-  // waiting for input. Drives the amber chip on channel-feed thread footers.
-  lorWaiting: "needs_approval" | "needs_input" | null
   participants: Array<{
     id: string
     name: string
@@ -379,7 +438,14 @@ export type RealtimeMessageThreadUpdated = {
 }
 
 export type SendMessageAck = (
-  result: { ok: true; message: RealtimeMessage } | ErrorResult
+  result:
+    | {
+        ok: true
+        message: RealtimeMessage
+        // The Lor session this message is in, when it is in one.
+        session?: RealtimeAgentSession
+      }
+    | ErrorResult
 ) => void
 
 export type DeleteMessageAck = (result: OkResult | ErrorResult) => void
@@ -427,8 +493,12 @@ export type UnreadNotification = {
   messageId: string
   messageType?: RealtimeMessageType
   threadRootId: string | null
-  isLorThread: boolean
-  isSubscribedToThread: boolean
+  // Whether this recipient gets an OS or push notification. Thread messages
+  // notify only the thread's subscribers, and Lor finishing in a session only
+  // its starter. Badges count the message either way.
+  notify: boolean
+  // Set when the message is in a Lor session (opens the session page).
+  sessionId: string | null
   unreadCountDelta: number
   authorUserId: string
   authorName: string
@@ -459,8 +529,9 @@ export type MentionNotification = {
   channelId: string
   workspaceId: string | null
   threadRootId: string | null
-  isLorThread: boolean
-  isSubscribedToThread: boolean
+  // Set when the mention is in a Lor session: it alerts on the session's
+  // sidebar row, not the channel's mention badge.
+  sessionId: string | null
   createdAt: string
   // Set when the mention is in a live call's chat the person isn't in: they
   // get who and where, never the message, and threadRootId is null.
@@ -726,6 +797,8 @@ export interface ServerToClientEvents {
 
   // Plan snapshot changed (status, steps, summary). Channel room.
   "plan:updated": (payload: PlanUpdatedEvent) => void
+  // Lor session row changed (title, archive, activity). Channel room.
+  "session:updated": (payload: AgentSessionUpdatedEvent) => void
   // A run parked on an approval gate. Channel room; ids only — the
   // durable card data comes from the channel approvals query this invalidates.
   "approval:created": (payload: ApprovalCreatedEvent) => void
@@ -751,6 +824,9 @@ export interface ServerToClientEvents {
   "notification:approval": (payload: ApprovalNotification) => void
   // A change proposal awaits someone whose permissions cover it. User room.
   "notification:proposal": (payload: ProposalNotification) => void
+  // Someone added this user as a subscriber to a session or thread. User room.
+  "notification:subscribed": (payload: SubscribedNotification) => void
+  "notification:call-summary": (payload: CallSummaryNotification) => void
   "channel:read-state": (payload: ChannelReadState) => void
   "channel:created": (payload: ChannelCreatedEvent) => void
   "channel-mute:updated": (payload: ChannelMuteUpdated) => void
@@ -836,6 +912,32 @@ export type PlanUpdatedEvent = {
   plan: RealtimePlan
 }
 
+export type RealtimeAgentSessionOrigin = "chat" | "new" | "loop" | "trigger"
+
+// Snapshot of a Lor session row. Mirrors agent_session in @repo/db; guarded
+// in @repo/lor.
+export type RealtimeAgentSession = {
+  id: string
+  workspaceId: string
+  channelId: string
+  threadRootId: string
+  creatorId: string | null
+  origin: RealtimeAgentSessionOrigin
+  title: string
+  titleEditedAt: string | null
+  loopId: string | null
+  triggerId: string | null
+  archivedAt: string | null
+  archivedById: string | null
+  lastActivityAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentSessionUpdatedEvent = {
+  session: RealtimeAgentSession
+}
+
 export type RealtimeApprovalStatus =
   | "pending"
   | "approved"
@@ -873,9 +975,33 @@ export type ProposalNotification = {
   workspaceName: string
   channelId: string
   channelName: string | null
-  // The card message — also the thread the resolution lands in.
+  // The session the card is in; null for pre-session proposals, whose card
+  // thread takes the resolution.
+  threadRootId: string | null
   cardMessageId: string | null
   rationale: string
+}
+
+// Lor finished an ended call's summary; sent to everyone who was in the call.
+export type CallSummaryNotification = {
+  workspaceId: string
+  channelId: string
+  channelName: string
+  sessionId: string
+  // The call chat's root: opening it shows the call's Summary tab.
+  threadRootId: string
+  title: string
+}
+
+export type SubscribedNotification = {
+  workspaceId: string
+  channelId: string
+  channelName: string
+  threadRootId: string
+  sessionId: string | null
+  // The session title; null for a human thread.
+  title: string | null
+  actorName: string
 }
 
 export type ApprovalCreatedEvent = {

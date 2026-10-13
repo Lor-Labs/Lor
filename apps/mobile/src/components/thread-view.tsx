@@ -1,48 +1,71 @@
+import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
+import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, Text, View } from "react-native"
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
+import { ForwardSheet } from "@/components/forward-sheet"
 import {
   MessageComposer,
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
 import { RunQueuePill } from "@/components/run-queue-pill"
+import { SessionHeading } from "@/components/session-heading"
+import { SessionSheet } from "@/components/session-sheet"
 import {
   ThreadMessageList,
   ThreadMessageListSkeleton,
 } from "@/components/thread-message-list"
 import { ThreadParticipantStack } from "@/components/thread-participant-stack"
+import { ThreadSubscribers } from "@/components/thread-subscribers"
 import {
   type PlanSourceFile,
   ThreadWorkHeader,
 } from "@/components/thread-work-header"
-import { TypingIndicator } from "@/components/typing-indicator"
+import {
+  DocumentTypingIndicator,
+  TypingIndicator,
+} from "@/components/typing-indicator"
+import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { StatePanel } from "@/components/ui/state-panel"
 import { Tabs } from "@/components/ui/tabs"
 import { UserProfileSheet } from "@/components/user-profile-sheet"
+import { CallSummaryPanel } from "@/components/voice/call-summary-card"
 import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useUpdateAgentSession } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
+import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { usePlanForThread } from "@/hooks/use-plans"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import { useSessionStart } from "@/hooks/use-session-start"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
+import { threadSubscribersQueryOptions } from "@/hooks/use-thread-subscribers"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
-import type { Message } from "@/lib/api-types"
+import type { AgentSession, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+
+// A call's chat: Summary (ended calls only), Chat, Transcript.
+export type CallTab = "summary" | "chat" | "transcript"
+
+const titleFadeIn = FadeIn.duration(160)
+const titleFadeOut = FadeOut.duration(120)
 
 export type ThreadViewProps = {
   // A moment of the call, in ms, for the transcript to open at.
@@ -53,11 +76,15 @@ export type ThreadViewProps = {
   // the chat shows.
   embedded?: boolean
   focusMessageId?: string
-  tab?: "chat" | "transcript"
+  tab?: CallTab
   threadRootId: string
+  // A Lor session's transcript.
+  session?: AgentSession
+  // The session's start isn't confirmed yet.
+  sessionPending?: boolean
 }
 
-// A thread: the thread screen, and the chat in a call's drawer.
+// A thread: the thread screen, a Lor session, and the chat in a call's drawer.
 export function ThreadView({
   at,
   channelId,
@@ -66,13 +93,21 @@ export function ThreadView({
   focusMessageId,
   tab,
   threadRootId,
+  session: lorSession,
+  sessionPending = false,
 }: ThreadViewProps) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  // The session's heading is on screen, so the bar leaves its title out.
+  const [headingVisible, setHeadingVisible] = useState(true)
+  const [isActionsOpen, setIsActionsOpen] = useState(false)
+  // Session: the message being forwarded into the channel chat.
+  const [forwarding, setForwarding] = useState<Message | null>(null)
+  const updateSession = useUpdateAgentSession()
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   const { requestStop, stoppingMessageId } = useStopLorRun()
-  const foreground = useThemeColor("foreground")
+  const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()
   const isSocketConnected = useSocketConnected()
   const { workspace } = useWorkspace()
@@ -83,17 +118,47 @@ export function ThreadView({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
   })
+  const sessionStart = useSessionStart({
+    id: channelId,
+    name: channelState.channel?.name ?? null,
+  })
+  // A human thread: @Lor starts a session. Call chats live in voice
+  // channels, where it starts nothing.
+  const startsSessions = !lorSession && channelState.channel?.type === "text"
   const thread = useThreadMessages({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
     threadRootId: threadRootId ?? "",
     socket,
     currentUser: session?.user,
+    isSession: Boolean(lorSession),
+    deferLoad: sessionPending,
+    sessionStart: startsSessions ? sessionStart : undefined,
   })
+  // A call's chat: an unset tab means Summary for an ended call, else Chat;
+  // Summary shows only once the call has ended. The call drawer is chat only.
+  const voiceSessionId = thread.voiceSessionId
+  const hasSummary = thread.voiceSessionEnded
+  const callTab: CallTab =
+    !voiceSessionId || embedded
+      ? "chat"
+      : tab === "transcript" || tab === "chat"
+        ? tab
+        : hasSummary
+          ? "summary"
+          : "chat"
   useAutoMarkRead(channelId)
+  const newestReply = thread.messages[0]
+  useMarkThreadRead({
+    workspaceSlug: workspace?.slug ?? "",
+    channelId,
+    threadRootId,
+    newestKey: newestReply ? `${newestReply.id}:${newestReply.status}` : null,
+    enabled: !sessionPending && callTab === "chat",
+  })
   // Approval cards in this thread read the channel-approvals cache; the
   // socket handlers live here so a thread opened directly stays live too.
-  useChannelApprovals(channelId ?? "")
+  useChannelApprovals(channelId ?? "", lorSession ? threadRootId : null)
   // A proposal card opened as a thread root reads the same cache.
   useChannelProposals(channelId ?? "")
   // Messages queued behind the active Lor run — surfaced above the
@@ -119,10 +184,16 @@ export function ThreadView({
     [queuedIds, thread.messages]
   )
   // Queued messages live only in the composer's queue pill until the drain
-  // releases them — the transcript skips them (Codex model).
+  // releases them — the transcript skips them (Codex model). An old call's
+  // summary card leaves its chat: the Summary tab shows it.
   const visibleMessages = useMemo(
-    () => thread.messages.filter((message) => !queuedIds.includes(message.id)),
-    [thread.messages, queuedIds]
+    () =>
+      thread.messages.filter(
+        (message) =>
+          !queuedIds.includes(message.id) &&
+          !(voiceSessionId && message.type === "call_summary")
+      ),
+    [thread.messages, queuedIds, voiceSessionId]
   )
   const { typingUsers, emitTyping } = useTypingIndicator({
     socket,
@@ -134,6 +205,7 @@ export function ThreadView({
     workspaceSlug: workspace?.slug ?? "",
     currentUserId: session?.user.id,
     channelAudience: channelState.channel?.audience,
+    broadcasts: !lorSession,
   })
   const avatarColorByUserId = useMemo(
     () =>
@@ -194,9 +266,80 @@ export function ThreadView({
     await requestStop(messageId)
   }, [pendingLorMessage?.id, requestStop])
 
+  const channelName = channelState.channel?.name ?? "channel"
+  // Who a message "To subscribers" reaches, shown as faces in the composer.
+  const subscriberQuery = threadSubscribersQueryOptions({
+    workspaceSlug: workspace?.slug ?? "",
+    channelId,
+    threadRootId,
+  })
+  const { data: subscribers } = useQuery({
+    ...subscriberQuery,
+    enabled: subscriberQuery.enabled && Boolean(lorSession),
+  })
+  const otherSubscribers = useMemo(
+    () => subscribers?.filter((person) => person.id !== session?.user.id),
+    [subscribers, session?.user.id]
+  )
+  const memberById = useCallback(
+    (userId: string | null) =>
+      mentions.members.find((member) => member.userId === userId),
+    [mentions.members]
+  )
+  const nameOf = useCallback(
+    (userId: string | null) =>
+      userId === session?.user.id
+        ? "you"
+        : (memberById(userId)?.name ?? "someone"),
+    [memberById, session?.user.id]
+  )
+  const typingPeople = useMemo(
+    () =>
+      typingUsers.map((user) => {
+        const member = memberById(user.userId)
+        return {
+          ...user,
+          image: member?.image ?? null,
+          avatarColor: member?.avatarColor ?? null,
+        }
+      }),
+    [typingUsers, memberById]
+  )
+  // Memoized: the list re-renders its rows only when its items change, and
+  // the heading is one, so it changes them exactly when its content does.
+  const sessionHeading = useMemo(() => {
+    if (!lorSession) return undefined
+    const starter = memberById(lorSession.creatorId)
+    return (
+      <SessionHeading
+        channelName={channelName}
+        createdAt={lorSession.createdAt}
+        generatedTitle={lorSession.titleEditedAt === null}
+        startedBy={
+          lorSession.origin === "loop"
+            ? "Loop"
+            : lorSession.origin === "trigger"
+              ? "Started by an automation"
+              : `Started by ${nameOf(lorSession.creatorId)}`
+        }
+        starter={
+          starter
+            ? {
+                name: starter.name,
+                image: starter.image,
+                avatarColor: starter.avatarColor,
+              }
+            : null
+        }
+        title={lorSession.title}
+      />
+    )
+  }, [lorSession, channelName, memberById, nameOf])
+
   useEffect(() => {
     setReplyingTo(null)
     setEditingMessage(null)
+    setForwarding(null)
     setIsSavingEdit(false)
     resetProfileSheet()
   }, [channelId, threadRootId, resetProfileSheet])
@@ -279,24 +422,62 @@ export function ThreadView({
     )
   }
 
-  const channelName = channelState.channel?.name ?? "channel"
-  // A call's chat also holds its transcript.
-  const voiceSessionId = thread.voiceSessionId
-  const showTranscript = tab === "transcript" && voiceSessionId !== null
+  // A session has no visible root to wait for.
+  const isReady = Boolean(thread.root || lorSession)
+  // Archived sessions are read-only.
+  const archivedBar = lorSession?.archivedAt ? (
+    <View className="bg-background px-three pb-three pt-two">
+      <View className="min-h-11 flex-row items-center gap-two rounded-lor-sm border border-border px-three">
+        <HugeiconsIcon
+          color={muted}
+          icon={Archive02Icon}
+          size={16}
+          strokeWidth={2}
+        />
+        <Text className="min-w-0 flex-1 text-sm text-muted" numberOfLines={1}>
+          Archived by {nameOf(lorSession.archivedById)}
+        </Text>
+        <Button
+          onPress={() =>
+            updateSession.mutate({
+              workspaceId: lorSession.workspaceId,
+              channelId: lorSession.channelId,
+              sessionId: lorSession.id,
+              archived: false,
+            })
+          }
+          size="sm"
+          variant="ghost"
+        >
+          Unarchive
+        </Button>
+      </View>
+    </View>
+  ) : null
+  // A call's chat also holds its summary and transcript.
+  const showTranscript = callTab === "transcript"
+  const showSummary = callTab === "summary"
+  const showCallRecord = showTranscript || showSummary
   const callTabs =
     voiceSessionId && !embedded ? (
       <View className="border-b border-separator px-four py-two">
         <Tabs
           onValueChange={(value) =>
             router.setParams({
-              tab: value === "transcript" ? "transcript" : "chat",
+              tab:
+                value === "transcript" || value === "summary" ? value : "chat",
               at: undefined,
             })
           }
-          value={showTranscript ? "transcript" : "chat"}
+          value={callTab}
         >
           <Tabs.List>
             <Tabs.Indicator />
+            {hasSummary ? (
+              <Tabs.Trigger value="summary">
+                <Tabs.Label>Summary</Tabs.Label>
+              </Tabs.Trigger>
+            ) : null}
             <Tabs.Trigger value="chat">
               <Tabs.Label>Chat</Tabs.Label>
             </Tabs.Trigger>
@@ -325,30 +506,78 @@ export function ThreadView({
           tintColor={foreground}
         />
       </IconButton>
-      <View className="min-w-0 flex-1 gap-px">
-        {/* A call chat takes Lor's name for the call once it's summarized. */}
-        <Text
-          className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
-          numberOfLines={1}
-        >
-          {isPlanThread
-            ? "Plan"
-            : voiceSessionId
-              ? (thread.voiceSessionTitle ?? "Call")
-              : "Thread"}
-        </Text>
-        <Text
-          className="text-xs font-medium leading-4 text-muted"
-          numberOfLines={1}
-        >
-          #{channelName}
-        </Text>
-      </View>
-      <ThreadParticipantStack
-        members={mentions.members}
-        onPressMember={openMemberProfile}
-        participants={thread.participants}
-      />
+      {lorSession ? (
+        // The heading carries the title until it scrolls away.
+        <View className="min-w-0 flex-1">
+          {headingVisible ? null : (
+            <Animated.Text
+              className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
+              entering={titleFadeIn}
+              exiting={titleFadeOut}
+              numberOfLines={1}
+            >
+              {lorSession.title}
+            </Animated.Text>
+          )}
+        </View>
+      ) : (
+        <View className="min-w-0 flex-1 gap-px">
+          {/* A call chat takes Lor's name for the call once it's summarized. */}
+          <Text
+            className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
+            numberOfLines={1}
+          >
+            {isPlanThread
+              ? "Plan"
+              : voiceSessionId
+                ? (thread.voiceSessionTitle ?? "Call")
+                : "Thread"}
+          </Text>
+          <Text
+            className="text-xs font-medium leading-4 text-muted"
+            numberOfLines={1}
+          >
+            #{channelName}
+          </Text>
+        </View>
+      )}
+      {/* Sessions and threads list who follows them; a call's chat lists
+          who took part. */}
+      {voiceSessionId ? (
+        <ThreadParticipantStack
+          members={mentions.members}
+          onPressMember={openMemberProfile}
+          participants={thread.participants}
+        />
+      ) : (
+        // Grouped without the row's gap, so the faces sit by the "…".
+        <View className="flex-row items-center">
+          <ThreadSubscribers
+            channelId={channelId}
+            channelName={channelName}
+            session={lorSession}
+            threadRootId={threadRootId}
+            workspaceSlug={workspace.slug}
+          />
+          {lorSession ? (
+            <IconButton
+              accessibilityLabel="Session actions"
+              onPress={() => setIsActionsOpen(true)}
+              variant="ghost"
+            >
+              <SymbolView
+                name={{
+                  ios: "ellipsis",
+                  android: "more_horiz",
+                  web: "more_horiz",
+                }}
+                size={20}
+                tintColor={foreground}
+              />
+            </IconButton>
+          ) : null}
+        </View>
+      )}
     </View>
   )
 
@@ -356,7 +585,9 @@ export function ThreadView({
     <>
       {header}
       {callTabs}
-      {showWorkHeader && !showTranscript ? (
+      {/* A session keeps its plan and files in its sheet ("…"), and its
+          approvals inline on Lor's replies. */}
+      {showWorkHeader && !showCallRecord && !lorSession ? (
         <ThreadWorkHeader
           activityMessage={activityMessage}
           channelId={channelId}
@@ -365,27 +596,26 @@ export function ThreadView({
         />
       ) : null}
       <ChatKeyboardLayout
-        renderComposer={({
-          inputNativeID,
-          onCustomInputViewChange,
-          onInputLayout,
-        }) =>
-          thread.root &&
-          !thread.isMissing &&
-          !thread.error &&
-          !showTranscript ? (
+        renderComposer={({ inputNativeID, onCustomInputViewChange }) =>
+          archivedBar ??
+          (isReady && !thread.isMissing && !thread.error && !showCallRecord ? (
             <MessageComposer
-              accessibilityLabel="Reply in thread"
+              accessibilityLabel={lorSession ? "Reply" : "Reply in thread"}
+              currentUserId={session?.user.id}
+              destination={
+                lorSession ? "session" : startsSessions ? "thread" : undefined
+              }
               initialDraft={composerDraft}
+              subscribers={otherSubscribers}
               channelId={channelId}
               channelName={channelName}
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
-              onInputLayout={onInputLayout}
               isStopping={stoppingMessageId === pendingLorMessageId}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
-              isSending={thread.isSending || isSavingEdit}
+              // The thread doesn't exist until the start is confirmed.
+              isSending={thread.isSending || isSavingEdit || sessionPending}
               mentionCandidates={mentions.candidates}
               mentionCandidatesError={mentions.error}
               mentionRef={composerMentionRef}
@@ -402,23 +632,28 @@ export function ThreadView({
                   setIsSavingEdit(false)
                 }
               }}
-              onSend={async (content, attachments) => {
+              onSend={async (content, attachments, { toPeople }) => {
                 // Lor is mid-answer in this thread, so the reply will
                 // queue — show it in the pill immediately instead of waiting
                 // for the routed round trip. A failed send drops the nonce
                 // again, so a late created echo can't hide the real message.
+                // A message for the subscribers only never queues for Lor.
                 let nonce: string | undefined
                 try {
                   await thread.sendMessage(
                     content,
                     replyingTo ?? undefined,
                     attachments,
-                    pendingLorMessageId
-                      ? (id) => {
-                          nonce = id
-                          addOptimistic(id)
-                        }
-                      : undefined
+                    {
+                      onOptimistic:
+                        pendingLorMessageId && !toPeople
+                          ? (id) => {
+                              nonce = id
+                              addOptimistic(id)
+                            }
+                          : undefined,
+                      toPeople,
+                    }
                   )
                 } catch (error) {
                   if (nonce) removeOptimistic(nonce)
@@ -427,19 +662,24 @@ export function ThreadView({
                 setReplyingTo(null)
               }}
               onStop={pendingLorMessage ? stopPendingLor : undefined}
-              placeholder="Reply in thread"
+              placeholder={lorSession ? "Reply…" : "Reply in thread"}
               replyingTo={replyingTo}
               topAccessory={
-                <RunQueuePill
-                  currentUserId={session?.user.id}
-                  messages={queuedMessages}
-                />
+                // A session lists its queued turns in the transcript.
+                lorSession ? undefined : (
+                  <RunQueuePill
+                    currentUserId={session?.user.id}
+                    messages={queuedMessages}
+                  />
+                )
               }
             />
-          ) : null
+          ) : null)
         }
         renderMessageList={(keyboardProps) =>
-          showTranscript ? (
+          showSummary && voiceSessionId ? (
+            <CallSummaryPanel sessionId={voiceSessionId} />
+          ) : showTranscript && voiceSessionId ? (
             <CallTranscript
               // A new moment remounts, so it scrolls again.
               atMs={at && /^\d+$/.test(at) ? Number(at) : undefined}
@@ -456,7 +696,7 @@ export function ThreadView({
               detail="The original message may have been deleted, or this thread is no longer available."
               title="Thread not found"
             />
-          ) : thread.error || !thread.root ? (
+          ) : thread.error || !isReady ? (
             <StatePanel
               action={{
                 label: "Try again",
@@ -470,6 +710,19 @@ export function ThreadView({
           ) : (
             <ThreadMessageList
               avatarColorByUserId={avatarColorByUserId}
+              heading={sessionHeading}
+              onHeadingVisibleChange={setHeadingVisible}
+              resolveUserName={(userId) => memberById(userId)?.name}
+              layout={lorSession ? "document" : "chat"}
+              footer={
+                lorSession ? (
+                  <RunQueuePill
+                    currentUserId={session?.user.id}
+                    messages={queuedMessages}
+                    variant="document"
+                  />
+                ) : undefined
+              }
               currentUserId={session?.user.id}
               editingMessageId={editingMessage?.id}
               focusMessageId={focusMessageId}
@@ -482,9 +735,10 @@ export function ThreadView({
               onLoadAround={thread.loadAround}
               onLoadOlder={() => void thread.loadOlder()}
               onDelete={confirmDelete}
-              onEdit={startEditing}
+              onEdit={archivedBar ? undefined : startEditing}
               onPressAuthor={openAuthorProfile}
-              onReply={startReply}
+              onReply={archivedBar ? undefined : startReply}
+              onForward={lorSession ? setForwarding : undefined}
               onToggleReaction={thread.toggleReaction}
               onTogglePin={
                 canPinMessages
@@ -501,14 +755,32 @@ export function ThreadView({
           )
         }
         typingIndicator={
-          thread.root &&
-          !thread.isMissing &&
-          !thread.error &&
-          !showTranscript ? (
+          !isReady ||
+          thread.isMissing ||
+          thread.error ||
+          showCallRecord ? null : lorSession ? (
+            <DocumentTypingIndicator people={typingPeople} />
+          ) : (
             <TypingIndicator users={typingUsers} />
-          ) : null
+          )
         }
       />
+      {lorSession ? (
+        <SessionSheet
+          isOpen={isActionsOpen}
+          lorRunning={Boolean(pendingLorMessage)}
+          messages={thread.messages}
+          onOpenChange={setIsActionsOpen}
+          session={lorSession}
+        />
+      ) : null}
+      {lorSession ? (
+        <ForwardSheet
+          channel={{ id: channelId, name: channelName }}
+          message={forwarding}
+          onClose={() => setForwarding(null)}
+        />
+      ) : null}
       <UserProfileSheet
         currentUserId={session?.user.id}
         onMention={mentionFromProfile}

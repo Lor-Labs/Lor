@@ -1,5 +1,4 @@
 import type { ConversationTurn } from "../index"
-import type { PlacementTurn, ReplyPlacement } from "../placement"
 
 export type EvalResult = {
   answer: string
@@ -11,7 +10,6 @@ export type EvalResult = {
   reasoningParts: number
   usageModels: string[]
   retrievalKeys: string[]
-  placement?: ReplyPlacement
 }
 
 export type EvalCheck = { label: string; pass: boolean }
@@ -29,18 +27,13 @@ export type RespondFixture = BaseFixture & {
   writeBack?: boolean
 }
 
-export type PlacementFixture = BaseFixture & {
-  kind: "placement"
-  conversation: PlacementTurn[]
-}
-
 export type RetrievalFixture = BaseFixture & {
   kind: "retrieval"
   corpus: "brain" | "source"
   query: string
 }
 
-export type Fixture = RespondFixture | PlacementFixture | RetrievalFixture
+export type Fixture = RespondFixture | RetrievalFixture
 
 function includesAny(text: string, terms: string[]): boolean {
   const lower = text.toLowerCase()
@@ -276,39 +269,6 @@ export const fixtures: Fixture[] = [
         pass: r.toolNames.length > 0,
       },
       { label: "has no hallucinated citations", pass: r.invalid === 0 },
-    ],
-  },
-  {
-    kind: "placement",
-    name: "placement-channel",
-    description: "Keeps a broadly relevant team decision in the channel.",
-    conversation: [
-      {
-        authorName: "Bucky",
-        content:
-          "We have finalized the production database migration for next Monday. Can you summarize it for everyone?",
-      },
-    ],
-    expect: (r) => [
-      {
-        label: "chooses the main channel",
-        pass: r.placement === "channel",
-      },
-    ],
-  },
-  {
-    kind: "placement",
-    name: "placement-thread",
-    description: "Moves a narrow clarification out of the main channel.",
-    conversation: [
-      {
-        authorName: "Bucky",
-        content:
-          "Lor, can you explain only to me what the second sentence of your last answer meant?",
-      },
-    ],
-    expect: (r) => [
-      { label: "chooses a thread", pass: r.placement === "thread" },
     ],
   },
 ]

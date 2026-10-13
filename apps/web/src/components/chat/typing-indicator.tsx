@@ -1,11 +1,19 @@
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { AnimatePresence, motion } from "motion/react"
+import { UserAvatar } from "@/components/ui/user-avatar"
 
 type TypingUser = {
   userId: string
   name: string
 }
+
+export type TypingPerson = TypingUser & {
+  image: string | null
+  avatarColor: string | null
+}
+
+const MAX_TYPING_LINES = 3
 
 const DOT_DELAYS = [0, 200, 400]
 
@@ -56,6 +64,63 @@ export function TypingIndicator({
             </span>
           </motion.div>
         )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// Session typing lines: each typer gets a line shaped like the reply line
+// under it, their avatar in the gutter and dots where their text will go. The
+// lines grow in above the reply line; at the end of a long session the
+// scroller holds the bottom, so the reply line and caret stay put.
+export function DocumentTypingIndicator({
+  people,
+}: {
+  people: TypingPerson[]
+}) {
+  return (
+    <div>
+      {people.length > 0 && (
+        <span className="sr-only">{formatTypingText(people)}</span>
+      )}
+      <AnimatePresence initial={false}>
+        {people.slice(0, MAX_TYPING_LINES).map((person) => (
+          <motion.div
+            key={person.userId}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: EASE_OUT }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-2">
+              <div className="relative py-1 pl-10">
+                <UserAvatar
+                  name={person.name}
+                  src={person.image}
+                  avatarColor={person.avatarColor}
+                  size="sm"
+                  className="absolute top-0.5 left-0 size-7"
+                />
+                <span className="flex h-6 items-center gap-1">
+                  {DOT_DELAYS.map((delay) => (
+                    <motion.span
+                      key={delay}
+                      animate={{ opacity: [0.35, 1, 0.35], y: [0, -2, 0] }}
+                      transition={{
+                        duration: 1,
+                        delay: delay / 1000,
+                        repeat: Number.POSITIVE_INFINITY,
+                        ease: "easeInOut",
+                      }}
+                      className="size-1.5 rounded-full bg-muted-foreground"
+                    />
+                  ))}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        ))}
       </AnimatePresence>
     </div>
   )

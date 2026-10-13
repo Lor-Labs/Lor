@@ -8,8 +8,23 @@ import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
 
 type StopLorTarget = Pick<Message, "id" | "channelId" | "threadRootId">
 
+// Marks Lor's turn as stopping at once; a failed request clears the mark.
 export function useStopLorRun() {
   const queryClient = useQueryClient()
+  const markStopping = (target: StopLorTarget, stopRequested: boolean) =>
+    queryClient.setQueryData<InfiniteData<{ data: Message[] }>>(
+      messagesCacheKey(target.channelId, target.threadRootId),
+      (old) =>
+        old
+          ? updateMessagesAcrossPages(old, (messages) =>
+              messages.map((message) =>
+                message.id === target.id
+                  ? { ...message, stopRequested }
+                  : message
+              )
+            )
+          : old
+    )
 
   return useMutation({
     mutationFn: async (target: StopLorTarget) => {
@@ -23,21 +38,10 @@ export function useStopLorRun() {
         throw new Error(body?.message ?? "Couldn't stop Lor")
       }
     },
-    onSuccess: (_data, target) => {
-      queryClient.setQueryData<InfiniteData<{ data: Message[] }>>(
-        messagesCacheKey(target.channelId, target.threadRootId),
-        (old) =>
-          old
-            ? updateMessagesAcrossPages(old, (messages) =>
-                messages.map((message) =>
-                  message.id === target.id
-                    ? { ...message, stopRequested: true }
-                    : message
-                )
-              )
-            : old
-      )
+    onMutate: (target) => markStopping(target, true),
+    onError: (error, target) => {
+      markStopping(target, false)
+      toast.error(error.message)
     },
-    onError: (error) => toast.error(error.message),
   })
 }

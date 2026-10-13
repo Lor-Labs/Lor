@@ -7,7 +7,12 @@ import {
   isUniqueViolation,
   schema,
 } from "@repo/db"
+import { LOR_USER_ID } from "@repo/db/constants"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
+import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
+import type { AgentSession, ForwardedMessage } from "@repo/db/schema"
+import { type CreateSessionArgs, createSession } from "@repo/lor/agent-sessions"
 import {
   buildReactionNotification,
   type PresenceRedisClient,
@@ -27,6 +32,7 @@ import {
   type AccessibleChannel,
   assertUserCanAccessChannel,
 } from "@/services/channel-access"
+import { sessionMessageRunsLor } from "@/services/lor-routing"
 
 type CreateMessageInput = {
   userId: string
@@ -37,7 +43,20 @@ type CreateMessageInput = {
   status?: RealtimeMessage["status"]
   // Internal: a plan's card; normal sends derive reply/default.
   type?: "plan_card"
+  // The message starts a Lor session and becomes its first message, under a
+  // new anchor, instead of posting where it was sent.
+  newSession?: NewSessionInput
 }
+
+export type NewSessionInput = Pick<
+  CreateSessionArgs,
+  | "id"
+  | "threadRootId"
+  | "origin"
+  | "title"
+  | "contextMessageIds"
+  | "subscriberIds"
+>
 
 type DeleteMessageInput = {
   userId: string
@@ -66,6 +85,8 @@ export type CreateMessageResult = {
   // after a lost ack): the original row is returned and the caller must skip
   // fanout/broadcast/triggers — they already ran the first time.
   deduplicated?: boolean
+  // Set when this send started a Lor session.
+  session?: AgentSession
 }
 
 async function loadReferencedMessage(
@@ -167,7 +188,9 @@ export async function loadMessageByClientKey(args: {
       createdAt: schema.message.createdAt,
       editedAt: schema.message.editedAt,
       threadRootId: schema.message.threadRootId,
+      routedToLor: schema.message.routedToLor,
       referencedMessageId: schema.message.referencedMessageId,
+      forwarded: schema.message.forwarded,
       attachments: schema.message.attachments,
       embeds: schema.message.embeds,
       pinned: schema.message.pinned,
@@ -225,11 +248,80 @@ export async function loadMessageByClientKey(args: {
     reactions: [],
     attachments: row.attachments ?? [],
     embeds: row.embeds ?? [],
-    referencedMessage: row.referencedMessageId
-      ? await loadReferencedMessage(row.referencedMessageId, args.workspaceId)
-      : null,
+    // A forward renders from its snapshot, not the original.
+    referencedMessage:
+      row.referencedMessageId && !row.forwarded
+        ? await loadReferencedMessage(row.referencedMessageId, args.workspaceId)
+        : null,
+    forwarded: row.forwarded,
     threadRootId: row.threadRootId,
+    routedToLor: row.routedToLor,
     nonce: args.clientKey,
+  }
+}
+
+// The original as it is now, for a forward. Null when it can't be forwarded
+// here: today only a message in one of this channel's sessions goes to its
+// chat (chat between channels comes later).
+async function loadForwardSnapshot(
+  sourceId: string,
+  channel: AccessibleChannel
+): Promise<ForwardedMessage | null> {
+  const row = await db
+    .select({
+      id: schema.message.id,
+      content: schema.message.content,
+      type: schema.message.type,
+      status: schema.message.status,
+      createdAt: schema.message.createdAt,
+      threadRootId: schema.message.threadRootId,
+      authorId: schema.user.id,
+      authorName: schema.user.name,
+      authorImage: schema.user.image,
+    })
+    .from(schema.message)
+    .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+    .where(
+      and(
+        eq(schema.message.id, sourceId),
+        eq(schema.message.channelId, channel.id)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!row?.threadRootId || row.status !== "complete") return null
+  if (row.type !== "default" && row.type !== "reply") return null
+  const session = await findAgentSessionByThreadRoot(row.threadRootId)
+  if (!session) return null
+  const mentions = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      image: schema.user.image,
+    })
+    .from(schema.messageMention)
+    .innerJoin(
+      schema.user,
+      eq(schema.messageMention.mentionedUserId, schema.user.id)
+    )
+    .where(
+      and(
+        eq(schema.messageMention.messageId, row.id),
+        eq(schema.messageMention.mentionType, "direct")
+      )
+    )
+  return {
+    messageId: row.id,
+    author: { id: row.authorId, name: row.authorName, image: row.authorImage },
+    content: row.content,
+    mentions,
+    createdAt: row.createdAt.toISOString(),
+    source: {
+      channelId: channel.id,
+      channelName: channel.name ?? null,
+      sessionId: session.id,
+      sessionTitle: session.title,
+    },
   }
 }
 
@@ -300,8 +392,24 @@ export async function createMessage(input: CreateMessageInput) {
     input.userId
   )
 
-  let hasReply = !!input.payload.referencedMessageId
   const threadRootId: string | null = input.payload.threadRootId ?? null
+  // Forward: a chat post carrying a snapshot of the original, not a reply.
+  const forwardSourceId =
+    input.payload.forward && !threadRootId && !input.newSession
+      ? (input.payload.referencedMessageId ?? null)
+      : null
+  if (input.payload.forward && !forwardSourceId) {
+    throw new Error("A message can only be forwarded into the channel chat")
+  }
+  const forwarded = forwardSourceId
+    ? await loadForwardSnapshot(forwardSourceId, input.accessibleChannel)
+    : null
+  if (forwardSourceId && !forwarded) {
+    throw new Error("This message can't be forwarded")
+  }
+  // A session start carries its quoted message as context, not as a reply.
+  let hasReply =
+    !!input.payload.referencedMessageId && !input.newSession && !forwarded
 
   // Voice channels hold only session roots; people write in a session's chat,
   // and a live session's chat only while they're in the call.
@@ -316,17 +424,25 @@ export async function createMessage(input: CreateMessageInput) {
   ) {
     throw new Error("Invalid thread root")
   }
+  const existingSession = threadRootId
+    ? await findAgentSessionByThreadRoot(threadRootId)
+    : null
+  if (existingSession?.archivedAt) throw new Error("This session is archived")
+  const isPersonInSession =
+    Boolean(input.newSession || existingSession) && input.userId !== LOR_USER_ID
 
   const runInsertTransaction = () =>
     db.transaction(async (tx) => {
       // Verify the referenced message exists in the same channel AND in the
       // same thread context (or both at channel level). Prevents a thread
       // reply from quoting a message in a different thread.
+      let replyAuthorId: string | null = null
       if (hasReply && input.payload.referencedMessageId) {
         const ref = await tx
           .select({
             id: schema.message.id,
             threadRootId: schema.message.threadRootId,
+            authorId: schema.message.authorId,
           })
           .from(schema.message)
           .where(
@@ -350,17 +466,20 @@ export async function createMessage(input: CreateMessageInput) {
           } else if (ref.threadRootId !== null) {
             hasReply = false
           }
+          if (hasReply) replyAuthorId = ref.authorId
         }
       }
 
       // Verify the thread root exists, is in this channel, and is itself a
       // channel-level message (threads are flat — replies can't host nested threads).
+      let threadStarterId: string | null = null
       if (threadRootId) {
         const root = await tx
           .select({
             id: schema.message.id,
             threadRootId: schema.message.threadRootId,
             type: schema.message.type,
+            authorId: schema.message.authorId,
           })
           .from(schema.message)
           .where(
@@ -379,7 +498,35 @@ export async function createMessage(input: CreateMessageInput) {
         ) {
           throw new Error("Invalid thread root")
         }
+        // The first reply starts a thread, so the root's author started it.
+        const [earlierReply] = await tx
+          .select({ id: schema.message.id })
+          .from(schema.message)
+          .where(eq(schema.message.threadRootId, threadRootId))
+          .limit(1)
+        if (!earlierReply) threadStarterId = root.authorId
       }
+
+      const session =
+        input.newSession && channelRecord.workspaceId
+          ? await createSession(tx, {
+              ...input.newSession,
+              workspaceId: channelRecord.workspaceId,
+              channelId: input.payload.channelId,
+              authorId: input.userId,
+              creatorId: input.userId,
+            })
+          : null
+
+      const routedToLor = isPersonInSession
+        ? sessionMessageRunsLor({
+            content: input.payload.content,
+            toPeople: input.payload.toPeople,
+            replyAuthorId,
+            senderId: input.userId,
+            startsSession: Boolean(input.newSession),
+          })
+        : null
 
       const insertedMessage = await tx
         .insert(schema.message)
@@ -387,11 +534,15 @@ export async function createMessage(input: CreateMessageInput) {
           channelId: input.payload.channelId,
           authorId: input.userId,
           content: input.payload.content ?? null,
-          type: input.type ?? (hasReply ? "reply" : "default"),
-          referencedMessageId: hasReply
-            ? (input.payload.referencedMessageId ?? null)
-            : null,
-          threadRootId,
+          type:
+            input.type ??
+            (forwarded ? "forward" : hasReply ? "reply" : "default"),
+          referencedMessageId:
+            forwardSourceId ??
+            (hasReply ? (input.payload.referencedMessageId ?? null) : null),
+          forwarded,
+          threadRootId: session?.threadRootId ?? threadRootId,
+          routedToLor,
           attachments: input.payload.attachments ?? [],
           status: input.status,
           clientKey: input.payload.nonce ?? null,
@@ -403,6 +554,16 @@ export async function createMessage(input: CreateMessageInput) {
 
       if (!insertedMessage) {
         throw new Error("Failed to create message")
+      }
+
+      // Writing in a thread subscribes you (a new session already subscribed
+      // its starter and the people it mentions).
+      if (threadRootId) {
+        await subscribeToThread(
+          threadRootId,
+          threadStarterId ? [input.userId, threadStarterId] : [input.userId],
+          tx
+        )
       }
 
       await tx
@@ -417,6 +578,7 @@ export async function createMessage(input: CreateMessageInput) {
           content: schema.message.content,
           type: schema.message.type,
           status: schema.message.status,
+          routedToLor: schema.message.routedToLor,
           createdAt: schema.message.createdAt,
           authorId: schema.user.id,
           authorName: schema.user.name,
@@ -432,7 +594,7 @@ export async function createMessage(input: CreateMessageInput) {
         throw new Error("Failed to fetch created message")
       }
 
-      return createdMessageWithAuthor
+      return { ...createdMessageWithAuthor, session }
     })
 
   let messageWithAuthor: Awaited<ReturnType<typeof runInsertTransaction>>
@@ -486,7 +648,9 @@ export async function createMessage(input: CreateMessageInput) {
     attachments: input.payload.attachments ?? [],
     embeds: [],
     referencedMessage,
-    threadRootId,
+    forwarded,
+    threadRootId: messageWithAuthor.session?.threadRootId ?? threadRootId,
+    routedToLor: messageWithAuthor.routedToLor,
   }
 
   if (input.payload.nonce) {
@@ -496,6 +660,7 @@ export async function createMessage(input: CreateMessageInput) {
   return {
     message: createdMessage,
     channel: channelRecord,
+    session: messageWithAuthor.session ?? undefined,
   } satisfies CreateMessageResult
 }
 
@@ -516,6 +681,7 @@ export async function deleteMessage(
       id: schema.message.id,
       authorId: schema.message.authorId,
       threadRootId: schema.message.threadRootId,
+      type: schema.message.type,
     })
     .from(schema.message)
     .where(
@@ -527,7 +693,8 @@ export async function deleteMessage(
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!messageRecord) {
+  // Deleting a session anchor would cascade away the whole session.
+  if (!messageRecord || messageRecord.type === "agent_session") {
     throw new Error("Message not found")
   }
 
@@ -573,6 +740,7 @@ export async function editMessage(
       id: schema.message.id,
       authorId: schema.message.authorId,
       threadRootId: schema.message.threadRootId,
+      type: schema.message.type,
     })
     .from(schema.message)
     .where(
@@ -584,7 +752,7 @@ export async function editMessage(
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!messageRecord) {
+  if (!messageRecord || messageRecord.type === "agent_session") {
     throw new Error("Message not found")
   }
 
@@ -603,6 +771,7 @@ export async function editMessage(
     authorId: messageRecord.authorId,
     channel: channelRecord,
     messageId: input.payload.messageId,
+    threadRootId: messageRecord.threadRootId,
     content: input.payload.content,
     redis: input.redis,
   })
@@ -633,6 +802,7 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
       authorId: schema.message.authorId,
       content: schema.message.content,
       threadRootId: schema.message.threadRootId,
+      type: schema.message.type,
     })
     .from(schema.message)
     .where(
@@ -644,7 +814,7 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
     .limit(1)
     .then((rows) => rows[0])
 
-  if (!messageRecord) {
+  if (!messageRecord || messageRecord.type === "agent_session") {
     throw new Error("Message not found")
   }
 

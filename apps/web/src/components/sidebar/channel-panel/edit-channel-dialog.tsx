@@ -40,6 +40,12 @@ import type {
   AvailableCapability,
   Channel,
 } from "@/lib/api-types"
+import {
+  patchChannelList,
+  restoreChannelList,
+  upsertChannel,
+} from "@/lib/channel-list-cache"
+import { channelQueryOptions } from "@/lib/channel-query"
 import { connectorLogo } from "@/lib/connector-ui"
 
 const INHERIT = "__inherit__"
@@ -235,16 +241,50 @@ export function EditChannelDialog({
         channel: await res.json(),
       }
     },
-    onSuccess: ({ workspaceSlug: validatedWorkspaceSlug }) => {
-      queryClient.invalidateQueries({
-        queryKey: ["channels", validatedWorkspaceSlug],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["channel", validatedWorkspaceSlug, channel.id],
-      })
+    // The sidebar and the channel header show the new name and topic at
+    // once; the server's row replaces them with no refetch, and a failure
+    // restores both.
+    onMutate: async () => {
+      if (!workspaceSlug) return undefined
+      const detailKey = channelQueryOptions(workspaceSlug, channel.id).queryKey
+      const change = {
+        name,
+        ...(isCategory ? {} : { topic: topic || null }),
+      }
+      await queryClient.cancelQueries({ queryKey: detailKey })
+      const previousDetail = queryClient.getQueryData(detailKey)
+      queryClient.setQueryData(detailKey, (current) =>
+        current ? { ...current, ...change } : current
+      )
+      const previousList = await patchChannelList(
+        queryClient,
+        workspaceSlug,
+        (list) => upsertChannel(list, { ...channel, ...change })
+      )
+      return { workspaceSlug, detailKey, previousDetail, previousList }
+    },
+    onSuccess: ({
+      workspaceSlug: validatedWorkspaceSlug,
+      channel: updated,
+    }) => {
+      queryClient.setQueryData(
+        channelQueryOptions(validatedWorkspaceSlug, channel.id).queryKey,
+        updated
+      )
+      void patchChannelList(queryClient, validatedWorkspaceSlug, (list) =>
+        upsertChannel(list, updated)
+      )
       onOpenChange(false)
     },
-    onError: (error) => {
+    onError: (error, _vars, context) => {
+      if (context) {
+        queryClient.setQueryData(context.detailKey, context.previousDetail)
+        restoreChannelList(
+          queryClient,
+          context.workspaceSlug,
+          context.previousList
+        )
+      }
       const label = isCategory ? "category" : "channel"
       toast.error(
         error instanceof Error ? error.message : `Failed to update ${label}`

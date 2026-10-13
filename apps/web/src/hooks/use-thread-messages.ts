@@ -1,3 +1,4 @@
+import { LOR_USER_ID } from "@repo/db/constants"
 import {
   type InfiniteData,
   infiniteQueryOptions,
@@ -10,7 +11,10 @@ import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
 import { preserveMessageStream } from "@/lib/message-cache-utils"
-import { realtimeMessageToMessage } from "@/lib/realtime-adapter"
+import {
+  createOptimisticMessage,
+  realtimeMessageToMessage,
+} from "@/lib/realtime-adapter"
 import type { AppSocket } from "@/lib/socket"
 
 export type ThreadPageParam =
@@ -31,6 +35,7 @@ export type ThreadPage = {
   participants?: ThreadParticipant[]
   voiceSessionId?: string | null
   voiceSessionTitle?: string | null
+  voiceSessionEnded?: boolean
 }
 
 export type ThreadParticipant = Pick<
@@ -49,6 +54,65 @@ type ThreadTarget = {
   workspaceSlug: string
   channelId: string
   threadRootId: string
+}
+
+type ThreadCache = InfiniteData<ThreadPage, ThreadPageParam>
+
+// A follow-up to Lor in a session shows Lor's working turn before the
+// server's placeholder lands. Its id never reaches the server: stream replay,
+// the run queue and Stop wait for the real turn, which replaces it on
+// message:created (or message:routed, when a run was already going).
+const OPTIMISTIC_LOR_PREFIX = "lor-pending-"
+export const isOptimisticLorTurn = (messageId: string) =>
+  messageId.startsWith(OPTIMISTIC_LOR_PREFIX)
+
+export function showOptimisticLorTurn(
+  queryClient: QueryClient,
+  threadRootId: string,
+  turn: { nonce: string; channelId: string; lorAuthor: Message["author"] }
+) {
+  const message: Message = {
+    ...createOptimisticMessage(
+      `${OPTIMISTIC_LOR_PREFIX}${turn.nonce}`,
+      turn.channelId,
+      null,
+      turn.lorAuthor
+    ),
+    status: "pending",
+    threadRootId,
+  }
+  queryClient.setQueryData<ThreadCache>(["thread", threadRootId], (old) =>
+    old
+      ? {
+          ...old,
+          pages: old.pages.map((page, i) =>
+            i === 0 ? { ...page, data: [message, ...page.data] } : page
+          ),
+        }
+      : old
+  )
+  return message.id
+}
+
+// Every local Lor turn in the thread, or just one by id.
+export function dropOptimisticLorTurns(
+  queryClient: QueryClient,
+  threadRootId: string,
+  messageId?: string
+) {
+  queryClient.setQueryData<ThreadCache>(["thread", threadRootId], (old) => {
+    if (!old) return old
+    const drop = (m: Message) =>
+      messageId ? m.id === messageId : isOptimisticLorTurn(m.id)
+    if (!old.pages.some((page) => page.data.some(drop))) return old
+    return {
+      ...old,
+      pages: old.pages.map((page) => ({
+        ...page,
+        data: page.data.filter((m) => !drop(m)),
+      })),
+    }
+  })
 }
 
 export async function fetchThreadPage(
@@ -126,12 +190,18 @@ export function threadQueryOptions(
 }
 
 // Opening a past call's chat right after hovering its row is instant.
-export function prefetchThread(queryClient: QueryClient, target: ThreadTarget) {
-  void queryClient.prefetchInfiniteQuery(
-    threadQueryOptions(queryClient, target.threadRootId, (params) =>
+// `staleTime`: a hover prefetch skips a page fetched this recently.
+export function prefetchThread(
+  queryClient: QueryClient,
+  target: ThreadTarget,
+  staleTime?: number
+) {
+  void queryClient.prefetchInfiniteQuery({
+    ...threadQueryOptions(queryClient, target.threadRootId, (params) =>
       fetchThreadPage(target, params)
-    )
-  )
+    ),
+    staleTime,
+  })
 }
 
 interface UseThreadMessagesOptions {
@@ -178,6 +248,10 @@ export function useThreadMessages({
       if (message.channelId !== channelId) return
       if (message.threadRootId !== threadRootId) return
       if (message.nonce && pendingNoncesRef?.current.has(message.nonce)) return
+      // Lor's real turn replaces the one shown when the follow-up was sent.
+      if (message.author.id === LOR_USER_ID) {
+        dropOptimisticLorTurns(queryClient, threadRootId)
+      }
 
       const adapted = realtimeMessageToMessage(message)
       queryClient.setQueryData<InfiniteData<ThreadPage, ThreadPageParam>>(
@@ -211,9 +285,18 @@ export function useThreadMessages({
       )
     }
 
+    // A run was already going, so the follow-up queued instead.
+    const handleRouted = (payload: { threadRootId: string | null }) => {
+      if (payload.threadRootId === threadRootId) {
+        dropOptimisticLorTurns(queryClient, threadRootId)
+      }
+    }
+
     socket.on("message:created", handleMessageCreated)
+    socket.on("message:routed", handleRouted)
     return () => {
       socket.off("message:created", handleMessageCreated)
+      socket.off("message:routed", handleRouted)
     }
   }, [socket, channelId, threadRootId, queryClient, pendingNoncesRef])
 
@@ -313,6 +396,7 @@ export function useThreadMessages({
     participants,
     voiceSessionId: query.data?.pages[0]?.voiceSessionId ?? null,
     voiceSessionTitle: query.data?.pages[0]?.voiceSessionTitle ?? null,
+    voiceSessionEnded: query.data?.pages[0]?.voiceSessionEnded ?? false,
     isLoading: query.isPending,
     isError: query.isError,
     error: query.error,

@@ -2,7 +2,11 @@ import { authClient } from "@repo/auth/client"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
-import { readLastChannelId, readLastWorkspaceSlug } from "@/lib/last-location"
+import {
+  readLastChannelId,
+  readLastSessionId,
+  readLastWorkspaceSlug,
+} from "@/lib/last-location"
 
 export const Route = createFileRoute("/_authenticated/")({
   component: LandingRedirect,
@@ -33,8 +37,15 @@ function LandingRedirect() {
     const isValid = !!slug && !!workspaces?.some((w) => w.slug === slug)
 
     if (isValid && slug) {
+      const sessionId = readLastSessionId(slug)
       const channelId = readLastChannelId(slug)
-      if (channelId) {
+      if (sessionId) {
+        void navigate({
+          to: "/$workspaceSlug/session/$sessionId",
+          params: { workspaceSlug: slug, sessionId },
+          replace: true,
+        })
+      } else if (channelId) {
         void navigate({
           to: "/$workspaceSlug/$channelId",
           params: { workspaceSlug: slug, channelId },

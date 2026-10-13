@@ -1,2 +1,5 @@
-pnpm run check:fix
-git add -A
+# Fix only what's being committed, then re-stage just those files. A
+# repo-wide fix + `git add -A` swept other people's (and agents') unstaged
+# work into the commit.
+pnpm exec biome check --write --staged --no-errors-on-unmatched
+git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 git add --

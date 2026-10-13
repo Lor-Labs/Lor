@@ -1,5 +1,5 @@
 import { db, eq, schema } from "@repo/db"
-import { actRunBriefing, flushActWindow } from "@repo/lor/act-runs"
+import { flushActWindow } from "@repo/lor/act-runs"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import type {
   ActFlushJobData,
@@ -11,19 +11,16 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
-import { postLorMessage as postLorChannelMessage } from "@/lib/lor-messages"
-import { createLorPlan } from "@/lib/lor-plan"
-import { cancelPendingRun, runUnattended } from "@/lib/unattended-run"
+import { startActSession } from "@/lib/trigger-session"
+import { cancelPendingRun } from "@/lib/unattended-run"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 type RedisClient = ReturnType<typeof createClient>
 
-// Headless triggered runs — the Act effect. No placeholder message, no
-// streaming: Lor gets the trigger's instructions + the event payload and
-// decides the disposition via tools (post_channel_message / create_plan /
-// nothing). The final answer text is discarded; the run row + transcript are
-// the audit trail. Execution body shared with loop runs — see
-// lib/unattended-run.ts and reference/automation-primitives.md §2.
+// The Act effect: a prepared run (one delivery, or a flushed batch) becomes
+// a new session whose first turn is the event, answered by Lor like any
+// session turn. See lib/trigger-session.ts and
+// reference/automation-primitives.md §2.
 export function createTriggeredRunProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
@@ -86,6 +83,8 @@ export function createTriggeredRunProcessor(
         workspaceId: schema.agentRun.workspaceId,
         channelId: schema.agentRun.channelId,
         triggerId: schema.agentRun.triggerId,
+        messageId: schema.agentRun.messageId,
+        state: schema.agentRun.state,
       })
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, runId))
@@ -94,6 +93,9 @@ export function createTriggeredRunProcessor(
       logger.error({ runId }, "Triggered job without a run/trigger; skipping")
       return
     }
+    // Already in its session, or settled: a retried job must not start a
+    // second session.
+    if (run.messageId || run.state !== "queued") return
 
     // Kill switch, re-read at process time: disabling the trigger (or
     // clearing its instructions) between ack and execution cancels the run.
@@ -101,8 +103,21 @@ export function createTriggeredRunProcessor(
       .select({
         enabled: schema.connectorTrigger.enabled,
         actInstructions: schema.connectorTrigger.actInstructions,
+        connectedById: schema.integrationConnection.createdBy,
+        workspaceOwnerId: schema.workspace.ownerId,
       })
       .from(schema.connectorTrigger)
+      .leftJoin(
+        schema.integrationConnection,
+        eq(
+          schema.connectorTrigger.connectionId,
+          schema.integrationConnection.id
+        )
+      )
+      .leftJoin(
+        schema.workspace,
+        eq(schema.workspace.id, schema.integrationConnection.workspaceId)
+      )
       .where(eq(schema.connectorTrigger.id, run.triggerId))
       .then((rows) => rows[0])
     if (!trigger?.enabled || trigger.actInstructions === null) {
@@ -110,43 +125,23 @@ export function createTriggeredRunProcessor(
       logger.info({ runId }, "Triggered run cancelled; trigger disabled")
       return
     }
-    const triggerId = run.triggerId
 
-    await runUnattended(
-      { emitter, redis },
+    // Never thrown to BullMQ: a retry after the session exists would make a
+    // second one. A run left queued is swept as dead, and its deliveries
+    // requeue (prune-run-events).
+    await startActSession(
+      { emitter, redis, respondQueue },
       {
         runId,
+        workspaceId: run.workspaceId,
         channelId: run.channelId,
+        triggerId: run.triggerId,
+        // Older connections have no creator; channel access is still checked.
+        connectedById:
+          trigger.connectedById ?? trigger.workspaceOwnerId ?? null,
         label,
         payload,
-        kind: "Triggered",
-        triggered: {
-          label,
-          instructions: trigger.actInstructions,
-          postMessage: (content) =>
-            postLorChannelMessage(
-              { emitter, redis },
-              { channelId: run.channelId, content }
-            ),
-          createPlan: ({ title, goal }) =>
-            createLorPlan(
-              { emitter, redis, respondQueue },
-              {
-                workspaceId: run.workspaceId,
-                channelId: run.channelId,
-                title,
-                goal,
-                originRunId: runId,
-              }
-            ),
-        },
-        composeBriefing: () =>
-          actRunBriefing({
-            triggerId,
-            channelId: run.channelId,
-            runId,
-          }),
       }
-    )
+    ).catch((err) => logger.error({ err, runId }, "Act session start failed"))
   }
 }

@@ -15,6 +15,7 @@ type LoopPayload = {
   loopName: string
   reason?: "failures" | "out_of_credits"
 }
+type TriggerRunPayload = { triggerId: string; label: string }
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -116,6 +117,24 @@ function eventText(
       return (
         <>
           {actor} completed the loop <Name>{p.loopName}</Name>
+        </>
+      )
+    }
+    case "loop_run": {
+      if (!payload) break
+      const p = payload as LoopPayload
+      return (
+        <>
+          The loop <Name>{p.loopName}</Name> ran on schedule
+        </>
+      )
+    }
+    // Content is the event payload Lor reads, never shown as the line.
+    case "trigger_run": {
+      const p = payload as TriggerRunPayload | null
+      return (
+        <>
+          <Name>{p?.label ?? "An automation"}</Name> started this session
         </>
       )
     }

@@ -1,6 +1,12 @@
+import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
+import LockKeyIcon from "@hugeicons/core-free-icons/LockKeyIcon"
+import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useQueryClient } from "@tanstack/react-query"
+import { useThemeColor } from "heroui-native/hooks"
 import { Text, View } from "react-native"
 import { Button } from "@/components/ui/button"
+import { useWorkspace } from "@/context/workspace-context"
 import {
   type ApprovalResolverSpec,
   resolverLabel,
@@ -8,6 +14,8 @@ import {
   useMessageApproval,
   useResolveChannelApproval,
 } from "@/hooks/use-approvals"
+import { useWorkspaceMembers } from "@/hooks/use-workspace-members"
+import { authClient } from "@/lib/auth-client"
 
 export type ApprovalCardData = {
   id: string
@@ -16,11 +24,21 @@ export type ApprovalCardData = {
   toolName: string | null
   resolver: ApprovalResolverSpec | null
   resolverUserName: string | null
+  status: "pending" | "approved" | "rejected" | "expired"
+  resolvedBy: string | null
 }
 
-// One approval gate, wherever it surfaces (plan header, channel/thread
-// message). Buttons show only for people the resolver spec allows — the
-// server re-checks on resolve regardless.
+const RESOLVED_LABEL = {
+  approved: "Approved",
+  rejected: "Rejected",
+  expired: "Expired",
+} as const
+
+// One approval gate, wherever it surfaces (plan header, a Lor message): what
+// Lor wants to do, who can allow it, and the buttons; once decided, what was
+// decided and by whom. Buttons show only for people the resolver spec
+// allows — the server re-checks on resolve regardless. Mirrors web's
+// ApprovalGateView.
 export function ApprovalGateCard({
   channelId,
   approval,
@@ -33,6 +51,51 @@ export function ApprovalGateCard({
   const queryClient = useQueryClient()
   const resolve = useResolveChannelApproval(channelId)
   const canResolve = useCanResolveApproval(approval.resolver)
+  const { workspace } = useWorkspace()
+  const { members } = useWorkspaceMembers(workspace?.slug ?? "")
+  const { data: auth } = authClient.useSession()
+  const [success, warning, muted] = useThemeColor([
+    "success",
+    "warning",
+    "muted",
+  ])
+
+  if (approval.status !== "pending") {
+    const approved = approval.status === "approved"
+    const resolvedByName =
+      approval.resolvedBy === auth?.user.id
+        ? "you"
+        : (members.find((member) => member.userId === approval.resolvedBy)
+            ?.name ?? null)
+    return (
+      <View className="flex-row items-center gap-three rounded-lor-md border border-border px-three py-two">
+        <View
+          className={`size-7 items-center justify-center rounded-lor-sm ${
+            approved ? "bg-success-soft" : "bg-surface-secondary"
+          }`}
+        >
+          <HugeiconsIcon
+            color={approved ? success : muted}
+            icon={approved ? Tick02Icon : Cancel01Icon}
+            size={14}
+            strokeWidth={2.25}
+          />
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text
+            className="text-[13px] leading-5 text-foreground"
+            numberOfLines={2}
+          >
+            {approval.description}
+          </Text>
+          <Text className="text-xs text-muted" numberOfLines={1}>
+            {RESOLVED_LABEL[approval.status]}
+            {resolvedByName ? ` by ${resolvedByName}` : ""}
+          </Text>
+        </View>
+      </View>
+    )
+  }
 
   const onPress = (resolution: "approve" | "reject") => {
     resolve.mutate(
@@ -51,56 +114,70 @@ export function ApprovalGateCard({
   }
 
   return (
-    <View className="gap-two rounded-lor-sm bg-warning-soft p-three">
-      <Text className="text-sm font-semibold text-foreground">
-        Lor asks for approval
-      </Text>
-      <Text className="text-sm leading-5 text-muted">
-        {approval.description}
-      </Text>
-      {approval.toolName ? (
-        <Text className="font-mono text-[11px] text-muted">
-          {approval.toolName}
-        </Text>
-      ) : null}
+    <View className="gap-three rounded-lor-md border border-border bg-surface px-three py-three">
+      <View className="flex-row items-start gap-three">
+        <View className="size-7 items-center justify-center rounded-lor-sm bg-warning-soft">
+          <HugeiconsIcon
+            color={warning}
+            icon={LockKeyIcon}
+            size={14}
+            strokeWidth={2}
+          />
+        </View>
+        <View className="min-w-0 flex-1 gap-px">
+          <Text className="text-[13px] font-medium leading-5 text-foreground">
+            {approval.description}
+          </Text>
+          <Text className="text-xs text-muted">
+            {canResolve
+              ? "Needs your approval"
+              : resolverLabel(approval.resolver, approval.resolverUserName)}
+            {approval.toolName ? (
+              <>
+                {" · "}
+                <Text className="font-mono">{approval.toolName}</Text>
+              </>
+            ) : null}
+          </Text>
+        </View>
+      </View>
       {canResolve ? (
-        <View className="flex-row gap-two pt-one">
+        <View className="flex-row justify-end gap-two">
+          <Button
+            isDisabled={resolve.isPending}
+            onPress={() => onPress("reject")}
+            size="sm"
+            variant="ghost"
+          >
+            Reject
+          </Button>
           <Button
             isDisabled={resolve.isPending}
             onPress={() => onPress("approve")}
             size="sm"
           >
-            {resolve.isPending ? "Working…" : "Approve"}
-          </Button>
-          <Button
-            isDisabled={resolve.isPending}
-            onPress={() => onPress("reject")}
-            size="sm"
-            variant="secondary"
-          >
-            Reject
+            Approve
           </Button>
         </View>
-      ) : (
-        <Text className="text-xs text-muted">
-          {resolverLabel(approval.resolver, approval.resolverUserName)}
-        </Text>
-      )}
+      ) : null}
     </View>
   )
 }
 
-// The gate card under a parked run's own message (channel or thread scope).
-// Mounted only on Lor run replies; renders nothing unless this message's
-// run parked on a pending approval.
+// The gate card under a parked run's own message. Renders nothing unless
+// this message's run parked on an approval. In a session it stays after the
+// decision as its record (`threadRootId` lists resolved ones too); in chat
+// it shows only while pending.
 export function MessageApprovalCard({
   channelId,
   messageId,
+  threadRootId,
 }: {
   channelId: string
   messageId: string
+  threadRootId: string | null
 }) {
-  const approval = useMessageApproval(channelId, messageId)
+  const approval = useMessageApproval(channelId, messageId, threadRootId)
   if (!approval) return null
   return (
     <View className="pt-two">

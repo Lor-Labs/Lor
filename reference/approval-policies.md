@@ -213,7 +213,17 @@ path, making the hardcoded seam redundant rather than wrong.
   (task-less approvals exist now). Handler: first statement resolves authority
   via `resolveWorkspaceAuthority` + `canResolveApproval`; channel write access
   stays the floor; CAS + resolution message unchanged. Discretionary rows
-  (target null) resolve as `any_member`.
+  (target null) resolve as `any_member`. **Changed 2026-10-10 (Jacob):** no
+  resolution message posts any more; it read to Lor as a person's message on
+  top of the approval response. The continuation answers the parked run's
+  own reply (`agent_run.messageId`) with `resumeApprovalId` set: policy gates
+  resume with the AI SDK `tool-approval-response` alone (the documented
+  flow), and discretionary `request_approval` rows get one "Approval" line
+  in the delta (`approvalDecisionTurn`). A resume queued behind an active run
+  rides the queue on that reply but never shows in the queue UI. The card
+  stays on the reply as the record: session pages list approvals in any
+  state (`?threadRootId=`), and a resolved card shows "Approved by …" /
+  "Rejected by …". Old message-less runs still get a posted resolution.
 - Generalize `startTaskContinuationRun` → shared continuation starter that
   works for channel/thread/loop scopes (the harness doc already flags the
   run-creation recipe triplication — extract now).

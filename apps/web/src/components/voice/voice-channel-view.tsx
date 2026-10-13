@@ -5,6 +5,7 @@ import { toast } from "@repo/ui/components/toast"
 import { useQuery } from "@tanstack/react-query"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import type { CallTab } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { CallStage } from "@/components/voice/call-stage"
 import { VoiceLobby } from "@/components/voice/voice-lobby"
 import { type JoinDevices, useVoiceCall } from "@/context/voice-call-context"
@@ -52,10 +53,7 @@ export function VoiceChannelView({
   const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
   const openThreadRootId =
     view?.type === "thread" && !isCollapsed ? view.threadRootId : null
-  const openSession = (
-    threadRootId: string,
-    callTab: "chat" | "transcript"
-  ) => {
+  const openSession = (threadRootId: string, callTab: CallTab) => {
     setView({ type: "thread", workspaceSlug, channelId, threadRootId, callTab })
     if (isCollapsed) toggleCollapsed()
   }

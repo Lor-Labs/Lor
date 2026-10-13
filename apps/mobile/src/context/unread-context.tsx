@@ -88,6 +88,8 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     }
 
     const onMention = (payload: MentionNotification) => {
+      // A session mention alerts on the session's row, not the channel badge.
+      if (payload.sessionId) return
       setStateMap((prev) => {
         const next = new Map(prev)
         const current = next.get(payload.channelId) ?? {

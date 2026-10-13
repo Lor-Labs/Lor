@@ -75,8 +75,8 @@ export const integrationConnection = pgTable(
     // BYO webhook post identity: the message avatar (display name reuses
     // accountLogin). Null for real providers.
     avatarUrl: text("avatar_url"),
-    // Who created the connection — shown for BYO webhooks; null for OAuth/API
-    // connectors and after the creator leaves.
+    // Who connected the source; follows its Act sessions when authorized.
+    // Null for older connections and after the user's account is deleted.
     createdBy: uuid("created_by").references(() => user.id, {
       onDelete: "set null",
     }),

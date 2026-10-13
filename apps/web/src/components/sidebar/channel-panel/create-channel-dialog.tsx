@@ -33,6 +33,8 @@ import { useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { apiClient } from "@/lib/api-client"
+import { patchChannelList, upsertChannel } from "@/lib/channel-list-cache"
+import { channelQueryOptions } from "@/lib/channel-query"
 
 const channelTypes = [
   {
@@ -149,9 +151,19 @@ export function CreateChannelDialog({
         return
       }
 
+      // The response is the sidebar's row and the channel page's data, so
+      // both show it now; the list refetches behind the navigation.
       const channel = await res.json()
-      await queryClient.invalidateQueries({
+      await patchChannelList(queryClient, workspaceSlug, (list) =>
+        upsertChannel(list, channel)
+      )
+      queryClient.setQueryData(
+        channelQueryOptions(workspaceSlug, channel.id).queryKey,
+        channel
+      )
+      void queryClient.invalidateQueries({
         queryKey: ["channels", workspaceSlug],
+        exact: true,
       })
       handleOpenChange(false)
 

@@ -1,3 +1,4 @@
+import { cn } from "heroui-native/utils"
 import type { ReactNode } from "react"
 import { Pressable, Text } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
@@ -7,14 +8,19 @@ import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 // timing as web.
 export function HintCard({
   children,
+  className,
   onDismiss,
 }: {
   children: ReactNode
+  className?: string
   onDismiss: () => void
 }) {
   return (
     <Animated.View
-      className="mb-two flex-row items-center gap-three rounded-lor-sm border border-border bg-surface px-three py-two"
+      className={cn(
+        "mb-two flex-row items-center gap-three rounded-lor-sm border border-border bg-surface px-three py-two",
+        className
+      )}
       entering={FadeIn.duration(200).delay(600)}
       exiting={FadeOut.duration(150)}
     >

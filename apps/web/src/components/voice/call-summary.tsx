@@ -19,15 +19,14 @@ import {
   formatDateTime,
   formatDuration,
 } from "@repo/utils/date"
+import type { UseQueryResult } from "@tanstack/react-query"
 import { type ReactNode, useState } from "react"
 import { ParticipantStack } from "@/components/voice/voice-lobby"
-import { useCallCitation } from "@/hooks/use-call-citation"
 import {
+  type CallSummary,
   type CallSummaryContent,
-  useSaveSummaryCard,
-  useSummaryCard,
+  useSaveCallSummary,
 } from "@/hooks/use-call-summary"
-import type { Message } from "@/lib/api-types"
 
 const DECISION = {
   icon: CheckmarkCircle02Icon,
@@ -439,43 +438,43 @@ function SummaryBody({
   )
 }
 
-const CARD = "mt-1.5 w-full max-w-xl rounded-xl bg-secondary/60 px-4 py-3.5"
+const PANEL = "min-h-0 flex-1 overflow-y-auto px-4 py-4"
 
-// Lor's summary of an ended call, posted in its chat so everyone in the call
-// is notified. Draws the call's current summary, so a correction shows here
-// for everyone; times open the transcript at that moment.
-export function CallSummaryCard({ message }: { message: Message }) {
-  const { data, isPending, isError } = useSummaryCard(message.id)
-  const save = useSaveSummaryCard(message.id)
-  const { open: openTranscript } = useCallCitation()
+// An ended call's Summary tab (reference/workspace-model.md, decision 3).
+// Draws the call's current summary, so a correction shows for everyone;
+// times open the Transcript tab at that moment.
+export function CallSummaryPanel({
+  sessionId,
+  query,
+  onOpenMoment,
+}: {
+  sessionId: string
+  query: UseQueryResult<CallSummary>
+  onOpenMoment: (atMs: number) => void
+}) {
+  const save = useSaveCallSummary(sessionId)
   const [editing, setEditing] = useState(false)
+  const { data, isPending, isError } = query
 
   if (isPending) {
     return (
-      <div className={cn(CARD, "flex flex-col gap-2.5")}>
-        <Skeleton className="h-4 w-48 rounded" />
-        <Skeleton className="h-3 w-32 rounded" />
-        <Skeleton className="mt-2 h-3 w-full rounded" />
-        <Skeleton className="h-3 w-4/5 rounded" />
+      <div className={cn(PANEL, "flex flex-col gap-2.5")}>
+        <Skeleton className="h-3 w-40 rounded" />
+        <Skeleton className="mt-3 h-3 w-full rounded" />
+        <Skeleton className="h-3 w-full rounded" />
+        <Skeleton className="h-3 w-3/5 rounded" />
       </div>
     )
   }
-  // The posted text stands in when the card can't load.
   if (isError) {
     return (
-      <p className="whitespace-pre-wrap text-foreground/90 text-sm">
-        {message.content}
+      <p className={cn(PANEL, "text-muted-foreground text-sm")}>
+        Couldn't load the summary.
       </p>
     )
   }
 
   const { call, summary } = data
-  const failed = () => toast.error("Couldn't open the transcript")
-  const openAt = (atMs?: number) =>
-    void openTranscript(data.sessionId, atMs).then(
-      (found) => found || failed(),
-      failed
-    )
   const day = new Date(call.startedAt).toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
@@ -487,50 +486,40 @@ export function CallSummaryCard({ message }: { message: Message }) {
   const byline = data.editedAt
     ? `Edited by ${data.editedBy?.name ?? "someone"} · ${formatDateTime(data.editedAt)}`
     : "Written by Lor"
+  const body = editing ? (
+    <SummaryEditor
+      initial={toDraft(summary)}
+      saving={save.isPending}
+      onCancel={() => setEditing(false)}
+      onSave={(next) =>
+        save.mutate(next, {
+          onSuccess: () => setEditing(false),
+          onError: (error) => toast.error(error.message),
+        })
+      }
+    />
+  ) : summary ? (
+    <SummaryBody summary={summary} onOpenMoment={onOpenMoment} />
+  ) : (
+    <p className="text-muted-foreground text-sm">
+      {data.processed
+        ? "Lor didn't write a summary for this call."
+        : "Lor is writing the summary…"}
+    </p>
+  )
 
   return (
-    <div className={CARD}>
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-base leading-snug">
-            {summary?.title ?? "Call summary"}
-          </h3>
-          <p className="mt-0.5 text-muted-foreground text-xs">
-            {[day, length].filter(Boolean).join(" · ")}
-          </p>
-        </div>
+    <div className={PANEL}>
+      <div className="flex items-center gap-3">
+        <p className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
+          {[day, length].filter(Boolean).join(" · ")}
+        </p>
         <ParticipantStack participants={call.participants} />
       </div>
-
-      <div className="mt-4">
-        {editing ? (
-          <SummaryEditor
-            initial={toDraft(summary)}
-            saving={save.isPending}
-            onCancel={() => setEditing(false)}
-            onSave={(next) =>
-              save.mutate(next, {
-                onSuccess: () => setEditing(false),
-                onError: (error) => toast.error(error.message),
-              })
-            }
-          />
-        ) : summary ? (
-          <SummaryBody summary={summary} onOpenMoment={openAt} />
-        ) : (
-          <p className="text-muted-foreground text-sm">
-            Lor couldn't write a summary for this call. Its transcript is
-            indexed, so you can still ask Lor about it.
-          </p>
-        )}
-      </div>
-
-      {!editing && (
+      <div className="mt-4">{body}</div>
+      {!editing && (summary || data.canEdit) && (
         <div className="mt-4 flex items-center gap-2">
-          <Button variant="outline" size="xs" onClick={() => openAt()}>
-            Open transcript
-          </Button>
-          <span className="ml-auto min-w-0 truncate text-muted-foreground text-xs">
+          <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
             {summary ? byline : null}
           </span>
           {data.canEdit && (

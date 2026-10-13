@@ -12,6 +12,7 @@ import {
   schema,
 } from "@repo/db"
 import type {
+  Loop,
   LorMemory,
   LorReasoningSegment,
   LorToolCall,
@@ -23,6 +24,7 @@ import {
   respond,
   writeBack,
 } from "@repo/lor"
+import { saveHandoffNote } from "@repo/lor/act-runs"
 import type { ProposeLoopExecutor } from "@repo/lor/loops"
 import type { StartPlanInput } from "@repo/lor/plans"
 import { toRealtimePlan } from "@repo/lor/plans"
@@ -55,16 +57,24 @@ import {
 } from "@/lib/approval-notify"
 import { createProposalCard } from "@/lib/change-proposal"
 import { logger } from "@/lib/logger"
+import {
+  loadLoopRun,
+  loopRunContext,
+  markLoopFireRun,
+  settleLoopRun,
+} from "@/lib/loop-session"
 import { loadConversation } from "@/lib/lor-conversation"
 import { createLoopCard } from "@/lib/lor-loop"
-import { postLorMessage } from "@/lib/lor-messages"
 import {
+  approvalDecisionTurn,
   buildApprovalContinuation,
   buildContinuation,
 } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
+import { titleSessionAfterFirstReply } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
+import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
@@ -148,9 +158,25 @@ export function createLorRespondProcessor(
         // back to failed.
         let planSettled = false
         let planSettlementOutcome: "complete" | "failed" | "stopped" = "failed"
+        // Set once the run is known to be in a loop's session; a fire's
+        // outcome feeds the loop's failure count (lib/loop-session).
+        let loopRun: { loop: Loop; isFire: boolean } | null = null
+        let loopSettled = false
         const settlePlan = async (
-          outcome: "complete" | "failed" | "stopped"
+          outcome: "complete" | "failed" | "stopped",
+          stopReason?: string
         ) => {
+          if (loopRun?.isFire && threadRootId && !loopSettled) {
+            loopSettled = true
+            await settleLoopRun(
+              { emitter, redis },
+              loopRun.loop.id,
+              threadRootId,
+              { outcome, stopReason }
+            ).catch((err) =>
+              logger.error({ err, lorMessageId }, "Loop settlement failed")
+            )
+          }
           planSettlementOutcome = outcome
           if (!plan) {
             planSettled = true
@@ -292,6 +318,19 @@ export function createLorRespondProcessor(
           return
         }
         const execution = claim.kind === "claimed" ? claim.execution : null
+        loopRun = await loadLoopRun(threadRootId, triggerMessageId).catch(
+          () => null
+        )
+        const triggerRun = await loadTriggerRun(
+          threadRootId,
+          triggerMessageId
+        ).catch(() => null)
+        const automated = loopRun?.isFire || triggerRun?.isEvent
+        if (loopRun?.isFire && job.data.runId) {
+          await markLoopFireRun(job.data.runId, loopRun.loop.id).catch((err) =>
+            logger.warn({ err, lorMessageId }, "Loop fire run tag failed")
+          )
+        }
         // Completed plans don't resurrect on follow-up replies — a quick
         // question in a finished plan thread stays a question. Plan tools
         // reopen explicitly (update_plan flips completed back to running).
@@ -494,9 +533,17 @@ export function createLorRespondProcessor(
             // An approval resume is explicit rather than scope-inferred: it
             // replays the parked run named by the approval row, so it also
             // works in a plain channel scope where no delta path exists.
+            // request_approval parks no tool call: its decision rides the
+            // delta as a line instead.
+            const decisionTurn =
+              !execution?.resume && job.data.resumeApprovalId
+                ? await approvalDecisionTurn(job.data.resumeApprovalId).catch(
+                    () => null
+                  )
+                : null
             const continuation = execution?.resume
               ? null
-              : job.data.resumeApprovalId
+              : job.data.resumeApprovalId && !decisionTurn
                 ? await buildApprovalContinuation({
                     approvalId: job.data.resumeApprovalId,
                   })
@@ -506,6 +553,7 @@ export function createLorRespondProcessor(
                       channelId,
                       lorMessageId,
                       runId: job.data.runId,
+                      ...(decisionTurn ? { extraTurns: [decisionTurn] } : {}),
                     })
                   : null
             if (continuation && execution) {
@@ -524,7 +572,19 @@ export function createLorRespondProcessor(
                     lorMessageId,
                     triggerMessageId,
                   })
-            const { conversation } = snapshot
+            const conversation =
+              triggerRun?.isEvent &&
+              job.data.runId &&
+              !execution?.resume &&
+              !continuation &&
+              "backgroundConversation" in snapshot
+                ? await briefActEvent(snapshot.conversation, {
+                    triggerId: triggerRun.triggerId,
+                    channelId,
+                    runId: job.data.runId,
+                    eventMessageId: triggerMessageId,
+                  })
+                : snapshot.conversation
             const backgroundConversation =
               "backgroundConversation" in snapshot
                 ? snapshot.backgroundConversation
@@ -563,6 +623,25 @@ export function createLorRespondProcessor(
               return
             }
             workspaceId = channel.workspaceId
+            // A fire that waited behind a person's turn while its loop was
+            // paused or completed does nothing.
+            if (loopRun?.isFire && loopRun.loop.status !== "active") {
+              const skipped = "Skipped: this loop is no longer running."
+              await db
+                .update(schema.message)
+                .set({ content: skipped, status: "complete" })
+                .where(eq(schema.message.id, lorMessageId))
+                .catch(() => {})
+              emit(skipped, true, "complete")
+              await runWriter.transition("stopped", {
+                stopReason: "stopped_by_user",
+              })
+              execution?.stop()
+              await settlePlan("stopped")
+              await emitThreadSummary()
+              drainQueue()
+              return
+            }
             streamMentionRoster = await db
               .select({
                 id: schema.user.id,
@@ -601,7 +680,7 @@ export function createLorRespondProcessor(
                 stopReason: "out_of_credits",
               })
               execution?.stop()
-              await settlePlan("failed")
+              await settlePlan("failed", "out_of_credits")
               await emitThreadSummary()
               drainQueue()
               emitter.to(workspaceRoom(workspaceId)).emit("billing:updated", {
@@ -627,19 +706,12 @@ export function createLorRespondProcessor(
               userId: triggerUserId,
             }
 
-            // start_plan: adopt this run's thread as a new plan. Posts the
-            // projected card into the channel, anchors the plan to the thread
-            // root, and assigns it to this run so settlePlan owns it.
+            // start_plan: adopt this run's thread as a new plan, anchored to
+            // the thread root and assigned to this run so settlePlan owns it.
+            // No card in channel chat: the plan lives in the session's right
+            // panel.
             const createPlanForThread = async (input: StartPlanInput) => {
               if (!threadRootId) return null
-              const { messageId: cardId } = await postLorMessage(
-                { emitter, redis },
-                {
-                  channelId,
-                  content: input.goal,
-                  type: "plan_card",
-                }
-              )
               try {
                 const row = await db
                   .insert(schema.plan)
@@ -647,7 +719,6 @@ export function createLorRespondProcessor(
                     workspaceId,
                     channelId,
                     threadRootId,
-                    cardMessageId: cardId,
                     creatorId: triggerUserId,
                     title: input.title,
                     goal: input.goal,
@@ -661,10 +732,6 @@ export function createLorRespondProcessor(
                 emitPlanUpdated(row)
                 return row
               } catch (err) {
-                await db
-                  .delete(schema.message)
-                  .where(eq(schema.message.id, cardId))
-                  .catch(() => {})
                 if (isUniqueViolation(err)) {
                   // Lost a race on the thread's unique anchor — adopt the
                   // winner instead of failing the tool call.
@@ -698,6 +765,7 @@ export function createLorRespondProcessor(
                 {
                   workspaceId,
                   channelId,
+                  threadRootId: threadRootId ?? null,
                   creatorId: triggerUserId,
                   ...loopInput,
                 }
@@ -705,7 +773,12 @@ export function createLorRespondProcessor(
             const proposeChange: ProposeChangeExecutor = (changeInput) =>
               createProposalCard(
                 { emitter, redis },
-                { workspaceId, channelId, ...changeInput }
+                {
+                  workspaceId,
+                  channelId,
+                  threadRootId: threadRootId ?? null,
+                  ...changeInput,
+                }
               )
             answer = await respond(
               {
@@ -730,8 +803,19 @@ export function createLorRespondProcessor(
                       },
                     }
                   : {}),
-                proposeLoop,
-                proposeChange,
+                // A loop's fire or an Act event never schedules loops or
+                // files proposals.
+                ...(automated ? {} : { proposeLoop, proposeChange }),
+                ...(triggerRun ? { trigger: triggerRun.context } : {}),
+                ...(loopRun && threadRootId
+                  ? {
+                      loop: loopRunContext(
+                        { emitter, redis },
+                        loopRun.loop,
+                        threadRootId
+                      ),
+                    }
+                  : {}),
                 ...(plan
                   ? {
                       plan: {
@@ -1111,6 +1195,10 @@ export function createLorRespondProcessor(
             false,
             messageMentions
           )
+          // The reply to an Act event briefs the trigger's next run.
+          if (triggerRun?.isEvent && job.data.runId) {
+            await saveHandoffNote(job.data.runId, finalText)
+          }
           await runWriter.transition(stoppedByUser ? "stopped" : "complete", {
             stopReason: answer.stoppedFor ?? "completed",
           })
@@ -1119,6 +1207,17 @@ export function createLorRespondProcessor(
           await settlePlan(stoppedByUser ? "stopped" : "complete")
           await emitThreadSummary()
           drainQueue()
+          if (threadRootId && !stoppedByUser) {
+            void titleSessionAfterFirstReply({
+              emitter,
+              threadRootId,
+              reply: finalText,
+              onUsage: (u) =>
+                void recordUsage(u, { messageId: lorMessageId, channelId }),
+            }).catch((err) =>
+              logger.warn({ err, threadRootId }, "Session title failed")
+            )
+          }
           // Announce the gate only after the run is terminal — the resolve
           // endpoint refuses to resume a run that hasn't finished parking.
           // Ids only; cards read the durable row via the approvals query.

@@ -40,7 +40,8 @@ export function HintPopover({
         anchor={anchor}
         side={side}
         align={align}
-        sideOffset={8}
+        sideOffset={12}
+        arrow
         initialFocus={false}
         finalFocus={false}
         className="max-w-80 motion-reduce:transition-none"

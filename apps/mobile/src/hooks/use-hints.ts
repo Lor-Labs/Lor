@@ -5,7 +5,12 @@ import { api } from "@/lib/api"
 
 // The hints mobile shows (reference/onboarding.md, Hints). Each lives on its
 // own screen, so mobile needs no one-at-a-time slot like web's provider.
-type MobileHintKey = "lor_intro" | "voice_intro"
+type MobileHintKey =
+  | "lor_intro"
+  | "voice_intro"
+  | "sessions_intro"
+  | "session_reply"
+  | "how_lor_works"
 
 const hintsQueryKey = ["hints"] as const
 

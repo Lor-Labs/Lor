@@ -278,7 +278,7 @@ export function TriggerEffects({
         id={`${idPrefix}-act`}
         icon={MagicWand01Icon}
         title="Act"
-        description="Wake Lor to take action — it can reply, start plans, and call your tools"
+        description="Each event starts a Lor session — it can reply, start plans, and call your tools"
         checked={value.actInstructions !== null}
         disabled={disabled}
         onCheckedChange={(checked) =>

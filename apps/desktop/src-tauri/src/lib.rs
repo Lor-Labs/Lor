@@ -14,6 +14,9 @@ use tauri::menu::Submenu;
 
 const SETTINGS_MENU_ID: &str = "settings";
 const OPEN_SETTINGS_EVENT: &str = "open-settings";
+// Browser tabs can't capture Cmd+N, so New session's shortcut lives here.
+const NEW_SESSION_MENU_ID: &str = "new-session";
+const NEW_SESSION_EVENT: &str = "new-session";
 const MAIN_WINDOW_HIDDEN_EVENT: &str = "main-window-hidden";
 
 // Dev servers (API :8080, realtime :8081) are plain HTTP on localhost, which
@@ -46,6 +49,13 @@ fn desktop_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         Some("CmdOrCtrl+,"),
     )?;
+    let new_session = MenuItem::with_id(
+        app,
+        NEW_SESSION_MENU_ID,
+        "New Session",
+        true,
+        Some("CmdOrCtrl+N"),
+    )?;
 
     #[cfg(target_os = "macos")]
     {
@@ -54,6 +64,10 @@ fn desktop_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             let separator = PredefinedMenuItem::separator(app)?;
             app_menu.insert_items(&[&settings, &separator], 2)?;
         }
+        if let Some(file_menu) = items.get(1).and_then(|item| item.as_submenu()) {
+            let separator = PredefinedMenuItem::separator(app)?;
+            file_menu.insert_items(&[&new_session, &separator], 0)?;
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -61,13 +75,13 @@ fn desktop_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         let items = menu.items()?;
         if let Some(file_menu) = items.first().and_then(|item| item.as_submenu()) {
             let separator = PredefinedMenuItem::separator(app)?;
-            file_menu.insert_items(&[&settings, &separator], 0)?;
+            file_menu.insert_items(&[&new_session, &settings, &separator], 0)?;
         }
     }
 
     #[cfg(target_os = "linux")]
     {
-        let file_menu = Submenu::with_items(app, "File", true, &[&settings])?;
+        let file_menu = Submenu::with_items(app, "File", true, &[&new_session, &settings])?;
         menu.insert(&file_menu, 0)?;
     }
 
@@ -82,6 +96,8 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id() == SETTINGS_MENU_ID {
                 let _ = app.emit(OPEN_SETTINGS_EVENT, ());
+            } else if event.id() == NEW_SESSION_MENU_ID {
+                let _ = app.emit(NEW_SESSION_EVENT, ());
             }
         })
         .plugin(tauri_plugin_http::init())
