@@ -20,7 +20,7 @@ import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-h
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { AttachmentsSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { type ChannelFile, useChannelFiles } from "@/hooks/use-channel-files"
-import { useOpenFile } from "@/hooks/use-file-panel"
+import { useOpenFile, useOpenUpload } from "@/hooks/use-file-panel"
 import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 
 // Images show a thumbnail; other files, or an image that fails to load,
@@ -54,10 +54,11 @@ function FileRow({
   channelId: string
 }) {
   const openFile = useOpenFile()
+  const openUpload = useOpenUpload()
   const [imageOpen, setImageOpen] = useState(false)
   const goToMessage = useMessageSearchNavigation()
   const source = file.conversation
-  const { artifactId } = file
+  const { artifactId, attachmentIndex } = file
   const title = `${file.name}\nUpdated ${new Date(file.updatedAt).toLocaleString()}`
   return (
     <FileChip className="w-full border-transparent bg-transparent">
@@ -81,6 +82,12 @@ function FileRow({
           aria-label={`View ${file.name}`}
           title={title}
           onClick={() => setImageOpen(true)}
+        />
+      ) : source && attachmentIndex !== null ? (
+        <FileChipTrigger
+          aria-label={`Open ${file.name}`}
+          title={title}
+          onClick={() => openUpload(source.messageId, attachmentIndex)}
         />
       ) : (
         <FileChipLink

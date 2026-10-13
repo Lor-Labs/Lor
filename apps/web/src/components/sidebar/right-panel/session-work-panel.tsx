@@ -32,7 +32,13 @@ import {
 } from "@/hooks/use-thread-messages"
 
 type OutputFile = { id: string; path: string; size: number | null }
-type SourceFile = { url: string; filename: string; size: number }
+type SourceFile = {
+  url: string
+  filename: string
+  size: number
+  messageId: string
+  index: number
+}
 
 // Files from the loaded session messages, walked oldest first so a file Lor
 // rewrote keeps its latest version and moves to the top.
@@ -56,11 +62,13 @@ function collectSessionWork(pages: ThreadPage[]) {
         })
       }
     }
-    for (const attachment of message.attachments ?? []) {
+    for (const [index, attachment] of (message.attachments ?? []).entries()) {
       sources.set(attachment.url, {
         url: attachment.url,
         filename: attachment.filename,
         size: attachment.size,
+        messageId: message.id,
+        index,
       })
     }
   }
@@ -266,7 +274,8 @@ function SessionFileList({
               key={source.url}
               name={source.filename}
               size={source.size}
-              url={source.url}
+              messageId={source.messageId}
+              index={source.index}
               className="w-full"
             />
           ))}

@@ -106,13 +106,16 @@ export const sessionFilesResponseSchema = z.object({
       version: z.number().int(),
     })
   ),
-  // Files people shared in the session, oldest first.
+  // Files people shared in the session, oldest first. messageId + index
+  // open one in the file panel.
   sources: z.array(
     z.object({
       url: z.string(),
       filename: z.string(),
       size: z.number(),
       contentType: z.string(),
+      messageId: z.string().uuid(),
+      index: z.number().int(),
     })
   ),
 })

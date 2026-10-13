@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "@tanstack/react-router"
 import { useCallback } from "react"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { apiClient } from "@/lib/api-client"
+import type { Message } from "@/lib/api-types"
 
 export type MessageSearchTarget = {
   id: string
@@ -114,12 +115,13 @@ export type MessageLocation = {
   threadRootId: string | null
   // Set when the message's thread is a Lor session.
   sessionId: string | null
+  attachments: Message["attachments"]
 }
 
 // A message never moves, so its location caches for the session. null = not
 // found. Other failures throw so they are not cached, including 403: access
 // can be granted later in the session.
-function locationQuery(workspaceSlug: string, messageId: string) {
+export function locationQuery(workspaceSlug: string, messageId: string) {
   return {
     queryKey: ["message-location", workspaceSlug, messageId],
     queryFn: async (): Promise<MessageLocation | null> => {

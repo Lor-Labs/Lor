@@ -259,8 +259,10 @@ function ImageGrid({
 }
 
 export function AttachmentGrid({
+  messageId,
   attachments,
 }: {
+  messageId: string
   attachments: NonNullable<Message["attachments"]>
 }) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -311,7 +313,8 @@ export function AttachmentGrid({
               key={attachment.url}
               name={attachment.filename}
               size={attachment.size}
-              url={attachment.url}
+              messageId={messageId}
+              index={attachments.indexOf(attachment)}
               className="w-full"
             />
           ))}

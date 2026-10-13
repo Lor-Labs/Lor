@@ -2,14 +2,13 @@ import {
   FileChip,
   FileChipContent,
   FileChipDescription,
-  FileChipLink,
   FileChipMedia,
   FileChipTitle,
   FileChipTrigger,
 } from "@repo/ui/components/file-chip"
 import { FileTypeIcon } from "@repo/ui/components/file-type-icon"
 import { cn } from "@repo/ui/lib/utils"
-import { useOpenFile } from "@/hooks/use-file-panel"
+import { useOpenFile, useOpenUpload } from "@/hooks/use-file-panel"
 import { describeFile } from "@/lib/attachments"
 
 // One card for Lor's files everywhere (replies, the session rail, plan cards,
@@ -44,19 +43,22 @@ export function ArtifactFileCard({
   )
 }
 
-// A file someone shared. It opens in a new tab; uploads have no versions or
-// panel view yet.
+// A file someone shared. It opens in the right panel like Lor's files.
 export function UploadFileCard({
   name,
   size,
-  url,
+  messageId,
+  index,
   className,
 }: {
   name: string
   size: number | null
-  url: string
+  // The message that shared it and the file's position in its attachments.
+  messageId: string
+  index: number
   className?: string
 }) {
+  const openUpload = useOpenUpload()
   return (
     <FileChip className={cn("w-72", className)}>
       <FileChipMedia>
@@ -66,12 +68,10 @@ export function UploadFileCard({
         <FileChipTitle>{name}</FileChipTitle>
         <FileChipDescription>{describeFile(name, size)}</FileChipDescription>
       </FileChipContent>
-      <FileChipLink
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        label={`Open ${name}`}
+      <FileChipTrigger
+        aria-label={`Open ${name}`}
         title={name}
+        onClick={() => openUpload(messageId, index)}
       />
     </FileChip>
   )

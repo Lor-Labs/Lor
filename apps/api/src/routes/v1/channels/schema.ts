@@ -147,6 +147,8 @@ export const messageLocationResponseSchema = z.object({
   threadRootId: z.string().uuid().nullable(),
   // Set when the message is in a Lor session (or is its anchor).
   sessionId: z.string().uuid().nullable(),
+  // A file it shared opens in the file panel by message and position.
+  attachments: messageWithAuthorSchema.shape.attachments,
 })
 
 export const listPinnedMessagesResponseSchema = z.object({

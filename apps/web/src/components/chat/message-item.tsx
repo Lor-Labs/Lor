@@ -845,7 +845,10 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
           {message.attachments && message.attachments.length > 0 && (
-            <AttachmentGrid attachments={message.attachments} />
+            <AttachmentGrid
+              messageId={message.id}
+              attachments={message.attachments}
+            />
           )}
           {message.embeds.length > 0 && (
             <div className="flex flex-col gap-1">

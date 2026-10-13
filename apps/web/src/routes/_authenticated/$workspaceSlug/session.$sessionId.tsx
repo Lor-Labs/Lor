@@ -3,8 +3,9 @@ import { SessionView } from "@/components/session/session-view"
 
 type SessionSearchParams = {
   // Opens a file in the right panel (file cards in the transcript and the
-  // rail).
+  // rail): one of Lor's, or an upload as "<messageId>.<index>".
   artifactId?: string
+  upload?: string
 }
 
 export const Route = createFileRoute(
@@ -14,6 +15,7 @@ export const Route = createFileRoute(
   validateSearch: (search: Record<string, unknown>): SessionSearchParams => ({
     artifactId:
       typeof search.artifactId === "string" ? search.artifactId : undefined,
+    upload: typeof search.upload === "string" ? search.upload : undefined,
   }),
 })
 

@@ -73,7 +73,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
   current view (`RightSidebarPanel` reads `fileId` from the rail context).
   It has its own remembered width (`file` size class) and expands a
   collapsed panel. Mobile shows it as a full-width sheet.
-- `FilePanel`: back (or close when nothing is underneath), type icon, name,
+- `FilePanel`: close (X; the panel underneath comes back), type icon, name,
   rows × columns or version · size, version select, Open session (only for
   another session's file), Copy, Download. Body reuses `CsvGrid` and
   `ArtifactBody`.
@@ -170,7 +170,7 @@ No behavior change; `ThreadPanel` uses the extracted pieces.
 
 #### Step 8: flatten sandbox work in the tool trail (+130 / −50)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - A sandbox step (one with sub-steps) opens by default and stays open when
   it completes, so its sub-steps read as flat rows under "Worked".
@@ -179,6 +179,24 @@ No behavior change; `ThreadPanel` uses the extracted pieces.
   expansion with the diff and any output, without the repeated label or
   "Success" line. Normal tool calls are unchanged.
 - `edit` and `create_artifacts` get the write glyph instead of the wrench.
+
+#### Step 9: uploads open in the file panel (~250, bug fix)
+
+[x] built 2026-10-13 · [ ] committed
+
+Found in QA: an uploaded CSV in the session rail opened as a link, and the
+browser downloaded it.
+
+- `?upload=<messageId>.<index>` opens an upload in the same `FilePanel` as
+  `?artifactId`. The panel resolves it through the message-location API,
+  which now also returns the message's attachments, so the existing access
+  check applies; a raw URL in the query string would let a link point the
+  panel at any site.
+- The rail context's open file is `OpenFile` (artifact or upload);
+  `useOpenUpload` joins `useOpenFile`, and closing clears both params.
+- `UploadFileCard` opens the panel (it takes `messageId` + `index`); the
+  session files API sources and the channel Files list rows
+  (`attachmentIndex`) carry the position. Images keep the lightbox.
 
 ## Deviations
 

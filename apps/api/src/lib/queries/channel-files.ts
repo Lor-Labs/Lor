@@ -177,6 +177,7 @@ export async function fetchChannelFiles(args: {
         contentType: sql<string>`coalesce(${attachmentField("contentType")}, 'application/octet-stream')`,
         size: sql<number | null>`(${attachmentField("size")})::integer`,
         url: attachmentField("url"),
+        attachmentIndex: sql<number>`(f.ordinality - 1)::integer`,
         overrideName: message.overrideName,
         authorName: user.name,
         updatedAt: cursorTime(message.createdAt),
@@ -217,6 +218,7 @@ export async function fetchChannelFiles(args: {
     size: row.size,
     url: row.url,
     version: null,
+    attachmentIndex: row.attachmentIndex,
     authorName: row.overrideName ?? row.authorName,
     updatedAt: row.updatedAt,
     conversation: {
@@ -234,6 +236,7 @@ export async function fetchChannelFiles(args: {
     size: row.size,
     url: `${env.S3_PUBLIC_URL}/${row.blobKey}`,
     version: row.version,
+    attachmentIndex: null,
     authorName:
       row.authorType === "agent" ? "Lor" : (row.authorName ?? "Former member"),
     updatedAt: row.updatedAt,

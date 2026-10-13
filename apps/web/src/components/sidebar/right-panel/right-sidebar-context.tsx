@@ -10,10 +10,28 @@ import {
 } from "react"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 
+// A file open in the panel: one of Lor's (?artifactId) or an upload
+// (?upload=<messageId>.<index>).
+export type OpenFile =
+  | { kind: "artifact"; key: string; artifactId: string }
+  | { kind: "upload"; key: string; messageId: string; index: number }
+
+function parseOpenFile(
+  artifactId: string | undefined,
+  upload: string | undefined
+): OpenFile | null {
+  if (artifactId) return { kind: "artifact", key: artifactId, artifactId }
+  if (!upload) return null
+  const dot = upload.lastIndexOf(".")
+  const index = Number(upload.slice(dot + 1))
+  if (dot < 1 || !Number.isInteger(index) || index < 0) return null
+  return { kind: "upload", key: upload, messageId: upload.slice(0, dot), index }
+}
+
 interface RightSidebarContextValue {
   view: RightSidebarView | null
-  // ?artifactId: an open file covers the view until it closes, on any page.
-  fileId: string | null
+  // An open file covers the view until it closes, on any page.
+  file: OpenFile | null
   sizeClass: PanelSizeClass
   setView: (view: RightSidebarView | null) => void
   clearView: () => void
@@ -76,9 +94,9 @@ export function clampPanelWidth(
 
 function sizeClassFor(
   view: RightSidebarView | null,
-  fileId: string | null
+  file: OpenFile | null
 ): PanelSizeClass {
-  if (fileId) return "file"
+  if (file) return "file"
   if (view?.type === "thread" || view?.type === "loop") return "wide"
   return view?.type === "session-work" ? "rail" : "compact"
 }
@@ -137,11 +155,18 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     file: COMPACT_DEFAULT_WIDTH,
   })
   const [isHydrated, setIsHydrated] = useState(false)
-  const fileId =
-    useSearch({
-      strict: false,
-      select: (search) => search.artifactId,
-    }) ?? null
+  const artifactId = useSearch({
+    strict: false,
+    select: (search) => search.artifactId,
+  })
+  const upload = useSearch({
+    strict: false,
+    select: (search) => search.upload,
+  })
+  const file = useMemo(
+    () => parseOpenFile(artifactId, upload),
+    [artifactId, upload]
+  )
 
   // Hydrate from localStorage on mount
   useEffect(() => {
@@ -156,11 +181,12 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Opening a file shows it even when the panel was collapsed.
+  const fileKey = file?.key ?? null
   useEffect(() => {
-    if (fileId) setIsCollapsed(false)
-  }, [fileId])
+    if (fileKey) setIsCollapsed(false)
+  }, [fileKey])
 
-  const sizeClass = sizeClassFor(view, fileId)
+  const sizeClass = sizeClassFor(view, file)
   const panelWidth =
     sizeClass === "compact"
       ? Math.min(widths.compact, COMPACT_MAX_WIDTH)
@@ -206,7 +232,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   const value = useMemo<RightSidebarContextValue>(
     () => ({
       view,
-      fileId,
+      file,
       sizeClass,
       setView,
       clearView,
@@ -219,7 +245,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     }),
     [
       view,
-      fileId,
+      file,
       sizeClass,
       clearView,
       consumeComposerDraft,

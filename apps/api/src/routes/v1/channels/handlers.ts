@@ -1247,6 +1247,7 @@ export const getMessageLocation: AppRouteHandler<
       channelId: message.channelId,
       threadRootId: message.threadRootId,
       sessionId: agentSession.id,
+      attachments: message.attachments,
     })
     .from(message)
     .innerJoin(channel, eq(message.channelId, channel.id))

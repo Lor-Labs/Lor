@@ -15,13 +15,13 @@ const enterTransition = { duration: 0.22, ease: EASE_OUT }
 const exitTransition = { duration: 0.12, ease: EASE_OUT }
 
 export function RightSidebarPanel({ view }: { view: RightSidebarView | null }) {
-  const { fileId } = useRightSidebar()
+  const { file } = useRightSidebar()
   // Use view.type as the key for AnimatePresence — switching between views
   // unmounts the old and mounts the new with the slide/fade transition.
   // For thread we also key on threadRootId so jumping between threads
   // re-runs the entry animation (same for loops and files).
-  const key = fileId
-    ? `file:${fileId}`
+  const key = file
+    ? `file:${file.key}`
     : !view
       ? "empty"
       : view.type === "thread" || view.type === "session-work"
@@ -43,8 +43,8 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView | null }) {
           transition={enterTransition}
           className="flex h-full w-full flex-col"
         >
-          {fileId ? (
-            <FilePanel artifactId={fileId} />
+          {file ? (
+            <FilePanel file={file} />
           ) : (
             <>
               {view?.type === "workspace-members" && (

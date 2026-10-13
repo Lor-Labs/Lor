@@ -66,6 +66,8 @@ type ChannelSearchParams = {
   // Opens a file in the right panel; shareable — everyone opening the same
   // URL lands on the same file (and, later, in the same live session).
   artifactId?: string
+  // Opens an upload in the right panel, as "<messageId>.<index>".
+  upload?: string
   // Prefills the composer with "@Lor <draft>" without sending (setup's Ask
   // Lor suggestions). Cleared once applied.
   draft?: string
@@ -93,6 +95,7 @@ export const Route = createFileRoute(
         : undefined,
     artifactId:
       typeof search.artifactId === "string" ? search.artifactId : undefined,
+    upload: typeof search.upload === "string" ? search.upload : undefined,
     draft:
       typeof search.draft === "string" ? search.draft.slice(0, 500) : undefined,
     panel: search.panel === "sessions" ? "sessions" : undefined,

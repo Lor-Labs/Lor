@@ -98,7 +98,7 @@ function RightPanelDock() {
   const { workspaceSlug } = useParams({ strict: false })
   const {
     view,
-    fileId,
+    file,
     sizeClass,
     isCollapsed,
     panelWidth,
@@ -247,7 +247,7 @@ function RightPanelDock() {
     [panelWidth, setPanelWidth, leftOpen, setLeftOpen, sizeClass]
   )
 
-  const showRightPanel = (!!view || !!fileId) && !!workspaceSlug
+  const showRightPanel = (!!view || !!file) && !!workspaceSlug
 
   if (!showRightPanel || !isHydrated) return null
 
@@ -314,10 +314,10 @@ function MainArea({ children }: { children: React.ReactNode }) {
  * since there's no room for a floating panel on small viewports.
  */
 function MobileRightPanel() {
-  const { view, fileId, clearView } = useRightSidebar()
+  const { view, file, clearView } = useRightSidebar()
   const closeFile = useCloseFile()
   const { workspaceSlug } = useParams({ strict: false })
-  const open = (!!view || !!fileId) && !!workspaceSlug
+  const open = (!!view || !!file) && !!workspaceSlug
 
   // If the user navigates away from a workspace while the panel is open,
   // close it — it's workspace-scoped.
@@ -330,7 +330,7 @@ function MobileRightPanel() {
       open={open}
       onOpenChange={(isOpen) => {
         if (isOpen) return
-        if (fileId) closeFile()
+        if (file) closeFile()
         clearView()
       }}
       modal
@@ -340,7 +340,7 @@ function MobileRightPanel() {
         showCloseButton={false}
         className={cn(
           "w-[300px] bg-sidebar p-0 sm:max-w-[300px]",
-          fileId && "w-full sm:max-w-full"
+          file && "w-full sm:max-w-full"
         )}
       >
         {open && (

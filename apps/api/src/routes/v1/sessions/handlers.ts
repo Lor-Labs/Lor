@@ -126,7 +126,10 @@ export const listSessionFiles: AppRouteHandler<ListSessionFilesRoute> = async (
       .where(eq(schema.artifact.threadRootId, threadRootId))
       .orderBy(desc(schema.artifact.updatedAt)),
     db
-      .select({ attachments: schema.message.attachments })
+      .select({
+        id: schema.message.id,
+        attachments: schema.message.attachments,
+      })
       .from(schema.message)
       .where(
         and(
@@ -144,11 +147,13 @@ export const listSessionFiles: AppRouteHandler<ListSessionFilesRoute> = async (
     {
       outputs,
       sources: messages.flatMap((message) =>
-        (message.attachments ?? []).map((attachment) => ({
+        (message.attachments ?? []).map((attachment, index) => ({
           url: attachment.url,
           filename: attachment.filename,
           size: attachment.size,
           contentType: attachment.contentType,
+          messageId: message.id,
+          index,
         }))
       ),
     },

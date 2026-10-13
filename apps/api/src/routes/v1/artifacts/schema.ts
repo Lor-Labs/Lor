@@ -84,6 +84,8 @@ export const channelFilesResponseSchema = z.object({
       size: z.number().nullable(),
       url: z.string(),
       version: z.number().int().nullable(),
+      // An upload's position in its message's attachments.
+      attachmentIndex: z.number().int().nullable(),
       authorName: z.string(),
       updatedAt: z.string(),
       conversation: getArtifactResponseSchema.shape.conversation,
