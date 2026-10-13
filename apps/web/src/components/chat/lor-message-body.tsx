@@ -1,5 +1,4 @@
 import { memo, useMemo } from "react"
-import { ArtifactCsvPreviewCard } from "@/components/artifacts/csv-preview"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { LorActivity, LorActivityGroup } from "@/components/chat/lor-activity"
 import { LorCompactionDivider } from "@/components/chat/lor-compaction-divider"
@@ -11,7 +10,6 @@ import type {
   LorToolCallView,
   Message,
 } from "@/lib/api-types"
-import { isCsvMime } from "@/lib/csv"
 
 type Segment =
   | { kind: "text"; key: string; text: string }
@@ -325,26 +323,15 @@ export const LorMessageBody = memo(function LorMessageBody({
       )}
       {deliverables.length > 0 && (
         <div className="mt-2 flex flex-col gap-1.5">
-          {deliverables.map((file) =>
-            isCsvMime(file.contentType) ? (
-              <ArtifactCsvPreviewCard
-                key={file.artifactId}
-                artifactId={file.artifactId}
-                name={file.path}
-                contentType={file.contentType}
-                size={file.size}
-                url={file.url}
-              />
-            ) : (
-              <ArtifactFileCard
-                key={file.artifactId}
-                artifactId={file.artifactId}
-                name={file.path}
-                contentType={file.contentType}
-                size={file.size}
-              />
-            )
-          )}
+          {deliverables.map((file) => (
+            <ArtifactFileCard
+              key={file.artifactId}
+              artifactId={file.artifactId}
+              name={file.path}
+              contentType={file.contentType}
+              size={file.size}
+            />
+          ))}
         </div>
       )}
     </>

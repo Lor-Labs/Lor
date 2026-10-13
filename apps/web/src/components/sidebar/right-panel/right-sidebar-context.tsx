@@ -1,3 +1,4 @@
+import { useSearch } from "@tanstack/react-router"
 import {
   createContext,
   type ReactNode,
@@ -11,6 +12,9 @@ import type { RightSidebarView } from "@/components/sidebar/right-panel/right-si
 
 interface RightSidebarContextValue {
   view: RightSidebarView | null
+  // ?artifactId: an open file covers the view until it closes, on any page.
+  fileId: string | null
+  sizeClass: PanelSizeClass
   setView: (view: RightSidebarView | null) => void
   clearView: () => void
   consumeComposerDraft: (id: string) => void
@@ -26,6 +30,7 @@ const PANEL_WIDTH_KEYS = {
   wide: "lor-right-panel-width-wide",
   compact: "lor-right-panel-width-compact",
   rail: "lor-right-panel-width-rail",
+  file: "lor-right-panel-width-file",
 } as const
 
 /**
@@ -34,6 +39,7 @@ const PANEL_WIDTH_KEYS = {
  * fixed width. Each class remembers its own user-dragged width. Loop detail
  * is a reading surface too (full prompt text), so it rides the wide class.
  * A session's work rail opens narrow beside the session but resizes freely.
+ * An open file opens half the viewport and remembers its own width.
  */
 type PanelSizeClass = keyof typeof PANEL_WIDTH_KEYS
 
@@ -68,9 +74,11 @@ export function clampPanelWidth(
   return Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
 }
 
-export function sizeClassForView(
-  view: RightSidebarView | null
+function sizeClassFor(
+  view: RightSidebarView | null,
+  fileId: string | null
 ): PanelSizeClass {
+  if (fileId) return "file"
   if (view?.type === "thread" || view?.type === "loop") return "wide"
   return view?.type === "session-work" ? "rail" : "compact"
 }
@@ -126,8 +134,14 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     wide: COMPACT_DEFAULT_WIDTH,
     compact: COMPACT_DEFAULT_WIDTH,
     rail: RAIL_DEFAULT_WIDTH,
+    file: COMPACT_DEFAULT_WIDTH,
   })
   const [isHydrated, setIsHydrated] = useState(false)
+  const fileId =
+    useSearch({
+      strict: false,
+      select: (search) => search.artifactId,
+    }) ?? null
 
   // Hydrate from localStorage on mount
   useEffect(() => {
@@ -136,11 +150,17 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       wide: getStoredWidth("wide"),
       compact: getStoredWidth("compact"),
       rail: getStoredWidth("rail"),
+      file: getStoredWidth("file"),
     })
     setIsHydrated(true)
   }, [])
 
-  const sizeClass = sizeClassForView(view)
+  // Opening a file shows it even when the panel was collapsed.
+  useEffect(() => {
+    if (fileId) setIsCollapsed(false)
+  }, [fileId])
+
+  const sizeClass = sizeClassFor(view, fileId)
   const panelWidth =
     sizeClass === "compact"
       ? Math.min(widths.compact, COMPACT_MAX_WIDTH)
@@ -186,6 +206,8 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   const value = useMemo<RightSidebarContextValue>(
     () => ({
       view,
+      fileId,
+      sizeClass,
       setView,
       clearView,
       consumeComposerDraft,
@@ -197,6 +219,8 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     }),
     [
       view,
+      fileId,
+      sizeClass,
       clearView,
       consumeComposerDraft,
       isCollapsed,

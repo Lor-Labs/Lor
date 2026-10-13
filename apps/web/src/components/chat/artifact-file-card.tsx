@@ -1,6 +1,6 @@
 import { Attachment } from "@repo/ui/components/nexus-ui/attachments"
 import { cn } from "@repo/ui/lib/utils"
-import { useNavigate } from "@tanstack/react-router"
+import { useOpenFile } from "@/hooks/use-file-panel"
 import {
   formatFileSize,
   getFileKind,
@@ -9,8 +9,7 @@ import {
 
 // One file surface for artifacts everywhere: a `row` presents a deliverable
 // (Lor message endings, the plan panel's Files list), a `chip` packs into
-// tight spaces (plan card footer). Both open the artifact takeover viewer —
-// artifacts are the only files that do.
+// tight spaces (plan card footer). Both open the file in the right panel.
 export function ArtifactFileCard({
   artifactId,
   name,
@@ -26,15 +25,9 @@ export function ArtifactFileCard({
   variant?: "row" | "chip"
   className?: string
 }) {
-  const navigate = useNavigate()
+  const openFile = useOpenFile()
   const kind = getFileKind(contentType, name)
-
-  const open = () => {
-    void navigate({
-      to: ".",
-      search: (prev) => ({ ...prev, artifactId }),
-    })
-  }
+  const open = () => openFile(artifactId)
 
   if (variant === "chip") {
     const attachment = toAttachmentMeta({

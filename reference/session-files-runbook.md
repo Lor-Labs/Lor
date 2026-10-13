@@ -64,32 +64,33 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 - `packages/ui`: `FileTypeIcon` (custom SVG, extension → tone map) and the
   `FileChip` family, on Townhall tokens and Base UI `render`.
 
-#### Step 3: right-rail file panel on the session page (~400)
+#### Step 3: right-rail file panel, overlay deleted (+350 / −680)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
 
-- New `RightSidebarView` `{ type: "file", artifactId, back }`, its own size
-  class, opened from `?artifactId` on the session route.
-- `FilePanel`: back, name, rows × columns or version · size, version select,
-  Copy, Download, Open session, close. Body reuses `CsvGrid` and
+- `?artifactId` on any page opens `FilePanel` in the right panel, over the
+  current view (`RightSidebarPanel` reads `fileId` from the rail context).
+  It has its own remembered width (`file` size class) and expands a
+  collapsed panel. Mobile shows it as a full-width sheet.
+- `FilePanel`: back (or close when nothing is underneath), type icon, name,
+  rows × columns or version · size, version select, Open session (only for
+  another session's file), Copy, Download. Body reuses `CsvGrid` and
   `ArtifactBody`.
-- Remove the overlay and the CSV card `layoutId` from the session route.
+- `useOpenFile` / `useCloseFile` are the only way files open and close.
+- Deleted `ArtifactOverlay`, `use-artifact-conversation.ts`, the CSV
+  preview card (and with it the `layoutId` morph), and the channel route's
+  `artifactFrom` / `fileSearch` params.
 
-#### Step 4: file panel everywhere, overlay deleted (~350)
+#### Step 4: folded into Step 3
 
-[ ] built · [ ] committed
-
-- Channel route: `?artifactId` opens the file panel in the rail; the Files
-  list and loop panel open files there.
-- Delete `ArtifactOverlay`, `use-artifact-conversation.ts` and the channel
-  route's `artifactFrom` / `fileSearch` params.
+[x] see Step 3
 
 #### Step 5: chips everywhere (~350)
 
 [ ] built · [ ] committed
 
-- `ArtifactFileCard`, the CSV preview card, `WorkFileList` / `SourceRow`,
-  the Files list rows and upload tiles render the shared chip.
+- `ArtifactFileCard`, `WorkFileList` / `SourceRow`, the Files list rows and
+  upload tiles render the shared chip.
 
 #### Step 6: split `ThreadPanel` (~400, may split)
 
@@ -116,4 +117,11 @@ Tick each step's boxes as it lands and record departures in "Deviations".
   upload states, vertical layout and horizontal group until something needs
   them. `FileTypeIcon` adds presentation, image and media tones; generic
   files use `text-muted-foreground`.
+- Step 3 absorbed Step 4: once the panel read `?artifactId` from the URL on
+  every page, the overlay, its conversation hook and the channel-only params
+  had no callers left. It also pulled the CSV preview card's removal forward
+  from Step 5, since that card was the morph source. The file is URL state
+  over the current view, not a `RightSidebarView` with a back pointer:
+  closing a file needs no stored history, and deep links work unchanged.
+  Escape no longer closes a file.
 

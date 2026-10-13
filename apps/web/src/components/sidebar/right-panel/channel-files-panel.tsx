@@ -8,8 +8,8 @@ import { AttachmentLightbox } from "@/components/chat/message-attachment"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { AttachmentsSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
-import { useArtifactConversation } from "@/hooks/use-artifact-conversation"
 import { type ChannelFile, useChannelFiles } from "@/hooks/use-channel-files"
+import { useOpenFile } from "@/hooks/use-file-panel"
 import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { getFileKind } from "@/lib/attachments"
 
@@ -45,9 +45,8 @@ function FileRow({
   file: ChannelFile
   channelId: string
 }) {
-  const openArtifact = useArtifactConversation()
+  const openFile = useOpenFile()
   const [imageOpen, setImageOpen] = useState(false)
-  const { view } = useRightSidebar()
   const goToMessage = useMessageSearchNavigation()
   const source = file.conversation
   const contents = (
@@ -80,15 +79,7 @@ function FileRow({
           type="button"
           className={rowClass}
           onClick={() => {
-            if (file.artifactId)
-              openArtifact({
-                artifactId: file.artifactId,
-                channelId,
-                conversation: source,
-                from: "files",
-                fileSearch:
-                  view?.type === "attachments" ? (view.search ?? "") : "",
-              })
+            if (file.artifactId) openFile(file.artifactId)
           }}
         >
           {contents}
