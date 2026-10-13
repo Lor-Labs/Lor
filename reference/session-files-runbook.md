@@ -114,7 +114,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 5: chips everywhere (~350)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - `ArtifactFileCard` (Lor's files, opens the panel) and the new
   `UploadFileCard` (shared files, open in a new tab) are `FileChip`s; the
@@ -125,12 +125,29 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 - `getFileKind` and its Hugeicons glyph set are deleted; the composer's
   pending uploads stay on the Nexus tile.
 
-#### Step 6: split `ThreadPanel` (~400, may split)
+#### Step 6a: extract the shared conversation pieces (~350, moves)
+
+[x] built 2026-10-13 · [ ] committed
+
+No behavior change; `ThreadPanel` uses the extracted pieces.
+
+- `hooks/use-lor-run-controls.ts`: Lor's pending turn, Stop (including
+  before the real turn arrives), the run queue with steer, and replay.
+- `hooks/use-conversation-scroll.ts`: scroller refs, opening anchors,
+  scroll-on-send, jump to a message, and the reader pointer signal.
+- `components/chat/conversation-messages.tsx`: skeleton, grouped replies
+  and events, and the load-older sentinel, in `chat` or `document` layout.
+
+#### Step 6b: `SessionConversation` (~350)
 
 [ ] built · [ ] committed
 
-- Session conversation into `components/session/`; shared message-list
-  pieces stay shared.
+- `components/session/session-conversation.tsx` renders the session
+  document from the 6a pieces plus the existing hooks; `SessionView` uses it.
+- `ThreadPanel` loses `sessionView` / `SessionPresentation` and every
+  session branch: inline composer, toolbar target, heading, archived bar,
+  forward, turn rail, document typing, subscriber faces, optimistic Lor
+  turns and sidebar patches.
 
 #### Step 7: strip Lor from the right-panel thread (~300)
 

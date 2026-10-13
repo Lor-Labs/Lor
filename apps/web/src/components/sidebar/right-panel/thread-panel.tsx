@@ -19,16 +19,9 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@repo/ui/components/message-scroller"
-import { Skeleton } from "@repo/ui/components/skeleton"
-import { Spinner } from "@repo/ui/components/spinner"
 import { Tabs, TabsList, TabsTab } from "@repo/ui/components/tabs"
 import { anchoredToastManager, toast } from "@repo/ui/components/toast"
-import { cn } from "@repo/ui/lib/utils"
-import {
-  differenceInMinutes,
-  formatDateTime,
-  isSameDay,
-} from "@repo/utils/date"
+import { formatDateTime } from "@repo/utils/date"
 import {
   type InfiniteData,
   useQuery,
@@ -37,29 +30,24 @@ import {
 import { useNavigate } from "@tanstack/react-router"
 import {
   type ReactNode,
-  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react"
 import { useDropzone } from "react-dropzone"
-import { ChannelEventRow } from "@/components/chat/channel-event-row"
 import { MessageInput } from "@/components/chat/composer/message-input"
+import { ConversationMessages } from "@/components/chat/conversation-messages"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { ForwardDialog } from "@/components/chat/forward-dialog"
 import { MessageItem } from "@/components/chat/message-item"
 import { scrollToMessage } from "@/components/chat/message-list"
 import {
-  highlightMessage,
   jumpScrollBehavior,
   MessageScrollerCommandBridge,
   MessageScrollerJumpToLatest,
-  signalMessageScrollerInteraction,
-  useRegisteredMessageScroller,
 } from "@/components/chat/message-scroller-controls"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
@@ -88,8 +76,9 @@ import { useVoiceCall } from "@/context/voice-call-context"
 import { cachedSessionForThread } from "@/hooks/use-agent-session"
 import { useCallSummary } from "@/hooks/use-call-summary"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
+import { useConversationScroll } from "@/hooks/use-conversation-scroll"
 import { useFileUpload } from "@/hooks/use-file-upload"
-import { useLorRunReplay } from "@/hooks/use-lor-stream"
+import { useLorRunControls } from "@/hooks/use-lor-run-controls"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import {
   useChannelPeople,
@@ -98,22 +87,14 @@ import {
 import { useMessageDeletion } from "@/hooks/use-message-deletion"
 import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
-import {
-  useMessageLocation,
-  useMessageSearchNavigation,
-} from "@/hooks/use-message-search-navigation"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { usePlanArtifacts } from "@/hooks/use-plan"
-import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useReplyState } from "@/hooks/use-reply-state"
-import { useRunQueue } from "@/hooks/use-run-queue"
 import { useSessionStart } from "@/hooks/use-session-start"
-import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import {
   dropOptimisticLorTurns,
   type FetchPageParams,
   fetchThreadPage,
-  isOptimisticLorTurn,
   showOptimisticLorTurn,
   useThreadMessages,
 } from "@/hooks/use-thread-messages"
@@ -134,16 +115,8 @@ import type { Message } from "@/lib/api-types"
 import { channelQueryOptions } from "@/lib/channel-query"
 import { PLAN_STATUS_META } from "@/lib/plan-ui"
 
-const MESSAGE_GROUP_WINDOW_MINUTES = 5
 // How long a local Lor turn waits for the server's before it goes.
 const LOR_TURN_TIMEOUT_MS = 20_000
-
-const THREAD_SKELETON_GROUPS = [
-  { key: "a", nameWidth: "4.5rem", lines: ["75%", "40%"] },
-  { key: "b", nameWidth: "6rem", lines: ["55%"] },
-  { key: "c", nameWidth: "4rem", lines: ["85%", "30%"] },
-  { key: "d", nameWidth: "5.5rem", lines: ["50%"] },
-]
 
 type ChannelMessagesCache = InfiniteData<{ data: Message[] }> | undefined
 
@@ -210,8 +183,6 @@ export function ThreadPanel({
   const currentUserId = session?.user.id
 
   const navigate = useNavigate()
-  const { resolve: resolveMessageLocation } = useMessageLocation()
-  const navigateToMessage = useMessageSearchNavigation()
   const actionsMenuTriggerRef = useRef<HTMLButtonElement>(null)
 
   // Jump the main channel feed to the thread root. Scroll in place if it's
@@ -514,58 +485,21 @@ export function ThreadPanel({
     return [...seen.values()]
   }, [isPlan, rootMessage, messages])
 
-  // Opening a thread mid-run replays the durable trace into the thread cache.
-  useLorRunReplay({
+  const lorRun = useLorRunControls({
+    socket,
     queryClient,
     channelId: view.channelId,
-    messages: rootMessage ? [rootMessage, ...messages] : messages,
-  })
-
-  // Messages queued behind the active run — surfaced above the composer with
-  // steer/remove actions while Lor is working.
-  const pendingLorMessage = useMemo(
-    () => messages.find((message) => message.status === "pending"),
-    [messages]
-  )
-  const pendingLorMessageId = pendingLorMessage?.id
-  // The local Lor turn shown on send has no server id yet.
-  const serverPendingLorId =
-    pendingLorMessageId && !isOptimisticLorTurn(pendingLorMessageId)
-      ? pendingLorMessageId
-      : undefined
-  const stopLor = useStopLorRun()
-  const stopLorRun = stopLor.mutate
-  // Stop pressed before Lor's real turn arrived: sent once it does.
-  const [stopOnStart, setStopOnStart] = useState(false)
-  useEffect(() => {
-    if (!stopOnStart) return
-    if (!pendingLorMessage) setStopOnStart(false)
-    else if (serverPendingLorId) {
-      stopLorRun(pendingLorMessage)
-      setStopOnStart(false)
-    }
-  }, [stopOnStart, pendingLorMessage, serverPendingLorId, stopLorRun])
-  const { queuedIds, addOptimistic, removeOptimistic } = useRunQueue({
-    socket,
-    channelId: view.channelId,
     threadRootId: view.threadRootId,
-    pendingLorMessageId: serverPendingLorId,
-  })
-  useEffect(() => {
-    removeQueuedOptimisticRef.current = removeOptimistic
-  }, [removeOptimistic])
-  const queuedMessages = useMemo(
-    () =>
-      queuedIds
-        .map((id) => messages.find((m) => m.id === id))
-        .filter((m): m is Message => Boolean(m)),
-    [queuedIds, messages]
-  )
-  const queuedMessageSteering = useQueuedMessageSteering({
-    messages: queuedMessages,
+    messages,
+    rootMessage,
     currentUserId,
     pendingNonces,
   })
+  const { pendingLorMessage, queuedIds, queuedMessages, removeOptimistic } =
+    lorRun
+  useEffect(() => {
+    removeQueuedOptimisticRef.current = removeOptimistic
+  }, [removeOptimistic])
 
   const { handleReact } = useMessageReactions({
     socket,
@@ -766,146 +700,19 @@ export function ThreadPanel({
   )
   // First load: the skeleton shows, and a session's input line waits.
   const isAwaitingReplies = isLoading && orderedReplies.length === 0
-  // Anchors are only for the initial view of an existing thread. Freeze them
-  // from the first loaded snapshot so a message sent while this panel is open
-  // stays at the live edge instead of creating an empty anchored viewport.
-  const openingAnchorsRef = useRef({
+  const scroll = useConversationScroll({
     threadRootId: view.threadRootId,
-    initialized: false,
-    messageIds: new Set<string>(),
+    targetMessageId: view.targetMessageId,
+    messages,
+    isLoading,
+    ensureMessage,
   })
-  if (openingAnchorsRef.current.threadRootId !== view.threadRootId) {
-    openingAnchorsRef.current = {
-      threadRootId: view.threadRootId,
-      initialized: false,
-      messageIds: new Set<string>(),
-    }
-  }
-  if (!isLoading && !openingAnchorsRef.current.initialized) {
-    openingAnchorsRef.current.initialized = true
-    // Anchor only triggers of runs still streaming at open. The scroller pins
-    // an anchor to the top with a spacer below so the answer can grow into
-    // it — right for a live run, but anchoring a *completed* run from
-    // history leaves that spacer as a dead gap under the last message
-    // (thread opens with messages hoisted up and blank space above the
-    // composer). Finished threads open at the live edge instead.
-    openingAnchorsRef.current.messageIds = new Set(
-      messages
-        .filter((message) => message.status === "pending")
-        .map((message) => message.lorTriggerMessageId)
-        .filter((id): id is string => Boolean(id))
-    )
-  }
-  const openingLorTriggerMessageIds = openingAnchorsRef.current.messageIds
-
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const {
-    commandRef: messageScrollCommandRef,
-    register: registerScrollCommand,
-    scrollToEndRef,
-    registerScrollToEnd,
-  } = useRegisteredMessageScroller()
-  const [sendScrollVersion, setSendScrollVersion] = useState(0)
+  const { scrollRef, scrollToEndRef } = scroll
   // Session only: the bar under the document the inline composer's tools
   // render into.
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
     null
   )
-  useLayoutEffect(() => {
-    if (!sendScrollVersion) return
-    scrollToEndRef.current?.({ behavior: "auto" })
-    // Query notifications and composer resizing may land after the send commit.
-    const viewport = scrollRef.current
-    const frame = window.requestAnimationFrame(() => {
-      if (viewport && scrollRef.current === viewport) {
-        scrollToEndRef.current?.({ behavior: "auto" })
-      }
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [sendScrollVersion, scrollToEndRef])
-
-  // Scoped to this panel's scroll container so it never grabs the channel
-  // feed's copy of the same message id (the root appears in both).
-  const handleJumpWithinThread = useCallback(
-    (messageId: string) => {
-      const scrollToTarget = () => {
-        const didScroll =
-          messageScrollCommandRef.current?.(messageId, {
-            align: "center",
-            behavior: jumpScrollBehavior(),
-          }) ?? false
-        if (didScroll) {
-          window.requestAnimationFrame(() =>
-            highlightMessage(messageId, scrollRef.current ?? document)
-          )
-        }
-        return didScroll
-      }
-
-      if (scrollToTarget()) return
-      // Resolve the location first (cached; citations prefetch it on hover) so
-      // a message outside this thread navigates without a wasted thread fetch.
-      void (async () => {
-        const loc = await resolveMessageLocation(messageId)
-        if (loc && (loc.threadRootId ?? loc.messageId) !== view.threadRootId) {
-          navigateToMessage({
-            id: loc.messageId,
-            channelId: loc.channelId,
-            threadRootId: loc.threadRootId,
-            sessionId: loc.sessionId,
-          })
-          return
-        }
-        if (!(await ensureMessage(messageId))) {
-          toast.error("Couldn't find that message")
-          return
-        }
-        window.requestAnimationFrame(scrollToTarget)
-      })().catch(() => toast.error("Couldn't load that message"))
-    },
-    [
-      ensureMessage,
-      messageScrollCommandRef,
-      resolveMessageLocation,
-      navigateToMessage,
-      view.threadRootId,
-    ]
-  )
-
-  // Search results can deep-link to an older reply that is outside the
-  // thread's initial live-tail page. Load that slice, then center + highlight
-  // the exact result once the panel's scroller is ready.
-  useEffect(() => {
-    if (!view.targetMessageId) return
-    handleJumpWithinThread(view.targetMessageId)
-  }, [view.targetMessageId, handleJumpWithinThread])
-
-  const handleReaderPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      signalMessageScrollerInteraction(
-        event.target,
-        messageScrollCommandRef.current
-      )
-    },
-    [messageScrollCommandRef]
-  )
-  // Load-older sentinel at the top.
-  const olderSentinelRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const sentinel = olderSentinelRef.current
-    const container = scrollRef.current
-    if (!sentinel || !container || !hasOlder) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && !isFetchingOlder) {
-          void fetchOlder()
-        }
-      },
-      { root: container, rootMargin: "200px" }
-    )
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [hasOlder, isFetchingOlder, fetchOlder])
 
   // A session's heading renders once the oldest page is loaded; until then,
   // and once it scrolls away, the header carries the title.
@@ -1029,8 +836,8 @@ export function ThreadPanel({
         messages={queuedMessages}
         currentUserId={currentUserId}
         pendingNonces={pendingNonces}
-        onSteer={queuedMessageSteering.steerMessage}
-        steeringMessageId={queuedMessageSteering.steeringMessageId}
+        onSteer={lorRun.steering.steerMessage}
+        steeringMessageId={lorRun.steering.steeringMessageId}
         variant={sessionView ? "document" : "box"}
       />
       {/* Right above the reply line, like other people's draft lines. */}
@@ -1073,15 +880,12 @@ export function ThreadPanel({
         onSend={(content, options) => {
           const nonce = handleSend(content, options)
           if (nonce) showSendEffects(nonce, options)
-          // Retire opening anchors so a later resize cannot recapture them.
-          openingAnchorsRef.current.messageIds.clear()
-          scrollToEndRef.current?.({ behavior: "auto" })
-          setSendScrollVersion((version) => version + 1)
+          scroll.scrollAfterSend()
           // Lor is mid-answer in this thread, so a message for Lor will
           // queue — show it in the pill immediately instead of waiting for
           // the routed round trip.
-          if (nonce && pendingLorMessageId && !options?.toPeople) {
-            addOptimistic(nonce)
+          if (nonce && pendingLorMessage && !options?.toPeople) {
+            lorRun.addOptimistic(nonce)
           }
         }}
         currentUserId={currentUserId}
@@ -1095,22 +899,11 @@ export function ThreadPanel({
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
         onTyping={emitTyping}
-        onStop={
-          pendingLorMessage
-            ? () =>
-                serverPendingLorId
-                  ? stopLorRun(pendingLorMessage)
-                  : setStopOnStart(true)
-            : undefined
-        }
-        isStopping={
-          stopLor.isPending ||
-          stopOnStart ||
-          Boolean(pendingLorMessage?.stopRequested)
-        }
-        canSteerQueued={queuedMessageSteering.canSteerLatestOwnMessage}
-        onSteerQueued={queuedMessageSteering.steerLatestOwnMessage}
-        isSteeringQueued={queuedMessageSteering.isSteering}
+        onStop={lorRun.onStop}
+        isStopping={lorRun.isStopping}
+        canSteerQueued={lorRun.steering.canSteerLatestOwnMessage}
+        onSteerQueued={lorRun.steering.steerLatestOwnMessage}
+        isSteeringQueued={lorRun.steering.isSteering}
       />
     </>
   )
@@ -1220,13 +1013,13 @@ export function ThreadPanel({
         scrollPreviousItemPeek={64}
       >
         <MessageScrollerCommandBridge
-          register={registerScrollCommand}
-          registerScrollToEnd={registerScrollToEnd}
+          register={scroll.registerScrollCommand}
+          registerScrollToEnd={scroll.registerScrollToEnd}
         />
         <MessageScroller className="min-h-0 flex-1">
           <MessageScrollerViewport
             ref={scrollRef}
-            onPointerDown={handleReaderPointerDown}
+            onPointerDown={scroll.onReaderPointerDown}
             reconcileFollowOutput
             followOutputThreshold={64}
             className="[overflow-anchor:none]"
@@ -1243,7 +1036,7 @@ export function ThreadPanel({
               {rootMessageForRender && !isCallChat && !sessionView && (
                 <MessageScrollerItem
                   messageId={rootMessageForRender.id}
-                  scrollAnchor={openingLorTriggerMessageIds.has(
+                  scrollAnchor={scroll.openingLorTriggerMessageIds.has(
                     rootMessageForRender.id
                   )}
                   className="pt-2"
@@ -1258,7 +1051,7 @@ export function ThreadPanel({
                     onReply={setReplyingTo}
                     onDelete={handleDelete}
                     onEdit={handleEdit}
-                    onJumpToMessage={handleJumpWithinThread}
+                    onJumpToMessage={scroll.jumpToMessage}
                     mentionCandidates={mentionCandidates}
                   />
                 </MessageScrollerItem>
@@ -1281,110 +1074,27 @@ export function ThreadPanel({
                 </MessageScrollerItem>
               )}
 
-              {hasOlder && (
-                <MessageScrollerItem>
-                  <div
-                    ref={olderSentinelRef}
-                    className="flex justify-center py-3"
-                  >
-                    {isFetchingOlder && (
-                      <Spinner className="size-5 text-muted-foreground motion-reduce:animate-none" />
-                    )}
-                  </div>
-                </MessageScrollerItem>
-              )}
-
-              {isAwaitingReplies ? (
-                <MessageScrollerItem className="flex flex-col py-2">
-                  {THREAD_SKELETON_GROUPS.map((group) => (
-                    <div
-                      key={group.key}
-                      className={cn("px-4", sessionView ? "pt-3" : "py-1")}
-                    >
-                      <div className="flex gap-3">
-                        {/* A session's skeleton matches its document rows:
-                            a small gutter avatar and text, no name row. */}
-                        <Skeleton
-                          className={cn(
-                            "shrink-0 rounded-full",
-                            sessionView ? "-mt-0.5 size-7" : "mt-0.5 size-9"
-                          )}
-                        />
-                        <div className="flex-1 space-y-2">
-                          {!sessionView && (
-                            <div className="flex items-baseline gap-2">
-                              <Skeleton
-                                className="h-3 rounded"
-                                style={{ width: group.nameWidth }}
-                              />
-                              <Skeleton className="h-2.5 w-10 rounded" />
-                            </div>
-                          )}
-                          {group.lines.map((width, i) => (
-                            <Skeleton
-                              key={`${group.key}-${i}`}
-                              className="h-3 rounded"
-                              style={{ width }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </MessageScrollerItem>
-              ) : (
-                orderedReplies.map((msg, i) => {
-                  const prev = orderedReplies[i - 1]
-                  const isDateBoundary =
-                    !prev || !isSameDay(msg.createdAt, prev.createdAt)
-                  const isWithinGroupWindow =
-                    !!prev &&
-                    differenceInMinutes(msg.createdAt, prev.createdAt) <=
-                      MESSAGE_GROUP_WINDOW_MINUTES
-                  // Events (a loop's "ran on schedule" line) are muted rows
-                  // that break the author group, so Lor's reply after one
-                  // keeps its avatar.
-                  if (msg.type === "event") {
-                    return (
-                      <MessageScrollerItem key={msg.id} messageId={msg.id}>
-                        <ChannelEventRow
-                          events={[msg]}
-                          layout={sessionView ? "document" : "chat"}
-                        />
-                      </MessageScrollerItem>
-                    )
-                  }
-                  const showHeader =
-                    isDateBoundary ||
-                    !prev ||
-                    prev.authorId !== msg.authorId ||
-                    prev.type === "event" ||
-                    !isWithinGroupWindow
-                  return (
-                    <MessageScrollerItem
-                      key={msg.id}
-                      messageId={msg.id}
-                      scrollAnchor={openingLorTriggerMessageIds.has(msg.id)}
-                    >
-                      <MessageItem
-                        message={msg}
-                        showHeader={showHeader}
-                        wrapContentAroundAvatar={!sessionView}
-                        layout={sessionView ? "document" : "chat"}
-                        currentUserId={currentUserId}
-                        isReplyTarget={replyingTo?.id === msg.id}
-                        onReact={handleReact}
-                        onReply={setReplyingTo}
-                        onDelete={handleDelete}
-                        onEdit={handleEdit}
-                        onJumpToMessage={handleJumpWithinThread}
-                        mentionCandidates={mentionCandidates}
-                        onForward={sessionView ? setForwarding : undefined}
-                      />
-                    </MessageScrollerItem>
-                  )
-                })
-              )}
+              <ConversationMessages
+                layout={sessionView ? "document" : "chat"}
+                replies={orderedReplies}
+                isAwaitingReplies={isAwaitingReplies}
+                hasOlder={hasOlder}
+                isFetchingOlder={isFetchingOlder}
+                fetchOlder={fetchOlder}
+                scrollRef={scrollRef}
+                anchorIds={scroll.openingLorTriggerMessageIds}
+                replyingToId={replyingTo?.id}
+                itemProps={{
+                  currentUserId,
+                  onReact: handleReact,
+                  onReply: setReplyingTo,
+                  onDelete: handleDelete,
+                  onEdit: handleEdit,
+                  onJumpToMessage: scroll.jumpToMessage,
+                  mentionCandidates,
+                  onForward: sessionView ? setForwarding : undefined,
+                }}
+              />
 
               {/* Inline input line: the document's last line, reached by
                   scrolling to the end like any document (never pinned). */}
