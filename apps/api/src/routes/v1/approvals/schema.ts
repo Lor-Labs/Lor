@@ -38,6 +38,12 @@ export const channelApprovalsParamsSchema = z.object({
     }),
 })
 
+// A session's approvals in any state, so each card shows how it was resolved;
+// without it, the channel's pending ones.
+export const channelApprovalsQuerySchema = z.object({
+  threadRootId: z.string().uuid().optional(),
+})
+
 export const approvalResolverSchema = z.object({
   kind: z.enum(approvalResolverKindEnum.enumValues),
   role: z.string().optional(),

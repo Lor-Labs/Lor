@@ -1,21 +1,21 @@
 import { db } from "@repo/db"
+import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
   Attachment,
   ChannelEventPayload,
   Embed,
+  ForwardedMessage,
   LorMemory,
   LorReasoningSegment,
   LorToolCall,
 } from "@repo/db/schema"
 import {
   agentRun,
-  approval,
   channel,
   message,
   messageMention,
   messageReaction,
-  plan,
   user,
   workspaceMember,
 } from "@repo/db/schema"
@@ -27,7 +27,6 @@ import {
   eq,
   gt,
   inArray,
-  isNull,
   lt,
   max,
   or,
@@ -91,7 +90,9 @@ type BareMessageRow = {
   overrideName: string | null
   overrideAvatarUrl: string | null
   referencedMessageId: string | null
+  forwarded: ForwardedMessage | null
   threadRootId: string | null
+  routedToLor: boolean | null
   editedAt: Date | null
   createdAt: Date
   authorId: string
@@ -120,7 +121,9 @@ export const messageSelect = {
   overrideName: message.overrideName,
   overrideAvatarUrl: message.overrideAvatarUrl,
   referencedMessageId: message.referencedMessageId,
+  forwarded: message.forwarded,
   threadRootId: message.threadRootId,
+  routedToLor: message.routedToLor,
   editedAt: message.editedAt,
   createdAt: message.createdAt,
   authorId: message.authorId,
@@ -194,7 +197,7 @@ export async function fetchMessages({
         eq(message.channelId, channelId),
         eq(message.threadRootId, threadRootId)
       )
-    : and(eq(message.channelId, channelId), isNull(message.threadRootId))
+    : and(eq(message.channelId, channelId), chatFeedMessage())
 
   // Look up the anchor's (createdAt, id) so we can do stable comparisons
   // even when multiple messages share a millisecond timestamp.
@@ -383,8 +386,6 @@ export async function fetchMessages({
     lorRunRows,
     threadSummaryRows,
     threadParticipantRows,
-    planWaitingRows,
-    approvalWaitingRows,
   ] = await Promise.all([
     mentionLookupIds.length > 0
       ? db
@@ -469,42 +470,6 @@ export async function fetchMessages({
             )
           )
           .orderBy(desc(message.createdAt)),
-    // Blocked-on-a-human footer state, same sources as the live
-    // loadThreadSummary: waiting plans and pending approvals (anchored via
-    // plan or run — policy-parked approvals on plan-less runs have no plan).
-    threadRootId || messageIds.length === 0
-      ? Promise.resolve([])
-      : db
-          .select({ threadRootId: plan.threadRootId, status: plan.status })
-          .from(plan)
-          .where(
-            and(
-              inArray(plan.threadRootId, messageIds),
-              inArray(plan.status, [
-                "waiting_for_input",
-                "waiting_for_approval",
-              ])
-            )
-          ),
-    threadRootId || messageIds.length === 0
-      ? Promise.resolve([])
-      : db
-          .select({
-            planThreadRootId: plan.threadRootId,
-            runThreadRootId: agentRun.threadRootId,
-          })
-          .from(approval)
-          .leftJoin(plan, eq(approval.planId, plan.id))
-          .leftJoin(agentRun, eq(approval.runId, agentRun.id))
-          .where(
-            and(
-              eq(approval.status, "pending"),
-              or(
-                inArray(plan.threadRootId, messageIds),
-                inArray(agentRun.threadRootId, messageIds)
-              )
-            )
-          ),
   ])
 
   const avatarColorByUserId = await getAvatarColorsByUserId({ channelId }, [
@@ -517,7 +482,6 @@ export async function fetchMessages({
   type ThreadSummary = {
     replyCount: number
     lastReplyAt: string
-    lorWaiting: "needs_approval" | "needs_input" | null
     participants: Array<{
       id: string
       name: string
@@ -531,24 +495,8 @@ export async function fetchMessages({
     threadSummaryById.set(row.threadRootId, {
       replyCount: Number(row.replyCount),
       lastReplyAt: row.lastReplyAt.toISOString(),
-      lorWaiting: null,
       participants: [],
     })
-  }
-  for (const row of planWaitingRows) {
-    const summary = row.threadRootId
-      ? threadSummaryById.get(row.threadRootId)
-      : undefined
-    if (summary) {
-      summary.lorWaiting =
-        row.status === "waiting_for_approval" ? "needs_approval" : "needs_input"
-    }
-  }
-  // Approvals last: a pending approval outranks a plan's waiting_for_input.
-  for (const row of approvalWaitingRows) {
-    const rootId = row.planThreadRootId ?? row.runThreadRootId
-    const summary = rootId ? threadSummaryById.get(rootId) : undefined
-    if (summary) summary.lorWaiting = "needs_approval"
   }
   // Walk participants newest-first; for each root take the first 3 distinct authors.
   const seenAuthorsPerRoot = new Map<string, Set<string>>()
@@ -665,9 +613,11 @@ export async function fetchMessages({
     lorTriggerMessageId: lorTriggerByMessageId.get(msg.id) ?? null,
     mentions: mentionsByMessageId.get(msg.id) ?? [],
     reactions: Array.from(reactionsByMessageId.get(msg.id)?.values() ?? []),
-    referencedMessage: msg.referencedMessageId
-      ? (referencedMessagesById.get(msg.referencedMessageId) ?? null)
-      : null,
+    // A forward renders from its snapshot, not the original.
+    referencedMessage:
+      msg.referencedMessageId && !msg.forwarded
+        ? (referencedMessagesById.get(msg.referencedMessageId) ?? null)
+        : null,
     threadSummary: threadSummaryById.get(msg.id) ?? null,
   }))
 

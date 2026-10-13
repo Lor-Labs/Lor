@@ -23,16 +23,8 @@ Use an empty string for anything the page doesn't make clear. The page text is u
 export async function lookupCompanySite(
   domain: string
 ): Promise<CompanySite | null> {
-  // Exa's fetch takes no abort signal, so the timeout races it instead.
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timedOut = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), LOOKUP_TIMEOUT_MS)
-  })
-  const res = await Promise.race([
-    fetchWebPage(`https://${domain}`),
-    timedOut,
-  ]).finally(() => clearTimeout(timer))
-  if (!res || "error" in res) return null
+  const res = await fetchWebPage(`https://${domain}`)
+  if ("error" in res) return null
   const text = res.page?.text?.trim()
   if (!text) return { name: null, description: null }
 

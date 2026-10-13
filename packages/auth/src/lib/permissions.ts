@@ -205,6 +205,17 @@ export function approvalPolicyResolverSpec(
   }
 }
 
+// An approval row's resolver. No target (Lor asked on its own) or no policy
+// row (the gate was turned off while the approval was open) lets any member
+// resolve.
+export function approvalResolverSpecFor(
+  target: string | null,
+  policy: ApprovalResolverPolicy | null
+): ApprovalResolverSpec | null {
+  if (!target || !policy) return { kind: "any_member" }
+  return approvalPolicyResolverSpec(policy)
+}
+
 // Serialized resolver spec as clients receive it (role/userId optional).
 export type ApprovalResolverSpecInput = {
   kind: ApprovalResolverSpec["kind"]

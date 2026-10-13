@@ -1,20 +1,34 @@
 import { and, db, eq, inArray, schema } from "@repo/db"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
   type ApprovalNotification,
   buildApprovalNotificationContent,
+  buildCallSummaryNotificationContent,
   buildNotificationConversationName,
   buildNotificationTitle,
   buildProposalNotificationContent,
   buildReactionNotificationBody,
+  buildSubscribedNotificationContent,
+  type CallSummaryNotification,
   PRESENCE_ONLINE_USERS_SET_KEY,
   type ProposalNotification,
   type ReactionNotification,
-  shouldNotifyForLorThread,
+  type SubscribedNotification,
   type UnreadNotification,
 } from "@repo/realtime-types"
 
 // A push for someone mentioned from a live call they aren't in.
 export type CallMentionPush = Omit<UnreadNotification, "messageId">
+
+// Phones open a Lor session as its own page: its thread root is a hidden
+// anchor that a thread screen can't show.
+async function sessionData(
+  threadRootId: string | null
+): Promise<Record<string, string>> {
+  if (!threadRootId) return {}
+  const session = await findAgentSessionByThreadRoot(threadRootId)
+  return session ? { sessionId: session.id } : {}
+}
 
 // Structural subset of the node-redis client so realtime, worker, and api can
 // all pass their own instance without this package depending on "redis".
@@ -141,8 +155,6 @@ export async function sendMessagePushNotifications(input: {
       desktopNotifications:
         schema.userNotificationSettings.desktopNotifications,
       dmNotifications: schema.userNotificationSettings.dmNotifications,
-      lorThreadNotifications:
-        schema.userNotificationSettings.lorThreadNotifications,
     })
     .from(schema.userNotificationSettings)
     .where(
@@ -155,7 +167,7 @@ export async function sendMessagePushNotifications(input: {
   const mentionedUserIds = new Set(
     input.fanout.mentionNotifications.map((notification) => notification.userId)
   )
-  // An explicit @-mention outrides the Lor-thread ambience preference.
+  // An explicit @-mention notifies even outside the thread's subscribers.
   const directMentionUserIds = new Set(
     input.fanout.mentionNotifications
       .filter((notification) => notification.payload.type === "direct_mention")
@@ -194,11 +206,8 @@ export async function sendMessagePushNotifications(input: {
       return (settings?.dmNotifications ?? "all_messages") !== "nothing"
     }
     if (
-      !directMentionUserIds.has(recipient.userId) &&
-      !shouldNotifyForLorThread(
-        settings?.lorThreadNotifications ?? "all_activity",
-        recipient.payload
-      )
+      !recipient.payload.notify &&
+      !directMentionUserIds.has(recipient.userId)
     ) {
       return false
     }
@@ -252,6 +261,7 @@ export async function sendMessagePushNotifications(input: {
           channelId: payload.channelId,
           workspaceId: payload.workspaceId,
           threadRootId: payload.threadRootId,
+          ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
           ...("messageId" in payload ? { messageId: payload.messageId } : {}),
           senderId: payload.authorUserId,
           senderName: payload.authorName,
@@ -315,6 +325,7 @@ export async function sendReactionPushNotification(input: {
   if (tokens.length === 0) return
 
   const conversationName = buildNotificationConversationName(input.notification)
+  const session = await sessionData(input.notification.threadRootId)
   await deliverExpoPush(
     tokens.map((row) => ({
       to: row.token,
@@ -336,6 +347,7 @@ export async function sendReactionPushNotification(input: {
         channelId: input.notification.channelId,
         workspaceId: input.notification.workspaceId,
         threadRootId: input.notification.threadRootId,
+        ...session,
         messageId: input.notification.messageId,
         emoji: input.notification.emoji,
         senderId: input.notification.actorUserId,
@@ -405,6 +417,7 @@ export async function sendApprovalPush(input: {
       workspaceId: input.notification.workspaceId,
       channelId: input.notification.channelId,
       threadRootId: input.notification.threadRootId,
+      ...(await sessionData(input.notification.threadRootId)),
       messageId: input.notification.messageId,
     },
   })
@@ -427,8 +440,99 @@ export async function sendProposalPush(input: {
       proposalId: input.notification.proposalId,
       workspaceId: input.notification.workspaceId,
       channelId: input.notification.channelId,
-      threadRootId: null,
+      threadRootId: input.notification.threadRootId,
+      ...(await sessionData(input.notification.threadRootId)),
       messageId: input.notification.cardMessageId,
+    },
+  })
+}
+
+// Directed pings that notify like a mention: a channel mute or the "nothing"
+// level silences them.
+async function unmutedUserIds(
+  userIds: string[],
+  channelId: string
+): Promise<string[]> {
+  if (userIds.length === 0) return []
+  const [silent, mutes] = await Promise.all([
+    db
+      .select({ userId: schema.userNotificationSettings.userId })
+      .from(schema.userNotificationSettings)
+      .where(
+        and(
+          inArray(schema.userNotificationSettings.userId, userIds),
+          eq(schema.userNotificationSettings.desktopNotifications, "nothing")
+        )
+      ),
+    db
+      .select({
+        userId: schema.channelMute.userId,
+        mutedUntil: schema.channelMute.mutedUntil,
+      })
+      .from(schema.channelMute)
+      .where(
+        and(
+          eq(schema.channelMute.channelId, channelId),
+          inArray(schema.channelMute.userId, userIds)
+        )
+      ),
+  ])
+  const skip = new Set([
+    ...silent.map((row) => row.userId),
+    ...mutes
+      .filter(
+        (mute) => !mute.mutedUntil || mute.mutedUntil.getTime() > Date.now()
+      )
+      .map((mute) => mute.userId),
+  ])
+  return userIds.filter((userId) => !skip.has(userId))
+}
+
+// Being added as a subscriber pushes like a mention.
+export async function sendSubscribedPush(input: {
+  userId: string
+  notification: SubscribedNotification
+  redis: PresenceRedisClient
+}) {
+  const { notification } = input
+  const userIds = await unmutedUserIds([input.userId], notification.channelId)
+  const { title, body } = buildSubscribedNotificationContent(notification)
+  await sendDirectedPush({
+    userIds,
+    redis: input.redis,
+    title,
+    body,
+    data: {
+      type: "subscribed",
+      workspaceId: notification.workspaceId,
+      channelId: notification.channelId,
+      threadRootId: notification.threadRootId,
+      ...(notification.sessionId ? { sessionId: notification.sessionId } : {}),
+      messageId: null,
+    },
+  })
+}
+
+// Lor finished a call's summary: everyone who was in the call, like a
+// mention. Phones open the call on its Summary tab.
+export async function sendCallSummaryPush(input: {
+  userIds: string[]
+  notification: CallSummaryNotification
+  redis: PresenceRedisClient
+}) {
+  const { notification } = input
+  const { title, body } = buildCallSummaryNotificationContent(notification)
+  await sendDirectedPush({
+    userIds: await unmutedUserIds(input.userIds, notification.channelId),
+    redis: input.redis,
+    title,
+    body,
+    data: {
+      type: "call_summary",
+      workspaceId: notification.workspaceId,
+      channelId: notification.channelId,
+      threadRootId: notification.threadRootId,
+      messageId: null,
     },
   })
 }

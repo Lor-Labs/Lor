@@ -8,8 +8,10 @@
     "./call-transcript": "./src/call-transcript.ts",
     "./events": "./src/events.ts",
     "./loops": "./src/loops.ts",
+    "./mentions": "./src/mentions.ts",
     "./queues": "./src/queues.ts",
     "./rooms": "./src/rooms.ts",
+    "./sessions": "./src/sessions.ts",
     "./uploads": "./src/uploads.ts",
     "./voice-presence": "./src/voice-presence.ts",
     "./voice-requests": "./src/voice-requests.ts"

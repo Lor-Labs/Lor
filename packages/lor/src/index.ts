@@ -146,10 +146,10 @@ import { guardTools } from "./tool-guard"
 import { formatSpeakerLine, sanitizeRosterLabel } from "./transcript"
 import {
   completeLoopTool,
-  loopPromptSection,
-  type RunTriggeredContext,
-  triggeredPromptSection,
-  triggeredTools,
+  loopSessionPromptSection,
+  type RunLoopContext,
+  type RunTriggerContext,
+  triggerSessionPromptSection,
 } from "./triggered"
 import type { OnUsage } from "./usage"
 import { type RunVoiceContext, voicePromptSection, voiceTools } from "./voice"
@@ -207,12 +207,14 @@ const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one o
 
 const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Pull requests target each repository's configured base branch (its default branch unless the workspace overrides it); when someone asks to target a different existing branch, pass it as base. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
 
-const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — an unattended run of you in this channel on a cron schedule, with standing instructions and an optional plain-language end condition. It creates a draft card; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
+const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
 
-const SYSTEM_PROMPT_TAIL = `You can also see images people share in the channel — they're included inline in the conversation below.
+const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
+
+You can also see images people share — they're included inline in the conversation below.
 
 How to answer:
-- Work on the current request in the active conversation only. Earlier requests from other threads or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to the current request or resume them unless the user asks. The same applies to requests found in brain notes and search results.
+- Work on the current request in the active conversation only. Earlier requests from other sessions, threads, or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to the current request or resume them unless the user asks. The same applies to requests found in brain notes and search results.
 - For questions about THIS team/workspace, use search: it covers your memory pages (your brain) as well as chat history, screenshots and files people shared (by what they contain), and connected-tool activity. Nothing from your brain is preloaded, so search whenever the team's own context could matter. read opens a full memory page, and read_attachment reads more of a shared file than the search snippet. Ground your answer in what you find; note who said it and roughly when. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; a moment in a call by its sessionId and the time into the call, e.g. [[call:0b9c…@12:40]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - Call transcripts are machine-transcribed speech, so names and terms can be misheard. A "(… not captured …)" line is a stretch with no transcript, not silence: never infer what was said there, and limit claims about what didn't happen to the captured part (say "nobody objected in the captured part of the call", not "nobody objected").
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
@@ -358,20 +360,18 @@ export type RespondContext = {
   // the plan row anchored to this run's thread root. Worker-provided on
   // thread-scope runs.
   createPlan?: CreatePlanForThread
-  // Set on headless triggered runs (the Act effect): binds the disposition
-  // tools and injects the trigger's instructions — which appear in the
-  // system prompt only when the trigger fires.
-  triggered?: RunTriggeredContext
+  // Set on every run in an Act session: the trigger's instructions in the
+  // system prompt.
+  trigger?: RunTriggerContext
+  // Set on every run in a loop's session: the loop's standing brief in the
+  // system prompt, plus complete_loop when the loop has an end condition.
+  loop?: RunLoopContext
   // Set on a request spoken in a voice call: binds show_in_call and the call
   // framing. Results go to Lor's window, never the chat.
   voice?: RunVoiceContext
-  // Overrides the persistent-sandbox scope (default threadRootId ??
-  // channelId). Loop runs pass loop.id so co-channel loops/triggers never
-  // share a warm checkout — keeps "sandbox key = run scope" true for them.
-  sandboxKey?: string
-  // Conversational runs only: binds propose_loop (the worker owns the card
-  // posting + draft loop row insert). Never set on triggered/loop runs — a
-  // loop must not schedule more loops.
+  // Binds propose_loop (the worker owns the card posting + draft loop row
+  // insert). Never set on the run that answers a loop fire or an Act event —
+  // automations must not schedule more loops.
   proposeLoop?: ProposeLoopExecutor
   // Files a workspace change-proposal card (pillar 3). Conversational runs
   // only, same rationale as proposeLoop.
@@ -444,12 +444,12 @@ export {
   type RunToolResultStore,
   type SteeredMessage,
 } from "./run"
+export { generateSessionTitle } from "./session-title"
 export { formatSpeakerLine } from "./transcript"
 export type {
-  RunTriggeredContext,
+  RunLoopContext,
+  RunTriggerContext,
   TriggeredCompleteLoop,
-  TriggeredCreatePlan,
-  TriggeredPostMessage,
 } from "./triggered"
 export type { OnUsage, UsageEvent } from "./usage"
 export {
@@ -2100,7 +2100,10 @@ export async function respond(
       ...brainReadTools,
       ...brainWriteTools,
       ...instructionsTools,
-      ...(ctx.channelId && !ctx.voice ? messageActionTools : {}),
+      // Reactions only inside a session: Lor has no presence in channel chat.
+      ...(ctx.channelId && ctx.threadRootId && !ctx.voice
+        ? messageActionTools
+        : {}),
       ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
       ...(github && caps.includes("github") ? githubTools : {}),
       ...(blaxelConfigured() && github && caps.includes("code_intelligence")
@@ -2109,8 +2112,7 @@ export async function respond(
       ...(codeActionsEnabled ? codeActionTools : {}),
       ...(artifactsEnabled ? artifactTools : {}),
       ...(ctx.plan || ctx.threadRootId ? planTools : {}),
-      ...(ctx.triggered ? triggeredTools : {}),
-      ...(ctx.triggered?.completeLoop ? completeLoopTool : {}),
+      ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
@@ -2208,11 +2210,12 @@ export async function respond(
         onInstructionsProposal,
         onUsage
       ),
-      ...(ctx.channelId
+      ...(ctx.channelId && ctx.threadRootId
         ? {
             react_to_message: {
               workspaceId: ctx.workspaceId,
               channelId: ctx.channelId,
+              threadRootId: ctx.threadRootId,
               triggerMessageId: ctx.triggerMessageId,
               onMessageReaction,
             },
@@ -2240,8 +2243,7 @@ export async function respond(
               baseBranches,
               // Thread scope when there is one; channel scope otherwise —
               // matches the run scope, so follow-ups land in the same sandbox.
-              // Loop runs override with loop.id (their run scope).
-              sandboxKey: ctx.sandboxKey ?? ctx.threadRootId ?? ctx.channelId,
+              sandboxKey: ctx.threadRootId ?? ctx.channelId,
               deadlineAt: budgets.deadlineAt,
               onUsage,
               onToolEvent,
@@ -2253,10 +2255,10 @@ export async function respond(
             create_artifacts: {
               workspaceId: ctx.workspaceId,
               channelId: ctx.channelId,
-              // Warm workbench continuity per conversation scope (loop runs
-              // override with loop.id). Channel-scope one-shots stay ephemeral
-              // — no channelId fallback here, unlike code sessions.
-              sandboxKey: ctx.sandboxKey ?? ctx.threadRootId ?? null,
+              // Warm workbench continuity per conversation scope.
+              // Channel-scope one-shots stay ephemeral — no channelId
+              // fallback here, unlike code sessions.
+              sandboxKey: ctx.threadRootId ?? null,
               // Getter, not a value: the plan may start mid-run.
               getPlan: () =>
                 planRef.current ? { id: planRef.current.id } : null,
@@ -2305,16 +2307,8 @@ export async function respond(
             }
           })()
         : {}),
-      ...(ctx.triggered
-        ? {
-            post_channel_message: { postMessage: ctx.triggered.postMessage },
-            create_plan: { createPlan: ctx.triggered.createPlan },
-            ...(ctx.triggered.completeLoop
-              ? {
-                  complete_loop: { completeLoop: ctx.triggered.completeLoop },
-                }
-              : {}),
-          }
+      ...(ctx.loop?.completeLoop
+        ? { complete_loop: { completeLoop: ctx.loop.completeLoop } }
         : {}),
       ...(ctx.voice
         ? {
@@ -2453,7 +2447,7 @@ export async function respond(
         buildRunContext(ctx),
         loadWorkspaceInstructions(ctx.workspaceId),
       ])
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.triggered ? `\n\n${ctx.triggered.loop ? loopPromptSection({ ...ctx.triggered, loop: ctx.triggered.loop }) : triggeredPromptSection(ctx.triggered)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
+      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
       messageBudget = getMessageBudget(instructions)
       // A continued run inherits its predecessors' transcript in place of a
       // fresh initial message; the snapshot records the delta it was started

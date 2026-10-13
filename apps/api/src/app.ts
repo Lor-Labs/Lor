@@ -28,6 +28,8 @@ import projectsRouter from "@/routes/v1/projects/index"
 import proposalsRouter from "@/routes/v1/proposals/index"
 import pushTokensRouter from "@/routes/v1/push-tokens/index"
 import runsRouter from "@/routes/v1/runs/index"
+import sessionsRouter from "@/routes/v1/sessions/index"
+import threadSubscriptionsRouter from "@/routes/v1/thread-subscriptions/index"
 import uploadsRouter from "@/routes/v1/uploads/index"
 import usersRouter from "@/routes/v1/users/index"
 import voiceRouter from "@/routes/v1/voice/index"
@@ -93,6 +95,8 @@ const routes = app
   .route("/v1", runsRouter)
   .route("/v1", artifactsRouter)
   .route("/v1", plansRouter)
+  .route("/v1", sessionsRouter)
+  .route("/v1", threadSubscriptionsRouter)
   .route("/v1", approvalsRouter)
   .route("/v1", approvalPoliciesRouter)
   .route("/v1", proposalsRouter)

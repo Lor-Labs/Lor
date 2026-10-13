@@ -210,7 +210,7 @@ const startPlanContext = z.object({
 export const planTools = {
   start_plan: tool({
     description:
-      "Turn this thread's request into a tracked plan: a live card the team watches while you work. Call it BEFORE starting substantial delegated work with a deliverable outcome — produce or transform files, analyze data and deliver results, write a document or report, complete multi-step work. Never for questions (even hard ones), quick answers, code changes (propose_code_change handles those), or recurring/scheduled work (loop tools handle those). Pass a short imperative title like an issue title, the goal in one or two sentences, and your initial steps. Call it ALONE and wait for its result before any other plan tool — update_plan/complete_plan in the same parallel batch will fail.",
+      "Turn this conversation's request into a tracked plan the team watches live while you work. Call it BEFORE starting substantial delegated work with a deliverable outcome — produce or transform files, analyze data and deliver results, write a document or report, complete multi-step work. Never for questions (even hard ones), quick answers, code changes (propose_code_change handles those), or recurring/scheduled work (loop tools handle those). Pass a short imperative title like an issue title, the goal in one or two sentences, and your initial steps. Call it ALONE and wait for its result before any other plan tool — update_plan/complete_plan in the same parallel batch will fail.",
     inputSchema: z.object({
       title: z
         .string()
@@ -247,7 +247,7 @@ export const planTools = {
       return {
         ok: true,
         planId: row.id,
-        note: "plan started — the team sees the card and steps live; keep it current with update_plan and finish with complete_plan",
+        note: "plan started — the team sees the plan and its steps live; keep it current with update_plan and finish with complete_plan",
       }
     },
     strict: true,
@@ -255,7 +255,7 @@ export const planTools = {
 
   update_plan: tool({
     description:
-      "Replace the plan's step checklist — the team sees it live on the plan card. Call it when you first break the work down, and again whenever a step's status changes (mark steps done as you finish them, active while you work on them). Pass the FULL list of steps every time; it replaces the previous one. A step may carry a `description`: ONE short clause (under 120 chars) adding context the label itself doesn't convey — pass null for every other step, which is most of them. Preserve the descriptions already on the steps when you resend them.",
+      "Replace the plan's step checklist — the team sees it live. Call it when you first break the work down, and again whenever a step's status changes (mark steps done as you finish them, active while you work on them). Pass the FULL list of steps every time; it replaces the previous one. A step may carry a `description`: ONE short clause (under 120 chars) adding context the label itself doesn't convey — pass null for every other step, which is most of them. Preserve the descriptions already on the steps when you resend them.",
     inputSchema: z.object({
       steps: z.array(stepSchema).min(1).max(MAX_STEPS),
     }),
@@ -303,7 +303,7 @@ export const planTools = {
 
   complete_plan: tool({
     description:
-      "Mark the plan completed, with a one-line summary of what was delivered. Call this ONLY when the work is genuinely done and the deliverables exist — never to give up (just explain instead; the plan stays open for the team). The summary is a headline on the plan card, not a report: ONE sentence (two at most, 300 chars hard limit) naming what the team now has and anything they must know. No methodology, no per-file walkthrough, no restating counts or filenames — delivered files are already linked on the card. Put the detail in the final message you write straight after this call.",
+      "Mark the plan completed, with a one-line summary of what was delivered. Call this ONLY when the work is genuinely done and the deliverables exist — never to give up (just explain instead; the plan stays open for the team). The summary is the plan's headline, not a report: ONE sentence (two at most, 300 chars hard limit) naming what the team now has and anything they must know. No methodology, no per-file walkthrough, no restating counts or filenames — delivered files are already linked on the plan. Put the detail in the final message you write straight after this call.",
     inputSchema: z.object({
       summary: z
         .string()

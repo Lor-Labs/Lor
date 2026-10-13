@@ -30,6 +30,7 @@ export type ChannelEventContentInput =
       reason: "failures" | "out_of_credits"
     }
   | { eventType: "loop_completed"; actorName: string; loopName: string }
+  | { eventType: "loop_run"; loopName: string }
 
 export function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ""
@@ -64,5 +65,7 @@ export function channelEventContent(input: ChannelEventContentInput): string {
         : `The loop "${input.loopName}" was paused after repeated failures`
     case "loop_completed":
       return `${input.actorName} completed the loop "${input.loopName}"`
+    case "loop_run":
+      return `The loop "${input.loopName}" ran on schedule`
   }
 }

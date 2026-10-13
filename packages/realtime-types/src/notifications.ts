@@ -3,25 +3,6 @@ export type NotificationConversationContext = {
   workspaceName: string | null
 }
 
-export type LorThreadNotificationPreference = "all_activity" | "subscribed_only"
-
-export type LorThreadNotificationContext = {
-  threadRootId: string | null
-  isLorThread: boolean
-  isSubscribedToThread: boolean
-}
-
-export function shouldNotifyForLorThread(
-  preference: LorThreadNotificationPreference,
-  context: LorThreadNotificationContext
-): boolean {
-  return (
-    !context.isLorThread ||
-    preference === "all_activity" ||
-    context.isSubscribedToThread
-  )
-}
-
 export function buildNotificationConversationName(
   context: NotificationConversationContext
 ): string | null {
@@ -70,6 +51,32 @@ export function buildProposalNotificationContent(input: {
       rationale.length > 140
         ? `${rationale.slice(0, 140)}…`
         : rationale || "Review the proposal card to approve or reject it.",
+  }
+}
+
+// "Ana added you to …" on the web OS notification and the mobile push.
+export function buildSubscribedNotificationContent(input: {
+  actorName: string
+  channelName: string
+  title: string | null
+}): { title: string; body: string } {
+  return {
+    title: `${input.actorName} added you to ${input.title ? "a session" : "a thread"}`,
+    body: input.title
+      ? `${input.title} in #${input.channelName}`
+      : `In #${input.channelName}`,
+  }
+}
+
+// "Call summary: #general-vc" on the web OS notification and the mobile push;
+// the body is the summary's title.
+export function buildCallSummaryNotificationContent(input: {
+  channelName: string
+  title: string
+}): { title: string; body: string } {
+  return {
+    title: `Call summary: #${input.channelName}`,
+    body: input.title,
   }
 }
 

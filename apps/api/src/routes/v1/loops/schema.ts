@@ -123,7 +123,10 @@ export const loopRunSchema = z.object({
   scheduledFor: z.string().nullable(),
   createdAt: z.string(),
   finishedAt: z.string().nullable(),
+  // The handoff note, or for a run in the loop's session, its reply there.
   note: z.string().nullable(),
+  // Answered in the loop's session: the row opens the session.
+  inSession: z.boolean(),
   creditsSpent: z.number().int(),
   // Distinct side-effecting tools the run executed — the mechanical account
   // that survives a run dying before it wrote a note.
@@ -141,6 +144,8 @@ export const loopRunSchema = z.object({
 })
 
 export const listLoopRunsResponseSchema = z.object({
+  // The loop's session, once it has one.
+  sessionId: z.string().uuid().nullable(),
   runs: z.array(loopRunSchema),
 })
 

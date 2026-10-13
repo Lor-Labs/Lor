@@ -45,6 +45,7 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "update_plan",
   "complete_plan",
   "request_approval",
+  // Removed Act tools: old run transcripts still hold their calls.
   "post_channel_message",
   "create_plan",
   "search_linear",

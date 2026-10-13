@@ -16,6 +16,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { env } from "@repo/env/server"
 import { logger } from "./logger"
 
@@ -52,7 +53,7 @@ const ACT_QUEUE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const BRIEFING_RUNS = 3
 const BRIEFING_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const BRIEFING_NOTE_MAX = 1200
-// Channel activity since the last run — the "already on it, don't file another
+// Channel chat since the last run — the "already on it, don't file another
 // PR" signal. Webhook deliveries are excluded, so this is people talking.
 const BRIEFING_MESSAGES = 10
 const BRIEFING_MESSAGE_MAX = 300
@@ -72,7 +73,7 @@ function clampRearm(ms: number): number {
 }
 
 // One active Act run per trigger, then the rolling caps. The in-flight check
-// is advisory (the partial unique index on agent_run.scopeKey is the real
+// is advisory (the partial unique index on agent_run.triggerId is the real
 // arbiter) — it exists so a burst doesn't spend cap slots on runs that would
 // be rejected anyway.
 export async function actGuard(
@@ -119,9 +120,10 @@ export async function actGuard(
   return { verdict: "ok" }
 }
 
-// scopeKey = triggerId: the partial unique index on active runs then makes
-// "one Act run per trigger at a time" a database invariant, so a delivery
-// storm can't stack runs no matter how the guards race.
+// The partial unique index on active triggerId makes "one Act run per trigger
+// at a time" a database invariant, so a delivery storm can't stack runs no
+// matter how the guards race. scopeKey holds the triggerId until the worker
+// moves the run into its own session.
 export async function createActRun(input: {
   triggerId: string
   workspaceId: string
@@ -350,8 +352,8 @@ export function formatActBriefing(input: {
   if (messages.length > 0) {
     lines.push(
       "",
-      "## Channel activity since your last run",
-      "Webhook deliveries are omitted — this is what people (and your own posts) said.",
+      "## Channel chat since the last run",
+      "Webhook deliveries are omitted — this is what people said in the channel.",
       "A human saying it's handled takes precedence over your predecessors' plans.",
       ""
     )
@@ -365,9 +367,10 @@ export function formatActBriefing(input: {
 }
 
 // The handoff chain: what previous runs on this trigger concluded and did, plus
-// what people said in the channel since. Runs on a trigger are serialized, so
+// what people said in channel chat since. Runs on a trigger are serialized, so
 // this is a real chain rather than interleaved siblings — which is what makes
-// "a prior run already filed a PR" knowable at all.
+// "a prior run already filed a PR" knowable at all. Each event gets its own
+// session, so this is the only way one run learns of the last.
 // See reference/automation-primitives.md §5.
 export async function actRunBriefing(input: {
   triggerId: string
@@ -440,6 +443,7 @@ export async function composeRunChainBriefing(input: {
   }
 
   // People talking in the channel outranks anything a prior run assumed.
+  // Channel chat only: sessions, this trigger's included, are not read here.
   const lastRunAt = recent[0]?.createdAt
   const messages = lastRunAt
     ? await db
@@ -452,6 +456,7 @@ export async function composeRunChainBriefing(input: {
         .where(
           and(
             eq(schema.message.channelId, input.channelId),
+            chatFeedMessage(),
             gte(schema.message.createdAt, lastRunAt),
             // Webhook/bot deliveries are the firehose this trigger already sees.
             ne(schema.message.authorId, APP_USER_ID)

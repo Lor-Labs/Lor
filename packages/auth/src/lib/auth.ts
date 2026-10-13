@@ -282,15 +282,8 @@ export const auth = betterAuth({
         beforeCreateOrganization: async ({ organization, user }) => {
           return { data: { ...organization, ownerId: user.id } }
         },
-        beforeUpdateOrganization: async ({ organization, member }) => {
-          if (organization.slug === undefined) return
-          const current = await db
-            .select({ slug: schema.workspace.slug })
-            .from(schema.workspace)
-            .where(eq(schema.workspace.id, member.organizationId))
-            .limit(1)
-            .then((rows) => rows[0])
-          if (organization.slug !== current?.slug) {
+        beforeUpdateOrganization: async ({ organization }) => {
+          if (organization.slug !== undefined) {
             throw new APIError("BAD_REQUEST", {
               message: "Workspace keys cannot be changed",
             })

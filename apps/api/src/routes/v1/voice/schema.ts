@@ -198,7 +198,8 @@ const voiceSessionSummarySchema = z.object({
   // Chat replies from others and direct mentions since the viewer last read.
   unreadCount: z.number().int(),
   mentionCount: z.number().int(),
-  // Lor posted its summary card in the call's chat.
+  // Old calls: Lor posted its summary card in the call's chat (phones still
+  // render it). New calls show the summary on the Summary tab instead.
   hasSummaryCard: z.boolean(),
   participants: z.array(voiceParticipantSchema),
 })
@@ -251,12 +252,15 @@ export const callSummaryBodySchema = z.object({
     .max(30),
 })
 
-// Lor's summary card in a call chat. `summary` is null when Lor couldn't
-// write one; anyone who can post in the channel can correct or write it.
-export const summaryCardResponseSchema = z.object({
+// A call's summary, shown on its Summary tab. `summary` is null while the
+// after-call job hasn't run (`processed` false), and after it when the call
+// was too short or Lor failed; anyone who can post in the channel can
+// correct or write it.
+export const callSummaryResponseSchema = z.object({
   sessionId: z.string().uuid(),
   call: voiceSessionSummarySchema,
   summary: z.custom<VoiceSessionSummary>().nullable(),
+  processed: z.boolean(),
   editedAt: z.string().datetime().nullable(),
   editedBy: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
   canEdit: z.boolean(),

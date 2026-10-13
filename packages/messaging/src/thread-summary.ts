@@ -1,50 +1,6 @@
-import { and, count, db, desc, eq, inArray, max, or, schema } from "@repo/db"
+import { and, count, db, desc, eq, inArray, max, schema } from "@repo/db"
+import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import type { RealtimeMessageThreadUpdated } from "@repo/realtime-types"
-
-// Blocked-on-a-human state for the footer chip: a pending approval anchored to
-// this thread (via its plan or its run — policy-parked approvals on plan-less
-// runs have no plan), else an open plan waiting for input. Mirrors the
-// sidebar aggregate's waiting sources.
-async function loadThreadWaiting(
-  threadRootId: string
-): Promise<RealtimeMessageThreadUpdated["lorWaiting"]> {
-  const [approval, plan] = await Promise.all([
-    db
-      .select({ id: schema.approval.id })
-      .from(schema.approval)
-      .leftJoin(schema.plan, eq(schema.approval.planId, schema.plan.id))
-      .leftJoin(schema.agentRun, eq(schema.approval.runId, schema.agentRun.id))
-      .where(
-        and(
-          eq(schema.approval.status, "pending"),
-          or(
-            eq(schema.plan.threadRootId, threadRootId),
-            eq(schema.agentRun.threadRootId, threadRootId)
-          )
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0] ?? null),
-    db
-      .select({ status: schema.plan.status })
-      .from(schema.plan)
-      .where(
-        and(
-          eq(schema.plan.threadRootId, threadRootId),
-          inArray(schema.plan.status, [
-            "waiting_for_input",
-            "waiting_for_approval",
-          ])
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0] ?? null),
-  ])
-  if (approval || plan?.status === "waiting_for_approval") {
-    return "needs_approval"
-  }
-  return plan ? "needs_input" : null
-}
 
 // Recompute a thread's channel-feed summary ("N replies" footer + newest-reply
 // preview). Shared by the realtime gateway (socket-sent replies) and the
@@ -55,14 +11,18 @@ export async function loadThreadSummary(
   channelId: string,
   threadRootId: string
 ): Promise<RealtimeMessageThreadUpdated> {
-  const summary = await db
-    .select({
-      replyCount: count(),
-      lastReplyAt: max(schema.message.createdAt),
-    })
-    .from(schema.message)
-    .where(eq(schema.message.threadRootId, threadRootId))
-    .then((rows) => rows[0])
+  const [summary, session] = await Promise.all([
+    db
+      .select({
+        replyCount: count(),
+        lastReplyAt: max(schema.message.createdAt),
+      })
+      .from(schema.message)
+      .where(eq(schema.message.threadRootId, threadRootId))
+      .then((rows) => rows[0]),
+    findAgentSessionByThreadRoot(threadRootId),
+  ])
+  const sessionId = session?.id ?? null
 
   // Empty thread (last reply deleted): return an explicit cleared shape so
   // the channel-feed footer can drop its stale threadSummary.
@@ -70,16 +30,13 @@ export async function loadThreadSummary(
     return {
       channelId,
       threadRootId,
+      sessionId,
       replyCount: 0,
       lastReplyAt: null,
-      lorWaiting: null,
       participants: [],
       lastReply: null,
     }
   }
-
-  const lorWaitingPromise = loadThreadWaiting(threadRootId)
-  lorWaitingPromise.catch(() => {})
 
   // Independent of the replies — fetched alongside them.
   const workspaceIdPromise = db
@@ -190,9 +147,9 @@ export async function loadThreadSummary(
   return {
     channelId,
     threadRootId,
+    sessionId,
     replyCount: Number(summary.replyCount),
     lastReplyAt: summary.lastReplyAt.toISOString(),
-    lorWaiting: await lorWaitingPromise,
     participants,
     lastReply,
   }
