@@ -88,7 +88,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 4a: sessions own artifacts (~200)
 
-[x] built 2026-10-13 · [x] committed · [ ] db:push (dev) · [ ] backfill (dev) · [ ] db:push (prod) · [ ] backfill (prod)
+[x] built 2026-10-13 · [x] committed · [x] db:push (dev) · [ ] backfill (dev) · [ ] db:push (prod) · [ ] backfill (prod)
 
 - `artifact.threadRootId`, unique `(threadRootId, path)`; the plan's unique
   index becomes a plain `planId` index, so `planId` is provenance only.
@@ -182,7 +182,7 @@ No behavior change; `ThreadPanel` uses the extracted pieces.
 
 #### Step 9: uploads open in the file panel (~250, bug fix)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 Found in QA: an uploaded CSV in the session rail opened as a link, and the
 browser downloaded it.
