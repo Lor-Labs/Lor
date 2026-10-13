@@ -23,7 +23,6 @@ import {
 type NotificationSettings = {
   desktopNotifications: "all_messages" | "mentions_only" | "nothing"
   dmNotifications: "all_messages" | "nothing"
-  lorThreadNotifications: "all_activity" | "subscribed_only"
 }
 
 const DESKTOP_NOTIFICATION_OPTIONS = [
@@ -35,11 +34,6 @@ const DESKTOP_NOTIFICATION_OPTIONS = [
 const DM_NOTIFICATION_OPTIONS = [
   { value: "all_messages", label: "All Messages" },
   { value: "nothing", label: "Nothing" },
-] as const
-
-const LOR_THREAD_NOTIFICATION_OPTIONS = [
-  { value: "all_activity", label: "All Activity" },
-  { value: "subscribed_only", label: "Subscribed Threads Only" },
 ] as const
 
 export function NotificationSettings() {
@@ -61,6 +55,7 @@ export function NotificationSettings() {
     },
   })
 
+  // The select shows the new value at once; a failure puts the old one back.
   const { mutate: updateSettings } = useMutation({
     mutationFn: async (update: Partial<NotificationSettings>) => {
       const res = await apiClient.v1["notification-settings"].$patch({
@@ -69,10 +64,22 @@ export function NotificationSettings() {
       if (!res.ok) throw new Error("Failed to update notification settings")
       return res.json() as Promise<NotificationSettings>
     },
+    onMutate: async (update) => {
+      await queryClient.cancelQueries({ queryKey: ["notification-settings"] })
+      const previous = queryClient.getQueryData<NotificationSettings>([
+        "notification-settings",
+      ])
+      queryClient.setQueryData<NotificationSettings>(
+        ["notification-settings"],
+        (current) => (current ? { ...current, ...update } : current)
+      )
+      return { previous }
+    },
     onSuccess: (data) => {
       queryClient.setQueryData(["notification-settings"], data)
     },
-    onError: () => {
+    onError: (_err, _update, context) => {
+      queryClient.setQueryData(["notification-settings"], context?.previous)
       toast.error("Failed to update notification setting")
     },
   })
@@ -149,33 +156,6 @@ export function NotificationSettings() {
             </SelectTrigger>
             <SelectContent>
               {DESKTOP_NOTIFICATION_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="lor-thread-notifications">
-            Lor Thread Notifications
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Replying in a Lor thread subscribes you automatically.
-          </p>
-          <Select
-            items={LOR_THREAD_NOTIFICATION_OPTIONS}
-            value={settings?.lorThreadNotifications ?? "all_activity"}
-            onValueChange={(v) =>
-              v && handleChange("lorThreadNotifications", v)
-            }
-          >
-            <SelectTrigger id="lor-thread-notifications" className="w-56">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LOR_THREAD_NOTIFICATION_OPTIONS.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
                 </SelectItem>

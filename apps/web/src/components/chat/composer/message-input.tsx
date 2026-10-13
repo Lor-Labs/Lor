@@ -1,4 +1,5 @@
 import {
+  ArrowUp02Icon,
   Cancel01Icon,
   PlusSignIcon,
   SentIcon,
@@ -9,6 +10,7 @@ import {
   TextStrikethroughIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { isTauri } from "@repo/auth/tauri-fetch"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -39,12 +41,14 @@ import Suggestion, {
 } from "@tiptap/suggestion"
 import {
   type ComponentType,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react"
+import { createPortal } from "react-dom"
 import { AttachmentPreview } from "@/components/chat/composer/attachment-preview"
 import { CodeBlockShiki } from "@/components/chat/composer/code-block-shiki"
 import {
@@ -54,6 +58,12 @@ import {
 } from "@/components/chat/composer/connector-attach-menu"
 import { ConnectorChip } from "@/components/chat/composer/connector-chip"
 import { DesktopCaret } from "@/components/chat/composer/desktop-caret"
+import {
+  type ComposerDestination,
+  DestinationBar,
+  type PingedPerson,
+  type SubscriberFace,
+} from "@/components/chat/composer/destination-bar"
 import {
   MentionSuggestionList,
   type MentionSuggestionListProps,
@@ -125,6 +135,25 @@ interface MessageInputProps {
   // Main channel composer only: teaches @Lor through the placeholder and the
   // lor_intro hint.
   lorIntro?: boolean
+  // Shows where the message goes (Lor or people) in a toolbar row under the
+  // editor. Omit for DMs and call chats, which never reach Lor.
+  destination?: ComposerDestination
+  // Session only: the other subscribers, shown as faces when a message goes
+  // to people.
+  subscribers?: SubscriberFace[]
+  // New session only: chooses the session's channel, in the destination bar.
+  channelPicker?: ReactNode
+  // Floats just above the composer, e.g. the "Started … · Open" note.
+  notice?: ReactNode
+  // Session document: no box; the editor is the next line of the transcript,
+  // with `gutter` (the writer's avatar) beside it. The tools render into
+  // `toolbarTarget`, a bar the page keeps at the bottom of the pane.
+  variant?: "box" | "inline"
+  gutter?: ReactNode
+  toolbarTarget?: HTMLElement | null
+  // Session document: typing anywhere on the page lands in this editor; called
+  // after it takes focus (to scroll the input line into view).
+  onTypeToFocus?: () => void
   placeholder?: string
   disabled?: boolean
   disabledReason?: string
@@ -134,6 +163,10 @@ interface MessageInputProps {
       mentions: Message["mentions"]
       referencedMessage?: Message["referencedMessage"]
       attachments?: Message["attachments"]
+      // Session only: the message is for people, so Lor does not run.
+      toPeople?: boolean
+      // Cmd+Enter: a send that starts a session stays where it was sent.
+      stay?: boolean
     }
   ) => void
   isSending?: boolean
@@ -452,6 +485,62 @@ function getActiveCodeBlockPos(editor: {
   return null
 }
 
+// Mirrors the server's session routing rule (realtime routeLor): in a session
+// Lor runs unless the message addresses only people (a mention, or a reply to
+// someone else) or is switched to people; addressing Lor always wins. In chat
+// and human threads only an @Lor mention starts a session.
+function resolveRouting({
+  destination,
+  mentionedIds,
+  replyingTo,
+  currentUserId,
+  candidates,
+  manualToPeople,
+}: {
+  destination: ComposerDestination | undefined
+  mentionedIds: string[]
+  replyingTo: Message | null | undefined
+  currentUserId: string | undefined
+  candidates: MentionCandidate[]
+  manualToPeople: boolean
+}) {
+  const isSession = destination === "session"
+  const pinged = new Map<string, PingedPerson>()
+  for (const id of mentionedIds) {
+    const candidate = candidates.find((c) => c.id === id)
+    if (!candidate || id === LOR_USER_ID) continue
+    pinged.set(id, {
+      id,
+      name: candidate.name ?? candidate.label,
+      image: candidate.image ?? null,
+    })
+  }
+  const replyAuthor = replyingTo?.author
+  if (
+    isSession &&
+    replyAuthor &&
+    replyAuthor.id !== LOR_USER_ID &&
+    replyAuthor.id !== currentUserId
+  ) {
+    pinged.set(replyAuthor.id, {
+      id: replyAuthor.id,
+      name: replyAuthor.name,
+      image: replyAuthor.image ?? null,
+    })
+  }
+  const addressesLor =
+    mentionedIds.includes(LOR_USER_ID) ||
+    (isSession && replyAuthor?.id === LOR_USER_ID)
+  const toLor = isSession
+    ? addressesLor || (!manualToPeople && pinged.size === 0)
+    : destination === "new" || addressesLor
+  return {
+    toLor,
+    pinged: [...pinged.values()],
+    canSwitch: isSession && !addressesLor && pinged.size === 0,
+  }
+}
+
 export function MessageInput({
   composerDraft,
   onComposerDraftConsumed,
@@ -459,6 +548,14 @@ export function MessageInput({
   channelId,
   contextScopeKey,
   lorIntro = false,
+  destination,
+  subscribers,
+  channelPicker,
+  notice,
+  variant = "box",
+  gutter,
+  toolbarTarget,
+  onTypeToFocus,
   placeholder: placeholderOverride,
   disabled,
   disabledReason,
@@ -484,7 +581,7 @@ export function MessageInput({
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
   const mentionCandidatesRef = useRef<MentionCandidate[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const handleSubmitRef = useRef<() => void>(() => undefined)
+  const handleSubmitRef = useRef<(stay: boolean) => void>(() => undefined)
   const addFilesRef = useRef(addFiles)
   addFilesRef.current = addFiles
   const onTypingRef = useRef(onTyping)
@@ -521,7 +618,7 @@ export function MessageInput({
     placeholderOverride ??
     (context.type === "channel"
       ? lorIntro && !lorHint.dismissed
-        ? `Message #${context.name}, or @Lor to ask a question`
+        ? `Message #${context.name}, or @Lor to start a session`
         : `Message #${context.name}`
       : `Message ${context.name}`)
 
@@ -611,7 +708,8 @@ export function MessageInput({
 
           event.preventDefault()
           event.stopPropagation()
-          handleSubmitRef.current()
+          // Cmd+Enter starts a session without opening it, to fire off several.
+          handleSubmitRef.current(event.metaKey || event.ctrlKey)
           return true
         },
         handlePaste: (_view, event) => {
@@ -640,10 +738,52 @@ export function MessageInput({
     selector: ({ editor: tiptapEditor }) => ({
       text: tiptapEditor?.getText({ blockSeparator: "\n" }) ?? "",
       isEmpty: tiptapEditor?.isEmpty ?? true,
+      isFocused: tiptapEditor?.isFocused ?? false,
     }),
   })
   const plainText = draftState?.text ?? ""
   const isEmpty = draftState?.isEmpty ?? true
+  const isFocused = draftState?.isFocused ?? false
+
+  const mentionedIdsKey = useEditorState({
+    editor,
+    selector: ({ editor: tiptapEditor }) => {
+      const ids: string[] = []
+      tiptapEditor?.state.doc.descendants((node) => {
+        if (node.type.name === "mention") ids.push(String(node.attrs.id))
+      })
+      return ids.join(" ")
+    },
+  })
+  const [manualToPeople, setManualToPeople] = useState(false)
+  const routing = useMemo(
+    () =>
+      resolveRouting({
+        destination,
+        mentionedIds: mentionedIdsKey ? mentionedIdsKey.split(" ") : [],
+        replyingTo,
+        currentUserId,
+        candidates: normalizedMentionCandidates,
+        manualToPeople,
+      }),
+    [
+      destination,
+      mentionedIdsKey,
+      replyingTo,
+      currentUserId,
+      normalizedMentionCandidates,
+      manualToPeople,
+    ]
+  )
+  const showLorState = Boolean(destination) && routing.toLor
+  const isInline = variant === "inline"
+  const lorPillRef = useRef<HTMLSpanElement>(null)
+  // Taught once the person types in a session, when the pill decides who
+  // gets the message.
+  const sessionReplyHint = useHint(
+    "session_reply",
+    routing.canSwitch && routing.toLor && !isEmpty && !disabled
+  )
 
   const appliedDraftRef = useRef<string | null>(null)
   useEffect(() => {
@@ -656,22 +796,26 @@ export function MessageInput({
     const applyDraft = () => {
       if (appliedDraftRef.current === composerDraft.id) return
       appliedDraftRef.current = composerDraft.id
-      // Append to an existing draft; selecting a suggestion must not erase writing.
+      // Append to an existing draft; selecting a suggestion must not erase
+      // writing. A New session prompt already goes to Lor, so no @Lor.
       editor
         .chain()
         .focus("end")
         .insertContent({
           type: "paragraph",
-          content: [
-            {
-              type: "mention",
-              attrs: {
-                id: LOR_USER_ID,
-                label: "Lor",
-              },
-            },
-            { type: "text", text: ` ${composerDraft.text}` },
-          ],
+          content:
+            destination === "new"
+              ? [{ type: "text", text: composerDraft.text }]
+              : [
+                  {
+                    type: "mention",
+                    attrs: {
+                      id: LOR_USER_ID,
+                      label: "Lor",
+                    },
+                  },
+                  { type: "text", text: ` ${composerDraft.text}` },
+                ],
         })
         .run()
       onComposerDraftConsumed?.(composerDraft.id)
@@ -683,87 +827,129 @@ export function MessageInput({
       editor.off("create", applyDraft)
       editor.off("mount", applyDraft)
     }
-  }, [editor, composerDraft, onComposerDraftConsumed])
+  }, [editor, composerDraft, onComposerDraftConsumed, destination])
 
-  const handleSend = useCallback(() => {
-    if (!editor || isUploading) return
+  const handleSend = useCallback(
+    (stay = false) => {
+      if (!editor || isUploading) return
 
-    const rawMarkdown = editor.getMarkdown()
-    const markdown = toStoredMarkdown(rawMarkdown)
-    const trimmed = markdown.trim()
-    const uploadedAttachments = getUploadedAttachments()
-    const hasAttachments = uploadedAttachments.length > 0
-    const hasContent = trimmed.length > 0
+      const rawMarkdown = editor.getMarkdown()
+      const markdown = toStoredMarkdown(rawMarkdown)
+      const trimmed = markdown.trim()
+      const uploadedAttachments = getUploadedAttachments()
+      const hasAttachments = uploadedAttachments.length > 0
+      const hasContent = trimmed.length > 0
 
-    if ((!hasContent && !hasAttachments) || isSending) return
+      if ((!hasContent && !hasAttachments) || isSending) return
 
-    const mentionCandidatesById = new Map(
-      normalizedMentionCandidates.map((candidate) => [candidate.id, candidate])
-    )
+      const mentionCandidatesById = new Map(
+        normalizedMentionCandidates.map((candidate) => [
+          candidate.id,
+          candidate,
+        ])
+      )
 
-    const mentionIds = extractMentionIds(trimmed)
-    // Asking Lor is what the lor_intro hint teaches, from any composer.
-    if (mentionIds.includes(LOR_USER_ID)) dismissLorHint()
+      const mentionIds = extractMentionIds(trimmed)
+      // Asking Lor is what the lor_intro hint teaches, from any composer.
+      if (mentionIds.includes(LOR_USER_ID)) dismissLorHint()
 
-    const mentions: Message["mentions"] = mentionIds.flatMap((mentionId) => {
-      const mentionCandidate = mentionCandidatesById.get(mentionId)
-      if (!mentionCandidate) return []
+      const mentions: Message["mentions"] = mentionIds.flatMap((mentionId) => {
+        const mentionCandidate = mentionCandidatesById.get(mentionId)
+        if (!mentionCandidate) return []
 
-      return [
-        {
-          id: mentionCandidate.id,
-          name: mentionCandidate.name ?? mentionCandidate.label,
-          image: mentionCandidate.image ?? null,
-        },
-      ]
-    })
+        return [
+          {
+            id: mentionCandidate.id,
+            name: mentionCandidate.name ?? mentionCandidate.label,
+            image: mentionCandidate.image ?? null,
+          },
+        ]
+      })
 
-    onSend(trimmed, {
-      mentions,
-      referencedMessage: replyingTo
-        ? {
-            id: replyingTo.id,
-            content: replyingTo.content,
-            author: replyingTo.author,
-            overrideName: replyingTo.overrideName,
-            overrideAvatarUrl: replyingTo.overrideAvatarUrl,
-          }
-        : undefined,
-      attachments: hasAttachments ? uploadedAttachments : undefined,
-    })
-    editor.commands.clearContent(true)
-    editor.commands.focus("end")
-    clearAttachments()
-    onCancelReply?.()
-  }, [
-    editor,
-    isSending,
-    isUploading,
-    getUploadedAttachments,
-    clearAttachments,
-    normalizedMentionCandidates,
-    onSend,
-    replyingTo,
-    onCancelReply,
-    dismissLorHint,
-  ])
-  const handleSubmit = useCallback(() => {
-    const hasDraft =
-      plainText.trim().length > 0 || pendingAttachments.length > 0
-    if (hasDraft) {
-      handleSend()
-      return
-    }
-    if (canSteerQueued && !isSteeringQueued) onSteerQueued?.()
-  }, [
-    canSteerQueued,
-    handleSend,
-    isSteeringQueued,
-    onSteerQueued,
-    pendingAttachments.length,
-    plainText,
-  ])
+      onSend(trimmed, {
+        mentions,
+        referencedMessage: replyingTo
+          ? {
+              id: replyingTo.id,
+              content: replyingTo.content,
+              author: replyingTo.author,
+              overrideName: replyingTo.overrideName,
+              overrideAvatarUrl: replyingTo.overrideAvatarUrl,
+            }
+          : undefined,
+        attachments: hasAttachments ? uploadedAttachments : undefined,
+        toPeople: destination === "session" && !routing.toLor,
+        stay,
+      })
+      editor.commands.clearContent(true)
+      editor.commands.focus("end")
+      clearAttachments()
+      onCancelReply?.()
+      setManualToPeople(false)
+    },
+    [
+      editor,
+      isSending,
+      isUploading,
+      getUploadedAttachments,
+      clearAttachments,
+      normalizedMentionCandidates,
+      onSend,
+      replyingTo,
+      onCancelReply,
+      dismissLorHint,
+      destination,
+      routing.toLor,
+    ]
+  )
+  const handleSubmit = useCallback(
+    (stay: boolean) => {
+      const hasDraft =
+        plainText.trim().length > 0 || pendingAttachments.length > 0
+      if (hasDraft) {
+        handleSend(stay)
+        return
+      }
+      if (canSteerQueued && !isSteeringQueued) onSteerQueued?.()
+    },
+    [
+      canSteerQueued,
+      handleSend,
+      isSteeringQueued,
+      onSteerQueued,
+      pendingAttachments.length,
+      plainText,
+    ]
+  )
   handleSubmitRef.current = handleSubmit
+
+  // Session document: a printable key pressed anywhere outside another field
+  // or open dialog starts writing here, like typing into a doc.
+  const onTypeToFocusRef = useRef(onTypeToFocus)
+  onTypeToFocusRef.current = onTypeToFocus
+  const typeToFocus = Boolean(onTypeToFocus)
+  useEffect(() => {
+    if (!editor || !typeToFocus) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key.length !== 1) return
+      const target = event.target instanceof Element ? event.target : null
+      if (
+        target?.closest(
+          "input, textarea, select, button, [contenteditable='true'], [role='menu'], [role='listbox']"
+        ) ||
+        document.querySelector("[role='dialog']")
+      ) {
+        return
+      }
+      event.preventDefault()
+      editor.chain().focus("end").insertContent(event.key).run()
+      onTypeToFocusRef.current?.()
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [editor, typeToFocus])
 
   useEffect(() => {
     if (replyingTo && editor) {
@@ -924,7 +1110,8 @@ export function MessageInput({
   }
 
   return (
-    <div className="shrink-0 px-4 pb-3">
+    <div className="relative shrink-0 px-4 pb-3">
+      {notice}
       <input
         ref={fileInputRef}
         type="file"
@@ -933,7 +1120,14 @@ export function MessageInput({
         onChange={handleFileInputChange}
       />
       {replyingTo && (
-        <div className="flex items-center gap-2 rounded-t-lg border border-b-0 border-input bg-muted/60 px-3 py-1.5 text-sm">
+        <div
+          className={cn(
+            "flex items-center gap-2 bg-muted/60 px-3 py-1.5 text-sm",
+            isInline
+              ? "mb-1 rounded-md"
+              : "rounded-t-lg border border-b-0 border-input"
+          )}
+        >
           <span className="truncate text-muted-foreground">
             Replying to{" "}
             <span className="font-semibold text-foreground">
@@ -960,13 +1154,19 @@ export function MessageInput({
         align="start"
         onDismiss={dismissLorHint}
       >
-        Mention @Lor to ask about code, issues, or past conversations.
+        {`Mention @Lor${isTauri ? " or press ⌘N" : ""} to start a session. Lor works there, next to the chat.`}
       </HintPopover>
       <div
         ref={composerRef}
         className={cn(
-          "border border-input bg-background transition-colors duration-150 focus-within:border-muted-foreground/40 dark:bg-muted/40",
-          replyingTo ? "rounded-b-lg" : "rounded-lg"
+          !isInline && [
+            "border bg-background transition-colors duration-150 dark:bg-muted/40",
+            // New session is always Lor, so its border stays plain.
+            showLorState && destination !== "new"
+              ? "border-agent/50"
+              : "border-input focus-within:border-muted-foreground/40",
+            replyingTo ? "rounded-b-lg" : "rounded-lg",
+          ]
         )}
         onPaste={handlePaste}
       >
@@ -974,53 +1174,43 @@ export function MessageInput({
           attachments={pendingAttachments}
           onRemove={removeAttachment}
         />
-        <div className="flex items-end gap-2 px-3 py-2">
-          <Popover
-            open={isAttachmentMenuOpen}
-            onOpenChange={setIsAttachmentMenuOpen}
+        {/* With a destination the editor wraps onto its own line and the
+            tools (attach, destination, send) sit on the line under it. */}
+        <div
+          className={cn(
+            "flex items-end gap-2",
+            isInline ? "px-0 pb-2" : "px-3 py-2",
+            destination && !isInline && "flex-wrap items-center gap-y-1 pt-2.5"
+          )}
+        >
+          <div
+            className={cn(
+              "relative min-w-0 flex-1 py-1 text-sm leading-5",
+              destination && "order-first basis-full",
+              destination === "new" && "min-h-16",
+              // Same column and prose size as the transcript above it.
+              isInline &&
+                "pl-10 [&_.tiptap]:text-[15px] [&_.tiptap]:leading-6 [&_.tiptap]:transition-colors [&_.tiptap_p]:leading-6",
+              // Headed to the session's subscribers only: the text dims as in
+              // the transcript, so the route shows without a label.
+              isInline &&
+                destination === "session" &&
+                !routing.toLor &&
+                "[&_.tiptap]:text-muted-foreground"
+            )}
           >
-            <PopoverTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-                  aria-label="Open attachment menu"
-                />
-              }
-            >
-              <HugeiconsIcon
-                icon={PlusSignIcon}
+            {isInline && (
+              <div className="absolute top-0.5 left-0">{gutter}</div>
+            )}
+            {isEmpty && placeholder && (
+              <span
                 className={cn(
-                  "size-4 transition-transform duration-200 ease-out",
-                  isAttachmentMenuOpen && "rotate-45"
+                  "pointer-events-none absolute right-0 top-1 truncate text-sm leading-5",
+                  isInline
+                    ? "left-10 text-[15px] text-muted-foreground/50 leading-6"
+                    : "left-0 text-muted-foreground"
                 )}
-                strokeWidth={2}
-              />
-            </PopoverTrigger>
-            <PopoverContent
-              side="top"
-              align="start"
-              sideOffset={10}
-              className="w-72"
-              viewportClassName="p-2"
-            >
-              <ConnectorAttachMenu
-                connectors={attachableConnectors}
-                workspaceSlug={workspaceSlug}
-                channelId={channelId}
-                onUploadFile={() => {
-                  fileInputRef.current?.click()
-                  setIsAttachmentMenuOpen(false)
-                }}
-                onAttach={handleAttachRecord}
-              />
-            </PopoverContent>
-          </Popover>
-          <div className="relative min-w-0 flex-1 py-1 text-sm leading-5">
-            {isEmpty && (
-              <span className="pointer-events-none absolute left-0 right-0 top-1 truncate text-sm leading-5 text-muted-foreground">
+              >
                 {placeholder}
               </span>
             )}
@@ -1153,43 +1343,180 @@ export function MessageInput({
             />
             <DesktopCaret editor={editor} />
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {/* onStop is only supplied while a run is stoppable, so it doubles
-                as "Lor is working here right now". */}
-            <ContextMeter
-              scopeKey={contextScopeKey}
-              isRunning={Boolean(onStop)}
-            />
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn(
-                "size-7 transition-colors",
-                isStopMode
-                  ? "text-destructive hover:text-destructive"
-                  : "text-muted-foreground",
-                canSend &&
-                  !isStopMode &&
-                  "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-              )}
-              onClick={isStopMode ? onStop : handleSend}
-              disabled={isStopMode ? isStopping : !canSend}
-              aria-label={
-                isStopMode
-                  ? isStopping
-                    ? "Stopping Lor"
-                    : "Stop Lor"
-                  : "Send message"
-              }
+          {/* After the editor in the markup so the three tools stay together
+              for the inline bar; `order-first` keeps attach on the left. */}
+          <ToolsSlot
+            inline={isInline}
+            target={toolbarTarget ?? null}
+            active={
+              isFocused ||
+              !isEmpty ||
+              pendingAttachments.length > 0 ||
+              isAttachmentMenuOpen
+            }
+          >
+            <Popover
+              open={isAttachmentMenuOpen}
+              onOpenChange={setIsAttachmentMenuOpen}
             >
-              <HugeiconsIcon
-                icon={isStopMode ? StopIcon : SentIcon}
-                size={16}
+              <PopoverTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    className="order-first size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label="Open attachment menu"
+                  />
+                }
+              >
+                <HugeiconsIcon
+                  icon={PlusSignIcon}
+                  className={cn(
+                    "size-4 transition-transform duration-200 ease-out",
+                    isAttachmentMenuOpen && "rotate-45"
+                  )}
+                  strokeWidth={2}
+                />
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="start"
+                sideOffset={10}
+                className="w-72"
+                viewportClassName="p-2"
+              >
+                <ConnectorAttachMenu
+                  connectors={attachableConnectors}
+                  workspaceSlug={workspaceSlug}
+                  channelId={channelId}
+                  onUploadFile={() => {
+                    fileInputRef.current?.click()
+                    setIsAttachmentMenuOpen(false)
+                  }}
+                  onAttach={handleAttachRecord}
+                />
+              </PopoverContent>
+            </Popover>
+            {destination && (
+              <div className="min-w-0 flex-1">
+                <DestinationBar
+                  destination={destination}
+                  channelName={context.name}
+                  toLor={routing.toLor}
+                  pinged={routing.pinged}
+                  subscribers={subscribers}
+                  channelPicker={channelPicker}
+                  lorPillRef={lorPillRef}
+                  onSwitch={
+                    routing.canSwitch
+                      ? () => {
+                          setManualToPeople((current) => !current)
+                          sessionReplyHint.dismiss()
+                        }
+                      : undefined
+                  }
+                />
+                <HintPopover
+                  open={sessionReplyHint.show}
+                  anchor={lorPillRef}
+                  align="start"
+                  onDismiss={sessionReplyHint.dismiss}
+                >
+                  Replies go to Lor by default. Switch here to talk only to the
+                  session's subscribers, without Lor answering.
+                </HintPopover>
+              </div>
+            )}
+            <div className="flex shrink-0 items-center gap-1">
+              {/* onStop is only supplied while a run is stoppable, so it doubles
+                as "Lor is working here right now". */}
+              <ContextMeter
+                scopeKey={contextScopeKey}
+                isRunning={Boolean(onStop)}
               />
-            </Button>
-          </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className={cn(
+                  "size-7 transition-colors",
+                  isStopMode
+                    ? "text-destructive hover:text-destructive"
+                    : "text-muted-foreground",
+                  canSend &&
+                    !isStopMode &&
+                    (showLorState
+                      ? "bg-agent/12 text-agent hover:bg-agent/18 hover:text-agent"
+                      : "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"),
+                  // New session: a filled round button, like an agent prompt.
+                  destination === "new" &&
+                    cn(
+                      "rounded-full",
+                      canSend &&
+                        "bg-agent text-agent-foreground hover:bg-agent/90 hover:text-agent-foreground"
+                    )
+                )}
+                onClick={isStopMode ? onStop : () => handleSend()}
+                disabled={isStopMode ? isStopping : !canSend}
+                aria-label={
+                  isStopMode
+                    ? isStopping
+                      ? "Stopping Lor"
+                      : "Stop Lor"
+                    : showLorState && destination !== "session"
+                      ? "Start session"
+                      : "Send message"
+                }
+              >
+                <HugeiconsIcon
+                  icon={
+                    isStopMode
+                      ? StopIcon
+                      : destination === "new"
+                        ? ArrowUp02Icon
+                        : SentIcon
+                  }
+                  size={16}
+                />
+              </Button>
+            </div>
+          </ToolsSlot>
         </div>
       </div>
     </div>
+  )
+}
+
+// The composer's tools render in place, or (inline variant) in a bar the
+// page owns at the bottom of the pane. Inline renders nothing until that bar
+// mounts, so the tools never flash under the input line. A session reads as a
+// document, so its tools stay hidden until you write (or point at the bar):
+// an idle bar at the bottom looked like a missing composer.
+function ToolsSlot({
+  inline,
+  target,
+  active,
+  children,
+}: {
+  inline: boolean
+  target: HTMLElement | null
+  active: boolean
+  children: ReactNode
+}) {
+  if (!inline) return children
+  if (!target) return null
+  return createPortal(
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-2 transition-opacity duration-300",
+        // Shows at once; lingers a moment before fading after you stop.
+        active
+          ? "opacity-100"
+          : "opacity-0 delay-700 focus-within:opacity-100 focus-within:delay-0 hover:opacity-100 hover:delay-0"
+      )}
+    >
+      {children}
+    </div>,
+    target
   )
 }

@@ -2,7 +2,6 @@ import {
   ArrowRight01Icon,
   BrainIcon,
   Pin02Icon,
-  SquareIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { LOR_USER_ID } from "@repo/db/constants"
@@ -30,6 +29,7 @@ import { memo, useCallback, useEffect, useState } from "react"
 import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
+import { ForwardedMessageCard } from "@/components/chat/forwarded-message-card"
 import { LoopCard } from "@/components/chat/loop-card"
 import { LorMessageBody } from "@/components/chat/lor-message-body"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
@@ -45,8 +45,6 @@ import { PlanCard } from "@/components/chat/plan-card"
 import { ProposalCard } from "@/components/chat/proposal-card"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
-import { CallSummaryCard } from "@/components/voice/call-summary"
-import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import type { Message } from "@/lib/api-types"
 import { connectorMessageEmbed } from "@/lib/connector-message-embed"
 import {
@@ -67,6 +65,10 @@ interface MessageItemProps {
   onReact?: (messageId: string, emoji: string) => void
   onReply?: (message: Message) => void
   onReplyInThread?: (message: Message) => void
+  // Channel chat: start a Lor session with this message attached.
+  onAskLor?: (message: Message) => void
+  // Session: forward a message into the channel chat.
+  onForward?: (message: Message) => void
   onOpenThread?: (rootMessageId: string) => void
   onDelete?: (messageId: string) => void
   onEdit?: (messageId: string, content: string) => void
@@ -74,7 +76,9 @@ interface MessageItemProps {
   canPin?: boolean
   mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
-  showLorRunControls?: boolean
+  // Session transcript: reads as a document. Each turn has a small avatar in
+  // a narrow gutter and no name row.
+  layout?: "chat" | "document"
 }
 
 const PREVIEW_MAX_CHARS = 100
@@ -103,15 +107,31 @@ function ReplyPreview({
   referencedMessage,
   mentionCandidates,
   onJumpToMessage,
+  compact = false,
 }: {
   referencedMessage: Message["referencedMessage"]
   mentionCandidates?: MentionCandidate[]
   onJumpToMessage?: (messageId: string) => void
+  // Document layout: the curve starts at the 28px gutter avatar's center.
+  compact?: boolean
 }) {
+  const connector = (
+    <div
+      className={cn(
+        "mb-1 h-3 rounded-tl-md border-t-2 border-l-2 border-muted-foreground/40",
+        compact ? "ml-3 w-7" : "ml-4 w-8"
+      )}
+    />
+  )
   if (!referencedMessage) {
     return (
-      <div className="mb-0.5 flex items-center gap-2 pl-6 text-xs text-muted-foreground italic">
-        <div className="mb-1 ml-4 h-3 w-8 rounded-tl-md border-t-2 border-l-2 border-muted-foreground/40" />
+      <div
+        className={cn(
+          "mb-0.5 flex items-center gap-2 text-xs text-muted-foreground italic",
+          !compact && "pl-6"
+        )}
+      >
+        {connector}
         <span>Original message was deleted</span>
       </div>
     )
@@ -137,7 +157,7 @@ function ReplyPreview({
       onClick={() => onJumpToMessage?.(referencedMessage.id)}
       className="mb-0.5 flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-xs hover:opacity-80"
     >
-      <div className="mb-1 ml-4 h-3 w-8 rounded-tl-md border-t-2 border-l-2 border-muted-foreground/40" />
+      {connector}
       <Avatar size="sm" className="size-4">
         {referencedAvatar && (
           <AvatarImage src={referencedAvatar} alt={referencedName} />
@@ -166,39 +186,6 @@ function ReplyPreview({
         </span>
       )}
     </button>
-  )
-}
-
-// Steer status + explicit Stop for an in-flight Lor reply. Stop is honored
-// by the run at its next safe step boundary; whatever streamed is kept.
-function LorRunControls({ message }: { message: Message }) {
-  const stop = useStopLorRun()
-
-  return (
-    <div className="mt-1.5 flex items-center gap-3">
-      {message.steeringBy && (
-        <span className="text-xs italic text-agent">
-          Applying {message.steeringBy}'s new direction…
-        </span>
-      )}
-      {message.stopRequested ? (
-        <span className="text-xs text-muted-foreground italic">Stopping…</span>
-      ) : (
-        <button
-          type="button"
-          onClick={() => stop.mutate(message)}
-          disabled={stop.isPending}
-          className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <HugeiconsIcon
-            icon={SquareIcon}
-            className="size-2.5 fill-current"
-            strokeWidth={2}
-          />
-          Stop
-        </button>
-      )}
-    </div>
   )
 }
 
@@ -244,23 +231,9 @@ function ThreadFooter({
       <span className="shrink-0 font-semibold text-primary group-hover/thread:underline">
         {replyLabel}
       </span>
-      {summary.lorWaiting ? (
-        <span className="flex min-w-0 shrink-0 items-center gap-1.5 font-medium text-warning-foreground">
-          <span
-            aria-hidden="true"
-            className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-warning/12 text-[10px]"
-          >
-            !
-          </span>
-          {summary.lorWaiting === "needs_approval"
-            ? "Needs approval"
-            : "Needs input"}
-        </span>
-      ) : (
-        <span className="truncate text-muted-foreground">
-          Last reply {timeAgo(summary.lastReplyAt)}
-        </span>
-      )}
+      <span className="truncate text-muted-foreground">
+        Last reply {timeAgo(summary.lastReplyAt)}
+      </span>
       <HugeiconsIcon
         icon={ArrowRight01Icon}
         className="-mr-0.5 ml-auto size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread:opacity-100"
@@ -334,6 +307,8 @@ export const MessageItem = memo(function MessageItem({
   onReact,
   onReply,
   onReplyInThread,
+  onAskLor,
+  onForward,
   onOpenThread,
   onDelete,
   onEdit,
@@ -341,7 +316,7 @@ export const MessageItem = memo(function MessageItem({
   canPin = false,
   mentionCandidates,
   onJumpToMessage,
-  showLorRunControls = true,
+  layout = "chat",
 }: MessageItemProps) {
   const author = message.author
   // Webhook/connector messages render an overridden identity and aren't a
@@ -371,6 +346,7 @@ export const MessageItem = memo(function MessageItem({
   )
   const canWrapUnderAvatar =
     wrapContentAroundAvatar && message.authorId === LOR_USER_ID
+  const isDocument = layout === "document"
   const isReply = message.type === "reply"
   const hasToolCalls = (message.lorToolCalls?.length ?? 0) > 0
   const hasReasoningSegments = (message.lorReasoningSegments?.length ?? 0) > 0
@@ -398,6 +374,22 @@ export const MessageItem = memo(function MessageItem({
   const handleReplyInThread = useCallback(() => {
     onReplyInThread?.(message)
   }, [message, onReplyInThread])
+
+  const handleAskLor = useCallback(() => {
+    onAskLor?.(message)
+  }, [message, onAskLor])
+
+  const handleForward = useCallback(() => {
+    onForward?.(message)
+  }, [message, onForward])
+  // A finished message with text, Lor's or a person's; never a placeholder,
+  // an event line or a card. Mirrors the gateway's loadForwardSnapshot.
+  const canForward =
+    Boolean(onForward) &&
+    (message.type === "default" || message.type === "reply") &&
+    message.status === "complete" &&
+    !message.streaming &&
+    Boolean(message.content?.trim())
 
   const handleOpenThread = useCallback(() => {
     onOpenThread?.(message.id)
@@ -435,6 +427,8 @@ export const MessageItem = memo(function MessageItem({
     setIsEditing(false)
   }, [])
 
+  if (message.type === "agent_session") return null
+
   if (isBlocked && !showBlockedContent) {
     return (
       <div data-message-id={message.id} className="px-4 py-1">
@@ -449,6 +443,28 @@ export const MessageItem = memo(function MessageItem({
     )
   }
 
+  // Document layout: the first message of each turn wears a small avatar in
+  // the gutter (Lor's too) instead of a name row; name and time on hover.
+  const documentGutter = (
+    <div className="w-7 shrink-0">
+      {showHeader && (
+        <Avatar
+          className="-mt-0.5 size-7"
+          title={`${displayName} · ${formatTime(message.createdAt)}`}
+        >
+          {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
+          <AvatarFallback
+            avatarColor={author.avatarColor}
+            fallbackSeed={displayName}
+            className="text-xs font-semibold"
+          >
+            {getAvatarInitials(displayName)}
+          </AvatarFallback>
+        </Avatar>
+      )}
+    </div>
+  )
+
   // Plan, loop and proposal cards (and per-fire loop chips) render as their
   // own surface, but inside the normal message row — so they keep Lor's
   // avatar, name and timestamp, and line up with every other message.
@@ -456,9 +472,31 @@ export const MessageItem = memo(function MessageItem({
     message.type === "plan_card" ||
     message.type === "loop_card" ||
     message.type === "loop_fire" ||
-    message.type === "proposal_card" ||
-    message.type === "call_summary"
+    message.type === "proposal_card"
   ) {
+    // A card in a session (a proposal Lor filed there) follows the
+    // document look: gutter avatar, no name row.
+    if (isDocument) {
+      return (
+        <div
+          data-message-id={message.id}
+          className={cn("group px-4 py-0.5", showHeader && "pt-3")}
+        >
+          <div className="flex gap-3">
+            {documentGutter}
+            <div className="min-w-0 flex-1">
+              {message.type === "proposal_card" ? (
+                <ProposalCard message={message} />
+              ) : message.type === "plan_card" ? (
+                <PlanCard message={message} onOpenThread={onOpenThread} />
+              ) : (
+                <LoopCard message={message} />
+              )}
+            </div>
+          </div>
+        </div>
+      )
+    }
     const planAvatar = (
       <Avatar size="lg">
         {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
@@ -526,8 +564,6 @@ export const MessageItem = memo(function MessageItem({
               <PlanCard message={message} onOpenThread={onOpenThread} />
             ) : message.type === "proposal_card" ? (
               <ProposalCard message={message} />
-            ) : message.type === "call_summary" ? (
-              <CallSummaryCard message={message} />
             ) : (
               <LoopCard message={message} />
             )}
@@ -554,11 +590,12 @@ export const MessageItem = memo(function MessageItem({
       data-message-id={message.id}
       className={cn(
         "group relative px-4 py-0.5 transition-colors",
+        isDocument && showHeader && "pt-3",
         isReplyTarget
           ? "bg-primary/[0.07] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-primary"
           : hasBroadcastMention
             ? "bg-gold/10 hover:bg-gold/15 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-gold"
-            : !canWrapUnderAvatar && "hover:bg-muted/30"
+            : !canWrapUnderAvatar && !isDocument && "hover:bg-muted/30"
       )}
     >
       <div
@@ -572,6 +609,8 @@ export const MessageItem = memo(function MessageItem({
           onReact={handleReact}
           onReply={handleReply}
           onReplyInThread={canStartThread ? handleReplyInThread : undefined}
+          onAskLor={onAskLor ? handleAskLor : undefined}
+          onForward={canForward ? handleForward : undefined}
           onCopyText={handleCopyText}
           onEdit={isOwnMessage && onEdit ? handleEditRequest : undefined}
           onDelete={isOwnMessage && onDelete ? handleDeleteRequest : undefined}
@@ -583,7 +622,12 @@ export const MessageItem = memo(function MessageItem({
         />
       </div>
       {message.pinned && (
-        <div className="mb-0.5 flex items-center gap-1.5 pl-[52px] text-xs text-muted-foreground">
+        <div
+          className={cn(
+            "mb-0.5 flex items-center gap-1.5 text-xs text-muted-foreground",
+            isDocument ? "pl-10" : "pl-[52px]"
+          )}
+        >
           <HugeiconsIcon icon={Pin02Icon} size={12} />
           <span>Pinned</span>
         </div>
@@ -593,10 +637,13 @@ export const MessageItem = memo(function MessageItem({
           referencedMessage={message.referencedMessage}
           mentionCandidates={mentionCandidates}
           onJumpToMessage={onJumpToMessage}
+          compact={isDocument}
         />
       )}
       <div className={cn(canWrapUnderAvatar ? "flow-root" : "flex gap-3")}>
-        {showHeader ? (
+        {isDocument ? (
+          documentGutter
+        ) : showHeader ? (
           isApp ? (
             <div
               className={cn(
@@ -663,8 +710,22 @@ export const MessageItem = memo(function MessageItem({
             </span>
           </div>
         )}
-        <div className={cn("min-w-0", !canWrapUnderAvatar && "flex-1")}>
-          {showHeader && (
+        <div
+          className={cn(
+            "min-w-0",
+            !canWrapUnderAvatar && "flex-1",
+            // Every turn reads as document prose. The inner `.prose` sets its
+            // own size and leading, so pin both.
+            isDocument &&
+              "[&_.message-markdown]:text-[15px] [&_.message-markdown_.prose]:text-[15px] [&_.message-markdown_.prose]:leading-6",
+            // A message for the session's subscribers only (Lor didn't get it) reads
+            // as an aside: muted, never labelled.
+            isDocument &&
+              message.routedToLor === false &&
+              "[&_.message-markdown]:text-muted-foreground"
+          )}
+        >
+          {showHeader && !isDocument && (
             <div className="flex items-baseline gap-2">
               {isApp ? (
                 <span className="text-sm font-semibold leading-snug">
@@ -754,17 +815,16 @@ export const MessageItem = memo(function MessageItem({
               onCitationJump={onJumpToMessage}
             />
           )}
-          {showLorRunControls &&
-            !isEditing &&
-            (message.streaming || message.status === "pending") && (
-              <LorRunControls message={message} />
-            )}
+          {message.type === "forward" && message.forwarded && (
+            <ForwardedMessageCard forwarded={message.forwarded} />
+          )}
           {/* Policy-gated approval parked on this run's reply (LOR-81).
               lorTriggerMessageId marks run replies live and on reload. */}
           {message.lorTriggerMessageId && !isEditing && (
             <MessageApprovalCard
               channelId={message.channelId}
               messageId={message.id}
+              threadRootId={isDocument ? message.threadRootId : null}
             />
           )}
           {message.routedOutcome === "steered" && (

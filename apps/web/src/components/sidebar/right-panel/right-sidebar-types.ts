@@ -4,6 +4,9 @@ export type WorkspaceMembersSidebarView = {
   channelId: string
 }
 
+// A call's panel tabs. Summary exists once the call has ended.
+export type CallTab = "summary" | "chat" | "transcript"
+
 export type ThreadSidebarView = {
   type: "thread"
   workspaceSlug: string
@@ -12,9 +15,8 @@ export type ThreadSidebarView = {
   /** Message to reveal when the thread was opened from search or a citation. */
   targetMessageId?: string
   composerDraft?: { id: string; text: string }
-  /** A call's panel: its chat (the default) or its record (summary and
-   * transcript). */
-  callTab?: "chat" | "transcript"
+  /** A call's panel tab. Unset: Summary for an ended call, else Chat. */
+  callTab?: CallTab
   /** Moment in the call (ms from its start) to reveal in the transcript. */
   transcriptAtMs?: number
 }
@@ -40,9 +42,28 @@ export type LoopsListSidebarView = {
   channelId: string
 }
 
+// Everyone's sessions in a channel, active or archived.
+export type SessionsListSidebarView = {
+  type: "sessions"
+  workspaceSlug: string
+  channelId: string
+  filter: "active" | "archived"
+}
+
+// A Lor session's context, plan, files and activity, beside the session page.
+export type SessionWorkSidebarView = {
+  type: "session-work"
+  workspaceSlug: string
+  channelId: string
+  sessionId: string
+  threadRootId: string
+}
+
 export type RightSidebarView =
   | WorkspaceMembersSidebarView
   | ThreadSidebarView
   | AttachmentsSidebarView
   | LoopSidebarView
   | LoopsListSidebarView
+  | SessionsListSidebarView
+  | SessionWorkSidebarView

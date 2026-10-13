@@ -1,7 +1,5 @@
 import {
-  Alert01Icon,
   AlertCircleIcon,
-  ArrowDown01Icon,
   ArrowRight02Icon,
   Cancel01Icon,
   Copy01Icon,
@@ -21,20 +19,14 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { env } from "@repo/env/client"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
-import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@repo/ui/components/collapsible"
 import { Input } from "@repo/ui/components/input"
 import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import {
   type ChannelProposal,
   type ProposalSecretsPayload,
@@ -52,15 +44,10 @@ import type {
 import { toSearchPreviewText } from "@/lib/search-preview"
 
 // The change-proposal surface (pillar 3, reference/change-proposals.md):
-// Lor's proposed workspace configuration as a timeline — one indicator per
-// operation on a connecting rail, applied in this order. Deliberately NOT a
-// card: no border or fill of its own, it renders straight into the channel
-// like the reui timeline references; only the per-step panels are framed.
-// Approve/Reject show for people whose authority covers the proposal's
-// permission union; approve may carry secret values the approver types here
-// (request-only).
-const SURFACE_CLASS = "mt-1.5 w-full max-w-xl"
-
+// the changes themselves as the headline (applied in this order), one action
+// row under them, Lor's reason behind "Why". Buttons show for people whose
+// authority covers the proposal's permission union; approve may carry secret
+// values the approver types here (request-only).
 type IconSvgObject = typeof HashtagIcon
 
 const OP_ICONS: Record<ProposalOperation["kind"], IconSvgObject> = {
@@ -77,40 +64,49 @@ const OP_ICONS: Record<ProposalOperation["kind"], IconSvgObject> = {
   set_approval_policy: Shield01Icon,
 }
 
-const STATUS_BADGE: Record<
-  Exclude<ChannelProposal["status"], "applied">,
-  {
-    label: string
-    variant: "info" | "warning" | "error" | "secondary"
-    icon: IconSvgObject
-    spin?: boolean
-  }
+// The action row's status mark: a breathing dot while it waits, an icon once
+// something happened.
+const STATUS_MARK: Record<
+  ChannelProposal["status"],
+  { icon: IconSvgObject | null; className: string; spin?: boolean }
 > = {
-  pending: { label: "Needs approval", variant: "warning", icon: Alert01Icon },
+  pending: { icon: null, className: "text-muted-foreground" },
   approved: {
-    label: "Applying",
-    variant: "info",
     icon: Loading03Icon,
+    className: "text-muted-foreground",
     spin: true,
   },
-  failed: { label: "Failed", variant: "error", icon: AlertCircleIcon },
-  rejected: { label: "Rejected", variant: "secondary", icon: Cancel01Icon },
+  applied: { icon: Tick02Icon, className: "text-success-foreground" },
+  failed: { icon: AlertCircleIcon, className: "text-destructive-foreground" },
+  rejected: { icon: Cancel01Icon, className: "text-muted-foreground" },
 }
+
+const FRAME_CLASS =
+  "rounded-xl border border-border/60 bg-card dark:bg-foreground/[0.025]"
 
 export function ProposalCard({ message }: { message: Message }) {
   const proposal = useMessageProposal(message.channelId, message.id)
   if (!proposal) {
     return (
-      <div className="mt-1.5 w-fit max-w-xl rounded-xl bg-secondary/60 px-4 py-2.5">
-        <p className="line-clamp-2 text-muted-foreground text-sm leading-5">
-          {toSearchPreviewText(message.content, message.mentions ?? [], {
-            dropUnresolvedMentions: true,
-          })}
-        </p>
-      </div>
+      <ProposalCardFallback
+        text={toSearchPreviewText(message.content, message.mentions ?? [], {
+          dropUnresolvedMentions: true,
+        })}
+      />
     )
   }
   return <ProposalCardBody proposal={proposal} channelId={message.channelId} />
+}
+
+// The card's plain-text line before its proposal row loads.
+export function ProposalCardFallback({ text }: { text: string }) {
+  return (
+    <div className={cn("mt-1.5 w-fit max-w-xl px-3 py-2.5", FRAME_CLASS)}>
+      <p className="line-clamp-2 text-[13px] text-muted-foreground leading-5">
+        {text}
+      </p>
+    </div>
+  )
 }
 
 // Existing-channel names come from the sidebar's channels cache; created ones
@@ -171,30 +167,54 @@ function resolverLine(spec: {
   return "approved by any member"
 }
 
+// A name in a change's title, styled like inline code in a message.
+function Name({ children }: { children: ReactNode }) {
+  return (
+    <code className="rounded-md bg-muted px-1.5 py-0.5 font-[450] font-mono text-xs">
+      {children}
+    </code>
+  )
+}
+
 // Title + detail lines for one operation. Rich blocks (instructions content,
 // secret inputs) render separately in OperationItem.
 function opView(
   op: ProposalOperation,
   operations: ProposalOperation[],
   channelNames: Map<string, string>
-): { title: string; details: string[] } {
+): { title: ReactNode; details: string[] } {
   const spec = op.spec
   switch (spec.op) {
     case "create_channel":
       return {
-        title: `Create channel #${spec.name}`,
+        title: (
+          <>
+            Create channel <Name>#{spec.name}</Name>
+          </>
+        ),
         details: spec.topic ? [spec.topic] : [],
       }
     case "create_webhook":
       return {
-        title: `Add webhook "${spec.name}"`,
+        title: (
+          <>
+            Add webhook <Name>{spec.name}</Name>
+          </>
+        ),
         details: [
           `in ${channelRefLabel(spec.channel, operations, channelNames)}`,
         ],
       }
     case "set_trigger":
       return {
-        title: `Route "${spec.event}" events to ${channelRefLabel(spec.channel, operations, channelNames)}`,
+        title: (
+          <>
+            Route <Name>{spec.event}</Name> events to{" "}
+            <Name>
+              {channelRefLabel(spec.channel, operations, channelNames)}
+            </Name>
+          </>
+        ),
         details: [
           [
             spec.post ? "posts to the channel" : "does not post",
@@ -207,7 +227,11 @@ function opView(
       }
     case "create_loop":
       return {
-        title: `Create loop "${spec.name}"`,
+        title: (
+          <>
+            Create loop <Name>{spec.name}</Name>
+          </>
+        ),
         details: [
           `${describeLoopSchedule(spec.schedule, null)} in ${channelRefLabel(spec.channel, operations, channelNames)}`,
           spec.instructions,
@@ -230,12 +254,20 @@ function opView(
     }
     case "update_instructions":
       return {
-        title: "Rewrite the workspace instructions (LOR.md)",
+        title: (
+          <>
+            Rewrite the workspace instructions <Name>LOR.md</Name>
+          </>
+        ),
         details: [],
       }
     case "create_agent_profile":
       return {
-        title: `Create agent profile "${spec.name}"`,
+        title: (
+          <>
+            Create agent profile <Name>{spec.name}</Name>
+          </>
+        ),
         details: [
           spec.capabilities.length > 0
             ? `capabilities: ${spec.capabilities.join(", ")}`
@@ -244,17 +276,33 @@ function opView(
       }
     case "assign_channel_profile":
       return {
-        title: `Set ${channelRefLabel(spec.channel, operations, channelNames)} to use ${profileRefLabel(spec.profile, operations)}`,
+        title: (
+          <>
+            Set{" "}
+            <Name>
+              {channelRefLabel(spec.channel, operations, channelNames)}
+            </Name>{" "}
+            to use {profileRefLabel(spec.profile, operations)}
+          </>
+        ),
         details: [],
       }
     case "create_custom_tool":
       return {
-        title: `Create tool ${spec.name}`,
+        title: (
+          <>
+            Create tool <Name>{spec.name}</Name>
+          </>
+        ),
         details: [spec.description, `${spec.method} ${spec.urlTemplate}`],
       }
     case "create_mcp_server":
       return {
-        title: `Add MCP server "${spec.name}"`,
+        title: (
+          <>
+            Add MCP server <Name>{spec.name}</Name>
+          </>
+        ),
         details: [
           spec.url,
           spec.authMode === "oauth" ? "OAuth sign-in after it's created" : "",
@@ -262,7 +310,12 @@ function opView(
       }
     case "set_approval_policy":
       return {
-        title: `Require approval for ${policyTargetLabel(spec.target, operations)}`,
+        title: (
+          <>
+            Require approval for{" "}
+            <Name>{policyTargetLabel(spec.target, operations)}</Name>
+          </>
+        ),
         details: [resolverLine(spec)],
       }
     // An op kind this client build doesn't know yet (server deployed ahead):
@@ -275,14 +328,14 @@ function opView(
   }
 }
 
+// One change as a plain row: icon, title, its details, and whatever it needs
+// (secret inputs before approval, results after).
 function OperationItem({
   op,
   operations,
   channelNames,
   workspaceSlug,
   applied,
-  isLast,
-  defaultOpen,
   showSecretInputs,
   secretValues,
   onSecretChange,
@@ -292,8 +345,6 @@ function OperationItem({
   channelNames: Map<string, string>
   workspaceSlug: string | undefined
   applied: boolean
-  isLast: boolean
-  defaultOpen: boolean
   showSecretInputs: boolean
   secretValues: Record<string, string>
   onSecretChange: (key: string, value: string) => void
@@ -310,165 +361,112 @@ function OperationItem({
       .catch(() => toast.error("Couldn't copy — select the URL manually"))
   }
 
-  // The first detail line doubles as the panel's always-visible header; the
-  // rest collapses behind it.
-  const headerLine = details[0] ?? null
-  const bodyDetails = details.slice(1)
-  const hasBody =
-    bodyDetails.length > 0 ||
-    spec.op === "update_instructions" ||
-    (showSecretInputs && secretNames.length > 0) ||
-    Boolean(op.error) ||
-    Boolean(op.result?.url) ||
-    Boolean(op.result?.setupNote) ||
-    Boolean(op.result?.resourceId && spec.op === "create_channel")
-  const [open, setOpen] = useState(defaultOpen)
-
-  const body = hasBody ? (
-    <div className="space-y-2 px-3 pb-2.5">
-      {bodyDetails.map((line) => (
-        <p
-          key={line}
-          className="line-clamp-2 text-[13px] text-muted-foreground leading-5"
-        >
-          {line}
-        </p>
-      ))}
-      {spec.op === "update_instructions" && (
-        <pre className="max-h-36 overflow-y-auto rounded-md bg-background/60 p-2.5 font-mono text-muted-foreground text-xs whitespace-pre-wrap">
-          {spec.content}
-        </pre>
-      )}
-      {showSecretInputs && secretNames.length > 0 && (
-        <div className="space-y-1.5">
-          {secretNames.map((name) => (
-            <div key={name} className="flex items-center gap-2">
-              <span className="w-36 shrink-0 truncate font-mono text-muted-foreground text-xs">
-                {name}
-              </span>
-              <Input
-                type="password"
-                autoComplete="off"
-                placeholder="Paste the secret"
-                className="h-8 text-sm"
-                value={secretValues[`${op.position}:${name}`] ?? ""}
-                onChange={(e) =>
-                  onSecretChange(`${op.position}:${name}`, e.target.value)
-                }
-              />
-            </div>
-          ))}
-          <p className="text-[11px] text-muted-foreground">
-            Optional — added encrypted, never shown to Lor. Skipping leaves the
-            tool waiting for its secrets.
-          </p>
-        </div>
-      )}
-      {op.error && (
-        <p className="text-[13px] text-destructive leading-5">{op.error}</p>
-      )}
-      {op.result?.resourceId &&
-        spec.op === "create_channel" &&
-        workspaceSlug && (
-          <Link
-            to="/$workspaceSlug/$channelId"
-            params={{ workspaceSlug, channelId: op.result.resourceId }}
-            className="inline-flex items-center gap-1 font-medium text-[13px] text-primary hover:underline"
-          >
-            Open #{spec.name}
-          </Link>
-        )}
-      {op.result?.url && (
-        <button
-          type="button"
-          onClick={() => copyUrl(op.result?.url ?? "")}
-          className="flex w-full max-w-full cursor-pointer items-center gap-2 rounded-md bg-background/60 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <span className="min-w-0 truncate">{op.result.url}</span>
-          <HugeiconsIcon
-            icon={Copy01Icon}
-            size={13}
-            className="ml-auto shrink-0"
-          />
-        </button>
-      )}
-      {op.result?.setupNote && (
-        <p className="flex items-start gap-1.5 text-[13px] text-warning leading-5">
-          <HugeiconsIcon
-            icon={AlertCircleIcon}
-            size={14}
-            className="mt-[3px] shrink-0"
-          />
-          {op.result.setupNote}
-        </p>
-      )}
-    </div>
-  ) : null
+  const icon = op.error
+    ? AlertCircleIcon
+    : applied
+      ? Tick02Icon
+      : // Unknown kind (newer server): generic glyph, not a crash.
+        ((OP_ICONS[op.kind] as IconSvgObject | undefined) ?? SparklesIcon)
 
   return (
-    <li className="flex gap-3.5">
-      {/* Indicator + rail as flow layout: the rail is a flex-1 column filler,
-          so it always spans exactly from this circle to the next. */}
-      <div className="flex shrink-0 flex-col items-center">
-        <span
-          className={cn(
-            "flex size-6 shrink-0 items-center justify-center rounded-full",
-            op.error
-              ? "bg-destructive/15 text-destructive"
-              : applied
-                ? "bg-primary text-primary-foreground"
-                : "bg-card text-muted-foreground ring-2 ring-border"
-          )}
-        >
-          <HugeiconsIcon
-            icon={
-              op.error
-                ? AlertCircleIcon
-                : applied
-                  ? Tick02Icon
-                  : // Unknown kind (newer server): generic glyph, not a crash.
-                    ((OP_ICONS[op.kind] as IconSvgObject | undefined) ??
-                    SparklesIcon)
-            }
-            size={13}
-            strokeWidth={2}
-          />
-        </span>
-        {!isLast && (
-          <div className="mt-1 mb-1 w-0.5 flex-1 rounded-full bg-border" />
+    <li className="flex gap-3">
+      <span
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-300",
+          op.error
+            ? "bg-destructive/12 text-destructive-foreground"
+            : applied
+              ? "bg-success/12 text-success-foreground"
+              : "bg-muted text-foreground/70"
         )}
-      </div>
-
-      <div className={cn("min-w-0 flex-1", !isLast && "pb-4")}>
-        <p className="pt-0.5 font-semibold text-sm leading-5">{title}</p>
-        {(headerLine || hasBody) && (
-          <div className="mt-1.5 rounded-lg border border-border/60 bg-secondary/30">
-            {hasBody ? (
-              <Collapsible open={open} onOpenChange={setOpen}>
-                <CollapsibleTrigger className="group/op flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left">
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground leading-5">
-                    {headerLine ?? "Details"}
-                  </span>
-                  <HugeiconsIcon
-                    icon={ArrowDown01Icon}
-                    size={15}
-                    className={cn(
-                      "shrink-0 text-muted-foreground/50 group-hover/op:text-muted-foreground",
-                      "motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out",
-                      open && "rotate-180"
-                    )}
-                  />
-                </CollapsibleTrigger>
-                <CollapsibleContent className="transition-[height,opacity] duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0">
-                  {body}
-                </CollapsibleContent>
-              </Collapsible>
-            ) : (
-              <p className="truncate px-3 py-2 text-[13px] text-muted-foreground leading-5">
-                {headerLine}
-              </p>
-            )}
+      >
+        <HugeiconsIcon icon={icon} size={15} strokeWidth={2} />
+      </span>
+      <div className="min-w-0 flex-1 space-y-2 pt-[3px]">
+        <div>
+          <p className="font-medium text-sm leading-5">{title}</p>
+          {details.map((line) => (
+            <p
+              key={line}
+              className="line-clamp-2 text-[13px] text-muted-foreground leading-5"
+            >
+              {line}
+            </p>
+          ))}
+        </div>
+        {spec.op === "update_instructions" && (
+          <pre className="max-h-36 overflow-y-auto rounded-lg border border-border/60 bg-background/60 p-2.5 font-mono text-muted-foreground text-xs whitespace-pre-wrap">
+            {spec.content}
+          </pre>
+        )}
+        {showSecretInputs && secretNames.length > 0 && (
+          <div className="space-y-2.5">
+            {secretNames.map((name) => (
+              <div key={name} className="space-y-1">
+                <label
+                  htmlFor={`secret-${op.id}-${name}`}
+                  className="block truncate font-mono text-muted-foreground text-xs"
+                >
+                  {name}
+                </label>
+                <Input
+                  id={`secret-${op.id}-${name}`}
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Paste the secret"
+                  className="h-8 text-sm"
+                  value={secretValues[`${op.position}:${name}`] ?? ""}
+                  onChange={(e) =>
+                    onSecretChange(`${op.position}:${name}`, e.target.value)
+                  }
+                />
+              </div>
+            ))}
+            <p className="text-muted-foreground text-xs leading-[18px]">
+              Optional. Stored encrypted and never shown to Lor. Without it the
+              tool waits for its secrets.
+            </p>
           </div>
+        )}
+        {op.error && (
+          <p className="text-destructive-foreground text-xs leading-[18px]">
+            {op.error}
+          </p>
+        )}
+        {op.result?.resourceId &&
+          spec.op === "create_channel" &&
+          workspaceSlug && (
+            <Link
+              to="/$workspaceSlug/$channelId"
+              params={{ workspaceSlug, channelId: op.result.resourceId }}
+              className="inline-flex items-center gap-1 font-medium text-primary text-xs hover:underline"
+            >
+              Open #{spec.name}
+            </Link>
+          )}
+        {op.result?.url && (
+          <button
+            type="button"
+            onClick={() => copyUrl(op.result?.url ?? "")}
+            className="flex w-full max-w-full cursor-pointer items-center gap-2 rounded-lg border border-border/60 bg-background/60 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <span className="min-w-0 truncate">{op.result.url}</span>
+            <HugeiconsIcon
+              icon={Copy01Icon}
+              size={13}
+              className="ml-auto shrink-0"
+            />
+          </button>
+        )}
+        {op.result?.setupNote && (
+          <p className="flex items-start gap-1.5 text-warning-foreground text-xs leading-[18px]">
+            <HugeiconsIcon
+              icon={AlertCircleIcon}
+              size={13}
+              className="mt-[2px] shrink-0"
+            />
+            {op.result.setupNote}
+          </p>
         )}
       </div>
     </li>
@@ -522,7 +520,7 @@ function EvidenceSources({
   const urls = evidence.filter((item) => item.kind === "url")
   if (urls.length === 0) return null
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-1.5">
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
       <span className="mr-0.5 text-muted-foreground/70 text-xs">Sources</span>
       {urls.map((item) => (
         <SourceBadge key={item.ref} href={item.ref} />
@@ -542,9 +540,6 @@ function ProposalCardBody({
   const queryClient = useQueryClient()
   const approve = useApproveProposal(channelId)
   const reject = useRejectProposal(channelId)
-  const [secretValues, setSecretValues] = useState<Record<string, string>>({})
-  const [rejecting, setRejecting] = useState(false)
-  const [note, setNote] = useState("")
 
   // Same queries the approval card runs, deduped by react-query.
   const { data: activeMember } = useQuery({
@@ -594,10 +589,63 @@ function ProposalCardBody({
     membersData?.members.find((m) => m.userId === proposal.resolvedByUserId)
       ?.name ?? null
 
+  return (
+    <ProposalCardView
+      proposal={proposal}
+      workspaceSlug={workspaceSlug}
+      channelNames={channelNames}
+      canResolve={canResolve}
+      resolverName={resolverName}
+      approving={approve.isPending}
+      rejectPending={reject.isPending}
+      onApprove={(secrets) =>
+        approve.mutate({ proposalId: proposal.id, secrets })
+      }
+      onReject={(note, done) => {
+        if (!activeMember) return
+        // The card shows the rejection at once, so the note box closes now.
+        reject.mutate({
+          proposalId: proposal.id,
+          note,
+          userId: activeMember.userId,
+        })
+        done()
+      }}
+    />
+  )
+}
+
+// The card itself, data in and callbacks out (the /design page renders it
+// with sample data).
+export function ProposalCardView({
+  proposal,
+  workspaceSlug,
+  channelNames,
+  canResolve,
+  resolverName,
+  approving,
+  rejectPending,
+  onApprove: approve,
+  onReject: reject,
+}: {
+  proposal: ChannelProposal
+  workspaceSlug: string | undefined
+  channelNames: Map<string, string>
+  canResolve: boolean
+  resolverName: string | null
+  approving: boolean
+  rejectPending: boolean
+  onApprove: (secrets: ProposalSecretsPayload | undefined) => void
+  onReject: (note: string | undefined, done: () => void) => void
+}) {
+  const [secretValues, setSecretValues] = useState<Record<string, string>>({})
+  const [rejecting, setRejecting] = useState(false)
+  const [showWhy, setShowWhy] = useState(false)
+  const [rejectNote, setRejectNote] = useState("")
+
   const isPending = proposal.status === "pending"
   const isApplied = proposal.status === "applied"
-  const busy = approve.isPending || reject.isPending
-  const opCount = proposal.operations.length
+  const busy = approving || rejectPending
 
   const onApprove = () => {
     const secrets: ProposalSecretsPayload = {}
@@ -612,155 +660,163 @@ function ProposalCardBody({
         secrets[String(op.position)] = values
       }
     }
-    approve.mutate({
-      proposalId: proposal.id,
-      secrets: Object.keys(secrets).length > 0 ? secrets : undefined,
-    })
+    approve(Object.keys(secrets).length > 0 ? secrets : undefined)
   }
 
   const onReject = () => {
-    reject.mutate(
-      { proposalId: proposal.id, note: note.trim() || undefined },
-      { onSuccess: () => setRejecting(false) }
-    )
+    reject(rejectNote.trim() || undefined, () => setRejecting(false))
   }
 
-  const badge =
-    proposal.status === "applied" ? null : STATUS_BADGE[proposal.status]
+  const mark = STATUS_MARK[proposal.status]
+  const showActions = isPending && canResolve
+  const statusText = isPending
+    ? canResolve
+      ? "Needs your approval"
+      : "Waiting for someone who can approve"
+    : proposal.status === "approved"
+      ? "Applying"
+      : isApplied
+        ? resolverName
+          ? `Approved by ${resolverName}`
+          : "Applied"
+        : proposal.status === "rejected"
+          ? resolverName
+            ? `Rejected by ${resolverName}`
+            : "Rejected"
+          : "Couldn't apply"
+  // A reject note or an apply failure, quoted under the changes.
+  const note =
+    proposal.status === "rejected" || proposal.status === "failed"
+      ? proposal.resolutionNote
+      : null
 
+  // One surface, no dividers: the change is the headline, one action row
+  // under it. Lor's message above already says why, so the reason and its
+  // sources wait behind "Why".
   return (
-    <div className={SURFACE_CLASS}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 space-y-1">
-          <p className="text-pretty font-medium text-sm leading-5">
-            {opCount === 1
-              ? "Workspace change"
-              : `${opCount} workspace changes`}
-          </p>
-          <p
-            className={cn(
-              "text-pretty text-muted-foreground text-sm leading-5",
-              !isPending && "line-clamp-2"
-            )}
-          >
+    <div className={cn("mt-1.5 w-full max-w-lg p-3", FRAME_CLASS)}>
+      <ol className="space-y-3">
+        {proposal.operations.map((op) => (
+          <OperationItem
+            key={op.id}
+            op={op}
+            operations={proposal.operations}
+            channelNames={channelNames}
+            workspaceSlug={workspaceSlug}
+            applied={isApplied}
+            showSecretInputs={showActions}
+            secretValues={secretValues}
+            onSecretChange={(key, value) =>
+              setSecretValues((prev) => ({ ...prev, [key]: value }))
+            }
+          />
+        ))}
+      </ol>
+
+      {note && (
+        <p
+          className={cn(
+            "mt-3 ms-11 border-l-2 ps-2.5 text-[13px] leading-5",
+            proposal.status === "failed"
+              ? "border-destructive/40 text-destructive-foreground"
+              : "border-border text-muted-foreground"
+          )}
+        >
+          {note}
+        </p>
+      )}
+
+      {showWhy && (
+        <div className="mt-3 ms-11 space-y-2.5 rounded-lg bg-muted/40 px-3 py-2.5">
+          <p className="text-[13px] text-muted-foreground leading-5">
             {proposal.rationale}
           </p>
+          <EvidenceSources evidence={proposal.evidence} />
         </div>
-        {/* Applied needs no header ornament — the check-filled indicators and
-            the "Approved by" footer already say it. */}
-        {badge && (
-          <Badge variant={badge.variant} size="sm" className="shrink-0">
-            <HugeiconsIcon
-              icon={badge.icon}
-              size={12}
-              className={badge.spin ? "animate-spin" : undefined}
-            />
-            {badge.label}
-          </Badge>
-        )}
-      </div>
+      )}
 
-      <div>
-        <ol className="mt-3.5">
-          {proposal.operations.map((op, index) => (
-            <OperationItem
-              key={op.id}
-              op={op}
-              operations={proposal.operations}
-              channelNames={channelNames}
-              workspaceSlug={workspaceSlug}
-              applied={isApplied}
-              isLast={index === proposal.operations.length - 1}
-              defaultOpen
-              showSecretInputs={isPending && canResolve}
-              secretValues={secretValues}
-              onSecretChange={(key, value) =>
-                setSecretValues((prev) => ({ ...prev, [key]: value }))
-              }
-            />
-          ))}
-        </ol>
-
-        <EvidenceSources evidence={proposal.evidence} />
-
-        {isApplied && resolverName && (
-          <p className="mt-3 text-muted-foreground text-xs">
-            Approved by {resolverName}
-          </p>
-        )}
-        {proposal.status === "rejected" && (
-          <p className="mt-3 text-muted-foreground text-xs">
-            {resolverName ? `Rejected by ${resolverName}` : "Rejected"}
-            {proposal.resolutionNote ? ` — ${proposal.resolutionNote}` : ""}
-          </p>
-        )}
-        {proposal.status === "failed" && proposal.resolutionNote && (
-          <p className="mt-3 text-destructive text-xs">
-            {proposal.resolutionNote}
-          </p>
-        )}
-
-        {isPending &&
-          (canResolve ? (
-            <div className="mt-4">
-              {rejecting ? (
-                <div className="space-y-2">
-                  <Textarea
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    placeholder="Why not? Lor revises from this note (optional)"
-                    className="min-h-16 text-sm"
-                    maxLength={2000}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      disabled={busy}
-                      loading={reject.isPending}
-                      onClick={onReject}
-                    >
-                      Reject
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={busy}
-                      onClick={() => setRejecting(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    className="active:scale-[0.98]"
-                    disabled={busy}
-                    loading={approve.isPending}
-                    onClick={onApprove}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="active:scale-[0.98]"
-                    disabled={busy}
-                    onClick={() => setRejecting(true)}
-                  >
-                    Reject
-                  </Button>
-                </div>
-              )}
+      {showActions && rejecting ? (
+        <div className="mt-3 ms-11 space-y-2">
+          <Textarea
+            value={rejectNote}
+            onChange={(e) => setRejectNote(e.target.value)}
+            placeholder="What should Lor change? (optional)"
+            className="min-h-16 text-sm"
+            maxLength={2000}
+          />
+          <div className="flex justify-end gap-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setRejecting(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={busy}
+              loading={rejectPending}
+              onClick={onReject}
+            >
+              Reject
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 ms-11 flex min-h-7 flex-wrap items-center gap-x-2 gap-y-2">
+          <span
+            className={cn(
+              "flex min-w-0 items-center gap-1.5 text-xs",
+              mark.className
+            )}
+          >
+            {mark.icon ? (
+              <HugeiconsIcon
+                icon={mark.icon}
+                size={12}
+                strokeWidth={2}
+                className={mark.spin ? "animate-spin" : undefined}
+              />
+            ) : (
+              <span className="size-1.5 shrink-0 rounded-full bg-warning motion-safe:animate-pulse" />
+            )}
+            <span className="truncate">{statusText}</span>
+          </span>
+          <span aria-hidden="true" className="text-muted-foreground/40 text-xs">
+            ·
+          </span>
+          <button
+            type="button"
+            aria-expanded={showWhy}
+            onClick={() => setShowWhy(!showWhy)}
+            className="cursor-pointer text-muted-foreground/70 text-xs transition-colors hover:text-foreground"
+          >
+            {showWhy ? "Hide why" : "Why"}
+          </button>
+          {showActions && (
+            <div className="ms-auto flex shrink-0 gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => setRejecting(true)}
+              >
+                Reject
+              </Button>
+              <Button
+                size="sm"
+                disabled={busy}
+                loading={approving}
+                onClick={onApprove}
+              >
+                Approve
+              </Button>
             </div>
-          ) : (
-            <p className="mt-3 text-muted-foreground text-xs">
-              Waiting for someone with permission to approve.
-            </p>
-          ))}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,10 +1,36 @@
 import type { ServerToClientEvents } from "@repo/realtime-types"
-import { useCallback, useEffect, useState } from "react"
+import {
+  type QueryClient,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useCallback, useEffect } from "react"
 import { apiClient } from "@/lib/api-client"
 import type { AppSocket } from "@/lib/socket"
 
+const NO_QUEUE: string[] = []
+
+export const runQueueKey = (channelId: string, threadRootId: string | null) =>
+  ["run-queue", channelId, threadRootId] as const
+
+// Steer and Remove take a message out of the queue before the server
+// answers; returns the list to restore if the request fails.
+export function takeFromRunQueue(
+  queryClient: QueryClient,
+  message: { id: string; channelId: string; threadRootId: string | null }
+) {
+  const queryKey = runQueueKey(message.channelId, message.threadRootId)
+  const previous = queryClient.getQueryData<string[]>(queryKey)
+  queryClient.setQueryData<string[]>(queryKey, (current = []) =>
+    current.filter((id) => id !== message.id)
+  )
+  return previous
+}
+
 // Queued-message ids for one scope (thread, or channel when threadRootId is
-// null), in arrival order — the composer pill's state. Sends land optimistic
+// null), in arrival order — the composer pill's state. It lives in the query
+// cache so Steer and Remove can take a row out optimistically; gcTime 0
+// starts a remounted panel empty, as local state did. Sends land optimistic
 // via addOptimistic (id = the send nonce, swapped for the real id on the
 // message:created echo), confirmations ride message:routed (outcome
 // "queued"), removals ride run:queue:updated (drained/rejected/withdrawn);
@@ -20,24 +46,43 @@ export function useRunQueue({
   threadRootId: string | null
   pendingLorMessageId: string | undefined
 }) {
-  const [queuedIds, setQueuedIds] = useState<string[]>([])
-  const [scope, setScope] = useState(threadRootId)
-  if (scope !== threadRootId) {
-    setScope(threadRootId)
-    setQueuedIds([])
-  }
+  const queryClient = useQueryClient()
+  const { data: queuedIds } = useQuery({
+    queryKey: runQueueKey(channelId, threadRootId),
+    queryFn: () =>
+      queryClient.getQueryData<string[]>(
+        runQueueKey(channelId, threadRootId)
+      ) ?? NO_QUEUE,
+    initialData: NO_QUEUE,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 0,
+  })
+  const setQueuedIds = useCallback(
+    (update: (current: string[]) => string[]) =>
+      queryClient.setQueryData<string[]>(
+        runQueueKey(channelId, threadRootId),
+        (current = NO_QUEUE) => update(current)
+      ),
+    [queryClient, channelId, threadRootId]
+  )
 
-  const addOptimistic = useCallback((id: string) => {
-    setQueuedIds((current) =>
-      current.includes(id) ? current : [...current, id]
-    )
-  }, [])
+  const addOptimistic = useCallback(
+    (id: string) => {
+      setQueuedIds((current) =>
+        current.includes(id) ? current : [...current, id]
+      )
+    },
+    [setQueuedIds]
+  )
 
   // Undo an optimistic add whose send failed — the nonce would otherwise
   // linger and hide the real message if a delayed created echo swaps it in.
-  const removeOptimistic = useCallback((id: string) => {
-    setQueuedIds((current) => current.filter((queuedId) => queuedId !== id))
-  }, [])
+  const removeOptimistic = useCallback(
+    (id: string) => {
+      setQueuedIds((current) => current.filter((queuedId) => queuedId !== id))
+    },
+    [setQueuedIds]
+  )
 
   useEffect(() => {
     if (!socket) return
@@ -106,7 +151,7 @@ export function useRunQueue({
       socket.off("message:created", handleCreated)
       socket.off("message:deleted", handleDeleted)
     }
-  }, [socket, channelId, threadRootId])
+  }, [socket, channelId, threadRootId, setQueuedIds])
 
   // Late-join snapshot, keyed by the active run's placeholder. `after` skips
   // the event log itself — only the queue rows are needed here (the replay
@@ -135,7 +180,7 @@ export function useRunQueue({
     return () => {
       cancelled = true
     }
-  }, [pendingLorMessageId])
+  }, [pendingLorMessageId, setQueuedIds])
 
   return { queuedIds, addOptimistic, removeOptimistic }
 }

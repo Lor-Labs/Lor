@@ -1,6 +1,14 @@
-import type { RealtimeMessageEmbedsUpdated } from "@repo/realtime-types"
+import { LOR_USER_ID } from "@repo/db/constants"
+import {
+  type RealtimeMessageEmbedsUpdated,
+  sessionTitleFromPrompt,
+} from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef } from "react"
+import type {
+  SessionStart,
+  SessionStartHandlers,
+} from "@/hooks/use-session-start"
 import type { ThreadPage } from "@/hooks/use-thread-messages"
 import type { Message } from "@/lib/api-types"
 import { updateMessagesAcrossPages } from "@/lib/message-cache-utils"
@@ -36,6 +44,9 @@ interface UseMessageSendingOptions {
   /** Called with the send nonce when the server rejects the send, so callers
    * can undo state they mirrored off the returned nonce (e.g. the run queue). */
   onSendFailed?: (nonce: string) => void
+  /** Set where a send can start a Lor session (channel chat, a human thread,
+   * New session): the session shows before the ack. */
+  sessionStart?: SessionStartHandlers
 }
 
 export function useMessageSending({
@@ -45,8 +56,11 @@ export function useMessageSending({
   currentUser,
   threadRootId,
   onSendFailed,
+  sessionStart,
 }: UseMessageSendingOptions) {
   const pendingNonces = useRef(new Set<string>())
+  const sessionStartRef = useRef(sessionStart)
+  sessionStartRef.current = sessionStart
   // A cancelled refetch is owed until every send has settled: running it while
   // another send is unacknowledged could commit a snapshot without that send.
   const refetchOwed = useRef(false)
@@ -165,6 +179,13 @@ export function useMessageSending({
         mentions: Message["mentions"]
         referencedMessage?: Message["referencedMessage"]
         attachments?: Message["attachments"]
+        toPeople?: boolean
+        // New session view: start a session in this channel.
+        startSession?: boolean
+        // "Ask Lor about this": the message the new session starts with.
+        contextMessageId?: string
+        // Cmd+Enter: a session start stays where it was sent.
+        stay?: boolean
       }
     ) => {
       if (!socket?.connected || !currentUser) return undefined
@@ -179,19 +200,62 @@ export function useMessageSending({
       }
 
       if (cancelInFlightRefetch()) refetchOwed.current = true
-      prependToFirstPage(
-        createOptimisticMessage(
-          nonce,
-          channelId,
-          content || null,
-          author,
-          options?.mentions ?? [],
-          options?.referencedMessage ?? undefined,
-          options?.attachments ?? []
+      // `@Lor` in channel chat or a human thread starts a session and posts
+      // nothing where it was sent. Only those composers pass `sessionStart`.
+      const handlers = sessionStartRef.current
+      const startsSession =
+        options?.startSession ||
+        ((!threadRootId || Boolean(handlers)) &&
+          (options?.mentions ?? []).some(
+            (mention) => mention.id === LOR_USER_ID
+          ))
+      // The client picks the new session's ids, so it can show the session
+      // before the ack; the server inserts the rows under them.
+      const startIds =
+        startsSession && handlers
+          ? { id: crypto.randomUUID(), threadRootId: crypto.randomUUID() }
+          : null
+      const start: SessionStart | null = startIds
+        ? {
+            ...startIds,
+            origin: options?.startSession ? "new" : "chat",
+            title: sessionTitleFromPrompt(content),
+            stay: Boolean(options?.stay),
+            message: {
+              ...createOptimisticMessage(
+                nonce,
+                channelId,
+                content || null,
+                author,
+                options?.mentions ?? [],
+                undefined,
+                options?.attachments ?? [],
+                true
+              ),
+              threadRootId: startIds.threadRootId,
+            },
+          }
+        : null
+      if (start) handlers?.starting(start)
+      if (!startsSession) {
+        prependToFirstPage(
+          createOptimisticMessage(
+            nonce,
+            channelId,
+            content || null,
+            author,
+            options?.mentions ?? [],
+            options?.referencedMessage ?? undefined,
+            options?.attachments ?? [],
+            options?.toPeople ? false : null
+          )
         )
-      )
+      }
 
-      const referencedMessageId = options?.referencedMessage?.id
+      // A session start carries its context message in the reply field; the
+      // server attaches it as context, not as a reply.
+      const referencedMessageId =
+        options?.referencedMessage?.id ?? options?.contextMessageId
       const attachments = options?.attachments ?? undefined
       socket.emit(
         "message:send",
@@ -202,17 +266,37 @@ export function useMessageSending({
           referencedMessageId,
           threadRootId,
           attachments,
+          toPeople: options?.toPeople || undefined,
+          startSession: options?.startSession || undefined,
+          newSession: start
+            ? { id: start.id, threadRootId: start.threadRootId }
+            : undefined,
         },
         (result) => {
           if (cancelInFlightRefetch()) refetchOwed.current = true
           pendingNonces.current.delete(nonce)
           if (result.ok) {
+            // The server moved the message into a new Lor session (`@Lor` in
+            // chat or a human thread), so it leaves this list.
+            const movedToSession =
+              result.message.threadRootId !== (threadRootId ?? null)
+            if (start) {
+              if (movedToSession && result.session) {
+                sessionStartRef.current?.started(start, result.session)
+              } else {
+                // The server posted it here instead; the list refetches.
+                sessionStartRef.current?.failed(start)
+                refetchOwed.current = true
+              }
+            }
             updateMessagesInCache((messages) =>
-              messages.map((message) =>
-                message.id === nonce
-                  ? realtimeMessageToMessage(result.message)
-                  : message
-              )
+              movedToSession
+                ? messages.filter((message) => message.id !== nonce)
+                : messages.map((message) =>
+                    message.id === nonce
+                      ? realtimeMessageToMessage(result.message)
+                      : message
+                  )
             )
           } else {
             console.error("[chat] send failed:", result.error)
@@ -220,6 +304,7 @@ export function useMessageSending({
               messages.filter((message) => message.id !== nonce)
             )
             onSendFailed?.(nonce)
+            if (start) sessionStartRef.current?.failed(start)
           }
           if (refetchOwed.current && pendingNonces.current.size === 0) {
             refetchOwed.current = false

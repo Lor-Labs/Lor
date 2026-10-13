@@ -4,10 +4,7 @@ import { apiClient } from "@/lib/api-client"
 import { broadcastMentionCandidates } from "@/lib/broadcast-mentions"
 import { channelQueryOptions } from "@/lib/channel-query"
 
-// Composer @ suggestions: only people who can see the channel, the same
-// audience the server notifies. Bots (Lor) aren't channel members but can be
-// mentioned anywhere, except in voice session chats, which are human-only.
-export function useMentionCandidates(workspaceSlug: string, channelId: string) {
+function useChannelAudience(workspaceSlug: string, channelId: string) {
   const { data: membersData } = useQuery({
     queryKey: ["workspace-members", workspaceSlug],
     queryFn: async () => {
@@ -33,15 +30,32 @@ export function useMentionCandidates(workspaceSlug: string, channelId: string) {
       return res.json()
     },
   })
+  return { members: membersData?.members, channel, audience }
+}
+
+// Composer @ suggestions: only people who can see the channel, the same
+// audience the server notifies. Bots (Lor) aren't channel members but can be
+// mentioned anywhere, except in voice session chats, which are human-only.
+// Session composers pass `broadcasts: false`: the server ignores @here,
+// @channel and @everyone in sessions.
+export function useMentionCandidates(
+  workspaceSlug: string,
+  channelId: string,
+  { broadcasts = true }: { broadcasts?: boolean } = {}
+) {
+  const { members, channel, audience } = useChannelAudience(
+    workspaceSlug,
+    channelId
+  )
 
   return useMemo(() => {
     const humanOnly = channel?.type === "voice"
     const audienceIds = new Set(audience?.userIds ?? [])
-    const people = (membersData?.members ?? []).filter((member) =>
+    const people = (members ?? []).filter((member) =>
       member.isBot ? !humanOnly : audienceIds.has(member.userId)
     )
     return [
-      ...broadcastMentionCandidates(audience?.audience),
+      ...(broadcasts ? broadcastMentionCandidates(audience?.audience) : []),
       ...people.map((member) => ({
         id: member.userId,
         label: member.name,
@@ -49,5 +63,17 @@ export function useMentionCandidates(workspaceSlug: string, channelId: string) {
         image: member.image,
       })),
     ]
-  }, [membersData?.members, channel?.type, audience])
+  }, [members, channel?.type, audience, broadcasts])
+}
+
+// People who can see the channel, so who can follow its threads. Bots never
+// subscribe.
+export function useChannelPeople(workspaceSlug: string, channelId: string) {
+  const { members, audience } = useChannelAudience(workspaceSlug, channelId)
+  return useMemo(() => {
+    const audienceIds = new Set(audience?.userIds ?? [])
+    return (members ?? []).filter(
+      (member) => !member.isBot && audienceIds.has(member.userId)
+    )
+  }, [members, audience])
 }

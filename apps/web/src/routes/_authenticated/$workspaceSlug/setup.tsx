@@ -141,12 +141,15 @@ function SetupPage() {
     ? (textChannelIdNamed(channels, "engineering") ??
       firstTextChannelId(channels))
     : null
+  // A question for Lor opens the New session view with it filled in.
   const askLor = (question: string) => {
-    if (!askChannelId) return
     void navigate({
-      to: "/$workspaceSlug/$channelId",
-      params: { workspaceSlug, channelId: askChannelId },
-      search: { draft: question },
+      to: "/$workspaceSlug/session/new",
+      params: { workspaceSlug },
+      search: {
+        draft: question,
+        ...(askChannelId ? { channelId: askChannelId } : {}),
+      },
     })
   }
 

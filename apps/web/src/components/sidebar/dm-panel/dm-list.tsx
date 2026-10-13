@@ -1,3 +1,4 @@
+import type { UnreadNotification } from "@repo/realtime-types"
 import {
   Avatar,
   AvatarFallback,
@@ -8,10 +9,12 @@ import {
 import { MentionBadge } from "@repo/ui/components/mention-badge"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
+import { useEffect } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
+import { useSocket } from "@/context/socket-context"
 import { useUnread } from "@/context/unread-context"
 import { apiClient } from "@/lib/api-client"
 import type { DMember } from "@/lib/api-types"
@@ -29,6 +32,22 @@ export function DMList() {
       return res.json()
     },
   })
+
+  // A new DM message for you (workspaceId null = a DM) refreshes the list, so
+  // its preview and order stay current; your own sends patch it on send.
+  const socket = useSocket()
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!socket) return
+    const onUnread = (payload: UnreadNotification) => {
+      if (payload.workspaceId !== null) return
+      void queryClient.invalidateQueries({ queryKey: ["dms"], exact: true })
+    }
+    socket.on("notification:unread", onUnread)
+    return () => {
+      socket.off("notification:unread", onUnread)
+    }
+  }, [socket, queryClient])
 
   if (!data || data.data.length === 0) {
     return (

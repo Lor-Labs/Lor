@@ -115,7 +115,12 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       })
     }
 
-    const onMention = (payload: { channelId: string }) => {
+    const onMention = (payload: {
+      channelId: string
+      sessionId?: string | null
+    }) => {
+      // A session mention alerts on the session's sidebar row instead.
+      if (payload.sessionId) return
       setSnapshot((prev) => {
         const stateMap = new Map(prev.stateMap)
         const current =

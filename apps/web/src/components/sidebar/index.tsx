@@ -19,6 +19,7 @@ import {
   CENTER_MIN_WIDTH,
   clampPanelWidth,
   RightSidebarProvider,
+  sizeClassForView,
   useRightSidebar,
 } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { RightSidebarPanel } from "@/components/sidebar/right-panel/right-sidebar-panel"
@@ -175,7 +176,7 @@ function RightPanelDock() {
         const newWidth = clampPanelWidth(
           startWidth + delta,
           viewportWidth,
-          view?.type !== "thread" && view?.type !== "loop"
+          sizeClassForView(view) === "compact"
         )
         if (panelRef.current) {
           panelRef.current.style.width = `${newWidth}px`
@@ -234,7 +235,7 @@ function RightPanelDock() {
         document.removeEventListener("mouseup", handleMouseUp)
       }
     },
-    [panelWidth, setPanelWidth, leftOpen, setLeftOpen, view?.type]
+    [panelWidth, setPanelWidth, leftOpen, setLeftOpen, view]
   )
 
   const showRightPanel = !!view && !!workspaceSlug
