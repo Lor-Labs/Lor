@@ -10,5 +10,6 @@ const invitesRouter = createRouter()
   // Public routes (session-only)
   .openapi(routes.previewInvite, handlers.previewInvite)
   .openapi(routes.acceptInvite, handlers.acceptInvite)
+  .openapi(routes.previewInvitation, handlers.previewInvitation)
 
 export default invitesRouter

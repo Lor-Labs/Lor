@@ -1,3 +1,4 @@
+import { formatWorkspaceRole } from "@repo/auth/permissions"
 import { companyEmailDomain, normalizeDomain } from "@repo/utils/domain"
 import { useQuery } from "@tanstack/react-query"
 import { Redirect, router } from "expo-router"
@@ -36,6 +37,12 @@ import { unregisterPushToken } from "@/lib/push-notifications"
 import lorMark from "../../assets/images/splash-icon.png"
 
 type Step = "welcome" | "create" | "join"
+
+// The client types listUserInvitations rows as an index signature (an Omit
+// over the inferred org schema), so restate the row shape.
+type UserInvitation = typeof authClient.$Infer.Invitation & {
+  organizationName: string
+}
 type SymbolName = ComponentProps<typeof SymbolView>["name"]
 
 const CREATE_ICON: SymbolName = { ios: "plus", android: "add", web: "add" }
@@ -88,6 +95,10 @@ export default function OnboardingScreen() {
   const readingLabel = isReading ? `Reading ${siteDomain}…` : null
   const [inviteLink, setInviteLink] = useState("")
   const [joiningSlug, setJoiningSlug] = useState<string | null>(null)
+  const [acceptingInvitationId, setAcceptingInvitationId] = useState<
+    string | null
+  >(null)
+  const isJoining = joiningSlug !== null || acceptingInvitationId !== null
 
   // Workspaces open to this person's verified company domain.
   const { data: joinable = [] } = useQuery({
@@ -99,6 +110,28 @@ export default function OnboardingScreen() {
       return (await response.json()).workspaces
     },
   })
+
+  // Pending email invites to this account; better-auth returns every status.
+  // The invite email opens the web app, so this is how the app finds them.
+  const { data: invitations = [] } = useQuery({
+    queryKey: ["user-invitations", session?.user.id],
+    enabled: !!session,
+    queryFn: async () => {
+      const result = await authClient.organization.listUserInvitations()
+      if (result.error) return []
+      return (result.data as UserInvitation[]).filter(
+        (invitation) =>
+          invitation.status === "pending" &&
+          new Date(invitation.expiresAt).getTime() > Date.now()
+      )
+    },
+  })
+  const invitedWorkspaceIds = new Set(
+    invitations.map((invitation) => invitation.organizationId)
+  )
+  const domainJoinable = joinable.filter(
+    (workspace) => !invitedWorkspaceIds.has(workspace.id)
+  )
 
   if (isSessionPending || isWorkspaceLoading) {
     return (
@@ -150,8 +183,30 @@ export default function OnboardingScreen() {
     }
   }
 
+  const acceptInvitation = async (invitationId: string) => {
+    if (isJoining) return
+    setError(null)
+    setAcceptingInvitationId(invitationId)
+    try {
+      const result = await authClient.organization.acceptInvitation({
+        invitationId,
+      })
+      if (result.error) {
+        setError(result.error.message ?? "Could not accept the invite")
+        return
+      }
+      triggerHaptic("success")
+      await reloadWorkspaces(result.data.member.organizationId)
+      router.replace("/")
+    } catch {
+      setError("Something went wrong. Please try again.")
+    } finally {
+      setAcceptingInvitationId(null)
+    }
+  }
+
   const joinByDomain = async (workspaceSlug: string) => {
-    if (joiningSlug) return
+    if (isJoining) return
     setError(null)
     setJoiningSlug(workspaceSlug)
     try {
@@ -222,22 +277,46 @@ export default function OnboardingScreen() {
                   subtitle="Set up a workspace for your team, or join one you were invited to."
                   title={hasWorkspace ? "Add a workspace" : "Welcome to Lor"}
                 />
-                {joinable.length > 0 ? (
+                {invitations.length > 0 ? (
+                  <View className="mb-five gap-two">
+                    <Text className="px-one text-[13px] font-semibold text-muted">
+                      You're invited
+                    </Text>
+                    <View className="overflow-hidden rounded-lor-md border border-border bg-surface">
+                      {invitations.map((invitation, index) => (
+                        <Fragment key={invitation.id}>
+                          {index > 0 ? (
+                            <View className="ml-[60px] h-px bg-separator" />
+                          ) : null}
+                          <JoinRow
+                            detail={`Invited as ${formatWorkspaceRole(invitation.role)}`}
+                            isDisabled={isJoining}
+                            isJoining={acceptingInvitationId === invitation.id}
+                            logo={null}
+                            name={invitation.organizationName}
+                            onJoin={() => void acceptInvitation(invitation.id)}
+                          />
+                        </Fragment>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+                {domainJoinable.length > 0 ? (
                   <View className="mb-five gap-two">
                     <Text className="px-one text-[13px] font-semibold text-muted">
                       Your team is already on Lor
                     </Text>
                     <View className="overflow-hidden rounded-lor-md border border-border bg-surface">
-                      {joinable.map((workspace, index) => (
+                      {domainJoinable.map((workspace, index) => (
                         <Fragment key={workspace.id}>
                           {index > 0 ? (
                             <View className="ml-[60px] h-px bg-separator" />
                           ) : null}
                           <JoinRow
-                            isDisabled={joiningSlug !== null}
+                            detail={`${workspace.humanMemberCount} ${workspace.humanMemberCount === 1 ? "member" : "members"}`}
+                            isDisabled={isJoining}
                             isJoining={joiningSlug === workspace.slug}
                             logo={workspace.logo}
-                            memberCount={workspace.humanMemberCount}
                             name={workspace.name}
                             onJoin={() => void joinByDomain(workspace.slug)}
                           />
@@ -444,17 +523,17 @@ function ChoiceRow({
 }
 
 function JoinRow({
+  detail,
   isDisabled,
   isJoining,
   logo,
-  memberCount,
   name,
   onJoin,
 }: {
+  detail: string
   isDisabled: boolean
   isJoining: boolean
   logo: string | null
-  memberCount: number
   name: string
   onJoin: () => void
 }) {
@@ -468,9 +547,7 @@ function JoinRow({
         >
           {name}
         </Text>
-        <Text className="text-[13px] text-muted">
-          {memberCount} {memberCount === 1 ? "member" : "members"}
-        </Text>
+        <Text className="text-[13px] text-muted">{detail}</Text>
       </View>
       <Button isDisabled={isDisabled} onPress={onJoin} size="sm">
         {isJoining ? "Joining…" : "Join"}

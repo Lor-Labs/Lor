@@ -41,6 +41,7 @@ import {
 import { apiClient } from "@/lib/api-client"
 import type { WorkspaceMemberPresence } from "@/lib/api-types"
 import {
+  canInviteMembers,
   canKickWorkspaceMembers,
   canManageWorkspaceMember,
   canUpdateMemberRoles,
@@ -95,6 +96,10 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
   const canKickPermission =
     activeMember && workspaceCtx
       ? canKickWorkspaceMembers(activeMember, workspaceCtx, customRoles)
+      : false
+  const canInvitePermission =
+    activeMember && workspaceCtx
+      ? canInviteMembers(activeMember, workspaceCtx, customRoles)
       : false
 
   const roleOptions = useAssignableRoleOptions(
@@ -159,23 +164,22 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
       title="Members"
       count={isPending ? undefined : members.length}
       action={
-        <div className="flex items-center gap-3">
-          {/* Listing invites needs the same tier as kicking members. */}
-          {canKickPermission && (
+        canInvitePermission && (
+          <div className="flex items-center gap-3">
             <SettingsAction onClick={() => setManageInvitesOpen(true)}>
               Manage invites
             </SettingsAction>
-          )}
-          <Button
-            variant="secondary"
-            size="sm"
-            className={cn(PILL_BUTTON, "px-3")}
-            onClick={() => setInviteOpen(true)}
-          >
-            <HugeiconsIcon icon={UserAdd01Icon} strokeWidth={2} />
-            Invite
-          </Button>
-        </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              className={cn(PILL_BUTTON, "px-3")}
+              onClick={() => setInviteOpen(true)}
+            >
+              <HugeiconsIcon icon={UserAdd01Icon} strokeWidth={2} />
+              Invite
+            </Button>
+          </div>
+        )
       }
     >
       {isPending ? (

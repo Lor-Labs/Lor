@@ -1,5 +1,10 @@
-import { Copy01Icon, Delete02Icon } from "@hugeicons/core-free-icons"
+import {
+  Copy01Icon,
+  Delete02Icon,
+  MailSend01Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { authClient } from "@repo/auth/client"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -22,8 +27,28 @@ import { anchoredToastManager, toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import { useState } from "react"
+import { useInviteAccess } from "@/hooks/use-invite-access"
 import { apiClient } from "@/lib/api-client"
+import { workspaceInvitationsQueryKey } from "@/lib/invitations"
 import { getInviteUrl } from "@/lib/invite-url"
+import { formatWorkspaceRole } from "@/lib/permissions"
+
+type RevokeTarget =
+  | { kind: "link"; code: string }
+  | { kind: "email"; invitationId: string; email: string }
+
+function formatExpiry(expiresAt: string | Date | null) {
+  if (!expiresAt) return "Never"
+  const date = new Date(expiresAt)
+  const now = Date.now()
+  const diff = date.getTime() - now
+  if (diff <= 0) return "Expired"
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+  if (hours > 24) return `${Math.floor(hours / 24)}d`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+}
 
 export function ManageInvitesDialog({
   open,
@@ -34,7 +59,8 @@ export function ManageInvitesDialog({
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const queryClient = useQueryClient()
-  const [revokeCode, setRevokeCode] = useState<string | null>(null)
+  const { workspaceId } = useInviteAccess(workspaceSlug)
+  const [revokeTarget, setRevokeTarget] = useState<RevokeTarget | null>(null)
 
   const { data, isPending, isError } = useQuery({
     queryKey: ["workspace-invites", workspaceSlug],
@@ -49,13 +75,58 @@ export function ManageInvitesDialog({
     enabled: open && !!workspaceSlug,
   })
 
+  // better-auth returns every status; only open invitations are manageable.
+  const invitations = useQuery({
+    queryKey: workspaceInvitationsQueryKey(workspaceId),
+    queryFn: async () => {
+      const res = await authClient.organization.listInvitations({
+        query: { organizationId: workspaceId },
+      })
+      if (res.error) throw new Error(res.error.message ?? "Failed")
+      return res.data.filter(
+        (invitation) =>
+          invitation.status === "pending" &&
+          new Date(invitation.expiresAt).getTime() > Date.now()
+      )
+    },
+    enabled: open && !!workspaceId,
+  })
+
+  const resendMutation = useMutation({
+    mutationFn: async (invitation: { email: string; role: string }) => {
+      const { error } = await authClient.organization.inviteMember({
+        email: invitation.email,
+        role: invitation.role,
+        organizationId: workspaceId,
+        resend: true,
+      })
+      if (error) throw new Error(error.message ?? "Failed to resend invite")
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workspaceInvitationsQueryKey(workspaceId),
+      })
+      toast.success("Invite resent")
+    },
+    onError: (error) => {
+      toast.error(error.message)
+    },
+  })
+
   const revokeMutation = useMutation({
-    mutationFn: async (code: string) => {
+    mutationFn: async (target: RevokeTarget) => {
+      if (target.kind === "email") {
+        const { error } = await authClient.organization.cancelInvitation({
+          invitationId: target.invitationId,
+        })
+        if (error) throw new Error("Failed to revoke invite")
+        return
+      }
       if (!workspaceSlug) throw new Error("Missing workspace slug")
       const res = await apiClient.v1.workspaces[":workspaceSlug"].invites[
         ":code"
       ].$delete({
-        param: { workspaceSlug, code },
+        param: { workspaceSlug, code: target.code },
       })
       if (!res.ok) throw new Error("Failed to revoke invite")
     },
@@ -63,8 +134,11 @@ export function ManageInvitesDialog({
       queryClient.invalidateQueries({
         queryKey: ["workspace-invites", workspaceSlug],
       })
+      queryClient.invalidateQueries({
+        queryKey: workspaceInvitationsQueryKey(workspaceId),
+      })
       toast.success("Invite revoked")
-      setRevokeCode(null)
+      setRevokeTarget(null)
     },
     onError: () => {
       toast.error("Failed to revoke invite")
@@ -86,20 +160,8 @@ export function ManageInvitesDialog({
     }
   }
 
-  function formatExpiry(expiresAt: string | null) {
-    if (!expiresAt) return "Never"
-    const date = new Date(expiresAt)
-    const now = Date.now()
-    const diff = date.getTime() - now
-    if (diff <= 0) return "Expired"
-    const hours = Math.floor(diff / (1000 * 60 * 60))
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-    if (hours > 24) return `${Math.floor(hours / 24)}d`
-    if (hours > 0) return `${hours}h ${minutes}m`
-    return `${minutes}m`
-  }
-
   const invites = data?.invites ?? []
+  const pendingInvitations = invitations.data ?? []
 
   return (
     <>
@@ -108,26 +170,96 @@ export function ManageInvitesDialog({
           <DialogHeader>
             <DialogTitle>Workspace Invites</DialogTitle>
             <DialogDescription>
-              View and manage active invite links.
+              View and manage pending email invites and active invite links.
             </DialogDescription>
           </DialogHeader>
 
-          <DialogPanel>
-            {isPending ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                Loading invites...
-              </div>
-            ) : isError ? (
-              <div className="py-8 text-center text-sm text-destructive">
-                Failed to load invites. Try closing and reopening.
-              </div>
-            ) : invites.length === 0 ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                No active invites
-              </div>
-            ) : (
-              <div className="max-h-80 space-y-2 overflow-y-auto">
-                {invites.map((invite) => (
+          <DialogPanel className="max-h-[28rem] space-y-6 overflow-y-auto">
+            <section className="space-y-2">
+              <h3 className="text-sm font-medium">Email Invites</h3>
+              {invitations.isPending ? (
+                <div className="py-4 text-center text-sm text-muted-foreground">
+                  Loading invites...
+                </div>
+              ) : invitations.isError ? (
+                <div className="py-4 text-center text-sm text-destructive">
+                  Failed to load invites. Try closing and reopening.
+                </div>
+              ) : pendingInvitations.length === 0 ? (
+                <div className="py-4 text-center text-sm text-muted-foreground">
+                  No pending email invites
+                </div>
+              ) : (
+                pendingInvitations.map((invitation) => (
+                  <div
+                    key={invitation.id}
+                    className="flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">
+                        {invitation.email}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatWorkspaceRole(invitation.role)} — expires{" "}
+                        {formatExpiry(invitation.expiresAt)}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        aria-label={`Resend invite to ${invitation.email}`}
+                        disabled={resendMutation.isPending}
+                        onClick={() => resendMutation.mutate(invitation)}
+                      >
+                        <HugeiconsIcon
+                          icon={MailSend01Icon}
+                          className="size-3.5"
+                          strokeWidth={2}
+                        />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-destructive hover:text-destructive"
+                        aria-label={`Revoke invite to ${invitation.email}`}
+                        onClick={() =>
+                          setRevokeTarget({
+                            kind: "email",
+                            invitationId: invitation.id,
+                            email: invitation.email,
+                          })
+                        }
+                      >
+                        <HugeiconsIcon
+                          icon={Delete02Icon}
+                          className="size-3.5"
+                          strokeWidth={2}
+                        />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </section>
+
+            <section className="space-y-2">
+              <h3 className="text-sm font-medium">Invite Links</h3>
+              {isPending ? (
+                <div className="py-4 text-center text-sm text-muted-foreground">
+                  Loading invites...
+                </div>
+              ) : isError ? (
+                <div className="py-4 text-center text-sm text-destructive">
+                  Failed to load invites. Try closing and reopening.
+                </div>
+              ) : invites.length === 0 ? (
+                <div className="py-4 text-center text-sm text-muted-foreground">
+                  No active invite links
+                </div>
+              ) : (
+                invites.map((invite) => (
                   <div
                     key={invite.id}
                     className="flex items-center justify-between rounded-md border px-3 py-2"
@@ -169,7 +301,9 @@ export function ManageInvitesDialog({
                         size="icon"
                         className="size-8 text-destructive hover:text-destructive"
                         aria-label={`Revoke invite ${invite.code}`}
-                        onClick={() => setRevokeCode(invite.code)}
+                        onClick={() =>
+                          setRevokeTarget({ kind: "link", code: invite.code })
+                        }
                       >
                         <HugeiconsIcon
                           icon={Delete02Icon}
@@ -179,25 +313,26 @@ export function ManageInvitesDialog({
                       </Button>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </section>
           </DialogPanel>
         </DialogContent>
       </Dialog>
 
       <AlertDialog
-        open={!!revokeCode}
+        open={!!revokeTarget}
         onOpenChange={(open) => {
-          if (!open) setRevokeCode(null)
+          if (!open) setRevokeTarget(null)
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke Invite</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently deactivate this invite link. Anyone with the
-              link will no longer be able to join.
+              {revokeTarget?.kind === "email"
+                ? `The invite link sent to ${revokeTarget.email} will stop working.`
+                : "This will permanently deactivate this invite link. Anyone with the link will no longer be able to join."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -206,7 +341,7 @@ export function ManageInvitesDialog({
             </AlertDialogClose>
             <Button
               onClick={() => {
-                if (revokeCode) revokeMutation.mutate(revokeCode)
+                if (revokeTarget) revokeMutation.mutate(revokeTarget)
               }}
               disabled={revokeMutation.isPending}
             >

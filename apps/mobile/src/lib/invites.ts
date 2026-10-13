@@ -5,6 +5,25 @@ export function inviteUrl(code: string) {
   return `${env.EXPO_PUBLIC_WEB_URL}/invite/${code}`
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// Same parsing as web's invite dialog: comma, semicolon or whitespace
+// separated, lowercased, deduped.
+export function parseEmailList(value: string) {
+  const emails = [
+    ...new Set(
+      value
+        .split(/[\s,;]+/)
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  ]
+  return {
+    emails,
+    invalid: emails.filter((email) => !EMAIL_PATTERN.test(email)),
+  }
+}
+
 // Carries an invite code across sign-up, email verification and sign-in for
 // signed-out users who open an invite link. Persisted so it survives the app
 // being killed while the user opens the verification email.

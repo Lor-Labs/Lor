@@ -137,6 +137,20 @@ export function canKickWorkspaceMembers(
   )
 }
 
+// Email invites and invite links share better-auth's invitation permission.
+export function canInviteMembers(
+  member: { userId: string; role: string },
+  workspace: { ownerId: string },
+  customRoles?: CustomRoleMap
+): boolean {
+  return hasPermissions(
+    member,
+    workspace,
+    { invitation: ["create"] },
+    customRoles
+  )
+}
+
 export function canUpdateMemberRoles(
   member: { userId: string; role: string },
   workspace: { ownerId: string },

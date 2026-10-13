@@ -1,4 +1,5 @@
 import { auth } from "@repo/auth"
+import { verifyInvitationSignature } from "@repo/auth/invitations"
 import { and, db, eq, schema, sql } from "@repo/db"
 import { BASE62_ALPHABET, randomCode } from "@repo/utils/short-code"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -13,6 +14,7 @@ import type {
   CreateInviteRoute,
   DeleteInviteRoute,
   ListInvitesRoute,
+  PreviewInvitationRoute,
   PreviewInviteRoute,
 } from "@/routes/v1/invites/routes"
 
@@ -68,6 +70,8 @@ function toInviteResponse(
 // ── Workspace-scoped Handlers ────────────────────────────────
 
 export const createInvite: AppRouteHandler<CreateInviteRoute> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { invitation: ["create"] })
+
   const workspace = c.var.workspace
   const user = c.var.user
   const { channelId, maxUses, expiresInMinutes } = c.req.valid("json")
@@ -124,11 +128,9 @@ export const createInvite: AppRouteHandler<CreateInviteRoute> = async (c) => {
 }
 
 export const listInvites: AppRouteHandler<ListInvitesRoute> = async (c) => {
-  const workspace = c.var.workspace
+  assertWorkspaceAuthority(c.var.authority, { invitation: ["create"] })
 
-  assertWorkspaceAuthority(c.var.authority, {
-    workspaceMember: ["kick"], // admins+ can view invites (same permission tier as kick)
-  })
+  const workspace = c.var.workspace
 
   const rows = await db
     .select({
@@ -193,9 +195,7 @@ export const deleteInvite: AppRouteHandler<DeleteInviteRoute> = async (c) => {
 
   // Non-admin members can only delete their own invites
   if (invite.inviterId !== actor.userId) {
-    assertWorkspaceAuthority(c.var.authority, {
-      workspaceMember: ["kick"],
-    })
+    assertWorkspaceAuthority(c.var.authority, { invitation: ["cancel"] })
   }
 
   await db
@@ -425,6 +425,101 @@ export const acceptInvite: AppRouteHandler<AcceptInviteRoute> = async (c) => {
         id: workspaceRecord.id,
         name: workspaceRecord.name,
         slug: workspaceRecord.slug,
+      },
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+export const previewInvitation: AppRouteHandler<
+  PreviewInvitationRoute
+> = async (c) => {
+  const { invitationId } = c.req.valid("param")
+  const { sig } = c.req.valid("query")
+
+  // A bad signature reads as a missing invitation: the preview tells whether
+  // the invited email has an account, so only the inbox may see it.
+  const invitation = verifyInvitationSignature(invitationId, sig)
+    ? await db
+        .select({
+          id: schema.invitation.id,
+          email: schema.invitation.email,
+          status: schema.invitation.status,
+          expiresAt: schema.invitation.expiresAt,
+          workspaceId: schema.invitation.workspaceId,
+          workspaceName: schema.workspace.name,
+          workspaceSlug: schema.workspace.slug,
+          workspaceLogo: schema.workspace.logo,
+          inviterName: schema.user.name,
+          inviterImage: schema.user.image,
+        })
+        .from(schema.invitation)
+        .innerJoin(
+          schema.workspace,
+          eq(schema.invitation.workspaceId, schema.workspace.id)
+        )
+        .innerJoin(schema.user, eq(schema.invitation.inviterId, schema.user.id))
+        .where(eq(schema.invitation.id, invitationId))
+        .limit(1)
+        .then((rows) => rows[0])
+    : undefined
+
+  if (!invitation) {
+    return c.json(
+      { success: false, message: "Invitation not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  const session = await auth.api.getSession({ headers: c.req.raw.headers })
+  const [memberCount, account, existingMember] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.workspaceMember)
+      .where(eq(schema.workspaceMember.workspaceId, invitation.workspaceId))
+      .then((rows) => rows[0]?.count ?? 0),
+    db
+      .select({ id: schema.user.id })
+      .from(schema.user)
+      .where(eq(schema.user.email, invitation.email))
+      .limit(1)
+      .then((rows) => rows[0]),
+    session
+      ? db
+          .select({ id: schema.workspaceMember.id })
+          .from(schema.workspaceMember)
+          .where(
+            and(
+              eq(schema.workspaceMember.workspaceId, invitation.workspaceId),
+              eq(schema.workspaceMember.userId, session.user.id)
+            )
+          )
+          .limit(1)
+          .then((rows) => rows[0])
+      : undefined,
+  ])
+
+  return c.json(
+    {
+      success: true as const,
+      invitation: {
+        id: invitation.id,
+        email: invitation.email,
+        workspace: {
+          name: invitation.workspaceName,
+          slug: invitation.workspaceSlug,
+          logo: invitation.workspaceLogo,
+          memberCount,
+        },
+        inviter: {
+          name: invitation.inviterName,
+          image: invitation.inviterImage,
+        },
+        isExpired:
+          invitation.status !== "pending" ||
+          invitation.expiresAt.getTime() <= Date.now(),
+        hasAccount: !!account,
+        isMember: !!existingMember,
       },
     },
     HttpStatusCodes.OK

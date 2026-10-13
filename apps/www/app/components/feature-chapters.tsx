@@ -4,13 +4,13 @@ import { NotionLogo } from "@repo/ui/components/logos/notion"
 import { SentryLogo } from "@repo/ui/components/logos/sentry"
 import { Check, FileText, Github, Hash } from "lucide-react"
 import type { ReactNode } from "react"
+import { Chapter } from "@/app/components/chapter"
 import {
   LinearChipIcon,
   LorAvatar,
   NotionChipIcon,
   SourceChip,
-} from "@/app/components/app-mock"
-import { Chapter } from "@/app/components/chapter"
+} from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
 
 // ---------------------------------------------------------------------------

@@ -1,15 +1,17 @@
 import { expo } from "@better-auth/expo"
 import { redisStorage } from "@better-auth/redis-storage"
-import { ensureCustomer, grantSignupPromo } from "@repo/billing"
-import { db, eq, LOR_USER_ID, schema } from "@repo/db"
+import { ensureCustomer, grantSignupPromo, syncSeats } from "@repo/billing"
+import { and, db, eq, LOR_USER_ID, ne, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
+import { escapeHtml } from "@repo/utils/html"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { APIError } from "better-auth/api"
 import { betterAuth } from "better-auth/minimal"
 import { admin, organization, twoFactor } from "better-auth/plugins"
 import Redis from "ioredis"
 import { Resend } from "resend"
+import { invitationUrl, verifyInvitationSignature } from "./invitations"
 import { logger } from "./logger"
 import {
   ac,
@@ -29,7 +31,12 @@ async function nextWorkspaceAvatarColor(workspaceId: string, userId: string) {
   const memberships = await db
     .select({ avatarColor: schema.workspaceMember.avatarColor })
     .from(schema.workspaceMember)
-    .where(eq(schema.workspaceMember.workspaceId, workspaceId))
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, workspaceId),
+        ne(schema.workspaceMember.userId, userId)
+      )
+    )
 
   return pickWorkspaceAvatarColor(
     memberships.map((membership) => membership.avatarColor),
@@ -82,6 +89,9 @@ export const auth = betterAuth({
       "/forgot-password/*": { window: 60, max: 3 },
       "/reset-password/*": { window: 60, max: 5 },
       "/two-factor/*": { window: 10, max: 3 },
+      // Each invite sends an email to any address; keep Lor from being a
+      // spam relay.
+      "/organization/invite-member": { window: 60 * 60, max: 60 },
     },
   },
   user: {
@@ -153,6 +163,8 @@ export const auth = betterAuth({
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
     async sendVerificationEmail({ user, url, token }) {
+      // Invite sign-ups start verified (databaseHooks below).
+      if (user.emailVerified) return
       resend.emails
         .send({
           from: env.EMAIL_FROM,
@@ -172,6 +184,43 @@ export const auth = betterAuth({
             logger.error({ err: error }, "Failed to send verification email")
           }
         })
+    },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        // Signing up from a signed invite link proves the inbox, so the
+        // account starts verified.
+        before: async (user, ctx) => {
+          if (ctx?.path !== "/sign-up/email") return
+          const { invitationId, invitationSig } = ctx.body ?? {}
+          if (
+            typeof invitationId !== "string" ||
+            typeof invitationSig !== "string" ||
+            !verifyInvitationSignature(invitationId, invitationSig)
+          ) {
+            return
+          }
+          const invitation = await db
+            .select({
+              email: schema.invitation.email,
+              status: schema.invitation.status,
+              expiresAt: schema.invitation.expiresAt,
+            })
+            .from(schema.invitation)
+            .where(eq(schema.invitation.id, invitationId))
+            .limit(1)
+            .then((rows) => rows[0])
+          if (
+            invitation?.status !== "pending" ||
+            invitation.expiresAt <= new Date() ||
+            invitation.email !== user.email
+          ) {
+            return
+          }
+          return { data: { ...user, emailVerified: true } }
+        },
+      },
     },
   },
   advanced: {
@@ -197,6 +246,37 @@ export const auth = betterAuth({
       // Workspaces are created only through POST /v1/workspaces, which mints
       // the URL key server-side (a system call, so this doesn't block it).
       allowUserToCreateOrganization: false,
+      // better-auth rejects invite accepts past 100 members by default; link
+      // and domain joins have no cap.
+      membershipLimit: Number.MAX_SAFE_INTEGER,
+      invitationExpiresIn: 7 * 24 * 60 * 60,
+      requireEmailVerificationOnInvitation: true,
+      async sendInvitationEmail({ id, email, organization, inviter }) {
+        const workspaceName = escapeHtml(organization.name)
+        const { error } = await resend.emails.send({
+          from: env.EMAIL_FROM,
+          to: email,
+          subject: `${inviter.user.name} invited you to ${organization.name} on Lor`,
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 0;">
+              <h2 style="margin: 0 0 8px; font-size: 24px; color: #1a1a1a;">Join ${workspaceName} on Lor</h2>
+              <p style="margin: 0 0 24px; color: #555; font-size: 16px; line-height: 1.5;">${escapeHtml(inviter.user.name)} (${escapeHtml(inviter.user.email)}) invited you to the ${workspaceName} workspace on Lor.</p>
+              <a href="${invitationUrl(id)}" style="display: inline-block; background: ${EMAIL_PRIMARY_COLOR}; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">Accept invite</a>
+              <p style="color: #999; font-size: 13px; margin-top: 24px; line-height: 1.4;">This invite expires in 7 days. If you weren't expecting it, you can safely ignore this email.</p>
+            </div>
+          `,
+        })
+        if (error) {
+          logger.error(
+            { err: error, invitationId: id },
+            "Failed to send invitation email"
+          )
+          // The invitation row exists; the inviter can resend it.
+          throw new APIError("BAD_GATEWAY", {
+            message: "Couldn't send the invite email",
+          })
+        }
+      },
       roles: {
         owner: ownerRole,
         admin: adminRole,
@@ -302,6 +382,57 @@ export const auth = betterAuth({
             member.userId
           )
           return { data: { ...member, avatarColor } }
+        },
+        // Ownership lives in workspace.ownerId, so "owner" is never an
+        // invitable role, and a member holds exactly one role.
+        beforeCreateInvitation: async ({ invitation }) => {
+          const roles = invitation.role.split(",")
+          if (roles.length !== 1 || roles[0] === "owner") {
+            throw new APIError("BAD_REQUEST", {
+              message: "Invite with one role other than owner",
+            })
+          }
+        },
+        // Accept inserts the member with no duplicate check, so someone who
+        // joined by link or domain first would hit the unique index.
+        beforeAcceptInvitation: async ({ invitation, user }) => {
+          const existing = await db
+            .select({ id: schema.workspaceMember.id })
+            .from(schema.workspaceMember)
+            .where(
+              and(
+                eq(
+                  schema.workspaceMember.workspaceId,
+                  invitation.organizationId
+                ),
+                eq(schema.workspaceMember.userId, user.id)
+              )
+            )
+            .limit(1)
+          if (existing.length > 0) {
+            throw new APIError("BAD_REQUEST", {
+              message: "You're already a member of this workspace",
+            })
+          }
+        },
+        // Accept inserts the member directly, so beforeAddMember never runs.
+        afterAcceptInvitation: async ({ member }) => {
+          try {
+            const avatarColor = await nextWorkspaceAvatarColor(
+              member.organizationId,
+              member.userId
+            )
+            await db
+              .update(schema.workspaceMember)
+              .set({ avatarColor })
+              .where(eq(schema.workspaceMember.id, member.id))
+          } catch (error) {
+            logger.error(
+              { err: error, workspaceId: member.organizationId },
+              "Failed to set avatar color for invited member"
+            )
+          }
+          void syncSeats(member.organizationId)
         },
         afterCreateOrganization: async ({ organization }) => {
           try {

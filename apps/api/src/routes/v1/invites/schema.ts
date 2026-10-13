@@ -37,6 +37,33 @@ export const workspaceInviteCodeParamsSchema = workspaceSlugParamsSchema.extend(
   }
 )
 
+export const invitationIdParamsSchema = z.object({
+  invitationId: z
+    .string()
+    .uuid()
+    .openapi({
+      param: {
+        name: "invitationId",
+        in: "path",
+        required: true,
+      },
+      example: "c1b5e0f4-8a1d-4b6e-9f2a-3d7c8e9f0a1b",
+    }),
+})
+
+export const invitationPreviewQuerySchema = z.object({
+  sig: z
+    .string()
+    .min(1)
+    .openapi({
+      param: {
+        name: "sig",
+        in: "query",
+        required: true,
+      },
+    }),
+})
+
 // ── Request Schemas ──────────────────────────────────────
 
 export const createInviteRequestSchema = z.object({
@@ -108,6 +135,29 @@ export const invitePreviewSchema = z.object({
 export const invitePreviewResponseSchema = z.object({
   success: z.literal(true),
   invite: invitePreviewSchema,
+})
+
+export const invitationPreviewResponseSchema = z.object({
+  success: z.literal(true),
+  invitation: z.object({
+    id: z.string().uuid(),
+    email: z.string(),
+    workspace: z.object({
+      name: z.string(),
+      slug: z.string(),
+      logo: z.string().nullable(),
+      memberCount: z.number(),
+    }),
+    inviter: z.object({
+      name: z.string(),
+      image: z.string().nullable(),
+    }),
+    // Not pending (accepted, canceled, rejected) or past its expiry
+    isExpired: z.boolean(),
+    // The invite page picks sign-in or sign-up from this
+    hasAccount: z.boolean(),
+    isMember: z.boolean(),
+  }),
 })
 
 export const acceptInviteResponseSchema = z.object({

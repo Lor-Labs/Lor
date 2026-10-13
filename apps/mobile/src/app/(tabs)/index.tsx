@@ -445,6 +445,7 @@ export default function WorkspaceScreen() {
       <CreateInviteSheet
         isOpen={isInviteOpen}
         onOpenChange={setIsInviteOpen}
+        workspaceId={workspace.id}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
       />

@@ -13,9 +13,7 @@ export function ClosingCTA() {
       <Reveal>
         <div className="relative mx-auto flex max-w-2xl flex-col items-center text-center">
           <h2 className="text-balance font-semibold text-4xl leading-[1.05] tracking-[-0.03em] md:text-[56px]">
-            The lore is yours.
-            <br />
-            <span className="text-foreground/55">So is your context.</span>
+            Stop doing AI work alone.
           </h2>
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row">
             <CtaPrimary href={SIGNUP_URL}>Start free</CtaPrimary>

@@ -75,6 +75,7 @@ import {
   WorkspaceSettingsDialog,
 } from "@/components/workspace/workspace-settings-dialog"
 import { useBillingUpdates } from "@/hooks/use-billing-updates"
+import { useInviteAccess } from "@/hooks/use-invite-access"
 import { useSettings } from "@/hooks/use-settings"
 import { useWorkspaceSetup } from "@/hooks/use-workspace-setup"
 import { apiClient } from "@/lib/api-client"
@@ -114,6 +115,7 @@ function WorkspaceSidebarInner() {
     useCreateChannel()
   const { target, tab, open: openSettings, close, setTab } = useSettings()
   const [inviteOpen, setInviteOpen] = useState(false)
+  const { canInvite } = useInviteAccess(workspaceSlug)
   const { status: setupStatus } = useWorkspaceSetup(workspaceSlug ?? "")
 
   const settingsOpen = target === "workspace"
@@ -266,18 +268,20 @@ function WorkspaceSidebarInner() {
                     />
                     Workspace settings
                   </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className={sidebarMenuRow}
-                    onClick={() => setInviteOpen(true)}
-                    disabled={!activeWorkspace}
-                  >
-                    <HugeiconsIcon
-                      icon={UserAdd02Icon}
-                      className={sidebarMenuIcon}
-                      strokeWidth={1.5}
-                    />
-                    Invite people
-                  </DropdownMenuItem>
+                  {canInvite && (
+                    <DropdownMenuItem
+                      className={sidebarMenuRow}
+                      onClick={() => setInviteOpen(true)}
+                      disabled={!activeWorkspace}
+                    >
+                      <HugeiconsIcon
+                        icon={UserAdd02Icon}
+                        className={sidebarMenuIcon}
+                        strokeWidth={1.5}
+                      />
+                      Invite people
+                    </DropdownMenuItem>
+                  )}
                   {workspaceSlug && setupStatus === "open" && (
                     <DropdownMenuItem
                       className={sidebarMenuRow}
