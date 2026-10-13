@@ -1,9 +1,9 @@
 import { Check } from "lucide-react"
 import Image from "next/image"
 import { AppMock } from "@/app/components/app-mock"
+import { ChannelOutputs } from "@/app/components/channel-outputs"
 import { ClosingCTA } from "@/app/components/closing-cta"
 import { CtaPrimary, CtaSecondary } from "@/app/components/cta"
-import { ExampleChannels } from "@/app/components/example-channels"
 import { Pricing } from "@/app/components/pricing"
 import { ProblemVisual } from "@/app/components/problem-visual"
 import { Reveal } from "@/app/components/reveal"
@@ -106,7 +106,7 @@ export default function Home() {
       <Hero />
       <ProblemVisual />
       <WeekInGtm />
-      <ExampleChannels />
+      <ChannelOutputs />
       <TrustSection />
       <Pricing />
       <ClosingCTA />

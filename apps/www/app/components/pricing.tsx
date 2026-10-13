@@ -42,8 +42,7 @@ export function Pricing() {
           </h2>
           <p className="mt-5 text-pretty text-[15px] text-foreground/60 leading-relaxed">
             One $20 seat covers the team chat, the agent in every channel, and
-            every connector. Every seat adds credits to a shared pool. No tiers,
-            no gates, no enterprise call.
+            every connector. Every seat adds AI credits to one shared pool.
           </p>
         </div>
       </Reveal>

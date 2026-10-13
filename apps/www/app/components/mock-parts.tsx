@@ -226,6 +226,20 @@ export function ApprovalCard({ title, tool }: { title: string; tool: string }) {
   )
 }
 
+export function Toggle({ on }: { on: boolean }) {
+  return (
+    <span
+      className={`flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 ${
+        on ? "bg-primary" : "bg-foreground/15"
+      }`}
+    >
+      <span
+        className={`size-3 rounded-full bg-white ${on ? "translate-x-3" : ""}`}
+      />
+    </span>
+  )
+}
+
 export type PlanStepStatus = "done" | "active" | "pending"
 
 export function PlanStep({

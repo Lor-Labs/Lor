@@ -1,28 +1,81 @@
-import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons"
+import { ArrowDown01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
+import { Toggle } from "@/app/components/mock-parts"
+import { MockShell } from "@/app/components/mock-shell"
 import { Reveal } from "@/app/components/reveal"
 import { GITHUB_URL } from "@/app/lib/urls"
 
-// Trust line (reference/positioning.md): open source, open models, approvals,
-// permissions. Replaces open-stack.tsx, which is kept but not rendered.
+// Trust line (reference/positioning.md): open source, open models, approvals.
+// The approvals card copies Settings › Approvals (approvals-section.tsx).
+// Replaces open-stack.tsx, which is kept but not rendered.
 
-const MODELS = ["GLM", "Kimi", "Qwen"]
+const MODELS = ["GLM 5.3 Flash", "Kimi K3", "Qwen3 Embedding"]
 
-const PILLARS = [
+const GATES = [
   {
-    title: "Approvals you choose",
-    body: "Gate any tool, connector, or MCP server, and pick who can approve it.",
+    label: "Write to Linear",
+    description: "Create and update issues and post comments",
+    approver: "Role: Admin",
   },
   {
-    title: "Roles and permissions",
-    body: "Custom roles decide who can change the setup and connect new tools.",
+    label: "Code Actions",
+    description:
+      "Make code changes and open pull requests for the team to review",
+    approver: "Rafael",
   },
   {
-    title: "Memory you can read",
-    body: "What Lor knows lives in Postgres, in tables you can query.",
+    label: "Web Search",
+    description: "Search the web and read public pages",
+    approver: null,
   },
 ]
+
+function ApprovalsSettings() {
+  return (
+    <MockShell>
+      <div aria-hidden className="p-5 text-left md:p-6">
+        <p className="font-semibold text-[15px] text-lor-text-dark">
+          Approvals
+        </p>
+        <p className="mt-1 text-[12.5px] text-lor-text-tertiary-dark leading-relaxed">
+          Turn an action on here and Lor asks first. The action waits until
+          someone approves it.
+        </p>
+        <p className="mt-5 font-medium text-[11.5px] text-lor-text-tertiary-dark">
+          Connector capabilities
+        </p>
+        <div className="mt-2 rounded-xl bg-foreground/[0.03] px-4">
+          {GATES.map((gate) => (
+            <div
+              key={gate.label}
+              className="border-lor-border-dark/50 border-t py-3 first:border-t-0"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-[13px] text-lor-text-dark">{gate.label}</p>
+                  <p className="truncate text-[12px] text-lor-text-tertiary-dark">
+                    {gate.description}
+                  </p>
+                </div>
+                <Toggle on={gate.approver !== null} />
+              </div>
+              {gate.approver ? (
+                <div className="mt-2.5 flex items-center gap-2 text-[11.5px] text-lor-text-tertiary-dark">
+                  Who can approve
+                  <span className="flex w-40 items-center justify-between rounded-md border border-lor-border-dark bg-lor-bg-dark px-2 py-1 text-lor-text-dark">
+                    {gate.approver}
+                    <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    </MockShell>
+  )
+}
 
 export function TrustSection() {
   return (
@@ -31,79 +84,69 @@ export function TrustSection() {
       className="relative mx-auto w-full max-w-6xl px-6 py-24"
     >
       <Reveal>
-        <h2 className="max-w-2xl text-balance font-semibold text-4xl leading-[1.06] tracking-[-0.03em] md:text-[44px]">
-          Open source. Open models.{" "}
-          <span className="text-foreground/55">Your rules.</span>
+        <h2 className="font-semibold text-3xl leading-[1.08] tracking-[-0.03em] md:text-[40px]">
+          Open source. Open models. Your rules.
         </h2>
       </Reveal>
 
-      <Reveal delay={120}>
-        <div className="mt-12 grid grid-cols-1 gap-2 md:grid-cols-2">
+      <div className="mt-12 grid grid-cols-1 gap-2 md:grid-cols-[7fr_5fr]">
+        <Reveal delay={120}>
+          <ApprovalsSettings />
+        </Reveal>
+
+        <Reveal delay={240} className="flex flex-col gap-2">
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex flex-col justify-between rounded-2xl border bg-card p-8 transition-colors hover:bg-card/80 dark:bg-card/50 dark:hover:bg-card/70"
+            className="group flex flex-1 flex-col justify-between rounded-2xl border bg-card p-6 transition-colors hover:bg-card/80 dark:bg-card/50 dark:hover:bg-card/70"
           >
-            <span className="flex size-12 items-center justify-center rounded-md border bg-background shadow-xs">
-              <GitHubLogo className="size-6" />
-            </span>
-            <div className="mt-16">
-              <h3 className="font-medium text-base leading-tight md:text-lg">
-                <span>AGPL-3.0, built in the open.</span>{" "}
-                <span className="text-muted-foreground">
-                  The app, the server, and Lor in one repo. Read the code,
-                  self-host it, or let us run it.
-                </span>
-              </h3>
-              <span className="mt-4 inline-flex items-center gap-1.5 font-medium text-[13px] text-foreground/75 transition-colors group-hover:text-foreground">
-                View on GitHub
-                <HugeiconsIcon
-                  icon={ArrowUpRight01Icon}
-                  size={14}
-                  className="transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
-                />
+            <span className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-md border bg-background shadow-xs">
+                <GitHubLogo className="size-5" />
               </span>
-            </div>
+              <span className="font-mono text-[13px] text-foreground/75">
+                BuckyMcYolo/lor
+              </span>
+            </span>
+            <span className="mt-10 flex items-end justify-between gap-4">
+              <span className="font-medium text-base leading-tight md:text-lg">
+                AGPL-3.0.{" "}
+                <span className="text-muted-foreground">
+                  App, server, and Lor in one repo.
+                </span>
+              </span>
+              <HugeiconsIcon
+                icon={ArrowUpRight01Icon}
+                size={16}
+                className="shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground"
+              />
+            </span>
           </a>
 
-          <div className="flex flex-col justify-between rounded-2xl border bg-card p-8 dark:bg-card/50">
+          <div className="flex flex-1 flex-col justify-between rounded-2xl border bg-card p-6 dark:bg-card/50">
             <div className="flex flex-wrap gap-2">
               {MODELS.map((model) => (
                 <span
                   key={model}
-                  className="rounded-lg border bg-background px-3.5 py-2 text-[13px] text-foreground/85 shadow-xs"
+                  className="rounded-lg border bg-background px-3 py-1.5 text-[12.5px] text-foreground/85 shadow-xs"
                 >
                   {model}
                 </span>
               ))}
-              <span className="rounded-lg border border-dashed px-3.5 py-2 text-[13px] text-muted-foreground">
+              <span className="rounded-lg border border-dashed px-3 py-1.5 text-[12.5px] text-muted-foreground">
                 your own
               </span>
             </div>
-            <div className="mt-16">
-              <h3 className="font-medium text-base leading-tight md:text-lg">
-                <span>Runs on open models.</span>{" "}
-                <span className="text-muted-foreground">
-                  No lock-in to one lab. Self-hosters point Lor at any model
-                  endpoint they like.
-                </span>
-              </h3>
-            </div>
+            <p className="mt-10 font-medium text-base leading-tight md:text-lg">
+              Open models.{" "}
+              <span className="text-muted-foreground">
+                Self-hosters bring any endpoint.
+              </span>
+            </p>
           </div>
-        </div>
-
-        <div className="mt-2 grid grid-cols-1 divide-y overflow-hidden rounded-2xl border bg-card md:grid-cols-3 md:divide-x md:divide-y-0 dark:bg-card/50">
-          {PILLARS.map((pillar) => (
-            <div key={pillar.title} className="p-6">
-              <h3 className="font-medium text-base leading-tight">
-                <span>{pillar.title}.</span>{" "}
-                <span className="text-muted-foreground">{pillar.body}</span>
-              </h3>
-            </div>
-          ))}
-        </div>
-      </Reveal>
+        </Reveal>
+      </div>
     </section>
   )
 }
