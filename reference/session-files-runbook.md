@@ -51,7 +51,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 1b: typed channel file queries (~150)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - `lib/queries/channel-files.ts` moves off `db.execute` casts to the Drizzle
   query builder. The Files list runs its artifact and upload queries in
@@ -59,10 +59,10 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 
 #### Step 2: file icon and chip primitives (~300)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
 
 - `packages/ui`: `FileTypeIcon` (custom SVG, extension → tone map) and the
-  `Attachment` chip family, on Townhall tokens and Hugeicons.
+  `FileChip` family, on Townhall tokens and Base UI `render`.
 
 #### Step 3: right-rail file panel on the session page (~400)
 
@@ -110,4 +110,10 @@ Tick each step's boxes as it lands and record departures in "Deviations".
 [ ] built · [ ] committed
 
 ## Deviations
+
+- Step 2: the chip is `FileChip`, not careCycle's `Attachment`, because
+  Nexus already exports an `Attachment` from `@repo/ui`. It drops careCycle's
+  upload states, vertical layout and horizontal group until something needs
+  them. `FileTypeIcon` adds presentation, image and media tones; generic
+  files use `text-muted-foreground`.
 
