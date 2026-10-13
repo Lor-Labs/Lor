@@ -1,10 +1,9 @@
 import { Check } from "lucide-react"
 import Image from "next/image"
-import { AgentBento } from "@/app/components/agent-bento"
 import { AppMock } from "@/app/components/app-mock"
 import { ClosingCTA } from "@/app/components/closing-cta"
 import { CtaPrimary, CtaSecondary } from "@/app/components/cta"
-import { OpenStack } from "@/app/components/open-stack"
+import { ExampleChannels } from "@/app/components/example-channels"
 import { Pricing } from "@/app/components/pricing"
 import {
   ControlChapter,
@@ -15,6 +14,7 @@ import {
 } from "@/app/components/proof-chapters"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
+import { TrustSection } from "@/app/components/trust-section"
 import { SIGNUP_URL } from "@/app/lib/urls"
 
 const HERO_POINTS = [
@@ -114,8 +114,8 @@ export default function Home() {
       <MemoryChapter />
       <LoopsChapter />
       <ControlChapter />
-      <AgentBento />
-      <OpenStack />
+      <ExampleChannels />
+      <TrustSection />
       <Pricing />
       <ClosingCTA />
       <SiteFooter />
