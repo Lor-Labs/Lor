@@ -169,7 +169,7 @@ response gained `sessionId`. `countsAsUnread` also skips anchors.
 
 #### Step 3: shared session and run helpers (~350)
 
-[x] built 2026-10-08 · [x] committed · [x] backfill run (dev, 2026-10-10) · [ ] backfill run (prod)
+[x] built 2026-10-08 · [x] committed · [x] backfill run (dev, 2026-10-10) · [x] backfill run (prod, 2026-10-12)
 
 As built (~290 lines): `createSession(tx, args)` and `ensureLoopSession(loop)`
 in `packages/lor/src/agent-sessions.ts`. `createSession` takes the caller's
@@ -794,7 +794,7 @@ from the push, and show no summary for new calls until Step 22.
 
 #### Step 19: onboarding touchpoints and share to chat (~300)
 
-[x] built 2026-10-10 · [x] committed · [ ] db:push (`forward` in `message_type`, `message.forwarded`)
+[x] built 2026-10-10 · [x] committed · [x] db:push (`forward` in `message_type`, `message.forwarded`; prod 2026-10-12)
 
 - `packages/auth/src/lib/workspace-template.ts:21,45`: remove the Lor intro.
 - Hints: rewrite `lor_intro`; `lor_reply` moves into sessions with

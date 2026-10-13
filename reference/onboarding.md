@@ -454,7 +454,8 @@ Schema edits are listed; Jacob runs `db:push`.
 ### Step 1: workspace key, create route, new columns, rekey script
 
 [x] built 2026-10-07 · [x] committed · [x] db:push dev · [x] rekey dev ·
-[ ] db:push prod · [ ] rekey prod
+[x] db:push prod · [x] rekey prod (2026-10-12; reconnect the OAuth MCP
+servers it listed: Lor's Ergo and Cloudflare MCP, careCycle's Ergo)
 
 - `packages/utils/src/short-code.ts` (new): `randomCode(length, alphabet)`
   with rejection sampling, `workspaceKey()` (10 chars base36). The invite
