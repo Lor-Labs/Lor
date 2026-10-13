@@ -6,12 +6,12 @@ import {
   PlusSignIcon,
   Search01Icon,
   SentIcon,
-  SidebarRight01Icon,
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
+import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
 import type { ReactNode } from "react"
 import { LorMark } from "@/app/components/lor-mark"
 import {
@@ -153,21 +153,31 @@ function MockSidebar() {
 function SessionColumn() {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex h-11 shrink-0 items-center justify-end gap-3 px-3 text-lor-text-tertiary-dark">
-        <span className="-space-x-1.5 flex">
-          <PersonAvatar
-            src={RAFAEL}
-            className="ring-2 ring-lor-bg-dark"
-            size="size-5"
-          />
-          <PersonAvatar
-            src={ZOE}
-            className="ring-2 ring-lor-bg-dark"
-            size="size-5"
-          />
+      <div className="flex h-11 shrink-0 items-center gap-1 px-3 text-lor-text-tertiary-dark">
+        <span className="-ml-1 flex size-7 items-center justify-center">
+          <SidebarToggleIcon isOpen className="size-4" strokeWidth={1.5} />
         </span>
-        <HugeiconsIcon icon={MoreHorizontalIcon} size={15} />
-        <HugeiconsIcon icon={SidebarRight01Icon} size={15} />
+        <span className="ml-auto flex items-center gap-0.5">
+          <span className="-space-x-1 flex px-1.5">
+            <PersonAvatar
+              src={RAFAEL}
+              className="ring-2 ring-lor-bg-dark"
+              size="size-5"
+            />
+            <PersonAvatar
+              src={ZOE}
+              className="ring-2 ring-lor-bg-dark"
+              size="size-5"
+            />
+          </span>
+          <span className="flex size-7 items-center justify-center">
+            <HugeiconsIcon
+              icon={MoreHorizontalIcon}
+              className="size-4"
+              strokeWidth={2}
+            />
+          </span>
+        </span>
       </div>
 
       <div className="mask-b-from-90% min-h-0 flex-1 overflow-hidden">
@@ -275,9 +285,18 @@ function RailTitle({ title, aside }: { title: string; aside: ReactNode }) {
 function DetailsRail() {
   return (
     <div className="hidden w-60 shrink-0 flex-col lg:flex">
-      <p className="flex h-[52px] shrink-0 items-center border-lor-border-dark/70 border-b px-4 font-semibold text-[14px] text-lor-text-dark">
-        Details
-      </p>
+      <div className="flex h-[52px] shrink-0 items-center border-lor-border-dark/70 border-b px-4">
+        <p className="font-semibold text-[14px] text-lor-text-dark tracking-tight">
+          Details
+        </p>
+        <span className="-mr-1.5 ml-auto flex size-7 items-center justify-center text-lor-text-tertiary-dark">
+          <SidebarToggleIcon
+            isOpen
+            className="size-4 -scale-x-100"
+            strokeWidth={1.5}
+          />
+        </span>
+      </div>
       <div className="flex flex-col gap-6 px-4 pt-4">
         <div>
           <RailTitle title="Plan" aside="3/4" />

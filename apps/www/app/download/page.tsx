@@ -62,7 +62,7 @@ const PLATFORMS: Platform[] = [
     subtitle: "Apple Silicon",
     description: "The .dmg installer for macOS 11 and up.",
     href: MACOS_DMG_URL,
-    note: "Need Intel? Check all releases below.",
+    note: "Needs a Mac with Apple Silicon.",
   },
   {
     name: "Windows",

@@ -3,11 +3,11 @@ import { Reveal } from "@/app/components/reveal"
 import { SIGNUP_URL } from "@/app/lib/urls"
 
 const CLOUD_FEATURES = [
-  "Unlimited channels, threads, and voice",
-  "Lor on every channel: answers, actions, memory",
+  "Unlimited channels, sessions, and voice",
+  "An agent in every channel, on demand or on a schedule",
+  "Approvals, custom roles, and permissions",
   "AI credits included, pooled across your whole team",
-  "Buy additional credits anytime usage runs hot",
-  "All connectors: GitHub, Linear, Notion, and more",
+  "All connectors: Attio, GitHub, Linear, Notion, and more",
 ]
 
 function FeatureList({ items }: { items: string[] }) {
@@ -41,9 +41,9 @@ export function Pricing() {
             <span className="text-foreground/55"> Everything included.</span>
           </h2>
           <p className="mt-5 text-pretty text-[15px] text-foreground/60 leading-relaxed">
-            One $20 seat covers the team chat, the AI that answers from it, and
-            the search across every connected tool. Every seat adds credits to a
-            shared pool. No tiers, no gates, no enterprise call.
+            One $20 seat covers the team chat, the agent in every channel, and
+            every connector. Every seat adds credits to a shared pool. No tiers,
+            no gates, no enterprise call.
           </p>
         </div>
       </Reveal>

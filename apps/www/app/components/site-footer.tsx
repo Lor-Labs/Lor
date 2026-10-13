@@ -9,9 +9,11 @@ const GROUPS: LinkGroup[] = [
   {
     title: "Product",
     links: [
-      { label: "Lor", href: "/#lor" },
-      { label: "Connectors", href: "/#integrations" },
+      { label: "Setup", href: "/#integrations" },
       { label: "Memory", href: "/#memory" },
+      { label: "Schedules", href: "/#loops" },
+      { label: "Approvals", href: "/#control" },
+      { label: "Examples", href: "/#examples" },
       { label: "Pricing", href: "/#pricing" },
       { label: "Download", href: "/download" },
       { label: "Self-host", href: "/#open-source" },
