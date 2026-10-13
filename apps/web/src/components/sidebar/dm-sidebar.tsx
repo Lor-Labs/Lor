@@ -1,6 +1,7 @@
 import { ArrowLeft01Icon, PlusSignIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { isTauri } from "@repo/auth/tauri-fetch"
 import {
   Sidebar,
   SidebarContent,
@@ -119,7 +120,7 @@ export function DMSidebarContent() {
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent hideScrollbar={isTauri}>
         <SidebarGroup className="pb-1">
           <SearchBar mode="dm" />
         </SidebarGroup>

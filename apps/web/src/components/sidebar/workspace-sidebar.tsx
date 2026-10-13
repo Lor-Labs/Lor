@@ -14,6 +14,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { isTauri } from "@repo/auth/tauri-fetch"
 import { Button } from "@repo/ui/components/button"
 import { CustomMenuItem } from "@repo/ui/components/custom-menu-item"
 import {
@@ -483,7 +484,7 @@ function WorkspaceSidebarInner() {
         )}
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent hideScrollbar={isTauri}>
         <SidebarGroup className="min-h-0 flex-1 pt-1">
           {/* Clip sideways only: a vertical clip here cut the list at the
               window height, so SidebarContent's scroll area never scrolled. */}
