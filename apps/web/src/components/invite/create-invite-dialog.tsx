@@ -28,6 +28,7 @@ import { useParams } from "@tanstack/react-router"
 import { useRef, useState } from "react"
 import { useInviteAccess } from "@/hooks/use-invite-access"
 import { apiClient } from "@/lib/api-client"
+import { workspaceInvitationsQueryKey } from "@/lib/invitations"
 import { getInviteUrl } from "@/lib/invite-url"
 import { formatWorkspaceRole } from "@/lib/permissions"
 
@@ -52,9 +53,6 @@ const MAX_USES_OPTIONS = [
 ]
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-export const workspaceInvitationsQueryKey = (workspaceId: string | undefined) =>
-  ["workspace-invitations", workspaceId] as const
 
 function parseEmails(value: string) {
   return [
