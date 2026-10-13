@@ -488,7 +488,7 @@ export const MessageItem = memo(function MessageItem({
               {message.type === "proposal_card" ? (
                 <ProposalCard message={message} />
               ) : message.type === "plan_card" ? (
-                <PlanCard message={message} onOpenThread={onOpenThread} />
+                <PlanCard message={message} />
               ) : (
                 <LoopCard message={message} />
               )}
@@ -561,24 +561,12 @@ export const MessageItem = memo(function MessageItem({
               </div>
             )}
             {message.type === "plan_card" ? (
-              <PlanCard message={message} onOpenThread={onOpenThread} />
+              <PlanCard message={message} />
             ) : message.type === "proposal_card" ? (
               <ProposalCard message={message} />
             ) : (
               <LoopCard message={message} />
             )}
-            {/* Proposal resolutions and Lor's follow-up land in the card's
-                thread; the standard reply footer is the way in (the card
-                itself is deliberately not clickable, unlike plan cards). */}
-            {message.type === "proposal_card" &&
-              onOpenThread &&
-              message.threadSummary &&
-              message.threadSummary.replyCount > 0 && (
-                <ThreadFooter
-                  summary={message.threadSummary}
-                  onClick={() => onOpenThread(message.id)}
-                />
-              )}
           </div>
         </div>
       </div>

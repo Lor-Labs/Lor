@@ -140,7 +140,7 @@ No behavior change; `ThreadPanel` uses the extracted pieces.
 
 #### Step 6b: `SessionDocument` (~550 new, −370)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - `components/session/session-document.tsx` renders the session
   document from the 6a pieces plus the existing hooks; `SessionView` uses it.
@@ -151,15 +151,21 @@ No behavior change; `ThreadPanel` uses the extracted pieces.
   forward, turn rail, document typing, subscriber faces, optimistic Lor
   turns and sidebar patches.
 
-#### Step 7: strip Lor from the right-panel thread (~300)
+#### Step 7: strip Lor from the right-panel thread (+100 / −520)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
 
-- Plan header, `ThreadWorkHeader`, run queue / stop / steer, plan Markdown
-  export, dead `PlanCard` and proposal thread paths.
-- `useThreadWork` stops fetching plan artifacts (the rail reads session
-  files since Step 4b); `GET /plans/{planId}/artifacts` goes once nothing
-  calls it.
+- `ThreadPanel` loses the plan header and status, `ThreadWorkHeader`, Lor's
+  run controls (pending turn, Stop, queue, steer, replay) and the plan
+  sections of Copy as Markdown. Lor never runs in human threads or call
+  chats (`routeLor` skips voice; `@Lor` in a thread starts a session).
+- `thread-work-header.tsx` is deleted; the session rail keeps its own file
+  list and reads the plan directly, so it no longer fetches plan artifacts.
+- `PlanCard` loses its open-thread paths and `MessageItem` the proposal
+  card's thread footer: Lor's cards only render in sessions, where no
+  thread opener is passed.
+- `GET /plans/{planId}/artifacts` stays: `PlanCard` in sessions still lists
+  the plan's files from it.
 
 #### Step 8: flatten sandbox work in the tool trail (~350)
 
