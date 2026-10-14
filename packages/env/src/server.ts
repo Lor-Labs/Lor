@@ -133,6 +133,16 @@ const serverSchema = z.object({
   // 0.52+ and unrelated ones 0.40 or less (Step 5 live QA,
   // reference/attachment-search.md).
   LOR_RERANK_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.45),
+  // Oldest phone app version (app.json "version") the server still works
+  // with; older apps show "Update Lor". Raise it only after the new build is
+  // in TestFlight. Unset = no app is blocked.
+  MOBILE_MIN_VERSION: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/)
+      .optional()
+  ),
   // Exa, backing Lor's search_web/fetch_web tools. Optional: the tools are
   // omitted when unset.
   EXA_API_KEY: z.string().min(1).optional(),

@@ -93,7 +93,31 @@ dev URLs). Apple processing after submit is ~5–15 min.
   fingerprint, so native changes can never receive a JS bundle that assumes
   different native code. Corollary: after any fingerprint-changing merge,
   testers must take the new TestFlight build before they receive OTA updates
-  again.
+  again. `version` is part of the fingerprint, so bumping it alone cuts a new
+  build.
+
+## Breaking releases: "Update Lor"
+
+A phone on an older build keeps running its old code against the new server,
+and nothing reaches it over the air (2026-10-13: the sessions release added
+`expo-crypto`, and 0.1.1 phones broke). Since 0.2.0 the app guards against it
+(`src/components/app-updates.tsx`):
+
+- On launch and on each return to the foreground it reads
+  `GET /v1/mobile/version` (public). When its `version` is below
+  `minimumVersion`, a full-screen "Update Lor" page links to `updateUrl` (the
+  TestFlight join link, set in the API so a move to the App Store reaches old
+  apps). No answer from the server never blocks.
+- `minimumVersion` is the API's `MOBILE_MIN_VERSION` env var; unset blocks
+  nobody. For a release old phones can't survive: bump `version`, merge, wait
+  until the build is installable in TestFlight (and added to the external
+  group), then set `MOBILE_MIN_VERSION` to that version and restart the API.
+  Setting it earlier blocks people with nothing to install.
+- OTA updates: the app also checks for an update when it returns to the
+  foreground (at most every 10 minutes) and switches to a downloaded one when
+  it comes back after a minute or more in the background, instead of waiting
+  for a second cold start.
+- Builds before 0.2.0 have no guard and can't get one.
 
 ## Environment
 
