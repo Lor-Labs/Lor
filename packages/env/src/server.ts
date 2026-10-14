@@ -33,7 +33,10 @@ const serverSchema = z.object({
     blankToUndefined,
     z.string().url().optional()
   ),
-  LOR_MODEL: defaultedString("zai/glm-5.3-flash"),
+  // Main agent model, on trial (LOR-104). GLM 5.3 Flash degenerates in long
+  // multi-tool runs, so it stays on small tasks only. Kimi K3 is the proven
+  // main model but costs ~10x more.
+  LOR_MODEL: defaultedString("deepseek/deepseek-v4.1-flash"),
   LOR_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
   LOR_SMALL_MODEL: defaultedString("zai/glm-5.3-flash"),
   LOR_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
@@ -45,10 +48,11 @@ const serverSchema = z.object({
   LOR_COMPACT_INPUT_TOKENS: z.coerce.number().int().positive().default(700_000),
   // Smallest real context window across LOR_MODEL and its fallbacks — the
   // one that actually binds, since the gateway may route to any of them
-  // mid-run. Verified: zai/glm-5.3-flash 1,310,720; moonshotai/kimi-k3
-  // 1,048,576. Also bounds request preparation, with headroom reserved for
-  // instructions, tools, and output even if the compaction threshold is higher.
-  LOR_CONTEXT_WINDOW: z.coerce.number().int().positive().default(1_048_576),
+  // mid-run. Verified 2026-10-13 (gateway endpoints): deepseek-v4.1-flash and
+  // kimi-k3 routes list 1,000,000 to 1,048,576. Also bounds request
+  // preparation, with headroom reserved for instructions, tools, and output
+  // even if the compaction threshold is higher.
+  LOR_CONTEXT_WINDOW: z.coerce.number().int().positive().default(1_000_000),
   // HMAC secret binding a tool approval to the exact call/input (AI SDK
   // experimental_toolApprovalSecret). Must match across worker + API.
   // Optional: approval gates enforce without it; setting it hardens resume.

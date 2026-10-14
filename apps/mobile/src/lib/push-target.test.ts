@@ -21,6 +21,7 @@ describe("push notification targets", () => {
       workspaceId: "workspace-1",
       threadRootId: "thread-1",
       messageId: "message-1",
+      sessionId: null,
     })
   })
 
@@ -37,6 +38,7 @@ describe("push notification targets", () => {
       workspaceId: null,
       threadRootId: null,
       messageId: "message-1",
+      sessionId: null,
     })
   })
 
