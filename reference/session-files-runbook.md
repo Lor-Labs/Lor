@@ -214,7 +214,7 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
 
 #### Step M2: native file viewer (~400)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - `app/file.tsx`, a modal route, for one of Lor's files or an upload
   (`artifactId`, or `messageId` + `index` through message location, which
@@ -233,14 +233,19 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
 - `lib/remote-file.ts` holds the download-to-cache and share code the
   image viewer had.
 
-#### Step M3: session files and thread cleanup (~200)
+#### Step M3: session files and thread cleanup (+80 / −340)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
 
-- The session sheet reads `GET /sessions/{id}/files` merged with loaded
-  messages, not plan artifacts.
-- Delete mobile's `ThreadWorkHeader`: it only shows on human threads, where
-  Lor never works (web Step 7).
+- The session sheet reads `GET /sessions/{id}/files` (same cache key as
+  web, fetched when the sheet opens) merged with loaded messages, not plan
+  artifacts. Uploads keep their message and position, so they open in the
+  viewer.
+- Deleted mobile's `ThreadWorkHeader`: it only showed on human threads,
+  where Lor never works (web Step 7). With it went the thread screen's
+  "Plan" title, `usePlan`, the `["plan", id]` invalidations, the
+  `PlanDetail` / `PlanApproval` types, `ApprovalCardData.planId` and the
+  tool trail's `embedded` prop.
 
 #### Step M4: flatten sandbox steps in the mobile tool trail (~200)
 

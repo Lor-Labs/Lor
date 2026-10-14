@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import { api } from "@/lib/api"
-import type { ChannelPlan, PlanArtifact, PlanDetail } from "@/lib/api-types"
+import type { ChannelPlan, PlanArtifact } from "@/lib/api-types"
 
 // Channel plan list, kept live by plan:updated (channel room; the channel
 // screen's message hook already joins it). Mirrors web's use-channel-plans.
@@ -49,11 +49,7 @@ export function useChannelPlans(channelId: string) {
           return [payload.plan, ...rest]
         }
       )
-      // Status flips change what the detail view shows (pending approval,
-      // fresh artifacts) — refetch those lazily.
-      void queryClient.invalidateQueries({
-        queryKey: ["plan", payload.plan.id],
-      })
+      // A status flip can deliver files; refetch the plan card's list lazily.
       void queryClient.invalidateQueries({
         queryKey: ["plan-artifacts", payload.plan.id],
       })
@@ -83,20 +79,6 @@ export function usePlanForThread(
 ): ChannelPlan | null {
   const { data } = useChannelPlans(channelId)
   return data?.find((t) => t.threadRootId === threadRootId) ?? null
-}
-
-export function usePlan(planId: string | null) {
-  return useQuery({
-    queryKey: ["plan", planId ?? ""],
-    enabled: planId !== null,
-    queryFn: async (): Promise<PlanDetail> => {
-      const res = await api.v1.plans[":planId"].$get({
-        param: { planId: planId ?? "" },
-      })
-      if (!res.ok) throw new Error("Failed to fetch plan")
-      return res.json()
-    },
-  })
 }
 
 export function usePlanArtifacts(planId: string | null) {

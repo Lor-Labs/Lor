@@ -1,6 +1,5 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { LOR_USER_ID } from "@repo/db/constants"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
@@ -24,10 +23,6 @@ import {
 import { ThreadParticipantStack } from "@/components/thread-participant-stack"
 import { ThreadSubscribers } from "@/components/thread-subscribers"
 import {
-  type PlanSourceFile,
-  ThreadWorkHeader,
-} from "@/components/thread-work-header"
-import {
   DocumentTypingIndicator,
   TypingIndicator,
 } from "@/components/typing-indicator"
@@ -48,7 +43,6 @@ import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useOpenDM } from "@/hooks/use-open-dm"
-import { usePlanForThread } from "@/hooks/use-plans"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
@@ -227,38 +221,6 @@ export function ThreadView({
     mentionRef: composerMentionRef,
   })
   const { openDM } = useOpenDM()
-
-  // A thread is a plan thread iff a plan row anchors to its root — the root
-  // message type no longer decides.
-  const isPlanThread = !!usePlanForThread(channelId, threadRootId)
-  // Newest Lor reply with tool calls — the work header's Activity chip.
-  // Shown for any thread where Lor worked, plan or not (mirrors web).
-  const activityMessage = useMemo(
-    () =>
-      thread.messages.find(
-        (message) =>
-          message.authorId === LOR_USER_ID &&
-          (message.lorToolCalls?.length ?? 0) > 0
-      ) ?? null,
-    [thread.messages]
-  )
-  const showWorkHeader = isPlanThread || activityMessage !== null
-  // Files uploaded into the plan thread (from any loaded message) — the
-  // "Sources" side of the plan header's Files section.
-  const planSources = useMemo<PlanSourceFile[]>(() => {
-    if (!isPlanThread) return []
-    const byUrl = new Map<string, PlanSourceFile>()
-    for (const message of [thread.root, ...thread.messages]) {
-      for (const attachment of message?.attachments ?? []) {
-        byUrl.set(attachment.url, {
-          url: attachment.url,
-          filename: attachment.filename,
-          size: attachment.size,
-        })
-      }
-    }
-    return [...byUrl.values()]
-  }, [isPlanThread, thread.root, thread.messages])
 
   const stopPendingLor = useCallback(async () => {
     const messageId = pendingLorMessage?.id
@@ -527,11 +489,7 @@ export function ThreadView({
             className="text-[17px] font-bold tracking-[-0.2px] text-foreground"
             numberOfLines={1}
           >
-            {isPlanThread
-              ? "Plan"
-              : voiceSessionId
-                ? (thread.voiceSessionTitle ?? "Call")
-                : "Thread"}
+            {voiceSessionId ? (thread.voiceSessionTitle ?? "Call") : "Thread"}
           </Text>
           <Text
             className="text-xs font-medium leading-4 text-muted"
@@ -585,16 +543,6 @@ export function ThreadView({
     <>
       {header}
       {callTabs}
-      {/* A session keeps its plan and files in its sheet ("…"), and its
-          approvals inline on Lor's replies. */}
-      {showWorkHeader && !showCallRecord && !lorSession ? (
-        <ThreadWorkHeader
-          activityMessage={activityMessage}
-          channelId={channelId}
-          sources={planSources}
-          threadRootId={threadRootId}
-        />
-      ) : null}
       <ChatKeyboardLayout
         renderComposer={({ inputNativeID, onCustomInputViewChange }) =>
           archivedBar ??
