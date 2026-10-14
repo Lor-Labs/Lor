@@ -25,6 +25,7 @@ type MessageTheme = {
   backgroundSelected: string
   border: string
   backgroundElement: string
+  background: string
   textSecondary: string
   textTertiary: string
 }
@@ -88,6 +89,16 @@ function buildMarkdownStyle(
       bulletColor: theme.textTertiary,
       markerColor: theme.textTertiary,
     },
+    // The renderer's table defaults are fixed light colors, so dark mode
+    // needs every one set.
+    table: {
+      color: theme.text,
+      headerTextColor: theme.text,
+      headerBackgroundColor: theme.backgroundSelected,
+      rowEvenBackgroundColor: theme.background,
+      rowOddBackgroundColor: theme.backgroundElement,
+      borderColor: theme.border,
+    },
     h1: { color: theme.text, fontSize: 22 },
     h2: { color: theme.text, fontSize: 20 },
     h3: { color: theme.text, fontSize: 18 },
@@ -114,6 +125,7 @@ export function MessageContent({
     backgroundSelected,
     border,
     backgroundElement,
+    background,
     textSecondary,
   ] = useThemeColor([
     "foreground",
@@ -122,6 +134,7 @@ export function MessageContent({
     "surface-tertiary",
     "border",
     "surface-secondary",
+    "background",
     "muted",
   ])
   const prose = useContext(MessageProseContext)
@@ -133,6 +146,7 @@ export function MessageContent({
       backgroundSelected,
       border,
       backgroundElement,
+      background,
       textSecondary,
       textTertiary: textSecondary,
     }),
@@ -144,6 +158,7 @@ export function MessageContent({
       backgroundSelected,
       border,
       backgroundElement,
+      background,
       textSecondary,
     ]
   )
