@@ -7,7 +7,7 @@ import { LorToolTrail } from "@/components/lor-tool-trail"
 import { MessageContent } from "@/components/message-content"
 import type { Message } from "@/lib/api-types"
 import { buildLorSegments, type LorToolCall } from "@/lib/lor"
-import { openExternalUrl } from "@/lib/open-url"
+import { openFile } from "@/lib/open-file"
 
 export function LorMessageBody({
   message,
@@ -145,7 +145,7 @@ export function LorMessageBody({
             <FileChip
               key={file.artifactId}
               name={file.path}
-              onPress={() => openExternalUrl(file.url)}
+              onPress={() => openFile({ artifactId: file.artifactId })}
               size={file.size}
             />
           ))}

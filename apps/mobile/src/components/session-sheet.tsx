@@ -25,13 +25,13 @@ import {
 import { usePlanArtifacts, usePlanForThread } from "@/hooks/use-plans"
 import type { AgentSession, Message, PlanArtifact } from "@/lib/api-types"
 import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
-import { openExternalUrl } from "@/lib/open-url"
+import { type FileTarget, openFile } from "@/lib/open-file"
 
 type SessionFile = {
   key: string
   name: string
   size: number | null
-  url: string | null
+  target: FileTarget
 }
 
 // Archiving a session Lor is working in stops the run, so it asks first.
@@ -71,16 +71,16 @@ function collectSessionFiles(messages: Message[], artifacts: PlanArtifact[]) {
           key: file.artifactId,
           name: file.path,
           size: file.size,
-          url: file.url,
+          target: { artifactId: file.artifactId },
         })
       }
     }
-    for (const attachment of message.attachments ?? []) {
+    for (const [index, attachment] of (message.attachments ?? []).entries()) {
       sources.set(attachment.url, {
         key: attachment.url,
         name: attachment.filename,
         size: attachment.size,
-        url: attachment.url,
+        target: { messageId: message.id, index },
       })
     }
   }
@@ -91,7 +91,7 @@ function collectSessionFiles(messages: Message[], artifacts: PlanArtifact[]) {
         key: artifact.id,
         name: artifact.path,
         size: artifact.size,
-        url: artifact.url,
+        target: { artifactId: artifact.id },
       })
     }
   }
@@ -249,14 +249,10 @@ export function SessionSheet({
                       <FileChip
                         key={file.key}
                         name={file.name}
-                        onPress={
-                          file.url
-                            ? () => {
-                                close(false)
-                                if (file.url) openExternalUrl(file.url)
-                              }
-                            : undefined
-                        }
+                        onPress={() => {
+                          close(false)
+                          openFile(file.target)
+                        }}
                         size={file.size}
                       />
                     ))}

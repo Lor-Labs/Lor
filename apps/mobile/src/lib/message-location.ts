@@ -1,3 +1,4 @@
+import type { Client, InferResponseType } from "@repo/api-client"
 import { type Href, router } from "expo-router"
 import { api } from "@/lib/api"
 
@@ -8,12 +9,17 @@ export type MessageLocation = {
   sessionId: string | null
 }
 
-// Where a message lives, for search results and pins. Null when it's gone
-// or the caller can't see it.
+type MessageLocationResponse = InferResponseType<
+  Client["v1"]["workspaces"][":workspaceSlug"]["messages"][":messageId"]["$get"],
+  200
+>
+
+// Where a message lives, for search results, pins and the files it shared.
+// Null when it's gone or the caller can't see it.
 export async function fetchMessageLocation(
   workspaceSlug: string,
   messageId: string
-): Promise<MessageLocation | null> {
+): Promise<MessageLocationResponse | null> {
   try {
     const response = await api.v1.workspaces[":workspaceSlug"].messages[
       ":messageId"

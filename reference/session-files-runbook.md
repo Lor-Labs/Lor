@@ -205,7 +205,7 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
 
 #### Step M1: native file chip (~250)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - `@repo/ui/lib/file-types.ts` holds the extension → type map, shared by
   web's `FileTypeIcon` and a `react-native-svg` one in `apps/mobile`.
@@ -214,15 +214,24 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
 
 #### Step M2: native file viewer (~400)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
 
-- A modal screen for one of Lor's files or an upload (`artifactId`, or
-  `messageId` + `index` through message location): close, type icon, name,
-  rows × columns or size, Share, Open in browser, Open session. CSV as a
-  table with row numbers; markdown and text; images; anything else offers
-  Share and the browser. Every file chip opens it.
-- Replaces the "artifact viewer deliberately punted" item in
-  `mobile-parity-todo.md`.
+- `app/file.tsx`, a modal route, for one of Lor's files or an upload
+  (`artifactId`, or `messageId` + `index` through message location, which
+  now returns attachments on mobile too): close, type icon, name, rows ×
+  columns or version · size, Open session (hidden over that session),
+  Share (the file, not its link) and Open in browser. CSVs are a
+  virtualized table with a sticky header and row numbers (`CsvTable`);
+  markdown and text render through `MessageContent`; images fit the
+  screen; anything else, or too large, offers Share and the browser.
+- `openFile` is the only way in; Lor's replies, plan cards, message uploads
+  and the session sheet use it. Images in messages keep the image viewer.
+- `@repo/utils/file-preview` holds the preview rules both clients follow:
+  the 2 MB cap, which types preview as text, the CSV parser and the
+  text-as-markdown wrapper. Web's `lib/csv.ts`, `ArtifactBody` and
+  `useArtifactContent` use it.
+- `lib/remote-file.ts` holds the download-to-cache and share code the
+  image viewer had.
 
 #### Step M3: session files and thread cleanup (~200)
 
@@ -260,4 +269,5 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
 - Step 5 added `FileChipLink` to `@repo/ui`: a link-backed trigger with a
   screen-reader label, because Biome rejects an empty `<a>` passed as a
   Base UI `render` element.
-
+- Step M2 leaves `ThreadWorkHeader`'s file popover on the browser: M3
+  deletes it.

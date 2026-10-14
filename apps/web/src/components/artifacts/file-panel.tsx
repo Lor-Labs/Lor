@@ -9,21 +9,22 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { Button, buttonVariants } from "@repo/ui/components/button"
 import { FileTypeIcon } from "@repo/ui/components/file-type-icon"
 import { Spinner } from "@repo/ui/components/spinner"
+import {
+  csvDelimiterForMime,
+  isCsvMime,
+  MAX_PREVIEW_BYTES,
+} from "@repo/utils/file-preview"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { type ReactNode, useMemo, useState } from "react"
 import { ArtifactBody } from "@/components/artifacts/artifact-body"
 import { CsvGrid } from "@/components/artifacts/csv-grid"
 import type { OpenFile } from "@/components/sidebar/right-panel/right-sidebar-context"
-import {
-  MAX_INLINE_BYTES,
-  useArtifact,
-  useArtifactContent,
-} from "@/hooks/use-artifact"
+import { useArtifact, useArtifactContent } from "@/hooks/use-artifact"
 import { useCloseFile } from "@/hooks/use-file-panel"
 import { locationQuery } from "@/hooks/use-message-search-navigation"
 import { formatFileSize } from "@/lib/attachments"
-import { csvDelimiterForMime, isCsvMime, parseCsvData } from "@/lib/csv"
+import { parseCsvData } from "@/lib/csv"
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -183,7 +184,7 @@ function FileView({
   const csv = Boolean(file && isCsvMime(file.mime))
   // Mirrors useArtifactContent's enabled guard: a CSV it won't fetch shows
   // the fallback instead of waiting forever.
-  const csvPreviewable = csv && (file?.size ?? 0) <= MAX_INLINE_BYTES
+  const csvPreviewable = csv && (file?.size ?? 0) <= MAX_PREVIEW_BYTES
   const content = useArtifactContent({
     url: file?.url ?? null,
     mime: file?.mime ?? null,

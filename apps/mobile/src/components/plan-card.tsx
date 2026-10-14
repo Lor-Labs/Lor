@@ -11,7 +11,7 @@ import {
 import { Shimmer } from "@/components/shimmer"
 import { usePlanArtifacts, usePlanForCard } from "@/hooks/use-plans"
 import type { Message } from "@/lib/api-types"
-import { openExternalUrl } from "@/lib/open-url"
+import { openFile } from "@/lib/open-file"
 
 // The card a plan_card message renders as — mobile mirror of web: title and
 // outcome up top, the live plan in a recessed well, delivered files underneath.
@@ -87,11 +87,11 @@ export function PlanCard({
 
           {artifacts && artifacts.length > 0 ? (
             <View className="gap-one pt-two">
-              {artifacts.map(({ id, path, size, url }) => (
+              {artifacts.map(({ id, path, size }) => (
                 <FileChip
                   key={id}
                   name={path}
-                  onPress={url ? () => openExternalUrl(url) : undefined}
+                  onPress={() => openFile({ artifactId: id })}
                   size={size}
                 />
               ))}

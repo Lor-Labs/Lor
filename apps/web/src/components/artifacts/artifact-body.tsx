@@ -1,26 +1,10 @@
-import { MessageMarkdown } from "@/components/chat/message-markdown"
 import {
-  isTextRenderable,
-  MAX_INLINE_BYTES,
-  useArtifactContent,
-} from "@/hooks/use-artifact"
-
-const CODE_LANGUAGES: Record<string, string> = {
-  py: "python",
-  js: "javascript",
-  ts: "typescript",
-  json: "json",
-  html: "html",
-  sql: "sql",
-  sh: "bash",
-  diff: "diff",
-  patch: "diff",
-}
-
-function codeLanguage(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? ""
-  return CODE_LANGUAGES[ext] ?? ext
-}
+  isTextPreviewable,
+  MAX_PREVIEW_BYTES,
+  previewMarkdown,
+} from "@repo/utils/file-preview"
+import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { useArtifactContent } from "@/hooks/use-artifact"
 
 // Per-MIME artifact renderer. Registry-shaped on purpose: each type maps to
 // one view, and future types (pptx download cards, live HTML apps, editable
@@ -46,7 +30,7 @@ export function ArtifactBody({
 
   // Must mirror useArtifactContent's enabled guard: a file it refuses to
   // fetch (too big, wrong type) would otherwise sit in isPending forever.
-  if (!url || !isTextRenderable(mime) || (size ?? 0) > MAX_INLINE_BYTES) {
+  if (!url || !isTextPreviewable(mime) || (size ?? 0) > MAX_PREVIEW_BYTES) {
     return (
       <p className="text-muted-foreground text-sm">
         No preview for this file — use Download.
@@ -64,19 +48,9 @@ export function ArtifactBody({
     )
   }
 
-  if (mime === "text/markdown") {
-    return <MessageMarkdown content={content.data} mentions={[]} />
-  }
-  // Fence longer than any backtick run in the content, so embedded ``` can't
-  // close the block early.
-  const longestRun =
-    content.data
-      .match(/`+/g)
-      ?.reduce((max, run) => Math.max(max, run.length), 0) ?? 0
-  const fence = "`".repeat(Math.max(3, longestRun + 1))
   return (
     <MessageMarkdown
-      content={`${fence}${codeLanguage(path)}\n${content.data}\n${fence}`}
+      content={previewMarkdown(path, mime, content.data)}
       mentions={[]}
     />
   )

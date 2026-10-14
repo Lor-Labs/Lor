@@ -53,7 +53,12 @@ export default function RootLayout() {
                     <VoiceCallProvider>
                       <PushNotifications />
                       <View style={{ flex: 1 }}>
-                        <Stack screenOptions={{ headerShown: false }} />
+                        <Stack screenOptions={{ headerShown: false }}>
+                          <Stack.Screen
+                            name="file"
+                            options={{ presentation: "modal" }}
+                          />
+                        </Stack>
                         <CallTile />
                       </View>
                     </VoiceCallProvider>

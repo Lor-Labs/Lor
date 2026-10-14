@@ -1,7 +1,6 @@
+import { isTextPreviewable, MAX_PREVIEW_BYTES } from "@repo/utils/file-preview"
 import { useQuery } from "@tanstack/react-query"
 import { apiClient } from "@/lib/api-client"
-
-export const MAX_INLINE_BYTES = 2 * 1024 * 1024
 
 export function artifactQueryOptions(artifactId: string) {
   return {
@@ -23,14 +22,6 @@ export function useArtifact(artifactId: string | null) {
   })
 }
 
-export function isTextRenderable(mime: string): boolean {
-  return (
-    mime.startsWith("text/") ||
-    mime === "application/json" ||
-    mime === "image/svg+xml"
-  )
-}
-
 // Text body of the current version, fetched straight from the public blob URL
 // (same access model as message attachments).
 export function useArtifactContent(args: {
@@ -42,8 +33,8 @@ export function useArtifactContent(args: {
   const renderable =
     url !== null &&
     mime !== null &&
-    isTextRenderable(mime) &&
-    (size ?? 0) <= MAX_INLINE_BYTES
+    isTextPreviewable(mime) &&
+    (size ?? 0) <= MAX_PREVIEW_BYTES
   return useQuery({
     queryKey: ["artifact-content", url] as const,
     enabled: renderable,

@@ -2,9 +2,8 @@ import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
 import Download01Icon from "@hugeicons/core-free-icons/Download01Icon"
 import Share08Icon from "@hugeicons/core-free-icons/Share08Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
-import { File, Paths } from "expo-file-system"
+import type { File } from "expo-file-system"
 import { Asset, requestPermissionsAsync } from "expo-media-library"
-import * as Sharing from "expo-sharing"
 import { StatusBar } from "expo-status-bar"
 import { Spinner } from "heroui-native/spinner"
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -14,9 +13,7 @@ import {
   Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  Platform,
   Pressable,
-  Share,
   Text,
   useWindowDimensions,
   View,
@@ -35,6 +32,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { scheduleOnRN } from "react-native-worklets"
 import { triggerHaptic } from "@/components/ui/haptics"
 import type { Message } from "@/lib/api-types"
+import {
+  deleteCachedFile,
+  downloadToCache,
+  shareRemoteFile,
+} from "@/lib/remote-file"
 
 type ImageAttachment = NonNullable<Message["attachments"]>[number]
 type ViewerAction = "saving" | "sharing" | null
@@ -43,29 +45,6 @@ type ViewerStatus = { tone: "danger" | "success"; text: string } | null
 export const viewerForeground = "#F5F5F4"
 const viewerMuted = "#A8A29E"
 const springConfig = { damping: 22, stiffness: 220 }
-
-function safeFilename(filename: string) {
-  const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
-  return sanitized || "image"
-}
-
-async function downloadImage(image: ImageAttachment) {
-  const destination = new File(
-    Paths.cache,
-    `lor-${Date.now()}-${safeFilename(image.filename)}`
-  )
-  return File.downloadFileAsync(image.url, destination)
-}
-
-function deleteCachedFile(file: File | null) {
-  if (!file?.exists) return
-
-  try {
-    file.delete()
-  } catch {
-    // Cache cleanup should never block the viewer action from settling.
-  }
-}
 
 export function ImageViewer({
   images,
@@ -94,28 +73,15 @@ export function ImageViewer({
     if (!currentImage || action) return
     setAction("sharing")
     setStatus(null)
-    let downloadedFile: File | null = null
 
     try {
-      downloadedFile = await downloadImage(currentImage)
-      if (Platform.OS === "ios") {
-        await Share.share({
-          title: currentImage.filename,
-          url: downloadedFile.uri,
-        })
-      } else {
-        await Sharing.shareAsync(downloadedFile.uri, {
-          dialogTitle: currentImage.filename,
-          mimeType: currentImage.contentType,
-        })
-      }
+      await shareRemoteFile(currentImage)
     } catch {
       setStatus({
         tone: "danger",
         text: "This image could not be shared. Please try again.",
       })
     } finally {
-      deleteCachedFile(downloadedFile)
       setAction(null)
     }
   }, [action, currentImage])
@@ -136,7 +102,7 @@ export function ImageViewer({
         return
       }
 
-      downloadedFile = await downloadImage(currentImage)
+      downloadedFile = await downloadToCache(currentImage)
       await Asset.create(downloadedFile.uri)
       triggerHaptic("soft")
       setStatus({ tone: "success", text: "Saved to Photos" })

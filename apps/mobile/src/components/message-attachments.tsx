@@ -3,7 +3,7 @@ import { Image, Pressable, View } from "react-native"
 import { FileChip } from "@/components/file-chip"
 import { ImageViewer } from "@/components/image-viewer"
 import type { Message } from "@/lib/api-types"
-import { openExternalUrl } from "@/lib/open-url"
+import { openFile } from "@/lib/open-file"
 
 type Attachments = NonNullable<Message["attachments"]>
 
@@ -14,17 +14,20 @@ export function formatFileSize(bytes: number) {
 }
 
 export function MessageAttachments({
+  messageId,
   attachments,
 }: {
+  messageId: string
   attachments: Attachments
 }) {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const images = attachments.filter((attachment) =>
     attachment.contentType.startsWith("image/")
   )
-  const files = attachments.filter(
-    (attachment) => !attachment.contentType.startsWith("image/")
-  )
+  // Each keeps its position in the message: the viewer finds it by that.
+  const files = attachments
+    .map((attachment, index) => ({ attachment, index }))
+    .filter(({ attachment }) => !attachment.contentType.startsWith("image/"))
 
   return (
     <View className="mt-one gap-one">
@@ -66,11 +69,11 @@ export function MessageAttachments({
       ) : null}
       {files.length > 0 ? (
         <View className="max-w-[420px] gap-one">
-          {files.map((attachment) => (
+          {files.map(({ attachment, index }) => (
             <FileChip
               key={attachment.url}
               name={attachment.filename}
-              onPress={() => openExternalUrl(attachment.url)}
+              onPress={() => openFile({ messageId, index })}
               size={attachment.size}
             />
           ))}

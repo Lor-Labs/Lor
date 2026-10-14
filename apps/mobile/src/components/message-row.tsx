@@ -242,7 +242,10 @@ function MessageRowBody({
         </View>
       ) : null}
       {message.attachments?.length ? (
-        <MessageAttachments attachments={message.attachments} />
+        <MessageAttachments
+          attachments={message.attachments}
+          messageId={message.id}
+        />
       ) : null}
       {message.embeds.map((embed, index) =>
         isAttioRecording(embed) ? (
