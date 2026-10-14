@@ -14,6 +14,12 @@ gain a "Create projects from Linear" option under the Linear setup card.
 
 ## What exists today
 
+- **Project creation is hidden** since 2026-10-14 (LOR-103) until this design
+  lands and projects look better. The web sidebar's Create menu no longer has
+  "New project". The API, `CreateProjectDialog`, `openCreateProject` in
+  `create-channel-context.tsx`, and the rendering of existing projects
+  (sidebar, overview, archive) are unchanged. To show it again, put the
+  menu item back in `workspace-sidebar.tsx`.
 - **Lor projects** are lifecycle over a category channel
   (`packages/db/src/schemas/projects.ts`). The name, audience and members
   live on the category. The `project` row adds `description`, `targetDate`,
