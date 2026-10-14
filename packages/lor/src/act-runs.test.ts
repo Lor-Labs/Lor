@@ -177,7 +177,7 @@ describe("formatActBriefing", () => {
         { authorName: null, content: "   " },
       ],
     })
-    expect(briefing).toContain("Channel activity since your last run")
+    expect(briefing).toContain("Channel chat since the last run")
     expect(briefing).toContain("jacob: already on it")
     expect(briefing).toContain("takes precedence")
     // Blank messages don't earn a bullet.
