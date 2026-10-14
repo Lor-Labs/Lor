@@ -50,6 +50,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-agent: var(--agent);
   --color-agent-foreground: var(--agent-foreground);
+  --color-mention: var(--mention);
   --color-gold: var(--gold);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);

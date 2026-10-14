@@ -322,14 +322,14 @@ export const MessageMarkdown = memo(function MessageMarkdown({
         const children = props.children
         if (id && BROADCAST_MENTION_IDS.has(id)) {
           return (
-            <span className="inline-flex cursor-default rounded bg-primary/15 px-1 py-0.5 font-medium text-primary">
+            <span className="cursor-default rounded-[3px] bg-mention px-0.5 font-medium text-primary box-decoration-clone">
               {children}
             </span>
           )
         }
 
         const pill = (
-          <span className="inline-flex cursor-pointer rounded bg-primary/15 px-1 py-0.5 font-medium text-primary">
+          <span className="cursor-pointer rounded-[3px] bg-mention px-0.5 font-medium text-primary box-decoration-clone transition-colors hover:bg-primary hover:text-primary-foreground">
             {children}
           </span>
         )

@@ -40,7 +40,7 @@ export function EmbedCard({ embed, className }: EmbedCardProps) {
   return (
     <div
       className={cn(
-        "mt-1 max-w-lg overflow-hidden rounded border border-border/70 bg-[hsl(var(--card))]/60",
+        "mt-1 max-w-lg overflow-hidden rounded border border-border/70 bg-card",
         "border-l-4",
         !embed.color && "border-l-primary/60",
         siteConnector &&
