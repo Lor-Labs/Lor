@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import Constants from "expo-constants"
+import * as Application from "expo-application"
 import * as Updates from "expo-updates"
 import { useEffect, useRef } from "react"
 import { AppState, Linking, StyleSheet, Text, View } from "react-native"
@@ -66,7 +66,9 @@ function useOverTheAirUpdates() {
 // answer from the server never blocks.
 export function AppUpdates() {
   useOverTheAirUpdates()
-  const version = Constants.expoConfig?.version
+  // The installed build's version, not the running update's: the gate is
+  // about native code an update can't replace.
+  const version = Application.nativeApplicationVersion
   const { data } = useQuery({
     queryKey: ["mobile-version"],
     queryFn: async () => {
