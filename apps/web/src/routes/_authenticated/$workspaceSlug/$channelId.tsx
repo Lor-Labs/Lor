@@ -46,7 +46,10 @@ import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
-import { channelQueryOptions } from "@/lib/channel-query"
+import {
+  channelQueryOptions,
+  fetchChannelMessagesPage,
+} from "@/lib/channel-query"
 import { writeLastChannelId } from "@/lib/last-location"
 import { canPinMessages } from "@/lib/permissions"
 import {
@@ -177,25 +180,8 @@ function ChannelView() {
   })
 
   const fetchMessagesPage = useCallback(
-    async (params: {
-      around?: string
-      before?: string
-      after?: string
-      limit: number
-    }) => {
-      const query: Record<string, string> = { limit: String(params.limit) }
-      if (params.around) query.around = params.around
-      if (params.before) query.before = params.before
-      if (params.after) query.after = params.after
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].messages.$get({
-        param: { workspaceSlug, channelId },
-        query,
-      })
-      if (!res.ok) throw new Error("Failed to fetch messages")
-      return res.json()
-    },
+    (params: Parameters<typeof fetchChannelMessagesPage>[2]) =>
+      fetchChannelMessagesPage(workspaceSlug, channelId, params),
     [workspaceSlug, channelId]
   )
 
