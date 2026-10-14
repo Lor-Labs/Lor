@@ -195,6 +195,7 @@ function FileView({ file, sessionId, isPending, isError, onRetry }: FileState) {
   // Parsed in a later task, not during render: a 2 MB CSV takes a moment, and
   // the spinner stays up until it's done.
   useEffect(() => {
+    setTable(null)
     const text = content.data
     if (!isCsvMime(mime) || text === undefined) return
     const timer = setTimeout(() => {

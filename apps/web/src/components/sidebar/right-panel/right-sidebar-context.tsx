@@ -183,7 +183,11 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   // Opening a file shows it even when the panel was collapsed.
   const fileKey = file?.key ?? null
   useEffect(() => {
-    if (fileKey) setIsCollapsed(false)
+    if (!fileKey) return
+    setIsCollapsed(false)
+    try {
+      localStorage.setItem(PANEL_COLLAPSED_KEY, "false")
+    } catch {}
   }, [fileKey])
 
   const sizeClass = sizeClassFor(view, file)

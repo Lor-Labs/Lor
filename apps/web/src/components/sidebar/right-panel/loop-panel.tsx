@@ -60,6 +60,7 @@ import {
   selectTriggerIconClassName,
   selectTriggerVariants,
 } from "@repo/ui/components/select"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useNavigate } from "@tanstack/react-router"
 import { ChevronsUpDownIcon } from "lucide-react"
@@ -400,7 +401,17 @@ function LoopRunRow({
                     <button
                       key={plan.id}
                       type="button"
-                      onClick={() => void openPlan(plan.threadRootId)}
+                      onClick={() =>
+                        void openPlan(plan.threadRootId)
+                          .then((found) => {
+                            if (!found) {
+                              toast.error("Couldn't find that conversation")
+                            }
+                          })
+                          .catch(() =>
+                            toast.error("Couldn't open that conversation")
+                          )
+                      }
                       className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg bg-secondary/60 px-3 py-2 text-left ring-1 ring-border/40 ring-inset transition-colors hover:bg-secondary disabled:cursor-default"
                     >
                       <span className="min-w-0 truncate text-sm">

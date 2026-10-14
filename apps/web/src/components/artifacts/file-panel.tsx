@@ -51,7 +51,7 @@ function CopyButton({ text }: { text: string }) {
 // to it. Read-only: edits go through Lor or Download.
 export function FilePanel({ file }: { file: OpenFile }) {
   return file.kind === "artifact" ? (
-    <ArtifactFilePanel artifactId={file.artifactId} />
+    <ArtifactFilePanel key={file.artifactId} artifactId={file.artifactId} />
   ) : (
     <UploadFilePanel messageId={file.messageId} index={file.index} />
   )

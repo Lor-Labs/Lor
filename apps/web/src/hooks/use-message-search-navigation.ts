@@ -36,6 +36,7 @@ export function useMessageSearchNavigation() {
         void navigate({
           to: "/$workspaceSlug/session/$sessionId",
           params: { workspaceSlug, sessionId },
+          search: { msgId: target.id },
         })
         return
       }

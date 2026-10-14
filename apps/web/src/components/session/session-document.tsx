@@ -80,6 +80,7 @@ export function SessionDocument({
   workspaceSlug,
   channelId,
   threadRootId,
+  targetMessageId,
   header,
   heading,
   archivedBar,
@@ -87,6 +88,8 @@ export function SessionDocument({
   workspaceSlug: string
   channelId: string
   threadRootId: string
+  // Message to center and highlight on open (search result, citation).
+  targetMessageId?: string
   // headingVisible: the header shows the title once the heading is gone.
   header: (state: { lorRunning: boolean; headingVisible: boolean }) => ReactNode
   // Opens the document (title and context line); shows once the oldest page
@@ -348,6 +351,7 @@ export function SessionDocument({
   const isAwaitingReplies = isLoading && orderedReplies.length === 0
   const scroll = useConversationScroll({
     threadRootId,
+    targetMessageId,
     messages,
     isLoading,
     ensureMessage,

@@ -67,7 +67,8 @@ export function fileType(filename: string): {
   tone: FileTypeTone
   label: string
 } {
-  const extension = filename.split(".").pop()?.toLowerCase() ?? ""
+  const dot = filename.lastIndexOf(".")
+  const extension = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : ""
   const tone = TONE_BY_EXTENSION[extension]
   return tone
     ? { tone, label: extension.slice(0, 4).toUpperCase() }

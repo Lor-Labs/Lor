@@ -58,9 +58,11 @@ import { clearLastSessionId, writeLastSession } from "@/lib/last-location"
 export function SessionView({
   workspaceSlug,
   sessionId,
+  targetMessageId,
 }: {
   workspaceSlug: string
   sessionId: string
+  targetMessageId?: string
 }) {
   const { data, isPending, isError } = useAgentSession(sessionId)
   // Opened without a row hover (⌘K, a link, a notification): the sidebar row
@@ -95,6 +97,7 @@ export function SessionView({
       key={data.session.id}
       workspaceSlug={workspaceSlug}
       detail={data}
+      targetMessageId={targetMessageId}
     />
   )
 }
@@ -102,9 +105,11 @@ export function SessionView({
 function SessionConversation({
   workspaceSlug,
   detail: { session, channel },
+  targetMessageId,
 }: {
   workspaceSlug: string
   detail: AgentSessionDetail
+  targetMessageId?: string
 }) {
   // Approval and proposal cards render inline in the session; keep them live.
   useChannelApprovals(session.channelId, session.threadRootId)
@@ -181,6 +186,7 @@ function SessionConversation({
       workspaceSlug={workspaceSlug}
       channelId={session.channelId}
       threadRootId={session.threadRootId}
+      targetMessageId={targetMessageId}
       header={({ lorRunning, headingVisible }) => (
         <SessionStrip
           session={session}
