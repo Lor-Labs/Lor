@@ -249,7 +249,7 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
 
 #### Step M4: flatten sandbox steps in the mobile tool trail (+170 / −20)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - Sandbox sub-steps are `SubStepRow`s, as on web: verb, mono target, a chip
   that opens the file in the viewer when the sub-step wrote one the run
@@ -284,3 +284,9 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
   Base UI `render` element.
 - Step M2 leaves `ThreadWorkHeader`'s file popover on the browser: M3
   deletes it.
+- Step M2 follow-up (Jacob, QA): large CSVs lagged on the phone. `CsvTable`
+  moved from `FlatList` (a wide render window, every column in every row,
+  selectable cells) to LegendList with recycled fixed-height rows, and each
+  row draws only the columns in view plus two either side. The header sits
+  above the list. Long-press copies a cell. The file screen parses the CSV
+  after the spinner shows, not during render.

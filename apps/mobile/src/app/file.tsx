@@ -12,7 +12,7 @@ import { SymbolView, type SymbolViewProps } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useToast } from "heroui-native/toast"
-import { useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { Image, ScrollView, Text, View } from "react-native"
 import { CsvTable } from "@/components/csv-table"
 import { FileTypeIcon } from "@/components/file-type-icon"
@@ -191,13 +191,17 @@ function FileView({ file, sessionId, isPending, isError, onRetry }: FileState) {
       return res.text()
     },
   })
-  const table = useMemo(
-    () =>
-      isCsvMime(mime) && content.data !== undefined
-        ? parseCsv(content.data, csvDelimiterForMime(mime))
-        : null,
-    [mime, content.data]
-  )
+  const [table, setTable] = useState<Table | null>(null)
+  // Parsed in a later task, not during render: a 2 MB CSV takes a moment, and
+  // the spinner stays up until it's done.
+  useEffect(() => {
+    const text = content.data
+    if (!isCsvMime(mime) || text === undefined) return
+    const timer = setTimeout(() => {
+      setTable(parseCsv(text, csvDelimiterForMime(mime)))
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [mime, content.data])
 
   const share = async () => {
     if (!file?.url || sharing) return
@@ -365,7 +369,13 @@ function FileBody({
   if (content.isError) {
     return <LoadFailed onRetry={() => void content.refetch()} />
   }
-  if (table) return <CsvTable columns={table.columns} rows={table.rows} />
+  if (isCsvMime(file.mime)) {
+    return table ? (
+      <CsvTable columns={table.columns} rows={table.rows} />
+    ) : (
+      <Loading />
+    )
+  }
   return (
     <ScrollView contentContainerClassName="p-four">
       <MessageContent
