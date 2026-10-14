@@ -1,5 +1,5 @@
 import { LOR_USER_ID } from "@repo/db/constants"
-import { extractDirectMentionUserIds } from "@repo/messaging"
+import { extractDirectMentionUserIds } from "@repo/messaging/mentions"
 
 // Only the replied-to author matters for routing.
 type ReplyTarget = { author: { id: string } } | null | undefined
