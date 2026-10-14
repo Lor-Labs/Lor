@@ -1,14 +1,11 @@
-import File01Icon from "@hugeicons/core-free-icons/File01Icon"
 import MoreHorizontalIcon from "@hugeicons/core-free-icons/MoreHorizontalIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useThemeColor } from "heroui-native/hooks"
 import { useState } from "react"
 import { ActivityIndicator, Pressable, Text, View } from "react-native"
-import { formatFileSize } from "@/components/message-attachments"
 import { Shimmer } from "@/components/shimmer"
 import type { ChannelPlan, PlanStep } from "@/lib/api-types"
-import { openExternalUrl } from "@/lib/open-url"
 
 // Long plans collapse so a 20-step breakdown doesn't bury the delivered files.
 const INITIAL_VISIBLE_STEPS = 4
@@ -195,46 +192,5 @@ export function PlanStepList({ items }: { items: PlanStep[] }) {
         </Pressable>
       ) : null}
     </View>
-  )
-}
-
-// Compact file row for plan deliverables. Files open in the in-app browser
-// sheet — mobile has no artifact viewer yet, by decision.
-export function PlanFileRow({
-  name,
-  size,
-  url,
-  onOpen,
-}: {
-  name: string
-  size: number | null
-  url: string | null
-  // Fired just before the browser sheet opens — lets a hosting popover close.
-  onOpen?: () => void
-}) {
-  const muted = useThemeColor("muted")
-  return (
-    <Pressable
-      accessibilityLabel={`Open ${name}`}
-      accessibilityRole="link"
-      className="min-h-8 flex-row items-center gap-two rounded-lor-sm border border-border bg-background px-two py-one"
-      disabled={!url}
-      onPress={() => {
-        if (!url) return
-        onOpen?.()
-        openExternalUrl(url)
-      }}
-    >
-      <HugeiconsIcon color={muted} icon={File01Icon} size={14} />
-      <Text
-        className="min-w-0 flex-1 text-[13px] font-medium text-foreground"
-        numberOfLines={1}
-      >
-        {name}
-      </Text>
-      {size !== null ? (
-        <Text className="text-[11px] text-muted">{formatFileSize(size)}</Text>
-      ) : null}
-    </Pressable>
   )
 }

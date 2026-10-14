@@ -13,7 +13,8 @@ import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useMemo, useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
-import { PlanFileRow, PlanStepList } from "@/components/plan-ui"
+import { FileChip } from "@/components/file-chip"
+import { PlanStepList } from "@/components/plan-ui"
 import { Button } from "@/components/ui/button"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { useWorkspace } from "@/context/workspace-context"
@@ -24,6 +25,7 @@ import {
 import { usePlanArtifacts, usePlanForThread } from "@/hooks/use-plans"
 import type { AgentSession, Message, PlanArtifact } from "@/lib/api-types"
 import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
+import { openExternalUrl } from "@/lib/open-url"
 
 type SessionFile = {
   key: string
@@ -244,12 +246,18 @@ export function SessionSheet({
                 {files.length > 0 ? (
                   <View className="gap-one">
                     {files.map((file) => (
-                      <PlanFileRow
+                      <FileChip
                         key={file.key}
                         name={file.name}
-                        onOpen={() => close(false)}
+                        onPress={
+                          file.url
+                            ? () => {
+                                close(false)
+                                if (file.url) openExternalUrl(file.url)
+                              }
+                            : undefined
+                        }
                         size={file.size}
-                        url={file.url}
                       />
                     ))}
                   </View>

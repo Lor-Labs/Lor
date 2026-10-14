@@ -2,8 +2,8 @@ import CheckmarkCircle02Icon from "@hugeicons/core-free-icons/CheckmarkCircle02I
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useThemeColor } from "heroui-native/hooks"
 import { Pressable, Text, View } from "react-native"
+import { FileChip } from "@/components/file-chip"
 import {
-  PlanFileRow,
   PlanStatusBadge,
   PlanStepList,
   PlanStepProgress,
@@ -11,6 +11,7 @@ import {
 import { Shimmer } from "@/components/shimmer"
 import { usePlanArtifacts, usePlanForCard } from "@/hooks/use-plans"
 import type { Message } from "@/lib/api-types"
+import { openExternalUrl } from "@/lib/open-url"
 
 // The card a plan_card message renders as — mobile mirror of web: title and
 // outcome up top, the live plan in a recessed well, delivered files underneath.
@@ -86,12 +87,12 @@ export function PlanCard({
 
           {artifacts && artifacts.length > 0 ? (
             <View className="gap-one pt-two">
-              {artifacts.map((artifact) => (
-                <PlanFileRow
-                  key={artifact.id}
-                  name={artifact.path}
-                  size={artifact.size}
-                  url={artifact.url}
+              {artifacts.map(({ id, path, size, url }) => (
+                <FileChip
+                  key={id}
+                  name={path}
+                  onPress={url ? () => openExternalUrl(url) : undefined}
+                  size={size}
                 />
               ))}
             </View>

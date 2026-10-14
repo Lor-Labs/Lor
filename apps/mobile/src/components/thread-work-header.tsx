@@ -5,15 +5,13 @@ import { Popover } from "heroui-native/popover"
 import { type ReactNode, useMemo, useState } from "react"
 import { Text, View } from "react-native"
 import { ApprovalGateCard } from "@/components/approval-card"
+import { FileChip } from "@/components/file-chip"
 import { LorToolTrail } from "@/components/lor-tool-trail"
-import {
-  PlanFileRow,
-  PlanStatusBadge,
-  PlanStepList,
-} from "@/components/plan-ui"
+import { PlanStatusBadge, PlanStepList } from "@/components/plan-ui"
 import { usePlan, usePlanArtifacts, usePlanForThread } from "@/hooks/use-plans"
 import type { Message } from "@/lib/api-types"
 import type { LorToolCall } from "@/lib/lor"
+import { openExternalUrl } from "@/lib/open-url"
 
 export type PlanSourceFile = {
   url: string
@@ -128,13 +126,19 @@ export function ThreadWorkHeader({
                         Outputs
                       </Text>
                     ) : null}
-                    {outputs.map((artifact) => (
-                      <PlanFileRow
-                        key={artifact.id}
-                        name={artifact.path}
-                        onOpen={close}
-                        size={artifact.size}
-                        url={artifact.url}
+                    {outputs.map(({ id, path, size, url }) => (
+                      <FileChip
+                        key={id}
+                        name={path}
+                        onPress={
+                          url
+                            ? () => {
+                                close()
+                                openExternalUrl(url)
+                              }
+                            : undefined
+                        }
+                        size={size}
                       />
                     ))}
                   </View>
@@ -147,12 +151,14 @@ export function ThreadWorkHeader({
                       </Text>
                     ) : null}
                     {sources.map((source) => (
-                      <PlanFileRow
+                      <FileChip
                         key={source.url}
                         name={source.filename}
-                        onOpen={close}
+                        onPress={() => {
+                          close()
+                          openExternalUrl(source.url)
+                        }}
                         size={source.size}
-                        url={source.url}
                       />
                     ))}
                   </View>

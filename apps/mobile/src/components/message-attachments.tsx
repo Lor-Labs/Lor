@@ -1,29 +1,16 @@
-import Download01Icon from "@hugeicons/core-free-icons/Download01Icon"
-import File01Icon from "@hugeicons/core-free-icons/File01Icon"
-import { HugeiconsIcon } from "@hugeicons/react-native"
-import { useThemeColor } from "heroui-native/hooks"
 import { useState } from "react"
-import { Image, Pressable, Text, View } from "react-native"
+import { Image, Pressable, View } from "react-native"
+import { FileChip } from "@/components/file-chip"
 import { ImageViewer } from "@/components/image-viewer"
 import type { Message } from "@/lib/api-types"
 import { openExternalUrl } from "@/lib/open-url"
 
 type Attachments = NonNullable<Message["attachments"]>
-type Attachment = Attachments[number]
 
 export function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function fileLabel(attachment: Attachment) {
-  if (attachment.contentType.startsWith("video/")) return "Video"
-  if (attachment.contentType.startsWith("audio/")) return "Audio"
-  const extension = attachment.filename.split(".").at(-1)
-  return extension && extension !== attachment.filename
-    ? extension.toUpperCase()
-    : "File"
 }
 
 export function MessageAttachments({
@@ -32,7 +19,6 @@ export function MessageAttachments({
   attachments: Attachments
 }) {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
-  const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const images = attachments.filter((attachment) =>
     attachment.contentType.startsWith("image/")
   )
@@ -78,32 +64,18 @@ export function MessageAttachments({
           ))}
         </View>
       ) : null}
-      {files.map((attachment) => (
-        <Pressable
-          accessibilityHint="Opens the attachment"
-          accessibilityLabel={`${attachment.filename}, ${fileLabel(attachment)}, ${formatFileSize(attachment.size)}`}
-          accessibilityRole="link"
-          className="max-w-[420px] flex-row items-center gap-three rounded-lor-sm border border-border bg-surface-secondary p-three"
-          key={attachment.url}
-          onPress={() => openExternalUrl(attachment.url)}
-        >
-          <View className="size-10 items-center justify-center rounded-lor-sm bg-default">
-            <HugeiconsIcon color={foreground} icon={File01Icon} size={20} />
-          </View>
-          <View className="min-w-0 flex-1 gap-px">
-            <Text
-              className="text-sm font-semibold text-foreground"
-              numberOfLines={1}
-            >
-              {attachment.filename}
-            </Text>
-            <Text className="text-xs text-muted">
-              {fileLabel(attachment)} · {formatFileSize(attachment.size)}
-            </Text>
-          </View>
-          <HugeiconsIcon color={muted} icon={Download01Icon} size={17} />
-        </Pressable>
-      ))}
+      {files.length > 0 ? (
+        <View className="max-w-[420px] gap-one">
+          {files.map((attachment) => (
+            <FileChip
+              key={attachment.url}
+              name={attachment.filename}
+              onPress={() => openExternalUrl(attachment.url)}
+              size={attachment.size}
+            />
+          ))}
+        </View>
+      ) : null}
       {viewerIndex !== null ? (
         <ImageViewer
           images={images}

@@ -198,6 +198,45 @@ browser downloaded it.
   session files API sources and the channel Files list rows
   (`attachmentIndex`) carry the position. Images keep the lightbox.
 
+### Mobile (added 2026-10-13, Jacob: ship web and mobile together)
+
+The server half (Steps 1, 1b, 4a, 4b, 9) already applies to the phone. These
+bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
+
+#### Step M1: native file chip (~250)
+
+[x] built 2026-10-13 · [ ] committed
+
+- `@repo/ui/lib/file-types.ts` holds the extension → type map, shared by
+  web's `FileTypeIcon` and a `react-native-svg` one in `apps/mobile`.
+- Mobile `FileChip` (type icon, name, "CSV · 12 KB") replaces `PlanFileRow`
+  and the message attachment rows. Taps still open the browser sheet.
+
+#### Step M2: native file viewer (~400)
+
+[ ] built · [ ] committed
+
+- A modal screen for one of Lor's files or an upload (`artifactId`, or
+  `messageId` + `index` through message location): close, type icon, name,
+  rows × columns or size, Share, Open in browser, Open session. CSV as a
+  table with row numbers; markdown and text; images; anything else offers
+  Share and the browser. Every file chip opens it.
+- Replaces the "artifact viewer deliberately punted" item in
+  `mobile-parity-todo.md`.
+
+#### Step M3: session files and thread cleanup (~200)
+
+[ ] built · [ ] committed
+
+- The session sheet reads `GET /sessions/{id}/files` merged with loaded
+  messages, not plan artifacts.
+- Delete mobile's `ThreadWorkHeader`: it only shows on human threads, where
+  Lor never works (web Step 7).
+
+#### Step M4: flatten sandbox steps in the mobile tool trail (~200)
+
+[ ] built · [ ] committed
+
 ## Deviations
 
 - Step 2: the chip is `FileChip`, not careCycle's `Attachment`, because
