@@ -20,13 +20,13 @@ import {
   CENTER_MIN_WIDTH,
   clampPanelWidth,
   RightSidebarProvider,
-  sizeClassForView,
   useRightSidebar,
 } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { RightSidebarPanel } from "@/components/sidebar/right-panel/right-sidebar-panel"
 import { WorkspaceSidebarContent } from "@/components/sidebar/workspace-sidebar"
 import { CallBar } from "@/components/voice/call-bar"
 import { CallWindow } from "@/components/voice/call-window"
+import { useCloseFile } from "@/hooks/use-file-panel"
 
 /**
  * URL-driven left sidebar with a book-page-turn transition:
@@ -96,8 +96,15 @@ function LeftSidebar() {
 
 function RightPanelDock() {
   const { workspaceSlug } = useParams({ strict: false })
-  const { view, isCollapsed, panelWidth, setPanelWidth, isHydrated } =
-    useRightSidebar()
+  const {
+    view,
+    file,
+    sizeClass,
+    isCollapsed,
+    panelWidth,
+    setPanelWidth,
+    isHydrated,
+  } = useRightSidebar()
   const { open: leftOpen, setOpen: setLeftOpen } = useSidebar()
   const [isResizing, setIsResizing] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -178,7 +185,7 @@ function RightPanelDock() {
         const newWidth = clampPanelWidth(
           startWidth + delta,
           viewportWidth,
-          sizeClassForView(view) === "compact"
+          sizeClass === "compact"
         )
         if (panelRef.current) {
           panelRef.current.style.width = `${newWidth}px`
@@ -237,10 +244,10 @@ function RightPanelDock() {
         document.removeEventListener("mouseup", handleMouseUp)
       }
     },
-    [panelWidth, setPanelWidth, leftOpen, setLeftOpen, view]
+    [panelWidth, setPanelWidth, leftOpen, setLeftOpen, sizeClass]
   )
 
-  const showRightPanel = !!view && !!workspaceSlug
+  const showRightPanel = (!!view || !!file) && !!workspaceSlug
 
   if (!showRightPanel || !isHydrated) return null
 
@@ -307,9 +314,10 @@ function MainArea({ children }: { children: React.ReactNode }) {
  * since there's no room for a floating panel on small viewports.
  */
 function MobileRightPanel() {
-  const { view, clearView } = useRightSidebar()
+  const { view, file, clearView } = useRightSidebar()
+  const closeFile = useCloseFile()
   const { workspaceSlug } = useParams({ strict: false })
-  const open = !!view && !!workspaceSlug
+  const open = (!!view || !!file) && !!workspaceSlug
 
   // If the user navigates away from a workspace while the panel is open,
   // close it — it's workspace-scoped.
@@ -321,16 +329,21 @@ function MobileRightPanel() {
     <Sheet
       open={open}
       onOpenChange={(isOpen) => {
-        if (!isOpen) clearView()
+        if (isOpen) return
+        if (file) closeFile()
+        clearView()
       }}
       modal
     >
       <SheetContent
         side="right"
         showCloseButton={false}
-        className="w-[300px] bg-sidebar p-0 sm:max-w-[300px]"
+        className={cn(
+          "w-[300px] bg-sidebar p-0 sm:max-w-[300px]",
+          file && "w-full sm:max-w-full"
+        )}
       >
-        {view && (
+        {open && (
           <DesktopZoomRegion scope="right">
             <RightSidebarPanel view={view} />
           </DesktopZoomRegion>

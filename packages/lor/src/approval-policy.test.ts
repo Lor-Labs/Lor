@@ -51,32 +51,32 @@ describe("buildToolApproval", () => {
     expect(buildToolApproval(gates(), targets)).toBeUndefined()
   })
 
-  it("parks only tools whose target has a policy row", () => {
+  it("parks only tools whose target has a policy row", async () => {
     const gate = buildToolApproval(gates("capability:linear_write"), targets)
     expect(gate).toBeDefined()
-    expect(gate?.({ toolCall: { toolName: "create_linear_issue" } })).toBe(
-      "user-approval"
-    )
+    expect(
+      await gate?.({ toolCall: { toolName: "create_linear_issue" } })
+    ).toBe("user-approval")
     // same connector, different capability — reads stay ungated
-    expect(gate?.({ toolCall: { toolName: "search_linear" } })).toBe(
+    expect(await gate?.({ toolCall: { toolName: "search_linear" } })).toBe(
       "not-applicable"
     )
-    expect(gate?.({ toolCall: { toolName: "page_oncall" } })).toBe(
+    expect(await gate?.({ toolCall: { toolName: "page_oncall" } })).toBe(
       "not-applicable"
     )
     // unmapped core tool
-    expect(gate?.({ toolCall: { toolName: "search_brain" } })).toBe(
+    expect(await gate?.({ toolCall: { toolName: "search_brain" } })).toBe(
       "not-applicable"
     )
   })
 
-  it("gates a single custom tool without touching the rest", () => {
+  it("gates a single custom tool without touching the rest", async () => {
     const gate = buildToolApproval(gates("custom_tool:ct-1"), targets)
-    expect(gate?.({ toolCall: { toolName: "page_oncall" } })).toBe(
+    expect(await gate?.({ toolCall: { toolName: "page_oncall" } })).toBe(
       "user-approval"
     )
-    expect(gate?.({ toolCall: { toolName: "create_linear_issue" } })).toBe(
-      "not-applicable"
-    )
+    expect(
+      await gate?.({ toolCall: { toolName: "create_linear_issue" } })
+    ).toBe("not-applicable")
   })
 })

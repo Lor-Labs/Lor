@@ -61,7 +61,8 @@ export function MessageEditInput({
         }),
         Mention.configure({
           HTMLAttributes: {
-            class: "rounded bg-primary/15 px-1 py-0.5 font-medium text-primary",
+            class:
+              "rounded-[3px] bg-mention px-0.5 font-medium text-primary box-decoration-clone",
           },
           renderText: ({ options, node }) =>
             `${options.suggestion.char}${node.attrs.label ?? node.attrs.id}`,

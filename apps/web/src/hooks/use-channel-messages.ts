@@ -1,6 +1,7 @@
 import type { RealtimeMessageThreadUpdated } from "@repo/realtime-types"
 import {
   type InfiniteData,
+  type QueryClient,
   useInfiniteQuery,
   useQueryClient,
 } from "@tanstack/react-query"
@@ -14,6 +15,7 @@ import {
 } from "react"
 import type { ThreadPage, ThreadPageParam } from "@/hooks/use-thread-messages"
 import type { Message } from "@/lib/api-types"
+import { fetchChannelMessagesPage } from "@/lib/channel-query"
 import { preserveMessageStream } from "@/lib/message-cache-utils"
 import { realtimeMessageToMessage } from "@/lib/realtime-adapter"
 import type { AppSocket } from "@/lib/socket"
@@ -55,6 +57,34 @@ interface UseChannelMessagesOptions {
   perPage?: number
 }
 
+const DEFAULT_PER_PAGE = 50
+
+// Fills a channel's cache with its latest page so a first visit renders at
+// once. Marked stale on arrival: a channel that isn't open gets no live
+// messages, so the visit still refetches behind the cached page.
+export async function prefetchChannelMessages(
+  queryClient: QueryClient,
+  workspaceSlug: string,
+  channelId: string
+) {
+  const queryKey = ["messages", channelId]
+  if (queryClient.getQueryData(queryKey)) return
+  const page = await fetchChannelMessagesPage(workspaceSlug, channelId, {
+    limit: DEFAULT_PER_PAGE,
+  })
+  // A visit that started meanwhile has its own, fresher window.
+  if (queryClient.getQueryData(queryKey)) return
+  queryClient.setQueryData<InfiniteData<MessagesPage, MessagesPageParam>>(
+    queryKey,
+    { pages: [page], pageParams: [null] }
+  )
+  await queryClient.invalidateQueries({
+    queryKey,
+    exact: true,
+    refetchType: "none",
+  })
+}
+
 export function useChannelMessages({
   channelId,
   anchor,
@@ -63,7 +93,7 @@ export function useChannelMessages({
   enabled = true,
   socket,
   pendingNoncesRef,
-  perPage = 50,
+  perPage = DEFAULT_PER_PAGE,
 }: UseChannelMessagesOptions) {
   const queryClient = useQueryClient()
   const normalizedAnchor = anchor ?? null

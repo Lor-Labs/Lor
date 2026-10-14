@@ -17,6 +17,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@repo/ui/components/collapsible"
+import { FileTypeIcon } from "@repo/ui/components/file-type-icon"
 import {
   ChainOfThought,
   ChainOfThoughtContent,
@@ -26,8 +27,10 @@ import {
   ChainOfThoughtStepTitle,
   ChainOfThoughtTrigger,
 } from "@repo/ui/components/nexus-ui/chain-of-thought"
+import { cn } from "@repo/ui/lib/utils"
 import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { useOpenFile } from "@/hooks/use-file-panel"
 import type { LorToolCallView } from "@/lib/api-types"
 import {
   connectorForTool,
@@ -87,6 +90,8 @@ export function toolIcon(toolName: string): TrailIcon {
     case "bash":
       return TerminalGlyph
     case "write":
+    case "edit":
+    case "create_artifacts":
     case "mkdir":
     case "move":
     case "link":
@@ -189,58 +194,127 @@ function DiffCounts({ diff }: { diff: NonNullable<LorToolCallView["diff"]> }) {
   )
 }
 
-// Keep the full label in the disclosure; only the single-line preview clips.
-function SubStepRow({ toolCall }: { toolCall: LorToolCallView }) {
+type DeliveredFile = NonNullable<LorToolCallView["files"]>[number]
+
+// Pi labels read "<Verb> <target>" (piToolLabel); the target shows in mono
+// so the verb scans.
+const TARGET_TOOLS = new Set(["read", "write", "edit", "ls", "bash"])
+function splitLabel(toolCall: LorToolCallView) {
+  const space = toolCall.label.indexOf(" ")
+  if (!TARGET_TOOLS.has(toolCall.toolName) || space < 0) {
+    return { verb: toolCall.label, target: null }
+  }
+  return {
+    verb: toolCall.label.slice(0, space),
+    target: toolCall.label.slice(space + 1),
+  }
+}
+
+// A sub-step that wrote one of the files the run delivered (paths are
+// relative to the sandbox's output folder).
+function deliveredFile(path: string | null, delivered: DeliveredFile[]) {
+  if (!path) return undefined
+  return delivered.find(
+    (file) => path === file.path || path.endsWith(`/${file.path}`)
+  )
+}
+
+// One step inside a sandbox run, flat: verb, target (or a chip for a file
+// the run delivered, which opens it), diff counts. The whole row opens its
+// diff or output once.
+function SubStepRow({
+  toolCall,
+  delivered,
+}: {
+  toolCall: LorToolCallView
+  delivered: DeliveredFile[]
+}) {
+  const openFile = useOpenFile()
+  const [open, setOpen] = useState(false)
   const Icon = toolIcon(toolCall.toolName)
+  const { verb, target } = splitLabel(toolCall)
   const diff = toolCall.diff
+  const file = deliveredFile(diff?.path ?? target, delivered)
+  const summary = toolCall.detail?.summary
+  const expandable = Boolean(diff?.patch || summary)
 
   return (
-    <Collapsible className="min-w-0 w-full">
-      <CollapsibleTrigger className="group/tool-step flex w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-sm text-left text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+    <Collapsible open={open} onOpenChange={setOpen} className="min-w-0 w-full">
+      <div className="relative flex min-w-0 items-center gap-1.5 rounded-sm text-muted-foreground text-xs hover:text-foreground">
+        {expandable && (
+          <CollapsibleTrigger
+            aria-label={toolCall.label}
+            className="absolute inset-0 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        )}
         <Icon className="size-3 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">{toolCall.label}</span>
+        <span className="shrink-0">{verb}</span>
+        {file ? (
+          <button
+            type="button"
+            title={`Open ${file.path}`}
+            onClick={() => openFile(file.artifactId)}
+            className="relative z-10 inline-flex min-w-0 cursor-pointer items-center gap-1 rounded bg-muted px-1 py-px font-mono text-[11px] text-foreground transition-colors hover:bg-accent"
+          >
+            <FileTypeIcon filename={file.path} className="size-3.5" />
+            <span className="truncate">{file.path}</span>
+          </button>
+        ) : target ? (
+          <span className="min-w-0 truncate font-mono text-[11px]">
+            {target}
+          </span>
+        ) : null}
         {diff && <DiffCounts diff={diff} />}
-        <HugeiconsIcon
-          icon={ArrowRight01Icon}
-          className="invisible size-3 shrink-0 transition-transform duration-150 ease-out group-hover/tool-step:visible group-focus-visible/tool-step:visible group-data-panel-open/tool-step:visible group-data-panel-open/tool-step:rotate-90"
-          strokeWidth={2}
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="mt-1 mb-1 max-h-64 overflow-auto rounded-md border border-border/50 bg-muted/30 p-2 text-[11px] leading-4">
-          <pre className="whitespace-pre-wrap font-mono [overflow-wrap:anywhere]">
-            {toolCall.label}
-          </pre>
-          {diff?.patch && (
-            <pre className="mt-2 border-border/50 border-t pt-2 font-mono">
-              {diff.patch.split("\n").map((line, i) => (
-                <div
-                  // biome-ignore lint/suspicious/noArrayIndexKey: static patch lines
-                  key={i}
-                  className={`whitespace-pre-wrap break-all px-1 ${diffLineClass(line)}`}
-                >
-                  {line || " "}
-                </div>
-              ))}
-              {diff.truncated && (
-                <div className="px-1 text-muted-foreground/60">
-                  … diff truncated
-                </div>
-              )}
-            </pre>
-          )}
-          {toolCall.detail?.summary && (
-            <pre className="mt-2 whitespace-pre-wrap border-border/50 border-t pt-2 font-mono [overflow-wrap:anywhere]">
-              {toolCall.detail.summary}
-            </pre>
-          )}
-          {toolCall.status && (
-            <div className="mt-2 text-right text-muted-foreground">
-              {toolCall.status === "error" ? "Failed" : "Success"}
-            </div>
-          )}
-        </div>
-      </CollapsibleContent>
+        {toolCall.status === "error" && (
+          <span className="shrink-0 rounded bg-destructive/10 px-1 text-destructive">
+            Failed
+          </span>
+        )}
+        {expandable && (
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            className={cn(
+              "size-3 shrink-0 transition-transform duration-150 ease-out",
+              open && "rotate-90"
+            )}
+            strokeWidth={2}
+          />
+        )}
+      </div>
+      {expandable && (
+        <CollapsibleContent>
+          <div className="mt-1 mb-1 ml-4.5 max-h-64 overflow-auto rounded-md border border-border/50 bg-muted/30 font-mono text-[11px] leading-4">
+            {diff?.patch && (
+              <pre className="py-1.5">
+                {diff.patch.split("\n").map((line, i) => (
+                  <div
+                    // biome-ignore lint/suspicious/noArrayIndexKey: static patch lines
+                    key={i}
+                    className={`whitespace-pre-wrap break-all px-2 ${diffLineClass(line)}`}
+                  >
+                    {line || " "}
+                  </div>
+                ))}
+                {diff.truncated && (
+                  <div className="px-2 text-muted-foreground/60">
+                    … diff truncated
+                  </div>
+                )}
+              </pre>
+            )}
+            {summary && (
+              <pre
+                className={cn(
+                  "whitespace-pre-wrap p-2 [overflow-wrap:anywhere]",
+                  diff?.patch && "border-border/50 border-t"
+                )}
+              >
+                {summary}
+              </pre>
+            )}
+          </div>
+        </CollapsibleContent>
+      )}
     </Collapsible>
   )
 }
@@ -285,15 +359,18 @@ export function LorToolTrail({
         {toolCalls.map((t) => {
           const Icon = toolIcon(t.toolName)
           const children = childrenByParent?.get(t.toolCallId) ?? []
-          const drillable = hasDetail(t) || children.length > 0
+          const isSandbox = children.length > 0
+          const drillable = hasDetail(t) || isSandbox
           return (
             <ChainOfThoughtStep
               key={t.toolCallId}
               status={stepStatus(t, streaming)}
               hasContent={drillable}
               // Nexus opens steps by default; the trail is a summary, so rows
-              // start closed and only auto-open while one is running.
-              defaultOpen={false}
+              // start closed and only auto-open while one is running. A
+              // sandbox run stays open: its sub-steps are the flat rows.
+              defaultOpen={isSandbox}
+              autoCloseOnComplete={!isSandbox}
             >
               <ChainOfThoughtStepTitle icon={<Icon className="size-3.5" />}>
                 {t.label}
@@ -314,10 +391,14 @@ export function LorToolTrail({
                   )}
                   {/* Nested sub-steps (e.g. the code agent's own tool calls),
                       streamed live as it explores. */}
-                  {children.length > 0 && (
+                  {isSandbox && (
                     <div className="flex min-w-0 flex-col gap-1 border-border/50 border-l pl-2.5">
                       {children.map((c) => (
-                        <SubStepRow key={c.toolCallId} toolCall={c} />
+                        <SubStepRow
+                          key={c.toolCallId}
+                          toolCall={c}
+                          delivered={t.files ?? []}
+                        />
                       ))}
                       {t.detail?.summary && (
                         <SummaryRow text={t.detail.summary} />

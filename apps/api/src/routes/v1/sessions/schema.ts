@@ -94,3 +94,28 @@ export const getAgentSessionResponseSchema = z.object({
   channel: z.object({ id: z.string().uuid(), name: z.string().nullable() }),
   context: z.array(sessionContextMessageSchema),
 })
+
+export const sessionFilesResponseSchema = z.object({
+  // Lor's files, most recently updated first.
+  outputs: z.array(
+    z.object({
+      id: z.string().uuid(),
+      path: z.string(),
+      mime: z.string(),
+      size: z.number().int().nullable(),
+      version: z.number().int(),
+    })
+  ),
+  // Files people shared in the session, oldest first. messageId + index
+  // open one in the file panel.
+  sources: z.array(
+    z.object({
+      url: z.string(),
+      filename: z.string(),
+      size: z.number(),
+      contentType: z.string(),
+      messageId: z.string().uuid(),
+      index: z.number().int(),
+    })
+  ),
+})

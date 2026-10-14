@@ -46,6 +46,20 @@ export function agentSessionQueryOptions(sessionId: string) {
   }
 }
 
+// Every file Lor made in the session and every upload, for the rail.
+export function sessionFilesQueryOptions(sessionId: string) {
+  return {
+    queryKey: ["agent-session-files", sessionId] as const,
+    queryFn: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].files.$get({
+        param: { sessionId },
+      })
+      if (!res.ok) throw new Error("Couldn't load session files")
+      return res.json()
+    },
+  }
+}
+
 export function useAgentSession(sessionId: string) {
   return useQuery(agentSessionQueryOptions(sessionId))
 }

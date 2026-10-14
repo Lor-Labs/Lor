@@ -7,13 +7,15 @@ import ArchiveRestoreIcon from "@hugeicons/core-free-icons/ArchiveRestoreIcon"
 import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
 import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
+import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useMemo, useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
-import { PlanFileRow, PlanStepList } from "@/components/plan-ui"
+import { FileChip } from "@/components/file-chip"
+import { PlanStepList } from "@/components/plan-ui"
 import { Button } from "@/components/ui/button"
 import { triggerHaptic } from "@/components/ui/haptics"
 import { useWorkspace } from "@/context/workspace-context"
@@ -21,15 +23,17 @@ import {
   useAgentSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
-import { usePlanArtifacts, usePlanForThread } from "@/hooks/use-plans"
-import type { AgentSession, Message, PlanArtifact } from "@/lib/api-types"
+import { usePlanForThread } from "@/hooks/use-plans"
+import { api } from "@/lib/api"
+import type { AgentSession, Message, SessionFiles } from "@/lib/api-types"
 import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
+import { type FileTarget, openFile } from "@/lib/open-file"
 
 type SessionFile = {
   key: string
   name: string
   size: number | null
-  url: string | null
+  target: FileTarget
 }
 
 // Archiving a session Lor is working in stops the run, so it asks first.
@@ -52,48 +56,62 @@ export function confirmArchiveSession(
   )
 }
 
-// Files from the loaded messages, oldest first so a file Lor rewrote keeps
-// its latest version and moves to the top; then plan artifacts the messages
-// don't cover; then what people attached. Mirrors web's session-work-panel.
-function collectSessionFiles(messages: Message[], artifacts: PlanArtifact[]) {
-  const outputs = new Map<string, SessionFile>()
-  const sources = new Map<string, SessionFile>()
+// Every file the session has (the files API), plus files in loaded messages
+// that landed since it was fetched. Messages are walked oldest first, so a
+// file Lor rewrote keeps its latest version and moves to the top. Lor's files
+// come first, then what people shared. Mirrors web's session-work-panel.
+function collectSessionFiles(
+  messages: Message[],
+  files: SessionFiles | undefined
+) {
+  const live = new Map<string, SessionFile>()
+  const sources = new Map<string, SessionFile>(
+    files?.sources.map((file) => [
+      file.url,
+      {
+        key: file.url,
+        name: file.filename,
+        size: file.size,
+        target: { messageId: file.messageId, index: file.index },
+      },
+    ])
+  )
   const oldestFirst = [...messages].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   )
   for (const message of oldestFirst) {
     for (const call of message.lorToolCalls ?? []) {
       for (const file of call.files ?? []) {
-        outputs.delete(file.artifactId)
-        outputs.set(file.artifactId, {
+        live.delete(file.artifactId)
+        live.set(file.artifactId, {
           key: file.artifactId,
           name: file.path,
           size: file.size,
-          url: file.url,
+          target: { artifactId: file.artifactId },
         })
       }
     }
-    for (const attachment of message.attachments ?? []) {
+    for (const [index, attachment] of (message.attachments ?? []).entries()) {
+      if (sources.has(attachment.url)) continue
       sources.set(attachment.url, {
         key: attachment.url,
         name: attachment.filename,
         size: attachment.size,
-        url: attachment.url,
+        target: { messageId: message.id, index },
       })
     }
   }
-  const files = [...outputs.values()].reverse()
-  for (const artifact of artifacts) {
-    if (!outputs.has(artifact.id)) {
-      files.push({
-        key: artifact.id,
-        name: artifact.path,
-        size: artifact.size,
-        url: artifact.url,
-      })
-    }
+  const outputs = new Map([...live].reverse())
+  for (const file of files?.outputs ?? []) {
+    if (outputs.has(file.id)) continue
+    outputs.set(file.id, {
+      key: file.id,
+      name: file.path,
+      size: file.size,
+      target: { artifactId: file.id },
+    })
   }
-  return [...files, ...sources.values()]
+  return [...outputs.values(), ...sources.values()]
 }
 
 // The session screen's "…": its details (the context it started from, plan,
@@ -118,7 +136,17 @@ export function SessionSheet({
   const updateSession = useUpdateAgentSession()
   const { data: detail } = useAgentSession(session.id)
   const plan = usePlanForThread(session.channelId, session.threadRootId)
-  const { data: artifacts } = usePlanArtifacts(plan?.id ?? null)
+  const { data: sessionFiles } = useQuery({
+    queryKey: ["agent-session-files", session.id],
+    enabled: isOpen,
+    queryFn: async (): Promise<SessionFiles> => {
+      const response = await api.v1.sessions[":sessionId"].files.$get({
+        param: { sessionId: session.id },
+      })
+      if (!response.ok) throw new Error("Couldn't load session files")
+      return response.json()
+    },
+  })
   const [renaming, setRenaming] = useState(false)
   const [title, setTitle] = useState(session.title)
   const archived = session.archivedAt !== null
@@ -128,8 +156,8 @@ export function SessionSheet({
     sessionId: session.id,
   }
   const files = useMemo(
-    () => collectSessionFiles(messages, artifacts ?? []),
-    [messages, artifacts]
+    () => collectSessionFiles(messages, sessionFiles),
+    [messages, sessionFiles]
   )
   const steps = plan?.steps ?? []
   const doneCount =
@@ -244,12 +272,14 @@ export function SessionSheet({
                 {files.length > 0 ? (
                   <View className="gap-one">
                     {files.map((file) => (
-                      <PlanFileRow
+                      <FileChip
                         key={file.key}
                         name={file.name}
-                        onOpen={() => close(false)}
+                        onPress={() => {
+                          close(false)
+                          openFile(file.target)
+                        }}
                         size={file.size}
-                        url={file.url}
                       />
                     ))}
                   </View>

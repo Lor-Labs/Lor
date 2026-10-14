@@ -49,7 +49,7 @@ Core push is live and verified on TestFlight (2026-08-04).
 
 ## Post-launch — Tasks
 
-Renamed **Plans** on 2026-09-12 (LOR-61); the file names below are from before the rename. Sessions keep their plan and files in the session sheet (workspace-model Step 32); the thread work header shows on human threads only.
+Renamed **Plans** on 2026-09-12 (LOR-61); the file names below are from before the rename. Sessions keep their plan and files in the session sheet (workspace-model Step 32). The thread work header was deleted 2026-10-13 (`session-files-runbook.md` Step M3): Lor never works in human threads.
 
 Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card.tsx`, `task-thread-header.tsx`; needs on-device QA):
 
@@ -57,11 +57,11 @@ Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card
 - [x] Task thread: header says **Task**, docked strip with status + Plan/Files anchored popovers (heroui-native `Popover`, Outputs vs Sources split) + always-visible approval card — 2026-08-10
 - [x] Approve/reject from mobile (`POST /v1/approvals/:id/approve|reject`) — 2026-08-10
 - [x] Deliverables at the end of Lor messages (`files` on create_artifacts tool calls) as tappable file rows — 2026-08-10
-- [ ] Artifact viewer — deliberately punted: artifacts open in the in-app browser sheet (`openExternalUrl`), same as attachments. A native CSV/markdown viewer screen is post-demand, mirroring web's read-only decision.
-- [ ] Sandbox sub-step diffs + live summary (2026-08-13, web shipped): `lor:tool` frames now carry `diff` ({path, additions, deletions, patch}) on write/edit sub-steps and stream the sandbox agent's text into the parent call's `detail.summary` mid-run. Mobile's `lor-message-body.tsx` ignores both (additive, nothing breaks) — needs +N/−N counts and an expandable diff row to match web's `lor-tool-trail.tsx`.
+- [x] File viewer (2026-10-13, `session-files-runbook.md` Step M2): every file chip opens `app/file.tsx`, a read-only modal for Lor's files and uploads (CSV table, markdown and text, images; Share and Open in browser for the rest).
+- [x] Sandbox sub-step diffs (2026-10-13, `session-files-runbook.md` Step M4): sub-steps are flat rows with +N −N counts, a file chip for delivered files and a tap-to-open diff and output, as on web. The parent's live `detail.summary` opens in the tool drawer.
 - [x] Tasks v2 re-anchor (2026-09-12): task rows anchor to `threadRootId` (card is a projection); mobile `useTaskForThread`, thread-screen re-skin predicate, card tap target, and a screen-level `useChannelTasks` subscription on the channel screen all shipped with the web steps (`reference/tasks-v2.md` Steps 2/7).
 - [x] Lor activity collapsible ported 2026-09-12 (`lor-activity.tsx` + work/answer split in `lor-message-body.tsx`). Deliberately single-level: web's inner `LorActivityGroup` tier is skipped because mobile's reasoning/tool-trail rows already carry their own disclosures — one outer "Worked · N tool calls" collapsible wraps them.
-- [x] Thread work header Activity chip ported 2026-09-12 (`task-thread-header.tsx` → `thread-work-header.tsx`, `ThreadWorkHeader`): renders for any thread with Lor tool activity; Activity `SectionPopover` shows the newest run's trail via the trail's new `embedded` prop; Plan/Files stay task-gated. Needs on-device QA + `eas update` (JS-only).
+- ~~Thread work header Activity chip~~ (2026-09-12): deleted with `ThreadWorkHeader` in `session-files-runbook.md` Step M3.
 - ~~Known gap: deep-linked thread misses live task:updated~~ Closed 2026-09-12: `useThreadMessages` joins the channel room and the thread screen now mounts `useChannelTasks` via `useTaskForThread`, so task flips land live on deep-linked threads.
 - Active-tasks indicator in the channel header — dropped; web removed its own header chip in the 2026-08-09 design round.
 

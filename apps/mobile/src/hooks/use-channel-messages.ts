@@ -3,7 +3,7 @@ import {
   type ServerToClientEvents,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
-import { useQueryClient } from "@tanstack/react-query"
+import { type QueryClient, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useChannelRoom } from "@/hooks/use-channel-room"
 import {
@@ -51,6 +51,27 @@ function fetchMessagesPage({
         param: { dmId: channelId },
         query,
       })
+}
+
+// Fills the cache the hook seeds from, so a first visit renders its latest
+// messages at once. Leaves anything already cached alone.
+export async function prefetchChannelMessages(
+  queryClient: QueryClient,
+  workspaceSlug: string,
+  channelId: string
+) {
+  if (queryClient.getQueryData(["messages", channelId])) return
+  const response = await fetchMessagesPage({
+    sourceKind: "channel",
+    workspaceSlug,
+    channelId,
+    query: { limit: "50" },
+  })
+  if (!response.ok) return
+  const payload = await response.json()
+  // A visit that started meanwhile has written fresher data.
+  if (queryClient.getQueryData(["messages", channelId])) return
+  queryClient.setQueryData(["messages", channelId], payload.data)
 }
 
 export function useChannelMessages({

@@ -71,11 +71,6 @@ export type ChannelPlanList = InferResponseType<
 >
 export type ChannelPlan = ChannelPlanList["plans"][number]
 export type PlanStep = ChannelPlan["steps"][number]
-export type PlanDetail = InferResponseType<
-  Client["v1"]["plans"][":planId"]["$get"],
-  200
->
-export type PlanApproval = NonNullable<PlanDetail["pendingApproval"]>
 export type ChannelApprovalList = InferResponseType<
   Client["v1"]["channels"][":channelId"]["approvals"]["$get"],
   200
@@ -97,6 +92,10 @@ export type AgentSessionDetail = InferResponseType<
   200
 >
 export type AgentSession = AgentSessionDetail["session"]
+export type SessionFiles = InferResponseType<
+  Client["v1"]["sessions"][":sessionId"]["files"]["$get"],
+  200
+>
 
 export type ChannelLoopList = InferResponseType<
   Client["v1"]["channels"][":channelId"]["loops"]["$get"],

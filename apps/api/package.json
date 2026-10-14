@@ -5,9 +5,9 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup && tsc --declaration --emitDeclarationOnly --outDir dist",
+    "build": "tsup && tsc --declaration --emitDeclarationOnly --outDir dist --singleThreaded",
     "start": "bun run src/index.ts",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc --noEmit --singleThreaded",
     "test": "vitest run",
     "test:watch": "vitest"
   },

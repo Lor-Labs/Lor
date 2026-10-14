@@ -9,8 +9,11 @@ import {
 export type WriteArtifactVersionInput = {
   workspaceId: string
   channelId: string
+  // The session that owns the file; null writes a standalone artifact.
+  threadRootId: string | null
+  // Provenance: recorded when the write creates the artifact.
   planId?: string | null
-  // Logical filename within the plan workspace, e.g. "report.md".
+  // Logical filename within the session's workspace, e.g. "report.md".
   path: string
   contentType: string
   bytes: Uint8Array
@@ -82,21 +85,23 @@ export async function writeArtifactVersion(
   }
 }
 
-// Within a plan, (planId, path) names one artifact and repeated writes
-// version it; outside a plan every write is a fresh artifact.
+// Within a session, (threadRootId, path) names one artifact and repeated
+// writes version it, plan or not; without one every write is a fresh
+// artifact.
 async function resolveArtifact(
   input: WriteArtifactVersionInput
 ): Promise<{ id: string }> {
   const values = {
     workspaceId: input.workspaceId,
     channelId: input.channelId,
+    threadRootId: input.threadRootId,
     planId: input.planId ?? null,
     path: input.path,
     mime: input.contentType,
     createdById: input.authorId,
   }
 
-  if (!input.planId) {
+  if (!input.threadRootId) {
     const inserted = await db
       .insert(schema.artifact)
       .values(values)
@@ -106,7 +111,7 @@ async function resolveArtifact(
     return inserted
   }
 
-  const existing = await findPlanArtifact(input.planId, input.path)
+  const existing = await findSessionArtifact(input.threadRootId, input.path)
   if (existing) return existing
 
   const inserted = await db
@@ -118,20 +123,23 @@ async function resolveArtifact(
   if (inserted) return inserted
 
   // Lost the insert race — the winner's row is the artifact.
-  const raced = await findPlanArtifact(input.planId, input.path)
+  const raced = await findSessionArtifact(input.threadRootId, input.path)
   if (!raced) throw new Error("artifact upsert failed")
   return raced
 }
 
-async function findPlanArtifact(
-  planId: string,
+async function findSessionArtifact(
+  threadRootId: string,
   path: string
 ): Promise<{ id: string } | null> {
   const row = await db
     .select({ id: schema.artifact.id })
     .from(schema.artifact)
     .where(
-      and(eq(schema.artifact.planId, planId), eq(schema.artifact.path, path))
+      and(
+        eq(schema.artifact.threadRootId, threadRootId),
+        eq(schema.artifact.path, path)
+      )
     )
     .limit(1)
     .then((rows) => rows[0])

@@ -21,6 +21,7 @@ import integrationsRouter from "@/routes/v1/integrations/index"
 import invitesRouter from "@/routes/v1/invites/index"
 import loopsRouter from "@/routes/v1/loops/index"
 import mcpServersRouter from "@/routes/v1/mcp-servers/index"
+import mobileRouter from "@/routes/v1/mobile/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
 import onboardingRouter from "@/routes/v1/onboarding/index"
 import plansRouter from "@/routes/v1/plans/index"
@@ -104,6 +105,7 @@ const routes = app
   .route("/v1", instructionsRouter)
   .route("/v1", voiceRouter)
   .route("/v1", faviconRouter)
+  .route("/v1", mobileRouter)
 
 export type AppType = typeof routes
 

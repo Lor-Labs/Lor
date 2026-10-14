@@ -131,6 +131,7 @@ export function useBrowserNotifications() {
                 id: payload.messageId,
                 channelId: payload.channelId,
                 threadRootId: payload.threadRootId,
+                sessionId,
                 workspaceSlug,
               })
             }
@@ -236,6 +237,7 @@ export function useBrowserNotifications() {
                 id: payload.threadRootId,
                 channelId: payload.channelId,
                 threadRootId: payload.threadRootId,
+                sessionId,
                 workspaceSlug,
               })
             }
@@ -261,6 +263,7 @@ export function useBrowserNotifications() {
                 id: payload.threadRootId,
                 channelId: payload.channelId,
                 threadRootId: payload.threadRootId,
+                sessionId: null,
                 workspaceSlug,
               })
           : undefined,

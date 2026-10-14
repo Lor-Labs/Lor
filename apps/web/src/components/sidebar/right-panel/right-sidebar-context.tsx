@@ -1,3 +1,4 @@
+import { useSearch } from "@tanstack/react-router"
 import {
   createContext,
   type ReactNode,
@@ -9,8 +10,29 @@ import {
 } from "react"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 
+// A file open in the panel: one of Lor's (?artifactId) or an upload
+// (?upload=<messageId>.<index>).
+export type OpenFile =
+  | { kind: "artifact"; key: string; artifactId: string }
+  | { kind: "upload"; key: string; messageId: string; index: number }
+
+function parseOpenFile(
+  artifactId: string | undefined,
+  upload: string | undefined
+): OpenFile | null {
+  if (artifactId) return { kind: "artifact", key: artifactId, artifactId }
+  if (!upload) return null
+  const dot = upload.lastIndexOf(".")
+  const index = Number(upload.slice(dot + 1))
+  if (dot < 1 || !Number.isInteger(index) || index < 0) return null
+  return { kind: "upload", key: upload, messageId: upload.slice(0, dot), index }
+}
+
 interface RightSidebarContextValue {
   view: RightSidebarView | null
+  // An open file covers the view until it closes, on any page.
+  file: OpenFile | null
+  sizeClass: PanelSizeClass
   setView: (view: RightSidebarView | null) => void
   clearView: () => void
   consumeComposerDraft: (id: string) => void
@@ -26,6 +48,7 @@ const PANEL_WIDTH_KEYS = {
   wide: "lor-right-panel-width-wide",
   compact: "lor-right-panel-width-compact",
   rail: "lor-right-panel-width-rail",
+  file: "lor-right-panel-width-file",
 } as const
 
 /**
@@ -34,6 +57,7 @@ const PANEL_WIDTH_KEYS = {
  * fixed width. Each class remembers its own user-dragged width. Loop detail
  * is a reading surface too (full prompt text), so it rides the wide class.
  * A session's work rail opens narrow beside the session but resizes freely.
+ * An open file opens half the viewport and remembers its own width.
  */
 type PanelSizeClass = keyof typeof PANEL_WIDTH_KEYS
 
@@ -68,9 +92,11 @@ export function clampPanelWidth(
   return Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
 }
 
-export function sizeClassForView(
-  view: RightSidebarView | null
+function sizeClassFor(
+  view: RightSidebarView | null,
+  file: OpenFile | null
 ): PanelSizeClass {
+  if (file) return "file"
   if (view?.type === "thread" || view?.type === "loop") return "wide"
   return view?.type === "session-work" ? "rail" : "compact"
 }
@@ -126,8 +152,21 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     wide: COMPACT_DEFAULT_WIDTH,
     compact: COMPACT_DEFAULT_WIDTH,
     rail: RAIL_DEFAULT_WIDTH,
+    file: COMPACT_DEFAULT_WIDTH,
   })
   const [isHydrated, setIsHydrated] = useState(false)
+  const artifactId = useSearch({
+    strict: false,
+    select: (search) => search.artifactId,
+  })
+  const upload = useSearch({
+    strict: false,
+    select: (search) => search.upload,
+  })
+  const file = useMemo(
+    () => parseOpenFile(artifactId, upload),
+    [artifactId, upload]
+  )
 
   // Hydrate from localStorage on mount
   useEffect(() => {
@@ -136,11 +175,22 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       wide: getStoredWidth("wide"),
       compact: getStoredWidth("compact"),
       rail: getStoredWidth("rail"),
+      file: getStoredWidth("file"),
     })
     setIsHydrated(true)
   }, [])
 
-  const sizeClass = sizeClassForView(view)
+  // Opening a file shows it even when the panel was collapsed.
+  const fileKey = file?.key ?? null
+  useEffect(() => {
+    if (!fileKey) return
+    setIsCollapsed(false)
+    try {
+      localStorage.setItem(PANEL_COLLAPSED_KEY, "false")
+    } catch {}
+  }, [fileKey])
+
+  const sizeClass = sizeClassFor(view, file)
   const panelWidth =
     sizeClass === "compact"
       ? Math.min(widths.compact, COMPACT_MAX_WIDTH)
@@ -186,6 +236,8 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   const value = useMemo<RightSidebarContextValue>(
     () => ({
       view,
+      file,
+      sizeClass,
       setView,
       clearView,
       consumeComposerDraft,
@@ -197,6 +249,8 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     }),
     [
       view,
+      file,
+      sizeClass,
       clearView,
       consumeComposerDraft,
       isCollapsed,

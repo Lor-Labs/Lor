@@ -59,7 +59,7 @@ export function buildPiCommand(
   opts?: {
     tools?: readonly string[]
     promptFile?: string
-    // Persistent session (plan continuity): the session file lives under
+    // Persistent session (conversation continuity): the session file lives under
     // `dir` and --session-id creates it if missing (restored in pi 0.84 —
     // 0.71–0.73 could only resume by id). Verified: resuming does not
     // re-emit prior events (no double usage). Omit for ephemeral

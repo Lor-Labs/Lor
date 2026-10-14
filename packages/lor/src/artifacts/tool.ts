@@ -28,9 +28,11 @@ const artifactsContext = z.object({
   // Thread-scope runs get continuity: the scope's persistent sandbox + Pi
   // session resume. Null = ephemeral (channel-scope one-shots).
   sandboxKey: z.custom<string | null>(),
-  // Plan runs additionally reseed /workspace/out from the plan's artifact
-  // versions and attribute new versions to the plan. A getter because the
-  // plan may start mid-run (start_plan).
+  // The session that owns the files: /workspace/out is reseeded from its
+  // artifacts and a rewritten path versions the same artifact.
+  threadRootId: z.custom<string | null>(),
+  // Provenance for new artifacts. A getter because the plan may start
+  // mid-run (start_plan).
   getPlan: z.custom<() => { id: string } | null>(),
   deadlineAt: z.custom<Date>().optional(),
   onUsage: z.custom<OnUsage>().optional(),
@@ -39,10 +41,10 @@ const artifactsContext = z.object({
 
 const serializeWorkbenchSession = createSessionSerializer()
 
-// Current versions of the plan's artifacts, reseeded into /workspace/out so
-// the agent always works from artifact truth (humans may have edited).
-async function loadPlanOutSeed(
-  planId: string
+// Current versions of the session's artifacts, reseeded into /workspace/out
+// so the agent always works from artifact truth (humans may have edited).
+async function loadSessionOutSeed(
+  threadRootId: string
 ): Promise<WorkbenchContinuity["outSeed"]> {
   const rows = await db
     .select({
@@ -58,7 +60,7 @@ async function loadPlanOutSeed(
         eq(schema.artifactVersion.version, schema.artifact.currentVersion)
       )
     )
-    .where(eq(schema.artifact.planId, planId))
+    .where(eq(schema.artifact.threadRootId, threadRootId))
   const seeds: WorkbenchContinuity["outSeed"] = []
   let total = 0
   for (const row of rows) {
@@ -189,9 +191,9 @@ export const artifactTools = {
       const startSession = async () => {
         const budget = sessionBudget()
         if ("error" in budget) return budget
-        // Resolved after the session-queue wait: a start_plan landing while
-        // this call was queued still gets its artifacts reseeded.
-        const plan = context.getPlan()
+        // Loaded after the session-queue wait, so files a queued sibling
+        // call just wrote are in the seed.
+        const { threadRootId } = context
         return runWorkbenchSession({
           instructions,
           inputs,
@@ -201,7 +203,9 @@ export const artifactTools = {
             ? {
                 continuity: {
                   sandboxKey,
-                  outSeed: plan ? await loadPlanOutSeed(plan.id) : [],
+                  outSeed: threadRootId
+                    ? await loadSessionOutSeed(threadRootId)
+                    : [],
                 },
               }
             : {}),
@@ -254,6 +258,7 @@ export const artifactTools = {
             await writeArtifactVersion({
               workspaceId: context.workspaceId,
               channelId: context.channelId,
+              threadRootId: context.threadRootId,
               planId: plan?.id ?? null,
               path: file.path,
               contentType: file.contentType,

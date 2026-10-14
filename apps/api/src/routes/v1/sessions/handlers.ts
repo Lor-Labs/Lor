@@ -7,6 +7,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  or,
   schema,
   sql,
 } from "@repo/db"
@@ -23,15 +24,13 @@ import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
   GetAgentSessionRoute,
   ListChannelSessionsRoute,
+  ListSessionFilesRoute,
   UpdateAgentSessionRoute,
 } from "@/routes/v1/sessions/routes"
 
-export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
-  c
-) => {
-  const currentUser = c.var.user
-  const { sessionId } = c.req.valid("param")
-
+// Null for "doesn't exist" and "not allowed" alike, so session ids can't
+// probe private channels.
+async function findAccessibleSession(sessionId: string, userId: string) {
   const row = await db
     .select({
       session: schema.agentSession,
@@ -46,14 +45,22 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
     .where(eq(schema.agentSession.id, sessionId))
     .limit(1)
     .then((rows) => rows[0])
-
-  // Same 404 for "doesn't exist" and "not allowed", so session ids can't
-  // probe private channels.
   if (
     !row ||
     row.channelWorkspaceId !== row.session.workspaceId ||
-    !(await userCanAccessChannel(row.session.channelId, currentUser.id))
+    !(await userCanAccessChannel(row.session.channelId, userId))
   ) {
+    return null
+  }
+  return row
+}
+
+export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
+  c
+) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
     return c.json(
       { success: false as const, message: "Session not found" },
       HttpStatusCodes.NOT_FOUND
@@ -81,6 +88,74 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
         id: message.id,
         createdAt: message.createdAt.toISOString(),
       })),
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+export const listSessionFiles: AppRouteHandler<ListSessionFilesRoute> = async (
+  c
+) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const { threadRootId } = row.session
+
+  const [outputs, messages] = await Promise.all([
+    db
+      .select({
+        id: schema.artifact.id,
+        path: schema.artifact.path,
+        mime: schema.artifactVersion.contentType,
+        size: schema.artifactVersion.size,
+        version: schema.artifact.currentVersion,
+      })
+      .from(schema.artifact)
+      .innerJoin(
+        schema.artifactVersion,
+        and(
+          eq(schema.artifactVersion.artifactId, schema.artifact.id),
+          eq(schema.artifactVersion.version, schema.artifact.currentVersion)
+        )
+      )
+      .where(eq(schema.artifact.threadRootId, threadRootId))
+      .orderBy(desc(schema.artifact.updatedAt)),
+    db
+      .select({
+        id: schema.message.id,
+        attachments: schema.message.attachments,
+      })
+      .from(schema.message)
+      .where(
+        and(
+          or(
+            eq(schema.message.threadRootId, threadRootId),
+            eq(schema.message.id, threadRootId)
+          ),
+          sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
+        )
+      )
+      .orderBy(asc(schema.message.createdAt)),
+  ])
+
+  return c.json(
+    {
+      outputs,
+      sources: messages.flatMap((message) =>
+        (message.attachments ?? []).map((attachment, index) => ({
+          url: attachment.url,
+          filename: attachment.filename,
+          size: attachment.size,
+          contentType: attachment.contentType,
+          messageId: message.id,
+          index,
+        }))
+      ),
     },
     HttpStatusCodes.OK
   )

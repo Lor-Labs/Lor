@@ -4,6 +4,7 @@ import { logger } from "../logger"
 import {
   type BlaxelSandbox,
   runPi,
+  sandboxFailureReason,
   withEphemeralSandbox,
   withWorkbenchSandbox,
   writeText,
@@ -188,7 +189,7 @@ export async function runWorkbenchSession(
     // fixed dirs plus every seed parent. Persistent sandboxes reset
     // /workspace/out to the seed first — artifact rows are the source of
     // truth, and stale leftovers from a prior session would re-harvest as
-    // duplicate artifact rows (standalone artifacts have no path identity).
+    // spurious new versions.
     const seedDirs = new Set<string>()
     for (const seed of continuity?.outSeed ?? []) {
       if (isUnsafeSeedPath(seed.path)) continue
@@ -260,8 +261,8 @@ export async function runWorkbenchSession(
     if (abortSignal?.aborted) return { error: "cancelled" }
 
     // A timeout or crash must not vaporize finished work: fall through and
-    // harvest whatever reached /workspace/out — the plan's next session
-    // resumes the same sandbox instead of restarting.
+    // harvest whatever reached /workspace/out — the conversation's next
+    // session resumes the same sandbox instead of restarting.
     const errorDetail =
       (run.result.stderr || run.result.stdout).slice(0, 300) || "unknown error"
     const failure =
@@ -332,6 +333,11 @@ export async function runWorkbenchSession(
       : await withEphemeralSandbox("wb", session)
   } catch (err) {
     logger.error({ err }, "Workbench: session failed")
-    return { error: "workbench session failed (sandbox error)" }
+    return {
+      error: sandboxFailureReason(
+        err,
+        "workbench session failed (sandbox error)"
+      ),
+    }
   }
 }

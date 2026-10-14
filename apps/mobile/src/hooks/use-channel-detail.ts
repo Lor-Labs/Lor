@@ -1,7 +1,25 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback } from "react"
 import { api } from "@/lib/api"
 import type { ChannelDetail } from "@/lib/api-types"
+
+export function channelDetailQueryOptions(
+  workspaceSlug: string,
+  channelId: string
+) {
+  return queryOptions({
+    queryKey: ["channel", workspaceSlug, channelId],
+    queryFn: async () => {
+      const response = await api.v1.workspaces[":workspaceSlug"].channels[
+        ":channelId"
+      ].$get({
+        param: { workspaceSlug, channelId },
+      })
+      if (!response.ok) throw new Error("Could not load this channel")
+      return response.json()
+    },
+  })
+}
 
 export function useChannelDetail({
   workspaceSlug,
@@ -13,17 +31,8 @@ export function useChannelDetail({
   const queryClient = useQueryClient()
   const enabled = Boolean(workspaceSlug && channelId)
   const query = useQuery({
-    queryKey: ["channel", workspaceSlug, channelId],
+    ...channelDetailQueryOptions(workspaceSlug, channelId),
     enabled,
-    queryFn: async () => {
-      const response = await api.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].$get({
-        param: { workspaceSlug, channelId },
-      })
-      if (!response.ok) throw new Error("Could not load this channel")
-      return response.json()
-    },
   })
   const { refetch } = query
 

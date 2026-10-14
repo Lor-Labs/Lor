@@ -1106,8 +1106,11 @@ export const listThreadReplies: AppRouteHandler<
       id: message.id,
       threadRootId: message.threadRootId,
       type: message.type,
+      // Not keyed on type: backfilled sessions kept their old root message.
+      sessionId: agentSession.id,
     })
     .from(message)
+    .leftJoin(agentSession, eq(agentSession.threadRootId, message.id))
     .where(and(eq(message.id, messageId), eq(message.channelId, channelId)))
     .limit(1)
     .then((rows) => rows[0])
@@ -1225,6 +1228,7 @@ export const listThreadReplies: AppRouteHandler<
       voiceSessionId: voiceSession?.id ?? null,
       voiceSessionTitle: voiceSession?.title ?? null,
       voiceSessionEnded: Boolean(voiceSession?.endedAt),
+      sessionId: root.sessionId,
     },
     HttpStatusCodes.OK
   )
@@ -1243,6 +1247,7 @@ export const getMessageLocation: AppRouteHandler<
       channelId: message.channelId,
       threadRootId: message.threadRootId,
       sessionId: agentSession.id,
+      attachments: message.attachments,
     })
     .from(message)
     .innerJoin(channel, eq(message.channelId, channel.id))

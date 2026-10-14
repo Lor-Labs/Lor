@@ -60,6 +60,7 @@ import {
   selectTriggerIconClassName,
   selectTriggerVariants,
 } from "@repo/ui/components/select"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useNavigate } from "@tanstack/react-router"
 import { ChevronsUpDownIcon } from "lucide-react"
@@ -84,6 +85,7 @@ import {
   useChannelLoops,
   useLoopRuns,
 } from "@/hooks/use-channel-loops"
+import { useMessageIdNavigation } from "@/hooks/use-message-search-navigation"
 import { LOOP_PAUSED_REASON_LABEL, LOOP_STATUS_META } from "@/lib/loop-ui"
 import { PLAN_STATUS_META } from "@/lib/plan-ui"
 
@@ -272,22 +274,20 @@ const RUN_STATE_META: Record<
 
 // One run in the history: collapsed = time + a one-line note preview;
 // expanded = the full closing note (rendered as markdown), recorded actions,
-// stop reason, and whatever the run spawned (plan rows open their thread;
+// stop reason, and whatever the run spawned (plan rows open their session;
 // artifact chips). Expansion animates via the grid-rows 0fr→1fr trick — the
 // preview folds away as the detail unfolds, so the note reads as growing
 // in place.
 function LoopRunRow({
   run,
-  view,
   onOpen,
 }: {
   run: LoopRun
-  view: LoopSidebarView
   // Set for a run that answered in the loop's session: the row opens it
   // instead of expanding, since the full reply lives there.
   onOpen?: () => void
 }) {
-  const { setView, isCollapsed, toggleCollapsed } = useRightSidebar()
+  const openPlan = useMessageIdNavigation()
   const [expanded, setExpanded] = useState(false)
   const meta = RUN_STATE_META[run.state]
   const hasDetail =
@@ -297,16 +297,6 @@ function LoopRunRow({
       run.plans.length > 0 ||
       run.artifacts.length > 0 ||
       Boolean(run.stopReason && run.stopReason !== "completed"))
-
-  const openPlanThread = (threadRootId: string) => {
-    setView({
-      type: "thread",
-      workspaceSlug: view.workspaceSlug,
-      channelId: view.channelId,
-      threadRootId,
-    })
-    if (isCollapsed) toggleCollapsed()
-  }
 
   return (
     <div>
@@ -411,7 +401,17 @@ function LoopRunRow({
                     <button
                       key={plan.id}
                       type="button"
-                      onClick={() => openPlanThread(plan.threadRootId)}
+                      onClick={() =>
+                        void openPlan(plan.threadRootId)
+                          .then((found) => {
+                            if (!found) {
+                              toast.error("Couldn't find that conversation")
+                            }
+                          })
+                          .catch(() =>
+                            toast.error("Couldn't open that conversation")
+                          )
+                      }
                       className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg bg-secondary/60 px-3 py-2 text-left ring-1 ring-border/40 ring-inset transition-colors hover:bg-secondary disabled:cursor-default"
                     >
                       <span className="min-w-0 truncate text-sm">
@@ -441,10 +441,8 @@ function LoopRunRow({
                     key={artifact.id}
                     artifactId={artifact.id}
                     name={artifact.path}
-                    contentType={artifact.mime}
                     size={artifact.size}
-                    variant="chip"
-                    className="w-full max-w-none"
+                    className="w-full"
                   />
                 ))}
               </div>
@@ -1145,7 +1143,6 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
                   <LoopRunRow
                     key={run.id}
                     run={run}
-                    view={view}
                     onOpen={run.inSession ? openSession : undefined}
                   />
                 ))}

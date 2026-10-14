@@ -1,6 +1,6 @@
 import { cn } from "@repo/ui/lib/utils"
 import { useTheme } from "next-themes"
-import { type CSSProperties, useMemo } from "react"
+import { type CSSProperties, useMemo, useState } from "react"
 import { type Column, DataGrid } from "react-data-grid"
 import type { CsvColumn, GridRow } from "@/lib/csv"
 import "react-data-grid/lib/styles.css"
@@ -29,6 +29,7 @@ export function CsvGrid({
   className?: string
 }) {
   const { resolvedTheme } = useTheme()
+  const [scrolledX, setScrolledX] = useState(false)
 
   const gridColumns: Column<GridRow>[] = useMemo(
     () => [
@@ -68,7 +69,18 @@ export function CsvGrid({
   }
 
   return (
-    <div className={cn("h-full w-full overflow-hidden", className)}>
+    <div
+      className={cn(
+        "h-full w-full overflow-hidden",
+        // rdg hides the row-number column's edge shadow until the grid
+        // scrolls sideways with a scroll-state container query, which Safari
+        // and the desktop app's WebKit don't support. The shadow divs are the
+        // grid root's only children without a role; rdg's CSS is unlayered,
+        // hence the !important.
+        !scrolledX && "[&_.rdg>div:not([role])]:opacity-0!",
+        className
+      )}
+    >
       <DataGrid
         columns={gridColumns}
         rows={rows}
@@ -78,6 +90,7 @@ export function CsvGrid({
         rowHeight={35}
         headerRowHeight={40}
         style={GRID_STYLE}
+        onScroll={(event) => setScrolledX(event.currentTarget.scrollLeft > 0)}
       />
     </div>
   )

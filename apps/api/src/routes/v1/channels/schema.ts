@@ -107,6 +107,9 @@ export const listThreadRepliesResponseSchema =
     voiceSessionTitle: z.string().nullable(),
     // An ended call's panel opens on its Summary tab.
     voiceSessionEnded: z.boolean(),
+    // Set when the thread is a Lor session: it opens on the session page,
+    // never in the thread panel.
+    sessionId: z.string().uuid().nullable(),
   })
 
 // ── Pins ──────────────────────────────────────────
@@ -144,6 +147,8 @@ export const messageLocationResponseSchema = z.object({
   threadRootId: z.string().uuid().nullable(),
   // Set when the message is in a Lor session (or is its anchor).
   sessionId: z.string().uuid().nullable(),
+  // A file it shared opens in the file panel by message and position.
+  attachments: messageWithAuthorSchema.shape.attachments,
 })
 
 export const listPinnedMessagesResponseSchema = z.object({

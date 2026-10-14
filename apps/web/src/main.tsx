@@ -20,6 +20,14 @@ const queryClient = new QueryClient({
   },
 })
 
+// A channel's details and messages seed its next visit (and the sidebar's
+// warm-up in use-prefetch-channels), so they stay for the session instead of
+// the 5-minute default for caches no page is using.
+queryClient.setQueryDefaults(["channel"], { gcTime: Number.POSITIVE_INFINITY })
+queryClient.setQueryDefaults(["messages"], {
+  gcTime: Number.POSITIVE_INFINITY,
+})
+
 const router = createRouter({ routeTree })
 
 declare module "@tanstack/react-router" {

@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { AnimatePresence } from "framer-motion"
-import { ArtifactOverlay } from "@/components/artifacts/artifact-overlay"
 import { SessionView } from "@/components/session/session-view"
 
 type SessionSearchParams = {
-  // Opens the artifact viewer over the session (file cards in the transcript
-  // and the rail).
+  // Opens a file in the right panel (file cards in the transcript and the
+  // rail): one of Lor's, or an upload as "<messageId>.<index>".
   artifactId?: string
+  upload?: string
+  // A search result or citation: centers and highlights that message.
+  msgId?: string
 }
 
 export const Route = createFileRoute(
@@ -16,31 +17,22 @@ export const Route = createFileRoute(
   validateSearch: (search: Record<string, unknown>): SessionSearchParams => ({
     artifactId:
       typeof search.artifactId === "string" ? search.artifactId : undefined,
+    upload: typeof search.upload === "string" ? search.upload : undefined,
+    msgId: typeof search.msgId === "string" ? search.msgId : undefined,
   }),
 })
 
 function SessionRoute() {
   const { workspaceSlug, sessionId } = Route.useParams()
-  const { artifactId } = Route.useSearch()
-  const navigate = Route.useNavigate()
+  const msgId = Route.useSearch({ select: (search) => search.msgId })
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden">
-      <SessionView workspaceSlug={workspaceSlug} sessionId={sessionId} />
-      <AnimatePresence>
-        {artifactId && (
-          <ArtifactOverlay
-            key={artifactId}
-            artifactId={artifactId}
-            onClose={() =>
-              void navigate({
-                search: (prev) => ({ ...prev, artifactId: undefined }),
-                replace: true,
-              })
-            }
-          />
-        )}
-      </AnimatePresence>
+    <div className="flex h-full flex-col overflow-hidden">
+      <SessionView
+        workspaceSlug={workspaceSlug}
+        sessionId={sessionId}
+        targetMessageId={msgId}
+      />
     </div>
   )
 }

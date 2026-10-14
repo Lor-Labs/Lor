@@ -1539,7 +1539,9 @@ alone is about 4,500–5,200 changed mobile lines (Steps 20–35), plus Phase E2
   resolution went. The panel view carries `sessionId` and reads
   `useAgentSession`. The design doc's item 8 was updated to match.
 - Step 6 open item: the artifact viewer's "Open conversation" still opens the
-  channel page with the thread panel, not the session.
+  channel page with the thread panel, not the session. Closed by
+  `session-files-runbook.md` Step 1, with search results and `?threadId`
+  deep links below.
 - Step 7: no agent label in the Lor state. The effective profile resolves
   channel, then category, then workspace default on the server; the client
   has no resolved name. It comes with the real model picker.

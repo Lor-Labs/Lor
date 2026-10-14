@@ -32,7 +32,7 @@ const SANDBOX_PROCESS_ENV = {
   YARN_CACHE_FOLDER: `${WORKSPACE_MOUNT}/.cache/yarn`,
 }
 
-function baseConfig(name: string) {
+function baseConfig(name: string, diskMb = env.LOR_WORKBENCH_DISK_MB) {
   return {
     name,
     image: env.LOR_WORKBENCH_IMAGE,
@@ -42,10 +42,25 @@ function baseConfig(name: string) {
         name: "workspace",
         mountPath: WORKSPACE_MOUNT,
         type: "ephemeral" as const,
-        sizeMb: env.LOR_WORKBENCH_DISK_MB,
+        sizeMb: diskMb,
       },
     ],
   }
+}
+
+// Blaxel rejects sandbox creates once the account's total ephemeral volume
+// quota is used up (idle persistent sandboxes keep their volumes). Retrying
+// immediately fails the same way, so the model is told to stop.
+const SANDBOX_QUOTA_REASON =
+  "sandbox capacity is full (quota exceeded). Do not retry now; it will fail the same way until other sandbox sessions finish. Tell the user this is temporarily unavailable."
+
+export function sandboxFailureReason(err: unknown, fallback: string): string {
+  const quotaExceeded =
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    err.code === "QUOTA_EXCEEDED"
+  return quotaExceeded ? SANDBOX_QUOTA_REASON : fallback
 }
 
 function persistentLifecycle(idleTtl: string) {
@@ -199,11 +214,12 @@ function closeConnection(sandbox: SandboxInstance): void {
 // ttl-max-age policy is the backstop if the worker dies mid-session.
 export async function withEphemeralSandbox<T>(
   prefix: string,
-  fn: (sandbox: SandboxInstance) => Promise<T>
+  fn: (sandbox: SandboxInstance) => Promise<T>,
+  opts: { diskMb?: number } = {}
 ): Promise<T> {
   const name = `${prefix}-${randomUUID()}`
   const sandbox = await SandboxInstance.create({
-    ...baseConfig(name),
+    ...baseConfig(name, opts.diskMb),
     lifecycle: {
       expirationPolicies: [
         {
@@ -237,7 +253,7 @@ export async function invalidatePersistentSandbox(
 
 // A named sandbox persists across sessions: it drops to standby (free)
 // between them and resumes with its filesystem intact. If the idle TTL
-// deletes it, plans reseed durable artifacts and code sessions re-clone;
+// deletes it, sessions reseed durable artifacts and code sessions re-clone;
 // unpublished code changes exist only until the code sandbox TTL expires.
 export async function withPersistentSandbox<T>(
   name: string,

@@ -2,7 +2,6 @@ import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
 import LockKeyIcon from "@hugeicons/core-free-icons/LockKeyIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { useQueryClient } from "@tanstack/react-query"
 import { useThemeColor } from "heroui-native/hooks"
 import { Text, View } from "react-native"
 import { Button } from "@/components/ui/button"
@@ -20,7 +19,6 @@ import { authClient } from "@/lib/auth-client"
 export type ApprovalCardData = {
   id: string
   description: string
-  planId: string | null
   toolName: string | null
   resolver: ApprovalResolverSpec | null
   resolverUserName: string | null
@@ -34,8 +32,8 @@ const RESOLVED_LABEL = {
   expired: "Expired",
 } as const
 
-// One approval gate, wherever it surfaces (plan header, a Lor message): what
-// Lor wants to do, who can allow it, and the buttons; once decided, what was
+// One approval gate under a Lor message: what Lor wants to do, who can allow
+// it, and the buttons; once decided, what was
 // decided and by whom. Buttons show only for people the resolver spec
 // allows — the server re-checks on resolve regardless. Mirrors web's
 // ApprovalGateView.
@@ -48,7 +46,6 @@ export function ApprovalGateCard({
   approval: ApprovalCardData
   onResolved?: () => void
 }) {
-  const queryClient = useQueryClient()
   const resolve = useResolveChannelApproval(channelId)
   const canResolve = useCanResolveApproval(approval.resolver)
   const { workspace } = useWorkspace()
@@ -102,11 +99,6 @@ export function ApprovalGateCard({
       { approvalId: approval.id, resolution },
       {
         onSettled: () => {
-          if (approval.planId) {
-            void queryClient.invalidateQueries({
-              queryKey: ["plan", approval.planId],
-            })
-          }
           onResolved?.()
         },
       }

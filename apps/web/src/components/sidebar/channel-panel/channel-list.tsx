@@ -69,6 +69,7 @@ import { useUnread } from "@/context/unread-context"
 import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
 import { useOpenChannelSessions } from "@/hooks/use-open-channel-sessions"
+import { usePrefetchChannels } from "@/hooks/use-prefetch-channels"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { apiClient } from "@/lib/api-client"
 import type { Channel, ListChannelsResponse } from "@/lib/api-types"
@@ -176,6 +177,7 @@ export function ChannelList() {
   const { data, isPending } = useQuery(
     workspaceChannelsQueryOptions(workspaceSlug ?? "")
   )
+  usePrefetchChannels(workspaceSlug ?? "", data)
 
   const reorderMutation = useMutation({
     mutationFn: async (

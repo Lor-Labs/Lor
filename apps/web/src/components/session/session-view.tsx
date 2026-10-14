@@ -34,9 +34,9 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
+import { SessionDocument } from "@/components/session/session-document"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
-import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
 import { TypewriterText } from "@/components/ui/typewriter-text"
 import {
@@ -58,9 +58,11 @@ import { clearLastSessionId, writeLastSession } from "@/lib/last-location"
 export function SessionView({
   workspaceSlug,
   sessionId,
+  targetMessageId,
 }: {
   workspaceSlug: string
   sessionId: string
+  targetMessageId?: string
 }) {
   const { data, isPending, isError } = useAgentSession(sessionId)
   // Opened without a row hover (⌘K, a link, a notification): the sidebar row
@@ -95,6 +97,7 @@ export function SessionView({
       key={data.session.id}
       workspaceSlug={workspaceSlug}
       detail={data}
+      targetMessageId={targetMessageId}
     />
   )
 }
@@ -102,9 +105,11 @@ export function SessionView({
 function SessionConversation({
   workspaceSlug,
   detail: { session, channel },
+  targetMessageId,
 }: {
   workspaceSlug: string
   detail: AgentSessionDetail
+  targetMessageId?: string
 }) {
   // Approval and proposal cards render inline in the session; keep them live.
   useChannelApprovals(session.channelId, session.threadRootId)
@@ -177,43 +182,41 @@ function SessionConversation({
   const [renaming, setRenaming] = useState(false)
 
   return (
-    <ThreadPanel
-      view={{
-        type: "thread",
-        workspaceSlug,
-        channelId: session.channelId,
-        threadRootId: session.threadRootId,
-      }}
-      sessionView={{
-        header: ({ lorRunning, headingVisible }) => (
-          <SessionStrip
-            session={session}
-            workView={workView}
-            lorRunning={lorRunning}
-            showTitle={!headingVisible}
-            onRename={() => setRenaming(true)}
-            onArchive={() => {
-              updateSession.mutate({ ...change, archived: true })
-              // Nothing left to do here; back to the channel's chat.
-              void navigate({
-                to: "/$workspaceSlug/$channelId",
-                params: { workspaceSlug, channelId: session.channelId },
-              })
-            }}
-          />
-        ),
-        heading: (
-          <SessionHeading
-            session={session}
-            channelName={channel.name ?? "channel"}
-            startedBy={startedBy}
-            starter={starter}
-            renaming={renaming}
-            onRenamingChange={setRenaming}
-            onRename={(title) => updateSession.mutate({ ...change, title })}
-          />
-        ),
-        archivedBar: session.archivedAt ? (
+    <SessionDocument
+      workspaceSlug={workspaceSlug}
+      channelId={session.channelId}
+      threadRootId={session.threadRootId}
+      targetMessageId={targetMessageId}
+      header={({ lorRunning, headingVisible }) => (
+        <SessionStrip
+          session={session}
+          workView={workView}
+          lorRunning={lorRunning}
+          showTitle={!headingVisible}
+          onRename={() => setRenaming(true)}
+          onArchive={() => {
+            updateSession.mutate({ ...change, archived: true })
+            // Nothing left to do here; back to the channel's chat.
+            void navigate({
+              to: "/$workspaceSlug/$channelId",
+              params: { workspaceSlug, channelId: session.channelId },
+            })
+          }}
+        />
+      )}
+      heading={
+        <SessionHeading
+          session={session}
+          channelName={channel.name ?? "channel"}
+          startedBy={startedBy}
+          starter={starter}
+          renaming={renaming}
+          onRenamingChange={setRenaming}
+          onRename={(title) => updateSession.mutate({ ...change, title })}
+        />
+      }
+      archivedBar={
+        session.archivedAt ? (
           <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
             <HugeiconsIcon
               icon={Archive02Icon}
@@ -233,8 +236,8 @@ function SessionConversation({
               Unarchive
             </Button>
           </div>
-        ) : undefined,
-      }}
+        ) : undefined
+      }
     />
   )
 }

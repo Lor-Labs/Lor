@@ -5,17 +5,12 @@ import {
   Download01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import {
-  AttachmentProperty,
-  AttachmentPreview as AttachmentThumb,
-  Attachment as AttachmentTile,
-} from "@repo/ui/components/nexus-ui/attachments"
 import { VideoAmbient } from "@repo/ui/components/unlumen-ui/video-ambient"
 import { cn } from "@repo/ui/lib/utils"
 import { useCallback, useEffect, useState } from "react"
 import { createPortal } from "react-dom"
+import { UploadFileCard } from "@/components/chat/artifact-file-card"
 import type { Message } from "@/lib/api-types"
-import { toAttachmentMeta } from "@/lib/attachments"
 
 type Attachment = NonNullable<Message["attachments"]>[number]
 
@@ -37,49 +32,6 @@ function AudioAttachment({ attachment }: { attachment: Attachment }) {
         {attachment.filename}
       </span>
     </div>
-  )
-}
-
-// Sent files (PDFs, sheets, archives…) wear the same Nexus tile as the
-// composer's pending attachments, wrapped in a download link. `readOnly` drops
-// the remove control and progress bar; the custom children keep the download
-// affordance the default layout has no slot for.
-function FileAttachment({ attachment }: { attachment: Attachment }) {
-  const meta = toAttachmentMeta({
-    filename: attachment.filename,
-    contentType: attachment.contentType,
-    size: attachment.size,
-    url: attachment.url,
-  })
-
-  return (
-    <a
-      href={attachment.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      download={attachment.filename}
-      className="group/file block min-w-0"
-    >
-      <AttachmentTile
-        readOnly
-        variant="detailed"
-        attachment={meta}
-        className="w-full max-w-none transition-colors hover:bg-secondary/70"
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <AttachmentThumb />
-          <div className="flex min-w-0 flex-col">
-            <AttachmentProperty as="name" />
-            <AttachmentProperty as="size" />
-          </div>
-        </div>
-        <HugeiconsIcon
-          icon={Download01Icon}
-          className="size-4 shrink-0 text-muted-foreground transition-colors group-hover/file:text-foreground"
-          strokeWidth={2}
-        />
-      </AttachmentTile>
-    </a>
   )
 }
 
@@ -307,8 +259,10 @@ function ImageGrid({
 }
 
 export function AttachmentGrid({
+  messageId,
   attachments,
 }: {
+  messageId: string
   attachments: NonNullable<Message["attachments"]>
 }) {
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -353,9 +307,16 @@ export function AttachmentGrid({
       )}
       {/* A batch of files packs into columns instead of a tall stack. */}
       {files.length > 0 && (
-        <div className="grid max-w-3xl grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-1">
+        <div className="grid max-w-3xl grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-1.5">
           {files.map((attachment) => (
-            <FileAttachment key={attachment.url} attachment={attachment} />
+            <UploadFileCard
+              key={attachment.url}
+              name={attachment.filename}
+              size={attachment.size}
+              messageId={messageId}
+              index={attachments.indexOf(attachment)}
+              className="w-full"
+            />
           ))}
         </div>
       )}

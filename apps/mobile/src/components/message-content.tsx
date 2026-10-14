@@ -1,5 +1,6 @@
 import { useThemeColor } from "heroui-native/hooks"
 import { createContext, useCallback, useContext, useMemo } from "react"
+import { useColorScheme } from "react-native"
 import {
   EnrichedMarkdownText,
   type MarkdownStyle,
@@ -25,6 +26,9 @@ type MessageTheme = {
   backgroundSelected: string
   border: string
   backgroundElement: string
+  surface: string
+  // Web's table frame: muted in light, the page background in dark.
+  tableFrame: string
   textSecondary: string
   textTertiary: string
 }
@@ -88,6 +92,26 @@ function buildMarkdownStyle(
       bulletColor: theme.textTertiary,
       markerColor: theme.textTertiary,
     },
+    // Web's message table: muted header text on the frame color, every body
+    // row on the card color, quiet lines. The renderer's defaults are fixed
+    // light colors, so each one is set. It always bolds the header and draws
+    // a full grid, so those two differ from web.
+    table: {
+      color: theme.text,
+      fontSize: 13,
+      lineHeight: 19,
+      headerTextColor: theme.textSecondary,
+      headerBackgroundColor: theme.tableFrame,
+      rowEvenBackgroundColor: theme.surface,
+      rowOddBackgroundColor: theme.surface,
+      borderColor: theme.backgroundSelected,
+      borderWidth: 1,
+      borderRadius: 12,
+      cellPaddingHorizontal: 10,
+      cellPaddingVertical: 6,
+      marginTop: 4,
+      marginBottom: 8,
+    },
     h1: { color: theme.text, fontSize: 22 },
     h2: { color: theme.text, fontSize: 20 },
     h3: { color: theme.text, fontSize: 18 },
@@ -114,6 +138,8 @@ export function MessageContent({
     backgroundSelected,
     border,
     backgroundElement,
+    surface,
+    background,
     textSecondary,
   ] = useThemeColor([
     "foreground",
@@ -122,8 +148,11 @@ export function MessageContent({
     "surface-tertiary",
     "border",
     "surface-secondary",
+    "surface",
+    "background",
     "muted",
   ])
+  const dark = useColorScheme() === "dark"
   const prose = useContext(MessageProseContext)
   const theme = useMemo<MessageTheme>(
     () => ({
@@ -133,6 +162,8 @@ export function MessageContent({
       backgroundSelected,
       border,
       backgroundElement,
+      surface,
+      tableFrame: dark ? background : backgroundElement,
       textSecondary,
       textTertiary: textSecondary,
     }),
@@ -144,6 +175,9 @@ export function MessageContent({
       backgroundSelected,
       border,
       backgroundElement,
+      surface,
+      dark,
+      background,
       textSecondary,
     ]
   )

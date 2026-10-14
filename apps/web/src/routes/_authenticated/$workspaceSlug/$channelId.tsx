@@ -5,10 +5,8 @@ import { LOR_USER_ID } from "@repo/db/constants"
 import { toast } from "@repo/ui/components/toast"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { AnimatePresence } from "framer-motion"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useDropzone } from "react-dropzone"
-import { ArtifactOverlay } from "@/components/artifacts/artifact-overlay"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -48,7 +46,10 @@ import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
-import { channelQueryOptions } from "@/lib/channel-query"
+import {
+  channelQueryOptions,
+  fetchChannelMessagesPage,
+} from "@/lib/channel-query"
 import { writeLastChannelId } from "@/lib/last-location"
 import { canPinMessages } from "@/lib/permissions"
 import {
@@ -65,11 +66,11 @@ type ChannelSearchParams = {
   // Opens a call's transcript at this moment (ms into the call), e.g. from a
   // Lor [[call:…]] citation. Needs threadId (the call's chat root).
   callAt?: number
-  // Opens the artifact viewer; shareable — everyone opening the same URL
-  // lands on the same artifact (and, later, in the same live session).
+  // Opens a file in the right panel; shareable — everyone opening the same
+  // URL lands on the same file (and, later, in the same live session).
   artifactId?: string
-  artifactFrom?: "files"
-  fileSearch?: string
+  // Opens an upload in the right panel, as "<messageId>.<index>".
+  upload?: string
   // Prefills the composer with "@Lor <draft>" without sending (setup's Ask
   // Lor suggestions). Cleared once applied.
   draft?: string
@@ -97,11 +98,7 @@ export const Route = createFileRoute(
         : undefined,
     artifactId:
       typeof search.artifactId === "string" ? search.artifactId : undefined,
-    artifactFrom: search.artifactFrom === "files" ? "files" : undefined,
-    fileSearch:
-      typeof search.fileSearch === "string"
-        ? search.fileSearch.slice(0, 200)
-        : undefined,
+    upload: typeof search.upload === "string" ? search.upload : undefined,
     draft:
       typeof search.draft === "string" ? search.draft.slice(0, 500) : undefined,
     panel: search.panel === "sessions" ? "sessions" : undefined,
@@ -135,16 +132,7 @@ function ChannelRoute() {
 
 function ChannelView() {
   const { workspaceSlug, channelId } = Route.useParams()
-  const {
-    msgId,
-    threadId,
-    threadMessageId,
-    artifactId,
-    artifactFrom,
-    fileSearch,
-    draft,
-    panel,
-  } = Route.useSearch()
+  const { msgId, threadId, threadMessageId, draft, panel } = Route.useSearch()
   const navigate = Route.useNavigate()
   const composerDraft = useMemo(
     () => (draft ? { id: draft, text: draft } : undefined),
@@ -192,25 +180,8 @@ function ChannelView() {
   })
 
   const fetchMessagesPage = useCallback(
-    async (params: {
-      around?: string
-      before?: string
-      after?: string
-      limit: number
-    }) => {
-      const query: Record<string, string> = { limit: String(params.limit) }
-      if (params.around) query.around = params.around
-      if (params.before) query.before = params.before
-      if (params.after) query.after = params.after
-      const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
-        ":channelId"
-      ].messages.$get({
-        param: { workspaceSlug, channelId },
-        query,
-      })
-      if (!res.ok) throw new Error("Failed to fetch messages")
-      return res.json()
-    },
+    (params: Parameters<typeof fetchChannelMessagesPage>[2]) =>
+      fetchChannelMessagesPage(workspaceSlug, channelId, params),
     [workspaceSlug, channelId]
   )
 
@@ -656,41 +627,6 @@ function ChannelView() {
           onTyping={emitTyping}
         />
       )}
-      <AnimatePresence>
-        {artifactId && (
-          <ArtifactOverlay
-            key={artifactId}
-            artifactId={artifactId}
-            closeLabel={
-              artifactFrom === "files" ? "Back to artifacts" : undefined
-            }
-            onClose={() => {
-              if (artifactFrom) {
-                setView({
-                  type: "attachments",
-                  kind: "artifact",
-                  workspaceSlug,
-                  channelId,
-                  search: fileSearch,
-                })
-                if (isCollapsed) toggleCollapsed()
-              }
-              void navigate({
-                search: (prev) => ({
-                  ...prev,
-                  artifactId: undefined,
-                  artifactFrom: undefined,
-                  fileSearch: undefined,
-                  ...(artifactFrom
-                    ? { threadId: undefined, threadMessageId: undefined }
-                    : {}),
-                }),
-                replace: true,
-              })
-            }}
-          />
-        )}
-      </AnimatePresence>
     </div>
   )
 }

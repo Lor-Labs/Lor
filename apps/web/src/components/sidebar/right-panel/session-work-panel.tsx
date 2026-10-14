@@ -1,22 +1,26 @@
 import { HashtagIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "@repo/ui/components/toast"
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
-import { type ReactNode, useMemo } from "react"
-import { PlanStepList } from "@/components/chat/plan-step-list"
 import {
-  type PlanSourceFile,
-  useThreadWork,
-  WorkFileList,
-  type WorkOutputFile,
-} from "@/components/chat/thread-work-header"
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { type ReactNode, useMemo } from "react"
+import {
+  ArtifactFileCard,
+  UploadFileCard,
+} from "@/components/chat/artifact-file-card"
+import { PlanStepList } from "@/components/chat/plan-step-list"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { MorphText } from "@/components/ui/morph-text"
 import {
   type AgentSessionDetail,
+  sessionFilesQueryOptions,
   useAgentSession,
 } from "@/hooks/use-agent-session"
+import { usePlanForThread } from "@/hooks/use-channel-plans"
 import {
   useMessageIdNavigation,
   useMessageLocation,
@@ -27,6 +31,15 @@ import {
   threadQueryOptions,
 } from "@/hooks/use-thread-messages"
 
+type OutputFile = { id: string; path: string; size: number | null }
+type SourceFile = {
+  url: string
+  filename: string
+  size: number
+  messageId: string
+  index: number
+}
+
 // Files from the loaded session messages, walked oldest first so a file Lor
 // rewrote keeps its latest version and moves to the top.
 function collectSessionWork(pages: ThreadPage[]) {
@@ -36,8 +49,8 @@ function collectSessionWork(pages: ThreadPage[]) {
       (a, b) =>
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     )
-  const outputs = new Map<string, WorkOutputFile>()
-  const sources = new Map<string, PlanSourceFile>()
+  const outputs = new Map<string, OutputFile>()
+  const sources = new Map<string, SourceFile>()
   for (const message of messages) {
     for (const call of message.lorToolCalls ?? []) {
       for (const file of call.files ?? []) {
@@ -45,17 +58,17 @@ function collectSessionWork(pages: ThreadPage[]) {
         outputs.set(file.artifactId, {
           id: file.artifactId,
           path: file.path,
-          mime: file.contentType,
           size: file.size,
         })
       }
     }
-    for (const attachment of message.attachments ?? []) {
+    for (const [index, attachment] of (message.attachments ?? []).entries()) {
       sources.set(attachment.url, {
         url: attachment.url,
         filename: attachment.filename,
         size: attachment.size,
-        contentType: attachment.contentType,
+        messageId: message.id,
+        index,
       })
     }
   }
@@ -77,25 +90,36 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
       fetchThreadPage(view, params)
     )
   )
-  const { outputs: toolOutputs, sources } = useMemo(
+  const { outputs: liveOutputs, sources: liveSources } = useMemo(
     () => collectSessionWork(data?.pages ?? []),
     [data]
   )
-  const {
-    plan,
-    outputs: planOutputs,
-    doneCount,
-  } = useThreadWork(view.channelId, view.threadRootId, null)
+  const { data: files } = useQuery(sessionFilesQueryOptions(view.sessionId))
+  const plan = usePlanForThread(view.channelId, view.threadRootId)
+  const doneCount = !plan
+    ? 0
+    : plan.status === "completed"
+      ? plan.steps.length
+      : plan.steps.filter((item) => item.status === "done").length
 
-  // Plan artifacts can predate the loaded messages; tool-call files cover
-  // artifacts made without a plan.
+  // The API lists every file in the session; loaded messages add files that
+  // landed since it was fetched, at their newest version.
   const outputs = useMemo(() => {
-    const byId = new Map(toolOutputs.map((file) => [file.id, file]))
-    for (const artifact of planOutputs) {
-      if (!byId.has(artifact.id)) byId.set(artifact.id, artifact)
+    const byId = new Map(liveOutputs.map((file) => [file.id, file]))
+    for (const file of files?.outputs ?? []) {
+      if (!byId.has(file.id)) byId.set(file.id, file)
     }
     return [...byId.values()]
-  }, [toolOutputs, planOutputs])
+  }, [liveOutputs, files])
+  const sources = useMemo(() => {
+    const byUrl = new Map<string, SourceFile>(
+      files?.sources.map((file) => [file.url, file])
+    )
+    for (const file of liveSources) {
+      if (!byUrl.has(file.url)) byUrl.set(file.url, file)
+    }
+    return [...byUrl.values()]
+  }, [liveSources, files])
   const fileCount = outputs.length + sources.length
   const steps = plan?.steps ?? []
   const { data: detail } = useAgentSession(view.sessionId)
@@ -136,7 +160,7 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
           meta={fileCount > 0 ? String(fileCount) : undefined}
         >
           {fileCount > 0 ? (
-            <WorkFileList outputs={outputs} sources={sources} />
+            <SessionFileList outputs={outputs} sources={sources} />
           ) : (
             <PanelEmpty>No files yet</PanelEmpty>
           )}
@@ -209,4 +233,54 @@ function ContextLink({
 
 function PanelEmpty({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground/70">{children}</p>
+}
+
+function SessionFileList({
+  outputs,
+  sources,
+}: {
+  outputs: OutputFile[]
+  sources: SourceFile[]
+}) {
+  return (
+    <div className="space-y-2">
+      {outputs.length > 0 && (
+        <div className="space-y-1.5">
+          {sources.length > 0 && (
+            <p className="px-1 font-medium text-muted-foreground text-xs">
+              Outputs
+            </p>
+          )}
+          {outputs.map((artifact) => (
+            <ArtifactFileCard
+              key={artifact.id}
+              artifactId={artifact.id}
+              name={artifact.path}
+              size={artifact.size}
+              className="w-full"
+            />
+          ))}
+        </div>
+      )}
+      {sources.length > 0 && (
+        <div className="space-y-1.5">
+          {outputs.length > 0 && (
+            <p className="px-1 font-medium text-muted-foreground text-xs">
+              Sources
+            </p>
+          )}
+          {sources.map((source) => (
+            <UploadFileCard
+              key={source.url}
+              name={source.filename}
+              size={source.size}
+              messageId={source.messageId}
+              index={source.index}
+              className="w-full"
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }

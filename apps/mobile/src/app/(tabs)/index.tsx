@@ -33,6 +33,7 @@ import { useActiveMember } from "@/hooks/use-active-member"
 import { useAuthorProfileSheet } from "@/hooks/use-author-profile-sheet"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMessageSearch } from "@/hooks/use-message-search"
+import { usePrefetchChannels } from "@/hooks/use-prefetch-channels"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { useTheme } from "@/hooks/use-theme"
 import { api } from "@/lib/api"
@@ -86,6 +87,7 @@ export default function WorkspaceScreen() {
   const channelsQuery = useQuery(workspaceChannelsQueryOptions(workspaceSlug))
   const { refetch: refetchChannels } = channelsQuery
   const channels = channelsQuery.data ?? null
+  usePrefetchChannels(workspaceSlug, channelsQuery.data)
   const isLoadingChannels = Boolean(workspaceSlug) && channelsQuery.isPending
   const channelError = channelsQuery.error?.message ?? null
 

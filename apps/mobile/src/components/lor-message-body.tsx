@@ -1,12 +1,13 @@
 import { useMemo } from "react"
 import { Text, View } from "react-native"
+import { FileChip } from "@/components/file-chip"
 import { LorActivity } from "@/components/lor-activity"
 import { LorReasoning } from "@/components/lor-reasoning"
 import { LorToolTrail } from "@/components/lor-tool-trail"
 import { MessageContent } from "@/components/message-content"
-import { PlanFileRow } from "@/components/plan-ui"
 import type { Message } from "@/lib/api-types"
 import { buildLorSegments, type LorToolCall } from "@/lib/lor"
+import { openFile } from "@/lib/open-file"
 
 export function LorMessageBody({
   message,
@@ -141,11 +142,11 @@ export function LorMessageBody({
       {deliverables.length > 0 ? (
         <View className="mt-one max-w-[420px] gap-one">
           {deliverables.map((file) => (
-            <PlanFileRow
+            <FileChip
               key={file.artifactId}
               name={file.path}
+              onPress={() => openFile({ artifactId: file.artifactId })}
               size={file.size}
-              url={file.url}
             />
           ))}
         </View>

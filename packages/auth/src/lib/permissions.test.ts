@@ -40,9 +40,11 @@ describe("workspace permissions", () => {
     ).toBe(false)
   })
 
+  // Members can create channels (reference/onboarding.md, Permissions); editing
+  // and deleting stay elevated.
   it("grants channel management permissions only to elevated roles", () => {
-    expect(roleHasPermissions("admin", { channel: ["create"] })).toBe(true)
-    expect(roleHasPermissions("member", { channel: ["create"] })).toBe(false)
+    expect(roleHasPermissions("admin", { channel: ["update"] })).toBe(true)
+    expect(roleHasPermissions("member", { channel: ["update"] })).toBe(false)
   })
 
   it("grants the split resource statements to elevated roles only", () => {
@@ -106,8 +108,8 @@ describe("workspace permissions", () => {
   it("lets static role names shadow same-named custom grants", () => {
     expect(
       workspaceAuthorityHasPermissions(
-        { role: "member", customGrants: { channel: ["create"] } },
-        { channel: ["create"] }
+        { role: "member", customGrants: { channel: ["update"] } },
+        { channel: ["update"] }
       )
     ).toBe(false)
   })

@@ -12,6 +12,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller"
 
 import "../global.css"
 import { AnimatedSplashOverlay } from "@/components/animated-icon"
+import { AppUpdates } from "@/components/app-updates"
 import { PushNotifications } from "@/components/push-notifications"
 import { CallTile } from "@/components/voice/call-tile"
 import { SocketProvider } from "@/context/socket-context"
@@ -53,8 +54,14 @@ export default function RootLayout() {
                     <VoiceCallProvider>
                       <PushNotifications />
                       <View style={{ flex: 1 }}>
-                        <Stack screenOptions={{ headerShown: false }} />
+                        <Stack screenOptions={{ headerShown: false }}>
+                          <Stack.Screen
+                            name="file"
+                            options={{ presentation: "modal" }}
+                          />
+                        </Stack>
                         <CallTile />
+                        <AppUpdates />
                       </View>
                     </VoiceCallProvider>
                   </WorkspaceProvider>

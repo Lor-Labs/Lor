@@ -9,6 +9,14 @@ export const queryClient = new QueryClient({
   },
 })
 
+// A channel's details and latest messages seed its next visit (and the
+// warm-up in use-prefetch-channels), so they stay for the app's life instead
+// of the 5-minute default for caches no screen is using.
+queryClient.setQueryDefaults(["channel"], { gcTime: Number.POSITIVE_INFINITY })
+queryClient.setQueryDefaults(["messages"], {
+  gcTime: Number.POSITIVE_INFINITY,
+})
+
 // React Query can't observe window focus on native — drive it from AppState.
 export function subscribeQueryFocus() {
   const subscription = AppState.addEventListener("change", (status) => {
