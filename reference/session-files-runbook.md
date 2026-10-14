@@ -1,7 +1,7 @@
 # Session files runbook: right-rail file panel, no Lor threads in the thread panel
 
-> Status: all steps built 2026-10-13 on `dev`; Step 4a's `db:push` and
-> backfill are still owed in each environment. Follows
+> Status: all web and mobile steps built 2026-10-13 on `dev`; Step 4a's
+> backfill is still owed on dev, and its `db:push` and backfill on prod. Follows
 > `workspace-model-runbook.md` (sessions) and closes its open items on the
 > artifact viewer and `?threadId` deep links. File:line references are as of
 > that date; re-check them before each step.
@@ -235,7 +235,7 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
 
 #### Step M3: session files and thread cleanup (+80 / −340)
 
-[x] built 2026-10-13 · [ ] committed
+[x] built 2026-10-13 · [x] committed
 
 - The session sheet reads `GET /sessions/{id}/files` (same cache key as
   web, fetched when the sheet opens) merged with loaded messages, not plan
@@ -247,9 +247,17 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
   `PlanDetail` / `PlanApproval` types, `ApprovalCardData.planId` and the
   tool trail's `embedded` prop.
 
-#### Step M4: flatten sandbox steps in the mobile tool trail (~200)
+#### Step M4: flatten sandbox steps in the mobile tool trail (+170 / −20)
 
-[ ] built · [ ] committed
+[x] built 2026-10-13 · [ ] committed
+
+- Sandbox sub-steps are `SubStepRow`s, as on web: verb, mono target, a chip
+  that opens the file in the viewer when the sub-step wrote one the run
+  delivered, +N −N counts and a "Failed" badge. Tapping the row opens its
+  diff and output in a capped, scrollable box.
+- `write`, `edit`, `create_artifacts`, `mkdir`, `move` and `link` get the
+  write glyph instead of the wrench. The sandbox step's narration still
+  opens in the tool drawer.
 
 ## Deviations
 

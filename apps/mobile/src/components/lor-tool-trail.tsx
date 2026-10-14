@@ -5,6 +5,7 @@ import CodeIcon from "@hugeicons/core-free-icons/CodeIcon"
 import Download01Icon from "@hugeicons/core-free-icons/Download01Icon"
 import ExternalLinkIcon from "@hugeicons/core-free-icons/ExternalLinkIcon"
 import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
+import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon"
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import TerminalIcon from "@hugeicons/core-free-icons/TerminalIcon"
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon"
@@ -12,15 +13,17 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { useState } from "react"
-import { Image, Pressable, Text, View } from "react-native"
+import { Image, Pressable, ScrollView, Text, View } from "react-native"
 import {
   ConnectorIcon,
   connectorForTool,
   connectorForUrl,
 } from "@/components/connector-icon"
+import { FileTypeIcon } from "@/components/file-type-icon"
 import { MessageContent } from "@/components/message-content"
 import { API_URL } from "@/lib/auth-client"
 import type { LorToolCall } from "@/lib/lor"
+import { openFile } from "@/lib/open-file"
 import { openExternalUrl } from "@/lib/open-url"
 
 function builtinToolIcon(toolName: string): IconSvgElement {
@@ -45,6 +48,13 @@ function builtinToolIcon(toolName: string): IconSvgElement {
       return BookOpen01Icon
     case "bash":
       return TerminalIcon
+    case "write":
+    case "edit":
+    case "create_artifacts":
+    case "mkdir":
+    case "move":
+    case "link":
+      return PencilEdit02Icon
     default:
       return Wrench01Icon
   }
@@ -113,6 +123,169 @@ function ItemGlyph({
 function hasDetail(toolCall: LorToolCall) {
   return Boolean(
     toolCall.detail?.summary || (toolCall.detail?.items?.length ?? 0) > 0
+  )
+}
+
+type DeliveredFile = NonNullable<LorToolCall["files"]>[number]
+type FileDiff = NonNullable<LorToolCall["diff"]>
+
+// Pi labels read "<Verb> <target>" (piToolLabel); the target shows in mono
+// so the verb scans. Mirrors web.
+const TARGET_TOOLS = new Set(["read", "write", "edit", "ls", "bash"])
+function splitLabel(toolCall: LorToolCall) {
+  const space = toolCall.label.indexOf(" ")
+  if (!TARGET_TOOLS.has(toolCall.toolName) || space < 0) {
+    return { verb: toolCall.label, target: null }
+  }
+  return {
+    verb: toolCall.label.slice(0, space),
+    target: toolCall.label.slice(space + 1),
+  }
+}
+
+// A sub-step that wrote one of the files the run delivered (paths are
+// relative to the sandbox's output folder).
+function deliveredFile(path: string | null, delivered: DeliveredFile[]) {
+  if (!path) return undefined
+  return delivered.find(
+    (file) => path === file.path || path.endsWith(`/${file.path}`)
+  )
+}
+
+function diffLineClass(line: string) {
+  if (
+    line.startsWith("+++") ||
+    line.startsWith("---") ||
+    line.startsWith("@@")
+  ) {
+    return "text-muted opacity-60"
+  }
+  if (line.startsWith("+")) return "bg-success-soft text-success"
+  if (line.startsWith("-")) return "bg-danger-soft text-danger"
+  return "text-muted"
+}
+
+function DiffCounts({ diff }: { diff: FileDiff }) {
+  return (
+    <Text className="text-[11px] tabular-nums">
+      <Text className="text-success">+{diff.additions}</Text>
+      {diff.deletions > 0 ? (
+        <Text className="text-danger"> −{diff.deletions}</Text>
+      ) : null}
+    </Text>
+  )
+}
+
+// One step inside a sandbox run, flat: verb, target (or a chip for a file
+// the run delivered, which opens it), diff counts. Tapping the row opens its
+// diff or output. Mirrors web's SubStepRow.
+function SubStepRow({
+  toolCall,
+  delivered,
+}: {
+  toolCall: LorToolCall
+  delivered: DeliveredFile[]
+}) {
+  const muted = useThemeColor("muted")
+  const [open, setOpen] = useState(false)
+  const { verb, target } = splitLabel(toolCall)
+  const diff = toolCall.diff
+  const file = deliveredFile(diff?.path ?? target, delivered)
+  const output = toolCall.detail?.summary
+  const expandable = Boolean(diff?.patch || output)
+
+  return (
+    <View>
+      <Pressable
+        accessibilityLabel={toolCall.label}
+        accessibilityRole={expandable ? "button" : undefined}
+        accessibilityState={expandable ? { expanded: open } : undefined}
+        className="min-h-7 flex-row items-center gap-two"
+        disabled={!expandable}
+        onPress={() => setOpen((current) => !current)}
+      >
+        <ToolGlyph color={muted} size={12} toolName={toolCall.toolName} />
+        <Text className="text-[11px] text-muted">{verb}</Text>
+        {file ? (
+          <Pressable
+            accessibilityHint="Opens the file"
+            accessibilityLabel={file.path}
+            accessibilityRole="button"
+            className="min-w-0 shrink flex-row items-center gap-one rounded-lor-sm bg-surface-secondary px-one py-px active:bg-surface-tertiary"
+            onPress={() => openFile({ artifactId: file.artifactId })}
+          >
+            <FileTypeIcon filename={file.path} size={14} />
+            <Text
+              className="min-w-0 shrink font-mono text-[11px] text-foreground"
+              numberOfLines={1}
+            >
+              {file.path}
+            </Text>
+          </Pressable>
+        ) : target ? (
+          <Text
+            className="min-w-0 shrink font-mono text-[11px] text-muted"
+            numberOfLines={1}
+          >
+            {target}
+          </Text>
+        ) : null}
+        {diff ? <DiffCounts diff={diff} /> : null}
+        {toolCall.status === "error" ? (
+          <View className="rounded-lor-sm bg-danger-soft px-one">
+            <Text className="text-[11px] font-semibold text-danger">
+              Failed
+            </Text>
+          </View>
+        ) : null}
+        {expandable ? (
+          <HugeiconsIcon
+            color={muted}
+            icon={ArrowRight01Icon}
+            size={12}
+            style={{ transform: [{ rotate: open ? "90deg" : "0deg" }] }}
+          />
+        ) : null}
+      </Pressable>
+      {open ? (
+        <ScrollView
+          className="mb-one ml-five rounded-lor-sm border border-border bg-surface-secondary"
+          nestedScrollEnabled
+          style={{ maxHeight: 256 }}
+        >
+          {diff?.patch ? (
+            <View className="py-one">
+              {diff.patch.split("\n").map((line, index) => (
+                <Text
+                  className={`px-two font-mono text-[11px] leading-4 ${diffLineClass(line)}`}
+                  // biome-ignore lint/suspicious/noArrayIndexKey: static patch lines
+                  key={index}
+                >
+                  {line || " "}
+                </Text>
+              ))}
+              {diff.truncated ? (
+                <Text className="px-two font-mono text-[11px] text-muted opacity-60">
+                  … diff truncated
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+          {output ? (
+            <View
+              className={diff?.patch ? "border-t border-border" : undefined}
+            >
+              <Text
+                className="p-two font-mono text-[11px] leading-4 text-muted"
+                selectable
+              >
+                {output}
+              </Text>
+            </View>
+          ) : null}
+        </ScrollView>
+      ) : null}
+    </View>
   )
 }
 
@@ -205,22 +378,11 @@ export function LorToolTrail({
                 {children.length > 0 ? (
                   <View className="ml-five gap-one border-l border-border pl-three">
                     {children.map((child) => (
-                      <View
-                        className="min-h-7 flex-row items-center gap-two"
+                      <SubStepRow
+                        delivered={toolCall.files ?? []}
                         key={child.toolCallId}
-                      >
-                        <ToolGlyph
-                          color={muted}
-                          size={12}
-                          toolName={child.toolName}
-                        />
-                        <Text
-                          className="min-w-0 flex-1 text-[11px] text-muted"
-                          numberOfLines={1}
-                        >
-                          {child.label}
-                        </Text>
-                      </View>
+                        toolCall={child}
+                      />
                     ))}
                   </View>
                 ) : null}
