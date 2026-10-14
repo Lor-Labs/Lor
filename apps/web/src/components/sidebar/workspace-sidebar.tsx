@@ -1,6 +1,5 @@
 import {
   CheckListIcon,
-  Folder02Icon,
   FolderAddIcon,
   GridViewIcon,
   HashtagIcon,
@@ -16,7 +15,6 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { isTauri } from "@repo/auth/tauri-fetch"
 import { Button } from "@repo/ui/components/button"
-import { CustomMenuItem } from "@repo/ui/components/custom-menu-item"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -111,8 +109,7 @@ export function WorkspaceSidebarContent() {
 function WorkspaceSidebarInner() {
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
-  const { openCreateChannel, openCreateCategory, openCreateProject } =
-    useCreateChannel()
+  const { openCreateChannel, openCreateCategory } = useCreateChannel()
   const { target, tab, open: openSettings, close, setTab } = useSettings()
   const [inviteOpen, setInviteOpen] = useState(false)
   const { canInvite } = useInviteAccess(workspaceSlug)
@@ -451,19 +448,6 @@ function WorkspaceSidebarInner() {
                     />
                     New category
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <CustomMenuItem
-                    onClick={openCreateProject}
-                    tooltip="Channels scoped to one unit of work"
-                    side="right"
-                  >
-                    <HugeiconsIcon
-                      icon={Folder02Icon}
-                      className="size-4 mr-2"
-                      strokeWidth={2}
-                    />
-                    New project
-                  </CustomMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </span>
@@ -475,8 +459,7 @@ function WorkspaceSidebarInner() {
             align="start"
             onDismiss={channelsHint.dismiss}
           >
-            Your starting channels. Rename, reorder, or add channels and
-            projects here.
+            Your starting channels. Rename, reorder, or add channels here.
           </HintPopover>
         </div>
         <NewSessionButton />
