@@ -11,7 +11,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useId, useState } from "react"
 import { apiClient } from "@/lib/api-client"
 import type { IntegrationStatus } from "@/lib/api-types"
-import { PILL_BUTTON, SettingsGroup, SettingsSection } from "./settings-group"
+import {
+  DISCLOSURE_MOTION,
+  PILL_BUTTON,
+  SettingsAction,
+  SettingsGroup,
+  SettingsSection,
+} from "./settings-group"
 import { ToolPicker } from "./tool-picker"
 
 const PREVIEW_LIMIT = 4
@@ -60,7 +66,7 @@ export function ConnectorToolPreview({
               <CollapsiblePanel
                 id={id}
                 className={cn(
-                  "transition-[height,opacity] duration-200 ease-out starting:h-0 starting:opacity-0 data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-opacity",
+                  DISCLOSURE_MOTION,
                   instant && "transition-none motion-reduce:transition-none"
                 )}
               >
@@ -96,10 +102,12 @@ export function ConnectorToolSettings({
 }) {
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState(() => new Set(provider.enabledTools))
-  const [pickerRevision, setPickerRevision] = useState(0)
-  const dirty =
-    selected.size !== provider.enabledTools.length ||
-    provider.enabledTools.some((name) => !selected.has(name))
+  const matches = (names: readonly string[]) =>
+    selected.size === names.length && names.every((name) => selected.has(name))
+  const dirty = !matches(provider.enabledTools)
+  const recommended = provider.tools
+    .filter((tool) => tool.defaultEnabled)
+    .map((tool) => tool.name)
   const mutation = useMutation({
     mutationFn: async () => {
       if (!provider.connectionId) throw new Error("Connect this provider first")
@@ -128,16 +136,23 @@ export function ConnectorToolSettings({
     onError: (error) => toast.error(error.message),
   })
   return (
-    <SettingsSection title="Tools">
+    <SettingsSection
+      title="Tools"
+      action={
+        provider.canManage &&
+        !mutation.isPending &&
+        !matches(recommended) && (
+          <SettingsAction onClick={() => setSelected(new Set(recommended))}>
+            Reset to recommended
+          </SettingsAction>
+        )
+      }
+    >
       <ToolPicker
-        key={pickerRevision}
         tools={provider.tools}
         selected={selected}
         onChange={setSelected}
         disabled={!provider.canManage || mutation.isPending}
-        recommended={provider.tools
-          .filter((tool) => tool.defaultEnabled)
-          .map((tool) => tool.name)}
       />
       {provider.canManage && dirty && (
         <div className="flex justify-end gap-2 pt-1">
@@ -146,10 +161,7 @@ export function ConnectorToolSettings({
             size="sm"
             className={PILL_BUTTON}
             disabled={mutation.isPending}
-            onClick={() => {
-              setSelected(new Set(provider.enabledTools))
-              setPickerRevision((revision) => revision + 1)
-            }}
+            onClick={() => setSelected(new Set(provider.enabledTools))}
           >
             Cancel
           </Button>

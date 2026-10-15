@@ -12,6 +12,10 @@ export const PILL_BUTTON = "rounded-full px-4 before:rounded-full"
 // The filled surface behind every settings group and standalone card.
 export const SETTINGS_SURFACE = "rounded-xl bg-muted dark:bg-muted/60"
 
+// Height + fade for CollapsiblePanel disclosures. Keyboard toggles skip it.
+export const DISCLOSURE_MOTION =
+  "transition-[height,opacity] duration-200 ease-out starting:h-0 starting:opacity-0 data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-opacity"
+
 export function SettingsSection({
   title,
   count,

@@ -1,16 +1,14 @@
-import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons"
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Badge } from "@repo/ui/components/badge"
 import { Checkbox } from "@repo/ui/components/checkbox"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/components/select"
+  Collapsible,
+  CollapsiblePanel,
+  CollapsibleTrigger,
+} from "@repo/ui/components/collapsible"
+import { cn } from "@repo/ui/lib/utils"
 import { useId, useState } from "react"
-import { SettingsGroup } from "./settings-group"
+import { DISCLOSURE_MOTION, SettingsGroup } from "./settings-group"
 
 export type SelectableTool = {
   name: string
@@ -19,7 +17,11 @@ export type SelectableTool = {
   readOnlyHint?: boolean
 }
 
-type AccessMode = "recommended" | "readOnly" | "all" | "custom" | "off"
+type ToolGroup = {
+  key: string
+  label: string
+  tools: readonly SelectableTool[]
+}
 
 function cleanDescription(raw: string): string {
   return raw
@@ -30,189 +32,177 @@ function cleanDescription(raw: string): string {
     .trim()
 }
 
+// MCP read-only labels are provider declarations, so unlabeled MCP tools are
+// "Other tools", never reads. Built-in connector tools always declare one.
+function toolGroups(
+  tools: readonly SelectableTool[],
+  providerHints: boolean
+): ToolGroup[] {
+  const reads = tools.filter((tool) => tool.readOnlyHint === true)
+  const others = tools.filter((tool) => tool.readOnlyHint !== true)
+  const otherLabel = !providerHints
+    ? "Write"
+    : reads.length > 0
+      ? "Other tools"
+      : "All tools"
+  return [
+    { key: "read", label: providerHints ? "Read only" : "Read", tools: reads },
+    { key: "other", label: otherLabel, tools: others },
+  ].filter((group) => group.tools.length > 0)
+}
+
 export function ToolPicker({
   tools,
   selected,
   onChange,
   disabled = false,
-  recommended,
   providerHints = false,
 }: {
   tools: readonly SelectableTool[]
   selected: ReadonlySet<string>
   onChange: (names: Set<string>) => void
   disabled?: boolean
-  recommended?: readonly string[]
   providerHints?: boolean
 }) {
   const id = useId()
-  const readOnly = tools
-    .filter((tool) => tool.readOnlyHint === true)
-    .map((tool) => tool.name)
-  const all = tools.map((tool) => tool.name)
-  const presets: Record<Exclude<AccessMode, "custom">, readonly string[]> = {
-    recommended: recommended ?? [],
-    readOnly,
-    all,
-    off: [],
-  }
-  const matches = (names: readonly string[]) =>
-    selected.size === names.length && names.every((name) => selected.has(name))
-  const inferredMode: AccessMode =
-    selected.size === 0
-      ? "off"
-      : recommended && matches(recommended)
-        ? "recommended"
-        : matches(readOnly)
-          ? "readOnly"
-          : matches(all)
-            ? "all"
-            : "custom"
-  const [choice, setChoice] = useState<AccessMode | null>(null)
+  const groups = toolGroups(tools, providerHints)
+  const countIn = (group: ToolGroup) =>
+    group.tools.filter((tool) => selected.has(tool.name)).length
   const [expanded, setExpanded] = useState(
-    providerHints || inferredMode === "custom"
+    () =>
+      new Set(
+        groups
+          .filter((group) => {
+            const count = countIn(group)
+            return providerHints || (count > 0 && count < group.tools.length)
+          })
+          .map((group) => group.key)
+      )
   )
-  const options: { value: AccessMode; label: string }[] = [
-    ...(recommended
-      ? [{ value: "recommended" as const, label: "Recommended" }]
-      : []),
-    ...(readOnly.length > 0
-      ? [{ value: "readOnly" as const, label: "Read only" }]
-      : []),
-    ...(all.length !== readOnly.length
-      ? [
-          {
-            value: "all" as const,
-            label: providerHints ? "All tools" : "Read & write",
-          },
-        ]
-      : []),
-    { value: "custom", label: "Custom" },
-    { value: "off", label: "Off" },
-  ]
+  const [instant, setInstant] = useState(false)
 
-  // Keep Custom open even when a checkbox happens to complete a preset.
-  const mode =
-    choice === "custom" ||
-    (choice &&
-      options.some((option) => option.value === choice) &&
-      matches(presets[choice]))
-      ? choice
-      : inferredMode
+  const setOpen = (key: string, open: boolean) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (open) next.add(key)
+      else next.delete(key)
+      return next
+    })
+
+  const setTools = (names: string[], on: boolean) => {
+    const next = new Set(selected)
+    for (const name of names) {
+      if (on) next.add(name)
+      else next.delete(name)
+    }
+    onChange(next)
+  }
 
   return (
-    <SettingsGroup>
-      <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div id={`${id}-label`} className="text-sm">
-            Tool access
-          </div>
-          <div className="text-xs text-muted-foreground" aria-live="polite">
-            {selected.size === 0
-              ? "No tools enabled"
-              : `${selected.size} of ${tools.length} enabled`}
-          </div>
-        </div>
-        <Select<AccessMode>
-          value={mode}
-          items={options}
-          disabled={disabled}
-          onValueChange={(value) => {
-            if (!value) return
-            setChoice(value)
-            if (value === "custom") setExpanded(true)
-            else onChange(new Set(presets[value]))
-          }}
-        >
-          <SelectTrigger
-            aria-labelledby={`${id}-label`}
-            className="w-full sm:w-48"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div>
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-controls={`${id}-tools`}
-          onClick={() => setExpanded((value) => !value)}
-          className="flex w-full cursor-pointer items-center gap-1.5 rounded-sm py-2.5 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <HugeiconsIcon
-            icon={expanded ? ArrowDown01Icon : ArrowRight01Icon}
-            className="size-3.5"
-            strokeWidth={2}
-          />
-          {expanded ? "Hide tools" : "Review tools"}
-        </button>
-        {expanded && (
-          <div id={`${id}-tools`} className="divide-y divide-border pb-1">
-            {tools.map((tool, index) => {
-              const description = cleanDescription(tool.description)
-              return (
-                <div key={tool.name} className="flex items-start gap-3 py-3">
-                  <Checkbox
-                    id={`${id}-${index}`}
-                    className="mt-0.5"
-                    checked={selected.has(tool.name)}
-                    disabled={disabled}
-                    onCheckedChange={(checked) => {
-                      const next = new Set(selected)
-                      if (checked === true) next.add(tool.name)
-                      else next.delete(tool.name)
-                      setChoice("custom")
-                      onChange(next)
-                    }}
-                  />
-                  <label
-                    htmlFor={`${id}-${index}`}
-                    className="min-w-0 flex-1 cursor-pointer"
-                  >
-                    <span className="flex flex-wrap items-center gap-2 text-sm">
-                      <span
-                        className={
-                          tool.label ? undefined : "font-mono break-all"
-                        }
-                      >
-                        {tool.label ?? tool.name}
-                      </span>
-                      {tool.readOnlyHint === true && (
-                        <Badge
-                          variant="secondary"
-                          title={
-                            providerHints
-                              ? "Declared read only by the MCP provider."
-                              : "This tool reads data without changing it."
-                          }
-                        >
-                          Read only
-                        </Badge>
-                      )}
-                    </span>
-                    {description && (
-                      <span
-                        className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted-foreground"
-                        title={description}
-                      >
-                        {description}
-                      </span>
+    <div className="space-y-2">
+      <SettingsGroup>
+        {groups.map((group) => {
+          const count = countIn(group)
+          const open = expanded.has(group.key)
+          const labelId = `${id}-${group.key}`
+          return (
+            <Collapsible
+              key={group.key}
+              open={open}
+              onOpenChange={(next) => setOpen(group.key, next)}
+            >
+              <div className="flex items-center gap-3">
+                <Checkbox
+                  aria-labelledby={labelId}
+                  checked={count === group.tools.length}
+                  indeterminate={count > 0 && count < group.tools.length}
+                  disabled={disabled}
+                  onCheckedChange={(checked) =>
+                    setTools(
+                      group.tools.map((tool) => tool.name),
+                      checked
+                    )
+                  }
+                />
+                <CollapsibleTrigger
+                  onClick={(event) => setInstant(event.detail === 0)}
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span id={labelId} className="flex-1 text-sm">
+                    {group.label}
+                  </span>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {count} of {group.tools.length}
+                  </span>
+                  <HugeiconsIcon
+                    icon={ArrowRight01Icon}
+                    className={cn(
+                      "size-3.5 text-muted-foreground transition-transform duration-200 ease-out motion-reduce:transition-none",
+                      open && "rotate-90",
+                      instant && "transition-none"
                     )}
-                  </label>
+                    strokeWidth={2}
+                  />
+                </CollapsibleTrigger>
+              </div>
+              <CollapsiblePanel
+                className={cn(
+                  DISCLOSURE_MOTION,
+                  instant && "transition-none motion-reduce:transition-none"
+                )}
+              >
+                <div className="ml-7.5 divide-y divide-border border-t border-border sm:ml-7">
+                  {group.tools.map((tool, index) => {
+                    const toolId = `${labelId}-${index}`
+                    const description = cleanDescription(tool.description)
+                    return (
+                      <div
+                        key={tool.name}
+                        className="flex items-start gap-3 py-3"
+                      >
+                        <Checkbox
+                          id={toolId}
+                          className="mt-0.5"
+                          checked={selected.has(tool.name)}
+                          disabled={disabled}
+                          onCheckedChange={(checked) =>
+                            setTools([tool.name], checked)
+                          }
+                        />
+                        <label
+                          htmlFor={toolId}
+                          className="min-w-0 flex-1 cursor-pointer"
+                        >
+                          <span
+                            className={cn(
+                              "block text-sm",
+                              !tool.label && "font-mono break-all"
+                            )}
+                          >
+                            {tool.label ?? tool.name}
+                          </span>
+                          {description && (
+                            <span
+                              className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted-foreground"
+                              title={description}
+                            >
+                              {description}
+                            </span>
+                          )}
+                        </label>
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-    </SettingsGroup>
+              </CollapsiblePanel>
+            </Collapsible>
+          )
+        })}
+      </SettingsGroup>
+      <p className="px-4 text-xs text-muted-foreground">
+        {providerHints && "Read only labels come from the server. "}New tools
+        stay off until you turn them on.
+      </p>
+    </div>
   )
 }

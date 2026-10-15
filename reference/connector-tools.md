@@ -7,13 +7,13 @@ simplified connector picker are implemented. The UI is ready for review.
 
 - Built-in connections save explicit tool names. Each connector owns recommended
   defaults; Linear includes its reviewed writes, Better Stack starts read only.
-- One Tool access dropdown offers Recommended (built-ins), Read only (when
-  declared), Read & write (built-ins) or All tools (MCP), Custom, and Off.
-  Presets populate explicit saved names; they do not auto-enable future tools.
-  Review tools expands the individual checkboxes; Custom opens them immediately.
-  Only explicitly read-only tools show a Read only badge. Built-in Save/Cancel
-  actions appear only for changed selections. MCPs keep their existing form save
-  and OAuth completion actions.
+- The tool picker groups tools as Read and Write (built-ins) or Read only and
+  Other tools (MCP). Only an explicit `readOnlyHint: true` joins the read group.
+  Each group header has a group checkbox and expands to individual checkboxes;
+  partly selected groups (and all MCP groups) start open. Built-ins offer Reset
+  to recommended. Selections save explicit names and never auto-enable future
+  tools. Built-in Save/Cancel actions appear only for changed selections. MCPs
+  keep their existing form save and OAuth completion actions.
 - Custom MCP discovery carries the provider's `readOnlyHint`. The label is a
   provider declaration, not a security guarantee or an approval exemption.
 - Profile connector/MCP selections intersect workspace-enabled tool names.
