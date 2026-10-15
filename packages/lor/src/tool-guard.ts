@@ -17,6 +17,8 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "create_linear_issue",
   "update_linear_issue",
   "comment_linear",
+  "resolve_betterstack_incident",
+  "update_betterstack_error_state",
   "investigate_code",
   // Pushes a branch and opens/updates a draft PR — replay must never re-push
   // or file a duplicate.

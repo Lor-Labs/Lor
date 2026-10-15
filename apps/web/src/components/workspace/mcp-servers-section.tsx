@@ -40,13 +40,13 @@ import {
   SettingsBackButton,
   SettingsCard,
   SettingsCardButton,
-  SettingsGroup,
   SettingsSection,
 } from "@/components/workspace/settings-group"
 import {
   type PlaceholderItem,
   TemplateInput,
 } from "@/components/workspace/template-input"
+import { ToolPicker } from "@/components/workspace/tool-picker"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
 
@@ -94,7 +94,11 @@ export function useMcpServers(workspaceSlug: string) {
 }
 
 type Pair = { name: string; value: string }
-type DiscoveredTool = { name: string; description: string }
+type DiscoveredTool = {
+  name: string
+  description: string
+  readOnlyHint?: boolean
+}
 const noop = () => undefined
 const AUTHORIZATION_POLL_INTERVAL_MS = 2000
 const AUTHORIZATION_POLL_MAX_ATTEMPTS = 300
@@ -210,18 +214,6 @@ function hostOf(url: string): string {
   } catch {
     return url
   }
-}
-
-// MCP tool descriptions arrive model-facing — XML-ish tags, fenced examples,
-// repeated boilerplate. Strip the markup and clamp in the checklist; Lor
-// still gets the raw text at bind time.
-function cleanToolDescription(raw: string): string {
-  return raw
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/<\/?[a-z_]+>/gi, " ")
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim()
 }
 
 // Matches the API's secret-name rule (mcp-servers schema) so a bad name is
@@ -545,14 +537,13 @@ function ServerEditor({
   const canSave =
     draft.name.trim().length > 0 &&
     draft.url.trim().length > 0 &&
-    (isOAuth || draft.enabled.size > 0) &&
     invalidSecretNames.length === 0 &&
     duplicateSecretNames.length === 0 &&
     !busy &&
     !oauthBusy
   const canCompleteOAuth =
     oauthCanReview &&
-    draft.enabled.size > 0 &&
+    (draft.discovered !== null || server?.oauthStatus === "connected") &&
     !busy &&
     !discovering &&
     !oauthBusy
@@ -568,7 +559,8 @@ function ServerEditor({
       : "Enable selected tools"
   let footerHint: string | null = null
   if (!isOAuth && draft.enabled.size === 0) {
-    footerHint = "Connect and enable at least one tool to save."
+    footerHint =
+      "No tools selected. Lor cannot call this server until tools are enabled."
   } else if (isOAuth && !server) {
     footerHint = "Saving continues to the shared-account confirmation."
   }
@@ -887,45 +879,13 @@ function ServerEditor({
               </p>
             </SettingsCard>
           ) : (
-            <SettingsGroup>
-              {toolList.map((tool) => {
-                const description = cleanToolDescription(tool.description)
-                return (
-                  <div key={tool.name} className="flex items-start gap-3 py-3">
-                    <Checkbox
-                      id={`mcp-tool-${tool.name}`}
-                      className="mt-0.5"
-                      checked={draft.enabled.has(tool.name)}
-                      disabled={busy || oauthBusy}
-                      onCheckedChange={(checked) =>
-                        setDraft((d) => {
-                          const enabled = new Set(d.enabled)
-                          if (checked === true) enabled.add(tool.name)
-                          else enabled.delete(tool.name)
-                          return { ...d, enabled }
-                        })
-                      }
-                    />
-                    <label
-                      htmlFor={`mcp-tool-${tool.name}`}
-                      className="min-w-0 flex-1 cursor-pointer"
-                    >
-                      <span className="block font-mono text-sm">
-                        {tool.name}
-                      </span>
-                      {description && (
-                        <span
-                          className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted-foreground"
-                          title={description}
-                        >
-                          {description}
-                        </span>
-                      )}
-                    </label>
-                  </div>
-                )
-              })}
-            </SettingsGroup>
+            <ToolPicker
+              tools={toolList}
+              selected={draft.enabled}
+              onChange={(enabled) => setDraft((d) => ({ ...d, enabled }))}
+              disabled={busy || oauthBusy}
+              providerHints
+            />
           )}
           {isOAuth && (
             <div className="flex items-center justify-between gap-3 px-4">
@@ -1138,15 +1098,15 @@ export function McpServersBlock({
       setDraft((d) => ({
         ...d,
         discovered: tools,
-        // Fresh connections opt everything in (saving is the explicit
-        // allowlist act); refreshes keep the current selection.
-        enabled: mcpServerId
-          ? new Set(
-              [...d.enabled].filter((name) =>
-                tools.some((t) => t.name === name)
+        // Only initial discovery selects defaults; later refreshes preserve choices.
+        enabled:
+          mcpServerId || d.discovered !== null
+            ? new Set(
+                [...d.enabled].filter((name) =>
+                  tools.some((t) => t.name === name)
+                )
               )
-            )
-          : new Set(tools.map((t) => t.name)),
+            : new Set(tools.map((t) => t.name)),
       }))
       if (tools.length === 0) toast.info("The server reported no tools")
     },

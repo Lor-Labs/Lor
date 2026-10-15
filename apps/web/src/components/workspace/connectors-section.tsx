@@ -53,6 +53,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type Ref, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
+import { ConnectorToolSettings } from "@/components/workspace/connector-tool-settings"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import {
   IconTile,
@@ -288,6 +289,14 @@ export function ConnectorsSection({
           if (!open) setKeyConnect(null)
         }}
         onConnected={() => openConnector("datadog")}
+      />
+      <BetterstackConnectDialog
+        workspaceSlug={workspaceSlug}
+        open={keyConnect === "betterstack"}
+        onOpenChange={(open) => {
+          if (!open) setKeyConnect(null)
+        }}
+        onConnected={() => openConnector("betterstack")}
       />
       <CloudwatchConnectDialog
         workspaceSlug={workspaceSlug}
@@ -642,6 +651,14 @@ function ConnectorDetail({
         </div>
         <p className="text-sm text-muted-foreground">{p.description}</p>
       </div>
+
+      {p.connected && p.tools.length > 0 && (
+        <ConnectorToolSettings
+          key={`${p.connectionId}:${p.enabledTools.join(",")}`}
+          workspaceSlug={workspaceSlug}
+          provider={p}
+        />
+      )}
 
       {p.capabilities.length > 0 && (
         <SettingsSection
@@ -1245,6 +1262,106 @@ function CloudwatchConnectDialog({
           >
             {connect.isPending && <Spinner className="size-4" />}
             Connect
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function BetterstackConnectDialog({
+  workspaceSlug,
+  open,
+  onOpenChange,
+  onConnected,
+}: {
+  workspaceSlug: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConnected: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [apiToken, setApiToken] = useState("")
+  const connect = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[
+        ":workspaceSlug"
+      ].integrations.betterstack.connect.$post({
+        param: { workspaceSlug },
+        json: { apiToken: apiToken.trim() },
+      })
+      if (!res.ok) {
+        const body = (await res.json()) as { message?: string }
+        throw new Error(body.message ?? "Couldn't connect Better Stack")
+      }
+    },
+    onSuccess: async () => {
+      setApiToken("")
+      await queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceSlug],
+      })
+      toast.success("Better Stack connected")
+      onOpenChange(false)
+      onConnected()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (connect.isPending) return
+        if (!value) setApiToken("")
+        onOpenChange(value)
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Connect Better Stack</DialogTitle>
+          <DialogDescription>
+            Investigate errors, logs, and incidents from Lor. Investigation
+            tools are enabled by default; state changes can be enabled in tool
+            settings.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Create an API token in{" "}
+            <a
+              href="https://betterstack.com/settings/global-api-tokens"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-4"
+            >
+              Better Stack settings
+            </a>{" "}
+            with access to the products you want to investigate. Use a dedicated
+            account for your workspace. This is separate from your
+            error-reporting DSN and source ingestion tokens.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="betterstack-api-token">API token</Label>
+            <Input
+              id="betterstack-api-token"
+              type="password"
+              autoComplete="off"
+              value={apiToken}
+              disabled={connect.isPending}
+              onChange={(event) => setApiToken(event.target.value)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The selected tools will be available to workspace members through
+            their assigned agent profiles. Your existing channel alert webhook
+            keeps delivering alerts independently.
+          </p>
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            onClick={() => connect.mutate()}
+            disabled={!apiToken.trim() || connect.isPending}
+          >
+            {connect.isPending && <Spinner className="size-4" />}Connect
           </Button>
         </DialogFooter>
       </DialogContent>

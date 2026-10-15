@@ -30,7 +30,14 @@ The two DB enums are the source of truth: `integrationProviderEnum` (`packages/d
 
 ## 4. Tools
 
-10. **Tool module** — `packages/lor/src/<provider>.ts` (`buildXTools`, plus a write variant if you have a write cap). Return **meaningful results**: search tools return arrays of `{ title, url, … }`; write tools echo back what they created (the body/description) so the tool-trail card can show it, not just "ok". `[manual]`
+10. **Tool catalog** — add reviewed tool names, labels, `readOnlyHint`, and
+    `defaultEnabled` to `CONNECTOR_TOOLS` (`packages/connectors/src/tools.ts`).
+    Add an empty entry to the frozen `LEGACY_TOOLS` for a new provider; never
+    extend an existing provider's legacy snapshot. New connections save explicit
+    recommended names; existing connections must opt in to new tools. Runtime
+    tool groups are intersected with the connection selection after profile
+    grants. See `reference/connector-tools.md` for the controls and rollout.
+    **Tool module** — `packages/lor/src/<provider>.ts` (`buildXTools`, plus a write variant if you have a write cap). Return **meaningful results**: search tools return arrays of `{ title, url, … }`; write tools echo back what they created (the body/description) so the tool-trail card can show it, not just "ok". `[manual]`
     - **MCP-backed alternative:** when the provider runs a managed MCP server (Datadog), skip hand-written tools — open a per-response MCP session and allowlist its tools (see `datadogMcpTools` in `datadog.ts`; `respond()` closes the session in a `finally`). Schemas/descriptions come from the server; the allowlist keeps upstream additions from silently widening Lor's surface.
 11. **Gate + register in `respond()`** — resolve the connection only when the capability is granted, then register the tools behind `caps.includes("<capability>") && <connected>` (mirror `github`/`code`/`linear`). This wiring stays **explicit by design** — with a handful of connectors it's clearer than a tool-factory registry. Write-back does **not** get connector tools. `[manual]`
 12. **System-prompt line** — add a `<PROVIDER>_PROMPT_LINE` describing the tools and include it in `connectorPromptLines` in `respond()`, gated on the same `caps`/connection check. This keeps Lor from being told about tools a channel doesn't have bound. `[manual]`

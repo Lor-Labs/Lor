@@ -16,6 +16,8 @@ import {
   completeGithubSetupResponseSchema,
   connectAttioRequestSchema,
   connectAttioResponseSchema,
+  connectBetterstackRequestSchema,
+  connectBetterstackResponseSchema,
   connectCloudwatchRequestSchema,
   connectCloudwatchResponseSchema,
   connectDatadogRequestSchema,
@@ -33,6 +35,7 @@ import {
   updateGithubRepoConfigResponseSchema,
   updateIntegrationRequestSchema,
   updateIntegrationResponseSchema,
+  updateIntegrationToolsRequestSchema,
 } from "@/routes/v1/integrations/schema"
 
 export const listIntegrations = createRoute({
@@ -340,3 +343,56 @@ export type ConnectCloudwatchRoute = typeof connectCloudwatch
 export type UpdateIntegrationRoute = typeof updateIntegration
 export type UpdateGithubRepoConfigRoute = typeof updateGithubRepoConfig
 export type DisconnectIntegrationRoute = typeof disconnectIntegration
+
+export const updateIntegrationTools = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/{connectionId}/tools",
+  method: "patch",
+  summary: "Select the tools a connector may use",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: connectionIdParamsSchema,
+    body: jsonContent({
+      schema: updateIntegrationToolsRequestSchema,
+      description: "Explicit tool allowlist",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: updateIntegrationResponseSchema,
+      description: "Tools updated",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  },
+})
+export type UpdateIntegrationToolsRoute = typeof updateIntegrationTools
+
+export const connectBetterstack = createRoute({
+  path: "/workspaces/{workspaceSlug}/integrations/betterstack/connect",
+  method: "post",
+  summary: "Connect a Better Stack account",
+  tags: ["Integrations"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: integrationsWorkspaceParamsSchema,
+    body: jsonContent({
+      schema: connectBetterstackRequestSchema,
+      description: "Better Stack API token",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectBetterstackResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+  },
+})
+export type ConnectBetterstackRoute = typeof connectBetterstack

@@ -39,6 +39,16 @@ export const integrationStatusSchema = z.object({
       description: z.string(),
     })
   ),
+  tools: z.array(
+    z.object({
+      name: z.string(),
+      label: z.string(),
+      description: z.string(),
+      readOnlyHint: z.boolean(),
+      defaultEnabled: z.boolean(),
+    })
+  ),
+  enabledTools: z.array(z.string()),
   connected: z.boolean(),
   accountLogin: z.string().nullable(),
   connectionId: z.string().nullable(),
@@ -214,4 +224,25 @@ export const updateGithubRepoConfigResponseSchema = z.object({
 
 export const disconnectResponseSchema = z.object({
   success: z.literal(true),
+})
+
+export const updateIntegrationToolsRequestSchema = z.object({
+  enabledTools: z.array(z.string().trim().min(1).max(128)).max(200),
+})
+
+export const connectBetterstackRequestSchema = z.object({
+  apiToken: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4096)
+    .refine(
+      (value) => !/\s/.test(value),
+      "API tokens cannot contain whitespace"
+    ),
+})
+
+export const connectBetterstackResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
 })

@@ -1,5 +1,6 @@
 import type { IntegrationProvider } from "@repo/db/schema"
 import { attioProvider } from "./attio"
+import { betterstackProvider } from "./betterstack"
 import { cloudwatchProvider } from "./cloudwatch"
 import { datadogProvider } from "./datadog"
 import { githubProvider } from "./github"
@@ -17,6 +18,7 @@ const providers: Record<IntegrationProvider, SourceProvider> = {
   attio: attioProvider,
   notion: notionProvider,
   cloudwatch: cloudwatchProvider,
+  betterstack: betterstackProvider,
   webhook: webhookProvider,
 }
 
@@ -38,6 +40,7 @@ export {
   formatAttioTranscript,
   getAttioAccessToken,
 } from "./attio"
+export { connectBetterstack } from "./betterstack"
 export { connectCloudwatch } from "./cloudwatch"
 export { connectDatadog } from "./datadog"
 export {

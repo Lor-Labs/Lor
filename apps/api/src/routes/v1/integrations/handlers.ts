@@ -1,9 +1,12 @@
 import {
   CONNECTOR_EVENTS,
   CONNECTOR_LIST,
+  CONNECTOR_TOOLS,
   type ConnectorDescriptor,
   connectorCapabilities,
+  enabledConnectorTools,
   isConnectorEvent,
+  recommendedConnectorTools,
 } from "@repo/connectors"
 import { db, schema } from "@repo/db"
 import {
@@ -24,6 +27,7 @@ import {
   getInstallationOverview,
   getSourceProvider,
   listInstallationRepos,
+  connectBetterstack as verifyBetterstackToken,
   connectCloudwatch as verifyCloudwatchKeys,
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
@@ -49,6 +53,7 @@ import { ATTIO_EVENT_SUBSCRIPTIONS } from "@/routes/v1/integrations/attio/index"
 import type {
   CompleteGithubSetupRoute,
   ConnectAttioRoute,
+  ConnectBetterstackRoute,
   ConnectCloudwatchRoute,
   ConnectDatadogRoute,
   ConnectLinearRoute,
@@ -58,6 +63,7 @@ import type {
   StartGithubConnectRoute,
   UpdateGithubRepoConfigRoute,
   UpdateIntegrationRoute,
+  UpdateIntegrationToolsRoute,
 } from "@/routes/v1/integrations/routes"
 
 // Used for both the authorize URL and the token exchange — they must match.
@@ -170,6 +176,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
       id: integrationConnection.id,
       provider: integrationConnection.provider,
       accountLogin: integrationConnection.accountLogin,
+      enabledTools: integrationConnection.enabledTools,
       externalId: integrationConnection.externalId,
     })
     .from(integrationConnection)
@@ -278,6 +285,10 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             description: capability.description,
           })
         ),
+        tools: [...CONNECTOR_TOOLS[descriptor.id]],
+        enabledTools: conn
+          ? enabledConnectorTools(descriptor.id, conn.enabledTools)
+          : recommendedConnectorTools(descriptor.id),
         connected: !!conn,
         accountLogin: conn?.accountLogin ?? null,
         connectionId: conn?.id ?? null,
@@ -518,6 +529,7 @@ async function replaceActiveConnection(opts: {
         provider,
         externalId,
         status: "active",
+        enabledTools: recommendedConnectorTools(provider),
         ...opts.values,
         createdBy: opts.connectedById,
       })
@@ -1173,4 +1185,93 @@ export const disconnectIntegration: AppRouteHandler<
   }
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+export const updateIntegrationTools: AppRouteHandler<
+  UpdateIntegrationToolsRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  const { connectionId } = c.req.valid("param")
+  const { enabledTools } = c.req.valid("json")
+  const scope = and(
+    eq(integrationConnection.id, connectionId),
+    eq(integrationConnection.workspaceId, c.var.workspace.id),
+    eq(integrationConnection.status, "active")
+  )
+  const connection = await db
+    .select({ provider: integrationConnection.provider })
+    .from(integrationConnection)
+    .where(scope)
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!connection)
+    return c.json(
+      { success: false, message: "Connection not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  const catalog = CONNECTOR_TOOLS[connection.provider]
+  const allowed = new Set(catalog.map((tool) => tool.name))
+  if (catalog.length === 0 || enabledTools.some((name) => !allowed.has(name))) {
+    return c.json(
+      { success: false, message: "Unknown tool for this connector" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const updated = await db
+    .update(integrationConnection)
+    .set({ enabledTools: [...new Set(enabledTools)] })
+    .where(scope)
+    .returning({ id: integrationConnection.id })
+  if (updated.length === 0)
+    return c.json(
+      { success: false, message: "Connection not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+export const connectBetterstack: AppRouteHandler<
+  ConnectBetterstackRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  if (!env.INTEGRATION_ENCRYPTION_KEY)
+    return c.json(
+      {
+        success: false,
+        message: "Better Stack isn't available on this server",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const { apiToken } = c.req.valid("json")
+  const result = await verifyBetterstackToken(apiToken).catch(() => null)
+  if (!result)
+    return c.json(
+      {
+        success: false,
+        message:
+          "Couldn't verify Better Stack access. Use an API token with access to the products you want to investigate, not an ingestion token or DSN.",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const ok = await replaceActiveConnection({
+    workspaceId: c.var.workspace.id,
+    provider: "betterstack",
+    connectedById: c.var.user.id,
+    externalId: result.externalId,
+    reclaimRevoked: true,
+    clearOnRevoke: { apiKey: null },
+    values: { accountLogin: result.accountLabel, apiKey: result.apiKey },
+  })
+  if (!ok)
+    return c.json(
+      {
+        success: false,
+        message: "This Better Stack token is connected to another workspace",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  return c.json(
+    { success: true as const, accountLogin: result.accountLabel },
+    HttpStatusCodes.OK
+  )
 }

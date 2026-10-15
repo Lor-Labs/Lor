@@ -73,6 +73,14 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
     authType: "api-key",
     envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
   },
+  betterstack: {
+    id: "betterstack",
+    label: "Better Stack",
+    description:
+      "Investigate errors, logs, and incidents. Enable state changes when your team needs them.",
+    authType: "api-key",
+    envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
+  },
   // BYO inbound webhooks (reference/automation-primitives.md §3): each webhook
   // a user creates in channel settings is one connection row under this
   // provider + a channel-anchored trigger. Never listed on the connect page.
@@ -202,6 +210,18 @@ export const CAPABILITIES: Record<LorCapability, CapabilityDescriptor> = {
     description: "Query logs (Logs Insights) and metrics",
     connector: "cloudwatch",
   },
+  betterstack: {
+    key: "betterstack",
+    label: "Better Stack",
+    description: "Read errors, query telemetry, and investigate incidents",
+    connector: "betterstack",
+  },
+  betterstack_write: {
+    key: "betterstack_write",
+    label: "Write to Better Stack",
+    description: "Resolve incidents and change error triage states",
+    connector: "betterstack",
+  },
   web: {
     key: "web",
     label: "Web Search",
@@ -248,6 +268,7 @@ export const CONNECTOR_EVENTS: Record<
   ],
   notion: [],
   cloudwatch: [],
+  betterstack: [],
   webhook: [{ key: "data_received", label: "Data received" }],
 }
 

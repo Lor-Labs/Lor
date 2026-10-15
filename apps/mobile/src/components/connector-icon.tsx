@@ -1,7 +1,9 @@
+import Activity01Icon from "@hugeicons/core-free-icons/Activity01Icon"
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
 import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
 import WebhookIcon from "@hugeicons/core-free-icons/WebhookIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { BETTERSTACK_TOOLS } from "@repo/connectors"
 import {
   ATTIO_LOGO_PATHS,
   ATTIO_LOGO_TRANSFORM,
@@ -16,6 +18,7 @@ export type ConnectorKey =
   | "attio"
   | "notion"
   | "cloudwatch"
+  | "betterstack"
   | "webhook"
 
 const CONNECTORS: Record<
@@ -68,7 +71,11 @@ const CONNECTORS: Record<
       "get_cloudwatch_metrics",
     ],
   },
-  // BYO inbound webhooks: no host, no tools — keeps the record exhaustive.
+  betterstack: {
+    host: /(^|\.)betterstack\.com$/i,
+    tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
+  },
+  // BYO inbound webhooks have no agent tools or URL host.
   webhook: {
     host: /$^/,
     tools: [],
@@ -86,7 +93,7 @@ export function connectorForTool(toolName: string): ConnectorKey | null {
 
 export function connectorForName(name?: string | null): ConnectorKey | null {
   if (!name) return null
-  const normalized = name.toLowerCase()
+  const normalized = name.toLowerCase().replaceAll(" ", "")
   return connectorKeys.find((key) => key === normalized) ?? null
 }
 
@@ -116,6 +123,8 @@ export function ConnectorIcon({
   if (connector === "webhook") {
     return <HugeiconsIcon color={color} icon={WebhookIcon} size={size} />
   }
+  if (connector === "betterstack")
+    return <HugeiconsIcon color={color} icon={Activity01Icon} size={size} />
   if (connector === "github") {
     return <HugeiconsIcon color={color} icon={GithubIcon} size={size} />
   }

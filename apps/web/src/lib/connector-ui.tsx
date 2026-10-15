@@ -1,5 +1,10 @@
-import { Globe02Icon, WebhookIcon } from "@hugeicons/core-free-icons"
+import {
+  Activity01Icon,
+  Globe02Icon,
+  WebhookIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { BETTERSTACK_TOOLS } from "@repo/connectors"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
@@ -45,6 +50,16 @@ function CloudwatchMark({ className }: { className?: string }) {
 
 function GithubMark({ className }: { className?: string }) {
   return <GitHubLogo className={className} />
+}
+
+function BetterstackMark({ className }: { className?: string }) {
+  return (
+    <HugeiconsIcon
+      icon={Activity01Icon}
+      className={className}
+      strokeWidth={2}
+    />
+  )
 }
 
 function WebhookMark({ className }: { className?: string }) {
@@ -184,8 +199,13 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
     ],
     linkLabel: () => "CloudWatch",
   },
-  // BYO inbound webhooks: no host, no tools — present only so the registry
-  // stays exhaustive over the provider enum.
+  betterstack: {
+    logo: BetterstackMark,
+    urlHost: /(^|\.)betterstack\.com$/i,
+    tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
+    linkLabel: () => "Better Stack",
+  },
+  // BYO inbound webhooks have no agent tools or URL host.
   webhook: {
     logo: WebhookMark,
     urlHost: /$^/,
@@ -237,7 +257,7 @@ export function isConnectorKey(value: unknown): value is ConnectorKey {
 // webhook/connector message avatars. Labels lowercase to the connector ids.
 export function connectorForName(name?: string | null): ConnectorKey | null {
   if (!name) return null
-  const key = name.toLowerCase()
+  const key = name.toLowerCase().replaceAll(" ", "")
   return CONNECTOR_KEYS.find((k) => k === key) ?? null
 }
 

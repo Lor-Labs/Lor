@@ -1,4 +1,9 @@
 import {
+  BETTERSTACK_TOOLS,
+  CONNECTOR_TOOLS,
+  enabledConnectorTools,
+} from "@repo/connectors"
+import {
   and,
   asc,
   db,
@@ -45,11 +50,13 @@ import {
 import {
   createExportToolResultTool,
   EXPORT_TOOL_NAME,
+  unwrapToolOutput,
 } from "./artifacts/export-tool"
 import { artifactTools } from "./artifacts/tool"
 import { readAttachmentPieces } from "./attachments/read"
 import { searchAttachments } from "./attachments/search"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
+import { BETTERSTACK_PROMPT_LINE, betterstackMcpTools } from "./betterstack"
 import {
   type BrainWriteEvent,
   brainCandidates,
@@ -1124,6 +1131,10 @@ export function toolLabel(toolName: string, input: unknown): string {
   const repo = field("repo")
   const ref = field("ref")
   const emoji = field("emoji")
+  const betterstackTool = BETTERSTACK_TOOLS.find(
+    (tool) => tool.name === toolName
+  )
+  if (betterstackTool) return `${betterstackTool.label} · Better Stack`
   switch (toolName) {
     case "react_to_message":
       return emoji ? `Reacting ${emoji}` : "Reacting to a message"
@@ -1303,6 +1314,43 @@ export function toolDetail(
       }
     })
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`
+  const betterstackTool = BETTERSTACK_TOOLS.find(
+    (tool) => tool.name === toolName
+  )
+  if (betterstackTool) {
+    const payload = unwrapToolOutput(output)
+    const body = asRecord(payload)
+    const data = Array.isArray(payload) ? payload : body?.data
+    const results = Array.isArray(data) ? data : null
+    const parts = Array.isArray(rec?.content) ? rec.content : []
+    const errorText = parts
+      .map((part) => asString(asRecord(part)?.text))
+      .find((text) => text)
+    return {
+      status: rec?.isError === true ? "error" : "ok",
+      detail: {
+        summary:
+          rec?.isError === true
+            ? (errorText?.slice(0, 200) ?? "Better Stack request failed")
+            : results
+              ? plural(results.length, "result")
+              : `${betterstackTool.label} completed`,
+        items: results?.slice(0, 8).map((result) => {
+          const row = asRecord(result)
+          const fields = asRecord(row?.attributes) ?? row
+          return {
+            title:
+              asString(fields?.name) ??
+              asString(fields?.title) ??
+              asString(fields?.message) ??
+              asString(fields?.cause) ??
+              "Result",
+            url: asString(fields?.url),
+          }
+        }),
+      },
+    }
+  }
   switch (toolName) {
     case "react_to_message": {
       const emoji = asString(rec?.emoji)
@@ -2047,36 +2095,47 @@ export async function respond(
   const needsCloudwatch = caps.includes("cloudwatch")
   // Independent lookups run concurrently; the Datadog MCP handshake is the
   // slow one and is itself time-bounded inside datadogMcpTools.
-  const [github, linear, attio, notion, datadogMcp, cloudwatch, baseBranches] =
-    await Promise.all([
-      needsGithub
-        ? resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
-        : null,
-      needsLinear
-        ? resolveWorkspaceLinear(ctx.workspaceId).catch(() => null)
-        : null,
-      needsAttio
-        ? resolveWorkspaceAttio(ctx.workspaceId).catch(() => null)
-        : null,
-      needsNotion
-        ? resolveWorkspaceNotion(ctx.workspaceId).catch(() => null)
-        : null,
-      caps.includes("datadog")
-        ? resolveWorkspaceDatadog(ctx.workspaceId)
-            .then((d) => (d ? datadogMcpTools(d.externalId) : null))
-            .catch(() => null)
-        : null,
-      needsCloudwatch
-        ? resolveWorkspaceCloudwatch(ctx.workspaceId).catch(() => null)
-        : null,
-      caps.includes("code_actions")
-        ? githubBaseBranchOverrides(ctx.workspaceId).catch(
-            () => ({}) as Record<string, string>
-          )
-        : ({} as Record<string, string>),
-    ])
+  const [
+    github,
+    linear,
+    attio,
+    notion,
+    datadogMcp,
+    cloudwatch,
+    baseBranches,
+    betterstackMcp,
+  ] = await Promise.all([
+    needsGithub
+      ? resolveWorkspaceGithub(ctx.workspaceId).catch(() => null)
+      : null,
+    needsLinear
+      ? resolveWorkspaceLinear(ctx.workspaceId).catch(() => null)
+      : null,
+    needsAttio
+      ? resolveWorkspaceAttio(ctx.workspaceId).catch(() => null)
+      : null,
+    needsNotion
+      ? resolveWorkspaceNotion(ctx.workspaceId).catch(() => null)
+      : null,
+    caps.includes("datadog")
+      ? resolveWorkspaceDatadog(ctx.workspaceId)
+          .then((d) => (d ? datadogMcpTools(d.externalId) : null))
+          .catch(() => null)
+      : null,
+    needsCloudwatch
+      ? resolveWorkspaceCloudwatch(ctx.workspaceId).catch(() => null)
+      : null,
+    caps.includes("code_actions")
+      ? githubBaseBranchOverrides(ctx.workspaceId).catch(
+          () => ({}) as Record<string, string>
+        )
+      : ({} as Record<string, string>),
+    caps.includes("betterstack") || caps.includes("betterstack_write")
+      ? betterstackMcpTools(ctx.workspaceId, caps)
+      : null,
+  ])
 
-  // The finally closes the MCP sessions (Datadog + workspace MCP servers)
+  // The finally closes built-in and workspace MCP sessions
   // even if tool assembly, setup, step preparation, or streaming throws.
   try {
     const artifactsEnabled = Boolean(
@@ -2088,9 +2147,42 @@ export async function respond(
         ctx.channelId &&
         caps.includes("code_actions")
     )
-    // Which tool targets this workspace gates (LOR-81). Deliberately not
-    // caught: executing gated actions because a policy read failed would
-    // defeat the gate, so the run fails and recovery retries.
+    // Fail closed if tool selection cannot be read, including resumed runs.
+    const connections = await db
+      .select({
+        provider: schema.integrationConnection.provider,
+        enabledTools: schema.integrationConnection.enabledTools,
+      })
+      .from(schema.integrationConnection)
+      .where(
+        and(
+          eq(schema.integrationConnection.workspaceId, ctx.workspaceId),
+          eq(schema.integrationConnection.status, "active")
+        )
+      )
+    const selectedConnectorTools = new Set(
+      connections.flatMap((connection) =>
+        enabledConnectorTools(connection.provider, connection.enabledTools)
+      )
+    )
+    const reservedConnectorNames = new Set([
+      ...Object.values(CONNECTOR_TOOLS).flatMap((catalog) =>
+        catalog.map((tool) => tool.name)
+      ),
+      ...[
+        githubTools,
+        codeTools,
+        codeActionTools,
+        linearTools,
+        linearWriteTools,
+        attioTools,
+        notionTools,
+        cloudwatchTools,
+        datadogMcp?.tools ?? {},
+        betterstackMcp?.tools ?? {},
+      ].flatMap((group) => Object.keys(group)),
+    ])
+    // Approval policy reads must also fail closed (LOR-81).
     const approvalGates = await loadApprovalGates(ctx.workspaceId)
     const toolTargets = new ToolTargetMap()
     const builtinTools = {
@@ -2121,8 +2213,20 @@ export async function respond(
       ...(attio && caps.includes("attio") ? attioTools : {}),
       ...(notion && caps.includes("notion") ? notionTools : {}),
       ...(datadogMcp ? datadogMcp.tools : {}),
+      ...(betterstackMcp ? betterstackMcp.tools : {}),
       ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
     }
+    const takenBuiltinNames = new Set(Object.keys(builtinTools))
+    for (const name of takenBuiltinNames) {
+      if (
+        reservedConnectorNames.has(name) &&
+        !selectedConnectorTools.has(name)
+      ) {
+        delete (builtinTools as ToolSet)[name]
+      }
+    }
+    const hasToolGroup = (group: ToolSet) =>
+      Object.keys(group).some((name) => Object.hasOwn(builtinTools, name))
     // Approval targets for the capability-gated groups. Core tools (brain,
     // chat search, messaging/reactions, plan/loop bookkeeping) stay unmapped
     // and can never be gated — answering in chat is the product. Marked from
@@ -2148,13 +2252,24 @@ export async function respond(
         capability: "datadog",
       })
     }
+    if (betterstackMcp) {
+      for (const descriptor of BETTERSTACK_TOOLS) {
+        if (Object.hasOwn(builtinTools, descriptor.name))
+          toolTargets.addName(descriptor.name, {
+            kind: "capability",
+            capability: descriptor.readOnlyHint
+              ? "betterstack"
+              : "betterstack_write",
+          })
+      }
+    }
     // Bound after the built-ins so a workspace row can never shadow one
     // (collisions are skipped inside workspaceCustomTools).
     const customTools =
       grants.customTools === "all" || grants.customTools.length > 0
         ? await workspaceCustomTools(
             ctx.workspaceId,
-            new Set(Object.keys(builtinTools)),
+            takenBuiltinNames,
             grants.customTools
           ).catch(() => null)
         : null
@@ -2178,7 +2293,7 @@ export async function respond(
         }
       }
       for (const [name, tool] of Object.entries(mcpServerSession.tools)) {
-        if (name in tools) {
+        if (name in tools || takenBuiltinNames.has(name)) {
           logger.warn(
             { tool: name },
             "MCP tool skipped; name collides with an existing tool"
@@ -2381,21 +2496,31 @@ export async function respond(
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
       env.EXA_API_KEY && caps.includes("web") ? WEB_PROMPT_LINE : null,
-      github && caps.includes("github") ? GITHUB_PROMPT_LINE : null,
-      linear && caps.includes("linear") ? LINEAR_PROMPT_LINE : null,
-      linear && caps.includes("linear_write") ? LINEAR_WRITE_PROMPT_LINE : null,
-      datadogMcp ? DATADOG_PROMPT_LINE : null,
-      cloudwatch && caps.includes("cloudwatch") ? CLOUDWATCH_PROMPT_LINE : null,
-      attio && caps.includes("attio") ? ATTIO_PROMPT_LINE : null,
-      notion && caps.includes("notion") ? NOTION_PROMPT_LINE : null,
+      hasToolGroup(githubTools) ? GITHUB_PROMPT_LINE : null,
+      hasToolGroup(linearTools) ? LINEAR_PROMPT_LINE : null,
+      hasToolGroup(linearWriteTools) ? LINEAR_WRITE_PROMPT_LINE : null,
+      datadogMcp && hasToolGroup(datadogMcp.tools) ? DATADOG_PROMPT_LINE : null,
+      hasToolGroup(cloudwatchTools) ? CLOUDWATCH_PROMPT_LINE : null,
+      hasToolGroup(attioTools) ? ATTIO_PROMPT_LINE : null,
+      hasToolGroup(notionTools) ? NOTION_PROMPT_LINE : null,
       artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
       artifactsEnabled && ctx.channelId ? EXPORT_PROMPT_LINE : null,
-      codeActionsEnabled ? CODE_ACTIONS_PROMPT_LINE : null,
+      hasToolGroup(codeActionTools) ? CODE_ACTIONS_PROMPT_LINE : null,
       ctx.proposeLoop && ctx.channelId ? LOOPS_PROMPT_LINE : null,
       ctx.proposeChange && ctx.channelId ? PROPOSALS_PROMPT_LINE : null,
+      betterstackMcp && hasToolGroup(betterstackMcp.tools)
+        ? BETTERSTACK_PROMPT_LINE
+        : null,
       customTools ? CUSTOM_TOOLS_PROMPT_LINE : null,
       promptMcpServers.length > 0
         ? mcpServersPromptLine(promptMcpServers)
+        : null,
+      selectedConnectorTools.size > 0
+        ? `- Connector tool availability: only these connector tools are enabled and bound: ${
+            Object.keys(builtinTools)
+              .filter((name) => reservedConnectorNames.has(name))
+              .join(", ") || "none"
+          }. Other connector tools mentioned in guidance are unavailable.`
         : null,
     ].filter((line): line is string => line !== null)
 
@@ -2849,6 +2974,7 @@ export async function respond(
     // covers throws that happen before the session was awaited.
     await Promise.allSettled([
       datadogMcp?.close(),
+      betterstackMcp?.close(),
       mcpServersPromise.then((s) => s?.close()),
     ])
   }

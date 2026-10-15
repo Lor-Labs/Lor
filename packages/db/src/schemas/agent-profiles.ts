@@ -28,6 +28,8 @@ export const lorCapabilityEnum = pgEnum("lor_capability", [
   "attio",
   "notion",
   "cloudwatch",
+  "betterstack",
+  "betterstack_write",
   "web",
   // Sandbox workbench sessions that produce file deliverables (artifacts).
   "artifacts",
