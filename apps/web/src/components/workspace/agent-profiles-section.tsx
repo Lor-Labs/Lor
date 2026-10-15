@@ -44,6 +44,7 @@ import {
   PILL_BUTTON,
   SettingsBackButton,
   SettingsCardButton,
+  SettingsFooter,
   SettingsGroup,
   SettingsLink,
   SettingsSection,
@@ -406,8 +407,8 @@ function ProfileEditor({
         <SettingsBackButton label="All profiles" onClick={onCancel} />
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold">
-              {profile ? "Edit profile" : "New profile"}
+            <h2 className="min-w-0 truncate text-lg font-semibold">
+              {profile?.name ?? "New profile"}
             </h2>
             {profile?.isDefault && <Badge variant="outline">Default</Badge>}
           </div>
@@ -509,7 +510,9 @@ function ProfileEditor({
         </SettingsSection>
       )}
 
-      <div className="flex items-center gap-2 border-t border-border pt-4">
+      {/* -mb-6 takes over the dialog's bottom padding, so the bar sits at the
+          same height while pinned and at the end of the page. */}
+      <SettingsFooter className="-mb-6 pb-6">
         {onDelete && (
           <Button
             variant="destructive-outline"
@@ -535,7 +538,7 @@ function ProfileEditor({
             Save
           </Button>
         </div>
-      </div>
+      </SettingsFooter>
     </fieldset>
   )
 }

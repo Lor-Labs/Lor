@@ -136,6 +136,27 @@ export function SettingsCardButton({
   )
 }
 
+// Form actions (Save, Cancel) that stay pinned to the bottom of the settings
+// scroll area while their form is on screen.
+export function SettingsFooter({
+  className,
+  children,
+}: {
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div
+      className={cn(
+        "sticky bottom-0 z-10 flex items-center gap-2 border-t border-border bg-background py-4",
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
 // Back from a detail or editor view to its list. Takes focus on mount so
 // keyboard users land inside the new view.
 export function SettingsBackButton({

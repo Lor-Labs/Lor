@@ -57,9 +57,10 @@ export function profileGroupSummary(
     group.tools.map((tool) => tool.name),
     selection
   ).length
-  return selection?.mode === "custom"
-    ? `${count} of ${group.tools.length} tools selected`
-    : `${count} workspace ${count === 1 ? "tool" : "tools"}`
+  if (selection?.mode === "custom")
+    return `${count} of ${group.tools.length} tools selected`
+  if (count === 0) return "No tools turned on"
+  return count === 1 ? "1 tool" : `All ${count} tools`
 }
 
 // Used only after an explicit editor action; never silently drop saved restrictions.

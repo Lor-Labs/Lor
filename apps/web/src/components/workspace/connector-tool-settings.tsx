@@ -15,6 +15,7 @@ import {
   DISCLOSURE_MOTION,
   PILL_BUTTON,
   SettingsAction,
+  SettingsFooter,
   SettingsGroup,
   SettingsSection,
 } from "./settings-group"
@@ -155,7 +156,7 @@ export function ConnectorToolSettings({
         disabled={!provider.canManage || mutation.isPending}
       />
       {provider.canManage && dirty && (
-        <div className="flex justify-end gap-2 pt-1">
+        <SettingsFooter className="justify-end py-3">
           <Button
             variant="ghost"
             size="sm"
@@ -174,7 +175,7 @@ export function ConnectorToolSettings({
           >
             Save changes
           </Button>
-        </div>
+        </SettingsFooter>
       )}
     </SettingsSection>
   )
