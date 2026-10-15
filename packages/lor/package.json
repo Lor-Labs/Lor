@@ -36,6 +36,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "eval": "tsx src/eval/run.ts",
+    "eval:long": "tsx src/eval/run.ts --long",
     "db:reembed": "tsx src/scripts/reembed.ts",
     "sandbox:smoke": "tsx src/sandbox/smoke.ts"
   },
