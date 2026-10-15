@@ -11,7 +11,7 @@ simplified connector picker are implemented. The UI is ready for review.
   Other tools (MCP). Only an explicit `readOnlyHint: true` joins the read group.
   Each group header has a group checkbox and expands to individual checkboxes;
   partly selected groups (and all MCP groups) start open. Built-ins offer Reset
-  to recommended. Selections save explicit names and never auto-enable future
+  to defaults. Selections save explicit names and never auto-enable future
   tools. Built-in Save/Cancel actions appear only for changed selections. MCPs
   keep their existing form save and OAuth completion actions.
 - Custom MCP discovery carries the provider's `readOnlyHint`. The label is a

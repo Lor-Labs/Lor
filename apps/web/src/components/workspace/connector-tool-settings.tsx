@@ -143,7 +143,7 @@ export function ConnectorToolSettings({
         !mutation.isPending &&
         !matches(recommended) && (
           <SettingsAction onClick={() => setSelected(new Set(recommended))}>
-            Reset to recommended
+            Reset to defaults
           </SettingsAction>
         )
       }
