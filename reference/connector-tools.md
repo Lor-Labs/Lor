@@ -147,9 +147,24 @@ fields. MCP access is now solely in `toolAccess.mcpServers`.
 Profile GET/create/update responses include `toolAccess`. Profile listing also
 returns `availableToolGroups` with connected built-in services, saved MCP
 servers, and only their workspace-enabled tool names. Built-in tool metadata
-includes read-only labels; saved MCP tool names have unknown annotations here
-until discovery metadata is made available to the editor. No external MCP
-handshakes run just to list profiles.
+comes from the reviewed catalog. Custom MCP descriptions and read-only hints
+come from `mcp_server.tool_metadata`, a display-only snapshot for enabled tools.
+Only explicit `readOnlyHint: true` shows Read only; false and unknown have no
+badge. Both web and mobile profile editors consume this metadata. No external
+MCP handshakes run just to list profiles.
+
+Static server creation and saves discover missing metadata server-side; metadata
+failures leave hints unknown and do not block configuration saves. Saved-server
+Refresh tools replaces the snapshot only when discovery used the saved endpoint,
+headers, and secrets. Unsaved discovery previews do not overwrite saved labels.
+OAuth completion reads raw tool definitions to preserve annotations, and saves
+the verified selection and its metadata together. Reauthorization, disconnect,
+and connection edits clear metadata from the previous connection. Snapshot
+checks prevent late discovery from writing metadata over changed settings.
+
+Existing MCP servers acquire labels on their next Refresh tools or OAuth tool
+review. Metadata never changes enabled tools, profile permissions, or approval
+rules. It is a provider declaration, not an authorization or safety guarantee.
 
 `toolAccess` has `connectors` (provider IDs) and `mcpServers` (server UUIDs).
 Each override is `{ "mode": "workspace" }`, `{ "mode": "off" }`, or
@@ -215,10 +230,16 @@ ALTER TABLE agent_profile
   ADD COLUMN IF NOT EXISTS tool_access jsonb NOT NULL
   DEFAULT '{"connectors":{},"mcpServers":{}}'::jsonb;
 
+ALTER TABLE mcp_server
+  ADD COLUMN IF NOT EXISTS tool_metadata jsonb NOT NULL DEFAULT '[]'::jsonb;
+
 -- Once all services use tool_access, remove the unused grant table.
 DROP TABLE IF EXISTS agent_profile_mcp_server;
 ```
 
-This UI batch does not change the database. Review the profile editor and
-connector picker before committing. Lint, type checking, and builds are the
-validation workflow; no tests or browser harnesses are run.
+Apply the schema changes before running the updated API. The metadata column
+has a non-null empty-array default, so existing rows start with unknown hints;
+Refresh tools populates their snapshots. No database changes were executed by
+this implementation. Review the profile editor and connector picker before
+committing. Lint, type checking, and builds are the validation workflow; no tests
+or browser harnesses are run.

@@ -337,7 +337,7 @@ export async function discoverAuthorizedMcpTools(input: {
   serverUrl: string
   headers: Record<string, string>
   guardedFetch: GuardedMcpFetch
-}): Promise<{ name: string; description: string }[]> {
+}): Promise<{ name: string; description: string; readOnlyHint?: boolean }[]> {
   const client = await createMCPClient({
     transport: {
       type: "http",
@@ -349,14 +349,15 @@ export async function discoverAuthorizedMcpTools(input: {
     },
   })
   try {
-    const tools = await client.tools()
-    return Object.entries(tools)
-      .map(([name, tool]) => ({
-        name,
-        description:
-          typeof tool.description === "string"
-            ? tool.description.slice(0, 1000)
-            : "",
+    const definitions = await client.listTools()
+    return definitions.tools
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description?.slice(0, 1000) ?? "",
+        readOnlyHint:
+          typeof tool.annotations?.readOnlyHint === "boolean"
+            ? tool.annotations.readOnlyHint
+            : undefined,
       }))
       .sort((left, right) => left.name.localeCompare(right.name))
   } finally {

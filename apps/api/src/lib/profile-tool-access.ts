@@ -31,6 +31,7 @@ export async function workspaceProfileToolGroups(
         name: schema.mcpServer.name,
         description: schema.mcpServer.description,
         enabledTools: schema.mcpServer.enabledTools,
+        toolMetadata: schema.mcpServer.toolMetadata,
       })
       .from(schema.mcpServer)
       .where(eq(schema.mcpServer.workspaceId, workspaceId)),
@@ -62,12 +63,15 @@ export async function workspaceProfileToolGroups(
       id: server.id,
       name: server.name,
       description: server.description,
-      tools: server.enabledTools.map((name) => ({
-        name,
-        label: name,
-        description: "",
-        readOnlyHint: undefined as boolean | undefined,
-      })),
+      tools: server.enabledTools.map((name) => {
+        const metadata = server.toolMetadata.find((tool) => tool.name === name)
+        return {
+          name,
+          label: name,
+          description: metadata?.description ?? "",
+          readOnlyHint: metadata?.readOnlyHint,
+        }
+      }),
     })),
   ].sort((left, right) => left.name.localeCompare(right.name))
 }

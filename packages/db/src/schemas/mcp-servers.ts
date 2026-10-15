@@ -37,6 +37,12 @@ export const mcpServerOAuthStatusEnum = pgEnum("mcp_server_oauth_status", [
 export type McpServerOAuthStatus =
   (typeof mcpServerOAuthStatusEnum.enumValues)[number]
 
+export type McpToolMetadata = {
+  name: string
+  description: string
+  readOnlyHint?: boolean
+}
+
 export const mcpServer = pgTable(
   "mcp_server",
   {
@@ -79,6 +85,11 @@ export const mcpServer = pgTable(
     secrets: jsonb("secrets").$type<Record<string, string>>().notNull(),
     // Allowlist of server tool names Lor may bind. Empty = none.
     enabledTools: text("enabled_tools").array().notNull().default([]),
+    // Display-only provider metadata for enabled tools; never an authorization grant.
+    toolMetadata: jsonb("tool_metadata")
+      .$type<McpToolMetadata[]>()
+      .notNull()
+      .default([]),
   },
   (table) => [
     uniqueIndex("mcp_server_workspace_name_uidx").on(
