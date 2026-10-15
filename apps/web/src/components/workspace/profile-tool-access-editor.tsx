@@ -1,8 +1,7 @@
-import { CloudServerIcon } from "@hugeicons/core-free-icons"
+import { ArrowRight01Icon, CloudServerIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   hasUnavailableProfileSelections,
-  PROFILE_TOOL_MODES,
   type ProfileToolGroup,
   profileGroupSelection,
   profileGroupSummary,
@@ -10,19 +9,23 @@ import {
   removeUnavailableProfileSelections,
   setProfileGroupSelection,
 } from "@repo/connectors"
-import type { ProfileToolAccess } from "@repo/db/schema"
-import { Badge } from "@repo/ui/components/badge"
+import type { ProfileToolAccess, ProfileToolSelection } from "@repo/db/schema"
 import { Button } from "@repo/ui/components/button"
-import { Checkbox } from "@repo/ui/components/checkbox"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@repo/ui/components/select"
-import { useId } from "react"
-import { IconTile, SettingsGroup } from "@/components/workspace/settings-group"
+  Collapsible,
+  CollapsiblePanel,
+  CollapsibleTrigger,
+} from "@repo/ui/components/collapsible"
+import { Switch } from "@repo/ui/components/switch"
+import { cn } from "@repo/ui/lib/utils"
+import { useId, useState } from "react"
+import {
+  DISCLOSURE_MOTION,
+  IconTile,
+  SettingsAction,
+  SettingsGroup,
+} from "@/components/workspace/settings-group"
+import { ToolChecklist } from "@/components/workspace/tool-picker"
 import { connectorLogo, isConnectorKey } from "@/lib/connector-ui"
 
 export function ProfileServiceIcon({
@@ -45,6 +48,8 @@ export function ProfileServiceIcon({
   )
 }
 
+// Switch off = Off. Switch on = follow the workspace. Changing a checkbox
+// saves an explicit custom list, which stops following new workspace tools.
 function ServiceTools({
   group,
   access,
@@ -55,105 +60,92 @@ function ServiceTools({
   onChange: (access: ProfileToolAccess) => void
 }) {
   const id = useId()
+  const [open, setOpen] = useState(false)
+  const [instant, setInstant] = useState(false)
   const selection = profileGroupSelection(access, group)
   const mode = selection?.mode ?? "workspace"
-  const selected = profileSelectedTools(
-    group.tools.map((tool) => tool.name),
-    selection
-  )
+  const names = group.tools.map((tool) => tool.name)
+  const selected = profileSelectedTools(names, selection)
+  const expandable = mode !== "off" && group.tools.length > 0
+  const select = (next: ProfileToolSelection) =>
+    onChange(setProfileGroupSelection(access, group, next))
+
   return (
-    <SettingsGroup>
-      <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+    <Collapsible
+      open={open && expandable}
+      onOpenChange={setOpen}
+      disabled={!expandable}
+    >
+      <div className="flex items-center gap-3">
+        <CollapsibleTrigger
+          onClick={(event) => setInstant(event.detail === 0)}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-sm py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+        >
           <IconTile size="sm">
             <ProfileServiceIcon group={group} className="size-4" />
           </IconTile>
-          <div className="min-w-0">
-            <div id={id} className="text-sm font-medium break-words">
+          <span className="min-w-0 flex-1">
+            <span id={id} className="block text-sm break-words">
               {group.name}
-            </div>
-            <div className="text-xs text-muted-foreground">
+            </span>
+            <span className="block text-xs text-muted-foreground">
               {profileGroupSummary(group, selection)}
-            </div>
+            </span>
+          </span>
+          {expandable && (
+            <HugeiconsIcon
+              icon={ArrowRight01Icon}
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out motion-reduce:transition-none",
+                open && "rotate-90",
+                instant && "transition-none"
+              )}
+              strokeWidth={2}
+            />
+          )}
+        </CollapsibleTrigger>
+        <Switch
+          aria-labelledby={id}
+          checked={mode !== "off"}
+          onCheckedChange={(checked) => {
+            if (!checked) setOpen(false)
+            select(checked ? { mode: "workspace" } : { mode: "off" })
+          }}
+        />
+      </div>
+      <CollapsiblePanel
+        className={cn(
+          DISCLOSURE_MOTION,
+          instant && "transition-none motion-reduce:transition-none"
+        )}
+      >
+        <div className="ml-11 border-t border-border">
+          <ToolChecklist
+            tools={group.tools}
+            selected={new Set(selected)}
+            providerHints={group.kind === "mcpServer"}
+            onChange={(next) =>
+              select({
+                mode: "custom",
+                tools: names.filter((name) => next.has(name)),
+              })
+            }
+          />
+          <div className="flex items-center justify-between gap-3 border-t border-border py-3 text-xs text-muted-foreground">
+            <span>
+              {mode === "custom"
+                ? "Only the checked tools. New tools stay off for this profile."
+                : `Matches your ${group.name} ${group.kind === "connector" ? "connector" : "server"} settings. Uncheck a tool to limit this profile.`}
+            </span>
+            {mode === "custom" && (
+              <SettingsAction onClick={() => select({ mode: "workspace" })}>
+                Use all tools
+              </SettingsAction>
+            )}
           </div>
         </div>
-        <Select
-          value={mode}
-          items={PROFILE_TOOL_MODES}
-          onValueChange={(value) => {
-            if (!value) return
-            onChange(
-              setProfileGroupSelection(
-                access,
-                group,
-                value === "custom"
-                  ? { mode: "custom", tools: selected }
-                  : { mode: value }
-              )
-            )
-          }}
-        >
-          <SelectTrigger
-            aria-labelledby={id}
-            className="w-full sm:w-48 sm:shrink-0"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PROFILE_TOOL_MODES.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      {mode === "custom" && (
-        <div className="space-y-1 py-3">
-          {group.tools.map((tool) => (
-            <label
-              htmlFor={`${id}-${tool.name}`}
-              key={tool.name}
-              className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-accent/50"
-            >
-              <Checkbox
-                id={`${id}-${tool.name}`}
-                className="mt-0.5"
-                checked={selected.includes(tool.name)}
-                onCheckedChange={(checked) =>
-                  onChange(
-                    setProfileGroupSelection(access, group, {
-                      mode: "custom",
-                      tools: checked
-                        ? [...selected, tool.name]
-                        : selected.filter((name) => name !== tool.name),
-                    })
-                  )
-                }
-              />
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                  <span className="break-words">{tool.label}</span>
-                  {tool.readOnlyHint === true && (
-                    <Badge variant="secondary">Read only</Badge>
-                  )}
-                </span>
-                {tool.description && (
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {tool.description}
-                  </span>
-                )}
-              </span>
-            </label>
-          ))}
-          {group.tools.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No tools are enabled for this service in the workspace.
-            </p>
-          )}
-        </div>
-      )}
-    </SettingsGroup>
+      </CollapsiblePanel>
+    </Collapsible>
   )
 }
 
@@ -186,7 +178,7 @@ export function ProfileToolAccessEditor({
           </Button>
         </div>
       )}
-      <div className="space-y-2">
+      <SettingsGroup>
         {groups.map((group) => (
           <ServiceTools
             key={`${group.kind}:${group.id}`}
@@ -195,13 +187,13 @@ export function ProfileToolAccessEditor({
             onChange={onChange}
           />
         ))}
-      </div>
-      {groups.length === 0 && (
-        <p className="py-3 text-sm text-muted-foreground">
-          No connectors or MCP servers connected yet. This profile will use
-          their workspace tools when you connect them.
-        </p>
-      )}
+        {groups.length === 0 && (
+          <div className="py-3 text-sm text-muted-foreground">
+            No connectors or MCP servers connected yet. This profile will use
+            their workspace tools when you connect them.
+          </div>
+        )}
+      </SettingsGroup>
     </div>
   )
 }

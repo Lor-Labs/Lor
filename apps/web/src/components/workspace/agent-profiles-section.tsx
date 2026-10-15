@@ -3,7 +3,6 @@ import {
   ArrowRight01Icon,
   File02Icon,
   PlusSignIcon,
-  Tick02Icon,
   Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -11,7 +10,6 @@ import {
   hasUnavailableProfileSelections,
   type ProfileToolGroup,
   profileGroupSelection,
-  profileGroupSummary,
   profileSelectedTools,
 } from "@repo/connectors"
 import type { ProfileToolAccess } from "@repo/db/schema"
@@ -34,7 +32,6 @@ import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  type ComponentProps,
   type ReactNode,
   useEffect,
   useId,
@@ -89,23 +86,6 @@ function toggleIn<T>(set: Set<T>, value: T): Set<T> {
   if (next.has(value)) next.delete(value)
   else next.add(value)
   return next
-}
-
-// A clickable row inside a SettingsGroup. The wrapper carries the group's
-// divider so the hover inset can reach past the row's text.
-function RowButton({ className, ...props }: ComponentProps<"button">) {
-  return (
-    <div className="flex flex-col py-1">
-      <button
-        type="button"
-        className={cn(
-          "-mx-2 flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-left outline-none transition-colors not-disabled:hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
-          className
-        )}
-        {...props}
-      />
-    </div>
-  )
 }
 
 function GrantChip({
@@ -168,13 +148,16 @@ export function GrantedChips({
   const grantedTools = blanket
     ? []
     : tools.filter((t) => profile.customToolIds.includes(t.id))
-  const grantedGroups = groups.filter(
-    (group) =>
-      profileSelectedTools(
+  const grantedGroups = groups
+    .map((group) => {
+      const selection = profileGroupSelection(profile.toolAccess, group)
+      const count = profileSelectedTools(
         group.tools.map((tool) => tool.name),
-        profileGroupSelection(profile.toolAccess, group)
-      ).length > 0
-  )
+        selection
+      ).length
+      return { group, count, limited: selection?.mode === "custom" }
+    })
+    .filter(({ count }) => count > 0)
 
   if (
     granted.length === 0 &&
@@ -217,72 +200,66 @@ export function GrantedChips({
           {t.name}
         </GrantChip>
       ))}
-      {grantedGroups.map((group) => (
+      {grantedGroups.map(({ group, count, limited }) => (
         <GrantChip
           key={`${group.kind}:${group.id}`}
           icon={
             <ProfileServiceIcon group={group} className="size-3.5 shrink-0" />
           }
         >
-          {group.name} ·{" "}
-          {profileGroupSummary(
-            group,
-            profileGroupSelection(profile.toolAccess, group)
-          )}
+          {limited
+            ? `${group.name} · ${count} ${count === 1 ? "tool" : "tools"}`
+            : group.name}
         </GrantChip>
       ))}
     </span>
   )
 }
 
-function SelectRow({
+function SwitchRow({
   icon,
   title,
   description,
-  selected,
+  checked,
   included,
   mono,
   onToggle,
 }: {
   icon: ReactNode
   title: string
-  description: string
-  selected: boolean
-  // Covered by the blanket grant: shown checked but not editable.
+  description: ReactNode
+  checked: boolean
+  // Covered by the blanket grant: shown on but not editable.
   included?: boolean
   mono?: boolean
   onToggle: () => void
 }) {
-  const checked = selected || included
+  const id = useId()
   return (
-    <RowButton
-      aria-pressed={checked}
-      disabled={included}
-      onClick={onToggle}
-      className={cn(included && "opacity-60")}
-    >
+    <div className="flex items-center gap-3 py-3">
       <IconTile size="sm">{icon}</IconTile>
       <span className="min-w-0 flex-1">
-        <span className={cn("block text-sm", mono && "font-mono")}>
+        <label
+          htmlFor={id}
+          className={cn(
+            "block text-sm",
+            included ? "cursor-default" : "cursor-pointer",
+            mono && "font-mono"
+          )}
+        >
           {title}
-        </span>
-        <span className="block text-sm text-muted-foreground">
+        </label>
+        <span className="block text-xs text-muted-foreground">
           {description}
         </span>
       </span>
-      <span
-        className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors",
-          checked
-            ? "border-primary bg-primary text-primary-foreground"
-            : "border-muted-foreground/30"
-        )}
-      >
-        {checked && (
-          <HugeiconsIcon icon={Tick02Icon} className="size-3" strokeWidth={2} />
-        )}
-      </span>
-    </RowButton>
+      <Switch
+        id={id}
+        checked={checked || included === true}
+        disabled={included}
+        onCheckedChange={onToggle}
+      />
+    </div>
   )
 }
 
@@ -330,7 +307,7 @@ function ProfileList({
             New profile
           </Button>
         }
-        caption="A channel uses its own profile, then its category's, then the default. Set profiles in channel or category settings. Lor's memory and chat search are always on."
+        caption="Channels use the default profile unless you pick another in channel or category settings."
       >
         <div className="space-y-3">
           {profiles.map((p) => (
@@ -387,7 +364,6 @@ function ProfileEditor({
   onOpenTools: () => void
 }) {
   const nameId = useId()
-  const futureToolsId = useId()
   const [name, setName] = useState(profile?.name ?? "")
   const [selected, setSelected] = useState<Set<LorCapabilityKey>>(() => {
     if (!profile) return new Set()
@@ -423,7 +399,6 @@ function ProfileEditor({
   const generalCaps = available.filter((c) => c.key !== "custom_tools")
   const blanketCap = available.find((c) => c.key === "custom_tools")
   const blanketOn = selected.has("custom_tools")
-  const noWorkspaceTools = tools.length === 0
 
   return (
     <fieldset disabled={saving} className="min-w-0 max-w-3xl space-y-6">
@@ -469,12 +444,12 @@ function ProfileEditor({
             </div>
           )}
           {generalCaps.map((cap) => (
-            <SelectRow
+            <SwitchRow
               key={cap.key}
               icon={<CapabilityIcon capability={cap} className="size-4" />}
               title={cap.label}
               description={cap.description}
-              selected={selected.has(cap.key)}
+              checked={selected.has(cap.key)}
               onToggle={() => setSelected((prev) => toggleIn(prev, cap.key))}
             />
           ))}
@@ -485,75 +460,52 @@ function ProfileEditor({
         <SettingsSection
           title="API tools"
           count={tools.length > 0 ? tools.length : undefined}
+          caption={
+            tools.length === 0 && (
+              <>
+                Add API tools in{" "}
+                <SettingsLink onClick={onOpenTools}>Tools</SettingsLink>.
+              </>
+            )
+          }
         >
-          {noWorkspaceTools ? (
-            <SettingsGroup>
-              <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-sm text-muted-foreground">
-                    No API tools connected
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Add them in{" "}
-                    <SettingsLink onClick={onOpenTools}>Tools</SettingsLink>.
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Label
-                    htmlFor={futureToolsId}
-                    className="text-xs font-normal"
-                  >
-                    Allow future API tools
-                  </Label>
-                  <Switch
-                    id={futureToolsId}
-                    checked={blanketOn}
-                    onCheckedChange={() =>
-                      setSelected((prev) => toggleIn(prev, "custom_tools"))
-                    }
-                  />
-                </div>
-              </div>
-            </SettingsGroup>
-          ) : (
-            <SettingsGroup>
-              <SelectRow
+          <SettingsGroup>
+            <SwitchRow
+              icon={
+                <HugeiconsIcon
+                  icon={Wrench01Icon}
+                  className="size-4"
+                  strokeWidth={2}
+                />
+              }
+              title={blanketCap.label}
+              description={blanketCap.description}
+              checked={blanketOn}
+              onToggle={() =>
+                setSelected((prev) => toggleIn(prev, "custom_tools"))
+              }
+            />
+            {tools.map((tool) => (
+              <SwitchRow
+                key={tool.id}
                 icon={
                   <HugeiconsIcon
-                    icon={Wrench01Icon}
+                    icon={ApiIcon}
                     className="size-4"
                     strokeWidth={2}
                   />
                 }
-                title={blanketCap.label}
-                description={blanketCap.description}
-                selected={blanketOn}
+                title={tool.name}
+                mono
+                description={tool.description}
+                checked={selectedTools.has(tool.id)}
+                included={blanketOn}
                 onToggle={() =>
-                  setSelected((prev) => toggleIn(prev, "custom_tools"))
+                  setSelectedTools((prev) => toggleIn(prev, tool.id))
                 }
               />
-              {tools.map((tool) => (
-                <SelectRow
-                  key={tool.id}
-                  icon={
-                    <HugeiconsIcon
-                      icon={ApiIcon}
-                      className="size-4"
-                      strokeWidth={2}
-                    />
-                  }
-                  title={tool.name}
-                  mono
-                  description={tool.description}
-                  selected={selectedTools.has(tool.id)}
-                  included={blanketOn}
-                  onToggle={() =>
-                    setSelectedTools((prev) => toggleIn(prev, tool.id))
-                  }
-                />
-              ))}
-            </SettingsGroup>
-          )}
+            ))}
+          </SettingsGroup>
         </SettingsSection>
       )}
 
@@ -614,6 +566,9 @@ export function AgentProfilesSection({
       if (!res.ok) throw new Error("Failed to load profiles")
       return res.json()
     },
+    // Connectors, MCP servers and API tools change in other tabs (OAuth in the
+    // browser), so refetch the available services whenever this tab opens.
+    staleTime: 0,
   })
 
   // The list and the editor share one scroll area; each opens at the top.
