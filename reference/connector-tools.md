@@ -123,11 +123,12 @@ existing mobile settings; mobile tool-trail branding includes Better Stack.
   access contract.
 - [x] Connector tool-picker redesign and removal of the Capabilities section.
 
-The web profile editor shows one row per connected service with a switch: off
-is Off, on follows workspace tools. Opening the row shows the same Read/Write
-checklist as connector settings; changing a checkbox saves a custom list, and
-Use all tools returns to following. Built-in and API tools use the
-same switch rows. Mobile still offers Use workspace tools, Off, or Choose tools.
+The web and mobile profile editors show one row per connected service with a
+switch: off is Off, on follows workspace tools. Opening the row shows the same
+Read/Write checklist as connector settings; changing a checkbox saves a custom
+list, and Use all tools returns to following. Built-in and API tools use the
+same switch rows. Grouping, description cleanup, summaries and notes live in
+`@repo/connectors` (`tool-groups.ts`, `profile-tools.ts`) so both apps match.
 Only an explicit `readOnlyHint: true` counts as read only. Built-in abilities
 and custom HTTP API tools remain separate; All API tools no longer implies MCP
 access. Profile chips name a service, with a tool count only for custom lists.

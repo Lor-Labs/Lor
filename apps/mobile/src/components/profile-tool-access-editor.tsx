@@ -2,22 +2,27 @@ import CloudServerIcon from "@hugeicons/core-free-icons/CloudServerIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import {
   CONNECTORS,
+  cleanToolDescription,
   hasUnavailableProfileSelections,
-  PROFILE_TOOL_MODES,
   type ProfileToolGroup,
+  profileGroupNote,
   profileGroupSelection,
   profileGroupSummary,
   profileSelectedTools,
   removeUnavailableProfileSelections,
   setProfileGroupSelection,
+  type ToolGroup,
+  toolGroups,
 } from "@repo/connectors"
-import type { ProfileToolAccess } from "@repo/db/schema"
+import type { ProfileToolAccess, ProfileToolSelection } from "@repo/db/schema"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { ConnectorIcon, type ConnectorKey } from "@/components/connector-icon"
 import { Button } from "@/components/ui/button"
+import { triggerHaptic } from "@/components/ui/haptics"
+import { Switch } from "@/components/ui/switch"
 
 export function ProfileServiceIcon({ group }: { group: ProfileToolGroup }) {
   const foreground = useThemeColor("foreground")
@@ -32,6 +37,175 @@ export function ProfileServiceIcon({ group }: { group: ProfileToolGroup }) {
   )
 }
 
+function CheckMark({ state }: { state: "on" | "off" | "mixed" }) {
+  const accent = useThemeColor("accent")
+  if (state === "off")
+    return <View className="size-[19px] rounded border border-separator" />
+  return (
+    <SymbolView
+      name={
+        state === "on"
+          ? {
+              ios: "checkmark.square.fill",
+              android: "check_box",
+              web: "check_box",
+            }
+          : {
+              ios: "minus.square.fill",
+              android: "indeterminate_check_box",
+              web: "indeterminate_check_box",
+            }
+      }
+      size={19}
+      tintColor={accent}
+    />
+  )
+}
+
+function Chevron({ open }: { open: boolean }) {
+  const muted = useThemeColor("muted")
+  return (
+    <SymbolView
+      name={
+        open
+          ? {
+              ios: "chevron.down",
+              android: "keyboard_arrow_down",
+              web: "keyboard_arrow_down",
+            }
+          : {
+              ios: "chevron.right",
+              android: "keyboard_arrow_right",
+              web: "keyboard_arrow_right",
+            }
+      }
+      size={14}
+      tintColor={muted}
+    />
+  )
+}
+
+// Read/Write groups with a group checkbox, matching the web ToolChecklist.
+// Partly selected groups start open.
+function ToolChecklist({
+  tools,
+  selected,
+  providerHints,
+  onChange,
+}: {
+  tools: ProfileToolGroup["tools"]
+  selected: readonly string[]
+  providerHints: boolean
+  onChange: (names: string[]) => void
+}) {
+  const groups = toolGroups(tools, providerHints)
+  const countIn = (group: ToolGroup) =>
+    group.tools.filter((tool) => selected.includes(tool.name)).length
+  const [expanded, setExpanded] = useState(
+    () =>
+      new Set(
+        groups
+          .filter((group) => {
+            const count = countIn(group)
+            return count > 0 && count < group.tools.length
+          })
+          .map((group) => group.key)
+      )
+  )
+  const toggleOpen = (key: ToolGroup["key"]) =>
+    setExpanded((previous) => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  const setTools = (names: string[], on: boolean) => {
+    triggerHaptic("selection")
+    onChange(
+      on
+        ? [...new Set([...selected, ...names])]
+        : selected.filter((name) => !names.includes(name))
+    )
+  }
+
+  return (
+    <View>
+      {groups.map((group) => {
+        const count = countIn(group)
+        const all = count === group.tools.length
+        const open = expanded.has(group.key)
+        return (
+          <View key={group.key} className="border-t border-separator">
+            <View className="flex-row items-center gap-three">
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityLabel={group.label}
+                accessibilityState={{
+                  checked: all ? true : count > 0 ? "mixed" : false,
+                }}
+                hitSlop={8}
+                onPress={() =>
+                  setTools(
+                    group.tools.map((tool) => tool.name),
+                    !all
+                  )
+                }
+                className="py-three active:opacity-70"
+              >
+                <CheckMark state={all ? "on" : count > 0 ? "mixed" : "off"} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${group.label}, ${count} of ${group.tools.length}`}
+                accessibilityState={{ expanded: open }}
+                onPress={() => toggleOpen(group.key)}
+                className="min-h-11 flex-1 flex-row items-center gap-two active:opacity-70"
+              >
+                <Text className="flex-1 text-sm text-foreground">
+                  {group.label}
+                </Text>
+                <Text className="text-xs text-muted">
+                  {count} of {group.tools.length}
+                </Text>
+                <Chevron open={open} />
+              </Pressable>
+            </View>
+            {open &&
+              group.tools.map((tool) => {
+                const checked = selected.includes(tool.name)
+                const description = cleanToolDescription(tool.description)
+                return (
+                  <Pressable
+                    key={tool.name}
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={tool.label}
+                    accessibilityState={{ checked }}
+                    onPress={() => setTools([tool.name], !checked)}
+                    className="ml-[31px] min-h-11 flex-row items-start gap-three border-t border-separator py-three active:opacity-70"
+                  >
+                    <CheckMark state={checked ? "on" : "off"} />
+                    <View className="min-w-0 flex-1 gap-one">
+                      <Text className="text-sm text-foreground">
+                        {tool.label}
+                      </Text>
+                      {!!description && (
+                        <Text className="text-xs text-muted" numberOfLines={2}>
+                          {description}
+                        </Text>
+                      )}
+                    </View>
+                  </Pressable>
+                )
+              })}
+          </View>
+        )
+      })}
+    </View>
+  )
+}
+
+// Switch off = Off. Switch on = follow the workspace. Changing a checkbox
+// saves an explicit custom list, which stops following new workspace tools.
 function ServiceTools({
   group,
   access,
@@ -41,131 +215,74 @@ function ServiceTools({
   access: ProfileToolAccess
   onChange: (access: ProfileToolAccess) => void
 }) {
-  const [choosing, setChoosing] = useState(false)
-  const [foreground, accent] = useThemeColor(["foreground", "accent"])
+  const [open, setOpen] = useState(false)
   const selection = profileGroupSelection(access, group)
   const mode = selection?.mode ?? "workspace"
-  const selected = profileSelectedTools(
-    group.tools.map((tool) => tool.name),
-    selection
-  )
+  const names = group.tools.map((tool) => tool.name)
+  const selected = profileSelectedTools(names, selection)
+  const expandable = mode !== "off" && group.tools.length > 0
+  const summary = profileGroupSummary(group, selection)
+  const select = (next: ProfileToolSelection) =>
+    onChange(setProfileGroupSelection(access, group, next))
+
   return (
-    <View className="gap-three border-b border-separator py-four">
-      <View className="flex-row items-center gap-two">
-        <ProfileServiceIcon group={group} />
-        <Text className="flex-1 text-sm font-semibold text-foreground">
-          {group.name}
-        </Text>
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${group.name}: ${PROFILE_TOOL_MODES.find((item) => item.value === mode)?.label}`}
-        accessibilityState={{ expanded: choosing }}
-        onPress={() => setChoosing(!choosing)}
-        className="min-h-11 flex-row items-center justify-between rounded-lor-sm border border-separator px-three py-two active:opacity-70"
-      >
-        <Text className="text-sm text-foreground">
-          {PROFILE_TOOL_MODES.find((item) => item.value === mode)?.label}
-        </Text>
-        <SymbolView
-          name={{
-            ios: "chevron.down",
-            android: "keyboard_arrow_down",
-            web: "keyboard_arrow_down",
+    <View className="border-b border-separator">
+      <View className="flex-row items-center gap-three py-three">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${group.name}, ${summary}`}
+          accessibilityState={{
+            expanded: open && expandable,
+            disabled: !expandable,
           }}
-          size={16}
-          tintColor={foreground}
-        />
-      </Pressable>
-      {choosing && (
-        <View className="gap-one rounded-lor-sm bg-surface p-two">
-          {PROFILE_TOOL_MODES.map((item) => (
-            <Pressable
-              key={item.value}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: mode === item.value }}
-              onPress={() => {
-                onChange(
-                  setProfileGroupSelection(
-                    access,
-                    group,
-                    item.value === "custom"
-                      ? { mode: "custom", tools: selected }
-                      : { mode: item.value }
-                  )
-                )
-                setChoosing(false)
-              }}
-              className="min-h-11 flex-row items-center justify-between rounded-lor-sm px-two py-two active:bg-surface-tertiary"
-            >
-              <Text className="text-sm text-foreground">{item.label}</Text>
-              {mode === item.value && (
-                <SymbolView
-                  name={{ ios: "checkmark", android: "check", web: "check" }}
-                  size={16}
-                  tintColor={accent}
-                />
-              )}
-            </Pressable>
-          ))}
-        </View>
-      )}
-      <Text className="text-xs text-muted">
-        {profileGroupSummary(group, selection)}
-        {mode === "workspace"
-          ? ". Follows workspace changes, including tools enabled later."
-          : mode === "custom"
-            ? ". Newly enabled tools stay off."
-            : ""}
-      </Text>
-      {mode === "custom" && (
-        <View className="gap-one">
-          {group.tools.map((tool) => (
-            <Pressable
-              key={tool.name}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: selected.includes(tool.name) }}
-              accessibilityLabel={`${tool.label}${tool.readOnlyHint === true ? ", Read only" : ""}`}
-              onPress={() =>
-                onChange(
-                  setProfileGroupSelection(access, group, {
-                    mode: "custom",
-                    tools: selected.includes(tool.name)
-                      ? selected.filter((name) => name !== tool.name)
-                      : [...selected, tool.name],
-                  })
-                )
-              }
-              className="min-h-11 flex-row items-start gap-two rounded-lor-sm px-two py-three active:bg-surface-tertiary"
-            >
-              {selected.includes(tool.name) ? (
-                <SymbolView
-                  name={{
-                    ios: "checkmark.square.fill",
-                    android: "check_box",
-                    web: "check_box",
-                  }}
-                  size={19}
-                  tintColor={accent}
-                />
-              ) : (
-                <View className="size-[19px] rounded border border-separator" />
-              )}
-              <View className="min-w-0 flex-1 gap-one">
-                <Text className="text-sm text-foreground">{tool.label}</Text>
-                {tool.readOnlyHint === true && (
-                  <Text className="text-xs text-muted">Read only</Text>
-                )}
-                {!!tool.description && (
-                  <Text className="text-xs text-muted">{tool.description}</Text>
-                )}
-              </View>
-            </Pressable>
-          ))}
-          {group.tools.length === 0 && (
-            <Text className="text-xs text-muted">
-              No tools are enabled for this service in the workspace.
+          disabled={!expandable}
+          onPress={() => setOpen(!open)}
+          className="min-h-11 min-w-0 flex-1 flex-row items-center gap-three active:opacity-70"
+        >
+          <ProfileServiceIcon group={group} />
+          <View className="min-w-0 flex-1 gap-one">
+            <Text className="text-sm font-semibold text-foreground">
+              {group.name}
             </Text>
+            <Text className="text-xs text-muted">{summary}</Text>
+          </View>
+          {expandable && <Chevron open={open} />}
+        </Pressable>
+        <Switch
+          accessibilityLabel={group.name}
+          isSelected={mode !== "off"}
+          onSelectedChange={(on) => {
+            if (!on) setOpen(false)
+            select(on ? { mode: "workspace" } : { mode: "off" })
+          }}
+        />
+      </View>
+      {open && expandable && (
+        <View className="gap-three pb-three pl-[30px]">
+          <ToolChecklist
+            tools={group.tools}
+            selected={selected}
+            providerHints={group.kind === "mcpServer"}
+            onChange={(tools) =>
+              select({
+                mode: "custom",
+                tools: names.filter((name) => tools.includes(name)),
+              })
+            }
+          />
+          <Text className="text-xs text-muted">
+            {profileGroupNote(group, selection)}
+          </Text>
+          {mode === "custom" && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => select({ mode: "workspace" })}
+              className="min-h-11 justify-center self-start active:opacity-70"
+            >
+              <Text className="text-sm font-medium text-foreground">
+                Use all tools
+              </Text>
+            </Pressable>
           )}
         </View>
       )}

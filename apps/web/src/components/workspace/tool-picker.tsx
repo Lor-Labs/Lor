@@ -1,5 +1,11 @@
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  cleanToolDescription,
+  type GroupableTool,
+  type ToolGroup,
+  toolGroups,
+} from "@repo/connectors"
 import { Checkbox } from "@repo/ui/components/checkbox"
 import {
   Collapsible,
@@ -10,49 +16,8 @@ import { cn } from "@repo/ui/lib/utils"
 import { useId, useState } from "react"
 import { DISCLOSURE_MOTION, SettingsGroup } from "./settings-group"
 
-export type SelectableTool = {
-  name: string
-  label?: string
-  description: string
-  readOnlyHint?: boolean
-}
-
-type ToolGroup = {
-  key: string
-  label: string
-  tools: readonly SelectableTool[]
-}
-
-function cleanDescription(raw: string): string {
-  return raw
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/<\/?[a-z_]+>/gi, " ")
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim()
-}
-
-// MCP read-only labels are provider declarations, so unlabeled MCP tools are
-// "Other tools", never reads. Built-in connector tools always declare one.
-function toolGroups(
-  tools: readonly SelectableTool[],
-  providerHints: boolean
-): ToolGroup[] {
-  const reads = tools.filter((tool) => tool.readOnlyHint === true)
-  const others = tools.filter((tool) => tool.readOnlyHint !== true)
-  const otherLabel = !providerHints
-    ? "Write"
-    : reads.length > 0
-      ? "Other tools"
-      : "All tools"
-  return [
-    { key: "read", label: providerHints ? "Read only" : "Read", tools: reads },
-    { key: "other", label: otherLabel, tools: others },
-  ].filter((group) => group.tools.length > 0)
-}
-
 type ToolPickerProps = {
-  tools: readonly SelectableTool[]
+  tools: readonly GroupableTool[]
   selected: ReadonlySet<string>
   onChange: (names: Set<string>) => void
   disabled?: boolean
@@ -100,7 +65,7 @@ export function ToolChecklist({
   )
   const [instant, setInstant] = useState(false)
 
-  const setOpen = (key: string, open: boolean) =>
+  const setOpen = (key: ToolGroup["key"], open: boolean) =>
     setExpanded((prev) => {
       const next = new Set(prev)
       if (open) next.add(key)
@@ -172,7 +137,7 @@ export function ToolChecklist({
               <div className="ml-7.5 divide-y divide-border border-t border-border sm:ml-7">
                 {group.tools.map((tool, index) => {
                   const toolId = `${labelId}-${index}`
-                  const description = cleanDescription(tool.description)
+                  const description = cleanToolDescription(tool.description)
                   return (
                     <div
                       key={tool.name}

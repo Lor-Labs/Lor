@@ -24,12 +24,6 @@ export type ProfileToolGroup = {
   }[]
 }
 
-export const PROFILE_TOOL_MODES = [
-  { value: "workspace", label: "Use workspace tools" },
-  { value: "off", label: "Off" },
-  { value: "custom", label: "Choose tools" },
-] as const
-
 export function profileGroupSelection(
   access: ProfileToolAccess,
   group: Pick<ProfileToolGroup, "kind" | "id">
@@ -61,6 +55,16 @@ export function profileGroupSummary(
     return `${count} of ${group.tools.length} tools selected`
   if (count === 0) return "No tools turned on"
   return count === 1 ? "1 tool" : `All ${count} tools`
+}
+
+export function profileGroupNote(
+  group: Pick<ProfileToolGroup, "kind" | "name">,
+  selection: ProfileToolSelection | undefined
+): string {
+  if (selection?.mode === "custom")
+    return "Only the checked tools. New tools stay off for this profile."
+  const source = group.kind === "connector" ? "connector" : "server"
+  return `Matches your ${group.name} ${source} settings. Uncheck a tool to limit this profile.`
 }
 
 // Used only after an explicit editor action; never silently drop saved restrictions.

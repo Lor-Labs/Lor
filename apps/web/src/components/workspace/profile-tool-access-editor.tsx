@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   hasUnavailableProfileSelections,
   type ProfileToolGroup,
+  profileGroupNote,
   profileGroupSelection,
   profileGroupSummary,
   profileSelectedTools,
@@ -132,11 +133,7 @@ function ServiceTools({
             }
           />
           <div className="flex items-center justify-between gap-3 border-t border-border py-3 text-xs text-muted-foreground">
-            <span>
-              {mode === "custom"
-                ? "Only the checked tools. New tools stay off for this profile."
-                : `Matches your ${group.name} ${group.kind === "connector" ? "connector" : "server"} settings. Uncheck a tool to limit this profile.`}
-            </span>
+            <span>{profileGroupNote(group, selection)}</span>
             {mode === "custom" && (
               <SettingsAction onClick={() => select({ mode: "workspace" })}>
                 Use all tools

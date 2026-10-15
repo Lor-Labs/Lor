@@ -6,7 +6,6 @@ import {
   hasUnavailableProfileSelections,
   type ProfileToolGroup,
   profileGroupSelection,
-  profileGroupSummary,
   profileSelectedTools,
 } from "@repo/connectors"
 import type { ProfileToolAccess } from "@repo/db/schema"
@@ -26,6 +25,7 @@ import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
+import { Switch } from "@/components/ui/switch"
 import { useWorkspace } from "@/context/workspace-context"
 import { api } from "@/lib/api"
 import type {
@@ -59,13 +59,16 @@ function GrantedChips({
     ? available
     : available.filter((cap) => profile.capabilities.includes(cap.key))
 
-  const services = groups.filter(
-    (group) =>
-      profileSelectedTools(
+  const services = groups
+    .map((group) => {
+      const selection = profileGroupSelection(profile.toolAccess, group)
+      const count = profileSelectedTools(
         group.tools.map((tool) => tool.name),
-        profileGroupSelection(profile.toolAccess, group)
-      ).length > 0
-  )
+        selection
+      ).length
+      return { group, count, limited: selection?.mode === "custom" }
+    })
+    .filter(({ count }) => count > 0)
   const apiTools =
     profile.grantsAll || profile.capabilities.includes("custom_tools")
       ? []
@@ -88,17 +91,15 @@ function GrantedChips({
           <Text className="text-xs text-foreground">{cap.label}</Text>
         </View>
       ))}
-      {services.map((group) => (
+      {services.map(({ group, count, limited }) => (
         <View
           key={`${group.kind}:${group.id}`}
           className="rounded-lor-sm bg-surface-tertiary px-two py-one"
         >
           <Text className="text-xs text-foreground">
-            {group.name} ·{" "}
-            {profileGroupSummary(
-              group,
-              profileGroupSelection(profile.toolAccess, group)
-            )}
+            {limited
+              ? `${group.name} · ${count} ${count === 1 ? "tool" : "tools"}`
+              : group.name}
           </Text>
         </View>
       ))}
@@ -110,6 +111,38 @@ function GrantedChips({
           <Text className="text-xs text-foreground">{tool.name}</Text>
         </View>
       ))}
+    </View>
+  )
+}
+
+function SwitchRow({
+  title,
+  description,
+  isSelected,
+  isDisabled,
+  onSelectedChange,
+}: {
+  title: string
+  description: string
+  isSelected: boolean
+  // Covered by the blanket API tools grant: shown on but not editable.
+  isDisabled?: boolean
+  onSelectedChange: () => void
+}) {
+  return (
+    <View className="min-h-11 flex-row items-center gap-three border-b border-separator py-three">
+      <View className="min-w-0 flex-1 gap-one">
+        <Text className="text-sm text-foreground">{title}</Text>
+        <Text className="text-xs text-muted" numberOfLines={2}>
+          {description}
+        </Text>
+      </View>
+      <Switch
+        accessibilityLabel={title}
+        isDisabled={isDisabled}
+        isSelected={isSelected}
+        onSelectedChange={onSelectedChange}
+      />
     </View>
   )
 }
@@ -131,7 +164,6 @@ function ProfileEditor({
   profile?: AgentProfile
   saving: boolean
 }) {
-  const accent = useThemeColor("accent")
   const [name, setName] = useState(profile?.name ?? "")
   const [selected, setSelected] = useState<Set<LorCapabilityKey>>(() => {
     if (!profile) return new Set()
@@ -190,8 +222,7 @@ function ProfileEditor({
           Connected services
         </Text>
         <Text className="text-xs text-muted">
-          Choose which workspace tools this profile can use. Approval rules
-          still apply.
+          Choose which tools this profile can use. Approval rules still apply.
         </Text>
         <ProfileToolAccessEditor
           groups={groups}
@@ -203,73 +234,35 @@ function ProfileEditor({
         <Text className="text-sm font-medium text-foreground">
           Built-in and API tools
         </Text>
-        {available.map((cap) => (
-          <Pressable
-            key={cap.key}
-            accessibilityLabel={cap.label}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: selected.has(cap.key) }}
-            onPress={() => toggle(cap.key)}
-            className="min-h-11 flex-row items-center gap-three rounded-lor-sm border border-separator p-three active:opacity-70"
-          >
-            <View className="min-w-0 flex-1 gap-one">
-              <Text className="text-sm text-foreground">{cap.label}</Text>
-              <Text className="text-xs text-muted">{cap.description}</Text>
-            </View>
-            {selected.has(cap.key) ? (
-              <SymbolView
-                name={{
-                  ios: "checkmark.circle.fill",
-                  android: "check_circle",
-                  web: "check_circle",
-                }}
-                size={19}
-                tintColor={accent}
-              />
-            ) : (
-              <View className="size-[19px] rounded-full border border-separator" />
-            )}
-          </Pressable>
-        ))}
-        {tools.map((tool) => (
-          <Pressable
-            key={tool.id}
-            accessibilityLabel={tool.name}
-            accessibilityRole="checkbox"
-            accessibilityState={{
-              checked:
-                selected.has("custom_tools") || customToolIds.includes(tool.id),
-              disabled: selected.has("custom_tools"),
-            }}
-            disabled={selected.has("custom_tools")}
-            onPress={() =>
-              setCustomToolIds((previous) =>
-                previous.includes(tool.id)
-                  ? previous.filter((id) => id !== tool.id)
-                  : [...previous, tool.id]
-              )
-            }
-            className="min-h-11 flex-row items-center gap-three rounded-lor-sm border border-separator p-three active:opacity-70"
-          >
-            <View className="min-w-0 flex-1 gap-one">
-              <Text className="text-sm text-foreground">{tool.name}</Text>
-              <Text className="text-xs text-muted">{tool.description}</Text>
-            </View>
-            {selected.has("custom_tools") || customToolIds.includes(tool.id) ? (
-              <SymbolView
-                name={{
-                  ios: "checkmark.circle.fill",
-                  android: "check_circle",
-                  web: "check_circle",
-                }}
-                size={19}
-                tintColor={accent}
-              />
-            ) : (
-              <View className="size-[19px] rounded-full border border-separator" />
-            )}
-          </Pressable>
-        ))}
+        <View>
+          {available.map((cap) => (
+            <SwitchRow
+              key={cap.key}
+              title={cap.label}
+              description={cap.description}
+              isSelected={selected.has(cap.key)}
+              onSelectedChange={() => toggle(cap.key)}
+            />
+          ))}
+          {tools.map((tool) => (
+            <SwitchRow
+              key={tool.id}
+              title={tool.name}
+              description={tool.description}
+              isSelected={
+                selected.has("custom_tools") || customToolIds.includes(tool.id)
+              }
+              isDisabled={selected.has("custom_tools")}
+              onSelectedChange={() =>
+                setCustomToolIds((previous) =>
+                  previous.includes(tool.id)
+                    ? previous.filter((id) => id !== tool.id)
+                    : [...previous, tool.id]
+                )
+              }
+            />
+          ))}
+        </View>
       </View>
       <View className="flex-row justify-end gap-two">
         <Button onPress={onCancel} size="sm" variant="ghost">
@@ -425,9 +418,9 @@ export default function AgentProfilesScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text className="text-sm leading-5 text-muted">
-          Profiles control which tools Lor can use in a channel. A channel
-          inherits its category's profile, then the workspace default. Lor's
-          memory and chat search are always available.
+          Profiles control which tools Lor can use in a channel. Channels use
+          the default profile unless you pick another in channel or category
+          settings.
         </Text>
 
         {workspaceSlug === null ? (
