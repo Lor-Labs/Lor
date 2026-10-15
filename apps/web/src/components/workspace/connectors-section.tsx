@@ -53,14 +53,16 @@ import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type Ref, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
-import { ConnectorToolSettings } from "@/components/workspace/connector-tool-settings"
+import {
+  ConnectorToolPreview,
+  ConnectorToolSettings,
+} from "@/components/workspace/connector-tool-settings"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import {
   IconTile,
   PILL_BUTTON,
   SettingsBackButton,
   SettingsGroup,
-  SettingsLink,
   SettingsSection,
 } from "@/components/workspace/settings-group"
 import { TriggerEffects } from "@/components/workspace/trigger-effects"
@@ -106,10 +108,8 @@ function connectBlocker(p: IntegrationStatus): string | null {
 // callbacks land back on the connector's detail view.
 export function ConnectorsSection({
   workspaceSlug,
-  onOpenAgentProfiles,
 }: {
   workspaceSlug: string
-  onOpenAgentProfiles: () => void
 }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -270,7 +270,6 @@ export function ConnectorsSection({
               })
             }
           }}
-          onOpenAgentProfiles={onOpenAgentProfiles}
         />
       ) : (
         <ConnectorList
@@ -577,7 +576,6 @@ function ConnectorDetail({
   onConnect,
   onReconnect,
   onDisconnect,
-  onOpenAgentProfiles,
 }: {
   workspaceSlug: string
   provider: IntegrationStatus
@@ -586,7 +584,6 @@ function ConnectorDetail({
   onConnect: () => void
   onReconnect: () => void
   onDisconnect: () => void
-  onOpenAgentProfiles: () => void
 }) {
   const blocker = connectBlocker(p)
   const status = p.connected
@@ -660,30 +657,8 @@ function ConnectorDetail({
         />
       )}
 
-      {p.capabilities.length > 0 && (
-        <SettingsSection
-          title="Capabilities"
-          count={p.capabilities.length}
-          caption={
-            <>
-              <SettingsLink onClick={onOpenAgentProfiles}>
-                Agent profiles
-              </SettingsLink>{" "}
-              control which channels can use these.
-            </>
-          }
-        >
-          <SettingsGroup>
-            {p.capabilities.map((capability) => (
-              <div key={capability.key} className="py-3">
-                <div className="text-sm">{capability.label}</div>
-                <div className="text-sm text-muted-foreground">
-                  {capability.description}
-                </div>
-              </div>
-            ))}
-          </SettingsGroup>
-        </SettingsSection>
+      {!p.connected && p.tools.length > 0 && (
+        <ConnectorToolPreview key={p.id} tools={p.tools} />
       )}
 
       {p.events.length > 0 &&

@@ -2,7 +2,6 @@ import {
   availableCapabilities,
   type CapabilityDescriptor,
   CONNECTORS,
-  profileSelectedTools,
 } from "@repo/connectors"
 import { db } from "@repo/db"
 import {
@@ -11,7 +10,6 @@ import {
   customTool,
   integrationConnection,
   type LorCapability,
-  mcpServer,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { and, asc, desc, eq, inArray } from "drizzle-orm"
@@ -57,48 +55,6 @@ async function toolGrantsByProfile(
     else grants.set(row.profileId, [row.customToolId])
   }
   return grants
-}
-
-// Effective MCP server summaries use the new per-tool selections.
-async function mcpServerGrantsByProfile(
-  profileIds: string[]
-): Promise<Map<string, string[]>> {
-  if (profileIds.length === 0) return new Map()
-  const profiles = await db
-    .select({
-      id: agentProfile.id,
-      workspaceId: agentProfile.workspaceId,
-      access: agentProfile.toolAccess,
-    })
-    .from(agentProfile)
-    .where(inArray(agentProfile.id, profileIds))
-  const workspaceIds = [
-    ...new Set(profiles.map((profile) => profile.workspaceId)),
-  ]
-  if (workspaceIds.length === 0) return new Map()
-  const servers = await db
-    .select({
-      id: mcpServer.id,
-      workspaceId: mcpServer.workspaceId,
-      enabledTools: mcpServer.enabledTools,
-    })
-    .from(mcpServer)
-    .where(inArray(mcpServer.workspaceId, workspaceIds))
-  return new Map(
-    profiles.map((profile) => [
-      profile.id,
-      servers
-        .filter(
-          (server) =>
-            server.workspaceId === profile.workspaceId &&
-            profileSelectedTools(
-              server.enabledTools,
-              profile.access.mcpServers[server.id]
-            ).length > 0
-        )
-        .map((server) => server.id),
-    ])
-  )
 }
 
 // Grants may only reference this workspace's tools — the FK alone can't stop
@@ -173,39 +129,27 @@ export const listAgentProfiles: AppRouteHandler<
     .where(eq(agentProfile.workspaceId, workspace.id))
     .orderBy(desc(agentProfile.isDefault), asc(agentProfile.name))
   const profileIds = profiles.map((p) => p.id)
-  const [grants, mcpServerGrants, connections, tools, mcpServers] =
-    await Promise.all([
-      toolGrantsByProfile(profileIds),
-      mcpServerGrantsByProfile(profileIds),
-      db
-        .select({ provider: integrationConnection.provider })
-        .from(integrationConnection)
-        .where(
-          and(
-            eq(integrationConnection.workspaceId, workspace.id),
-            eq(integrationConnection.status, "active")
-          )
-        ),
-      db
-        .select({
-          id: customTool.id,
-          name: customTool.name,
-          description: customTool.description,
-        })
-        .from(customTool)
-        .where(eq(customTool.workspaceId, workspace.id))
-        .orderBy(asc(customTool.name)),
-      db
-        .select({
-          id: mcpServer.id,
-          name: mcpServer.name,
-          description: mcpServer.description,
-          enabledTools: mcpServer.enabledTools,
-        })
-        .from(mcpServer)
-        .where(eq(mcpServer.workspaceId, workspace.id))
-        .orderBy(asc(mcpServer.name)),
-    ])
+  const [grants, connections, tools] = await Promise.all([
+    toolGrantsByProfile(profileIds),
+    db
+      .select({ provider: integrationConnection.provider })
+      .from(integrationConnection)
+      .where(
+        and(
+          eq(integrationConnection.workspaceId, workspace.id),
+          eq(integrationConnection.status, "active")
+        )
+      ),
+    db
+      .select({
+        id: customTool.id,
+        name: customTool.name,
+        description: customTool.description,
+      })
+      .from(customTool)
+      .where(eq(customTool.workspaceId, workspace.id))
+      .orderBy(asc(customTool.name)),
+  ])
 
   const connected = new Set(connections.map((r) => r.provider))
   const caps = configuredCapabilities(availableCapabilities(connected)).map(
@@ -223,17 +167,10 @@ export const listAgentProfiles: AppRouteHandler<
       profiles: profiles.map((p) => ({
         ...p,
         customToolIds: grants.get(p.id) ?? [],
-        mcpServerIds: mcpServerGrants.get(p.id) ?? [],
       })),
       availableCapabilities: caps,
       availableToolGroups: await workspaceProfileToolGroups(workspace.id),
       availableCustomTools: tools,
-      availableMcpServers: mcpServers.map((s) => ({
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        enabledToolCount: s.enabledTools.length,
-      })),
     },
     HttpStatusCodes.OK
   )
@@ -253,12 +190,6 @@ export const createAgentProfile: AppRouteHandler<
         { success: false, message: issue },
         HttpStatusCodes.BAD_REQUEST
       )
-  }
-  if (body.mcpServerIds?.length) {
-    return c.json(
-      { success: false, message: "Configure MCP tools through toolAccess" },
-      HttpStatusCodes.BAD_REQUEST
-    )
   }
 
   // The join tables key on (profileId, toolId) — a duplicated id in the
@@ -315,9 +246,7 @@ export const createAgentProfile: AppRouteHandler<
       HttpStatusCodes.INTERNAL_SERVER_ERROR
     )
   }
-  const mcpServerIds =
-    (await mcpServerGrantsByProfile([created.id])).get(created.id) ?? []
-  return c.json({ ...created, customToolIds, mcpServerIds }, HttpStatusCodes.OK)
+  return c.json({ ...created, customToolIds }, HttpStatusCodes.OK)
 }
 
 export const updateAgentProfile: AppRouteHandler<
@@ -335,12 +264,6 @@ export const updateAgentProfile: AppRouteHandler<
         { success: false, message: issue },
         HttpStatusCodes.BAD_REQUEST
       )
-  }
-  if (body.mcpServerIds?.length) {
-    return c.json(
-      { success: false, message: "Configure MCP tools through toolAccess" },
-      HttpStatusCodes.BAD_REQUEST
-    )
   }
 
   // Same dedupe as create — the join tables' composite keys reject duplicates.
@@ -421,14 +344,10 @@ export const updateAgentProfile: AppRouteHandler<
   }
   const grants =
     customToolIds ?? (await toolGrantsByProfile([updated.id])).get(updated.id)
-  const mcpServers = (await mcpServerGrantsByProfile([updated.id])).get(
-    updated.id
-  )
   return c.json(
     {
       ...updated,
       customToolIds: grants ?? [],
-      mcpServerIds: mcpServers ?? [],
     },
     HttpStatusCodes.OK
   )

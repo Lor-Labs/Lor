@@ -16,12 +16,14 @@ export function SettingsSection({
   title,
   count,
   action,
+  description,
   caption,
   children,
 }: {
   title: string
   count?: number
   action?: ReactNode
+  description?: ReactNode
   caption?: ReactNode
   children: ReactNode
 }) {
@@ -38,6 +40,11 @@ export function SettingsSection({
         </h3>
         {action}
       </div>
+      {description && (
+        <p className="px-4 text-xs leading-relaxed text-muted-foreground">
+          {description}
+        </p>
+      )}
       {children}
       {caption && (
         <p className="px-4 text-xs text-muted-foreground">{caption}</p>

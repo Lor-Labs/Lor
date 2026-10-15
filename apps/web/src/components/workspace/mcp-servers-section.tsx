@@ -846,8 +846,7 @@ function ServerEditor({
 
       {(!isOAuth || oauthCanReview) && (
         <SettingsSection
-          title="Tools Lor may use"
-          count={toolList.length > 0 ? toolList.length : undefined}
+          title="Tools"
           action={
             <Button
               type="button"
@@ -874,8 +873,8 @@ function ServerEditor({
             <SettingsCard>
               <p className="text-sm text-muted-foreground">
                 {isOAuth
-                  ? "Review the authorized server's tools, then choose which ones assigned channels may call."
-                  : "Connect to list the server's tools, then pick which ones Lor may call. New tools the server adds later stay off until enabled here."}
+                  ? "Review the server’s tools to finish connecting."
+                  : "Connect to choose which tools Lor can use."}
               </p>
             </SettingsCard>
           ) : (
@@ -889,17 +888,9 @@ function ServerEditor({
           )}
           {isOAuth && (
             <div className="flex items-center justify-between gap-3 px-4">
-              <div className="space-y-1 text-xs text-muted-foreground">
-                <p>
-                  This list comes directly from the MCP server. OAuth
-                  permissions may unlock products or operations inside a general
-                  tool instead of adding one tool per product.
-                </p>
-                <p>
-                  Tool changes apply to every channel whose profile grants this
-                  server.
-                </p>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Available actions depend on the server’s OAuth permissions.
+              </p>
               <Button
                 type="button"
                 size="sm"
@@ -1027,9 +1018,14 @@ export function McpServersBlock({
   }, [navigate, onOpen, requestedServerId, servers])
 
   const invalidate = () =>
-    queryClient.invalidateQueries({
-      queryKey: mcpServersQueryKey(workspaceSlug),
-    })
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: mcpServersQueryKey(workspaceSlug),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["agent-profiles", workspaceSlug],
+      }),
+    ])
 
   // Refresh the editor only when it still shows the server whose authorization
   // completed. The user may have opened another server while OAuth was pending.

@@ -416,8 +416,6 @@ async function applyOperation(
         ctx.tx
       )
       if (toolAccessIssue) fail(position, toolAccessIssue)
-      if (spec.mcpServers.length > 0)
-        fail(position, "Configure MCP tools through toolAccess")
       const connections = await ctx.tx
         .select({ provider: schema.integrationConnection.provider })
         .from(schema.integrationConnection)

@@ -1,15 +1,19 @@
 # Connector tool controls
 
-Shared controls and the Better Stack connector are implemented. The backend profile
-tool-access model is implemented; its editor and the picker redesign remain
-separate review batches.
+Shared controls, the Better Stack connector, profile tool access, and the
+simplified connector picker are implemented. The UI is ready for review.
 
 ## Locked behavior
 
 - Built-in connections save explicit tool names. Each connector owns recommended
   defaults; Linear includes its reviewed writes, Better Stack starts read only.
-- Read only / Read & write presets populate the selection. Customize tools opens
-  individual checkboxes. Only explicitly read-only tools show a Read only badge.
+- One Tool access dropdown offers Recommended (built-ins), Read only (when
+  declared), Read & write (built-ins) or All tools (MCP), Custom, and Off.
+  Presets populate explicit saved names; they do not auto-enable future tools.
+  Review tools expands the individual checkboxes; Custom opens them immediately.
+  Only explicitly read-only tools show a Read only badge. Built-in Save/Cancel
+  actions appear only for changed selections. MCPs keep their existing form save
+  and OAuth completion actions.
 - Custom MCP discovery carries the provider's `readOnlyHint`. The label is a
   provider declaration, not a security guarantee or an approval exemption.
 - Profile connector/MCP selections intersect workspace-enabled tool names.
@@ -102,30 +106,41 @@ Better Stack connection remain rollout work; the complete credentialed flow has
 not been exercised here. Connector administration remains web-only, matching the
 existing mobile settings; mobile tool-trail branding includes Better Stack.
 
-## Profile tool access — backend batch implemented
+## Profile tool access
 
 - Connector settings define the tools available to the workspace.
 - Agent profiles follow that workspace selection by default and can turn off a
   connector or select a narrower set of individual tools, grouped by connector.
 - Read-only selection is a convenience preset rather than the unit of access.
 - Approval rules remain a separate control over permitted actions.
-- Remove the customer-facing Capabilities section and replace broad profile
-  capability switches with tool access. Built-in tools and custom MCP tools
-  should use consistent access concepts.
+- The customer-facing Capabilities section is removed. Profile controls and
+  tool selections now describe access; internal startup/approval groups remain.
 - Pre-launch breaking changes are acceptable. Do not add compatibility paths for
   the previous profile configuration format.
 
 - [x] Profile access model, API, and enforcement.
-- [ ] Profile editor and configuration-proposal summaries using the new tool
+- [x] Profile editor and configuration-proposal summaries using the new tool
   access contract.
-- [ ] Connector tool-picker redesign and removal of the Capabilities section.
+- [x] Connector tool-picker redesign and removal of the Capabilities section.
 
-This batch does not update the profile editor. Do not deploy it with the old
-editor: connector capability writes and nonempty whole-server `mcpServerIds`
-writes are rejected, and the editor cannot yet configure the new selections.
-The old MCP grant join table is no longer read for authorization; its schema
-can be removed with the editor/API cleanup. No old connector grants are converted
-or preserved through a fallback.
+The web and mobile profile editors use one choice per connected service: Use
+workspace tools, Off, or Choose tools. Individual checkboxes appear for Choose
+tools. Only an explicit `readOnlyHint: true` shows a Read only label. Built-in
+abilities and custom HTTP API tools remain separate; All API tools no longer
+implies MCP access. Channel settings and profile list summaries use effective
+per-tool selections.
+
+Configuration-proposal cards show workspace-following behavior, every service
+override, and the complete custom tool selection without truncating permission
+lines. Names are resolved from the workspace catalog where available; unavailable
+MCP servers fall back to their IDs. Editors flag saved selections that no longer
+exist, and require an explicit removal before saving rather than silently dropping
+restrictions. No old connector grants are converted or preserved through a fallback.
+
+The obsolete `mcpServerIds` request/response field, `availableMcpServers` duplicate
+list, proposal `mcpServers` grant array, and `agent_profile_mcp_server` schema have
+been removed. Profile writes reject unknown fields, including the removed grant
+fields. MCP access is now solely in `toolAccess.mcpServers`.
 
 ### API contract
 
@@ -168,7 +183,7 @@ Example profile create/update tool-access payload:
 ```
 
 Standalone abilities (web, artifacts) and individual HTTP tools retain their
-existing internal grants in this batch. `grantsAll` never overrides connector or
+existing internal grants. `grantsAll` never overrides connector or
 MCP tool restrictions. Channel resolution remains channel → category → workspace
 default. Missing channels and failed profile reads do not grant external tools.
 Runs without a channel also honor the workspace default profile.
@@ -199,7 +214,11 @@ is no conversion from their old capability or MCP grant lists.
 ALTER TABLE agent_profile
   ADD COLUMN IF NOT EXISTS tool_access jsonb NOT NULL
   DEFAULT '{"connectors":{},"mcpServers":{}}'::jsonb;
+
+-- Once all services use tool_access, remove the unused grant table.
+DROP TABLE IF EXISTS agent_profile_mcp_server;
 ```
 
-The database has not been changed by this batch. Review runtime enforcement and
-API behavior before proceeding to the editor batch.
+This UI batch does not change the database. Review the profile editor and
+connector picker before committing. Lint, type checking, and builds are the
+validation workflow; no tests or browser harnesses are run.

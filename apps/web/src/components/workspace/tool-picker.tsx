@@ -1,6 +1,14 @@
+import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Badge } from "@repo/ui/components/badge"
-import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui/components/select"
 import { useId, useState } from "react"
 import { SettingsGroup } from "./settings-group"
 
@@ -10,6 +18,8 @@ export type SelectableTool = {
   description: string
   readOnlyHint?: boolean
 }
+
+type AccessMode = "recommended" | "readOnly" | "all" | "custom" | "off"
 
 function cleanDescription(raw: string): string {
   return raw
@@ -36,82 +46,116 @@ export function ToolPicker({
   providerHints?: boolean
 }) {
   const id = useId()
-  const [customizing, setCustomizing] = useState(providerHints)
   const readOnly = tools
     .filter((tool) => tool.readOnlyHint === true)
     .map((tool) => tool.name)
   const all = tools.map((tool) => tool.name)
+  const presets: Record<Exclude<AccessMode, "custom">, readonly string[]> = {
+    recommended: recommended ?? [],
+    readOnly,
+    all,
+    off: [],
+  }
   const matches = (names: readonly string[]) =>
     selected.size === names.length && names.every((name) => selected.has(name))
-  const choose = (names: readonly string[]) => onChange(new Set(names))
+  const inferredMode: AccessMode =
+    selected.size === 0
+      ? "off"
+      : recommended && matches(recommended)
+        ? "recommended"
+        : matches(readOnly)
+          ? "readOnly"
+          : matches(all)
+            ? "all"
+            : "custom"
+  const [choice, setChoice] = useState<AccessMode | null>(null)
+  const [expanded, setExpanded] = useState(
+    providerHints || inferredMode === "custom"
+  )
+  const options: { value: AccessMode; label: string }[] = [
+    ...(recommended
+      ? [{ value: "recommended" as const, label: "Recommended" }]
+      : []),
+    ...(readOnly.length > 0
+      ? [{ value: "readOnly" as const, label: "Read only" }]
+      : []),
+    ...(all.length !== readOnly.length
+      ? [
+          {
+            value: "all" as const,
+            label: providerHints ? "All tools" : "Read & write",
+          },
+        ]
+      : []),
+    { value: "custom", label: "Custom" },
+    { value: "off", label: "Off" },
+  ]
+
+  // Keep Custom open even when a checkbox happens to complete a preset.
+  const mode =
+    choice === "custom" ||
+    (choice &&
+      options.some((option) => option.value === choice) &&
+      matches(presets[choice]))
+      ? choice
+      : inferredMode
+
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant={matches(readOnly) ? "secondary" : "ghost"}
-          size="sm"
-          disabled={disabled || readOnly.length === 0}
-          aria-pressed={readOnly.length > 0 && matches(readOnly)}
-          onClick={() => choose(readOnly)}
-        >
-          {providerHints ? "Select read only" : "Read only"}
-        </Button>
-        {all.length !== readOnly.length && (
-          <Button
-            type="button"
-            variant={matches(all) ? "secondary" : "ghost"}
-            size="sm"
-            disabled={disabled}
-            aria-pressed={matches(all)}
-            onClick={() => choose(all)}
-          >
-            {providerHints ? "Select all" : "Read & write"}
-          </Button>
-        )}
-        {recommended && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={disabled}
-            onClick={() => choose(recommended)}
-          >
-            Use defaults
-          </Button>
-        )}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
+    <SettingsGroup>
+      <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div id={`${id}-label`} className="text-sm">
+            Tool access
+          </div>
+          <div className="text-xs text-muted-foreground" aria-live="polite">
+            {selected.size === 0
+              ? "No tools enabled"
+              : `${selected.size} of ${tools.length} enabled`}
+          </div>
+        </div>
+        <Select<AccessMode>
+          value={mode}
+          items={options}
           disabled={disabled}
-          onClick={() => choose([])}
+          onValueChange={(value) => {
+            if (!value) return
+            setChoice(value)
+            if (value === "custom") setExpanded(true)
+            else onChange(new Set(presets[value]))
+          }}
         >
-          Clear
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-expanded={customizing}
-          aria-controls={`${id}-tools`}
-          onClick={() => setCustomizing((value) => !value)}
-        >
-          Customize tools
-        </Button>
-        <span className="text-xs text-muted-foreground" aria-live="polite">
-          {selected.size} of {tools.length} selected
-        </span>
+          <SelectTrigger
+            aria-labelledby={`${id}-label`}
+            className="w-full sm:w-48"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-      {providerHints && (
-        <p className="px-4 text-xs text-muted-foreground">
-          Read only labels are declared by the MCP provider. Review the tools
-          you enable; labels do not replace permissions or approvals.
-        </p>
-      )}
-      {customizing && (
-        <div id={`${id}-tools`}>
-          <SettingsGroup>
+      <div>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={`${id}-tools`}
+          onClick={() => setExpanded((value) => !value)}
+          className="flex w-full cursor-pointer items-center gap-1.5 rounded-sm py-2.5 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <HugeiconsIcon
+            icon={expanded ? ArrowDown01Icon : ArrowRight01Icon}
+            className="size-3.5"
+            strokeWidth={2}
+          />
+          {expanded ? "Hide tools" : "Review tools"}
+        </button>
+        {expanded && (
+          <div id={`${id}-tools`} className="divide-y divide-border pb-1">
             {tools.map((tool, index) => {
               const description = cleanDescription(tool.description)
               return (
@@ -125,6 +169,7 @@ export function ToolPicker({
                       const next = new Set(selected)
                       if (checked === true) next.add(tool.name)
                       else next.delete(tool.name)
+                      setChoice("custom")
                       onChange(next)
                     }}
                   />
@@ -145,7 +190,7 @@ export function ToolPicker({
                           variant="secondary"
                           title={
                             providerHints
-                              ? "The MCP provider declares this tool read only. This is a hint, not a guarantee."
+                              ? "Declared read only by the MCP provider."
                               : "This tool reads data without changing it."
                           }
                         >
@@ -165,9 +210,9 @@ export function ToolPicker({
                 </div>
               )
             })}
-          </SettingsGroup>
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+      </div>
+    </SettingsGroup>
   )
 }

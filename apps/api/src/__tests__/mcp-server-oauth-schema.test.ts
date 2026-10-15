@@ -1,8 +1,4 @@
-import {
-  agentProfileMcpServer,
-  mcpServer,
-  mcpServerOAuthAttempt,
-} from "@repo/db/schema"
+import { mcpServer, mcpServerOAuthAttempt } from "@repo/db/schema"
 import { getTableConfig } from "drizzle-orm/pg-core"
 import { describe, expect, it } from "vitest"
 import { mcpOAuthSettingsUrl } from "@/routes/v1/mcp-servers/oauth-service"
@@ -150,15 +146,10 @@ describe("MCP server OAuth database constraints", () => {
   it("uses explicit MCP server table and foreign-key names", () => {
     const serverConfig = getTableConfig(mcpServer)
     const attemptConfig = getTableConfig(mcpServerOAuthAttempt)
-    const grantConfig = getTableConfig(agentProfileMcpServer)
 
     expect(serverConfig.name).toBe("mcp_server")
     expect(attemptConfig.name).toBe("mcp_server_oauth_attempt")
-    expect(grantConfig.name).toBe("agent_profile_mcp_server")
     expect(attemptConfig.columns.map((column) => column.name)).toContain(
-      "mcp_server_id"
-    )
-    expect(grantConfig.columns.map((column) => column.name)).toContain(
       "mcp_server_id"
     )
   })

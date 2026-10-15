@@ -253,7 +253,6 @@ export const PROPOSAL_SAMPLES: ProposalSample[] = [
             mcpServers: {},
           },
           customTools: [],
-          mcpServers: [],
         }),
         op(3, {
           op: "assign_channel_profile",

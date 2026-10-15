@@ -97,18 +97,16 @@ export const updateInstructionsOpSchema = z.object({
   content: z.string().min(1).max(20000),
 })
 
-export const createAgentProfileOpSchema = z.object({
-  op: z.literal("create_agent_profile"),
-  toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
-  name: z.string().trim().min(1).max(80),
-  // Validated against the connector registry at apply (grantability included).
-  capabilities: z.array(z.string().min(1).max(50)).max(50).default([]),
-  customTools: z.array(resourceRefSchema).max(50).default([]),
-  mcpServers: z
-    .array(resourceRefSchema)
-    .max(0, "Configure MCP tools through toolAccess")
-    .default([]),
-})
+export const createAgentProfileOpSchema = z
+  .object({
+    op: z.literal("create_agent_profile"),
+    toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
+    name: z.string().trim().min(1).max(80),
+    // Validated against the connector registry at apply (grantability included).
+    capabilities: z.array(z.string().min(1).max(50)).max(50).default([]),
+    customTools: z.array(resourceRefSchema).max(50).default([]),
+  })
+  .strict()
 
 export const assignChannelProfileOpSchema = z.object({
   op: z.literal("assign_channel_profile"),

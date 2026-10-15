@@ -293,10 +293,7 @@ export function WorkspaceSettingsDialog({
                       canManageRoles={canManageBilling}
                     />
                   ) : section === "connectors" ? (
-                    <ConnectorsSection
-                      workspaceSlug={workspace.slug}
-                      onOpenAgentProfiles={() => onSectionChange("agent")}
-                    />
+                    <ConnectorsSection workspaceSlug={workspace.slug} />
                   ) : section === "custom-tools" ? (
                     <CustomToolsSection
                       workspaceSlug={workspace.slug}
@@ -314,7 +311,6 @@ export function WorkspaceSettingsDialog({
                   ) : (
                     <AgentProfilesSection
                       workspaceSlug={workspace.slug}
-                      onOpenConnectors={() => onSectionChange("connectors")}
                       onOpenTools={() => onSectionChange("custom-tools")}
                     />
                   )}

@@ -2,6 +2,14 @@ import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon"
 import PencilEdit01Icon from "@hugeicons/core-free-icons/PencilEdit01Icon"
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import {
+  hasUnavailableProfileSelections,
+  type ProfileToolGroup,
+  profileGroupSelection,
+  profileGroupSummary,
+  profileSelectedTools,
+} from "@repo/connectors"
+import type { ProfileToolAccess } from "@repo/db/schema"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
@@ -12,6 +20,7 @@ import { useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
 import { ConnectorIcon } from "@/components/connector-icon"
+import { ProfileToolAccessEditor } from "@/components/profile-tool-access-editor"
 import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
@@ -21,36 +30,28 @@ import { useWorkspace } from "@/context/workspace-context"
 import { api } from "@/lib/api"
 import type {
   AgentProfile,
+  AgentProfilesResponse,
   AvailableCapability,
   LorCapabilityKey,
 } from "@/lib/api-types"
 import { confirmDiscard } from "@/lib/confirm-discard"
 
-// Group capabilities by their connector, preserving first-seen order.
-function groupByConnector(caps: AvailableCapability[]) {
-  const groups: {
-    connector: AvailableCapability["connector"]
-    connectorLabel: string
-    caps: AvailableCapability[]
-  }[] = []
-  for (const cap of caps) {
-    const group = groups.find((g) => g.connector === cap.connector)
-    if (group) group.caps.push(cap)
-    else
-      groups.push({
-        connector: cap.connector,
-        connectorLabel: cap.connectorLabel,
-        caps: [cap],
-      })
-  }
-  return groups
+type ProfileValues = {
+  name: string
+  capabilities: LorCapabilityKey[]
+  toolAccess: ProfileToolAccess
+  customToolIds: string[]
 }
 
 function GrantedChips({
   available,
   profile,
+  groups,
+  tools,
 }: {
   available: AvailableCapability[]
+  groups: ProfileToolGroup[]
+  tools: AgentProfilesResponse["availableCustomTools"]
   profile: AgentProfile
 }) {
   const foreground = useThemeColor("foreground")
@@ -58,7 +59,18 @@ function GrantedChips({
     ? available
     : available.filter((cap) => profile.capabilities.includes(cap.key))
 
-  if (granted.length === 0) {
+  const services = groups.filter(
+    (group) =>
+      profileSelectedTools(
+        group.tools.map((tool) => tool.name),
+        profileGroupSelection(profile.toolAccess, group)
+      ).length > 0
+  )
+  const apiTools =
+    profile.grantsAll || profile.capabilities.includes("custom_tools")
+      ? []
+      : tools.filter((tool) => profile.customToolIds.includes(tool.id))
+  if (granted.length === 0 && services.length === 0 && apiTools.length === 0) {
     return <Text className="text-xs text-muted">Chat & memory only</Text>
   }
   return (
@@ -76,12 +88,36 @@ function GrantedChips({
           <Text className="text-xs text-foreground">{cap.label}</Text>
         </View>
       ))}
+      {services.map((group) => (
+        <View
+          key={`${group.kind}:${group.id}`}
+          className="rounded-lor-sm bg-surface-tertiary px-two py-one"
+        >
+          <Text className="text-xs text-foreground">
+            {group.name} ·{" "}
+            {profileGroupSummary(
+              group,
+              profileGroupSelection(profile.toolAccess, group)
+            )}
+          </Text>
+        </View>
+      ))}
+      {apiTools.map((tool) => (
+        <View
+          key={tool.id}
+          className="rounded-lor-sm bg-surface-tertiary px-two py-one"
+        >
+          <Text className="text-xs text-foreground">{tool.name}</Text>
+        </View>
+      ))}
     </View>
   )
 }
 
 function ProfileEditor({
   available,
+  groups,
+  tools,
   onCancel,
   onSave,
   profile,
@@ -89,17 +125,30 @@ function ProfileEditor({
 }: {
   available: AvailableCapability[]
   onCancel: () => void
-  onSave: (name: string, capabilities: LorCapabilityKey[]) => void
+  groups: ProfileToolGroup[]
+  tools: AgentProfilesResponse["availableCustomTools"]
+  onSave: (values: ProfileValues) => void
   profile?: AgentProfile
   saving: boolean
 }) {
-  const [foreground, accent] = useThemeColor(["foreground", "accent"])
+  const accent = useThemeColor("accent")
   const [name, setName] = useState(profile?.name ?? "")
   const [selected, setSelected] = useState<Set<LorCapabilityKey>>(() => {
     if (!profile) return new Set()
     if (profile.grantsAll) return new Set(available.map((cap) => cap.key))
-    return new Set(profile.capabilities)
+    return new Set(
+      profile.capabilities.filter((key) =>
+        available.some((cap) => cap.key === key)
+      )
+    )
   })
+
+  const [toolAccess, setToolAccess] = useState<ProfileToolAccess>(
+    profile?.toolAccess ?? { connectors: {}, mcpServers: {} }
+  )
+  const [customToolIds, setCustomToolIds] = useState(
+    profile?.customToolIds ?? []
+  )
 
   const toggle = (key: LorCapabilityKey) => {
     setSelected((previous) => {
@@ -111,92 +160,130 @@ function ProfileEditor({
   }
 
   const save = () => {
-    if (!name.trim()) return
-    // Keep grants for capabilities whose connector is currently disconnected —
-    // the editor can't show them, but they shouldn't be silently revoked.
-    const availableKeys = new Set(available.map((cap) => cap.key))
-    const preserved = (profile?.capabilities ?? []).filter(
-      (key) => !availableKeys.has(key)
+    if (
+      !name.trim() ||
+      saving ||
+      hasUnavailableProfileSelections(toolAccess, groups)
     )
-    onSave(name.trim(), [...new Set([...selected, ...preserved])])
+      return
+    onSave({
+      name: name.trim(),
+      capabilities: [...selected],
+      toolAccess,
+      customToolIds,
+    })
   }
 
   return (
-    <View className="gap-four rounded-lor-lg bg-surface-secondary p-four">
+    <View
+      pointerEvents={saving ? "none" : "auto"}
+      className="gap-four rounded-lor-lg bg-surface-secondary p-four"
+    >
       <Input
         maxLength={60}
         onChangeText={setName}
         placeholder="Profile name"
         value={name}
       />
-      <View className="gap-three">
-        <Text className="text-xs font-medium text-muted">Tools</Text>
-        {available.length === 0 ? (
-          <Text className="text-xs leading-4 text-muted">
-            No connectors are connected yet — connect one from the web app's
-            Connectors settings to grant tools.
-          </Text>
-        ) : (
-          groupByConnector(available).map((group) => (
-            <View className="gap-two" key={group.connector ?? "web"}>
-              <View className="flex-row items-center gap-one">
-                <ConnectorIcon
-                  color={foreground}
-                  connector={group.connector}
-                  size={13}
-                />
-                <Text className="text-xs font-medium text-muted">
-                  {group.connectorLabel}
-                </Text>
-              </View>
-              {group.caps.map((cap) => {
-                const isSelected = selected.has(cap.key)
-                return (
-                  <Pressable
-                    accessibilityLabel={cap.label}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: isSelected }}
-                    className={`flex-row items-center gap-three rounded-lor-sm border px-three py-three active:opacity-70 ${
-                      isSelected
-                        ? "border-accent bg-accent-soft"
-                        : "border-separator bg-surface"
-                    }`}
-                    key={cap.key}
-                    onPress={() => toggle(cap.key)}
-                  >
-                    <View className="min-w-0 flex-1 gap-px">
-                      <Text className="text-sm font-medium text-foreground">
-                        {cap.label}
-                      </Text>
-                      <Text className="text-xs leading-4 text-muted">
-                        {cap.description}
-                      </Text>
-                    </View>
-                    {isSelected ? (
-                      <SymbolView
-                        name={{
-                          ios: "checkmark.circle.fill",
-                          android: "check_circle",
-                          web: "check_circle",
-                        }}
-                        size={19}
-                        tintColor={accent}
-                      />
-                    ) : (
-                      <View className="size-[19px] rounded-full border border-separator" />
-                    )}
-                  </Pressable>
-                )
-              })}
+      <View className="gap-two">
+        <Text className="text-sm font-medium text-foreground">
+          Connected services
+        </Text>
+        <Text className="text-xs text-muted">
+          Choose which workspace tools this profile can use. Approval rules
+          still apply.
+        </Text>
+        <ProfileToolAccessEditor
+          groups={groups}
+          value={toolAccess}
+          onChange={setToolAccess}
+        />
+      </View>
+      <View className="gap-two">
+        <Text className="text-sm font-medium text-foreground">
+          Built-in and API tools
+        </Text>
+        {available.map((cap) => (
+          <Pressable
+            key={cap.key}
+            accessibilityLabel={cap.label}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: selected.has(cap.key) }}
+            onPress={() => toggle(cap.key)}
+            className="min-h-11 flex-row items-center gap-three rounded-lor-sm border border-separator p-three active:opacity-70"
+          >
+            <View className="min-w-0 flex-1 gap-one">
+              <Text className="text-sm text-foreground">{cap.label}</Text>
+              <Text className="text-xs text-muted">{cap.description}</Text>
             </View>
-          ))
-        )}
+            {selected.has(cap.key) ? (
+              <SymbolView
+                name={{
+                  ios: "checkmark.circle.fill",
+                  android: "check_circle",
+                  web: "check_circle",
+                }}
+                size={19}
+                tintColor={accent}
+              />
+            ) : (
+              <View className="size-[19px] rounded-full border border-separator" />
+            )}
+          </Pressable>
+        ))}
+        {tools.map((tool) => (
+          <Pressable
+            key={tool.id}
+            accessibilityLabel={tool.name}
+            accessibilityRole="checkbox"
+            accessibilityState={{
+              checked:
+                selected.has("custom_tools") || customToolIds.includes(tool.id),
+              disabled: selected.has("custom_tools"),
+            }}
+            disabled={selected.has("custom_tools")}
+            onPress={() =>
+              setCustomToolIds((previous) =>
+                previous.includes(tool.id)
+                  ? previous.filter((id) => id !== tool.id)
+                  : [...previous, tool.id]
+              )
+            }
+            className="min-h-11 flex-row items-center gap-three rounded-lor-sm border border-separator p-three active:opacity-70"
+          >
+            <View className="min-w-0 flex-1 gap-one">
+              <Text className="text-sm text-foreground">{tool.name}</Text>
+              <Text className="text-xs text-muted">{tool.description}</Text>
+            </View>
+            {selected.has("custom_tools") || customToolIds.includes(tool.id) ? (
+              <SymbolView
+                name={{
+                  ios: "checkmark.circle.fill",
+                  android: "check_circle",
+                  web: "check_circle",
+                }}
+                size={19}
+                tintColor={accent}
+              />
+            ) : (
+              <View className="size-[19px] rounded-full border border-separator" />
+            )}
+          </Pressable>
+        ))}
       </View>
       <View className="flex-row justify-end gap-two">
         <Button onPress={onCancel} size="sm" variant="ghost">
           Cancel
         </Button>
-        <Button isDisabled={!name.trim() || saving} onPress={save} size="sm">
+        <Button
+          isDisabled={
+            !name.trim() ||
+            saving ||
+            hasUnavailableProfileSelections(toolAccess, groups)
+          }
+          onPress={save}
+          size="sm"
+        >
           {saving ? "Saving…" : "Save"}
         </Button>
       </View>
@@ -231,30 +318,42 @@ export default function AgentProfilesScreen() {
     })
 
   const save = useMutation({
-    mutationFn: async (input: {
-      id?: string
-      name: string
-      capabilities: LorCapabilityKey[]
-    }) => {
+    mutationFn: async (input: ProfileValues & { id?: string }) => {
       const profiles = api.v1.workspaces[":workspaceSlug"]["agent-profiles"]
       const response = input.id
         ? await profiles[":profileId"].$patch({
             param: { workspaceSlug: workspaceSlug ?? "", profileId: input.id },
-            json: { name: input.name, capabilities: input.capabilities },
+            json: {
+              name: input.name,
+              capabilities: input.capabilities,
+              toolAccess: input.toolAccess,
+              customToolIds: input.customToolIds,
+            },
           })
         : await profiles.$post({
             param: { workspaceSlug: workspaceSlug ?? "" },
-            json: { name: input.name, capabilities: input.capabilities },
+            json: {
+              name: input.name,
+              capabilities: input.capabilities,
+              toolAccess: input.toolAccess,
+              customToolIds: input.customToolIds,
+            },
           })
-      if (!response.ok) throw new Error("Could not save the profile")
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(
+          "message" in error ? error.message : "Could not save the profile"
+        )
+      }
     },
     onSuccess: () => {
       void invalidate()
       setEditingId(null)
       toast.show({ variant: "success", label: "Profile saved" })
     },
-    onError: () => {
-      toast.show({ variant: "danger", label: "Couldn't save the profile" })
+    onError: (error) => {
+      void invalidate()
+      toast.show({ variant: "danger", label: error.message })
     },
   })
 
@@ -358,10 +457,12 @@ export default function AgentProfilesScreen() {
               editingId === profile.id ? (
                 <ProfileEditor
                   available={data.availableCapabilities}
+                  groups={data.availableToolGroups}
+                  tools={data.availableCustomTools}
                   key={profile.id}
                   onCancel={() => setEditingId(null)}
-                  onSave={(name, capabilities) =>
-                    save.mutate({ id: profile.id, name, capabilities })
+                  onSave={(values) =>
+                    save.mutate({ id: profile.id, ...values })
                   }
                   profile={profile}
                   saving={save.isPending}
@@ -389,6 +490,8 @@ export default function AgentProfilesScreen() {
                     </View>
                     <GrantedChips
                       available={data.availableCapabilities}
+                      groups={data.availableToolGroups}
+                      tools={data.availableCustomTools}
                       profile={profile}
                     />
                   </View>
@@ -424,10 +527,10 @@ export default function AgentProfilesScreen() {
             {editingId === "new" ? (
               <ProfileEditor
                 available={data.availableCapabilities}
+                groups={data.availableToolGroups}
+                tools={data.availableCustomTools}
                 onCancel={() => setEditingId(null)}
-                onSave={(name, capabilities) =>
-                  save.mutate({ name, capabilities })
-                }
+                onSave={(values) => save.mutate(values)}
                 saving={save.isPending}
               />
             ) : (

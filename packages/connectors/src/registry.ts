@@ -236,9 +236,9 @@ export const CAPABILITIES: Record<LorCapability, CapabilityDescriptor> = {
   },
   custom_tools: {
     key: "custom_tools",
-    label: "All workspace tools",
+    label: "All API tools",
     description:
-      "Call any of this workspace's tools: API tools and MCP servers",
+      "Use all current and future custom HTTP API tools in this workspace",
     connector: null,
   },
 }

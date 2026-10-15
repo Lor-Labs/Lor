@@ -1,9 +1,7 @@
 import {
-  CloudServerIcon,
   Layers01Icon,
   Settings01Icon,
   WebhookIcon,
-  Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
@@ -32,7 +30,7 @@ import { useParams } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { ChannelWebhooksTab } from "@/components/sidebar/channel-panel/channel-webhooks-tab"
 import { MorphText } from "@/components/ui/morph-text"
-import { hasBlanketTools } from "@/components/workspace/agent-profiles-section"
+import { GrantedChips } from "@/components/workspace/agent-profiles-section"
 import { apiClient } from "@/lib/api-client"
 import type {
   AgentProfile,
@@ -46,7 +44,6 @@ import {
   upsertChannel,
 } from "@/lib/channel-list-cache"
 import { channelQueryOptions } from "@/lib/channel-query"
-import { connectorLogo } from "@/lib/connector-ui"
 
 const INHERIT = "__inherit__"
 
@@ -61,98 +58,24 @@ function ProfileCapabilities({
   profile,
   available,
   tools,
-  servers,
+  groups,
 }: {
   profile: AgentProfile
   available: AvailableCapability[]
   tools: AgentProfilesResponse["availableCustomTools"]
-  servers: AgentProfilesResponse["availableMcpServers"]
+  groups: AgentProfilesResponse["availableToolGroups"]
 }) {
-  const granted = profile.grantsAll
-    ? available
-    : available.filter((c) => profile.capabilities.includes(c.key))
-  // Individual grants only matter without the blanket custom_tools capability
-  // (which already renders as "All workspace tools" above).
-  const blanket = hasBlanketTools(profile)
-  const grantedTools = blanket
-    ? []
-    : tools.filter((t) => profile.customToolIds.includes(t.id))
-  const grantedServers = blanket
-    ? []
-    : servers.filter((s) => profile.mcpServerIds.includes(s.id))
-
   return (
     <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
       <div className="text-xs font-medium text-muted-foreground">
         Lor can use
       </div>
-      {granted.length === 0 &&
-      grantedTools.length === 0 &&
-      grantedServers.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Chat & memory only.</p>
-      ) : (
-        <ul className="space-y-2">
-          {granted.map((c) => {
-            const Icon = connectorLogo(c.connector)
-            return (
-              <li key={c.key} className="flex items-center gap-3">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-                  {c.key === "custom_tools" ? (
-                    <HugeiconsIcon
-                      icon={Wrench01Icon}
-                      className="size-4"
-                      strokeWidth={2}
-                    />
-                  ) : (
-                    <Icon className="size-4" />
-                  )}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm">{c.label}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {c.description}
-                  </span>
-                </span>
-              </li>
-            )
-          })}
-          {grantedTools.map((t) => (
-            <li key={t.id} className="flex items-center gap-3">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-                <HugeiconsIcon
-                  icon={Wrench01Icon}
-                  className="size-4"
-                  strokeWidth={2}
-                />
-              </span>
-              <span className="min-w-0">
-                <span className="block font-mono text-sm">{t.name}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {t.description}
-                </span>
-              </span>
-            </li>
-          ))}
-          {grantedServers.map((s) => (
-            <li key={s.id} className="flex items-center gap-3">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-                <HugeiconsIcon
-                  icon={CloudServerIcon}
-                  className="size-4"
-                  strokeWidth={2}
-                />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm">{s.name}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {s.description ||
-                    `MCP server · ${s.enabledToolCount} ${s.enabledToolCount === 1 ? "tool" : "tools"} enabled`}
-                </span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+      <GrantedChips
+        profile={profile}
+        available={available}
+        tools={tools}
+        groups={groups}
+      />
     </div>
   )
 }
@@ -441,7 +364,7 @@ export function EditChannelDialog({
                         profile={previewProfile}
                         available={profilesData.availableCapabilities}
                         tools={profilesData.availableCustomTools}
-                        servers={profilesData.availableMcpServers}
+                        groups={profilesData.availableToolGroups}
                       />
                     )}
 

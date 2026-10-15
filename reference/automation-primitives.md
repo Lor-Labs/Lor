@@ -246,10 +246,10 @@ widen Lor's surface — new tools stay off until enabled). Sessions per
 respond() call like Datadog: granted servers handshake in parallel under one
 8s cap, unreachable servers drop out, tool results cap at 256KB, sessions
 close in respond()'s finally. Collisions skip-and-log (built-ins → custom
-tools → servers in name order). Grants ride the same two-level model as
-custom tools: the blanket `custom_tools` capability (relabeled "All workspace
-tools") covers both kinds; otherwise per-profile `agent_profile_mcp_server`
-join rows. Auth v1 is static headers only — **OAuth-flow MCP (dynamic client
+tools → servers in name order). MCP access now uses
+`agent_profile.tool_access`: follow workspace tools, turn the server off, or
+select a subset. The `custom_tools` capability covers HTTP API tools only.
+See `reference/connector-tools.md` for the current profile contract. Auth v1 is static headers only — **OAuth-flow MCP (dynamic client
 registration) is planned in `reference/mcp-oauth.md`**. UI: the settings section
 is now "Tools" with a kind picker (API Tool / MCP Server); the MCP form's
 "Connect & discover" step
@@ -445,8 +445,8 @@ refresh keeps the current selection). CRUD + discover endpoints at
 - **`mcp_server`**: name, url, headers (secret-referencing templates), secrets
   (encrypted), `enabledTools text[]` allowlist + `workspaceId`, `createdBy`.
   Hard-deleted; name unique per workspace.
-- **`agent_profile_mcp_server`**: `(profileId, mcpServerId)` grant rows,
-  cascade on both FKs.
+- **`agent_profile.tool_access`**: per-service workspace/off/custom selections
+  for connectors and MCP servers; replaces the removed MCP grant join table.
 - **`agent_run`** gains trigger provenance (`triggerId`, `deliveryId` — nullable) and
   `handoffNote` (a triggered run's closing note, read by the next run on the same
   trigger — see §5).

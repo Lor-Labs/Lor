@@ -34,9 +34,8 @@ export const agentProfileSchema = selectAgentProfileSchema
   })
   .extend({
     toolAccess: profileToolAccessSchema,
-    // HTTP tool grants and a read-only summary of effective MCP server access.
+    // Custom HTTP tool grants.
     customToolIds: z.array(z.string()),
-    mcpServerIds: z.array(z.string()),
   })
 
 export const capabilityDescriptorSchema = z.object({
@@ -77,27 +76,16 @@ export const listAgentProfilesResponseSchema = z.object({
       description: z.string(),
     })
   ),
-  // The workspace's MCP servers, selectable per profile in the editor.
-  availableMcpServers: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      description: z.string(),
-      enabledToolCount: z.number(),
-    })
-  ),
 })
 
-export const createAgentProfileRequestSchema = z.object({
-  name: z.string().trim().min(1).max(60),
-  capabilities: z.array(capabilitySchema).default([]),
-  toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
-  customToolIds: z.array(z.string().uuid()).max(200).default([]),
-  mcpServerIds: z
-    .array(z.string().uuid())
-    .max(0, "Configure MCP tools through toolAccess")
-    .default([]),
-})
+export const createAgentProfileRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    capabilities: z.array(capabilitySchema).default([]),
+    toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
+    customToolIds: z.array(z.string().uuid()).max(200).default([]),
+  })
+  .strict()
 
 export const updateAgentProfileRequestSchema = z
   .object({
@@ -105,18 +93,14 @@ export const updateAgentProfileRequestSchema = z
     capabilities: z.array(capabilitySchema).optional(),
     toolAccess: profileToolAccessSchema.optional(),
     customToolIds: z.array(z.string().uuid()).max(200).optional(),
-    mcpServerIds: z
-      .array(z.string().uuid())
-      .max(0, "Configure MCP tools through toolAccess")
-      .optional(),
   })
+  .strict()
   .refine(
     (v) =>
       v.name !== undefined ||
       v.toolAccess !== undefined ||
       v.capabilities !== undefined ||
-      v.customToolIds !== undefined ||
-      v.mcpServerIds !== undefined,
+      v.customToolIds !== undefined,
     { message: "At least one field must be provided" }
   )
 
