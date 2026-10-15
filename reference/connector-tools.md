@@ -1,6 +1,7 @@
 # Connector tool controls
 
-In flight. Shared controls land before the Better Stack connector.
+Shared controls and the Better Stack connector are implemented. The profile
+tool-access redesign below is agreed and awaits its own review batches.
 
 ## Locked behavior
 
@@ -12,9 +13,8 @@ In flight. Shared controls land before the Better Stack connector.
   provider declaration, not a security guarantee or an approval exemption.
 - Connection selections intersect agent-profile capabilities. Existing approval
   rules still apply. Disabled tools must never bind to the agent.
-- Existing connections retain a frozen snapshot of today's tools until saved.
-  Nullable `integration_connection.enabled_tools` means that legacy snapshot,
-  never a moving “all tools” default. An empty array enables no tools.
+- `integration_connection.enabled_tools` is a required explicit list. An empty
+  array enables no tools. Pre-launch configurations need no compatibility path.
 - New connections save today's recommended names. Reconnecting the same account
   preserves its selection. New catalog/upstream tools stay off on saved connections.
 - Better Stack uses a curated surface for investigation and explicit opt-in
@@ -22,7 +22,7 @@ In flight. Shared controls land before the Better Stack connector.
 
 ## Implementation
 
-- [x] Shared catalog, defaults, frozen legacy snapshots, connection column.
+- [x] Shared catalog, defaults, explicit selections, connection column.
 - [x] Management API validates and persists workspace-scoped selections.
 - [x] Runtime filters connector tools after profile grants and before binding.
 - [x] Shared picker, built-in settings, MCP read-only metadata and bulk selection.
@@ -67,22 +67,28 @@ Exact upstream names were checked against Better Stack's official
 and [error query reference](https://github.com/BetterStackHQ/claude-plugin/blob/main/skills/errors-query/SKILL.md).
 These are vendor API reference data, not instructions installed into Lor.
 
-## Additive schema changes
+## Schema rollout
 
-Apply these before deploying API/worker code. No backfill is needed: null tool
-selections use the frozen legacy snapshot. The following is a focused alternative
-to a full schema push when unrelated schema work is also pending:
+Apply these before deploying API/worker code. Any old null tool selections reset
+to no enabled tools; reconnect or select tools in settings afterward. There is
+no attempt to preserve those pre-launch configurations. The following is a
+focused alternative to a full schema push when unrelated schema work is pending:
 
 ```sql
-ALTER TABLE integration_connection ADD COLUMN IF NOT EXISTS enabled_tools text[];
+ALTER TABLE integration_connection
+  ADD COLUMN IF NOT EXISTS enabled_tools text[] NOT NULL DEFAULT '{}';
+UPDATE integration_connection SET enabled_tools = '{}' WHERE enabled_tools IS NULL;
+ALTER TABLE integration_connection
+  ALTER COLUMN enabled_tools SET DEFAULT '{}',
+  ALTER COLUMN enabled_tools SET NOT NULL;
 ALTER TYPE integration_provider ADD VALUE IF NOT EXISTS 'betterstack' BEFORE 'webhook';
 ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'betterstack' BEFORE 'web';
 ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'betterstack_write' BEFORE 'web';
 ```
 
 New connector tools must be added to `CONNECTOR_TOOLS` as well as the runtime
-binding. Never extend `LEGACY_TOOLS`. New recommended defaults affect only new
-connections and an explicit Use defaults action. Update the reviewed
+binding. New recommended defaults affect only new connections and an explicit
+Use defaults action. Update the reviewed
 `SIDE_EFFECT_TOOLS` set when adding built-in write tools.
 
 ## Validation and remaining rollout
@@ -93,3 +99,20 @@ were run under repository policy. Database changes and an authenticated live
 Better Stack connection remain rollout work; the complete credentialed flow has
 not been exercised here. Connector administration remains web-only, matching the
 existing mobile settings; mobile tool-trail branding includes Better Stack.
+
+## Agreed next model — not implemented yet
+
+- Connector settings define the tools available to the workspace.
+- Agent profiles follow that workspace selection by default and can turn off a
+  connector or select a narrower set of individual tools, grouped by connector.
+- Read-only selection is a convenience preset rather than the unit of access.
+- Approval rules remain a separate control over permitted actions.
+- Remove the customer-facing Capabilities section and replace broad profile
+  capability switches with tool access. Built-in tools and custom MCP tools
+  should use consistent access concepts.
+- Pre-launch breaking changes are acceptable. Do not add compatibility paths for
+  the previous profile configuration format.
+
+Review in separate batches: profile access model and enforcement, profile editor,
+then the connector tool-picker redesign. The legacy tool-selection fallback was
+removed in its own cleanup batch before this work.

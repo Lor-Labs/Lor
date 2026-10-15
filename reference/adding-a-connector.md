@@ -32,9 +32,8 @@ The two DB enums are the source of truth: `integrationProviderEnum` (`packages/d
 
 10. **Tool catalog** — add reviewed tool names, labels, `readOnlyHint`, and
     `defaultEnabled` to `CONNECTOR_TOOLS` (`packages/connectors/src/tools.ts`).
-    Add an empty entry to the frozen `LEGACY_TOOLS` for a new provider; never
-    extend an existing provider's legacy snapshot. New connections save explicit
-    recommended names; existing connections must opt in to new tools. Runtime
+    New connections save explicit recommended names; saved selections must opt
+    in to new tools. There is no legacy configuration fallback. Runtime
     tool groups are intersected with the connection selection after profile
     grants. See `reference/connector-tools.md` for the controls and rollout.
     **Tool module** — `packages/lor/src/<provider>.ts` (`buildXTools`, plus a write variant if you have a write cap). Return **meaningful results**: search tools return arrays of `{ title, url, … }`; write tools echo back what they created (the body/description) so the tool-trail card can show it, not just "ok". `[manual]`

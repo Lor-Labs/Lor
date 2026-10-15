@@ -333,45 +333,6 @@ export const CONNECTOR_TOOLS: Record<
   webhook: [],
 }
 
-// Frozen rollout snapshot. Never extend this when adding tools to the catalog.
-const LEGACY_TOOLS: Record<IntegrationProvider, readonly string[]> = {
-  github: [
-    "search_github",
-    "fetch_github",
-    "investigate_code",
-    "propose_code_change",
-  ],
-  linear: [
-    "search_linear",
-    "list_linear_issues",
-    "fetch_linear",
-    "create_linear_issue",
-    "comment_linear",
-    "update_linear_issue",
-  ],
-  datadog: ["search_datadog_logs", "analyze_datadog_logs"],
-  attio: [
-    "search_attio",
-    "fetch_attio_record",
-    "query_attio",
-    "fetch_attio_activity",
-  ],
-  notion: [
-    "search_notion",
-    "fetch_notion_page",
-    "query_notion_data_source",
-    "list_notion_users",
-  ],
-  cloudwatch: [
-    "list_cloudwatch_log_groups",
-    "search_cloudwatch_logs",
-    "list_cloudwatch_metrics",
-    "get_cloudwatch_metrics",
-  ],
-  betterstack: [],
-  webhook: [],
-}
-
 export function recommendedConnectorTools(
   provider: IntegrationProvider
 ): string[] {
@@ -382,9 +343,9 @@ export function recommendedConnectorTools(
 
 export function enabledConnectorTools(
   provider: IntegrationProvider,
-  saved: readonly string[] | null
+  saved: readonly string[]
 ): string[] {
-  const names = new Set(saved ?? LEGACY_TOOLS[provider])
+  const names = new Set(saved)
   return CONNECTOR_TOOLS[provider]
     .filter((tool) => names.has(tool.name))
     .map((tool) => tool.name)
