@@ -150,8 +150,9 @@ to 400 lines.
   concurrent create, returns "`<path>` already exists. Read it and use edit."
 - New `edit(path, oldText, newText)`: in one transaction, read the page and its
   version; `oldText` must appear exactly once; insert the history row; update
-  `where version = <read version>`. Zero rows updated returns "The page changed
-  since you read it. Read it again." Re-embed after the update.
+  `where version = <read version>`. If zero rows are updated, roll back the
+  transaction (including the history insert) before returning "The page changed
+  since you read it. Read it again." Re-embed only after the transaction commits.
 - `ensureFolderPath`: insert with `on conflict do nothing`, then re-select.
 - Remove the write-back lock (`lor-respond.ts:1302-1315`,
   `WRITEBACK_LOCK_TTL`). This also removes the lock-held return that skips

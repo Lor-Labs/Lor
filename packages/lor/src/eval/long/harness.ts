@@ -38,8 +38,13 @@ import {
 // EVAL_TASKS filters by name, EVAL_CONCURRENCY bounds parallelism,
 // EVAL_JUDGE_MODEL picks the grader.
 
-const K = Number(process.env.EVAL_K ?? 3)
-const CONCURRENCY = Number(process.env.EVAL_CONCURRENCY ?? 3)
+function positiveIntegerEnv(value: string | undefined): number {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 3
+}
+
+const K = positiveIntegerEnv(process.env.EVAL_K)
+const CONCURRENCY = positiveIntegerEnv(process.env.EVAL_CONCURRENCY)
 const ONLY = process.env.EVAL_TASKS?.split(",").map((s) => s.trim())
 // respond() already stops at AGENT_RUN_MAX_WALL_MS; this backstops a stream
 // that never settles.

@@ -528,8 +528,8 @@ moves to root.
 |---|---|---|
 | 0 | Fix §6; judged-pool eval baseline on current `search` | Eval only |
 | 1 | `source` grows into the item table (scope first, `session-memory.md` Step 1), `access_container`, connection access modes, audience filter, `brain_node_input` | None |
-| 2 | Ingestion: webhook-as-signal, backfill, reconcile, tombstones; GitHub + Linear first; real text, no per-item summary; Remember removed | Embeddings |
-| 3 | `touch` (sessions first, `session-memory.md` Step 5) + identifier/metadata edges; 1–2 hop expansion in `search` | None |
+| 2 | `touch` (sessions first, `session-memory.md` Step 5) + identifier/metadata edges; 1–2 hop expansion in `search` | None |
+| 3 | Ingestion: webhook-as-signal, backfill, reconcile, tombstones; GitHub + Linear first; real text, no per-item summary; Remember removed | Embeddings |
 | 4 | Hybrid search for every kind; `search` filters; iterative scan | None |
 | 5 | Calibrated gate + priors (R, A, P); retune τ on the pool | Rerank |
 | 6 | `person_identity`; expertise signal E | None |
