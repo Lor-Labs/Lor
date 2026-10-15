@@ -2,7 +2,7 @@ import { createGateway } from "@ai-sdk/gateway"
 import { LOR_EMBED_DIMENSIONS } from "@repo/db/constants"
 import { env } from "@repo/env/server"
 
-function parseFallbacks(value: string): string[] {
+function parseList(value: string): string[] {
   return value
     .split(",")
     .map((model) => model.trim())
@@ -32,11 +32,12 @@ const modelConfig = {
   },
   main: {
     id: env.LOR_MODEL,
-    fallbacks: parseFallbacks(env.LOR_MODEL_FALLBACKS),
+    fallbacks: parseList(env.LOR_MODEL_FALLBACKS),
+    providerOrder: parseList(env.LOR_MODEL_PROVIDER_ORDER),
   },
   small: {
     id: env.LOR_SMALL_MODEL,
-    fallbacks: parseFallbacks(env.LOR_SMALL_MODEL_FALLBACKS),
+    fallbacks: parseList(env.LOR_SMALL_MODEL_FALLBACKS),
   },
   embedding: {
     id: env.LOR_EMBED_MODEL,
@@ -77,6 +78,7 @@ export const lorRerankModel = gatewayTransport.rerankingModel(LOR_RERANK_MODEL)
 export const mainGatewayOptions = {
   caching: "auto" as const,
   models: LOR_FALLBACK_MODELS,
+  order: modelConfig.main.providerOrder,
 }
 
 export const smallGatewayOptions = {

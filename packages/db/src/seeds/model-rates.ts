@@ -27,8 +27,8 @@ const RATES = [
     cached: 0.03,
     output: 0.5,
   },
-  // DeepSeek V4.1 Flash (main-model trial): highest route price, so failover
-  // never under-bills. Cache reads range $0.003-$0.03 across routes.
+  // DeepSeek V4.1 Flash (main model): highest route price, so failover never
+  // under-bills. DeepInfra, the preferred route, is $0.14/$0.0042/$0.42.
   {
     model: "deepseek/deepseek-v4.1-flash",
     input: 0.3,

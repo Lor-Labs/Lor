@@ -1,4 +1,4 @@
-import { withContext } from "@repo/logger"
+import { redactLogPath, withContext } from "@repo/logger"
 import type { Context, Next } from "hono"
 import type { AppBindings } from "@/lib/types/app-types"
 
@@ -20,7 +20,7 @@ export async function logContextMiddleware(
     {
       requestId,
       method: c.req.method,
-      path: c.req.path,
+      path: redactLogPath(c.req.path),
     },
     next
   )

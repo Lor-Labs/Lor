@@ -19,6 +19,14 @@ export const blankToUndefined = (value: unknown) => {
 // transcriber runs with just its own few variables instead of every server
 // secret. The full server schema (server.ts) includes all of these.
 export const sharedServerFields = {
+  BETTERSTACK_ERRORS_DSN: z.preprocess(
+    blankToUndefined,
+    z.string().url().optional()
+  ),
+  BETTERSTACK_ALERT_WEBHOOK_ID: z.preprocess(
+    blankToUndefined,
+    z.string().uuid().optional()
+  ),
   NODE_ENV: z
     .enum(["development", "staging", "production", "test"])
     .default("production"),

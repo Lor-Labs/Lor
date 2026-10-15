@@ -33,11 +33,15 @@ const serverSchema = z.object({
     blankToUndefined,
     z.string().url().optional()
   ),
-  // Main agent model, on trial (LOR-104). GLM 5.3 Flash degenerates in long
-  // multi-tool runs, so it stays on small tasks only. Kimi K3 is the proven
-  // main model but costs ~10x more.
+  // Main agent model (LOR-104), picked on the long-task eval
+  // (`pnpm --filter @repo/lor eval:long`). GLM 5.3 Flash stays on small tasks:
+  // it truncates citation ids and degenerates in long multi-tool runs.
   LOR_MODEL: defaultedString("deepseek/deepseek-v4.1-flash"),
   LOR_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
+  // Gateway provider order for the main model and its fallbacks; a provider
+  // that doesn't serve a model is skipped. DeepInfra serves DeepSeek with
+  // ~97% cache hits. Kimi K3 streams stalled on DeepInfra, so Moonshot first.
+  LOR_MODEL_PROVIDER_ORDER: defaultedString("moonshotai,deepinfra"),
   LOR_SMALL_MODEL: defaultedString("zai/glm-5.3-flash"),
   LOR_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
   // Per-request input size above which older tool calls are compacted into
@@ -48,10 +52,10 @@ const serverSchema = z.object({
   LOR_COMPACT_INPUT_TOKENS: z.coerce.number().int().positive().default(700_000),
   // Smallest real context window across LOR_MODEL and its fallbacks — the
   // one that actually binds, since the gateway may route to any of them
-  // mid-run. Verified 2026-10-13 (gateway endpoints): deepseek-v4.1-flash and
-  // kimi-k3 routes list 1,000,000 to 1,048,576. Also bounds request
-  // preparation, with headroom reserved for instructions, tools, and output
-  // even if the compaction threshold is higher.
+  // mid-run. Verified 2026-10-14 (gateway endpoints): mimo-v2.6-pro routes
+  // list 1,048,576 to 1,050,000, kimi-k3 routes 1,000,000 to 1,048,576. Also
+  // bounds request preparation, with headroom reserved for instructions,
+  // tools, and output even if the compaction threshold is higher.
   LOR_CONTEXT_WINDOW: z.coerce.number().int().positive().default(1_000_000),
   // HMAC secret binding a tool approval to the exact call/input (AI SDK
   // experimental_toolApprovalSecret). Must match across worker + API.

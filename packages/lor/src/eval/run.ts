@@ -6,6 +6,7 @@ dotenvConfig({ path: resolve(process.cwd(), ".env") })
 dotenvConfig({ path: resolve(process.cwd(), "../../.env") })
 
 const evalDbUrl = process.env.EVAL_DB_URL
+const long = process.argv.includes("--long")
 
 if (!evalDbUrl) {
   console.log(
@@ -13,7 +14,9 @@ if (!evalDbUrl) {
   )
 } else {
   process.env.DATABASE_URL = evalDbUrl
-  import("./harness").catch((err) => {
+  // Long tasks: a stalled provider stream must end the attempt, not the eval.
+  if (long) process.env.AGENT_RUN_MAX_WALL_MS ??= "600000"
+  import(long ? "./long/harness" : "./harness").catch((err) => {
     console.error("Eval harness crashed:", err)
     process.exitCode = 1
   })

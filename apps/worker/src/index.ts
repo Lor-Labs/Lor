@@ -1,4 +1,6 @@
+import "./instrumentation"
 import { env } from "@repo/env/server"
+import { flushErrorReports } from "@repo/logger"
 import { claimOverdueActWindows } from "@repo/lor/act-runs"
 import { setRepoCacheStore } from "@repo/lor/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
@@ -451,6 +453,7 @@ async function bootstrap() {
     await maintenanceQueue.close()
     await stopSubscriber.quit()
     await redisEmitterClient.quit()
+    await flushErrorReports()
     process.exit(0)
   }
 
@@ -458,7 +461,8 @@ async function bootstrap() {
   process.on("SIGTERM", shutdown)
 }
 
-bootstrap().catch((error) => {
+bootstrap().catch(async (error) => {
   logger.fatal({ err: error }, "Failed to start")
+  await flushErrorReports()
   process.exit(1)
 })

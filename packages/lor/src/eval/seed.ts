@@ -18,7 +18,7 @@ function required<T>(rows: T[], what: string): T {
   return row
 }
 
-async function ensureLorUser(): Promise<void> {
+export async function ensureLorUser(): Promise<void> {
   await db
     .insert(schema.user)
     .values({
