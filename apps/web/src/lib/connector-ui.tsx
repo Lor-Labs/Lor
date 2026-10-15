@@ -1,12 +1,9 @@
-import {
-  Activity01Icon,
-  Globe02Icon,
-  WebhookIcon,
-} from "@hugeicons/core-free-icons"
+import { Globe02Icon, WebhookIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { BETTERSTACK_TOOLS } from "@repo/connectors"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
+import { BetterStackLogo } from "@repo/ui/components/logos/betterstack"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
@@ -50,16 +47,6 @@ function CloudwatchMark({ className }: { className?: string }) {
 
 function GithubMark({ className }: { className?: string }) {
   return <GitHubLogo className={className} />
-}
-
-function BetterstackMark({ className }: { className?: string }) {
-  return (
-    <HugeiconsIcon
-      icon={Activity01Icon}
-      className={className}
-      strokeWidth={2}
-    />
-  )
 }
 
 function WebhookMark({ className }: { className?: string }) {
@@ -200,7 +187,7 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
     linkLabel: () => "CloudWatch",
   },
   betterstack: {
-    logo: BetterstackMark,
+    logo: BetterStackLogo,
     urlHost: /(^|\.)betterstack\.com$/i,
     tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
     linkLabel: () => "Better Stack",

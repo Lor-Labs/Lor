@@ -1,4 +1,3 @@
-import Activity01Icon from "@hugeicons/core-free-icons/Activity01Icon"
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
 import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
 import WebhookIcon from "@hugeicons/core-free-icons/WebhookIcon"
@@ -9,6 +8,10 @@ import {
   ATTIO_LOGO_TRANSFORM,
   ATTIO_LOGO_VIEW_BOX,
 } from "@repo/ui/lib/attio-logo"
+import {
+  BETTERSTACK_LOGO_PATHS,
+  BETTERSTACK_LOGO_VIEW_BOX,
+} from "@repo/ui/lib/betterstack-logo"
 import Svg, { G, Path } from "react-native-svg"
 
 export type ConnectorKey =
@@ -123,8 +126,20 @@ export function ConnectorIcon({
   if (connector === "webhook") {
     return <HugeiconsIcon color={color} icon={WebhookIcon} size={size} />
   }
-  if (connector === "betterstack")
-    return <HugeiconsIcon color={color} icon={Activity01Icon} size={size} />
+  if (connector === "betterstack") {
+    return (
+      <Svg
+        accessibilityLabel="Better Stack"
+        height={size}
+        viewBox={BETTERSTACK_LOGO_VIEW_BOX}
+        width={size}
+      >
+        {BETTERSTACK_LOGO_PATHS.map((path) => (
+          <Path d={path} fill={color} key={path} />
+        ))}
+      </Svg>
+    )
+  }
   if (connector === "github") {
     return <HugeiconsIcon color={color} icon={GithubIcon} size={size} />
   }
