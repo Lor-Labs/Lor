@@ -31,19 +31,23 @@ export function transcriptStats(messages: ModelMessage[]): TranscriptStats {
   }
 }
 
-// Character floods ("!!!!…") and one sentence on repeat: the degeneration
-// GLM 5.3 Flash shows under long multi-tool prompts.
-export function isDegenerate(text: string): boolean {
-  if (/([^\s\-=_*#.|])\1{40,}/.test(text)) return true
-  const counts = new Map<string, number>()
+// Character floods ("!!!!…", GLM 5.3 Flash) and one sentence looping back
+// to back (DeepSeek's "Let me write…" cycles). Returns the offending excerpt.
+// Only consecutive repeats count: a long run legitimately says "Let me
+// check the next page." many times.
+export function degenerateSample(text: string): string | null {
+  const flood = text.match(/([^\s\-=_*#.|])\1{40,}/)
+  if (flood) return flood[0].slice(0, 80)
+  let previous = ""
+  let run = 0
   for (const raw of text.split(/(?<=[.!?\n])/)) {
     const sentence = raw.trim()
-    if (sentence.length < 12) continue
-    const n = (counts.get(sentence) ?? 0) + 1
-    if (n >= 6) return true
-    counts.set(sentence, n)
+    if (!sentence) continue
+    run = sentence === previous ? run + 1 : 1
+    previous = sentence
+    if (run >= 4 && sentence.length >= 8) return `${sentence} (×${run}+)`
   }
-  return false
+  return null
 }
 
 export type TokenTotals = { input: number; cached: number; output: number }

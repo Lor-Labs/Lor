@@ -41,6 +41,18 @@ const PAGES: [string, string][] = [
     "/handbook/office",
     "Visitor access, meeting-room booking, and equipment requests.",
   ],
+  [
+    "/handbook/dev-setup",
+    "Dev setup: install Node 18 with mise, run `pnpm install`, copy .env from the 1Password 'Eng' vault, then `pnpm dev`.",
+  ],
+  [
+    "/handbook/vpn",
+    "Network access: connect to the office VPN with OpenVPN using the profile in 1Password.",
+  ],
+  [
+    "/decisions/feature-flags",
+    "We use LaunchDarkly for feature flags (decided 2025-11).",
+  ],
 ]
 
 const PRS: [number, string, Person, number, string][] = [
@@ -140,6 +152,42 @@ const ENG_CHAT: [Person, number, string][] = [
     1,
     "Next for billing: the dual-write ledger (#105, draft), then cutover, targeting Oct 28.",
   ],
+  [
+    "Priya",
+    12,
+    "We replaced the office VPN with Tailscale. OpenVPN is shut off, so don't hand it to new folks.",
+  ],
+  [
+    "Raj",
+    9,
+    "Heads up: the repo is on Node 22 now. Node 18 is no longer supported, so update your setup.",
+  ],
+  [
+    "Raj",
+    8,
+    "For new backend hires, I'm the on-call buddy for their first month.",
+  ],
+  [
+    "Alice",
+    7,
+    "We finished moving feature flags from LaunchDarkly to Statsig. LaunchDarkly gets cancelled at the end of the month.",
+  ],
+  [
+    "Priya",
+    7,
+    "Access requests for GitHub, AWS and 1Password now go through #it with the access-request form.",
+  ],
+  [
+    "Priya",
+    6,
+    "SOC 2: we're between Prescient and Johanson for the auditor. Prescient is cheaper, Johanson can start sooner.",
+  ],
+  [
+    "Alice",
+    5,
+    "Let's not pick a SOC 2 auditor until we've seen both proposals. We'll decide next week.",
+  ],
+  ["Alice", 2, "Sam joins Monday as a backend engineer on payments."],
 ]
 
 // One thread, five days ago (UTC times), plus next-day follow-ups.
@@ -289,6 +337,92 @@ const DECOYS: [string, string, "GET" | "POST" | "PATCH", string[], boolean][] =
       ["project"],
       false,
     ],
+    [
+      "asana_create_task",
+      "Create a task in an Asana project.",
+      "POST",
+      ["project", "name"],
+      true,
+    ],
+    ["asana_search", "Search Asana tasks.", "GET", ["query"], false],
+    [
+      "gdrive_search_files",
+      "Search Google Drive files by name or content.",
+      "GET",
+      ["query"],
+      false,
+    ],
+    [
+      "gdrive_share_file",
+      "Share a Google Drive file with someone.",
+      "POST",
+      ["fileId", "email"],
+      true,
+    ],
+    [
+      "gmail_send_email",
+      "Send an email from the shared team inbox.",
+      "POST",
+      ["to", "subject", "body"],
+      true,
+    ],
+    ["gmail_search", "Search the shared team inbox.", "GET", ["query"], false],
+    [
+      "calendar_create_event",
+      "Create a Google Calendar event and invite people.",
+      "POST",
+      ["title", "start", "attendees"],
+      true,
+    ],
+    [
+      "calendar_list_events",
+      "List upcoming Google Calendar events.",
+      "GET",
+      ["from"],
+      false,
+    ],
+    [
+      "salesforce_query",
+      "Run a SOQL query against Salesforce.",
+      "GET",
+      ["soql"],
+      false,
+    ],
+    [
+      "salesforce_update_opportunity",
+      "Update a Salesforce opportunity's stage.",
+      "PATCH",
+      ["opportunityId", "stage"],
+      true,
+    ],
+    [
+      "intercom_reply",
+      "Reply to a customer conversation in Intercom.",
+      "POST",
+      ["conversationId", "body"],
+      true,
+    ],
+    [
+      "github_merge_pr",
+      "Merge a pull request.",
+      "POST",
+      ["repo", "number"],
+      true,
+    ],
+    [
+      "aws_restart_service",
+      "Restart an ECS service in production.",
+      "POST",
+      ["cluster", "service"],
+      true,
+    ],
+    [
+      "datadog_mute_monitor",
+      "Mute a Datadog monitor.",
+      "POST",
+      ["monitorId"],
+      true,
+    ],
   ]
 
 export const DECOY_WRITE_TOOLS = new Set(
@@ -301,6 +435,19 @@ export type World = {
   users: Record<Person, string>
   memberIds: Set<string>
   cleanup: () => Promise<void>
+}
+
+// `<@id>` → `@Name`, so name checks and the judge accept a mention as
+// naming the person.
+export function resolveMentions(world: World, text: string): string {
+  const names = new Map<string, string>([
+    ...Object.entries(world.users).map(([name, id]) => [id, name] as const),
+    [LOR_USER_ID, "Lor"],
+  ])
+  return text.replace(/<@([0-9a-f-]{36})>/g, (raw, id: string) => {
+    const name = names.get(id)
+    return name ? `@${name}` : raw
+  })
 }
 
 function at(daysAgo: number, time?: string): Date {

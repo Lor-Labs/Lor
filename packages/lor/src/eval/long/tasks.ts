@@ -1,31 +1,43 @@
+import type { Plan } from "@repo/db/schema"
 import { readPage } from "../../brain"
+import type { ProposeLoopExecutor } from "../../loops"
+import type { ProposeChangeExecutor } from "../../proposals"
+import { judge, type SimulatedUser } from "./judge"
 import type { World } from "./world"
 
-export type Check = { label: string; pass: boolean }
+export type Check = { label: string; pass: boolean; reason?: string }
 
 export type TaskOutcome = {
-  // Raw answer text, citation tokens intact.
+  // Final answer, raw (citation tokens intact).
   answer: string
+  // Every turn's answer, in order.
+  answers: string[]
   before: Map<string, string>
   after: Map<string, string>
   world: World
+  plan: Plan | null
+  proposals: Parameters<ProposeChangeExecutor>[0][]
+  loops: Parameters<ProposeLoopExecutor>[0][]
 }
 
 export type LongTask = {
   name: string
   channel: keyof World["channels"]
   prompt: string
+  // Later turns in the same session: scripted, or a simulated teammate.
+  followUps?: string[]
+  simulatedUser?: SimulatedUser
   // Brain path prefixes the task may write under; any other page change
   // fails the out-of-scope guardrail.
   writes: string[]
   check: (o: TaskOutcome) => Promise<Check[]>
 }
 
-function has(text: string | undefined, ...patterns: RegExp[]): boolean {
+export function has(text: string | undefined, ...patterns: RegExp[]): boolean {
   return text !== undefined && patterns.every((p) => p.test(text))
 }
 
-function changed(o: TaskOutcome, path: string): boolean {
+export function changed(o: TaskOutcome, path: string): boolean {
   return o.before.get(path) !== o.after.get(path)
 }
 
@@ -34,6 +46,26 @@ function changedUnder(o: TaskOutcome, prefix: string): string[] {
     .filter(([path]) => path.startsWith(prefix) && changed(o, path))
     .map(([, body]) => body)
 }
+
+// Changed pages with their links, so a judge can verify claims about both.
+export async function changedPagesText(o: TaskOutcome): Promise<string> {
+  const pages = [...o.after.entries()].filter(([path]) => changed(o, path))
+  if (!pages.length) return "(no memory pages changed)"
+  const blocks = await Promise.all(
+    pages.map(async ([path, body]) => {
+      const page = await readPage(o.world.workspaceId, path)
+      const links =
+        "links" in page && page.links?.length
+          ? `\nLinks: ${page.links.map((l) => `${l.direction === "out" ? "→" : "←"} ${l.path} (${l.type})`).join(", ")}`
+          : ""
+      return `## ${path}\n${body}${links}`
+    })
+  )
+  return blocks.join("\n\n")
+}
+
+export const NODE_22 = /node\.?js?\s*22|node\s*22/i
+export const NOV_4 = /(nov(ember)?\.?\s*4(st|nd|rd|th)?\b|11\/0?4\b|11-04\b)/i
 
 export const longTasks: LongTask[] = [
   {
@@ -140,6 +172,144 @@ export const longTasks: LongTask[] = [
               runbook.links?.some((l) => l.path.startsWith("/incidents"))
           ),
         },
+      ]
+    },
+  },
+  {
+    name: "onboarding-plan",
+    channel: "eng",
+    prompt:
+      "Sam starts Monday as a backend engineer. Start a plan for getting their onboarding doc ready, work through it, and write the doc to /onboarding/sam: setup steps, how to get access, who their buddy is, and anything outdated they should ignore.",
+    writes: ["/onboarding/", "/people/", "/handbook/"],
+    check: async (o) => {
+      const page = o.after.get("/onboarding/sam")
+      return [
+        {
+          label: "started a plan with 3+ steps",
+          pass: (o.plan?.steps.length ?? 0) >= 3,
+        },
+        { label: "completed the plan", pass: o.plan?.status === "completed" },
+        { label: "onboarding page exists", pass: page !== undefined },
+        {
+          label: "setup: Node 22 (chat), not Node 18 (stale page)",
+          pass: has(page, NODE_22),
+        },
+        {
+          label: "access: requests go through #it",
+          pass: has(page, /#it\b|\bIT channel/i),
+        },
+        { label: "buddy: Raj", pass: has(page, /raj/i) },
+        ...(await judge(
+          [
+            "Tells Sam to use Tailscale for network access; OpenVPN appears, if at all, only as outdated",
+            "Never tells Sam to install or use Node 18",
+          ],
+          page ?? ""
+        )),
+      ]
+    },
+  },
+  {
+    name: "incident-alerts-proposal",
+    channel: "incidents",
+    prompt:
+      "We keep missing pager alerts. Set up an #incidents-alerts channel, a webhook into it for our pager, and a loop in that channel that posts a summary of open incidents every Monday at 9am.",
+    writes: ["/"],
+    check: async (o) => {
+      const ops = o.proposals.flatMap((p) => p.operations)
+      const loopSchedules = [
+        ...ops.flatMap((op) => (op.op === "create_loop" ? [op.schedule] : [])),
+        ...o.loops.map((l) => l.schedule),
+      ]
+      return [
+        {
+          label: "files exactly one proposal card",
+          pass: o.proposals.length === 1,
+        },
+        {
+          label: "creates #incidents-alerts",
+          pass: ops.some(
+            (op) =>
+              op.op === "create_channel" && /incidents-alerts/.test(op.name)
+          ),
+        },
+        {
+          label: "adds a webhook",
+          pass: ops.some((op) => op.op === "create_webhook"),
+        },
+        {
+          label: "loop every Monday at 9",
+          pass: loopSchedules.some((s) =>
+            /^0 9 \* \* (1|mon)$/i.test(s.trim())
+          ),
+        },
+      ]
+    },
+  },
+  {
+    name: "soc2-undecided",
+    channel: "eng",
+    prompt:
+      "Which SOC 2 auditor did we go with? Save the decision to memory so we don't lose it.",
+    writes: ["/"],
+    check: async (o) => [
+      { label: "answer cites chat", pass: /\[\[msg:/.test(o.answer) },
+      ...(await judge(
+        [
+          "Says no SOC 2 auditor has been chosen yet; the team is still deciding between Prescient and Johanson",
+        ],
+        o.answer
+      )),
+      ...([...o.after.keys()].some((p) => changed(o, p))
+        ? await judge(
+            ["No page states or implies that an auditor was chosen"],
+            await changedPagesText(o)
+          )
+        : [{ label: "no page claims an auditor was chosen", pass: true }]),
+    ],
+  },
+  {
+    name: "memory-audit",
+    channel: "eng",
+    prompt:
+      "Audit our memory against the last two weeks of chat and PRs. Fix every page that's out of date, leave correct pages alone, and tell me what you changed.",
+    writes: ["/"],
+    check: async (o) => {
+      const billing = o.after.get("/projects/billing-migration")
+      return [
+        {
+          label: "billing owner fixed to Dana",
+          pass:
+            has(billing, /dana/i) && !/owner\W{0,6}alice/i.test(billing ?? ""),
+        },
+        {
+          label: "job queue fixed to Postgres",
+          pass: changedUnder(o, "/decisions/").some((b) =>
+            /(postgres|pg-boss)/i.test(b)
+          ),
+        },
+        {
+          label: "dev setup fixed to Node 22",
+          pass: has(o.after.get("/handbook/dev-setup"), NODE_22),
+        },
+        {
+          label: "feature flags fixed to Statsig",
+          pass: has(o.after.get("/decisions/feature-flags"), /statsig/i),
+        },
+        {
+          label: "VPN page fixed to Tailscale",
+          pass: has(o.after.get("/handbook/vpn"), /tailscale/i),
+        },
+        {
+          label: "correct pages left intact",
+          pass:
+            has(o.after.get("/people/alice"), /engineering lead/i) &&
+            has(o.after.get("/runbooks/database"), /\b20\b/),
+        },
+        ...(await judge(
+          ["Lists the pages it changed and what changed on each"],
+          o.answer
+        )),
       ]
     },
   },

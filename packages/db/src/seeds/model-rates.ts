@@ -27,13 +27,13 @@ const RATES = [
     cached: 0.03,
     output: 0.5,
   },
-  // MiMo V2.6 Pro (main-model trial): highest route price, so failover never
-  // under-bills. DeepInfra, the pinned route, is $0.43/$0.0036/$0.87.
+  // DeepSeek V4.1 Flash (main model): highest route price, so failover never
+  // under-bills. DeepInfra, the preferred route, is $0.14/$0.0042/$0.42.
   {
-    model: "xiaomi/mimo-v2.6-pro",
-    input: 0.435,
-    cached: 0.004,
-    output: 0.87,
+    model: "deepseek/deepseek-v4.1-flash",
+    input: 0.3,
+    cached: 0.03,
+    output: 1.2,
   },
   {
     model: "alibaba/qwen3-embedding-4b",
