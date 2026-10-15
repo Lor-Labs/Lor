@@ -1,3 +1,4 @@
+import "./instrumentation"
 import { serve } from "@hono/node-server"
 import { env } from "@repo/env/server"
 import app from "@/app"

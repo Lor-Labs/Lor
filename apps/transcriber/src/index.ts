@@ -1,3 +1,4 @@
+import "./instrumentation"
 import { fileURLToPath } from "node:url"
 import {
   cli,
@@ -6,6 +7,7 @@ import {
   ServerOptions,
 } from "@livekit/agents"
 import { readServerEnv } from "@repo/env/server-fields"
+import { flushErrorReports } from "@repo/logger"
 import { transcriberAgentName } from "@repo/voice/server"
 import { logger } from "./logger"
 import { installVoiceNotifier } from "./realtime"
@@ -27,9 +29,16 @@ const env = readServerEnv(
 // imports this file again.
 export default defineAgent({
   entry: async (ctx: JobContext) => {
-    if (!env.DEEPGRAM_API_KEY) throw new Error("DEEPGRAM_API_KEY is not set")
-    installVoiceNotifier()
-    await transcribeRoom(ctx, env.DEEPGRAM_API_KEY)
+    ctx.addShutdownCallback(flushErrorReports)
+    try {
+      if (!env.DEEPGRAM_API_KEY) throw new Error("DEEPGRAM_API_KEY is not set")
+      installVoiceNotifier()
+      await transcribeRoom(ctx, env.DEEPGRAM_API_KEY)
+    } catch (err) {
+      logger.error({ err }, "Transcriber job failed")
+      await flushErrorReports()
+      throw err
+    }
   },
 })
 

@@ -6,6 +6,11 @@
 > permissions. Repo facts were checked against code on 2026-10-10; verify again
 > before building. Decisions in §8 are open until the owner locks them.
 > Broader priorities: [`product-direction.md`](../product-direction.md).
+>
+> Phase 1 is planned in [`session-memory.md`](./session-memory.md) (decisions
+> locked 2026-10-14): scope `source`, session-aware search, safe brain writes,
+> and the general `touch` table with sessions as its first origin. The item
+> table keeps the name `source`, and default ingestion is phase 2.
 
 ## 1. Goal
 
@@ -65,6 +70,7 @@ mining and concept-level expertise are closed.
 | `brain_node` / `brain_edge` | Lor-written markdown pages; 6 typed edges | Vector only | Edges only via the `link` tool; no provenance to sources; `metadata` and `status = archived` never set |
 | `source` | Summary + pointer per remembered connector event | Vector only (summary) | Opt-in per trigger ("Remember"); no scope column; `author` is a raw login |
 | `message` | Channel chat | FTS only (`ts_rank`, OR-ed terms) | Never embedded (MVP spec §11); DMs excluded |
+| `agent_session` + session messages | Lor sessions: prompts, Lor replies; tool calls in `agent_run_step` | FTS only, through `message` | Hits carry no session id or title; tool calls and results are not searchable (`session-memory.md`) |
 | `attachment_chunk` | Image/PDF/slide text | FTS + vector, RRF k=60 | The only hybrid kind |
 | `voice_passage` | Ended-call summaries and topic sections | FTS + vector, RRF | Action-item owners are free-text names |
 | Live connector tools | GitHub, Linear, Notion reads | Provider APIs | GitHub reads use the installation token |
@@ -185,28 +191,35 @@ Lor runs open-weight models, so measure before deciding (§5.8).
 
 ### 5.2 Data model (sketch)
 
+Naming (decided 2026-10-14): the item table keeps the name `source` and grows
+into the shape below. `artifact` is taken by session deliverables
+(`packages/db/src/schemas/artifacts.ts`). Refs live in one general `touch`
+table ("this work read, wrote, cited, started from or mentioned that thing"),
+built first with sessions as its origin (`session-memory.md` Step 5).
+
 ```
-artifact                      -- replaces `source`
+source                        -- today's `source`, extended
   id, workspace_id, connection_id, provider, kind (enum),
-  external_id, url, title, summary, body_text,
+  external_id, url, title, body_text,
   author_identity_id, container_id, scope_channel_id,
   state, source_created_at, source_updated_at,
   content_hash, status (active | tombstoned), embedding, tsv
   unique (workspace_id, provider, external_id)
 
-artifact_chunk                -- long docs only
-  artifact_id, ord, text, embedding
+source_chunk                  -- long docs only
+  source_id, ord, text, embedding
 
-artifact_ref                  -- extracted identifiers; join key for links
-  artifact_id | message_id | brain_node_id, ref_kind, ref_value, occurred_at
-  btree (ref_kind, ref_value), trigram on ref_value
+touch                         -- extracted refs; join key for links
+  session_id | message_id | source_id | brain_node_id (exactly one),
+  kind (enum), value, action (enum), created_at
+  btree (kind, value)
 
-artifact_edge
+item_edge
   workspace_id, from_id, to_id (nullable), to_ref (unresolved target),
   type (enum), origin (api | identifier | authorship | temporal | llm | human),
-  origin_artifact_id, extractor_version, confidence, evidence,
+  origin_source_id, extractor_version, confidence, evidence,
   valid_from, valid_to, created_at, expired_at
-  unique (origin_artifact_id, from_id, to_ref, type)
+  unique (origin_source_id, from_id, to_ref, type)
 
 person_identity
   workspace_id, provider, external_user_id (immutable), login, email,
@@ -219,8 +232,8 @@ container_reader
 
 sync_cursor                   -- per connection + container + stream
 ingest_event                  -- delivery id unique (idempotency)
-brain_node_input              -- page → artifact provenance + ACL taint
-  brain_node_id, artifact_id
+brain_node_input              -- page → source provenance + ACL taint
+  brain_node_id, source_id
 ```
 
 Changes to existing tables:
@@ -235,16 +248,16 @@ Edge `type` is a controlled enum (MVP spec §11). Starting set: `references`,
 `possibly_related` (time-window candidate, never auto-promoted).
 
 Edges point at external refs, not only foreign keys, so a link can exist before
-its target is ingested (Backstage). Reprocessing an artifact replaces exactly
-the edges whose `origin_artifact_id` is that artifact (Backstage, DataHub).
+its target is ingested (Backstage). Reprocessing a source replaces exactly
+the edges whose `origin_source_id` is that source (Backstage, DataHub).
 
 Per-kind fields that are queried (PR `merged_at`, `head_sha`) go in narrow
 typed side tables, not jsonb.
 
-Rough cost (estimates; 2 vectors and 10 edges per artifact; Railway RAM
+Rough cost (estimates; 2 vectors and 10 edges per item; Railway RAM
 $10/GB-month; embeddings $0.02/M tokens):
 
-| | 10k artifacts | 1M artifacts |
+| | 10k items | 1M items |
 |---|---|---|
 | Disk | ~0.35 GB | ~32 GB (~$5/month) |
 | RAM to keep HNSW hot | ~0.16 GB | ~16 GB (~$160/month), the main cost |
@@ -258,7 +271,7 @@ BullMQ queues, all in `apps/worker`:
 
 | Queue | Job |
 |---|---|
-| `webhook` | Verify signature, record delivery id in `ingest_event`, debounce-enqueue `fetch` per artifact |
+| `webhook` | Verify signature, record delivery id in `ingest_event`, debounce-enqueue `fetch` per item |
 | `fetch` | Per-connection Redis token bucket from provider headers; refetch; upsert only if `source_updated_at` is newer; 404/delete → tombstone (drop content and vectors, keep the row) |
 | `link` | Deterministic edges (refs, API fields, authorship, time windows) |
 | `embed` | Only when `content_hash` changes |
@@ -289,7 +302,7 @@ User deletions propagate through tombstones; everything else is kept forever
 
 ### 5.4 Linking
 
-**Identifiers** (run on `artifact`, message and session-step writes; never DMs):
+**Identifiers** (run on `source`, message and session-step writes; never DMs):
 
 - Linear keys: allowlist the workspace's real team keys from the API. A bare
   `[A-Z]+-\d+` matches ISO-8601, UTF-8, SHA-256, AES-128, COVID-19 and parts of
@@ -360,7 +373,7 @@ Adjustments from research:
   diffs only 4.9% ([arXiv 2312.17169](https://arxiv.org/html/2312.17169v2)).
 - Add chat signal: knowledge that version control misses was 56% of misses in
   Avelino et al. Use authored messages only, never views or reads.
-- Compute at query time over the retrieved artifacts' authors and reviewers,
+- Compute at query time over the retrieved items' authors and reviewers,
   or materialise nightly (`review_edge`, `area_expertise`) if that is too slow.
 - For "who might know": rotate among the top 3 (Meta: −11.6% time-in-review)
   and prefer learners when one person holds the knowledge (Sofia).
@@ -377,10 +390,10 @@ scores would also be wrong.
 
 1. **Agent fills filters.** `search` gains `author`, `channel`, `since`/`until`,
    `kind`, `state`. No planner model call. Structured questions ("open issues
-   owned by X") go to connector tools or a structured `artifact` query.
+   owned by X") go to connector tools or a structured `source` query.
 2. **Parallel SQL per kind:** FTS + vector (`SET LOCAL hnsw.iterative_scan =
-   relaxed_order`) + trigram on titles/refs + exact `artifact_ref` hits, fused
-   with RRF. Then 1–2 hop expansion over `artifact_edge` with the same ACL
+   relaxed_order`) + trigram on titles/refs + exact `touch` hits, fused
+   with RRF. Then 1–2 hop expansion over `item_edge` with the same ACL
    filter. Estimate 20–100 ms (guess).
 3. **One relevance call** over ~90 candidates: Voyage `rerank-3` (or
    `rerank-3-lite`) or a Jev fan-out (question as state, up to 20 candidates as
@@ -418,7 +431,7 @@ gateway route `POST /v1/evaluate` works without the upgrade.
 | Tier | Build | Cost |
 |---|---|---|
 | 0 | `code_file(repo_id, path, blob_sha, language, rank)` at default-branch HEAD; `code_symbol(repo_id, path, name, kind, start_line, end_line, exported)` from tree-sitter tags (`web-tree-sitter` or codegraph in a worker); `code_ref` file→file edges; FTS + trigram on paths and symbols. Content read live (`grep_code`, `read_file`) | CPU only |
-| 1 | `pr_file` from the merged-PR files API; review comments mapped `path:line` → symbol; commit → file; merged-PR diff summaries on the `artifact` row (Augment "context lineage") | One small-model call per merged PR |
+| 1 | `pr_file` from the merged-PR files API; review comments mapped `path:line` → symbol; commit → file; merged-PR diff summaries on the `source` row (Augment "context lineage") | One small-model call per merged PR |
 | 2 | Function-level embeddings or NL summaries per file/dir (Greptile: +12% similarity vs raw code) | Only if evals show a gap with agentic grep on open-weight models |
 
 Freshness: key parse output by git `blob_sha` so unchanged content is never
@@ -490,7 +503,8 @@ Found by reading code on 2026-10-10; not reproduced by running.
 
 1. **`source` leaks across private boundaries.** `searchSources`
    (`packages/lor/src/sources.ts:23`) filters by workspace and status only; a
-   Remember on a private channel's trigger is visible to every run.
+   Remember on a private channel's trigger is visible to every run. Fix
+   planned in `session-memory.md` Step 1.
 2. **Installation-token tools ignore repo privacy.** `search_github` and
    `investigate_code` can read any installed repo from any channel with the
    GitHub capability.
@@ -513,9 +527,9 @@ moves to root.
 | # | Step | Inference cost |
 |---|---|---|
 | 0 | Fix §6; judged-pool eval baseline on current `search` | Eval only |
-| 1 | `artifact` (replaces `source`), `access_container`, connection access modes, audience filter, `brain_node_input` | None |
-| 2 | Ingestion: webhook-as-signal, backfill, reconcile, tombstones; GitHub + Linear first | Embeddings |
-| 3 | `artifact_ref` + identifier/metadata edges; 1–2 hop expansion in `search` | None |
+| 1 | `source` grows into the item table (scope first, `session-memory.md` Step 1), `access_container`, connection access modes, audience filter, `brain_node_input` | None |
+| 2 | Ingestion: webhook-as-signal, backfill, reconcile, tombstones; GitHub + Linear first; real text, no per-item summary; Remember removed | Embeddings |
+| 3 | `touch` (sessions first, `session-memory.md` Step 5) + identifier/metadata edges; 1–2 hop expansion in `search` | None |
 | 4 | Hybrid search for every kind; `search` filters; iterative scan | None |
 | 5 | Calibrated gate + priors (R, A, P); retune τ on the pool | Rerank |
 | 6 | `person_identity`; expertise signal E | None |
@@ -535,9 +549,14 @@ moves to root.
    zero-shot accuracy) or LLM-as-judge (slower, costlier).
 2. **Embed individual messages?** Reverses MVP spec §11 ("never embed
    individual messages"). Cost ~$1 per 1M messages; fixes paraphrase misses.
+   Session turns: deferred behind an eval (`session-memory.md`, 2026-10-14).
+   Channel chat messages: still open.
 3. **Ingest by default.** Reverses `github-connector.md` "no embedding by
    default of GitHub PRs/issues" and "webhooks not needed". The engine needs
-   GitHub and Linear ingested without a per-trigger Remember.
+   GitHub and Linear ingested without a per-trigger Remember. **Decided
+   2026-10-14:** yes, as phase 2. Store the real text with no per-item
+   summary, remove Remember, and do not ingest your own webhooks (the posted
+   chat message is the record). See `session-memory.md` Phase 2.
 4. **Code index order.** Move `code-channels.md` §11 `code_chunk` embeddings to
    Tier 2.
 5. **Default access mode** for new connections: `workspace` (today) or `sync`.

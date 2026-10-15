@@ -1,10 +1,12 @@
 import pino from "pino"
 import pretty from "pino-pretty"
 import { getAllContext } from "./context.js"
+import { reportLog } from "./error-reporting.js"
 
 const NODE_ENV = process.env.NODE_ENV ?? "development"
 const isProd = NODE_ENV === "production"
-const APP_VERSION = process.env.APP_VERSION ?? "dev"
+const APP_VERSION =
+  process.env.APP_VERSION || process.env.RAILWAY_GIT_COMMIT_SHA || "dev"
 const LOG_LEVEL = process.env.LOG_LEVEL ?? (isProd ? "info" : "debug")
 
 /**
@@ -13,7 +15,8 @@ const LOG_LEVEL = process.env.LOG_LEVEL ?? (isProd ? "info" : "debug")
  * - Production: structured JSON to stdout. `level`/`time`/`service`/`env`/
  *   `version` are shaped to match what Datadog and Better Stack expect
  *   out-of-the-box, so a platform log drain (Railway/Fly/Vercel/etc.) is
- *   the only thing needed to ship logs — no SDK transports in-process.
+ *   the only thing needed to ship logs. Error reporting is separate and
+ *   enabled by BETTERSTACK_ERRORS_DSN (reference/error-reporting.md).
  * - Development: pino-pretty stream with cleaner-than-default formatting
  *   (ISO-ish time, named prefix, hidden pid/hostname noise).
  *
@@ -49,6 +52,12 @@ export function createLogger(name: string): pino.Logger {
       version: APP_VERSION,
     },
     mixin: getAllContext,
+    hooks: {
+      logMethod(args, method, level) {
+        method.apply(this, args)
+        reportLog(args, level, this.bindings())
+      },
+    },
     redact: {
       paths: [
         "req.headers.cookie",
@@ -103,3 +112,8 @@ export {
   setContext,
   withContext,
 } from "./context.js"
+export {
+  flushErrorReports,
+  initErrorReporting,
+  redactLogPath,
+} from "./error-reporting.js"

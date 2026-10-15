@@ -52,6 +52,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `voice-channels.md` | Guiding product spec for voice; its "Voice channel model" decisions win over the runbook and research |
 | `workspace-model.md` | Locked design for channels, Lor sessions, subscriptions and archive; wins over its runbook on product behavior |
 | `adding-a-connector.md` | Runbook for wiring a new integration |
+| `error-reporting.md` | Backend error capture, Better Stack configuration, and channel notifications |
 | `mobile-release.md` | TestFlight / EAS release loop |
 | `mobile-parity-todo.md` | Living web ↔ mobile gap checklist |
 
@@ -67,7 +68,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `self-configuration.md` | Vision for Lor proposing changes to itself; pillars 1–2 shipped (root runbooks), pillar 3 in flight |
 | `playbooks.md` | Working idea, not a spec |
 | `private-lor-questions.md` | Deferred platform decision (2026-09-28) |
-| `session-memory.md` | What Lor keeps from sessions: session-aware search hits, brain page versions + `edit` + per-page concurrency (no workspace lock), write-back gate context, deterministic session refs. Decisions locked 2026-10-14; session summaries and turn embeddings deferred behind an eval |
+| `session-memory.md` | Context engine phase 1: scope `source` (leak fix), session-aware search hits, brain page versions + `edit` + per-page concurrency (no workspace lock), write-back gate context, the general `touch` table with sessions first and reverse hints. Phase 2 direction: default ingestion into `source`, real text, Remember removed. Decisions locked 2026-10-14; session summaries and turn embeddings deferred behind an eval |
 | `slack-connector-next.md` | Read-only Slack connector, not started |
 | `sync-engine.md` | Sync engine research (Zero, TanStack DB, Electric, PowerSync, Convex, local-first) and a proposed Zero-first spike with go/no-go gates. Not committed; only the timing is decided: React Query until the sessions branch merges |
 

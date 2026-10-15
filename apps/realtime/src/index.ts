@@ -1,3 +1,4 @@
+import "./instrumentation"
 import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import { auth, type Session } from "@repo/auth"
@@ -8,7 +9,7 @@ import {
   isLiveSessionChat,
 } from "@repo/db/queries/session-chat-access"
 import { env } from "@repo/env/server"
-import { enterContext } from "@repo/logger"
+import { enterContext, flushErrorReports } from "@repo/logger"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import {
@@ -1367,7 +1368,8 @@ async function bootstrap() {
   })
 }
 
-bootstrap().catch((error) => {
+bootstrap().catch(async (error) => {
   logger.fatal({ err: error }, "Failed to start")
+  await flushErrorReports()
   process.exit(1)
 })
