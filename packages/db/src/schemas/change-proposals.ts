@@ -13,6 +13,10 @@ import {
 import { z } from "zod"
 import { channel } from "./channels"
 import { message } from "./messages"
+import {
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  profileToolAccessSchema,
+} from "./profile-tool-access"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -95,11 +99,15 @@ export const updateInstructionsOpSchema = z.object({
 
 export const createAgentProfileOpSchema = z.object({
   op: z.literal("create_agent_profile"),
+  toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
   name: z.string().trim().min(1).max(80),
   // Validated against the connector registry at apply (grantability included).
   capabilities: z.array(z.string().min(1).max(50)).max(50).default([]),
   customTools: z.array(resourceRefSchema).max(50).default([]),
-  mcpServers: z.array(resourceRefSchema).max(50).default([]),
+  mcpServers: z
+    .array(resourceRefSchema)
+    .max(0, "Configure MCP tools through toolAccess")
+    .default([]),
 })
 
 export const assignChannelProfileOpSchema = z.object({

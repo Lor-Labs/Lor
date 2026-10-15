@@ -143,6 +143,8 @@ export const mcpServerOAuthAttempt = pgTable(
 // Per-profile server grants (used when the profile lacks the blanket
 // `custom_tools` capability) — same shape and rationale as
 // agent_profile_custom_tool: cascade cleanup, indexed reverse lookup.
+// Obsolete grant table: runtime uses agent_profile.tool_access. Drop with the
+// profile editor/API cleanup (reference/connector-tools.md).
 export const agentProfileMcpServer = pgTable(
   "agent_profile_mcp_server",
   {

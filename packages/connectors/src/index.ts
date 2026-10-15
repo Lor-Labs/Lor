@@ -1,4 +1,5 @@
 export * from "./approval-targets"
+export * from "./profile-tools"
 export * from "./registry"
 export * from "./tools"
 export * from "./types"

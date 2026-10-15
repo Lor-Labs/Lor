@@ -1,7 +1,9 @@
 import { z } from "@hono/zod-openapi"
 import {
+  DEFAULT_PROFILE_TOOL_ACCESS,
   integrationProviderEnum,
   lorCapabilityEnum,
+  profileToolAccessSchema,
   selectAgentProfileSchema,
 } from "@repo/db/schema"
 
@@ -28,10 +30,11 @@ export const agentProfileSchema = selectAgentProfileSchema
     isDefault: true,
     grantsAll: true,
     capabilities: true,
+    toolAccess: true,
   })
   .extend({
-    // Explicit per-profile grants (join-table rows). Irrelevant when
-    // grantsAll or the blanket custom_tools capability is set.
+    toolAccess: profileToolAccessSchema,
+    // HTTP tool grants and a read-only summary of effective MCP server access.
     customToolIds: z.array(z.string()),
     mcpServerIds: z.array(z.string()),
   })
@@ -48,8 +51,23 @@ export const capabilityDescriptorSchema = z.object({
 
 export const listAgentProfilesResponseSchema = z.object({
   profiles: z.array(agentProfileSchema),
-  // Only the capabilities this workspace can actually grant (connected
-  // connectors); the editor shows these.
+  availableToolGroups: z.array(
+    z.object({
+      kind: z.enum(["connector", "mcpServer"]),
+      id: z.string(),
+      name: z.string(),
+      description: z.string(),
+      tools: z.array(
+        z.object({
+          name: z.string(),
+          label: z.string(),
+          description: z.string(),
+          readOnlyHint: z.boolean().optional(),
+        })
+      ),
+    })
+  ),
+  // Standalone abilities only; connector/MCP choices are in availableToolGroups.
   availableCapabilities: z.array(capabilityDescriptorSchema),
   // The workspace's custom tools, selectable per profile in the editor.
   availableCustomTools: z.array(
@@ -73,20 +91,29 @@ export const listAgentProfilesResponseSchema = z.object({
 export const createAgentProfileRequestSchema = z.object({
   name: z.string().trim().min(1).max(60),
   capabilities: z.array(capabilitySchema).default([]),
+  toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
   customToolIds: z.array(z.string().uuid()).max(200).default([]),
-  mcpServerIds: z.array(z.string().uuid()).max(200).default([]),
+  mcpServerIds: z
+    .array(z.string().uuid())
+    .max(0, "Configure MCP tools through toolAccess")
+    .default([]),
 })
 
 export const updateAgentProfileRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(60).optional(),
     capabilities: z.array(capabilitySchema).optional(),
+    toolAccess: profileToolAccessSchema.optional(),
     customToolIds: z.array(z.string().uuid()).max(200).optional(),
-    mcpServerIds: z.array(z.string().uuid()).max(200).optional(),
+    mcpServerIds: z
+      .array(z.string().uuid())
+      .max(0, "Configure MCP tools through toolAccess")
+      .optional(),
   })
   .refine(
     (v) =>
       v.name !== undefined ||
+      v.toolAccess !== undefined ||
       v.capabilities !== undefined ||
       v.customToolIds !== undefined ||
       v.mcpServerIds !== undefined,

@@ -69,14 +69,17 @@ const workspaceContext = z.object({ workspaceId: z.string() })
 export const sourceTools = {
   fetch_source: tool({
     description:
-      "Fetch a source's full content (the complete PR/issue/release body and discussion), beyond the summary from search_sources. Pass a source id. Returns a `live` flag: when false the integration was unreachable and `content` falls back to the stored summary. Cite it as [[src:<id>]] with the same id you passed.",
+      "Read a stored source summary and citation metadata. This tool does not contact the external service. Use an enabled connector fetch tool for live full content. Cite it as [[src:<id>]] with the same id you passed.",
     inputSchema: z.object({
       id: z.string().describe("a source id from search_sources"),
     }),
     contextSchema: workspaceContext,
     execute: async ({ id }, { context }) => {
       try {
-        return await fetchSourceContent(context.workspaceId, id)
+        // Live reads must use connector tools so profile and approval gates apply.
+        return await fetchSourceContent(context.workspaceId, id, {
+          live: false,
+        })
       } catch {
         return { error: "fetch failed" }
       }
@@ -85,7 +88,11 @@ export const sourceTools = {
   }),
 }
 
-export async function fetchSourceContent(workspaceId: string, id: string) {
+export async function fetchSourceContent(
+  workspaceId: string,
+  id: string,
+  options: { live: boolean } = { live: true }
+) {
   const row = await db
     .select({
       provider: schema.source.provider,
@@ -113,7 +120,7 @@ export async function fetchSourceContent(workspaceId: string, id: string) {
     .then((r) => r[0])
   if (!row) return { error: "source not found" }
 
-  const provider = getSourceProvider(row.provider)
+  const provider = options.live ? getSourceProvider(row.provider) : null
   const fetched = provider
     ? await provider
         .fetchContent(

@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm"
 import {
   boolean,
   index,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -10,6 +11,10 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { createSelectSchema } from "drizzle-zod"
+import {
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  type ProfileToolAccess,
+} from "./profile-tool-access"
 import { workspace } from "./workspaces"
 
 // What Lor is allowed to *do* in a channel — gated tools/connectors, not the
@@ -45,7 +50,7 @@ export const ALL_LOR_CAPABILITIES: LorCapability[] = [
   ...lorCapabilityEnum.enumValues,
 ]
 
-// A named capability preset assigned to a channel or category. Resolution is
+// A named tool-access profile assigned to a channel or category. Resolution is
 // channel profile → parent category's profile → the workspace default.
 export const agentProfile = pgTable(
   "agent_profile",
@@ -60,12 +65,15 @@ export const agentProfile = pgTable(
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    toolAccess: jsonb("tool_access")
+      .$type<ProfileToolAccess>()
+      .notNull()
+      .default(DEFAULT_PROFILE_TOOL_ACCESS),
     // The workspace fallback (exactly one per workspace): used when a channel and
     // its category both lack an explicit profile.
     isDefault: boolean("is_default").notNull().default(false),
-    // Grants every capability, including ones added later — the permissive
-    // default ("everything connected, tune from there"). When false,
-    // `capabilities` is the explicit allowlist.
+    // Standalone abilities and HTTP tools still use these internal grants.
+    // Connector and MCP access always comes from toolAccess, even when true.
     grantsAll: boolean("grants_all").notNull().default(false),
     capabilities: lorCapabilityEnum("capabilities")
       .array()

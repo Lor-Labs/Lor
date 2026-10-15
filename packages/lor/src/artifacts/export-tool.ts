@@ -205,6 +205,7 @@ type InvokableTool = {
 export function createExportToolResultTool(opts: {
   tools: Record<string, unknown>
   toolsContext: Record<string, unknown>
+  approvalGatedTools?: ReadonlySet<string>
 }) {
   return tool({
     description:
@@ -230,6 +231,11 @@ export function createExportToolResultTool(opts: {
       { tool: toolName, args, filename, format },
       { toolCallId, context, abortSignal }
     ) => {
+      if (opts.approvalGatedTools?.has(toolName)) {
+        return {
+          error: `${toolName} requires approval; call it directly instead of through export_tool_result`,
+        }
+      }
       if (EXPORT_DENIED_TOOLS.has(toolName)) {
         return {
           error: `${toolName} performs actions and can't be exported to a file; call it directly`,

@@ -30,6 +30,7 @@ import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { endAfterToDate } from "@repo/lor/loops"
 import { initialMcpServerOAuthStatus } from "@repo/lor/mcp-server-oauth"
 import { encryptSecret } from "@repo/utils/crypto"
+import { profileToolAccessIssue } from "./profile-tool-access"
 
 // Apply engine for workspace change proposals (pillar 3,
 // reference/change-proposals.md). One transaction over every operation — a
@@ -409,6 +410,14 @@ async function applyOperation(
     }
 
     case "create_agent_profile": {
+      const toolAccessIssue = await profileToolAccessIssue(
+        ctx.workspaceId,
+        spec.toolAccess,
+        ctx.tx
+      )
+      if (toolAccessIssue) fail(position, toolAccessIssue)
+      if (spec.mcpServers.length > 0)
+        fail(position, "Configure MCP tools through toolAccess")
       const connections = await ctx.tx
         .select({ provider: schema.integrationConnection.provider })
         .from(schema.integrationConnection)
@@ -423,7 +432,11 @@ async function applyOperation(
       // deployment-level web gate.
       const grantable = new Set(
         availableCapabilities(connected)
-          .filter((cap) => cap.key !== "web" || Boolean(env.EXA_API_KEY))
+          .filter(
+            (cap) =>
+              cap.connector === null &&
+              (cap.key !== "web" || Boolean(env.EXA_API_KEY))
+          )
           .map((cap) => cap.key)
       )
       const capabilities: LorCapability[] = []
@@ -444,19 +457,13 @@ async function applyOperation(
           })
         )
       )
-      const mcpServerIds = await Promise.all(
-        spec.mcpServers.map((ref) =>
-          resolveOwnedRef(ctx, ref, position, "create_mcp_server", {
-            table: "mcp_server",
-          })
-        )
-      )
       const inserted = await ctx.tx
         .insert(schema.agentProfile)
         .values({
           workspaceId: ctx.workspaceId,
           name: spec.name,
           capabilities,
+          toolAccess: spec.toolAccess,
           grantsAll: false,
           isDefault: false,
         })
@@ -469,15 +476,6 @@ async function applyOperation(
           uniqueToolIds.map((customToolId) => ({
             profileId: inserted.id,
             customToolId,
-          }))
-        )
-      }
-      const uniqueServerIds = [...new Set(mcpServerIds)]
-      if (uniqueServerIds.length > 0) {
-        await ctx.tx.insert(schema.agentProfileMcpServer).values(
-          uniqueServerIds.map((mcpServerId) => ({
-            profileId: inserted.id,
-            mcpServerId,
           }))
         )
       }

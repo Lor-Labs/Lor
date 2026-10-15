@@ -1,7 +1,8 @@
 # Connector tool controls
 
-Shared controls and the Better Stack connector are implemented. The profile
-tool-access redesign below is agreed and awaits its own review batches.
+Shared controls and the Better Stack connector are implemented. The backend profile
+tool-access model is implemented; its editor and the picker redesign remain
+separate review batches.
 
 ## Locked behavior
 
@@ -11,7 +12,8 @@ tool-access redesign below is agreed and awaits its own review batches.
   individual checkboxes. Only explicitly read-only tools show a Read only badge.
 - Custom MCP discovery carries the provider's `readOnlyHint`. The label is a
   provider declaration, not a security guarantee or an approval exemption.
-- Connection selections intersect agent-profile capabilities. Existing approval
+- Profile connector/MCP selections intersect workspace-enabled tool names.
+  Capability groups are internal startup/approval plumbing. Existing approval
   rules still apply. Disabled tools must never bind to the agent.
 - `integration_connection.enabled_tools` is a required explicit list. An empty
   array enables no tools. Pre-launch configurations need no compatibility path.
@@ -52,8 +54,8 @@ again locally. Local names are prefixed with Better Stack to avoid collisions.
 The reviewed surface covers application errors, telemetry queries, uptime
 monitors and incidents; it excludes dashboard administration, deletion, user
 management, and creating integrations. Resolve incident and Update error state
-require both explicit tool selection and the `betterstack_write` profile grant.
-They retain normal approval gates and durable action replay protection, and
+require both workspace enablement and inclusion in the profile's effective tool
+selection. They retain normal approval gates and durable action replay protection, and
 cannot be called through the bulk-export tool.
 
 Inbound error webhooks remain separate. A connected investigation tool does not
@@ -100,7 +102,7 @@ Better Stack connection remain rollout work; the complete credentialed flow has
 not been exercised here. Connector administration remains web-only, matching the
 existing mobile settings; mobile tool-trail branding includes Better Stack.
 
-## Agreed next model — not implemented yet
+## Profile tool access — backend batch implemented
 
 - Connector settings define the tools available to the workspace.
 - Agent profiles follow that workspace selection by default and can turn off a
@@ -113,6 +115,91 @@ existing mobile settings; mobile tool-trail branding includes Better Stack.
 - Pre-launch breaking changes are acceptable. Do not add compatibility paths for
   the previous profile configuration format.
 
-Review in separate batches: profile access model and enforcement, profile editor,
-then the connector tool-picker redesign. The legacy tool-selection fallback was
-removed in its own cleanup batch before this work.
+- [x] Profile access model, API, and enforcement.
+- [ ] Profile editor and configuration-proposal summaries using the new tool
+  access contract.
+- [ ] Connector tool-picker redesign and removal of the Capabilities section.
+
+This batch does not update the profile editor. Do not deploy it with the old
+editor: connector capability writes and nonempty whole-server `mcpServerIds`
+writes are rejected, and the editor cannot yet configure the new selections.
+The old MCP grant join table is no longer read for authorization; its schema
+can be removed with the editor/API cleanup. No old connector grants are converted
+or preserved through a fallback.
+
+### API contract
+
+Profile GET/create/update responses include `toolAccess`. Profile listing also
+returns `availableToolGroups` with connected built-in services, saved MCP
+servers, and only their workspace-enabled tool names. Built-in tool metadata
+includes read-only labels; saved MCP tool names have unknown annotations here
+until discovery metadata is made available to the editor. No external MCP
+handshakes run just to list profiles.
+
+`toolAccess` has `connectors` (provider IDs) and `mcpServers` (server UUIDs).
+Each override is `{ "mode": "workspace" }`, `{ "mode": "off" }`, or
+`{ "mode": "custom", "tools": ["tool_name"] }`. Omitted entries follow workspace
+selections, including subsequently enabled workspace tools. Custom selections
+are fixed names and never gain newly enabled names automatically. Profiles
+cannot enable tools disabled in workspace settings. An empty custom list denies
+all tools for that service.
+
+PATCH replaces the whole `toolAccess` object rather than merging nested groups;
+clients must send every override they want to retain. Other profile fields are
+unchanged by a toolAccess-only PATCH. API validation rejects foreign MCP IDs,
+disconnected providers, and names absent from the workspace-enabled list.
+Configuration proposals validate and persist the same access format.
+
+Example profile create/update tool-access payload:
+
+```json
+{
+  "toolAccess": {
+    "connectors": {
+      "linear": {
+        "mode": "custom",
+        "tools": ["search_linear", "fetch_linear", "create_linear_issue"]
+      },
+      "betterstack": { "mode": "off" }
+    },
+    "mcpServers": {}
+  }
+}
+```
+
+Standalone abilities (web, artifacts) and individual HTTP tools retain their
+existing internal grants in this batch. `grantsAll` never overrides connector or
+MCP tool restrictions. Channel resolution remains channel → category → workspace
+default. Missing channels and failed profile reads do not grant external tools.
+Runs without a channel also honor the workspace default profile.
+
+### Other execution paths
+
+- Main and resumed runs bind only effective connector/MCP tool names.
+- Archive synthesis applies the same per-tool intersection and excludes tools
+  with approval gates, because this background task cannot request approval.
+- Bulk export refuses approval-gated tools; those must be called directly so
+  the normal approval flow runs.
+- Composer record search requires the matching enabled search tool; GitHub file
+  browsing requires `investigate_code` independently of record-search access.
+- Lor's core `fetch_source` reads stored summaries only. Live reads must use an
+  explicitly enabled connector fetch tool, which also carries its approval gate.
+  This avoids a core-tool path around connector restrictions. Direct source
+  content reads outside Lor retain their existing live-fetch behavior.
+- Shared brain and stored-source visibility remain separate from tool access;
+  disabling a connector tool does not erase already ingested workspace memory.
+
+### Profile schema rollout
+
+Apply before starting this backend version, and release the new profile editor
+with it. Existing rows reset to workspace-following connector/MCP access; there
+is no conversion from their old capability or MCP grant lists.
+
+```sql
+ALTER TABLE agent_profile
+  ADD COLUMN IF NOT EXISTS tool_access jsonb NOT NULL
+  DEFAULT '{"connectors":{},"mcpServers":{}}'::jsonb;
+```
+
+The database has not been changed by this batch. Review runtime enforcement and
+API behavior before proceeding to the editor batch.

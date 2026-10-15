@@ -326,7 +326,8 @@ export type McpServerSessions = {
 export async function channelMcpServers(
   workspaceId: string,
   grant: "all" | string[],
-  takenNames: ReadonlySet<string>
+  takenNames: ReadonlySet<string>,
+  profileTools: Readonly<Record<string, readonly string[]>>
 ): Promise<McpServerSessions | null> {
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) return null
@@ -362,7 +363,10 @@ export async function channelMcpServers(
     )
     .orderBy(schema.mcpServer.name)
   const servers = rows.filter(
-    (row) => mcpServerGranted(row.id, grant) && mcpServerRuntimeEligible(row)
+    (row) =>
+      mcpServerGranted(row.id, grant) &&
+      mcpServerRuntimeEligible(row) &&
+      row.enabledTools.some((name) => profileTools[row.id]?.includes(name))
   )
   if (servers.length === 0) return null
 
@@ -429,7 +433,10 @@ export async function channelMcpServers(
   const clients: Array<{ close: () => Promise<void> }> = []
   for (const session of sessions) {
     if (!session) continue
-    const allowed = new Set(session.row.enabledTools)
+    const profileAllowed = new Set(profileTools[session.row.id] ?? [])
+    const allowed = new Set(
+      session.row.enabledTools.filter((name) => profileAllowed.has(name))
+    )
     const serverTools: ToolSet = {}
     for (const [name, tool] of Object.entries(session.tools)) {
       if (!allowed.has(name)) continue

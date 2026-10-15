@@ -20,11 +20,7 @@ export async function betterstackMcpTools(
       enabledConnectorTools("betterstack", connection.enabledTools)
     )
     const catalog = BETTERSTACK_TOOLS.filter(
-      (tool) =>
-        enabled.has(tool.name) &&
-        capabilities.includes(
-          tool.readOnlyHint ? "betterstack" : "betterstack_write"
-        )
+      (tool) => enabled.has(tool.name) && capabilities.includes(tool.capability)
     )
     if (catalog.length === 0) return null
     const session = await connectMcpServer({

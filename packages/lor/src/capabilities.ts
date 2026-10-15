@@ -1,59 +1,125 @@
+import {
+  CAPABILITIES,
+  CONNECTOR_TOOLS,
+  enabledConnectorTools,
+  profileSelectedTools,
+} from "@repo/connectors"
 import { and, db, eq, schema } from "@repo/db"
-import { ALL_LOR_CAPABILITIES, type LorCapability } from "@repo/db/schema"
+import {
+  ALL_LOR_CAPABILITIES,
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  type LorCapability,
+  type ProfileToolAccess,
+  profileToolAccessSchema,
+} from "@repo/db/schema"
 
-// What a channel's profile lets Lor use: gated capabilities plus the
-// workspace-tool grants. `customTools`/`mcpServers` are "all" when the
-// profile grants the blanket `custom_tools` capability (or grantsAll);
-// otherwise the explicit per-profile grant lists (join-table rows).
 export type ChannelToolGrants = {
+  // Internal startup/approval groups; connector access is resolved by tool name.
   capabilities: LorCapability[]
+  connectorTools: string[]
   customTools: "all" | string[]
-  mcpServers: "all" | string[]
+  mcpServers: string[]
+  mcpTools: Record<string, string[]>
 }
 
-const PERMISSIVE_GRANTS: ChannelToolGrants = {
-  capabilities: ALL_LOR_CAPABILITIES,
-  customTools: "all",
-  mcpServers: "all",
+export const EMPTY_TOOL_GRANTS: ChannelToolGrants = {
+  capabilities: [],
+  connectorTools: [],
+  customTools: [],
+  mcpServers: [],
+  mcpTools: {},
 }
 
-async function profileGrants(profile: {
+type Profile = {
   id: string
   grantsAll: boolean
   capabilities: LorCapability[]
-}): Promise<ChannelToolGrants> {
-  if (profile.grantsAll) return PERMISSIVE_GRANTS
-  if (profile.capabilities.includes("custom_tools")) {
-    return {
-      capabilities: profile.capabilities,
-      customTools: "all",
-      mcpServers: "all",
+  toolAccess: ProfileToolAccess
+}
+
+async function profileGrants(
+  workspaceId: string,
+  profile: Profile | null
+): Promise<ChannelToolGrants> {
+  const access = profile
+    ? profileToolAccessSchema.parse(profile.toolAccess)
+    : DEFAULT_PROFILE_TOOL_ACCESS
+  const standaloneCaps = (
+    profile && !profile.grantsAll ? profile.capabilities : ALL_LOR_CAPABILITIES
+  ).filter((capability) => CAPABILITIES[capability].connector === null)
+  const allCustomTools =
+    !profile || profile.grantsAll || standaloneCaps.includes("custom_tools")
+  const [connections, mcpServers, customToolGrants] = await Promise.all([
+    db
+      .select({
+        provider: schema.integrationConnection.provider,
+        enabledTools: schema.integrationConnection.enabledTools,
+      })
+      .from(schema.integrationConnection)
+      .where(
+        and(
+          eq(schema.integrationConnection.workspaceId, workspaceId),
+          eq(schema.integrationConnection.status, "active")
+        )
+      ),
+    db
+      .select({
+        id: schema.mcpServer.id,
+        enabledTools: schema.mcpServer.enabledTools,
+      })
+      .from(schema.mcpServer)
+      .where(eq(schema.mcpServer.workspaceId, workspaceId)),
+    profile && !allCustomTools
+      ? db
+          .select({ id: schema.agentProfileCustomTool.customToolId })
+          .from(schema.agentProfileCustomTool)
+          .where(eq(schema.agentProfileCustomTool.profileId, profile.id))
+      : [],
+  ])
+  const capabilities = new Set(standaloneCaps)
+  const connectorTools = new Set<string>()
+  for (const connection of connections) {
+    const selected = new Set(
+      profileSelectedTools(
+        enabledConnectorTools(connection.provider, connection.enabledTools),
+        access.connectors[connection.provider]
+      )
+    )
+    for (const descriptor of CONNECTOR_TOOLS[connection.provider]) {
+      if (!selected.has(descriptor.name)) continue
+      connectorTools.add(descriptor.name)
+      capabilities.add(descriptor.capability)
     }
   }
-  const [toolGrants, mcpServerGrants] = await Promise.all([
-    db
-      .select({ customToolId: schema.agentProfileCustomTool.customToolId })
-      .from(schema.agentProfileCustomTool)
-      .where(eq(schema.agentProfileCustomTool.profileId, profile.id)),
-    db
-      .select({ mcpServerId: schema.agentProfileMcpServer.mcpServerId })
-      .from(schema.agentProfileMcpServer)
-      .where(eq(schema.agentProfileMcpServer.profileId, profile.id)),
-  ])
-  return {
-    capabilities: profile.capabilities,
-    customTools: toolGrants.map((g) => g.customToolId),
-    mcpServers: mcpServerGrants.map((g) => g.mcpServerId),
+  const mcpTools: Record<string, string[]> = {}
+  for (const server of mcpServers) {
+    const selected = profileSelectedTools(
+      server.enabledTools,
+      access.mcpServers[server.id]
+    )
+    if (selected.length > 0) mcpTools[server.id] = selected
   }
+  return {
+    capabilities: [...capabilities],
+    connectorTools: [...connectorTools],
+    customTools: allCustomTools
+      ? "all"
+      : customToolGrants.map((grant) => grant.id),
+    mcpServers: Object.keys(mcpTools),
+    mcpTools,
+  }
+}
+
+const profileColumns = {
+  id: schema.agentProfile.id,
+  grantsAll: schema.agentProfile.grantsAll,
+  capabilities: schema.agentProfile.capabilities,
+  toolAccess: schema.agentProfile.toolAccess,
 }
 
 async function getProfile(id: string, workspaceId: string) {
   return db
-    .select({
-      id: schema.agentProfile.id,
-      grantsAll: schema.agentProfile.grantsAll,
-      capabilities: schema.agentProfile.capabilities,
-    })
+    .select(profileColumns)
     .from(schema.agentProfile)
     .where(
       and(
@@ -62,65 +128,73 @@ async function getProfile(id: string, workspaceId: string) {
       )
     )
     .limit(1)
-    .then((r) => r[0] ?? null)
+    .then((rows) => rows[0] ?? null)
 }
 
-// Resolve which gated tools Lor may use in a channel: explicit channel
-// profile → parent category's profile → the workspace default → all (permissive
-// fallback, so an un-provisioned workspace behaves exactly as before). The brain
-// and chat search are core and never gated here.
-export async function resolveChannelCapabilities(
-  channelId: string
+export async function resolveWorkspaceCapabilities(
+  workspaceId: string
 ): Promise<ChannelToolGrants> {
-  const ch = await db
+  const profile = await db
+    .select(profileColumns)
+    .from(schema.agentProfile)
+    .where(
+      and(
+        eq(schema.agentProfile.workspaceId, workspaceId),
+        eq(schema.agentProfile.isDefault, true)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  return profileGrants(workspaceId, profile)
+}
+
+// Channel → parent category → workspace default. Missing overrides follow the
+// workspace tool selection; explicit/custom selections only narrow it.
+export async function resolveChannelCapabilities(
+  channelId: string,
+  workspaceId?: string
+): Promise<ChannelToolGrants> {
+  const channel = await db
     .select({
       agentProfileId: schema.channel.agentProfileId,
       parentId: schema.channel.parentId,
       workspaceId: schema.channel.workspaceId,
     })
     .from(schema.channel)
-    .where(eq(schema.channel.id, channelId))
+    .where(
+      and(
+        eq(schema.channel.id, channelId),
+        workspaceId ? eq(schema.channel.workspaceId, workspaceId) : undefined
+      )
+    )
     .limit(1)
-    .then((r) => r[0] ?? null)
-  if (!ch) return PERMISSIVE_GRANTS
-
-  // 1. Explicit channel profile (scoped to the channel's workspace).
-  if (ch.agentProfileId && ch.workspaceId) {
-    const p = await getProfile(ch.agentProfileId, ch.workspaceId)
-    if (p) return profileGrants(p)
+    .then((rows) => rows[0])
+  if (!channel?.workspaceId) return EMPTY_TOOL_GRANTS
+  if (channel.agentProfileId) {
+    const profile = await getProfile(
+      channel.agentProfileId,
+      channel.workspaceId
+    )
+    if (!profile) throw new Error("Channel agent profile is unavailable")
+    return profileGrants(channel.workspaceId, profile)
   }
-  // 2. Parent category's profile (the "group").
-  if (ch.parentId && ch.workspaceId) {
-    const parentProfileId = await db
-      .select({ agentProfileId: schema.channel.agentProfileId })
+  if (channel.parentId) {
+    const parent = await db
+      .select({ profileId: schema.channel.agentProfileId })
       .from(schema.channel)
-      .where(eq(schema.channel.id, ch.parentId))
-      .limit(1)
-      .then((r) => r[0]?.agentProfileId ?? null)
-    if (parentProfileId) {
-      const p = await getProfile(parentProfileId, ch.workspaceId)
-      if (p) return profileGrants(p)
-    }
-  }
-  // 3. Workspace default profile.
-  if (ch.workspaceId) {
-    const def = await db
-      .select({
-        id: schema.agentProfile.id,
-        grantsAll: schema.agentProfile.grantsAll,
-        capabilities: schema.agentProfile.capabilities,
-      })
-      .from(schema.agentProfile)
       .where(
         and(
-          eq(schema.agentProfile.workspaceId, ch.workspaceId),
-          eq(schema.agentProfile.isDefault, true)
+          eq(schema.channel.id, channel.parentId),
+          eq(schema.channel.workspaceId, channel.workspaceId)
         )
       )
       .limit(1)
-      .then((r) => r[0] ?? null)
-    if (def) return profileGrants(def)
+      .then((rows) => rows[0])
+    if (parent?.profileId) {
+      const profile = await getProfile(parent.profileId, channel.workspaceId)
+      if (!profile) throw new Error("Category agent profile is unavailable")
+      return profileGrants(channel.workspaceId, profile)
+    }
   }
-  // 4. Nothing provisioned → permissive (no behavior change).
-  return PERMISSIVE_GRANTS
+  return resolveWorkspaceCapabilities(channel.workspaceId)
 }

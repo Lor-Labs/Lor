@@ -1,13 +1,5 @@
-import {
-  and,
-  count,
-  db,
-  desc,
-  eq,
-  inArray,
-  isUniqueViolation,
-  schema,
-} from "@repo/db"
+import { profileSelectedTools } from "@repo/connectors"
+import { and, db, desc, eq, inArray, isUniqueViolation, schema } from "@repo/db"
 import type { McpServer } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { customToolUrlIssue, renderTemplate } from "@repo/lor/custom-tools"
@@ -117,15 +109,36 @@ async function grantCounts(
   mcpServerIds: string[]
 ): Promise<Map<string, number>> {
   if (mcpServerIds.length === 0) return new Map()
-  const rows = await db
+  const servers = await db
     .select({
-      mcpServerId: schema.agentProfileMcpServer.mcpServerId,
-      profiles: count(),
+      id: schema.mcpServer.id,
+      workspaceId: schema.mcpServer.workspaceId,
+      enabledTools: schema.mcpServer.enabledTools,
     })
-    .from(schema.agentProfileMcpServer)
-    .where(inArray(schema.agentProfileMcpServer.mcpServerId, mcpServerIds))
-    .groupBy(schema.agentProfileMcpServer.mcpServerId)
-  return new Map(rows.map((r) => [r.mcpServerId, r.profiles]))
+    .from(schema.mcpServer)
+    .where(inArray(schema.mcpServer.id, mcpServerIds))
+  const workspaceIds = [...new Set(servers.map((server) => server.workspaceId))]
+  if (workspaceIds.length === 0) return new Map()
+  const profiles = await db
+    .select({
+      workspaceId: schema.agentProfile.workspaceId,
+      access: schema.agentProfile.toolAccess,
+    })
+    .from(schema.agentProfile)
+    .where(inArray(schema.agentProfile.workspaceId, workspaceIds))
+  return new Map(
+    servers.map((server) => [
+      server.id,
+      profiles.filter(
+        (profile) =>
+          profile.workspaceId === server.workspaceId &&
+          profileSelectedTools(
+            server.enabledTools,
+            profile.access.mcpServers[server.id]
+          ).length > 0
+      ).length,
+    ])
+  )
 }
 
 // Final request headers for a handshake: secret placeholders substituted.

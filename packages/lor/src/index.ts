@@ -1,8 +1,4 @@
-import {
-  BETTERSTACK_TOOLS,
-  CONNECTOR_TOOLS,
-  enabledConnectorTools,
-} from "@repo/connectors"
+import { BETTERSTACK_TOOLS, CONNECTOR_TOOLS } from "@repo/connectors"
 import {
   and,
   asc,
@@ -21,12 +17,11 @@ import {
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
-import {
-  type AgentRunApprovalResume,
-  type AgentRunContext,
-  ALL_LOR_CAPABILITIES,
-  type LorToolCall,
-  type LorToolCallUpdate,
+import type {
+  AgentRunApprovalResume,
+  AgentRunContext,
+  LorToolCall,
+  LorToolCallUpdate,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
@@ -72,8 +67,9 @@ import {
   searchCalls,
 } from "./calls"
 import {
-  type ChannelToolGrants,
+  EMPTY_TOOL_GRANTS,
   resolveChannelCapabilities,
+  resolveWorkspaceCapabilities,
 } from "./capabilities"
 import {
   classifyToken,
@@ -210,7 +206,7 @@ const NOTION_PROMPT_LINE = `- The team's selected Notion content (read-only): se
 
 const ARTIFACTS_PROMPT_LINE = `- File deliverables: create_artifacts runs a coding agent in a clean sandbox (Python with pandas, matplotlib, openpyxl) that produces real files — reports, cleaned or analyzed data, generated documents or code. Every file it delivers is stored and returned with a link; share those links in your answer. Use it when someone asks for a file, document, or dataset — never for ordinary answers (it's slow). Non-image files people share appear in the conversation as [file: name — type, size — url] lines; pass those URLs as inputFileUrls when the work needs them. Write complete, self-contained instructions including desired filenames and formats — the agent can't ask follow-ups.`
 
-const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one of your other tools and saves its complete result straight to a file, returning only a receipt (url, row and byte counts, a small preview) — the data itself never enters this conversation. Reach for it whenever a tool would return more data than you need to read: database queries (run_sql and friends), long list or search results, large JSON. Never page through big results by calling a tool repeatedly and copying rows into your reply — export once and use the file. The returned url is a workspace file: share it as the deliverable, and/or pass it to create_artifacts as inputFileUrls when the data needs further processing (merging, cleaning, charts). Only read tools can be exported; anything that takes an action is refused.`
+const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one of your other tools and saves its complete result straight to a file, returning only a receipt (url, row and byte counts, a small preview) — the data itself never enters this conversation. Reach for it whenever a tool would return more data than you need to read: database queries (run_sql and friends), long list or search results, large JSON. Never page through big results by calling a tool repeatedly and copying rows into your reply — export once and use the file. The returned url is a workspace file: share it as the deliverable, and/or pass it to create_artifacts as inputFileUrls when the data needs further processing (merging, cleaning, charts). Only read tools without an approval gate can be exported; call approval-gated tools directly. Anything that takes an action is refused.`
 
 const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Pull requests target each repository's configured base branch (its default branch unless the workspace overrides it); when someone asks to target a different existing branch, pass it as base. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
 
@@ -2055,34 +2051,24 @@ export async function respond(
     ? await resolveLorRunScope(ctx.channelId).catch(() => EMPTY_LOR_RUN_SCOPE)
     : EMPTY_LOR_RUN_SCOPE
 
-  // resolveChannelCapabilities already maps truly unprovisioned channels to the
-  // permissive set; an actual throw here is an unexpected failure, so fail
-  // closed to core-only (no gated tools) rather than granting everything.
-  const grants = ctx.channelId
-    ? await resolveChannelCapabilities(ctx.channelId).catch(
-        (): ChannelToolGrants => ({
-          capabilities: [],
-          customTools: [],
-          mcpServers: [],
-        })
-      )
-    : {
-        capabilities: ALL_LOR_CAPABILITIES,
-        customTools: "all" as const,
-        mcpServers: "all" as const,
-      }
+  // Profile reads fail closed to core tools, including resumed runs.
+  const grants = await (ctx.channelId
+    ? resolveChannelCapabilities(ctx.channelId, ctx.workspaceId)
+    : resolveWorkspaceCapabilities(ctx.workspaceId)
+  ).catch(() => EMPTY_TOOL_GRANTS)
   const caps = grants.capabilities
   // MCP handshakes are the slow part of startup; kick them off now (time-
   // bounded inside channelMcpServers) and merge after the built-ins exist.
   // Collisions are filtered at merge, so this needs no takenNames up front.
   const mcpServersPromise =
-    grants.mcpServers === "all" || grants.mcpServers.length > 0
+    grants.mcpServers.length > 0
       ? // Handled here at creation: the await is several steps away, and an
         // unhandled rejection in between is a process-level event.
         channelMcpServers(
           ctx.workspaceId,
           grants.mcpServers,
-          new Set<string>()
+          new Set<string>(),
+          grants.mcpTools
         ).catch(() => null)
       : Promise.resolve(null)
   const needsGithub =
@@ -2147,24 +2133,7 @@ export async function respond(
         ctx.channelId &&
         caps.includes("code_actions")
     )
-    // Fail closed if tool selection cannot be read, including resumed runs.
-    const connections = await db
-      .select({
-        provider: schema.integrationConnection.provider,
-        enabledTools: schema.integrationConnection.enabledTools,
-      })
-      .from(schema.integrationConnection)
-      .where(
-        and(
-          eq(schema.integrationConnection.workspaceId, ctx.workspaceId),
-          eq(schema.integrationConnection.status, "active")
-        )
-      )
-    const selectedConnectorTools = new Set(
-      connections.flatMap((connection) =>
-        enabledConnectorTools(connection.provider, connection.enabledTools)
-      )
-    )
+    const selectedConnectorTools = new Set(grants.connectorTools)
     const reservedConnectorNames = new Set([
       ...Object.values(CONNECTOR_TOOLS).flatMap((catalog) =>
         catalog.map((tool) => tool.name)
@@ -2257,9 +2226,7 @@ export async function respond(
         if (Object.hasOwn(builtinTools, descriptor.name))
           toolTargets.addName(descriptor.name, {
             kind: "capability",
-            capability: descriptor.readOnlyHint
-              ? "betterstack"
-              : "betterstack_write",
+            capability: descriptor.capability,
           })
       }
     }
@@ -2484,6 +2451,12 @@ export async function respond(
       ;(tools as ToolSet)[EXPORT_TOOL_NAME] = createExportToolResultTool({
         tools,
         toolsContext,
+        approvalGatedTools: new Set(
+          Object.keys(tools).filter((name) => {
+            const target = toolTargets.targetFor(name)
+            return target !== null && approvalGates.has(target)
+          })
+        ),
       })
       ;(toolsContext as Record<string, unknown>)[EXPORT_TOOL_NAME] = {
         workspaceId: ctx.workspaceId,
