@@ -67,6 +67,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `self-configuration.md` | Vision for Lor proposing changes to itself; pillars 1–2 shipped (root runbooks), pillar 3 in flight |
 | `playbooks.md` | Working idea, not a spec |
 | `private-lor-questions.md` | Deferred platform decision (2026-09-28) |
+| `session-memory.md` | What Lor keeps from sessions: session-aware search hits, brain page versions + `edit` + per-page concurrency (no workspace lock), write-back gate context, deterministic session refs. Decisions locked 2026-10-14; session summaries and turn embeddings deferred behind an eval |
 | `slack-connector-next.md` | Read-only Slack connector, not started |
 | `sync-engine.md` | Sync engine research (Zero, TanStack DB, Electric, PowerSync, Convex, local-first) and a proposed Zero-first spike with go/no-go gates. Not committed; only the timing is decided: React Query until the sessions branch merges |
 
