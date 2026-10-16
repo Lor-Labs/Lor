@@ -202,7 +202,7 @@ export const connectAttio = createRoute({
   method: "post",
   summary: "Link an Attio workspace to a workspace",
   description:
-    "Exchanges an Attio OAuth authorization code and stores the workspace-scoped, read-only token encrypted.",
+    "Exchanges an Attio OAuth authorization code and stores the workspace-scoped token encrypted. Available read/write tools are selected separately.",
   tags: ["Integrations"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

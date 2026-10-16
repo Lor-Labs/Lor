@@ -23,8 +23,16 @@ export const ATTIO_REQUIRED_READ_SCOPES = [
   "user_management:read",
 ] as const
 
-// The single permitted write scope: creating/deleting our event webhook. It
-// grants no CRM data writes, so the read-only posture holds.
+export const ATTIO_WRITE_SCOPES = [
+  "record_permission:read-write",
+  "list_entry:read-write",
+  "note:read-write",
+  "task:read-write",
+] as const
+
+type AttioWriteScope = (typeof ATTIO_WRITE_SCOPES)[number]
+
+// Webhook administration stays internal to connect/disconnect.
 export const ATTIO_WEBHOOK_SCOPE = "webhook:read-write"
 
 type AttioIdentity = {
@@ -66,12 +74,21 @@ async function identifyToken(token: string): Promise<AttioIdentity | null> {
 
 export function validateAttioReadScopes(scope: string | undefined): boolean {
   const scopes = new Set(scope?.split(/\s+/).filter(Boolean) ?? [])
+  const allowedWrites = new Set<string>([
+    ...ATTIO_WRITE_SCOPES,
+    ATTIO_WEBHOOK_SCOPE,
+  ])
   const forbiddenWrite = [...scopes].some(
-    (value) => value.endsWith(":read-write") && value !== ATTIO_WEBHOOK_SCOPE
+    (value) => value.endsWith(":read-write") && !allowedWrites.has(value)
   )
   if (forbiddenWrite) return false
   if (!scopes.has(ATTIO_WEBHOOK_SCOPE)) return false
-  return ATTIO_REQUIRED_READ_SCOPES.every((required) => scopes.has(required))
+  // A reviewed read-write scope also satisfies the corresponding read baseline.
+  return ATTIO_REQUIRED_READ_SCOPES.every(
+    (required) =>
+      scopes.has(required) ||
+      scopes.has(required.replace(/:read$/, ":read-write"))
+  )
 }
 
 type AttioWebhookConfig = {
@@ -209,7 +226,7 @@ export async function connectAttio(
     ) {
       logger.error(
         { scope: identity?.scope },
-        "Attio token is inactive or does not have the exact read-only + webhook scope set"
+        "Attio token is inactive, missing required reads/webhook access, or has unsupported write scopes"
       )
       return null
     }
@@ -306,6 +323,83 @@ export async function attioRequest<T>(
   } catch (err) {
     logger.warn({ err, path }, "Attio API request error")
     return null
+  }
+}
+
+export type AttioWriteResult<T> =
+  | { data: T }
+  | {
+      error: string
+      outcome: "failed" | "unknown"
+      requiresReconnection?: boolean
+    }
+
+// One mutation, without automatic retries: a timeout may follow a committed write.
+export async function attioWriteRequest<T>(
+  externalId: string,
+  path: string,
+  method: "POST" | "PATCH" | "PUT",
+  data: unknown,
+  requiredScope: AttioWriteScope
+): Promise<AttioWriteResult<T>> {
+  const token = await getAttioAccessToken(externalId)
+  if (!token)
+    return {
+      error: "Reconnect Attio before writing.",
+      outcome: "failed",
+      requiresReconnection: true,
+    }
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ data }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+    if (res.ok) {
+      const response: unknown = await res.json()
+      if (
+        !(
+          response &&
+          typeof response === "object" &&
+          "data" in response &&
+          response.data &&
+          typeof response.data === "object" &&
+          !Array.isArray(response.data)
+        )
+      )
+        throw new Error("Attio write receipt unavailable")
+      return { data: response as T }
+    }
+    logger.warn({ path, status: res.status }, "Attio write request failed")
+    if (res.status === 401 || res.status === 403)
+      return {
+        error: `Attio denied this write. Enable ${requiredScope} in the Attio app, reconnect Attio in Lor, and check access to the target record or list.`,
+        outcome: "failed",
+        requiresReconnection: true,
+      }
+    if (res.status >= 400 && res.status < 500 && res.status !== 408) {
+      const body = (await res.json().catch(() => null)) as {
+        message?: unknown
+      } | null
+      return {
+        error:
+          typeof body?.message === "string"
+            ? body.message.slice(0, 1000)
+            : `Attio rejected this write (HTTP ${res.status}).`,
+        outcome: "failed",
+      }
+    }
+  } catch {
+    logger.warn({ path }, "Attio write response unavailable")
+  }
+  return {
+    error:
+      "Attio did not confirm whether this write completed. Check the record, list entry, note, or task before making another write; do not automatically repeat this action.",
+    outcome: "unknown",
   }
 }
 

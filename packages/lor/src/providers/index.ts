@@ -31,6 +31,7 @@ export function getSourceProvider(
 export {
   ATTIO_REQUIRED_READ_SCOPES,
   ATTIO_WEBHOOK_SCOPE,
+  ATTIO_WRITE_SCOPES,
   type AttioCallRecording,
   type AttioTranscriptSegment,
   attioRequest,

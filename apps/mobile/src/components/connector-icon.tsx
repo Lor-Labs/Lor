@@ -54,6 +54,13 @@ const CONNECTORS: Record<
       "fetch_attio_record",
       "query_attio",
       "fetch_attio_activity",
+      "create_attio_record",
+      "update_attio_record",
+      "create_attio_list_entry",
+      "update_attio_list_entry",
+      "create_attio_note",
+      "create_attio_task",
+      "update_attio_task",
     ],
   },
   notion: {

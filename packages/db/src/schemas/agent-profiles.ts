@@ -31,6 +31,7 @@ export const lorCapabilityEnum = pgEnum("lor_capability", [
   "linear_write",
   "datadog",
   "attio",
+  "attio_write",
   "notion",
   "notion_write",
   "cloudwatch",

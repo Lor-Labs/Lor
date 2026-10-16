@@ -97,11 +97,9 @@ function linearConnectUrl(state: string): string | null {
 function attioConnectUrl(state: string): string | null {
   if (!env.ATTIO_CLIENT_ID) return null
   // Attio OAuth scopes are configured on the app in the Developer Console,
-  // not requested on this URL. It must include all eleven scopes in
-  // ATTIO_REQUIRED_READ_SCOPES plus webhook:read-write (the only permitted
-  // write scope — event webhook management), and nothing else; connectAttio
-  // enforces that exact policy after exchange
-  // (packages/lor/src/providers/attio.ts).
+  // not requested on this URL. Keep the required reads and webhook:read-write;
+  // enable the four reviewed ATTIO_WRITE_SCOPES for CRM writes. Reconnect to
+  // receive updated scopes. Tool selections still restrict what Lor can use.
   const params = new URLSearchParams({
     response_type: "code",
     client_id: env.ATTIO_CLIENT_ID,
@@ -773,7 +771,7 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
       {
         success: false,
         message:
-          "Couldn't connect Attio — verify the app has every required read scope plus webhook:read-write, and no other write scopes",
+          "Couldn't connect Attio — verify the app has the required read access and webhook:read-write. Supported CRM write scopes are record_permission, list_entry, note, and task; remove other write scopes.",
       },
       HttpStatusCodes.BAD_REQUEST
     )

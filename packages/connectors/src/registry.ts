@@ -45,8 +45,7 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
   attio: {
     id: "attio",
     label: "Attio",
-    description:
-      "Search CRM records and inspect pipelines, activity, meetings, and transcripts.",
+    description: "Search and update CRM records, pipelines, notes, and tasks.",
     authType: "oauth",
     envKeys: [
       "ATTIO_CLIENT_ID",
@@ -196,6 +195,13 @@ export const CAPABILITIES: Record<LorCapability, CapabilityDescriptor> = {
     key: "attio",
     label: "Attio",
     description: "Search and read CRM records, activity & call transcripts",
+    connector: "attio",
+  },
+  attio_write: {
+    key: "attio_write",
+    label: "Write to Attio",
+    description:
+      "Create and update CRM records, list entries, notes, and tasks",
     connector: "attio",
   },
   notion: {

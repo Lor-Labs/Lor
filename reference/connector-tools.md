@@ -1,14 +1,14 @@
 # Connector tool controls
 
 Shared controls, the Better Stack connector, profile tool access, and the
-simplified connector picker are implemented. Notion write tools are implemented
-and awaiting review and authenticated rollout.
+simplified connector picker are implemented. Notion and Attio write tools are
+implemented and awaiting authenticated rollout; Attio is ready for review.
 
 ## Locked behavior
 
 - Built-in connections save explicit tool names. Each connector owns recommended
-  defaults; Linear and Notion include their reviewed writes, Better Stack starts
-  read only.
+  defaults; Linear, Notion, and Attio include their reviewed writes, Better Stack
+  starts read only.
 - The tool picker groups tools as Read and Write (built-ins) or Read only and
   Other tools (MCP). Only an explicit `readOnlyHint: true` joins the read group.
   Each group header has a group checkbox and expands to individual checkboxes;
@@ -93,6 +93,7 @@ ALTER TYPE integration_provider ADD VALUE IF NOT EXISTS 'betterstack' BEFORE 'we
 ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'betterstack' BEFORE 'web';
 ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'betterstack_write' BEFORE 'web';
 ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'notion_write' AFTER 'notion';
+ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'attio_write' AFTER 'attio';
 ```
 
 New connector tools must be added to `CONNECTOR_TOOLS` as well as the runtime
@@ -164,6 +165,87 @@ Provider references: [connection capabilities](https://developers.notion.com/ref
 Append currently uses the supported `insert_content` operation with an explicit
 end position; Notion labels this operation legacy, so revisit it when upgrading
 the pinned API version (`2026-03-11`).
+
+## Attio write tools
+
+Attio keeps its existing REST API and OAuth connection. Seven writes join the
+shared Write checklist and default on for new connections and Reset to defaults.
+Reconnecting the same account preserves its explicit saved selection; it does
+not automatically enable newly added tools. Workspace and profile selections
+still intersect. The internal `attio_write` startup/approval group keeps writes
+separate from reads until the planned per-tool approval redesign; this batch
+does not change that approval architecture.
+
+| Tool | Behavior | Required write scope |
+|---|---|---|
+| Create CRM record | Create a person, company, deal, or custom record | `record_permission:read-write` |
+| Update CRM record | Update supplied fields on an existing record | `record_permission:read-write` |
+| Add record to list | Create an entry for an existing record | `list_entry:read-write` |
+| Update list entry | Update a pipeline stage or other entry fields | `list_entry:read-write` |
+| Add note | Create a Markdown note attached to a record | `note:read-write` |
+| Create task | Create a plaintext task with records, assignees, and a deadline | `task:read-write` |
+| Update task | Complete/reopen a task or update its deadline, links, or assignees | `task:read-write` |
+
+Record and list-entry updates append multiselect values by default (`PATCH`).
+An explicit overwrite choice uses `PUT` to replace supplied fields' multiselect
+values; unrelated attributes remain unchanged. Lor is instructed to preserve
+all intended values and avoid overwriting incomplete reads. Creating a list
+entry does not deduplicate existing memberships: Attio permits multiple entries
+for one parent, so Lor must check memberships before adding one.
+
+Attribute values support bounded scalars, flat structured objects, and arrays.
+Nested record-creation references are not accepted, keeping Update separate from
+Create. References to existing records use IDs. These tools do not expose
+deletion, merging, schema administration, creating select/status options, or
+editing existing notes. Task updates omit text because Attio's API only supports
+deadline, completion, linked records, and assignees. Task list fields replace
+their current contents; omitted fields stay unchanged.
+
+The existing `query_attio` read tool now supports `schema`, `select_options`, and
+`statuses`, with `targetType=objects|lists` and an optional attribute slug/ID.
+This exposes writable flags, types, cardinality, and valid choices without a
+separate permission path. Attribute and option lists expose bounded pages and
+`nextOffset` when more results may remain. `mode=task` reads a task by ID, including
+tasks without linked records, so Lor can inspect them before updating. Read
+results flag omitted field data with `dataTruncated`; activity also names failed
+or potentially partial `incompleteSections`. The existing catalog still resolves
+object/list IDs and workspace member IDs.
+
+Writes make one mutation request without automatic retries and return bounded
+receipts in the tool trail. Missing tokens and denied permissions return clear
+reconnection guidance. Timeout, server-error, or malformed success responses
+return an unknown outcome; recorded unknown outcomes and successes use the
+existing run replay protection. The tools cannot run through bulk export or
+background archive synthesis. No provider-level exactly-once guarantee is made.
+
+### Setup and rollout
+
+1. Apply the `attio_write` enum change before deploying the backend (`pnpm
+   db:push`, or the focused enum statement above if earlier schema work is applied).
+2. In the Attio app's Developer Console, retain the required read scopes and
+   `webhook:read-write`. Set records, list entries, notes, and tasks to read/write
+   using the four scopes above. Their read/write scopes also satisfy the
+   corresponding read requirements. Object/list configuration and other products
+   remain read only; unsupported write scopes are still rejected on connection.
+3. Reconnect Attio in Lor to authorize the new scopes. Existing tokens may only
+   have read access; Notion's permissions and reconnection are independent.
+4. For an existing connection, Reset to defaults or select the desired tools.
+   New connections start with all eleven reads/writes. Check the channel's agent
+   profile and optionally require approval for Write to Attio.
+5. Verify operations on disposable CRM records and a list after deployment,
+   including approval, a disabled tool, multiselect preservation, and task completion.
+
+No database, Attio app settings, or authenticated CRM data were changed during
+implementation. Live verification remains rollout work. This adds no new secrets,
+events, or webhook subscriptions. Lor-created notes/list entries can produce the
+same events as changes made in Attio; existing event routing remains in effect.
+
+Provider references: [OpenAPI definition](https://api.attio.com/openapi/api),
+[OAuth setup](https://docs.attio.com/rest-api/tutorials/connect-an-app-through-oauth),
+[record updates](https://docs.attio.com/rest-api/endpoint-reference/records/update-a-record-overwrite-multiselect-values),
+[list-entry updates](https://docs.attio.com/rest-api/endpoint-reference/entries/update-a-list-entry-overwrite-multiselect-values),
+[notes](https://docs.attio.com/rest-api/endpoint-reference/notes/create-a-note),
+and [task updates](https://docs.attio.com/rest-api/endpoint-reference/tasks/update-a-task).
 
 ## Validation and remaining rollout
 
