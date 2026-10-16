@@ -338,6 +338,13 @@ logins; they change.
 
 ### 5.5 Permissions
 
+> **Superseded 2026-10-16** by the permission rules in
+> [`session-memory.md`](./session-memory.md): no per-connection access modes
+> or ACL sync. Connecting a service shares what it can see with the whole
+> workspace; Lor's own data and remembered sources follow their channel; data
+> derived from private input stays private; tool access never hides data. The
+> proposal below is kept for history.
+
 - **ACL on the container** (repo, Linear team, Notion connection), not per
   document. A repo going private is one row update.
 - **Access mode per connection:** `workspace` (today's behaviour), `channels`
@@ -560,6 +567,8 @@ moves to root.
 4. **Code index order.** Move `code-channels.md` §11 `code_chunk` embeddings to
    Tier 2.
 5. **Default access mode** for new connections: `workspace` (today) or `sync`.
+   **Decided 2026-10-16:** no access modes; every connection is
+   workspace-wide (`session-memory.md`, permission rules).
 6. **GitHub App user authorization** for identity (off today).
 7. **pg_textsearch** (needs PG ≥ 17 + preload) — check `SHOW server_version`
    on Railway first.

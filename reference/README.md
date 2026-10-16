@@ -62,6 +62,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Status |
 |---|---|
+| `pricing-and-billing.md` | Pricing proposal and editable economics for LOR-16, 2026-10-16: included search, voice and code storage; separate AI credits/BYOK/BYOS; pooled browser/sandbox allowances and heavy-use overage; margins and billing gaps; no production pricing changes |
 | `agent-browser.md` | Cloud browser Lor drives in a session: live view, take over, per-channel logins. Research and design 2026-10-12; builds after the sessions branch merges; vendor (Browserbase or Steel) decided by a spike |
 | `linear-projects.md` | Lor projects linked to Linear projects. Split from onboarding 2026-10-07; open for its own design thread |
 | `code-channels.md` | Multiplayer AI coding architecture, design agreed 2026-10-05 |

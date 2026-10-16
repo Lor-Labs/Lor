@@ -5,8 +5,10 @@
 > it fixes the `source` leak, makes sessions findable, makes brain writes safe,
 > and adds the general `touch` table with sessions as its first origin. Phase 2
 > (default ingestion into `source`) is a decided direction, built later. Code
-> facts checked on `dev` at `99d8fb69`; re-check file:line refs before each
-> step. Related: [`workspace-model.md`](../workspace-model.md) (sessions),
+> facts checked on `dev` at `99d8fb69`, rechecked at `9b011db5` on 2026-10-16
+> after per-tool approvals, profile tool access and the connector tool catalog
+> (`connector-tools.md`) landed; re-check file:line refs before each step.
+> Related: [`workspace-model.md`](../workspace-model.md) (sessions),
 > [`lor-mvp-spec.md`](../lor-mvp-spec.md) (brain, write-back),
 > [`automation-primitives.md`](../automation-primitives.md) (triggers, Remember).
 
@@ -16,29 +18,30 @@ Knowledge compounds as a team uses Lor. Later runs, and people, find what past
 sessions found, decided and produced. `positioning.md` already claims "Memory
 from chat, voice and past sessions" as a built proof point.
 
-## As built (2026-10-14)
+## As built (rechecked 2026-10-16)
 
 Sessions are not a unit anywhere in retrieval. Content from them comes back
 only through paths built before sessions existed.
 
 | Path | What reaches it | Gaps |
 |---|---|---|
-| Brain write-back (`lor-respond.ts:1317`) | Runs after every completed session turn: person turns, loop fires, Act events | Workspace-wide Redis lock skips the turn when held, no retry (`:1302-1315`). Lock TTL 120s, write-back can run 5 min. The salience gate sees only the new delta on continued turns (`:957-959`, `run-continuation.ts:262-272`) and never the seed context. Archive mid-run stops the run, so write-back is skipped. The agent re-reads the full uncompacted transcript every turn (`index.ts:2845`) |
-| Lor `search`, `messages` kind (`index.ts:492-535`) | FTS over `message.content`, so session prompts and Lor replies match, archived sessions included | No session id or title in hits. Text is cut to the first 500 characters (`:173,533`), so a match deep in a long reply is invisible to the reranker. The tool description says hits carry "full text" |
-| People search (`workspaces/handlers.ts:714-724`) | ILIKE substring over messages, session messages included | No session title search anywhere. ⌘K rows do not say a hit is in a session. Web opens the session but does not scroll to the message (`session-document.tsx` passes no target) |
-| `source` (`packages/lor/src/sources.ts`) | One summarized, embedded row per item from a trigger with Remember on (off by default): GitHub PRs, issues, releases; Linear issues; Attio recordings, notes, list entries; your own webhooks | **Leak:** no channel scope; `searchSources`, `fetch_source` and `resolveSourceCitation` filter by workspace only, so a private channel's remembered data is found from any channel (`sources.ts:23-53`; `search` passes the private filter to the other kinds, not this one). Raw content is discarded (`:227`); only a 2 to 4 sentence summary is kept. Upsert never updates `connectionId`. Rows stay searchable after Remember is turned off or the trigger is deleted |
+| Brain write-back (`lor-respond.ts:1317`) | Runs after every completed session turn: person turns, loop fires, Act events | Workspace-wide Redis lock skips the turn when held, no retry (`:1302-1315`). Lock TTL 120s, write-back can run 5 min. The salience gate sees only the new delta on continued turns (`:957-959`, `run-continuation.ts:262-272`) and never the seed context. Archive mid-run stops the run, so write-back is skipped. The agent re-reads the full uncompacted transcript every turn (`index.ts:3062`) |
+| Lor `search`, `messages` kind (`index.ts:512-555`) | FTS over `message.content`, so session prompts and Lor replies match, archived sessions included | No session id or title in hits. Text is cut to the first 500 characters (`:191,553`), so a match deep in a long reply is invisible to the reranker. The tool description says hits carry "full text" (`:749`) |
+| People search (`workspaces/handlers.ts:714-724`) | ILIKE substring over messages, session messages included | No session title search anywhere. ⌘K rows do not say a hit is in a session. (Web hits already open the session at the matched message, `?msgId`, since `fa404cb4`) |
+| `source` (`packages/lor/src/sources.ts`) | One summarized, embedded row per item from a trigger with Remember on (off by default): GitHub PRs, issues, releases; Linear issues; Attio recordings, notes, list entries; your own webhooks. Notion and Better Stack have no events | **Leak:** no channel scope; `searchSources`, `fetchSourceContent` and `resolveSourceCitation` filter by workspace only, so a private channel's remembered data is found from any channel (`sources.ts:23-53, 111-118, 155-162`; `search` passes the private filter to the other kinds, not this one). Raw content is discarded (`:234`); only a 2 to 4 sentence summary is kept. Upsert never updates `connectionId`. Rows stay searchable after Remember is turned off or the trigger is deleted. `fetch_source` returns the stored summary only (`:72-82`): live reads go through enabled connector tools so profile and approval gates apply. The `search` description and system prompt still promise the full body from it (`index.ts:204, 749`) |
 | Attachments | Files uploaded in sessions are indexed (FTS + embedding) | None for this doc |
 | Not reachable | Session titles, artifacts, plans, tool results, `agent_run_step` | |
 
 Brain page writes:
 
 - `write` replaces the whole body and bumps `version`. The old body is lost
-  (`brain.ts:438-441`). There is no history table.
+  (`brain.ts:439-445`). There is no history table.
 - Folder and page creation is find-then-insert with no conflict handling
-  (`brain.ts:126-154, 448-460`).
-- Answer-phase writes (`index.ts:2100-2101`) and project-archive synthesis
-  (`project-archive.ts:209-210`) bind the same write tools and never take the
-  write-back lock. Concurrent writes already happen.
+  (`brain.ts:126-154, 448-461`).
+- Answer-phase writes (`index.ts:2232-2233`) and project-archive synthesis
+  (`project-archive.ts:207-208`) bind the same write tools and never take the
+  write-back lock. Concurrent writes already happen. Archive synthesis now
+  drops approval-gated catalog tools, but brain tools are core and always bind.
 
 Tool results (audit 2026-10-14) cannot drive touches through URLs:
 
@@ -49,8 +52,13 @@ Tool results (audit 2026-10-14) cannot drive touches through URLs:
   `export_tool_result` returns the exported file.
 - MCP results reach the model as text; `@ai-sdk/mcp` 2.0.5
   `mcpToModelOutput` drops `structuredContent`, which the MCP spec makes
-  optional anyway. Custom tools return an untyped body. Nothing reads MCP
-  `readOnlyHint`, and the spec says to treat annotations as untrusted.
+  optional anyway. This includes Better Stack's 16 built-in tools, which run
+  through its hosted MCP: typed inputs, untyped results. Custom tools return
+  an untyped body.
+- Workspace MCP `readOnlyHint` is now cached in `mcp_server.tool_metadata`
+  for display only, as a provider declaration; the spec says to treat
+  annotations as untrusted. Built-in connector tools carry a reviewed
+  `readOnlyHint` in `CONNECTOR_TOOLS` (`packages/connectors/src/tools.ts`).
 - URLs are poor keys: one GitHub PR appears as `/pull/n`, `/issues/n`, mixed
   case or `api.github.com/...`; Linear and Notion URLs carry title slugs; a
   Linear team move changes the identifier.
@@ -72,7 +80,9 @@ Tool results (audit 2026-10-14) cannot drive touches through URLs:
    provider keys in `@repo/connectors`, verified citations, reply links checked
    against the run's tool results, seed context, and identifiers people type.
    MCP and custom tools get no touches of their own; their items are covered
-   only when Lor links them in a reply. This gap is accepted.
+   only when Lor links them in a reply. This gap is accepted. For connector
+   tools, read vs wrote comes from the reviewed `readOnlyHint` in
+   `CONNECTOR_TOOLS` (added 2026-10-16).
 7. **People come through a join, not touch rows.** Session starter
    (`agent_session.creatorId`), message authors and subscribers
    (`thread_subscription`) already record them. They feed the context engine
@@ -93,6 +103,36 @@ Tool results (audit 2026-10-14) cannot drive touches through URLs:
 14. **Phase 2 direction:** ingest connected systems into `source` by default,
     store the real text, remove Remember, and do not ingest your own webhooks.
     See Phase 2.
+15. **Better Stack touches cover incidents and errors only** (2026-10-16),
+    keyed from tool inputs. Its other tools (lists, query help, logs) get none.
+16. **A write touch needs a confirmed success** (2026-10-16). Notion and Attio
+    writes that return `outcome: "unknown"` or `"failed"` record nothing.
+
+## Permission rules (Jacob, 2026-10-16)
+
+Clear boundaries, no new settings. Every read path (stored search, live tool
+calls, citations, reverse hints) follows the same rules.
+
+1. **Lor's own data follows its channel.** Chat, sessions, files and brain
+   pages from a private channel stay in that channel (`privateAudienceFilter`,
+   brain memory scope). Built.
+2. **Stored connector data follows the channel it came from.** A remembered
+   `source` row keeps its trigger's channel (Step 1).
+3. **Connecting a service shares what it can see with the whole workspace.**
+   This covers live tool calls today and phase 2 ingestion. The boundary is
+   chosen when connecting: the repos the GitHub app is installed on, the
+   Notion pages shared with the integration, and so on. If a connection can
+   see a private repo or a private Linear team, everyone in the workspace can
+   reach it through Lor; that is already true of live tools. To limit it,
+   connect less. There is no per-connection visibility setting.
+4. **What Lor writes from private data stays private.** A brain page written
+   in a private channel stays scoped to it. Built through the brain memory
+   scope; phase 2 adds provenance (`brain_node_input` in `context-engine.md`)
+   for pages built from ingested items.
+5. **Tool access only decides what Lor can do.** Profile `toolAccess` and
+   workspace tool selections choose which tools bind. They never hide data
+   that the channel's people can already see. Approvals stay a separate gate
+   on actions.
 
 ## Phase 1 steps
 
@@ -116,6 +156,9 @@ to 400 lines.
   at query time, so a channel made private later hides its rows. Pass
   `privateContainerChannelId` through `search`, `fetch_source` and citation
   grounding. Rows without a channel never match.
+- `fetch_source` is summary-only. Fix the `search` description and system
+  prompt that promise the full body from it (`index.ts:204, 749`). The live
+  path in `fetchSourceContent` has no caller; leave it for phase 2's refetch.
 - Backfill: rows do not record their trigger (`trigger_delivery` has no
   source key). Set `channelId` when all of the connection's Remember triggers
   sit in one channel. Archive rows where that is ambiguous, so the fix fails
@@ -135,10 +178,10 @@ to 400 lines.
   results, and a separate `sessions` array for sessions whose title matches
   (same channel access rule).
 - Web ⌘K: a Sessions group above Messages. ⌘K and header search show the
-  session title on message hits from sessions. The
-  session route takes a target message and `SessionDocument` scrolls to it
-  (`useConversationScroll` already supports `targetMessageId`).
+  session title on message hits from sessions.
 - Mobile search results: show the session title.
+- Already done (`fa404cb4`): web search hits open the session at the matched
+  message (`?msgId`).
 
 ### Step 3: brain page safety
 
@@ -153,6 +196,11 @@ to 400 lines.
   `where version = <read version>`. If zero rows are updated, roll back the
   transaction (including the history insert) before returning "The page changed
   since you read it. Read it again." Re-embed only after the transaction commits.
+- `edit` uses the same `oldText` / `newText` convention as
+  `edit_notion_content`. Add it to `SIDE_EFFECT_TOOLS` (replay; bulk export
+  derives its deny list from that set, `export-tool.ts:13`) and to
+  `RESERVED_TOOL_NAMES` (`custom-tools.ts:20`). No approval wiring: core
+  memory tools are never gateable (`approval-targets.ts`).
 - `ensureFolderPath`: insert with `on conflict do nothing`, then re-select.
 - Remove the write-back lock (`lor-respond.ts:1302-1315`,
   `WRITEBACK_LOCK_TTL`). This also removes the lock-held return that skips
@@ -161,6 +209,10 @@ to 400 lines.
   model.
 - Project-archive synthesis and answer-phase writes get `edit` through
   `brainWriteTools` with no extra work.
+- Check: the long-task eval (`packages/lor/src/eval/long`, `sessionTasks`)
+  already corrects brain pages across turns (`billing-follow-ups`). Jacob runs
+  it after Steps 3 and 4 to see that Lor uses `edit` and pages keep earlier
+  facts.
 
 ### Step 4: write-back sees the session
 
@@ -192,20 +244,35 @@ to 400 lines.
 - Unique `(sessionId, kind, value, action)`. Btree `(workspaceId, kind, value)`.
 - Starting kinds, fixed when built: `message`, `call`, `brain_page`,
   `artifact`, `source`, `github_repo`, `github_pr`, `github_issue`,
-  `linear_issue`, `notion_page`, `attio_record`, `url`. New kinds arrive with
-  the tools that touch them (a Linear project tool adds `linear_project`).
+  `linear_issue`, `notion_page`, `attio_record`, `attio_list_entry`,
+  `attio_task`, `betterstack_incident`, `betterstack_error`, `url`. New kinds
+  arrive with the tools that touch them (a Linear project tool adds
+  `linear_project`).
+- Comments and notes count as writes to their parent: `comment_linear` to the
+  issue, `add_notion_comment` on a page to the page, `create_attio_note` to
+  the record. A Notion discussion reply carries no page key and records
+  nothing.
 
 **Stable keys.** Each provider declares its keys and a URL parser in
-`@repo/connectors`, exhaustive per provider like `CONNECTORS`:
+`@repo/connectors`, exhaustive per provider like `CONNECTORS`. The URL parsers
+start from the per-provider `urlHost` regexes in
+`apps/web/src/lib/connector-ui.tsx`, moved so web and server share them.
 
-- GitHub: `owner/repo#n`, lowercased; repos `owner/repo`. Matches
-  `source.externalId`.
-- Linear: the identifier (`LOR-123`). Every Linear tool result carries it
-  (`create_linear_issue` and `update_linear_issue` return no UUID), it matches
-  `source.externalId`, and it is what people type. A team move changes it, so
-  old and new keys do not join; accepted.
-- Notion: the page id without dashes.
-- Attio: the record id.
+- GitHub: `owner/repo#n`, lowercased; repos `owner/repo`. `source.externalId`
+  keeps GitHub's original case (`github/events.ts`), so compare
+  case-insensitively until phase 2 lowercases it at ingest.
+- Linear: the identifier (`LOR-123`): what people type and what
+  `source.externalId` uses. Take it from the result where there is one.
+  `create_linear_issue` can return null, and `comment_linear` /
+  `update_linear_issue` accept a UUID or an identifier as input. When only a
+  UUID is available, record nothing; no extra API call. A team move changes
+  the identifier, so old and new keys do not join; accepted.
+- Notion: the page id without dashes. The write tools take dashed ids, so
+  normalize.
+- Attio: record, list entry and task ids for their kinds. Attio `source` rows
+  are keyed `note#id`, `list_entry#id` and `call_recording#id`, so they never
+  join record keys; accepted.
+- Better Stack: incident and error ids from the tool inputs.
 - Lor-native: message, call and artifact ids; brain pages by node id
   (resolve the path when the touch is written; show the current path when
   read).
@@ -213,12 +280,24 @@ to 400 lines.
 **Writers.** After each run persists:
 
 - Built-in tools: one `TouchSpec` per tool, a pure function from the tool's
-  input and typed result (saved in `agent_run_step`) to touches, each with its
-  `action`. Specs live in one map typed as exhaustive over the built-in tool
-  names, so a new tool does not compile until it has a spec or an explicit
-  `null`. The spec sets `action` itself: `SIDE_EFFECT_TOOLS` is not a read or
-  write signal (`investigate_code` is in it for billing replay but only
-  reads).
+  input and result (saved in `agent_run_step`) to touches.
+  - `action`: connector tools take it from the reviewed `readOnlyHint` in
+    `CONNECTOR_TOOLS` (true is `read`, false is `wrote`). Core Lor tools
+    (brain, `read_thread`, `read_call`, `search`, plans) set it in their spec.
+    `SIDE_EFFECT_TOOLS` is not a read or write signal: `investigate_code` is in
+    it for billing replay, and the catalog marks it read-only.
+  - Compiler reminder: declare `CONNECTOR_TOOLS` with `as const satisfies`,
+    like `STANDALONE_TOOLS`, so its tool names form a literal union. The
+    `TouchSpec` map is keyed by that union plus the core tool names. The
+    connector runbook already requires every new tool in `CONNECTOR_TOOLS`,
+    so a new catalog tool does not compile until it has a spec or an explicit
+    `null`.
+  - Writes need a confirmed success (decision 16). A guard receipt with
+    `outcome: "completed"` (the write succeeded but its output was too large)
+    counts, with keys from the input.
+  - Better Stack incident and error tools key from their inputs, because
+    their results are untyped MCP text. Other Better Stack tools, Datadog,
+    CloudWatch, workspace MCP and custom tools map to `null`.
 - Verified citations in the final reply (`citations.ts` grammar): `cited`.
 - Markdown links in the final reply: parse with the provider URL parsers;
   record `cited` only if the item appeared in a tool result during the run.
@@ -248,8 +327,9 @@ to 400 lines.
 **Also.**
 
 - One-off backfill from `agent_run_step` and session messages.
-- `adding-a-connector.md`: add the provider key, URL parser and per-tool
-  `TouchSpec` to the checklist.
+- `adding-a-connector.md` and `connector-tools.md`: add the provider key, URL
+  parser and per-tool `TouchSpec` next to the existing "add it to
+  `CONNECTOR_TOOLS`" rule.
 
 ## Phase 2: default ingestion (decided direction, not scheduled)
 
@@ -260,9 +340,9 @@ Decided with Jacob on 2026-10-14. Builds on `context-engine.md` §5.3 and §5.5.
 - Store the real text: title and body, indexed with FTS and embeddings over
   chunks. No per-item summary call. Raw text beat summaries as a retrieval key
   in the research below.
-- Scope every row to its container's audience. Private repos and private
-  Linear teams follow the access modes in `context-engine.md` §5.5; the
-  default mode is still open.
+- Visibility follows the permission rules above: ingested rows are
+  workspace-visible (rule 3); remembered rows keep their channel (rule 2).
+  No connection access modes (`context-engine.md` §5.5 is superseded).
 - Remove Remember: the trigger toggle, `rememberHint`, the API and
   change-proposal fields, and the "Remember" copy. Connector event cards stay
   `excludedFromMemory` because the item lives in `source`.
@@ -272,6 +352,14 @@ Decided with Jacob on 2026-10-14. Builds on `context-engine.md` §5.3 and §5.5.
 - Reverses two locked decisions in `github-connector.md`: "No embedding by
   default" and "Webhooks not needed". Record the reversal there when phase 2
   starts.
+- `fetch_source` stays stored-only (the tool-access rule: live reads go
+  through enabled connector tools). With real text stored, it returns the
+  body.
+- Tool access vs stored items (decided 2026-10-16, rule 5): a channel with
+  Linear off can still find ingested Linear items through `search`. Turning a
+  connector off stops Lor using it there; it does not hide data. This matches
+  `connector-tools.md` ("stored-source visibility remain[s] separate from tool
+  access").
 
 ## Deferred
 
@@ -357,8 +445,17 @@ models behind Mem0 v3's benchmark scores.
 - `workspace-model-runbook.md:1579-1584` still lists search results as open;
   `session-files-runbook.md` Step 1 closed it.
 - `lor-mvp-spec.md`: the answer loop is not read-only (it binds brain write
-  tools, `index.ts:2100-2101`), and §6's "stored summaries are
-  workspace-visible (accepted, since all channels are public-to-workspace)"
-  is no longer true.
-- `automation-primitives.md` §2 says Attio transcripts are live-fetched; the
-  code returns only the stored summary for Attio.
+  tools, `index.ts:2232-2233`; the spec's "Answer tools (read-only)" is at
+  `:94`). §6 (`:131`) is wrong twice: "stored summaries are workspace-visible
+  (accepted, since all channels are public-to-workspace)", and "full content
+  live-fetched on demand", which no provider does any more.
+- `automation-primitives.md` §2 (`:91-94`) says Attio transcripts are
+  live-fetched; `fetch_source` now returns the stored summary for every
+  provider.
+- Profile tool editor copy (web and mobile): say that Off stops Lor using
+  these tools in the channel. It must not suggest that Off hides data (rule 5).
+- Attio loopback (unverified): Lor's new `create_attio_note` and
+  `create_attio_list_entry` match the Attio `note_created` and
+  `list_entry_created` events. If Attio sends webhooks for API-created
+  changes, Lor's own writes come back through triggers, Remember or Act.
+  Check during the Attio rollout (`connector-tools.md`).
