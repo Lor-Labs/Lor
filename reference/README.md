@@ -54,6 +54,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `workspace-model.md` | Locked design for channels, Lor sessions, subscriptions and archive; wins over its runbook on product behavior |
 | `adding-a-connector.md` | Runbook for wiring a new integration |
 | `error-reporting.md` | Backend error capture, Better Stack configuration, and channel notifications |
+| `signup-notifications.md` | Optional signup notifications to an operator-configured channel webhook (LOR-105) |
 | `mobile-release.md` | TestFlight / EAS release loop |
 | `mobile-parity-todo.md` | Living web ↔ mobile gap checklist |
 

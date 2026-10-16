@@ -6,7 +6,7 @@ import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { escapeHtml } from "@repo/utils/html"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { APIError } from "better-auth/api"
+import { APIError, createAuthMiddleware } from "better-auth/api"
 import { betterAuth } from "better-auth/minimal"
 import { admin, organization, twoFactor } from "better-auth/plugins"
 import Redis from "ioredis"
@@ -19,6 +19,7 @@ import {
   member as memberRole,
   owner as ownerRole,
 } from "./permissions"
+import { notifySignup } from "./signup-notifications"
 import { seedWorkspaceTemplate } from "./workspace-template"
 
 const redis = new Redis(env.REDIS_URL)
@@ -185,6 +186,14 @@ export const auth = betterAuth({
           }
         })
     },
+  },
+  hooks: {
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-up/email") return
+      if (ctx.context.returned instanceof APIError) return
+      // The endpoint has finished; notification failures cannot fail signup.
+      void notifySignup(ctx.context.returned)
+    }),
   },
   databaseHooks: {
     user: {

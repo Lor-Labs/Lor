@@ -29,6 +29,11 @@ const serverSchema = z.object({
   REALTIME_PORT: z.coerce.number().int().min(1).max(65535).default(8000),
   REALTIME_CORS_ORIGIN: z.string().default(DEFAULT_REALTIME_CORS_ORIGIN),
   BETTER_AUTH_SECRET: z.string().min(1),
+  // Optional server-only destination for successful signup notifications.
+  SIGNUP_WEBHOOK_URL: z.preprocess(
+    blankToUndefined,
+    z.url({ protocol: /^https?$/ }).optional()
+  ),
   AI_GATEWAY_BASE_URL: z.preprocess(
     blankToUndefined,
     z.string().url().optional()
