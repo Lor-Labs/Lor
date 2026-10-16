@@ -1,9 +1,11 @@
 import {
   CONNECTOR_EVENTS,
   CONNECTOR_LIST,
+  CONNECTOR_TOOLS,
   type ConnectorDescriptor,
-  connectorCapabilities,
+  enabledConnectorTools,
   isConnectorEvent,
+  recommendedConnectorTools,
 } from "@repo/connectors"
 import { db, schema } from "@repo/db"
 import {
@@ -24,6 +26,7 @@ import {
   getInstallationOverview,
   getSourceProvider,
   listInstallationRepos,
+  connectBetterstack as verifyBetterstackToken,
   connectCloudwatch as verifyCloudwatchKeys,
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
@@ -49,6 +52,7 @@ import { ATTIO_EVENT_SUBSCRIPTIONS } from "@/routes/v1/integrations/attio/index"
 import type {
   CompleteGithubSetupRoute,
   ConnectAttioRoute,
+  ConnectBetterstackRoute,
   ConnectCloudwatchRoute,
   ConnectDatadogRoute,
   ConnectLinearRoute,
@@ -58,6 +62,7 @@ import type {
   StartGithubConnectRoute,
   UpdateGithubRepoConfigRoute,
   UpdateIntegrationRoute,
+  UpdateIntegrationToolsRoute,
 } from "@/routes/v1/integrations/routes"
 
 // Used for both the authorize URL and the token exchange — they must match.
@@ -91,11 +96,9 @@ function linearConnectUrl(state: string): string | null {
 function attioConnectUrl(state: string): string | null {
   if (!env.ATTIO_CLIENT_ID) return null
   // Attio OAuth scopes are configured on the app in the Developer Console,
-  // not requested on this URL. It must include all eleven scopes in
-  // ATTIO_REQUIRED_READ_SCOPES plus webhook:read-write (the only permitted
-  // write scope — event webhook management), and nothing else; connectAttio
-  // enforces that exact policy after exchange
-  // (packages/lor/src/providers/attio.ts).
+  // not requested on this URL. Keep the required reads and webhook:read-write;
+  // enable the four reviewed ATTIO_WRITE_SCOPES for CRM writes. Reconnect to
+  // receive updated scopes. Tool selections still restrict what Lor can use.
   const params = new URLSearchParams({
     response_type: "code",
     client_id: env.ATTIO_CLIENT_ID,
@@ -108,8 +111,9 @@ function attioConnectUrl(state: string): string | null {
 function notionConnectUrl(state: string): string | null {
   if (!env.NOTION_CLIENT_ID) return null
   // Notion capabilities are configured in the Developer portal, not requested
-  // on this URL. Configure only Read content, Read comments, and User
-  // information without email addresses; the connector exposes no write tools.
+  // on this URL. Configure Read/Insert/Update content, Read/Insert comments,
+  // and User information without email addresses. New capabilities require
+  // reauthorization; workspace and profile tool selections still restrict writes.
   const params = new URLSearchParams({
     owner: "user",
     client_id: env.NOTION_CLIENT_ID,
@@ -170,6 +174,7 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
       id: integrationConnection.id,
       provider: integrationConnection.provider,
       accountLogin: integrationConnection.accountLogin,
+      enabledTools: integrationConnection.enabledTools,
       externalId: integrationConnection.externalId,
     })
     .from(integrationConnection)
@@ -271,13 +276,10 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         id: descriptor.id,
         name: descriptor.label,
         description: descriptor.description,
-        capabilities: connectorCapabilities(descriptor.id).map(
-          (capability) => ({
-            key: capability.key,
-            label: capability.label,
-            description: capability.description,
-          })
-        ),
+        tools: [...CONNECTOR_TOOLS[descriptor.id]],
+        enabledTools: conn
+          ? enabledConnectorTools(descriptor.id, conn.enabledTools)
+          : recommendedConnectorTools(descriptor.id),
         connected: !!conn,
         accountLogin: conn?.accountLogin ?? null,
         connectionId: conn?.id ?? null,
@@ -518,6 +520,7 @@ async function replaceActiveConnection(opts: {
         provider,
         externalId,
         status: "active",
+        enabledTools: recommendedConnectorTools(provider),
         ...opts.values,
         createdBy: opts.connectedById,
       })
@@ -760,7 +763,7 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
       {
         success: false,
         message:
-          "Couldn't connect Attio — verify the app has every required read scope plus webhook:read-write, and no other write scopes",
+          "Couldn't connect Attio — verify the app has the required read access and webhook:read-write. Supported CRM write scopes are record_permission, list_entry, note, and task; remove other write scopes.",
       },
       HttpStatusCodes.BAD_REQUEST
     )
@@ -1173,4 +1176,93 @@ export const disconnectIntegration: AppRouteHandler<
   }
 
   return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+export const updateIntegrationTools: AppRouteHandler<
+  UpdateIntegrationToolsRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  const { connectionId } = c.req.valid("param")
+  const { enabledTools } = c.req.valid("json")
+  const scope = and(
+    eq(integrationConnection.id, connectionId),
+    eq(integrationConnection.workspaceId, c.var.workspace.id),
+    eq(integrationConnection.status, "active")
+  )
+  const connection = await db
+    .select({ provider: integrationConnection.provider })
+    .from(integrationConnection)
+    .where(scope)
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!connection)
+    return c.json(
+      { success: false, message: "Connection not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  const catalog = CONNECTOR_TOOLS[connection.provider]
+  const allowed = new Set(catalog.map((tool) => tool.name))
+  if (catalog.length === 0 || enabledTools.some((name) => !allowed.has(name))) {
+    return c.json(
+      { success: false, message: "Unknown tool for this connector" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const updated = await db
+    .update(integrationConnection)
+    .set({ enabledTools: [...new Set(enabledTools)] })
+    .where(scope)
+    .returning({ id: integrationConnection.id })
+  if (updated.length === 0)
+    return c.json(
+      { success: false, message: "Connection not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+export const connectBetterstack: AppRouteHandler<
+  ConnectBetterstackRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { connector: ["manage"] })
+  if (!env.INTEGRATION_ENCRYPTION_KEY)
+    return c.json(
+      {
+        success: false,
+        message: "Better Stack isn't available on this server",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const { apiToken } = c.req.valid("json")
+  const result = await verifyBetterstackToken(apiToken).catch(() => null)
+  if (!result)
+    return c.json(
+      {
+        success: false,
+        message:
+          "Couldn't verify Better Stack access. Use an API token with access to the products you want to investigate, not an ingestion token or DSN.",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const ok = await replaceActiveConnection({
+    workspaceId: c.var.workspace.id,
+    provider: "betterstack",
+    connectedById: c.var.user.id,
+    externalId: result.externalId,
+    reclaimRevoked: true,
+    clearOnRevoke: { apiKey: null },
+    values: { accountLogin: result.accountLabel, apiKey: result.apiKey },
+  })
+  if (!ok)
+    return c.json(
+      {
+        success: false,
+        message: "This Better Stack token is connected to another workspace",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  return c.json(
+    { success: true as const, accountLogin: result.accountLabel },
+    HttpStatusCodes.OK
+  )
 }

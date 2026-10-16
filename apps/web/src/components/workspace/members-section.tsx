@@ -10,7 +10,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog"
-import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import {
   Select,
@@ -157,7 +156,7 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
   })
 
   const isBusy = updateRoleMutation.isPending || kickMutation.isPending
-  const members = data?.members ?? []
+  const members = (data?.members ?? []).filter((member) => !member.isBot)
 
   return (
     <SettingsSection
@@ -207,7 +206,6 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
             const canManageTarget =
               activeMember &&
               workspaceCtx &&
-              !member.isBot &&
               activeMember.userId !== member.userId
                 ? canManageWorkspaceMember(
                     activeMember,
@@ -239,11 +237,6 @@ export function MembersSection({ workspaceSlug }: { workspaceSlug: string }) {
                   <span className="truncate text-sm font-medium">
                     {member.name}
                   </span>
-                  {member.isBot && (
-                    <Badge variant="outline" size="sm" className="shrink-0">
-                      Bot
-                    </Badge>
-                  )}
                 </div>
                 {member.isOwner ? (
                   <span className="text-xs font-medium text-muted-foreground">

@@ -424,6 +424,8 @@ export type AgentRunContextWorkspace = {
 export type AgentRunApprovalResume = {
   approvalId: string
   approved: boolean
+  toolName: string
+  target: string
   reason?: string
 }
 export type AgentRunContext = {

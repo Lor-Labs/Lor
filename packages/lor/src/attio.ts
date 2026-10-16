@@ -47,7 +47,7 @@ function idField(value: unknown, key: string): string | null {
   return asString(asRecord(asRecord(value)?.id)?.[key])
 }
 
-function recordTitle(value: unknown): string {
+export function recordTitle(value: unknown): string {
   const record = asRecord(value)
   if (!record) return "Attio record"
   for (const key of ["title", "label", "name", "display_name"]) {
@@ -76,19 +76,37 @@ function recordTitle(value: unknown): string {
   return idField(record, "record_id") ?? "Attio record"
 }
 
-function compact(value: unknown, depth = 0): unknown {
+function compact(
+  value: unknown,
+  depth = 0,
+  omissions?: { truncated: boolean }
+): unknown {
   if (typeof value === "string") {
+    if (value.length > 4000 && omissions) omissions.truncated = true
     return value.length > 4000 ? `${value.slice(0, 4000)}…` : value
   }
-  if (depth >= 7) return "[nested data omitted]"
+  if (depth >= 7) {
+    if (omissions) omissions.truncated = true
+    return "[nested data omitted]"
+  }
   if (Array.isArray(value)) {
-    return value.slice(0, 50).map((item) => compact(item, depth + 1))
+    if (value.length > 50 && omissions) omissions.truncated = true
+    return value.slice(0, 50).map((item) => compact(item, depth + 1, omissions))
   }
   const record = asRecord(value)
   if (!record) return value
   return Object.fromEntries(
-    Object.entries(record).map(([key, item]) => [key, compact(item, depth + 1)])
+    Object.entries(record).map(([key, item]) => [
+      key,
+      compact(item, depth + 1, omissions),
+    ])
   )
+}
+
+function bounded(value: unknown) {
+  const omissions = { truncated: false }
+  const data = compact(value, 0, omissions)
+  return { data, dataTruncated: omissions.truncated }
 }
 
 export function attioSearchResult(value: unknown, fallbackObject?: string) {
@@ -104,7 +122,7 @@ export function attioSearchResult(value: unknown, fallbackObject?: string) {
       null,
     recordId: idField(source, "record_id"),
     url: asString(source?.web_url) ?? asString(record?.web_url),
-    data: compact(value),
+    ...bounded(value),
   }
 }
 
@@ -253,13 +271,23 @@ export const attioTools = {
 
   query_attio: tool({
     description:
-      "Inspect Attio's dynamic schema or run a structured query. Use mode=catalog to list objects, lists/pipelines, and workspace members. Use records with an object slug/id, or list_entries with a list slug/id. Filters and sorts use Attio's REST filter syntax.",
+      "Inspect Attio or run a structured query. catalog lists objects, lists/pipelines, and workspace members. schema lists attributes (or reads one using attribute), with writable types and cardinality. select_options/statuses list an attribute's valid choices. For schema/options, set targetType=objects or lists. records queries an object; list_entries queries a list; task reads one task using its ID as target, including tasks not linked to records. Filters and sorts use Attio's REST syntax. dataTruncated marks omitted data; never copy an incomplete field into an overwrite.",
     inputSchema: z.object({
-      mode: z.enum(["catalog", "records", "list_entries"]),
+      mode: z.enum([
+        "catalog",
+        "schema",
+        "select_options",
+        "statuses",
+        "records",
+        "list_entries",
+        "task",
+      ]),
       target: z
         .string()
         .optional()
-        .describe("object for records, or list/pipeline for list_entries"),
+        .describe("object/list slug or ID, or a task ID for mode=task"),
+      targetType: z.enum(["objects", "lists"]).optional(),
+      attribute: z.string().trim().min(1).max(128).optional(),
       filter: jsonObject.optional().describe("Attio filter object"),
       sorts: z
         .array(jsonObject)
@@ -270,7 +298,16 @@ export const attioTools = {
     }),
     contextSchema: attioContext,
     execute: async (
-      { mode, target, filter, sorts, limit, offset },
+      {
+        mode,
+        target,
+        targetType = "objects",
+        attribute,
+        filter,
+        sorts,
+        limit,
+        offset,
+      },
       { context }
     ) => {
       if (mode === "catalog") {
@@ -298,9 +335,54 @@ export const attioTools = {
         }
       }
       if (!target) return { error: `target is required for ${mode}` }
+      if (mode === "task") {
+        const response = await attioRequest<Envelope>(
+          context.externalId,
+          `/tasks/${encodeURIComponent(target)}`
+        )
+        if (!response) return { error: "Attio task request failed" }
+        const result = bounded(response.data)
+        return {
+          mode,
+          target,
+          results: [result.data],
+          dataTruncated: result.dataTruncated,
+        }
+      }
       const n = Math.floor(
         Math.min(Math.max(limit ?? QUERY_DEFAULT, 1), QUERY_MAX)
       )
+      if (["schema", "select_options", "statuses"].includes(mode)) {
+        if (mode !== "schema" && !attribute)
+          return { error: `attribute is required for ${mode}` }
+        const base = `/${targetType}/${encodeURIComponent(target)}/attributes`
+        const attributePath = attribute
+          ? `/${encodeURIComponent(attribute)}`
+          : ""
+        const path =
+          mode === "schema"
+            ? `${base}${attributePath}${attribute ? "" : `?${queryString({ limit: n, offset: Math.max(Math.floor(offset ?? 0), 0) })}`}`
+            : `${base}${attributePath}/${mode === "statuses" ? "statuses" : "options"}`
+        const response = await attioRequest<Envelope>(context.externalId, path)
+        if (!response) return { error: "Attio schema request failed" }
+        const items = Array.isArray(response.data) ? response.data : null
+        const start = Math.max(Math.floor(offset ?? 0), 0)
+        const page = mode === "schema" ? items : items?.slice(start, start + n)
+        const hasMore =
+          mode === "schema"
+            ? !attribute && items?.length === n
+            : (items?.length ?? 0) > start + n
+        const result = bounded(page ?? [response.data])
+        return {
+          mode,
+          target,
+          targetType,
+          results: result.data,
+          dataTruncated: result.dataTruncated,
+          truncated: hasMore,
+          ...(hasMore ? { nextOffset: start + n } : {}),
+        }
+      }
       const path =
         mode === "records"
           ? `/objects/${encodeURIComponent(target)}/records/query`
@@ -319,6 +401,7 @@ export const attioTools = {
         }
       )
       if (!response) return { error: "Attio query failed" }
+      const result = bounded(asArray(response.data))
       return {
         mode,
         target,
@@ -327,14 +410,15 @@ export const attioTools = {
             ? asArray(response.data).map((item) =>
                 attioSearchResult(item, target)
               )
-            : compact(asArray(response.data)),
+            : result.data,
+        dataTruncated: result.dataTruncated,
       }
     },
   }),
 
   fetch_attio_activity: tool({
     description:
-      "Fetch a record's surrounding Attio activity: pipeline/list memberships, notes, tasks, comment threads, meetings, and files. Set includeTranscripts=true when call transcript text is needed; it fetches recordings for up to five returned meetings.",
+      "Fetch a record's surrounding Attio activity: pipeline/list memberships, notes, tasks, comment threads, meetings, and files. incompleteSections marks failed or potentially partial sections; dataTruncated marks omitted field data. Do not infer absence or overwrite lists from incomplete results. Set includeTranscripts=true when call transcript text is needed; it fetches recordings for up to five returned meetings.",
     inputSchema: z.object({
       object: z.string().describe("object slug or id"),
       recordId: z.string().uuid().describe("record id"),
@@ -448,16 +532,34 @@ export const attioTools = {
         transcripts.push(...results.filter((result) => result !== null))
       }
 
+      const omissions = { truncated: false }
+      const incompleteSections = Object.entries({
+        listEntries: entries,
+        notes,
+        tasks,
+        commentThreads: threads,
+        meetings,
+        files,
+      })
+        .filter(
+          ([, response]) =>
+            !response ||
+            response.pagination?.next_cursor ||
+            asArray(response.data).length >= ACTIVITY_LIMIT
+        )
+        .map(([name]) => name)
       return {
         object,
         recordId,
-        listEntries: compact(entries?.data ?? []),
-        notes: compact(notes?.data ?? []),
-        tasks: compact(tasks?.data ?? []),
-        commentThreads: compact(threads?.data ?? []),
-        meetings: compact(meetingData),
-        files: compact(files?.data ?? []),
-        transcripts: compact(transcripts),
+        listEntries: compact(entries?.data ?? [], 0, omissions),
+        notes: compact(notes?.data ?? [], 0, omissions),
+        tasks: compact(tasks?.data ?? [], 0, omissions),
+        commentThreads: compact(threads?.data ?? [], 0, omissions),
+        meetings: compact(meetingData, 0, omissions),
+        files: compact(files?.data ?? [], 0, omissions),
+        transcripts: compact(transcripts, 0, omissions),
+        dataTruncated: omissions.truncated,
+        incompleteSections,
       }
     },
   }),

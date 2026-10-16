@@ -1,3 +1,8 @@
+import {
+  approvalTargetKey,
+  builtinApprovalTool,
+  CONNECTOR_TOOLS,
+} from "@repo/connectors"
 import { and, asc, db, desc, eq, schema } from "@repo/db"
 import {
   EMPTY_LOR_RUN_SCOPE,
@@ -7,12 +12,10 @@ import {
 import type { LorToolCallUpdate } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { isStepCount, streamText } from "ai"
+import { loadApprovalGates } from "./approval-policy"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import { type BrainWriteEvent, brainReadTools, brainWriteTools } from "./brain"
-import {
-  type ChannelToolGrants,
-  resolveChannelCapabilities,
-} from "./capabilities"
+import { EMPTY_TOOL_GRANTS, resolveChannelCapabilities } from "./capabilities"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { codeTools } from "./code"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
@@ -156,47 +159,42 @@ export async function synthesizeProjectArchive(
     args.channelId
       ? resolveLorRunScope(args.channelId).catch(() => EMPTY_LOR_RUN_SCOPE)
       : EMPTY_LOR_RUN_SCOPE,
-    // Fail closed to core tools (search/memory only), same as respond().
     args.channelId
-      ? resolveChannelCapabilities(args.channelId).catch(
-          (): ChannelToolGrants => ({
-            capabilities: [],
-            customTools: [],
-            mcpServers: [],
-          })
+      ? resolveChannelCapabilities(args.channelId, args.workspaceId).catch(
+          () => EMPTY_TOOL_GRANTS
         )
-      : Promise.resolve<ChannelToolGrants>({
-          capabilities: [],
-          customTools: [],
-          mcpServers: [],
-        }),
+      : Promise.resolve(EMPTY_TOOL_GRANTS),
   ])
-  const caps = grants.capabilities
+  const allowedBuiltins = new Set(grants.builtinTools)
+  const allowed = new Set(grants.connectorTools)
+  const needsConnector = (provider: keyof typeof CONNECTOR_TOOLS) =>
+    CONNECTOR_TOOLS[provider].some(
+      (tool) => tool.readOnlyHint && allowed.has(tool.name)
+    )
 
   // Read-only connector binding — keep in sync with respond()'s toolset (no
   // write tools, no plan/artifact/message-action tools here).
-  const needsGithub =
-    caps.includes("github") || caps.includes("code_intelligence")
+  const needsGithub = needsConnector("github")
   const [github, linear, attio, notion, datadogMcp, cloudwatch] =
     await Promise.all([
       needsGithub
         ? resolveWorkspaceGithub(args.workspaceId).catch(() => null)
         : null,
-      caps.includes("linear")
+      needsConnector("linear")
         ? resolveWorkspaceLinear(args.workspaceId).catch(() => null)
         : null,
-      caps.includes("attio")
+      needsConnector("attio")
         ? resolveWorkspaceAttio(args.workspaceId).catch(() => null)
         : null,
-      caps.includes("notion")
+      needsConnector("notion")
         ? resolveWorkspaceNotion(args.workspaceId).catch(() => null)
         : null,
-      caps.includes("datadog")
+      needsConnector("datadog")
         ? resolveWorkspaceDatadog(args.workspaceId)
             .then((d) => (d ? datadogMcpTools(d.externalId) : null))
             .catch(() => null)
         : null,
-      caps.includes("cloudwatch")
+      needsConnector("cloudwatch")
         ? resolveWorkspaceCloudwatch(args.workspaceId).catch(() => null)
         : null,
     ])
@@ -208,16 +206,39 @@ export async function synthesizeProjectArchive(
       ...sourceTools,
       ...brainReadTools,
       ...brainWriteTools,
-      ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
-      ...(github && caps.includes("github") ? githubTools : {}),
-      ...(blaxelConfigured() && github && caps.includes("code_intelligence")
-        ? codeTools
-        : {}),
-      ...(linear && caps.includes("linear") ? linearTools : {}),
-      ...(attio && caps.includes("attio") ? attioTools : {}),
-      ...(notion && caps.includes("notion") ? notionTools : {}),
+      ...(env.EXA_API_KEY ? webTools : {}),
+      ...(github ? githubTools : {}),
+      ...(blaxelConfigured() && github ? codeTools : {}),
+      ...(linear ? linearTools : {}),
+      ...(attio ? attioTools : {}),
+      ...(notion ? notionTools : {}),
       ...(datadogMcp ? datadogMcp.tools : {}),
-      ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
+      ...(cloudwatch ? cloudwatchTools : {}),
+    }
+
+    const connectorNames = new Set([
+      ...Object.keys(githubTools),
+      ...Object.keys(codeTools),
+      ...Object.keys(linearTools),
+      ...Object.keys(attioTools),
+      ...Object.keys(notionTools),
+      ...Object.keys(cloudwatchTools),
+      ...Object.keys(datadogMcp?.tools ?? {}),
+    ])
+    const approvalGates = await loadApprovalGates(args.workspaceId)
+    for (const name of Object.keys(tools)) {
+      // Background synthesis cannot request human approval.
+      const gated =
+        builtinApprovalTool(name) !== null &&
+        approvalGates.has(
+          approvalTargetKey({ kind: "builtinTool", toolName: name })
+        )
+      if (
+        (connectorNames.has(name) && !allowed.has(name)) ||
+        (Object.hasOwn(webTools, name) && !allowedBuiltins.has(name)) ||
+        gated
+      )
+        delete (tools as Record<string, unknown>)[name]
     }
 
     const readContext = {
@@ -315,7 +336,8 @@ export async function synthesizeProjectArchive(
       notion && "Notion",
       datadogMcp && "Datadog",
       cloudwatch && "CloudWatch",
-      env.EXA_API_KEY && caps.includes("web") && "web search",
+      Object.keys(webTools).some((name) => Object.hasOwn(tools, name)) &&
+        "web search",
     ].filter(Boolean)
     const connectorLine = connectors.length
       ? `\n\nConnected tools available to verify against: ${connectors.join(", ")}.`

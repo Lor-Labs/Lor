@@ -1,5 +1,9 @@
 import { and, db, eq, exists, isNull, schema, sql } from "@repo/db"
-import type { McpServer, McpServerOAuthAttempt } from "@repo/db/schema"
+import type {
+  McpServer,
+  McpServerOAuthAttempt,
+  McpToolMetadata,
+} from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { renderTemplate } from "@repo/lor/custom-tools"
 import { createGuardedMcpFetch } from "@repo/lor/mcp-guarded-fetch"
@@ -19,6 +23,11 @@ import {
   validateMcpOAuthAttempt,
 } from "@repo/lor/mcp-server-oauth"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
+
+import {
+  enabledMcpToolMetadata,
+  mcpMetadataSnapshotWhere,
+} from "@/lib/mcp-tool-metadata"
 
 export class McpOAuthServiceError extends Error {
   constructor(
@@ -211,6 +220,7 @@ export async function beginMcpOAuth(input: {
       .update(schema.mcpServer)
       .set({
         oauthStatus: "pending",
+        toolMetadata: [],
         oauthCredentials,
         oauthAuthorizedBy: null,
         oauthAuthorizedAt: null,
@@ -363,6 +373,7 @@ export async function finishMcpOAuthCallback(input: {
       .update(schema.mcpServer)
       .set({
         oauthStatus: "needs_tool_review",
+        toolMetadata: [],
         oauthAuthorizedBy: input.context.attempt.initiatedBy,
         oauthAuthorizedAt: new Date(),
       })
@@ -411,7 +422,6 @@ export async function completeMcpOAuth(input: {
       "Server is not ready for tool review"
     )
   }
-  const expectedStatus = input.server.oauthStatus
   const key = encryptionKey()
   const { provider, guardedFetch, credentialsSnapshot } =
     createRuntimeMcpOAuthProvider({
@@ -419,7 +429,7 @@ export async function completeMcpOAuth(input: {
       workspaceSlug: input.workspaceSlug,
       encryptionKey: key,
     })
-  let tools: { name: string }[]
+  let tools: McpToolMetadata[]
   try {
     tools = await discoverAuthorizedMcpTools({
       provider,
@@ -444,12 +454,14 @@ export async function completeMcpOAuth(input: {
   const verifiedCredentials = credentialsSnapshot()
   const row = await db
     .update(schema.mcpServer)
-    .set({ oauthStatus: "connected", enabledTools: input.enabledTools })
+    .set({
+      oauthStatus: "connected",
+      enabledTools: input.enabledTools,
+      toolMetadata: enabledMcpToolMetadata(tools, input.enabledTools),
+    })
     .where(
       and(
-        eq(schema.mcpServer.id, input.server.id),
-        eq(schema.mcpServer.workspaceId, input.server.workspaceId),
-        eq(schema.mcpServer.oauthStatus, expectedStatus),
+        mcpMetadataSnapshotWhere(input.server),
         verifiedCredentials
           ? eq(schema.mcpServer.oauthCredentials, verifiedCredentials)
           : isNull(schema.mcpServer.oauthCredentials)
@@ -494,6 +506,7 @@ export async function disconnectMcpOAuth(input: {
       .update(schema.mcpServer)
       .set({
         oauthStatus: "pending",
+        toolMetadata: [],
         oauthCredentials: null,
         oauthAuthorizedBy: null,
         oauthAuthorizedAt: null,

@@ -2,11 +2,16 @@ import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
 import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
 import WebhookIcon from "@hugeicons/core-free-icons/WebhookIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { BETTERSTACK_TOOLS } from "@repo/connectors"
 import {
   ATTIO_LOGO_PATHS,
   ATTIO_LOGO_TRANSFORM,
   ATTIO_LOGO_VIEW_BOX,
 } from "@repo/ui/lib/attio-logo"
+import {
+  BETTERSTACK_LOGO_PATHS,
+  BETTERSTACK_LOGO_VIEW_BOX,
+} from "@repo/ui/lib/betterstack-logo"
 import Svg, { G, Path } from "react-native-svg"
 
 export type ConnectorKey =
@@ -16,6 +21,7 @@ export type ConnectorKey =
   | "attio"
   | "notion"
   | "cloudwatch"
+  | "betterstack"
   | "webhook"
 
 const CONNECTORS: Record<
@@ -48,6 +54,13 @@ const CONNECTORS: Record<
       "fetch_attio_record",
       "query_attio",
       "fetch_attio_activity",
+      "create_attio_record",
+      "update_attio_record",
+      "create_attio_list_entry",
+      "update_attio_list_entry",
+      "create_attio_note",
+      "create_attio_task",
+      "update_attio_task",
     ],
   },
   notion: {
@@ -57,6 +70,11 @@ const CONNECTORS: Record<
       "fetch_notion_page",
       "query_notion_data_source",
       "list_notion_users",
+      "create_notion_page",
+      "append_notion_content",
+      "edit_notion_content",
+      "update_notion_properties",
+      "add_notion_comment",
     ],
   },
   cloudwatch: {
@@ -68,7 +86,11 @@ const CONNECTORS: Record<
       "get_cloudwatch_metrics",
     ],
   },
-  // BYO inbound webhooks: no host, no tools — keeps the record exhaustive.
+  betterstack: {
+    host: /(^|\.)betterstack\.com$/i,
+    tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
+  },
+  // BYO inbound webhooks have no agent tools or URL host.
   webhook: {
     host: /$^/,
     tools: [],
@@ -86,7 +108,7 @@ export function connectorForTool(toolName: string): ConnectorKey | null {
 
 export function connectorForName(name?: string | null): ConnectorKey | null {
   if (!name) return null
-  const normalized = name.toLowerCase()
+  const normalized = name.toLowerCase().replaceAll(" ", "")
   return connectorKeys.find((key) => key === normalized) ?? null
 }
 
@@ -115,6 +137,20 @@ export function ConnectorIcon({
   }
   if (connector === "webhook") {
     return <HugeiconsIcon color={color} icon={WebhookIcon} size={size} />
+  }
+  if (connector === "betterstack") {
+    return (
+      <Svg
+        accessibilityLabel="Better Stack"
+        height={size}
+        viewBox={BETTERSTACK_LOGO_VIEW_BOX}
+        width={size}
+      >
+        {BETTERSTACK_LOGO_PATHS.map((path) => (
+          <Path d={path} fill={color} key={path} />
+        ))}
+      </Svg>
+    )
   }
   if (connector === "github") {
     return <HugeiconsIcon color={color} icon={GithubIcon} size={size} />

@@ -1,3 +1,4 @@
+import { CONNECTOR_TOOL_NAMES } from "@repo/connectors"
 import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import type { CustomTool } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -6,8 +7,8 @@ import { dynamicTool, jsonSchema, type ToolSet } from "ai"
 import { logger } from "./logger"
 
 // User-defined HTTP tools (custom_tool rows), bound per the channel profile's
-// grant: the blanket custom_tools capability (all tools) or an explicit
-// per-profile list. Templates use {{args.x}} / {{secrets.KEY}} placeholders;
+// toolAccess.customTools: all workspace tools (the default) or listed ids.
+// Templates use {{args.x}} / {{secrets.KEY}} placeholders;
 // secrets are decrypted only at call time and never appear in tool results.
 // See reference/automation-primitives.md §4.
 
@@ -17,6 +18,7 @@ export const CUSTOM_TOOL_NAME_REGEX = /^[a-z][a-z0-9_]{2,63}$/
 // bind-time skip below is the real enforcement (built-ins always win), so a
 // stale list only means a collision surfaces at bind instead of create.
 export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  ...CONNECTOR_TOOL_NAMES,
   "search",
   "read_thread",
   "view_image",

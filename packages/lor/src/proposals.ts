@@ -62,15 +62,9 @@ function refIssue(operations: ChangeOperation[]): string | null {
         for (const ref of operation.customTools) {
           issue ??= check(index, ref, ["create_custom_tool"])
         }
-        for (const ref of operation.mcpServers) {
-          issue ??= check(index, ref, ["create_mcp_server"])
-        }
         break
       case "set_approval_policy":
-        issue = check(index, operation.target, [
-          "create_custom_tool",
-          "create_mcp_server",
-        ])
+        issue = check(index, operation.target, ["create_custom_tool"])
         break
       default:
         break

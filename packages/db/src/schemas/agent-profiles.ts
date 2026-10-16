@@ -2,7 +2,7 @@ import { relations, sql } from "drizzle-orm"
 import {
   boolean,
   index,
-  pgEnum,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -10,41 +10,15 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { createSelectSchema } from "drizzle-zod"
+import {
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  type ProfileToolAccess,
+} from "./profile-tool-access"
 import { workspace } from "./workspaces"
 
-// What Lor is allowed to *do* in a channel — gated tools/connectors, not the
-// brain (the brain is shared institutional memory, never walled). Add a value
-// as each gated ability lands; brain read/write + chat search are always-on
-// core and deliberately NOT capabilities. See reference/archive/lor-agent-architecture.md §8.1.
-export const lorCapabilityEnum = pgEnum("lor_capability", [
-  "github",
-  "code_intelligence",
-  // Write side of code intelligence: propose changes as draft pull requests
-  // (and, later, run/test code). Draft-only — Lor never merges.
-  "code_actions",
-  "linear",
-  "linear_write",
-  "datadog",
-  "attio",
-  "notion",
-  "cloudwatch",
-  "web",
-  // Sandbox workbench sessions that produce file deliverables (artifacts).
-  "artifacts",
-  // The workspace's user-defined custom tools (custom_tool rows).
-  "custom_tools",
-])
-
-export type LorCapability = (typeof lorCapabilityEnum.enumValues)[number]
-
-// The full set — what a `grantsAll` profile (the permissive default) resolves to,
-// now and as new capabilities are added.
-export const ALL_LOR_CAPABILITIES: LorCapability[] = [
-  ...lorCapabilityEnum.enumValues,
-]
-
-// A named capability preset assigned to a channel or category. Resolution is
-// channel profile → parent category's profile → the workspace default.
+// A named tool-access profile assigned to a channel or category. Resolution is
+// channel profile → parent category's profile → the workspace default. All tool
+// access lives in toolAccess.
 export const agentProfile = pgTable(
   "agent_profile",
   {
@@ -58,17 +32,13 @@ export const agentProfile = pgTable(
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    toolAccess: jsonb("tool_access")
+      .$type<ProfileToolAccess>()
+      .notNull()
+      .default(DEFAULT_PROFILE_TOOL_ACCESS),
     // The workspace fallback (exactly one per workspace): used when a channel and
     // its category both lack an explicit profile.
     isDefault: boolean("is_default").notNull().default(false),
-    // Grants every capability, including ones added later — the permissive
-    // default ("everything connected, tune from there"). When false,
-    // `capabilities` is the explicit allowlist.
-    grantsAll: boolean("grants_all").notNull().default(false),
-    capabilities: lorCapabilityEnum("capabilities")
-      .array()
-      .notNull()
-      .default([]),
   },
   (table) => [
     index("agent_profile_workspaceId_idx").on(table.workspaceId),

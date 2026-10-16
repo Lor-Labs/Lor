@@ -10,7 +10,81 @@ calls, policy says which tool targets are gated and who may resolve, and
 resolver authority is written in the pillar-1 vocabulary
 (`reference/custom-roles.md`).
 
-## Current state (verified 2026-08-31)
+## Current architecture (2026-10-15)
+
+Approval rules now target individual tools, matching connector and profile tool
+selection. Tool access and approval remain independent: a policy never enables
+an otherwise disabled tool.
+
+- Built-in tools: `tool:<reviewed_name>` (connector tools plus the individual web
+  and artifact tools). Core messaging, memory, and run bookkeeping stay ungated.
+- Custom HTTP tools: `custom_tool:<uuid>`, unchanged in granularity.
+- Custom MCP tools: `mcp_tool:<server_uuid>:<encodeURIComponent(tool_name)>`.
+  Names are scoped to their server, encoded canonically, and never form a
+  whole-server rule. A rename is a different tool identity.
+- Settings show one row per service (Web, Artifacts, each connector, API
+  tools, each MCP server) with an "N of M need approval" summary. A row opens
+  to the same Read/Write checklist as tool settings: a checked tool needs
+  approval, and a group checkbox gates or clears the whole group. A gated
+  tool's row shows its approver picker. MCP groups trust only provider Read
+  only hints; API tools have none. Hints do not bypass approval.
+- Every change goes through one atomic `PUT /approval-policies/bulk` request
+  with explicit keys, applied optimistically in the cache. Enabling preserves
+  existing resolvers and assigns Any member only to new rules. New tools never
+  inherit a group rule.
+- Connectors that aren't connected sit in a separate "Not connected" section;
+  their rules still save and apply once connected. MCP choices use saved
+  enabled names and metadata; listing policies performs no MCP handshakes.
+  Missing/disabled tools and unsupported keys appear under "Unavailable rules"
+  for explicit removal.
+- Single saves, bulk saves, and approved configuration proposals verify workspace
+  ownership and MCP enabled names. A new MCP server has no discovered tools yet,
+  so proposals may gate its tools only after connection and tool review. Created
+  references for approval rules now point only to custom HTTP tools.
+- Main runs, bulk-export restrictions, background archive reads, and voice use
+  individual target identities. Approved continuations persist tool name and
+  target, including crash recovery, and refuse execution if the bound source
+  changed or the tool became unavailable. SDK input/signature checks remain.
+- Capability groups are gone entirely: the `lor_capability` enum, `grants_all`
+  and `agent_profile_custom_tool` are removed. Profiles hold all tool access in
+  `tool_access` (built-in web/artifacts, connectors, MCP servers, API tools),
+  where a missing entry follows the workspace. See `connector-tools.md`.
+
+### Breaking rollout
+
+Once per environment, in this order:
+
+1. Stop the API and workers.
+2. Preview, then run
+   [`migrate-tool-access.ts`](../packages/db/src/scripts/migrate-tool-access.ts):
+   `pnpm --filter @repo/db exec tsx src/scripts/migrate-tool-access.ts --dry-run`,
+   then the same command without `--dry-run`.
+3. `pnpm db:push` (it should find nothing left to change for this work).
+4. Deploy the API, web and workers together.
+5. Recreate the approval rules you want, per tool, in Settings → Approvals.
+
+The script moves each profile's old web, artifacts and API tool grants into
+`tool_access` (kept grants follow the workspace; missing ones become off or a
+custom API tool list), rewrites pending profile proposals the same way, then
+drops `capabilities`, `grants_all`, `agent_profile_custom_tool` and the enum. It
+deletes old capability and whole-MCP approval rules, expires pending approvals
+for those keys, and moves their plans to `waiting_for_input`. One transaction,
+safe to rerun. Approval rules get no automatic conversion. Historical
+approval/run records stay intact.
+
+Old parked actions start a fresh request; old target keys cannot authorize an
+approval resume. Policy rows whose key no longer parses (for example a renamed
+catalog tool) are skipped with a warning and listed under Unavailable tools for
+removal. MCP rules for temporarily disabled names remain inert and take effect
+again if those names are re-enabled.
+
+Validation is focused review, lint, and type checking/builds. No test suites,
+evals, browser harnesses, or authenticated provider mutations are run.
+
+The original rollout and implementation history below describe the earlier
+group-based model; this section supersedes those target/group details.
+
+## Historical starting state (verified 2026-08-31)
 
 - **Approval is prompt discipline today.** `taskRulesSection`
   (`packages/lor/src/tasks.ts:242`) *instructs* the model to call
@@ -75,7 +149,7 @@ resolver authority is written in the pillar-1 vocabulary
 
 | Topic | Decision |
 |---|---|
-| Gate unit | **Coarse: one switch per capability** (`capability:<lor_capability>` — every capability is targetable, reads included; "Linear writes" is one switch covering all three write tools). Plus **per custom tool** (`custom_tool:<id>`), **per MCP server** (`mcp_server:<id>` — one switch covers everything the server exposes). ~~one core target `core:messaging`~~ REMOVED 2026-09-02: Lor's own channel messaging is never gateable — answering in chat is the core product (Jacob). The `custom_tools` *capability* is grant vocabulary, not an approval target — individual tool/server rows replace it here. No per-tool granularity inside a capability. |
+| Gate unit | **Individual tool**: `tool:<name>`, `custom_tool:<id>`, `mcp_tool:<server_id>:<encoded_name>`. Read/Write are bulk-selection conveniences. Core messaging/memory remain ungated. Supersedes the 2026-09-01 coarse groups. |
 | Policy storage | **Computed, own table.** `approval_policy`: a row exists only where the workspace opted in — row existence = gate ON; delete the row to turn it off. No `required` column, no seeding, no backfill when new connectors land. The settings UI renders the full target list from the registry and overlays existing rows. |
 | Defaults | **Everything off.** Out of the box Lor behaves exactly as today; every gate is an explicit admin opt-in. No default-on connector writes, no default-on code publish. |
 | Resolver spec | Per policy row: `role` (static or custom role name) · `user` (specific person) · `any_member` (channel write access, today's behavior); **teams join as a resolver kind once they exist**. ~~`permission` kind~~ REMOVED 2026-09-02 (Jacob: a blanket approvals permission is hacky — resolvers are named per gate, never granted). Column default `any_member` — pre-filled when a gate is enabled. **Owner always resolves** (escape hatch — a named resolver may have left). Channel write access stays the floor for every kind. |

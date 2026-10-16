@@ -13,6 +13,10 @@ import {
 import { z } from "zod"
 import { channel } from "./channels"
 import { message } from "./messages"
+import {
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  profileToolAccessSchema,
+} from "./profile-tool-access"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -93,14 +97,16 @@ export const updateInstructionsOpSchema = z.object({
   content: z.string().min(1).max(20000),
 })
 
-export const createAgentProfileOpSchema = z.object({
-  op: z.literal("create_agent_profile"),
-  name: z.string().trim().min(1).max(80),
-  // Validated against the connector registry at apply (grantability included).
-  capabilities: z.array(z.string().min(1).max(50)).max(50).default([]),
-  customTools: z.array(resourceRefSchema).max(50).default([]),
-  mcpServers: z.array(resourceRefSchema).max(50).default([]),
-})
+export const createAgentProfileOpSchema = z
+  .object({
+    op: z.literal("create_agent_profile"),
+    toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
+    name: z.string().trim().min(1).max(80),
+    // Limits API tools to these (existing or created in this proposal). Empty
+    // leaves toolAccess.customTools in charge; setting both is rejected.
+    customTools: z.array(resourceRefSchema).max(50).default([]),
+  })
+  .strict()
 
 export const assignChannelProfileOpSchema = z.object({
   op: z.literal("assign_channel_profile"),
@@ -142,9 +148,10 @@ export const setApprovalPolicyOpSchema = z
   .object({
     op: z.literal("set_approval_policy"),
     target: z.discriminatedUnion("kind", [
-      // An approval-target key that exists today (capability:x, custom_tool:id…).
-      z.object({ kind: z.literal("key"), key: z.string().min(1).max(200) }),
-      // The custom tool / MCP server another op in this proposal creates.
+      // One built-in, custom HTTP, or discovered MCP tool identity.
+      z.object({ kind: z.literal("key"), key: z.string().min(1).max(2048) }),
+      // A custom HTTP tool another op in this proposal creates. MCP tools must
+      // be discovered and enabled before they can be selected for approval.
       z.object({
         kind: z.literal("created"),
         opPosition: z.number().int().min(0),

@@ -543,6 +543,7 @@ export async function claimAgentRun(
       ...replayedSteps.flatMap((r) => r.messages as ModelMessage[]),
     ]
     resume = {
+      approvalResume: claimed.context.approvalResume,
       messages,
       instructions: claimed.instructions,
       counters,

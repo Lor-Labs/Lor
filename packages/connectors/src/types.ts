@@ -1,9 +1,9 @@
-import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
+import type { IntegrationProvider } from "@repo/db/schema"
 
 export type ConnectorAuthType = "github-app" | "oauth" | "api-key" | "token"
 
 // Dependency-light description of a connector — the single source of truth for
-// ids, labels, capabilities, and auth metadata. Server bindings (provider,
+// ids, labels, tools, and auth metadata. Server bindings (provider,
 // tools, webhooks) and the client icon are registered separately, keyed by id.
 export type ConnectorDescriptor = {
   id: IntegrationProvider
@@ -36,13 +36,4 @@ export type ConnectorEventKey =
 export type ConnectorEventDescriptor = {
   key: ConnectorEventKey
   label: string
-}
-
-export type CapabilityDescriptor = {
-  key: LorCapability
-  label: string
-  description: string
-  // The connector that must be connected to grant this capability, or null for
-  // built-in capabilities (e.g. web) that need no workspace connection.
-  connector: IntegrationProvider | null
 }

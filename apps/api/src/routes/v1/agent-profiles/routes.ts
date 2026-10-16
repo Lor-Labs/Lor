@@ -24,14 +24,14 @@ export const listAgentProfiles = createRoute({
   method: "get",
   summary: "List a workspace's agent profiles",
   description:
-    "Returns the workspace's capability profiles plus the capabilities it can currently grant.",
+    "Returns agent profiles and every tool group a profile can choose from: built-in tools, connected services, MCP servers and API tools.",
   tags: ["Agent Profiles"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: agentProfilesWorkspaceParamsSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listAgentProfilesResponseSchema,
-      description: "Profiles + available capabilities",
+      description: "Profiles + available tool groups",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
@@ -44,14 +44,16 @@ export const createAgentProfile = createRoute({
   path: "/workspaces/{workspaceSlug}/agent-profiles",
   method: "post",
   summary: "Create an agent profile",
-  description: "Creates a capability profile that channels can be assigned to.",
+  description:
+    "Creates a tool-access profile that channels can be assigned to.",
   tags: ["Agent Profiles"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
     params: agentProfilesWorkspaceParamsSchema,
     body: jsonContent({
       schema: createAgentProfileRequestSchema,
-      description: "Profile name + granted capabilities",
+      description:
+        "Profile name, connector/MCP tool access, and standalone abilities",
     }),
   },
   responses: {
@@ -71,7 +73,8 @@ export const updateAgentProfile = createRoute({
   path: "/workspaces/{workspaceSlug}/agent-profiles/{profileId}",
   method: "patch",
   summary: "Update an agent profile",
-  description: "Renames a profile or changes the capabilities it grants.",
+  description:
+    "Renames a profile or changes its tool access and standalone abilities.",
   tags: ["Agent Profiles"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

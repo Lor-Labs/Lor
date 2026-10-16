@@ -1,7 +1,9 @@
 import { Globe02Icon, WebhookIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { BETTERSTACK_TOOLS } from "@repo/connectors"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
+import { BetterStackLogo } from "@repo/ui/components/logos/betterstack"
 import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
@@ -158,6 +160,13 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "fetch_attio_record",
       "query_attio",
       "fetch_attio_activity",
+      "create_attio_record",
+      "update_attio_record",
+      "create_attio_list_entry",
+      "update_attio_list_entry",
+      "create_attio_note",
+      "create_attio_task",
+      "update_attio_task",
     ],
     linkLabel: attioLabel,
   },
@@ -169,6 +178,11 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
       "fetch_notion_page",
       "query_notion_data_source",
       "list_notion_users",
+      "create_notion_page",
+      "append_notion_content",
+      "edit_notion_content",
+      "update_notion_properties",
+      "add_notion_comment",
     ],
     linkLabel: (url) => prettifySlug(lastSegment(url)) || lastSegment(url),
   },
@@ -184,8 +198,13 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
     ],
     linkLabel: () => "CloudWatch",
   },
-  // BYO inbound webhooks: no host, no tools — present only so the registry
-  // stays exhaustive over the provider enum.
+  betterstack: {
+    logo: BetterStackLogo,
+    urlHost: /(^|\.)betterstack\.com$/i,
+    tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
+    linkLabel: () => "Better Stack",
+  },
+  // BYO inbound webhooks have no agent tools or URL host.
   webhook: {
     logo: WebhookMark,
     urlHost: /$^/,
@@ -237,7 +256,7 @@ export function isConnectorKey(value: unknown): value is ConnectorKey {
 // webhook/connector message avatars. Labels lowercase to the connector ids.
 export function connectorForName(name?: string | null): ConnectorKey | null {
   if (!name) return null
-  const key = name.toLowerCase()
+  const key = name.toLowerCase().replaceAll(" ", "")
   return CONNECTOR_KEYS.find((k) => k === key) ?? null
 }
 

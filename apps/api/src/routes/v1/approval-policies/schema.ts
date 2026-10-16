@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi"
+import { APPROVAL_TARGET_MAX_LENGTH } from "@repo/connectors"
 import { approvalResolverKindEnum } from "@repo/db/schema"
 
 export const approvalPoliciesParamsSchema = z.object({
@@ -34,9 +35,20 @@ export const approvalPolicySchema = z.object({
 // is what the UI renders.
 export const approvalTargetSchema = z.object({
   key: z.string(),
+  name: z.string(),
   label: z.string(),
   description: z.string(),
-  group: z.enum(["capability", "custom_tool", "mcp_server"]),
+  group: z.enum([
+    "builtin",
+    "connector",
+    "custom_tool",
+    "mcp_server",
+    "unavailable",
+  ]),
+  groupKey: z.string(),
+  groupLabel: z.string(),
+  readOnlyHint: z.boolean().optional(),
+  connected: z.boolean(),
 })
 
 export const listApprovalPoliciesResponseSchema = z.object({
@@ -46,7 +58,7 @@ export const listApprovalPoliciesResponseSchema = z.object({
 
 export const upsertApprovalPolicyRequestSchema = z
   .object({
-    target: z.string().min(1).max(200),
+    target: z.string().min(1).max(APPROVAL_TARGET_MAX_LENGTH),
     resolverKind: resolverKindSchema,
     resolverRole: z.string().min(1).max(100).optional(),
     resolverUserId: z.string().uuid().optional(),
@@ -65,3 +77,13 @@ export const upsertApprovalPolicyResponseSchema = z.object({
 export const deleteApprovalPolicyResponseSchema = z.object({
   success: z.literal(true),
 })
+
+export const bulkApprovalPoliciesRequestSchema = z
+  .object({
+    targets: z
+      .array(z.string().min(1).max(APPROVAL_TARGET_MAX_LENGTH))
+      .min(1)
+      .max(500),
+    required: z.boolean(),
+  })
+  .strict()

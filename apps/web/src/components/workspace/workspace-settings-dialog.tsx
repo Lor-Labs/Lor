@@ -275,8 +275,10 @@ export function WorkspaceSettingsDialog({
                   />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-6">
-                <div className="mx-auto max-w-2xl">
+              {/* Vertical padding sits inside the scroll area so sticky
+                  footers (SettingsFooter) pin flush to its bottom edge. */}
+              <div className="min-h-0 flex-1 overflow-y-auto px-6">
+                <div className="mx-auto max-w-2xl py-6">
                   {section === "general" ? (
                     // key on identity so the form resets if the workspace
                     // changes under us (no stale name/icon saved onto another).
@@ -293,10 +295,7 @@ export function WorkspaceSettingsDialog({
                       canManageRoles={canManageBilling}
                     />
                   ) : section === "connectors" ? (
-                    <ConnectorsSection
-                      workspaceSlug={workspace.slug}
-                      onOpenAgentProfiles={() => onSectionChange("agent")}
-                    />
+                    <ConnectorsSection workspaceSlug={workspace.slug} />
                   ) : section === "custom-tools" ? (
                     <CustomToolsSection
                       workspaceSlug={workspace.slug}
@@ -314,7 +313,6 @@ export function WorkspaceSettingsDialog({
                   ) : (
                     <AgentProfilesSection
                       workspaceSlug={workspace.slug}
-                      onOpenConnectors={() => onSectionChange("connectors")}
                       onOpenTools={() => onSectionChange("custom-tools")}
                     />
                   )}

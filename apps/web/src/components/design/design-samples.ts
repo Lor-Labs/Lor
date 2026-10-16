@@ -244,9 +244,15 @@ export const PROPOSAL_SAMPLES: ProposalSample[] = [
         op(2, {
           op: "create_agent_profile",
           name: "Release captain",
-          capabilities: ["github", "linear"],
+          toolAccess: {
+            connectors: {
+              github: { mode: "workspace" },
+              linear: { mode: "workspace" },
+            },
+            mcpServers: {},
+            builtins: { artifacts: { mode: "off" } },
+          },
           customTools: [],
-          mcpServers: [],
         }),
         op(3, {
           op: "assign_channel_profile",
@@ -275,7 +281,7 @@ export const APPROVAL_SAMPLES: ApprovalSample[] = [
       id: "a1",
       description: "Searching GitHub for “tester”",
       planId: null,
-      target: "capability:github",
+      target: "tool:search_github",
       toolName: "search_github",
       resolver: { kind: "any_member" },
       resolverUserName: null,
@@ -308,7 +314,7 @@ export const APPROVAL_SAMPLES: ApprovalSample[] = [
       id: "a3",
       description: "Searching GitHub for “bug report”",
       planId: null,
-      target: "capability:github",
+      target: "tool:search_github",
       toolName: "search_github",
       resolver: { kind: "any_member" },
       resolverUserName: null,

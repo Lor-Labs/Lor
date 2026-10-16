@@ -2,6 +2,16 @@ import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon"
 import PencilEdit01Icon from "@hugeicons/core-free-icons/PencilEdit01Icon"
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import {
+  hasUnavailableProfileSelections,
+  type ProfileToolGroup,
+  profileGroupSelection,
+  profileSelectedTools,
+} from "@repo/connectors"
+import {
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  type ProfileToolAccess,
+} from "@repo/db/schema"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
@@ -11,7 +21,7 @@ import { useToast } from "heroui-native/toast"
 import { useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
-import { ConnectorIcon } from "@/components/connector-icon"
+import { ProfileToolAccessEditor } from "@/components/profile-tool-access-editor"
 import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
@@ -19,61 +29,46 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useWorkspace } from "@/context/workspace-context"
 import { api } from "@/lib/api"
-import type {
-  AgentProfile,
-  AvailableCapability,
-  LorCapabilityKey,
-} from "@/lib/api-types"
+import type { AgentProfile } from "@/lib/api-types"
 import { confirmDiscard } from "@/lib/confirm-discard"
 
-// Group capabilities by their connector, preserving first-seen order.
-function groupByConnector(caps: AvailableCapability[]) {
-  const groups: {
-    connector: AvailableCapability["connector"]
-    connectorLabel: string
-    caps: AvailableCapability[]
-  }[] = []
-  for (const cap of caps) {
-    const group = groups.find((g) => g.connector === cap.connector)
-    if (group) group.caps.push(cap)
-    else
-      groups.push({
-        connector: cap.connector,
-        connectorLabel: cap.connectorLabel,
-        caps: [cap],
-      })
-  }
-  return groups
+type ProfileValues = {
+  name: string
+  toolAccess: ProfileToolAccess
 }
 
 function GrantedChips({
-  available,
   profile,
+  groups,
 }: {
-  available: AvailableCapability[]
+  groups: ProfileToolGroup[]
   profile: AgentProfile
 }) {
-  const foreground = useThemeColor("foreground")
-  const granted = profile.grantsAll
-    ? available
-    : available.filter((cap) => profile.capabilities.includes(cap.key))
-
-  if (granted.length === 0) {
+  const services = groups
+    .map((group) => {
+      const selection = profileGroupSelection(profile.toolAccess, group)
+      const count = profileSelectedTools(
+        group.tools.map((tool) => tool.name),
+        selection
+      ).length
+      return { group, count, limited: selection?.mode === "custom" }
+    })
+    .filter(({ count }) => count > 0)
+  if (services.length === 0) {
     return <Text className="text-xs text-muted">Chat & memory only</Text>
   }
   return (
     <View className="flex-row flex-wrap gap-one">
-      {granted.map((cap) => (
+      {services.map(({ group, count, limited }) => (
         <View
-          className="flex-row items-center gap-one rounded-lor-sm bg-surface-tertiary px-two py-one"
-          key={cap.key}
+          key={`${group.kind}:${group.id}`}
+          className="rounded-lor-sm bg-surface-tertiary px-two py-one"
         >
-          <ConnectorIcon
-            color={foreground}
-            connector={cap.connector}
-            size={13}
-          />
-          <Text className="text-xs text-foreground">{cap.label}</Text>
+          <Text className="text-xs text-foreground">
+            {limited
+              ? `${group.name} · ${count} ${count === 1 ? "tool" : "tools"}`
+              : group.name}
+          </Text>
         </View>
       ))}
     </View>
@@ -81,122 +76,65 @@ function GrantedChips({
 }
 
 function ProfileEditor({
-  available,
+  groups,
   onCancel,
   onSave,
   profile,
   saving,
 }: {
-  available: AvailableCapability[]
   onCancel: () => void
-  onSave: (name: string, capabilities: LorCapabilityKey[]) => void
+  groups: ProfileToolGroup[]
+  onSave: (values: ProfileValues) => void
   profile?: AgentProfile
   saving: boolean
 }) {
-  const [foreground, accent] = useThemeColor(["foreground", "accent"])
   const [name, setName] = useState(profile?.name ?? "")
-  const [selected, setSelected] = useState<Set<LorCapabilityKey>>(() => {
-    if (!profile) return new Set()
-    if (profile.grantsAll) return new Set(available.map((cap) => cap.key))
-    return new Set(profile.capabilities)
-  })
-
-  const toggle = (key: LorCapabilityKey) => {
-    setSelected((previous) => {
-      const next = new Set(previous)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
+  const [toolAccess, setToolAccess] = useState<ProfileToolAccess>(
+    profile?.toolAccess ?? DEFAULT_PROFILE_TOOL_ACCESS
+  )
 
   const save = () => {
-    if (!name.trim()) return
-    // Keep grants for capabilities whose connector is currently disconnected —
-    // the editor can't show them, but they shouldn't be silently revoked.
-    const availableKeys = new Set(available.map((cap) => cap.key))
-    const preserved = (profile?.capabilities ?? []).filter(
-      (key) => !availableKeys.has(key)
+    if (
+      !name.trim() ||
+      saving ||
+      hasUnavailableProfileSelections(toolAccess, groups)
     )
-    onSave(name.trim(), [...new Set([...selected, ...preserved])])
+      return
+    onSave({ name: name.trim(), toolAccess })
   }
 
   return (
-    <View className="gap-four rounded-lor-lg bg-surface-secondary p-four">
+    <View
+      pointerEvents={saving ? "none" : "auto"}
+      className="gap-four rounded-lor-lg bg-surface-secondary p-four"
+    >
       <Input
         maxLength={60}
         onChangeText={setName}
         placeholder="Profile name"
         value={name}
       />
-      <View className="gap-three">
-        <Text className="text-xs font-medium text-muted">Tools</Text>
-        {available.length === 0 ? (
-          <Text className="text-xs leading-4 text-muted">
-            No connectors are connected yet — connect one from the web app's
-            Connectors settings to grant tools.
-          </Text>
-        ) : (
-          groupByConnector(available).map((group) => (
-            <View className="gap-two" key={group.connector ?? "web"}>
-              <View className="flex-row items-center gap-one">
-                <ConnectorIcon
-                  color={foreground}
-                  connector={group.connector}
-                  size={13}
-                />
-                <Text className="text-xs font-medium text-muted">
-                  {group.connectorLabel}
-                </Text>
-              </View>
-              {group.caps.map((cap) => {
-                const isSelected = selected.has(cap.key)
-                return (
-                  <Pressable
-                    accessibilityLabel={cap.label}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: isSelected }}
-                    className={`flex-row items-center gap-three rounded-lor-sm border px-three py-three active:opacity-70 ${
-                      isSelected
-                        ? "border-accent bg-accent-soft"
-                        : "border-separator bg-surface"
-                    }`}
-                    key={cap.key}
-                    onPress={() => toggle(cap.key)}
-                  >
-                    <View className="min-w-0 flex-1 gap-px">
-                      <Text className="text-sm font-medium text-foreground">
-                        {cap.label}
-                      </Text>
-                      <Text className="text-xs leading-4 text-muted">
-                        {cap.description}
-                      </Text>
-                    </View>
-                    {isSelected ? (
-                      <SymbolView
-                        name={{
-                          ios: "checkmark.circle.fill",
-                          android: "check_circle",
-                          web: "check_circle",
-                        }}
-                        size={19}
-                        tintColor={accent}
-                      />
-                    ) : (
-                      <View className="size-[19px] rounded-full border border-separator" />
-                    )}
-                  </Pressable>
-                )
-              })}
-            </View>
-          ))
-        )}
-      </View>
+      <Text className="text-xs text-muted">
+        Choose which tools this profile can use. Approval rules still apply.
+      </Text>
+      <ProfileToolAccessEditor
+        groups={groups}
+        value={toolAccess}
+        onChange={setToolAccess}
+      />
       <View className="flex-row justify-end gap-two">
         <Button onPress={onCancel} size="sm" variant="ghost">
           Cancel
         </Button>
-        <Button isDisabled={!name.trim() || saving} onPress={save} size="sm">
+        <Button
+          isDisabled={
+            !name.trim() ||
+            saving ||
+            hasUnavailableProfileSelections(toolAccess, groups)
+          }
+          onPress={save}
+          size="sm"
+        >
           {saving ? "Saving…" : "Save"}
         </Button>
       </View>
@@ -231,30 +169,32 @@ export default function AgentProfilesScreen() {
     })
 
   const save = useMutation({
-    mutationFn: async (input: {
-      id?: string
-      name: string
-      capabilities: LorCapabilityKey[]
-    }) => {
+    mutationFn: async (input: ProfileValues & { id?: string }) => {
       const profiles = api.v1.workspaces[":workspaceSlug"]["agent-profiles"]
       const response = input.id
         ? await profiles[":profileId"].$patch({
             param: { workspaceSlug: workspaceSlug ?? "", profileId: input.id },
-            json: { name: input.name, capabilities: input.capabilities },
+            json: { name: input.name, toolAccess: input.toolAccess },
           })
         : await profiles.$post({
             param: { workspaceSlug: workspaceSlug ?? "" },
-            json: { name: input.name, capabilities: input.capabilities },
+            json: { name: input.name, toolAccess: input.toolAccess },
           })
-      if (!response.ok) throw new Error("Could not save the profile")
+      if (!response.ok) {
+        const error = (await response.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(error?.message ?? "Could not save the profile")
+      }
     },
     onSuccess: () => {
       void invalidate()
       setEditingId(null)
       toast.show({ variant: "success", label: "Profile saved" })
     },
-    onError: () => {
-      toast.show({ variant: "danger", label: "Couldn't save the profile" })
+    onError: (error) => {
+      void invalidate()
+      toast.show({ variant: "danger", label: error.message })
     },
   })
 
@@ -326,9 +266,9 @@ export default function AgentProfilesScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text className="text-sm leading-5 text-muted">
-          Profiles control which tools Lor can use in a channel. A channel
-          inherits its category's profile, then the workspace default. Lor's
-          memory and chat search are always available.
+          Profiles control which tools Lor can use in a channel. Channels use
+          the default profile unless you pick another in channel or category
+          settings.
         </Text>
 
         {workspaceSlug === null ? (
@@ -357,11 +297,11 @@ export default function AgentProfilesScreen() {
             {data.profiles.map((profile) =>
               editingId === profile.id ? (
                 <ProfileEditor
-                  available={data.availableCapabilities}
+                  groups={data.availableToolGroups}
                   key={profile.id}
                   onCancel={() => setEditingId(null)}
-                  onSave={(name, capabilities) =>
-                    save.mutate({ id: profile.id, name, capabilities })
+                  onSave={(values) =>
+                    save.mutate({ id: profile.id, ...values })
                   }
                   profile={profile}
                   saving={save.isPending}
@@ -388,7 +328,7 @@ export default function AgentProfilesScreen() {
                       ) : null}
                     </View>
                     <GrantedChips
-                      available={data.availableCapabilities}
+                      groups={data.availableToolGroups}
                       profile={profile}
                     />
                   </View>
@@ -423,11 +363,9 @@ export default function AgentProfilesScreen() {
             )}
             {editingId === "new" ? (
               <ProfileEditor
-                available={data.availableCapabilities}
+                groups={data.availableToolGroups}
                 onCancel={() => setEditingId(null)}
-                onSave={(name, capabilities) =>
-                  save.mutate({ name, capabilities })
-                }
+                onSave={(values) => save.mutate(values)}
                 saving={save.isPending}
               />
             ) : (

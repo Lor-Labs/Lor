@@ -163,7 +163,13 @@ export const discoverMcpServerRequestSchema = z.object({
 })
 
 export const discoverMcpServerResponseSchema = z.object({
-  tools: z.array(z.object({ name: z.string(), description: z.string() })),
+  tools: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      readOnlyHint: z.boolean().optional(),
+    })
+  ),
 })
 
 // Saved-server discovery: stored url/headers/secrets, optionally overlaid

@@ -1,4 +1,9 @@
-import { type ApprovalTarget, approvalTargetKey } from "@repo/connectors"
+import {
+  type ApprovalTarget,
+  approvalTargetKey,
+  builtinApprovalTool,
+  parseApprovalTargetKey,
+} from "@repo/connectors"
 import { db, eq, schema } from "@repo/db"
 import type { ToolSet } from "ai"
 import { logger } from "./logger"
@@ -20,7 +25,18 @@ export async function loadApprovalGates(
     })
     .from(schema.approvalPolicy)
     .where(eq(schema.approvalPolicy.workspaceId, workspaceId))
-  return new Map(rows.map((row) => [row.target, { policyId: row.id }]))
+  // A key that doesn't parse (e.g. a renamed catalog tool) can never match a
+  // bound tool, so skipping it gates nothing less. Settings list it under
+  // "Unavailable tools" for removal.
+  const supported = rows.filter((row) => {
+    if (parseApprovalTargetKey(row.target)) return true
+    logger.warn(
+      { workspaceId, policyId: row.id, target: row.target },
+      "Skipping unsupported approval policy target"
+    )
+    return false
+  })
+  return new Map(supported.map((row) => [row.target, { policyId: row.id }]))
 }
 
 // Maps each bound tool name to the approval target that governs it. Tools with
@@ -29,10 +45,10 @@ export async function loadApprovalGates(
 export class ToolTargetMap {
   private readonly byToolName = new Map<string, string>()
 
-  add(tools: ToolSet | Record<string, unknown>, target: ApprovalTarget) {
-    const key = approvalTargetKey(target)
+  addBuiltins(tools: ToolSet | Record<string, unknown>) {
     for (const name of Object.keys(tools)) {
-      this.byToolName.set(name, key)
+      if (builtinApprovalTool(name))
+        this.addName(name, { kind: "builtinTool", toolName: name })
     }
   }
 

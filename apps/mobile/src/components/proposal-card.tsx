@@ -12,6 +12,10 @@ import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import WebhookIcon from "@hugeicons/core-free-icons/WebhookIcon"
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import {
+  approvalTargetLabel,
+  describeProfilePermissions,
+} from "@repo/connectors"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
 import { useQuery } from "@tanstack/react-query"
 import * as Clipboard from "expo-clipboard"
@@ -36,7 +40,9 @@ import {
   useRejectProposal,
 } from "@/hooks/use-proposals"
 import { useWorkspaceMembers } from "@/hooks/use-workspace-members"
+import { api } from "@/lib/api"
 import type {
+  AgentProfilesResponse,
   ChannelProposal,
   Message,
   ProposalOperation,
@@ -109,15 +115,17 @@ function profileRefLabel(
 
 function policyTargetLabel(
   target: { kind: string; key?: string; opPosition?: number },
-  operations: ProposalOperation[]
+  operations: ProposalOperation[],
+  profileData: AgentProfilesResponse | undefined
 ): string {
   if (target.kind === "created") {
     const op = operations.find((o) => o.position === target.opPosition)
     if (op?.spec.op === "create_custom_tool") return `tool ${op.spec.name}`
-    if (op?.spec.op === "create_mcp_server") return `MCP "${op.spec.name}"`
     return `step ${(target.opPosition ?? 0) + 1}`
   }
-  return target.key ?? "an action"
+  return target.key
+    ? approvalTargetLabel(target.key, profileData?.availableToolGroups)
+    : "a tool"
 }
 
 function resolverLine(spec: {
@@ -146,7 +154,8 @@ function Name({ children }: { children: ReactNode }) {
 function opView(
   op: ProposalOperation,
   operations: ProposalOperation[],
-  channelNames: Map<string, string>
+  channelNames: Map<string, string>,
+  profileData?: AgentProfilesResponse
 ): { title: ReactNode; details: string[] } {
   const spec = op.spec
   switch (spec.op) {
@@ -233,11 +242,17 @@ function opView(
             Create agent profile <Name>{spec.name}</Name>
           </>
         ),
-        details: [
-          spec.capabilities.length > 0
-            ? `capabilities: ${spec.capabilities.join(", ")}`
-            : "no connector capabilities",
-        ],
+        details: describeProfilePermissions(
+          spec,
+          profileData?.availableToolGroups,
+          new Map(
+            operations.flatMap((operation) =>
+              operation.spec.op === "create_custom_tool"
+                ? [[operation.position, operation.spec.name] as const]
+                : []
+            )
+          )
+        ),
       }
     case "assign_channel_profile":
       return {
@@ -278,7 +293,9 @@ function opView(
         title: (
           <>
             Require approval for{" "}
-            <Name>{policyTargetLabel(spec.target, operations)}</Name>
+            <Name>
+              {policyTargetLabel(spec.target, operations, profileData)}
+            </Name>
           </>
         ),
         details: [resolverLine(spec)],
@@ -346,7 +363,20 @@ function OperationItem({
     "danger",
     "field-placeholder",
   ])
-  const { title, details } = opView(op, operations, channelNames)
+  const { workspace } = useWorkspace()
+  const workspaceSlug = workspace?.slug
+  const { data: profileData } = useQuery({
+    queryKey: ["agent-profiles", workspaceSlug],
+    enabled: !!workspaceSlug && op.spec.op === "create_agent_profile",
+    queryFn: async () => {
+      const response = await api.v1.workspaces[":workspaceSlug"][
+        "agent-profiles"
+      ].$get({ param: { workspaceSlug: workspaceSlug ?? "" } })
+      if (!response.ok) throw new Error("Could not load profile tools")
+      return response.json()
+    },
+  })
+  const { title, details } = opView(op, operations, channelNames, profileData)
   const spec = op.spec
   const secretNames =
     spec.op === "create_custom_tool" ? spec.requiredSecrets : []
@@ -377,7 +407,7 @@ function OperationItem({
             <Text
               className="text-[13px] leading-5 text-muted"
               key={line}
-              numberOfLines={2}
+              numberOfLines={spec.op === "create_agent_profile" ? undefined : 2}
             >
               {line}
             </Text>

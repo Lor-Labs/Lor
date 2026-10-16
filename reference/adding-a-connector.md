@@ -4,14 +4,13 @@ A runbook for wiring a new integration (Notion, Sentry, …) end to end. Three c
 
 ## How it works
 
-The two DB enums are the source of truth: `integrationProviderEnum` (`packages/db/src/schemas/integration-connections.ts`) and `lorCapabilityEnum` (`packages/db/src/schemas/agent-profiles.ts`). The registry in **`@repo/connectors`** and several consumer maps are **exhaustive `Record<enum, …>`**, so **adding an enum value cascades compile errors that walk you through wiring the rest**. Steps tagged `[compiler]` can't be forgotten; `[manual]` ones can — the checklist at the bottom is your guard for those.
+`integrationProviderEnum` (`packages/db/src/schemas/integration-connections.ts`) is the source of truth for connector IDs. The registry in **`@repo/connectors`** and provider maps are exhaustive over it, so adding a provider walks you through the missing wiring with compiler errors. There is no capability enum: profiles select tools by name in `agent_profile.tool_access`. Steps tagged `[compiler]` are exhaustive; `[manual]` still need the checklist below.
 
 ## 1. Declare it
 
 1. **Provider enum** — add to `integrationProviderEnum`, then `pnpm db:push`. `[manual]`
 2. **Connector descriptor** — add to `@repo/connectors` `CONNECTORS` (`id`, `label`, `description`, `authType`, `envKeys`). `[compiler]` — exhaustive over the provider enum.
-3. **Capability enum** — add a value to `lorCapabilityEnum` per gated ability (e.g. a read cap and a write cap), then `pnpm db:push`. `[manual]`
-4. **Capability descriptor(s)** — add to `@repo/connectors` `CAPABILITIES` (`key`, `label`, `description`, `connector`). `[compiler]` — exhaustive over the capability enum. Auto-feeds the profile editor's available-capabilities, channel resolution, and the agent-profiles API (which derives each cap's `connector` + `connectorLabel` from the registry).
+3. **Tool access and approval** — each catalog tool is selected (profiles) and approved (approval rules) by its stable name. The connector descriptor and its reviewed tool catalog are all that's needed. `[manual]`
 
 ## 2. Connect / auth (provider-specific — irreducible)
 
@@ -30,10 +29,16 @@ The two DB enums are the source of truth: `integrationProviderEnum` (`packages/d
 
 ## 4. Tools
 
-10. **Tool module** — `packages/lor/src/<provider>.ts` (`buildXTools`, plus a write variant if you have a write cap). Return **meaningful results**: search tools return arrays of `{ title, url, … }`; write tools echo back what they created (the body/description) so the tool-trail card can show it, not just "ok". `[manual]`
+10. **Tool catalog** — add reviewed tool names, labels, `readOnlyHint`, and
+    `defaultEnabled` to `CONNECTOR_TOOLS` (`packages/connectors/src/tools.ts`).
+    New connections save explicit recommended names; saved selections must opt
+    in to new tools. There is no legacy configuration fallback. Runtime
+    tool groups are intersected with the connection selection after profile
+    tool selections. See `reference/connector-tools.md` for the controls and rollout.
+    **Tool module** — `packages/lor/src/<provider>.ts` (`buildXTools`, plus a write variant if you have a write cap). Return **meaningful results**: search tools return arrays of `{ title, url, … }`; write tools echo back what they created (the body/description) so the tool-trail card can show it, not just "ok". `[manual]`
     - **MCP-backed alternative:** when the provider runs a managed MCP server (Datadog), skip hand-written tools — open a per-response MCP session and allowlist its tools (see `datadogMcpTools` in `datadog.ts`; `respond()` closes the session in a `finally`). Schemas/descriptions come from the server; the allowlist keeps upstream additions from silently widening Lor's surface.
-11. **Gate + register in `respond()`** — resolve the connection only when the capability is granted, then register the tools behind `caps.includes("<capability>") && <connected>` (mirror `github`/`code`/`linear`). This wiring stays **explicit by design** — with a handful of connectors it's clearer than a tool-factory registry. Write-back does **not** get connector tools. `[manual]`
-12. **System-prompt line** — add a `<PROVIDER>_PROMPT_LINE` describing the tools and include it in `connectorPromptLines` in `respond()`, gated on the same `caps`/connection check. This keeps Lor from being told about tools a channel doesn't have bound. `[manual]`
+11. **Gate + register in `respond()`** — resolve the connection only when a catalog tool is selected, register available tool implementations, then intersect by tool name (mirror `github`/`code`/`linear`). This wiring stays **explicit by design** — with a handful of connectors it's clearer than a tool-factory registry. Write-back does **not** get connector tools. Approval binding uses `ToolTargetMap.addBuiltins` for the actual bound names; MCP targets include the server ID and raw tool name. `[manual]`
+12. **System-prompt line** — add a `<PROVIDER>_PROMPT_LINE` describing the tools and include it in `connectorPromptLines` in `respond()`, gated on actual bound tool names. This keeps Lor from being told about tools a channel doesn't have bound. `[manual]`
 13. **Tool-trail labels/details** — add `toolLabel` + `toolDetail` cases in `packages/lor/src/index.ts` for each new tool. Surface real content: search → `items`; writes → the created body in `summary`. Missing cases degrade to a generic label (safe, but do it). `[manual]`
 
 ## 5. Composer attachments
@@ -53,8 +58,8 @@ The two DB enums are the source of truth: `integrationProviderEnum` (`packages/d
 
 - [ ] `integrationProviderEnum` + `pnpm db:push`
 - [ ] `CONNECTORS` descriptor (`@repo/connectors`) — compiler-forced
-- [ ] `lorCapabilityEnum` + `pnpm db:push`
-- [ ] `CAPABILITIES` descriptor(s) (`@repo/connectors`) — compiler-forced
+- [ ] Individual tool names, read-only metadata, and defaults in `CONNECTOR_TOOLS`
+- [ ] Individual approval targets bind only to the tools actually exposed
 - [ ] Auth flow + connect handler (+ callback route + connect endpoint for OAuth)
 - [ ] Env vars (optional; cross-field refine; mirror any *required* field into API `TEST_ENV`)
 - [ ] (opt) Webhook route + register in `integrations/index.ts`
@@ -70,4 +75,4 @@ The two DB enums are the source of truth: `integrationProviderEnum` (`packages/d
 
 ## Registry status
 
-`@repo/connectors` holds the typed, exhaustive descriptors (`CONNECTORS`, `CAPABILITIES`); the capability catalog, `SourceProvider` map, `listIntegrations`, and all connector logos derive from it (the enums make omissions compile errors). The client-side presentation registry is `apps/web/src/lib/connector-ui.tsx` — the single home for connector logos, composer chip labels, plus the hand-kept tool-name / URL-host associations the tool trail uses. Attachable records live in a third exhaustive registry, `packages/lor/src/connector-search.ts`, which backs both the composer's `/` menu and its search endpoint. Two things stay **deliberately explicit** rather than registry-generated — the `respond()` tool wiring and the `connector-ui` `tools` list — because at this scale hand-written is clearer and the tool names are cheap to keep in sync; the checklist covers them.
+`@repo/connectors` holds the typed, exhaustive descriptors (`CONNECTORS`, `CONNECTOR_TOOLS`); the tool catalog, `SourceProvider` map, `listIntegrations`, and all connector logos derive from it (the enums make omissions compile errors). The client-side presentation registry is `apps/web/src/lib/connector-ui.tsx` — the single home for connector logos, composer chip labels, plus the hand-kept tool-name / URL-host associations the tool trail uses. Attachable records live in a third exhaustive registry, `packages/lor/src/connector-search.ts`, which backs both the composer's `/` menu and its search endpoint. Two things stay **deliberately explicit** rather than registry-generated — the `respond()` tool wiring and the `connector-ui` `tools` list — because at this scale hand-written is clearer and the tool names are cheap to keep in sync; the checklist covers them.

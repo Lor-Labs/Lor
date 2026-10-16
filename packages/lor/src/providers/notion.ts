@@ -20,6 +20,7 @@ export const NOTION_REQUIRED_CAPABILITIES = [
 ] as const
 
 const REQUEST_TIMEOUT_MS = 15_000
+// Only read permissions are verified at connect time; writes are enforced by Notion.
 const STORED_SCOPE = "read_content read_comments read_user_without_email"
 
 type NotionTokens = Pick<
@@ -67,9 +68,10 @@ function oauthClient(): Client {
   })
 }
 
-function authenticatedClient(accessToken: string): Client {
+function authenticatedClient(accessToken: string, write = false): Client {
   return new Client({
     auth: accessToken,
+    ...(write ? { retry: false as const } : {}),
     notionVersion: NOTION_API_VERSION,
     timeoutMs: REQUEST_TIMEOUT_MS,
   })
@@ -308,6 +310,77 @@ export async function notionCall<T>(
       logger.warn({ error }, "Notion API retry failed")
     }
     return null
+  }
+}
+
+export type NotionWriteResult<T> =
+  | { data: T }
+  | {
+      error: string
+      outcome: "failed" | "unknown"
+      requiresReconnection?: boolean
+    }
+
+function notionWriteFailure(
+  error: unknown
+): Exclude<NotionWriteResult<never>, { data: never }> {
+  const status = isHTTPResponseError(error) ? error.status : null
+  const code = isNotionClientError(error) ? error.code : "unknown"
+  logger.warn({ status, code }, "Notion write request failed")
+  if (status === 401 || status === 403)
+    return {
+      error:
+        "Notion denied this write. Enable the required content or comment permissions in the Notion connection settings, reconnect Notion in Lor, and check access to the target page.",
+      outcome: "failed",
+      requiresReconnection: true,
+    }
+  if (status !== null && status >= 400 && status < 500 && status !== 408)
+    return {
+      error: isNotionClientError(error)
+        ? error.message.slice(0, 1000)
+        : "Notion rejected the write",
+      outcome: "failed",
+    }
+  return {
+    error:
+      "Notion did not confirm whether this write completed. Check the page or discussion before making another write; do not automatically repeat this action.",
+    outcome: "unknown",
+  }
+}
+
+// Each operation performs one mutation. Only a rejected 401 may refresh and retry;
+// timeouts and server errors can occur after a write, so never replay them here.
+export async function notionWriteCall<T>(
+  externalId: string,
+  operation: (client: Client) => Promise<T>
+): Promise<NotionWriteResult<T>> {
+  const token = await getNotionAccessToken(externalId)
+  if (!token)
+    return {
+      error: "Reconnect Notion before writing.",
+      outcome: "failed",
+      requiresReconnection: true,
+    }
+  try {
+    return { data: await operation(authenticatedClient(token, true)) }
+  } catch (error) {
+    if (!isUnauthorized(error)) return notionWriteFailure(error)
+  }
+  const refreshed = await refreshNotionAccessToken(externalId, token)
+  if (!refreshed.token) {
+    if (refreshed.permanentFailure) await revokeNotionConnection(externalId)
+    return {
+      error:
+        "Notion authorization could not be refreshed. Reconnect Notion before writing.",
+      outcome: "failed",
+      requiresReconnection: true,
+    }
+  }
+  try {
+    return { data: await operation(authenticatedClient(refreshed.token, true)) }
+  } catch (error) {
+    if (isUnauthorized(error)) await revokeNotionConnection(externalId)
+    return notionWriteFailure(error)
   }
 }
 

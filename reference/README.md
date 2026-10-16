@@ -35,8 +35,9 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Open |
 |---|---|
+| `connector-tools.md` | Shared tool selections, MCP read-only hints, Better Stack, Notion/Attio writes |
 | `voice-channels-runbook.md` | Voice calls, transcription, Lor in the call, memory. V0–V7 built; prod setup, live QA and merge open |
-| `approval-policies.md` | Approval gates (LOR-81/83). P6 validation sweep + live QA |
+| `approval-policies.md` | Per-tool approval rules, resolver controls, and breaking schema rollout |
 | `change-proposals.md` | Workspace change proposals (self-configuration pillar 3). P6 vertical-slice QA |
 | `attachment-search.md` | Attachment indexing + reranker. Steps 1–6 built; 4b and 7 parked behind triggers |
 | `onboarding.md` | First-run redesign for small tech startups: opaque workspace key, startup channel template, company prefill, setup checklist, domain join, per-user hints, permission changes. All 10 steps built 2026-10-08; prod db:push + rekey and live QA owed |
@@ -53,6 +54,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `workspace-model.md` | Locked design for channels, Lor sessions, subscriptions and archive; wins over its runbook on product behavior |
 | `adding-a-connector.md` | Runbook for wiring a new integration |
 | `error-reporting.md` | Backend error capture, Better Stack configuration, and channel notifications |
+| `signup-notifications.md` | Optional signup notifications to an operator-configured channel webhook (LOR-105) |
 | `mobile-release.md` | TestFlight / EAS release loop |
 | `mobile-parity-todo.md` | Living web ↔ mobile gap checklist |
 

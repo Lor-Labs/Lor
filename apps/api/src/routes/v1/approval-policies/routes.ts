@@ -12,6 +12,7 @@ import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
 import {
   approvalPoliciesParamsSchema,
   approvalPolicyIdParamsSchema,
+  bulkApprovalPoliciesRequestSchema,
   deleteApprovalPolicyResponseSchema,
   listApprovalPoliciesResponseSchema,
   upsertApprovalPolicyRequestSchema,
@@ -23,7 +24,7 @@ export const listApprovalPolicies = createRoute({
   method: "get",
   summary: "List approval policies",
   description:
-    "Returns the workspace's approval gates plus the full target list (capabilities, custom tools, MCP servers, core actions). A target without a policy row is ungated.",
+    "Returns approval gates and individual built-in, custom HTTP, and MCP tools. Core messaging and memory tools are not gateable. A tool without a policy row is ungated.",
   tags: ["Approvals"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: approvalPoliciesParamsSchema },
@@ -72,6 +73,37 @@ export const upsertApprovalPolicy = createRoute({
 })
 
 export type UpsertApprovalPolicyRoute = typeof upsertApprovalPolicy
+
+export const bulkApprovalPolicies = createRoute({
+  path: "/workspaces/{workspaceSlug}/approval-policies/bulk",
+  method: "put",
+  summary: "Update approval requirements for selected tools",
+  description:
+    "Atomically enable or remove individual tool rules. Enabling preserves existing resolvers and assigns any member to newly enabled rules.",
+  tags: ["Approvals"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: approvalPoliciesParamsSchema,
+    body: jsonContent({
+      schema: bulkApprovalPoliciesRequestSchema,
+      description: "Explicit tool targets and approval requirement",
+    }),
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: deleteApprovalPolicyResponseSchema,
+      description: "Policies updated",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type BulkApprovalPoliciesRoute = typeof bulkApprovalPolicies
 
 export const deleteApprovalPolicy = createRoute({
   path: "/workspaces/{workspaceSlug}/approval-policies/{policyId}",

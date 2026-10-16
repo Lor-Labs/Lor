@@ -5,13 +5,11 @@ import {
   jsonb,
   pgEnum,
   pgTable,
-  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
-import { agentProfile } from "./agent-profiles"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -38,6 +36,12 @@ export const mcpServerOAuthStatusEnum = pgEnum("mcp_server_oauth_status", [
 
 export type McpServerOAuthStatus =
   (typeof mcpServerOAuthStatusEnum.enumValues)[number]
+
+export type McpToolMetadata = {
+  name: string
+  description: string
+  readOnlyHint?: boolean
+}
 
 export const mcpServer = pgTable(
   "mcp_server",
@@ -81,6 +85,11 @@ export const mcpServer = pgTable(
     secrets: jsonb("secrets").$type<Record<string, string>>().notNull(),
     // Allowlist of server tool names Lor may bind. Empty = none.
     enabledTools: text("enabled_tools").array().notNull().default([]),
+    // Display-only provider metadata for enabled tools; never an authorization grant.
+    toolMetadata: jsonb("tool_metadata")
+      .$type<McpToolMetadata[]>()
+      .notNull()
+      .default([]),
   },
   (table) => [
     uniqueIndex("mcp_server_workspace_name_uidx").on(
@@ -140,25 +149,6 @@ export const mcpServerOAuthAttempt = pgTable(
   ]
 )
 
-// Per-profile server grants (used when the profile lacks the blanket
-// `custom_tools` capability) — same shape and rationale as
-// agent_profile_custom_tool: cascade cleanup, indexed reverse lookup.
-export const agentProfileMcpServer = pgTable(
-  "agent_profile_mcp_server",
-  {
-    profileId: uuid("profile_id")
-      .notNull()
-      .references(() => agentProfile.id, { onDelete: "cascade" }),
-    mcpServerId: uuid("mcp_server_id")
-      .notNull()
-      .references(() => mcpServer.id, { onDelete: "cascade" }),
-  },
-  (table) => [
-    primaryKey({ columns: [table.profileId, table.mcpServerId] }),
-    index("agent_profile_mcp_server_lookup_idx").on(table.mcpServerId),
-  ]
-)
-
 export const mcpServerRelations = relations(mcpServer, ({ one, many }) => ({
   workspace: one(workspace, {
     fields: [mcpServer.workspaceId],
@@ -169,7 +159,6 @@ export const mcpServerRelations = relations(mcpServer, ({ one, many }) => ({
     references: [user.id],
   }),
   oauthAttempts: many(mcpServerOAuthAttempt),
-  profileGrants: many(agentProfileMcpServer),
 }))
 
 export const mcpServerOAuthAttemptRelations = relations(
@@ -186,20 +175,6 @@ export const mcpServerOAuthAttemptRelations = relations(
     initiator: one(user, {
       fields: [mcpServerOAuthAttempt.initiatedBy],
       references: [user.id],
-    }),
-  })
-)
-
-export const agentProfileMcpServerRelations = relations(
-  agentProfileMcpServer,
-  ({ one }) => ({
-    profile: one(agentProfile, {
-      fields: [agentProfileMcpServer.profileId],
-      references: [agentProfile.id],
-    }),
-    mcpServer: one(mcpServer, {
-      fields: [agentProfileMcpServer.mcpServerId],
-      references: [mcpServer.id],
     }),
   })
 )

@@ -1,7 +1,7 @@
 import { z } from "@hono/zod-openapi"
 import {
-  integrationProviderEnum,
-  lorCapabilityEnum,
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  profileToolAccessSchema,
   selectAgentProfileSchema,
 } from "@repo/db/schema"
 
@@ -19,79 +19,55 @@ export const agentProfileIdParamsSchema =
       .openapi({ param: { name: "profileId", in: "path", required: true } }),
   })
 
-const capabilitySchema = z.enum(lorCapabilityEnum.enumValues)
-
 export const agentProfileSchema = selectAgentProfileSchema
   .pick({
     id: true,
     name: true,
     isDefault: true,
-    grantsAll: true,
-    capabilities: true,
+    toolAccess: true,
   })
   .extend({
-    // Explicit per-profile grants (join-table rows). Irrelevant when
-    // grantsAll or the blanket custom_tools capability is set.
-    customToolIds: z.array(z.string()),
-    mcpServerIds: z.array(z.string()),
+    toolAccess: profileToolAccessSchema,
   })
-
-export const capabilityDescriptorSchema = z.object({
-  key: capabilitySchema,
-  label: z.string(),
-  description: z.string(),
-  // The connector this capability belongs to — the editor groups by it. Null
-  // for built-in capabilities (web) that need no workspace connection.
-  connector: z.enum(integrationProviderEnum.enumValues).nullable(),
-  connectorLabel: z.string(),
-})
 
 export const listAgentProfilesResponseSchema = z.object({
   profiles: z.array(agentProfileSchema),
-  // Only the capabilities this workspace can actually grant (connected
-  // connectors); the editor shows these.
-  availableCapabilities: z.array(capabilityDescriptorSchema),
-  // The workspace's custom tools, selectable per profile in the editor.
-  availableCustomTools: z.array(
+  // Built-in tools, connected services, MCP servers and API tools. For API
+  // tools, a tool's `name` is its custom_tool id and `label` its name.
+  availableToolGroups: z.array(
     z.object({
+      kind: z.enum(["builtin", "connector", "mcpServer", "customTools"]),
       id: z.string(),
       name: z.string(),
       description: z.string(),
-    })
-  ),
-  // The workspace's MCP servers, selectable per profile in the editor.
-  availableMcpServers: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      description: z.string(),
-      enabledToolCount: z.number(),
+      tools: z.array(
+        z.object({
+          name: z.string(),
+          label: z.string(),
+          description: z.string(),
+          readOnlyHint: z.boolean().optional(),
+        })
+      ),
     })
   ),
 })
 
-export const createAgentProfileRequestSchema = z.object({
-  name: z.string().trim().min(1).max(60),
-  capabilities: z.array(capabilitySchema).default([]),
-  customToolIds: z.array(z.string().uuid()).max(200).default([]),
-  mcpServerIds: z.array(z.string().uuid()).max(200).default([]),
-})
+export const createAgentProfileRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
+  })
+  .strict()
 
 export const updateAgentProfileRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(60).optional(),
-    capabilities: z.array(capabilitySchema).optional(),
-    customToolIds: z.array(z.string().uuid()).max(200).optional(),
-    mcpServerIds: z.array(z.string().uuid()).max(200).optional(),
+    toolAccess: profileToolAccessSchema.optional(),
   })
-  .refine(
-    (v) =>
-      v.name !== undefined ||
-      v.capabilities !== undefined ||
-      v.customToolIds !== undefined ||
-      v.mcpServerIds !== undefined,
-    { message: "At least one field must be provided" }
-  )
+  .strict()
+  .refine((v) => v.name !== undefined || v.toolAccess !== undefined, {
+    message: "At least one field must be provided",
+  })
 
 export const deleteAgentProfileResponseSchema = z.object({
   success: z.literal(true),

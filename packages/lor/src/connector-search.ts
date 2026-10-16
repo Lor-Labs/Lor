@@ -282,6 +282,7 @@ const FILE_BROWSERS: Record<IntegrationProvider, ConnectorFileBrowser | null> =
     github: { listScopes: listGithubRepos, search: searchGithubFiles },
     linear: null,
     datadog: null,
+    betterstack: null,
     attio: null,
     notion: null,
     cloudwatch: null,
@@ -326,6 +327,7 @@ const SEARCHERS: Record<IntegrationProvider, ConnectorSearcher | null> = {
   notion: searchNotion,
   attio: searchAttio,
   datadog: null,
+  betterstack: null,
   // Live log/metric queries, not documents — nothing to attach.
   cloudwatch: null,
   // Inbound-only; deliveries aren't an attachable corpus.

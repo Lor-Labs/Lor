@@ -1297,7 +1297,8 @@ async function assertConnectorAllowed(
   workspaceId: string,
   channelId: string,
   provider: IntegrationProvider,
-  userId: string
+  userId: string,
+  requireFiles = false
 ) {
   if (
     !(await channelInWorkspace(channelId, workspaceId)) ||
@@ -1309,8 +1310,17 @@ async function assertConnectorAllowed(
     } as const
   }
 
-  const connectors = await allowedChannelConnectors(workspaceId, channelId)
-  if (!connectors.some((connector) => connector.id === provider)) {
+  const connectors = await allowedChannelConnectors(
+    workspaceId,
+    channelId,
+    requireFiles ? "files" : "records"
+  )
+  if (
+    !connectors.some(
+      (connector) =>
+        connector.id === provider && (!requireFiles || connector.supportsFiles)
+    )
+  ) {
     return {
       body: {
         success: false as const,
@@ -1380,7 +1390,8 @@ export const listConnectorScopes: AppRouteHandler<
     workspace.id,
     channelId,
     provider,
-    currentUser.id
+    currentUser.id,
+    true
   )
   if (denied) return c.json(denied.body, denied.status)
 
@@ -1400,7 +1411,8 @@ export const searchConnectorFiles: AppRouteHandler<
     workspace.id,
     channelId,
     provider,
-    currentUser.id
+    currentUser.id,
+    true
   )
   if (denied) return c.json(denied.body, denied.status)
 

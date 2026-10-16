@@ -1,66 +1,20 @@
 import { isWorkspaceRole } from "@repo/auth/permissions"
+import { parseApprovalTargetKey } from "@repo/connectors"
+import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import {
-  APPROVAL_CAPABILITY_TARGETS,
-  approvalTargetKey,
-  CAPABILITIES,
-  parseApprovalTargetKey,
-} from "@repo/connectors"
-import { and, asc, db, eq, schema } from "@repo/db"
+  type ApprovalTargetRow,
+  approvalTargetIssue,
+  workspaceApprovalTargets,
+} from "@/lib/approval-targets"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
+  BulkApprovalPoliciesRoute,
   DeleteApprovalPolicyRoute,
   ListApprovalPoliciesRoute,
   UpsertApprovalPolicyRoute,
 } from "@/routes/v1/approval-policies/routes"
-
-type ApprovalTargetRow = {
-  key: string
-  label: string
-  description: string
-  group: "capability" | "custom_tool" | "mcp_server"
-}
-
-// Every switch the policy page can show, regardless of connection state: a
-// gate on a disconnected connector is inert, not invalid, and keeping it
-// listed means opting in survives a reconnect.
-async function workspaceApprovalTargets(
-  workspaceId: string
-): Promise<ApprovalTargetRow[]> {
-  const [tools, servers] = await Promise.all([
-    db
-      .select({ id: schema.customTool.id, name: schema.customTool.name })
-      .from(schema.customTool)
-      .where(eq(schema.customTool.workspaceId, workspaceId))
-      .orderBy(asc(schema.customTool.name)),
-    db
-      .select({ id: schema.mcpServer.id, name: schema.mcpServer.name })
-      .from(schema.mcpServer)
-      .where(eq(schema.mcpServer.workspaceId, workspaceId))
-      .orderBy(asc(schema.mcpServer.name)),
-  ])
-  return [
-    ...APPROVAL_CAPABILITY_TARGETS.map((capability) => ({
-      key: approvalTargetKey({ kind: "capability", capability }),
-      label: CAPABILITIES[capability].label,
-      description: CAPABILITIES[capability].description,
-      group: "capability" as const,
-    })),
-    ...tools.map((tool) => ({
-      key: approvalTargetKey({ kind: "customTool", customToolId: tool.id }),
-      label: tool.name,
-      description: "Custom tool",
-      group: "custom_tool" as const,
-    })),
-    ...servers.map((server) => ({
-      key: approvalTargetKey({ kind: "mcpServer", mcpServerId: server.id }),
-      label: server.name,
-      description: "All tools from this MCP server",
-      group: "mcp_server" as const,
-    })),
-  ]
-}
 
 const policyColumns = {
   id: schema.approvalPolicy.id,
@@ -85,6 +39,21 @@ export const listApprovalPolicies: AppRouteHandler<
     workspaceApprovalTargets(workspace.id),
   ])
 
+  const available = new Set(targets.map((target) => target.key))
+  for (const policy of policies) {
+    if (!available.has(policy.target))
+      targets.push({
+        key: policy.target,
+        name: policy.target,
+        label: policy.target,
+        description:
+          "This rule no longer matches an available tool. Remove it if no longer needed.",
+        group: "unavailable",
+        groupKey: "unavailable",
+        groupLabel: "Unavailable tools",
+        connected: true,
+      } satisfies ApprovalTargetRow)
+  }
   return c.json({ policies, targets }, HttpStatusCodes.OK)
 }
 
@@ -95,53 +64,12 @@ export const upsertApprovalPolicy: AppRouteHandler<
   const workspace = c.var.workspace
   const body = c.req.valid("json")
 
-  const target = parseApprovalTargetKey(body.target)
-  if (!target) {
+  const issue = await approvalTargetIssue(workspace.id, body.target)
+  if (issue)
     return c.json(
-      { success: false as const, message: "Unknown approval target" },
+      { success: false as const, message: issue },
       HttpStatusCodes.BAD_REQUEST
     )
-  }
-  // Id-shaped targets must belong to this workspace — the key alone can't
-  // stop a cross-workspace id.
-  if (target.kind === "customTool") {
-    const owned = await db
-      .select({ id: schema.customTool.id })
-      .from(schema.customTool)
-      .where(
-        and(
-          eq(schema.customTool.id, target.customToolId),
-          eq(schema.customTool.workspaceId, workspace.id)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-    if (!owned) {
-      return c.json(
-        { success: false as const, message: "Unknown custom tool" },
-        HttpStatusCodes.BAD_REQUEST
-      )
-    }
-  }
-  if (target.kind === "mcpServer") {
-    const owned = await db
-      .select({ id: schema.mcpServer.id })
-      .from(schema.mcpServer)
-      .where(
-        and(
-          eq(schema.mcpServer.id, target.mcpServerId),
-          eq(schema.mcpServer.workspaceId, workspace.id)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0])
-    if (!owned) {
-      return c.json(
-        { success: false as const, message: "Unknown MCP server" },
-        HttpStatusCodes.BAD_REQUEST
-      )
-    }
-  }
 
   // A named resolver must exist now; deletion later degrades to owner-only
   // (resolver_user_id set-null; a dangling role stops matching anyone).
@@ -235,5 +163,56 @@ export const deleteApprovalPolicy: AppRouteHandler<
       HttpStatusCodes.NOT_FOUND
     )
   }
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+export const bulkApprovalPolicies: AppRouteHandler<
+  BulkApprovalPoliciesRoute
+> = async (c) => {
+  assertWorkspaceAuthority(c.var.authority, { approval: ["manage"] })
+  const workspaceId = c.var.workspace.id
+  const body = c.req.valid("json")
+  const targets = [...new Set(body.targets)]
+  const issue = await db.transaction(async (tx) => {
+    if (body.required) {
+      const available = new Set(
+        (await workspaceApprovalTargets(workspaceId, tx)).map(
+          (target) => target.key
+        )
+      )
+      if (
+        targets.some(
+          (target) => !available.has(target) || !parseApprovalTargetKey(target)
+        )
+      )
+        return "Unknown approval target"
+      // Existing gates keep their resolver. Bulk enabling only adds missing rules.
+      await tx
+        .insert(schema.approvalPolicy)
+        .values(
+          targets.map((target) => ({
+            workspaceId,
+            target,
+            resolverKind: "any_member" as const,
+          }))
+        )
+        .onConflictDoNothing()
+    } else {
+      await tx
+        .delete(schema.approvalPolicy)
+        .where(
+          and(
+            eq(schema.approvalPolicy.workspaceId, workspaceId),
+            inArray(schema.approvalPolicy.target, targets)
+          )
+        )
+    }
+    return null
+  })
+  if (issue)
+    return c.json(
+      { success: false as const, message: issue },
+      HttpStatusCodes.BAD_REQUEST
+    )
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

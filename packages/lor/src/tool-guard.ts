@@ -17,6 +17,20 @@ export const SIDE_EFFECT_TOOLS = new Set([
   "create_linear_issue",
   "update_linear_issue",
   "comment_linear",
+  "create_attio_record",
+  "update_attio_record",
+  "create_attio_list_entry",
+  "update_attio_list_entry",
+  "create_attio_note",
+  "create_attio_task",
+  "update_attio_task",
+  "create_notion_page",
+  "append_notion_content",
+  "edit_notion_content",
+  "update_notion_properties",
+  "add_notion_comment",
+  "resolve_betterstack_incident",
+  "update_betterstack_error_state",
   "investigate_code",
   // Pushes a branch and opens/updates a draft PR — replay must never re-push
   // or file a duplicate.
@@ -122,24 +136,37 @@ export function guardTools<T extends Record<string, unknown>>(
           }
         }
         let output = await original(input, options)
+        // Preserve the execution outcome even if the receipt exceeds the cap.
+        const failed =
+          typeof output === "object" && output !== null && "error" in output
+        const unknownOutcome =
+          typeof output === "object" &&
+          output !== null &&
+          "outcome" in output &&
+          output.outcome === "unknown"
+        const replayable = !failed || unknownOutcome
         const size = Buffer.byteLength(JSON.stringify(output) ?? "")
         if (size > perCallBytes) {
           logger.warn(
             { tool: name, size, cap: perCallBytes },
             "Tool output exceeded per-call cap; dropped"
           )
-          output = {
-            error: `tool output was too large (${size} bytes) and was dropped; narrow the request`,
-          }
+          output =
+            sideEffect && replayable
+              ? {
+                  error: `This action ${unknownOutcome ? "may have completed" : "completed"}, but its result was too large (${size} bytes) and was dropped. Check the target; do not repeat this action.`,
+                  outcome: unknownOutcome ? "unknown" : "completed",
+                }
+              : {
+                  error: `tool output was too large (${size} bytes) and was dropped; narrow the request`,
+                }
         }
         const counted = Math.min(size, perCallBytes)
         totalBytes += counted
         stepBytes += counted
-        // Error results are not cached: the side effect didn't complete, so a
-        // retry with the same input must re-attempt, not replay the failure.
-        const failed =
-          typeof output === "object" && output !== null && "error" in output
-        if (key && opts.store && !failed) {
+        // Known failures may retry. An unknown write outcome must be replayed,
+        // because a timeout can happen after the provider applied the mutation.
+        if (key && opts.store && replayable) {
           await opts.store.put(key, name, output).catch((err) => {
             logger.warn({ err, tool: name }, "Tool result store write failed")
           })

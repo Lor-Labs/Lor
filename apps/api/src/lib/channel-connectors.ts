@@ -1,6 +1,6 @@
-import { CONNECTOR_LIST, connectorCapabilities } from "@repo/connectors"
+import { CONNECTOR_LIST } from "@repo/connectors"
 import { db } from "@repo/db"
-import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
+import type { IntegrationProvider } from "@repo/db/schema"
 import { integrationConnection } from "@repo/db/schema"
 import { resolveChannelCapabilities } from "@repo/lor/capabilities"
 import {
@@ -17,34 +17,51 @@ export type ChannelConnector = {
   supportsFiles: boolean
 }
 
-// A connector is attachable when it's connected, has searchable records, and the
-// channel grants at least one of its capabilities.
+// Composer searches require the matching search tool; code-file browsing also
+// requires the code investigation tool. Profiles and workspace selections apply.
 export function attachableConnectors(
-  capabilities: LorCapability[],
-  connected: Set<IntegrationProvider>
+  connected: Set<IntegrationProvider>,
+  connectorTools: readonly string[] = [],
+  purpose: "records" | "files" | "any" = "any"
 ): ChannelConnector[] {
+  const tools = new Set(connectorTools)
+  const searchTools: Partial<Record<IntegrationProvider, string>> = {
+    github: "search_github",
+    linear: "search_linear",
+    attio: "search_attio",
+    notion: "search_notion",
+  }
+  const canSearch = (provider: IntegrationProvider) =>
+    tools.has(searchTools[provider] ?? "")
+  const canBrowseFiles = (provider: IntegrationProvider) =>
+    connectorSupportsFiles(provider) &&
+    provider === "github" &&
+    tools.has("investigate_code")
   return CONNECTOR_LIST.filter(
     (descriptor) =>
       isSearchableConnector(descriptor.id) &&
       connected.has(descriptor.id) &&
-      connectorCapabilities(descriptor.id).some((capability) =>
-        capabilities.includes(capability.key)
-      )
+      (purpose === "records"
+        ? canSearch(descriptor.id)
+        : purpose === "files"
+          ? canBrowseFiles(descriptor.id)
+          : canSearch(descriptor.id) || canBrowseFiles(descriptor.id))
   ).map((descriptor) => ({
     id: descriptor.id,
     label: descriptor.label,
-    supportsFiles: connectorSupportsFiles(descriptor.id),
+    supportsFiles: canBrowseFiles(descriptor.id),
   }))
 }
 
 // Attaching is the composer's mirror of what Lor may read in a channel, so
-// the same capability resolution gates both.
+// the same tool selection gates both.
 export async function allowedChannelConnectors(
   workspaceId: string,
-  channelId: string
+  channelId: string,
+  purpose: "records" | "files" | "any" = "any"
 ): Promise<ChannelConnector[]> {
   const [grants, connections] = await Promise.all([
-    resolveChannelCapabilities(channelId),
+    resolveChannelCapabilities(channelId, workspaceId),
     db
       .select({ provider: integrationConnection.provider })
       .from(integrationConnection)
@@ -57,7 +74,8 @@ export async function allowedChannelConnectors(
   ])
 
   return attachableConnectors(
-    grants.capabilities,
-    new Set(connections.map((row) => row.provider))
+    new Set(connections.map((row) => row.provider)),
+    grants.connectorTools,
+    purpose
   )
 }

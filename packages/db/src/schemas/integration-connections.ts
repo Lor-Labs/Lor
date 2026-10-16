@@ -25,6 +25,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "attio",
   "notion",
   "cloudwatch",
+  "betterstack",
   "webhook",
 ])
 
@@ -56,6 +57,8 @@ export const integrationConnection = pgTable(
     providerWorkspaceId: text("provider_workspace_id"),
     // Display label for the connected account (e.g. the GitHub org/user login).
     accountLogin: text("account_login"),
+    // An explicit allowlist; [] grants no tools.
+    enabledTools: text("enabled_tools").array().notNull().default([]),
     // OAuth token storage for connectors that persist tokens (e.g. Linear).
     // Stored encrypted at rest (AES-256-GCM); null for connectors that mint
     // tokens on demand (GitHub App).

@@ -1,6 +1,5 @@
-import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
+import type { IntegrationProvider } from "@repo/db/schema"
 import type {
-  CapabilityDescriptor,
   ConnectorDescriptor,
   ConnectorEventDescriptor,
   ConnectorEventKey,
@@ -45,8 +44,7 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
   attio: {
     id: "attio",
     label: "Attio",
-    description:
-      "Search CRM records and inspect pipelines, activity, meetings, and transcripts.",
+    description: "Search and update CRM records, pipelines, notes, and tasks.",
     authType: "oauth",
     envKeys: [
       "ATTIO_CLIENT_ID",
@@ -58,7 +56,7 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
     id: "notion",
     label: "Notion",
     description:
-      "Search and read selected pages, databases, comments, and workspace users.",
+      "Search selected pages and databases, with optional page editing and comments.",
     authType: "oauth",
     envKeys: [
       "NOTION_CLIENT_ID",
@@ -70,6 +68,14 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
     id: "cloudwatch",
     label: "CloudWatch",
     description: "Query logs and metrics from your AWS account.",
+    authType: "api-key",
+    envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
+  },
+  betterstack: {
+    id: "betterstack",
+    label: "Better Stack",
+    description:
+      "Investigate errors, logs, and incidents. Enable state changes when your team needs them.",
     authType: "api-key",
     envKeys: ["INTEGRATION_ENCRYPTION_KEY"],
   },
@@ -143,86 +149,6 @@ export const AWS_REGIONS = [
 
 export type AwsRegion = (typeof AWS_REGIONS)[number]
 
-// Exhaustive over lorCapabilityEnum — adding a capability value without a
-// descriptor here is a compile error.
-export const CAPABILITIES: Record<LorCapability, CapabilityDescriptor> = {
-  github: {
-    key: "github",
-    label: "GitHub",
-    description: "Search and read pull requests & issues",
-    connector: "github",
-  },
-  code_intelligence: {
-    key: "code_intelligence",
-    label: "Code Intelligence",
-    description:
-      "Analyze and answer questions about your connected repositories",
-    connector: "github",
-  },
-  code_actions: {
-    key: "code_actions",
-    label: "Code Actions",
-    description:
-      "Make code changes and open pull requests for the team to review",
-    connector: "github",
-  },
-  linear: {
-    key: "linear",
-    label: "Linear",
-    description: "Search and read issues, projects & comments",
-    connector: "linear",
-  },
-  linear_write: {
-    key: "linear_write",
-    label: "Write to Linear",
-    description: "Create and update issues and post comments",
-    connector: "linear",
-  },
-  datadog: {
-    key: "datadog",
-    label: "Datadog",
-    description: "Search and analyze logs",
-    connector: "datadog",
-  },
-  attio: {
-    key: "attio",
-    label: "Attio",
-    description: "Search and read CRM records, activity & call transcripts",
-    connector: "attio",
-  },
-  notion: {
-    key: "notion",
-    label: "Notion",
-    description: "Search and read selected pages, databases & comments",
-    connector: "notion",
-  },
-  cloudwatch: {
-    key: "cloudwatch",
-    label: "CloudWatch",
-    description: "Query logs (Logs Insights) and metrics",
-    connector: "cloudwatch",
-  },
-  web: {
-    key: "web",
-    label: "Web Search",
-    description: "Search the web and read public pages",
-    connector: null,
-  },
-  artifacts: {
-    key: "artifacts",
-    label: "Artifacts",
-    description: "Create files (documents, data, code) in a sandbox workbench",
-    connector: null,
-  },
-  custom_tools: {
-    key: "custom_tools",
-    label: "All workspace tools",
-    description:
-      "Call any of this workspace's tools: API tools and MCP servers",
-    connector: null,
-  },
-}
-
 // Exhaustive over integrationProviderEnum — a new provider must declare its
 // notifiable events (empty is fine; Datadog is live-query only).
 export const CONNECTOR_EVENTS: Record<
@@ -248,6 +174,7 @@ export const CONNECTOR_EVENTS: Record<
   ],
   notion: [],
   cloudwatch: [],
+  betterstack: [],
   webhook: [{ key: "data_received", label: "Data received" }],
 }
 
@@ -263,21 +190,3 @@ export function isConnectorEvent(
 export const CONNECTOR_LIST: ConnectorDescriptor[] = Object.values(
   CONNECTORS
 ).filter((connector) => !connector.internal)
-export const CAPABILITY_LIST: CapabilityDescriptor[] =
-  Object.values(CAPABILITIES)
-
-export function connectorCapabilities(
-  connector: IntegrationProvider
-): CapabilityDescriptor[] {
-  return CAPABILITY_LIST.filter((c) => c.connector === connector)
-}
-
-// Capabilities a workspace can grant given its active connections. Built-in
-// capabilities (connector: null) are always available.
-export function availableCapabilities(
-  connectedProviders: Set<IntegrationProvider>
-): CapabilityDescriptor[] {
-  return CAPABILITY_LIST.filter(
-    (c) => c.connector === null || connectedProviders.has(c.connector)
-  )
-}

@@ -1,12 +1,15 @@
-import {
-  ApiIcon,
-  ArrowRight01Icon,
-  CloudServerIcon,
-  PlusSignIcon,
-  Tick02Icon,
-  Wrench01Icon,
-} from "@hugeicons/core-free-icons"
+import { ArrowRight01Icon, PlusSignIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  hasUnavailableProfileSelections,
+  type ProfileToolGroup,
+  profileGroupSelection,
+  profileSelectedTools,
+} from "@repo/connectors"
+import {
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  type ProfileToolAccess,
+} from "@repo/db/schema"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -19,130 +22,74 @@ import {
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
+import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  type ComponentProps,
   type ReactNode,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
 } from "react"
 import {
-  IconTile,
   PILL_BUTTON,
   SettingsBackButton,
   SettingsCardButton,
-  SettingsGroup,
-  SettingsLink,
+  SettingsFooter,
   SettingsSection,
 } from "@/components/workspace/settings-group"
 import { apiClient } from "@/lib/api-client"
-import type {
-  AgentProfile,
-  AgentProfilesResponse,
-  AvailableCapability,
-  LorCapabilityKey,
-} from "@/lib/api-types"
-import { connectorLogo } from "@/lib/connector-ui"
-
-type AvailableCustomTool = AgentProfilesResponse["availableCustomTools"][number]
-type AvailableMcpServer = AgentProfilesResponse["availableMcpServers"][number]
+import type { AgentProfile } from "@/lib/api-types"
+import {
+  ProfileServiceIcon,
+  ProfileToolAccessEditor,
+} from "./profile-tool-access-editor"
 
 type ProfileValues = {
   name: string
-  capabilities: LorCapabilityKey[]
-  customToolIds: string[]
-  mcpServerIds: string[]
+  toolAccess: ProfileToolAccess
 }
 
 const NEW_PROFILE = "new"
 
-// A profile grants custom tools either via the blanket capability (all,
-// including future tools) or an explicit per-tool list.
-export function hasBlanketTools(profile: {
-  grantsAll: boolean
-  capabilities: LorCapabilityKey[]
-}): boolean {
-  return profile.grantsAll || profile.capabilities.includes("custom_tools")
-}
-
-function toggleIn<T>(set: Set<T>, value: T): Set<T> {
-  const next = new Set(set)
-  if (next.has(value)) next.delete(value)
-  else next.add(value)
-  return next
-}
-
-// A clickable row inside a SettingsGroup. The wrapper carries the group's
-// divider so the hover inset can reach past the row's text.
-function RowButton({ className, ...props }: ComponentProps<"button">) {
-  return (
-    <div className="flex flex-col py-1">
-      <button
-        type="button"
-        className={cn(
-          "-mx-2 flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-left outline-none transition-colors not-disabled:hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
-          className
-        )}
-        {...props}
-      />
-    </div>
-  )
-}
-
 function GrantChip({
   icon,
-  mono,
   children,
 }: {
   icon: ReactNode
-  mono?: boolean
   children: ReactNode
 }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md bg-background px-2 py-1 text-xs text-foreground",
-        mono && "font-mono"
-      )}
-    >
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-background px-2 py-1 text-xs text-foreground">
       {icon}
       {children}
     </span>
   )
 }
 
-function GrantedChips({
+export function GrantedChips({
   profile,
-  available,
-  tools,
-  servers,
+  groups,
 }: {
   profile: AgentProfile
-  available: AvailableCapability[]
-  tools: AvailableCustomTool[]
-  servers: AvailableMcpServer[]
+  groups: ProfileToolGroup[]
 }) {
-  const granted = profile.grantsAll
-    ? available
-    : available.filter((c) => profile.capabilities.includes(c.key))
-  const blanket = hasBlanketTools(profile)
-  const grantedTools = blanket
-    ? []
-    : tools.filter((t) => profile.customToolIds.includes(t.id))
-  const grantedServers = blanket
-    ? []
-    : servers.filter((s) => profile.mcpServerIds.includes(s.id))
+  const grantedGroups = groups
+    .map((group) => {
+      const selection = profileGroupSelection(profile.toolAccess, group)
+      const count = profileSelectedTools(
+        group.tools.map((tool) => tool.name),
+        selection
+      ).length
+      return { group, count, limited: selection?.mode === "custom" }
+    })
+    .filter(({ count }) => count > 0)
 
-  if (
-    granted.length === 0 &&
-    grantedTools.length === 0 &&
-    grantedServers.length === 0
-  ) {
+  if (grantedGroups.length === 0) {
     return (
       <span className="block text-sm text-muted-foreground">
         Chat & memory only
@@ -151,123 +98,30 @@ function GrantedChips({
   }
   return (
     <span className="flex flex-wrap gap-1.5">
-      {granted.map((c) => {
-        const Icon = connectorLogo(c.connector)
-        return (
-          <GrantChip
-            key={c.key}
-            icon={
-              c.key === "custom_tools" ? (
-                <HugeiconsIcon
-                  icon={Wrench01Icon}
-                  className="size-3.5 shrink-0"
-                  strokeWidth={2}
-                />
-              ) : (
-                <Icon className="size-3.5 shrink-0" />
-              )
-            }
-          >
-            {c.label}
-          </GrantChip>
-        )
-      })}
-      {grantedTools.map((t) => (
+      {grantedGroups.map(({ group, count, limited }) => (
         <GrantChip
-          key={t.id}
-          mono
+          key={`${group.kind}:${group.id}`}
           icon={
-            <HugeiconsIcon
-              icon={ApiIcon}
-              className="size-3.5 shrink-0"
-              strokeWidth={2}
-            />
+            <ProfileServiceIcon group={group} className="size-3.5 shrink-0" />
           }
         >
-          {t.name}
-        </GrantChip>
-      ))}
-      {grantedServers.map((s) => (
-        <GrantChip
-          key={s.id}
-          icon={
-            <HugeiconsIcon
-              icon={CloudServerIcon}
-              className="size-3.5 shrink-0"
-              strokeWidth={2}
-            />
-          }
-        >
-          {s.name}
+          {limited
+            ? `${group.name} · ${count} ${count === 1 ? "tool" : "tools"}`
+            : group.name}
         </GrantChip>
       ))}
     </span>
   )
 }
 
-function SelectRow({
-  icon,
-  title,
-  description,
-  selected,
-  included,
-  mono,
-  onToggle,
-}: {
-  icon: ReactNode
-  title: string
-  description: string
-  selected: boolean
-  // Covered by the blanket grant: shown checked but not editable.
-  included?: boolean
-  mono?: boolean
-  onToggle: () => void
-}) {
-  const checked = selected || included
-  return (
-    <RowButton
-      aria-pressed={checked}
-      disabled={included}
-      onClick={onToggle}
-      className={cn(included && "opacity-60")}
-    >
-      <IconTile size="sm">{icon}</IconTile>
-      <span className="min-w-0 flex-1">
-        <span className={cn("block text-sm", mono && "font-mono")}>
-          {title}
-        </span>
-        <span className="block text-sm text-muted-foreground">
-          {description}
-        </span>
-      </span>
-      <span
-        className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors",
-          checked
-            ? "border-primary bg-primary text-primary-foreground"
-            : "border-muted-foreground/30"
-        )}
-      >
-        {checked && (
-          <HugeiconsIcon icon={Tick02Icon} className="size-3" strokeWidth={2} />
-        )}
-      </span>
-    </RowButton>
-  )
-}
-
 function ProfileList({
   profiles,
-  available,
-  tools,
-  servers,
+  groups,
   focusId,
   onOpen,
 }: {
   profiles: AgentProfile[]
-  available: AvailableCapability[]
-  tools: AvailableCustomTool[]
-  servers: AvailableMcpServer[]
+  groups: ProfileToolGroup[]
   focusId: string | null
   onOpen: (id: string) => void
 }) {
@@ -300,7 +154,7 @@ function ProfileList({
             New profile
           </Button>
         }
-        caption="A channel uses its own profile, then its category's, then the default. Set profiles in channel or category settings. Lor's memory and chat search are always on."
+        caption="Channels use the default profile unless you pick another in channel or category settings."
       >
         <div className="space-y-3">
           {profiles.map((p) => (
@@ -315,12 +169,7 @@ function ProfileList({
                   <span className="truncate text-sm font-medium">{p.name}</span>
                   {p.isDefault && <Badge variant="outline">Default</Badge>}
                 </span>
-                <GrantedChips
-                  profile={p}
-                  available={available}
-                  tools={tools}
-                  servers={servers}
-                />
+                <GrantedChips profile={p} groups={groups} />
               </span>
               <HugeiconsIcon
                 icon={ArrowRight01Icon}
@@ -337,193 +186,75 @@ function ProfileList({
 
 function ProfileEditor({
   profile,
-  available,
-  tools,
-  servers,
+  groups,
   saving,
   onSave,
   onCancel,
   onDelete,
-  onOpenConnectors,
   onOpenTools,
 }: {
   profile?: AgentProfile
-  available: AvailableCapability[]
-  tools: AvailableCustomTool[]
-  servers: AvailableMcpServer[]
+  groups: ProfileToolGroup[]
   saving: boolean
-  // One named payload rather than positional args: customToolIds and
-  // mcpServerIds are both string[], and silently swapping them would grant
-  // the wrong tools.
   onSave: (values: ProfileValues) => void
   onCancel: () => void
   onDelete?: () => void
-  onOpenConnectors: () => void
   onOpenTools: () => void
 }) {
+  const nameId = useId()
   const [name, setName] = useState(profile?.name ?? "")
-  const [selected, setSelected] = useState<Set<LorCapabilityKey>>(() => {
-    if (!profile) return new Set()
-    if (profile.grantsAll) return new Set(available.map((c) => c.key))
-    return new Set(profile.capabilities)
-  })
-  const [selectedTools, setSelectedTools] = useState(
-    () => new Set(profile?.customToolIds ?? [])
-  )
-  const [selectedServers, setSelectedServers] = useState(
-    () => new Set(profile?.mcpServerIds ?? [])
+  const [toolAccess, setToolAccess] = useState<ProfileToolAccess>(
+    profile?.toolAccess ?? DEFAULT_PROFILE_TOOL_ACCESS
   )
 
   const handleSave = () => {
-    if (!name.trim()) return
-    const availableKeys = new Set(available.map((c) => c.key))
-    const preserved = (profile?.capabilities ?? []).filter(
-      (k) => !availableKeys.has(k)
+    if (
+      !name.trim() ||
+      saving ||
+      hasUnavailableProfileSelections(toolAccess, groups)
     )
-    onSave({
-      name: name.trim(),
-      capabilities: [...new Set([...selected, ...preserved])],
-      customToolIds: [...selectedTools],
-      mcpServerIds: [...selectedServers],
-    })
+      return
+    onSave({ name: name.trim(), toolAccess })
   }
 
-  const generalCaps = available.filter((c) => c.key !== "custom_tools")
-  const blanketCap = available.find((c) => c.key === "custom_tools")
-  const blanketOn = selected.has("custom_tools")
-  const noWorkspaceTools = tools.length === 0 && servers.length === 0
-
   return (
-    <div className="space-y-8">
-      <div className="space-y-5">
+    <fieldset disabled={saving} className="min-w-0 max-w-3xl space-y-6">
+      <div className="space-y-4">
         <SettingsBackButton label="All profiles" onClick={onCancel} />
-        <div className="space-y-2">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <h2 className="min-w-0 truncate text-lg font-semibold">
+              {profile?.name ?? "New profile"}
+            </h2>
+            {profile?.isDefault && <Badge variant="outline">Default</Badge>}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Choose what Lor can use in channels with this profile. Approval
+            rules still apply.
+          </p>
+        </div>
+        <div className="max-w-md space-y-2">
+          <Label htmlFor={nameId}>Profile name</Label>
           <Input
-            size="lg"
+            id={nameId}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Profile name"
-            aria-label="Profile name"
+            placeholder="e.g. Support"
             maxLength={60}
           />
-          <p className="text-sm text-muted-foreground">
-            {profile?.isDefault
-              ? "Channels without their own profile use this one."
-              : "Lor can use these tools in channels with this profile."}
-          </p>
         </div>
       </div>
 
-      <SettingsSection
-        title="Tools"
-        count={generalCaps.length}
-        caption={
-          <>
-            Connect more apps in{" "}
-            <SettingsLink onClick={onOpenConnectors}>Connectors</SettingsLink>{" "}
-            to add their tools.
-          </>
-        }
-      >
-        <SettingsGroup>
-          {generalCaps.length === 0 && (
-            <div className="py-3 text-sm text-muted-foreground">
-              No tools yet.
-            </div>
-          )}
-          {generalCaps.map((cap) => {
-            const Logo = connectorLogo(cap.connector)
-            return (
-              <SelectRow
-                key={cap.key}
-                icon={<Logo className="size-4" />}
-                title={cap.label}
-                description={cap.description}
-                selected={selected.has(cap.key)}
-                onToggle={() => setSelected((prev) => toggleIn(prev, cap.key))}
-              />
-            )
-          })}
-        </SettingsGroup>
-      </SettingsSection>
+      <ProfileToolAccessEditor
+        groups={groups}
+        value={toolAccess}
+        onChange={setToolAccess}
+        onOpenTools={onOpenTools}
+      />
 
-      {blanketCap && (
-        <SettingsSection
-          title="Workspace tools"
-          count={tools.length + servers.length}
-          caption={
-            noWorkspaceTools && (
-              <>
-                Add API tools or MCP servers in{" "}
-                <SettingsLink onClick={onOpenTools}>Tools</SettingsLink> to
-                grant them one at a time.
-              </>
-            )
-          }
-        >
-          <SettingsGroup>
-            <SelectRow
-              icon={
-                <HugeiconsIcon
-                  icon={Wrench01Icon}
-                  className="size-4"
-                  strokeWidth={2}
-                />
-              }
-              title={blanketCap.label}
-              description={blanketCap.description}
-              selected={blanketOn}
-              onToggle={() =>
-                setSelected((prev) => toggleIn(prev, "custom_tools"))
-              }
-            />
-            {tools.map((tool) => (
-              <SelectRow
-                key={tool.id}
-                icon={
-                  <HugeiconsIcon
-                    icon={ApiIcon}
-                    className="size-4"
-                    strokeWidth={2}
-                  />
-                }
-                title={tool.name}
-                mono
-                description={tool.description}
-                selected={selectedTools.has(tool.id)}
-                included={blanketOn}
-                onToggle={() =>
-                  setSelectedTools((prev) => toggleIn(prev, tool.id))
-                }
-              />
-            ))}
-            {servers.map((server) => (
-              <SelectRow
-                key={server.id}
-                icon={
-                  <HugeiconsIcon
-                    icon={CloudServerIcon}
-                    className="size-4"
-                    strokeWidth={2}
-                  />
-                }
-                title={server.name}
-                description={
-                  server.description ||
-                  `MCP server · ${server.enabledToolCount} ${server.enabledToolCount === 1 ? "tool" : "tools"} enabled`
-                }
-                selected={selectedServers.has(server.id)}
-                included={blanketOn}
-                onToggle={() =>
-                  setSelectedServers((prev) => toggleIn(prev, server.id))
-                }
-              />
-            ))}
-          </SettingsGroup>
-        </SettingsSection>
-      )}
-
-      <div className="flex items-center gap-2">
+      {/* -mb-6 takes over the dialog's bottom padding, so the bar sits at the
+          same height while pinned and at the end of the page. */}
+      <SettingsFooter className="-mb-6 pb-6">
         {onDelete && (
           <Button
             variant="destructive-outline"
@@ -539,25 +270,26 @@ function ProfileEditor({
           </Button>
           <Button
             className={PILL_BUTTON}
-            disabled={!name.trim()}
+            disabled={
+              !name.trim() ||
+              hasUnavailableProfileSelections(toolAccess, groups)
+            }
             loading={saving}
             onClick={handleSave}
           >
             Save
           </Button>
         </div>
-      </div>
-    </div>
+      </SettingsFooter>
+    </fieldset>
   )
 }
 
 export function AgentProfilesSection({
   workspaceSlug,
-  onOpenConnectors,
   onOpenTools,
 }: {
   workspaceSlug: string
-  onOpenConnectors: () => void
   onOpenTools: () => void
 }) {
   const queryClient = useQueryClient()
@@ -579,6 +311,9 @@ export function AgentProfilesSection({
       if (!res.ok) throw new Error("Failed to load profiles")
       return res.json()
     },
+    // Connectors, MCP servers and API tools change in other tabs (OAuth in the
+    // browser), so refetch the available services whenever this tab opens.
+    staleTime: 0,
   })
 
   // The list and the editor share one scroll area; each opens at the top.
@@ -598,23 +333,18 @@ export function AgentProfilesSection({
       const res = input.id
         ? await profiles[":profileId"].$patch({
             param: { workspaceSlug, profileId: input.id },
-            json: {
-              name: input.name,
-              capabilities: input.capabilities,
-              customToolIds: input.customToolIds,
-              mcpServerIds: input.mcpServerIds,
-            },
+            json: { name: input.name, toolAccess: input.toolAccess },
           })
         : await profiles.$post({
             param: { workspaceSlug },
-            json: {
-              name: input.name,
-              capabilities: input.capabilities,
-              customToolIds: input.customToolIds,
-              mcpServerIds: input.mcpServerIds,
-            },
+            json: { name: input.name, toolAccess: input.toolAccess },
           })
-      if (!res.ok) throw new Error("Failed to save profile")
+      if (!res.ok) {
+        const error = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(error?.message ?? "Failed to save profile")
+      }
       return res.json()
     },
     onSuccess: () => {
@@ -622,7 +352,10 @@ export function AgentProfilesSection({
       setEditingId(null)
       toast.success("Profile saved")
     },
-    onError: () => toast.error("Failed to save profile"),
+    onError: (error) => {
+      invalidate()
+      toast.error(error.message)
+    },
   })
 
   const remove = useMutation({
@@ -672,9 +405,7 @@ export function AgentProfilesSection({
         <ProfileEditor
           key={editingId}
           profile={editing ?? undefined}
-          available={data.availableCapabilities}
-          tools={data.availableCustomTools}
-          servers={data.availableMcpServers}
+          groups={data.availableToolGroups}
           saving={save.isPending}
           onSave={(values) => save.mutate({ id: editing?.id, ...values })}
           onCancel={() => setEditingId(null)}
@@ -683,15 +414,12 @@ export function AgentProfilesSection({
               ? () => setDeleteTarget({ id: editing.id, name: editing.name })
               : undefined
           }
-          onOpenConnectors={onOpenConnectors}
           onOpenTools={onOpenTools}
         />
       ) : (
         <ProfileList
           profiles={data.profiles}
-          available={data.availableCapabilities}
-          tools={data.availableCustomTools}
-          servers={data.availableMcpServers}
+          groups={data.availableToolGroups}
           focusId={returnFocusId}
           onOpen={(id) => {
             setReturnFocusId(id)

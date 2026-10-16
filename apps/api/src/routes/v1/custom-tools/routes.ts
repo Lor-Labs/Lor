@@ -46,7 +46,7 @@ export const createCustomTool = createRoute({
   method: "post",
   summary: "Create a custom tool",
   description:
-    "Registers an HTTP tool Lor can call in channels whose agent profile grants it (individually or via the blanket custom_tools capability).",
+    "Registers an HTTP tool Lor can call in channels whose agent profile grants it. Profiles that follow all workspace API tools get it immediately.",
   tags: ["Custom Tools"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
@@ -104,7 +104,7 @@ export const deleteCustomTool = createRoute({
   method: "delete",
   summary: "Delete a custom tool",
   description:
-    "Permanently deletes the tool; profile grants cascade away and the name is freed.",
+    "Permanently deletes the tool and frees its name. Profiles that selected it retain the deleted tool ID as unavailable until an admin removes it.",
   tags: ["Custom Tools"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: customToolIdParamsSchema },

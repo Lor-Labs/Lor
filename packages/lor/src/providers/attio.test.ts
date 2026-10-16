@@ -34,7 +34,7 @@ describe("validateAttioReadScopes", () => {
     )
   })
 
-  it("rejects any other read-write scope even when the set is complete", () => {
+  it("rejects unsupported read-write scopes even when the set is complete", () => {
     expect(
       validateAttioReadScopes(`${complete} record_permission:read-write`)
     ).toBe(false)

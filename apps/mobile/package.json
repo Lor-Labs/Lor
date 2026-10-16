@@ -25,6 +25,7 @@
     "@livekit/react-native-webrtc": "^144.2.0",
     "@repo/api-client": "workspace:*",
     "@repo/auth": "workspace:*",
+    "@repo/connectors": "workspace:*",
     "@repo/db": "workspace:*",
     "@repo/realtime-types": "workspace:*",
     "@repo/ui": "workspace:*",

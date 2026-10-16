@@ -209,21 +209,18 @@ A workspace registry of user-defined tools Lor can call. **Shipped 2026-08-15.**
   CRUD at `/v1/workspaces/:slug/custom-tools`, settings UI
   `apps/web/src/components/workspace/custom-tools-section.tsx`.
 
-**Enablement (per-tool granularity shipped 2026-08-16):** workspace-wide
-registry, granted per channel through agent profiles at two levels:
-
-- the **`custom_tools`** capability = blanket "all custom tools, including ones
-  added later" (what `grantsAll` profiles resolve to);
-- otherwise the profile's explicit grant list — **`agent_profile_custom_tool`**
-  join rows (a real join table, not an id array: tool deletion cascades grants,
-  "which profiles use this tool" is indexed, and per-grant metadata — e.g.
-  approvals — has a home later).
+**Enablement (reworked 2026-10-15):** workspace-wide registry, granted per
+channel through the agent profile's `tool_access.customTools`: no entry (or
+"workspace") means all custom tools including ones added later, "off" means
+none, and "custom" lists tool ids. A deleted tool's id stays in a custom list
+and shows as unavailable until an admin removes it. This replaced the
+`custom_tools` capability and the `agent_profile_custom_tool` join table.
 
 Resolution lives in `packages/lor/src/capabilities.ts`
-(`resolveChannelCapabilities` → `ChannelToolGrants { capabilities, customTools:
-"all" | string[] }`); binding filters by the grant in `workspaceCustomTools`.
-The profile editor shows the blanket tile plus one tile per tool (tiles render
-checked-and-dimmed while the blanket is on).
+(`resolveChannelCapabilities` → `ChannelToolGrants { customTools: "all" |
+string[] }`); binding filters by the grant in `workspaceCustomTools`.
+The profile editor shows API tools as one row with a switch and the same
+tool checklist as connected services.
 
 **cURL is the import path for single HTTP tools** (jacob — supersedes the earlier
 OpenAPI-import idea): the create form accepts a pasted curl command
@@ -246,10 +243,10 @@ widen Lor's surface — new tools stay off until enabled). Sessions per
 respond() call like Datadog: granted servers handshake in parallel under one
 8s cap, unreachable servers drop out, tool results cap at 256KB, sessions
 close in respond()'s finally. Collisions skip-and-log (built-ins → custom
-tools → servers in name order). Grants ride the same two-level model as
-custom tools: the blanket `custom_tools` capability (relabeled "All workspace
-tools") covers both kinds; otherwise per-profile `agent_profile_mcp_server`
-join rows. Auth v1 is static headers only — **OAuth-flow MCP (dynamic client
+tools → servers in name order). MCP access now uses
+`agent_profile.tool_access`: follow workspace tools, turn the server off, or
+select a subset. The `custom_tools` capability covers HTTP API tools only.
+See `reference/connector-tools.md` for the current profile contract. Auth v1 is static headers only — **OAuth-flow MCP (dynamic client
 registration) is planned in `reference/mcp-oauth.md`**. UI: the settings section
 is now "Tools" with a kind picker (API Tool / MCP Server); the MCP form's
 "Connect & discover" step
@@ -421,7 +418,8 @@ refresh keeps the current selection). CRUD + discover endpoints at
   `SEARCHERS`/`FILE_BROWSERS` (both `null`), `CONNECTOR_UI` — the
   `adding-a-connector.md` walk, minus the connect page (webhooks are created from
   channel settings).
-- `lorCapabilityEnum` += `"custom_tools"` → cascades through `CAPABILITIES`.
+- ~~`lorCapabilityEnum` += `"custom_tools"`~~ (the enum was removed 2026-10-15;
+  API tool access lives in `agent_profile.tool_access.customTools`).
 - **`connector_notification_route` → generalize into `connector_trigger`** (rename +
   widen; dev-stage `db:push`, existing rows become POST-only triggers):
   - `connectionId`, `event` (unchanged; validated against `CONNECTOR_EVENTS`)
@@ -440,13 +438,14 @@ refresh keeps the current selection). CRUD + discover endpoints at
 - **`channel_webhook` is dropped** after migrating rows into connection + trigger pairs.
 - **`custom_tool`**: per §4 descriptor fields + `workspaceId`, `createdBy`.
   Hard-deleted (no status column); name unique per workspace.
-- **`agent_profile_custom_tool`**: `(profileId, customToolId)` grant rows,
-  cascade on both FKs (per §4 enablement).
+- ~~**`agent_profile_custom_tool`**~~ (removed 2026-10-15; grants live in
+  `agent_profile.tool_access.customTools`, per §4 enablement).
 - **`mcp_server`**: name, url, headers (secret-referencing templates), secrets
   (encrypted), `enabledTools text[]` allowlist + `workspaceId`, `createdBy`.
   Hard-deleted; name unique per workspace.
-- **`agent_profile_mcp_server`**: `(profileId, mcpServerId)` grant rows,
-  cascade on both FKs.
+- **`agent_profile.tool_access`**: workspace/off/custom selections for built-in
+  tools, connectors, MCP servers and API tools; replaces the removed grant join
+  tables and capability enum.
 - **`agent_run`** gains trigger provenance (`triggerId`, `deliveryId` — nullable) and
   `handoffNote` (a triggered run's closing note, read by the next run on the same
   trigger — see §5).

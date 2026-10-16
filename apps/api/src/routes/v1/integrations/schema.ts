@@ -1,6 +1,6 @@
 import { z } from "@hono/zod-openapi"
 import { AWS_REGIONS, DATADOG_SITES } from "@repo/connectors"
-import { integrationProviderEnum, lorCapabilityEnum } from "@repo/db/schema"
+import { integrationProviderEnum } from "@repo/db/schema"
 
 export const integrationsWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
@@ -32,13 +32,16 @@ export const integrationStatusSchema = z.object({
   id: z.enum(integrationProviderEnum.enumValues), // provider id, e.g. "github"
   name: z.string(), // display name, e.g. "GitHub"
   description: z.string(),
-  capabilities: z.array(
+  tools: z.array(
     z.object({
-      key: z.enum(lorCapabilityEnum.enumValues),
+      name: z.string(),
       label: z.string(),
       description: z.string(),
+      readOnlyHint: z.boolean(),
+      defaultEnabled: z.boolean(),
     })
   ),
+  enabledTools: z.array(z.string()),
   connected: z.boolean(),
   accountLogin: z.string().nullable(),
   connectionId: z.string().nullable(),
@@ -214,4 +217,25 @@ export const updateGithubRepoConfigResponseSchema = z.object({
 
 export const disconnectResponseSchema = z.object({
   success: z.literal(true),
+})
+
+export const updateIntegrationToolsRequestSchema = z.object({
+  enabledTools: z.array(z.string().trim().min(1).max(128)).max(200),
+})
+
+export const connectBetterstackRequestSchema = z.object({
+  apiToken: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4096)
+    .refine(
+      (value) => !/\s/.test(value),
+      "API tokens cannot contain whitespace"
+    ),
+})
+
+export const connectBetterstackResponseSchema = z.object({
+  success: z.literal(true),
+  accountLogin: z.string().nullable(),
 })

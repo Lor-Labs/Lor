@@ -53,13 +53,16 @@ import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type Ref, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
+import {
+  ConnectorToolPreview,
+  ConnectorToolSettings,
+} from "@/components/workspace/connector-tool-settings"
 import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import {
   IconTile,
   PILL_BUTTON,
   SettingsBackButton,
   SettingsGroup,
-  SettingsLink,
   SettingsSection,
 } from "@/components/workspace/settings-group"
 import { TriggerEffects } from "@/components/workspace/trigger-effects"
@@ -105,10 +108,8 @@ function connectBlocker(p: IntegrationStatus): string | null {
 // callbacks land back on the connector's detail view.
 export function ConnectorsSection({
   workspaceSlug,
-  onOpenAgentProfiles,
 }: {
   workspaceSlug: string
-  onOpenAgentProfiles: () => void
 }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -269,7 +270,6 @@ export function ConnectorsSection({
               })
             }
           }}
-          onOpenAgentProfiles={onOpenAgentProfiles}
         />
       ) : (
         <ConnectorList
@@ -288,6 +288,14 @@ export function ConnectorsSection({
           if (!open) setKeyConnect(null)
         }}
         onConnected={() => openConnector("datadog")}
+      />
+      <BetterstackConnectDialog
+        workspaceSlug={workspaceSlug}
+        open={keyConnect === "betterstack"}
+        onOpenChange={(open) => {
+          if (!open) setKeyConnect(null)
+        }}
+        onConnected={() => openConnector("betterstack")}
       />
       <CloudwatchConnectDialog
         workspaceSlug={workspaceSlug}
@@ -313,7 +321,8 @@ export function ConnectorsSection({
             <AlertDialogDescription>
               Pages selected here will be available to members of this Lor
               workspace. The Notion member authorizing the connection remains
-              responsible for managing which pages it can access.
+              responsible for managing which pages it can access. Writing is
+              available only for tools you enable.
               {notionConnect?.replacing
                 ? " This will replace the current Notion authorization."
                 : ""}
@@ -568,7 +577,6 @@ function ConnectorDetail({
   onConnect,
   onReconnect,
   onDisconnect,
-  onOpenAgentProfiles,
 }: {
   workspaceSlug: string
   provider: IntegrationStatus
@@ -577,7 +585,6 @@ function ConnectorDetail({
   onConnect: () => void
   onReconnect: () => void
   onDisconnect: () => void
-  onOpenAgentProfiles: () => void
 }) {
   const blocker = connectBlocker(p)
   const status = p.connected
@@ -643,30 +650,16 @@ function ConnectorDetail({
         <p className="text-sm text-muted-foreground">{p.description}</p>
       </div>
 
-      {p.capabilities.length > 0 && (
-        <SettingsSection
-          title="Capabilities"
-          count={p.capabilities.length}
-          caption={
-            <>
-              <SettingsLink onClick={onOpenAgentProfiles}>
-                Agent profiles
-              </SettingsLink>{" "}
-              control which channels can use these.
-            </>
-          }
-        >
-          <SettingsGroup>
-            {p.capabilities.map((capability) => (
-              <div key={capability.key} className="py-3">
-                <div className="text-sm">{capability.label}</div>
-                <div className="text-sm text-muted-foreground">
-                  {capability.description}
-                </div>
-              </div>
-            ))}
-          </SettingsGroup>
-        </SettingsSection>
+      {p.connected && p.tools.length > 0 && (
+        <ConnectorToolSettings
+          key={`${p.connectionId}:${p.enabledTools.join(",")}`}
+          workspaceSlug={workspaceSlug}
+          provider={p}
+        />
+      )}
+
+      {!p.connected && p.tools.length > 0 && (
+        <ConnectorToolPreview key={p.id} tools={p.tools} />
       )}
 
       {p.events.length > 0 &&
@@ -1245,6 +1238,108 @@ function CloudwatchConnectDialog({
           >
             {connect.isPending && <Spinner className="size-4" />}
             Connect
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function BetterstackConnectDialog({
+  workspaceSlug,
+  open,
+  onOpenChange,
+  onConnected,
+}: {
+  workspaceSlug: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConnected: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [apiToken, setApiToken] = useState("")
+  const connect = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.workspaces[
+        ":workspaceSlug"
+      ].integrations.betterstack.connect.$post({
+        param: { workspaceSlug },
+        json: { apiToken: apiToken.trim() },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't connect Better Stack")
+      }
+    },
+    onSuccess: async () => {
+      setApiToken("")
+      await queryClient.invalidateQueries({
+        queryKey: ["integrations", workspaceSlug],
+      })
+      toast.success("Better Stack connected")
+      onOpenChange(false)
+      onConnected()
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (connect.isPending) return
+        if (!value) setApiToken("")
+        onOpenChange(value)
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Connect Better Stack</DialogTitle>
+          <DialogDescription>
+            Investigate errors, logs, and incidents from Lor. Investigation
+            tools are enabled by default; state changes can be enabled in tool
+            settings.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Create an API token in{" "}
+            <a
+              href="https://betterstack.com/settings/global-api-tokens"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-4"
+            >
+              Better Stack settings
+            </a>{" "}
+            with access to the products you want to investigate. Use a dedicated
+            account for your workspace. This is separate from your
+            error-reporting DSN and source ingestion tokens.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="betterstack-api-token">API token</Label>
+            <Input
+              id="betterstack-api-token"
+              type="password"
+              autoComplete="off"
+              value={apiToken}
+              disabled={connect.isPending}
+              onChange={(event) => setApiToken(event.target.value)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The selected tools will be available to workspace members through
+            their assigned agent profiles. Your existing channel alert webhook
+            keeps delivering alerts independently.
+          </p>
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            onClick={() => connect.mutate()}
+            disabled={!apiToken.trim() || connect.isPending}
+          >
+            {connect.isPending && <Spinner className="size-4" />}Connect
           </Button>
         </DialogFooter>
       </DialogContent>

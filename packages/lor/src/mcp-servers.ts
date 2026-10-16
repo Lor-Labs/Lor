@@ -16,7 +16,7 @@ import { createRuntimeMcpOAuthProvider } from "./mcp-runtime-oauth"
 // Remote MCP servers (mcp_server rows), generalizing the Datadog MCP
 // pattern: one session per respond() call, closed when the stream finishes.
 // The server owns its tool list/schemas; the row's `enabledTools` allowlist
-// bounds what binds, and the channel profile's grant picks which servers.
+// bounds what binds; the channel profile narrows those tool names.
 // See reference/automation-primitives.md §4.
 
 export const MCP_SERVERS_PROMPT_LINE =
@@ -113,12 +113,16 @@ function withCappedResults(tools: ToolSet): ToolSet {
   return wrapped
 }
 
-async function connectServer(input: {
+export async function connectMcpServer(input: {
   url: string
   headers: Record<string, string>
   authProvider?: OAuthClientProvider
   guardedFetch?: GuardedMcpFetch
-}): Promise<{ client: { close: () => Promise<void> }; tools: ToolSet }> {
+}): Promise<{
+  client: { close: () => Promise<void> }
+  tools: ToolSet
+  discovered: DiscoveredTool[]
+}> {
   // Re-checked at connect time so a tampered row can't reach internal hosts.
   const issue = customToolUrlIssue(input.url)
   if (issue) throw new Error(issue)
@@ -162,7 +166,21 @@ async function connectServer(input: {
       throw new Error("Handshake abandoned")
     }
     try {
-      return { client, tools: await client.tools() }
+      const definitions = await client.listTools()
+      return {
+        client,
+        tools: client.toolsFromDefinitions(definitions),
+        discovered: definitions.tools
+          .map((tool) => ({
+            name: tool.name,
+            description: tool.description?.slice(0, 1000) ?? "",
+            readOnlyHint:
+              typeof tool.annotations?.readOnlyHint === "boolean"
+                ? tool.annotations.readOnlyHint
+                : undefined,
+          }))
+          .sort((left, right) => left.name.localeCompare(right.name)),
+      }
     } catch (err) {
       closeOnce()
       throw err
@@ -180,18 +198,10 @@ async function connectServer(input: {
   }
 }
 
-export type DiscoveredTool = { name: string; description: string }
-
-function discoveredTools(tools: ToolSet): DiscoveredTool[] {
-  return Object.entries(tools)
-    .map(([name, tool]) => ({
-      name,
-      description:
-        typeof tool.description === "string"
-          ? tool.description.slice(0, 1000)
-          : "",
-    }))
-    .sort((left, right) => left.name.localeCompare(right.name))
+export type DiscoveredTool = {
+  name: string
+  description: string
+  readOnlyHint?: boolean
 }
 
 function errorClass(error: unknown): string {
@@ -219,8 +229,7 @@ export async function discoverMcpServer(input: {
   headers: Record<string, string>
 }): Promise<{ tools: DiscoveredTool[] } | { error: string }> {
   try {
-    const { client, tools } = await connectServer(input)
-    const discovered = discoveredTools(tools)
+    const { client, discovered } = await connectMcpServer(input)
     await client.close().catch(() => {})
     return { tools: discovered }
   } catch (err) {
@@ -272,13 +281,12 @@ export async function discoverSavedOAuthMcpServer(input: {
     encryptionKey: input.encryptionKey,
   })
   try {
-    const { client, tools } = await connectServer({
+    const { client, discovered } = await connectMcpServer({
       url: input.server.url,
       headers: input.headers,
       authProvider: provider,
       guardedFetch,
     })
-    const discovered = discoveredTools(tools)
     await client.close().catch(() => {})
     return { tools: discovered }
   } catch (error) {
@@ -318,7 +326,8 @@ export type McpServerSessions = {
 export async function channelMcpServers(
   workspaceId: string,
   grant: "all" | string[],
-  takenNames: ReadonlySet<string>
+  takenNames: ReadonlySet<string>,
+  profileTools: Readonly<Record<string, readonly string[]>>
 ): Promise<McpServerSessions | null> {
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) return null
@@ -354,7 +363,10 @@ export async function channelMcpServers(
     )
     .orderBy(schema.mcpServer.name)
   const servers = rows.filter(
-    (row) => mcpServerGranted(row.id, grant) && mcpServerRuntimeEligible(row)
+    (row) =>
+      mcpServerGranted(row.id, grant) &&
+      mcpServerRuntimeEligible(row) &&
+      row.enabledTools.some((name) => profileTools[row.id]?.includes(name))
   )
   if (servers.length === 0) return null
 
@@ -383,7 +395,7 @@ export async function channelMcpServers(
                 encryptionKey: key,
               })
             : null
-        const { client, tools } = await connectServer({
+        const { client, tools } = await connectMcpServer({
           url: row.url,
           headers,
           authProvider: connection?.provider,
@@ -421,7 +433,10 @@ export async function channelMcpServers(
   const clients: Array<{ close: () => Promise<void> }> = []
   for (const session of sessions) {
     if (!session) continue
-    const allowed = new Set(session.row.enabledTools)
+    const profileAllowed = new Set(profileTools[session.row.id] ?? [])
+    const allowed = new Set(
+      session.row.enabledTools.filter((name) => profileAllowed.has(name))
+    )
     const serverTools: ToolSet = {}
     for (const [name, tool] of Object.entries(session.tools)) {
       if (!allowed.has(name)) continue

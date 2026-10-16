@@ -4,22 +4,19 @@ import {
   jsonb,
   pgEnum,
   pgTable,
-  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
-import { agentProfile } from "./agent-profiles"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
 // A workspace-registered tool Lor can call: an HTTP request template with
 // a JSON-Schema args contract. Channels get tools through agent profiles:
-// the blanket `custom_tools` capability grants all (current and future), or
-// a profile grants specific tools via agent_profile_custom_tool rows. Rows
-// are edited in place (no version history) and hard-deleted — FK cascades
-// clean up profile grants atomically.
+// toolAccess.customTools follows the workspace (all tools, including new ones)
+// or lists tool ids. Rows are edited in place (no version history) and
+// hard-deleted; a profile listing a deleted id shows it as unavailable.
 // See reference/automation-primitives.md §4.
 
 export const customToolMethodEnum = pgEnum("custom_tool_method", [
@@ -76,47 +73,12 @@ export const customTool = pgTable(
   ]
 )
 
-// Per-profile custom tool grants (used when the profile lacks the blanket
-// `custom_tools` capability). A real join table — not an id array — so
-// deleting a tool cascades its grants away and "which profiles use this
-// tool?" stays an indexed query. Room for per-grant metadata later (approvals).
-export const agentProfileCustomTool = pgTable(
-  "agent_profile_custom_tool",
-  {
-    profileId: uuid("profile_id")
-      .notNull()
-      .references(() => agentProfile.id, { onDelete: "cascade" }),
-    customToolId: uuid("custom_tool_id")
-      .notNull()
-      .references(() => customTool.id, { onDelete: "cascade" }),
-  },
-  (table) => [
-    primaryKey({ columns: [table.profileId, table.customToolId] }),
-    index("agent_profile_custom_tool_tool_idx").on(table.customToolId),
-  ]
-)
-
-export const customToolRelations = relations(customTool, ({ one, many }) => ({
+export const customToolRelations = relations(customTool, ({ one }) => ({
   workspace: one(workspace, {
     fields: [customTool.workspaceId],
     references: [workspace.id],
   }),
-  profileGrants: many(agentProfileCustomTool),
 }))
-
-export const agentProfileCustomToolRelations = relations(
-  agentProfileCustomTool,
-  ({ one }) => ({
-    profile: one(agentProfile, {
-      fields: [agentProfileCustomTool.profileId],
-      references: [agentProfile.id],
-    }),
-    customTool: one(customTool, {
-      fields: [agentProfileCustomTool.customToolId],
-      references: [customTool.id],
-    }),
-  })
-)
 
 export type CustomTool = typeof customTool.$inferSelect
 export type CustomToolMethod = (typeof customToolMethodEnum.enumValues)[number]

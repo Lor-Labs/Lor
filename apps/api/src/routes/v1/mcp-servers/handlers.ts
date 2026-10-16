@@ -1,13 +1,5 @@
-import {
-  and,
-  count,
-  db,
-  desc,
-  eq,
-  inArray,
-  isUniqueViolation,
-  schema,
-} from "@repo/db"
+import { profileSelectedTools } from "@repo/connectors"
+import { and, db, desc, eq, inArray, isUniqueViolation, schema } from "@repo/db"
 import type { McpServer } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { customToolUrlIssue, renderTemplate } from "@repo/lor/custom-tools"
@@ -19,6 +11,13 @@ import {
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
+import {
+  cacheMcpToolMetadata,
+  discoverStaticMcpToolMetadata,
+  enabledMcpToolMetadata,
+  mcpMetadataSnapshotWhere,
+  sameMcpHeaders,
+} from "@/lib/mcp-tool-metadata"
 import {
   assertWorkspaceAuthority,
   hasWorkspaceAuthority,
@@ -117,15 +116,36 @@ async function grantCounts(
   mcpServerIds: string[]
 ): Promise<Map<string, number>> {
   if (mcpServerIds.length === 0) return new Map()
-  const rows = await db
+  const servers = await db
     .select({
-      mcpServerId: schema.agentProfileMcpServer.mcpServerId,
-      profiles: count(),
+      id: schema.mcpServer.id,
+      workspaceId: schema.mcpServer.workspaceId,
+      enabledTools: schema.mcpServer.enabledTools,
     })
-    .from(schema.agentProfileMcpServer)
-    .where(inArray(schema.agentProfileMcpServer.mcpServerId, mcpServerIds))
-    .groupBy(schema.agentProfileMcpServer.mcpServerId)
-  return new Map(rows.map((r) => [r.mcpServerId, r.profiles]))
+    .from(schema.mcpServer)
+    .where(inArray(schema.mcpServer.id, mcpServerIds))
+  const workspaceIds = [...new Set(servers.map((server) => server.workspaceId))]
+  if (workspaceIds.length === 0) return new Map()
+  const profiles = await db
+    .select({
+      workspaceId: schema.agentProfile.workspaceId,
+      access: schema.agentProfile.toolAccess,
+    })
+    .from(schema.agentProfile)
+    .where(inArray(schema.agentProfile.workspaceId, workspaceIds))
+  return new Map(
+    servers.map((server) => [
+      server.id,
+      profiles.filter(
+        (profile) =>
+          profile.workspaceId === server.workspaceId &&
+          profileSelectedTools(
+            server.enabledTools,
+            profile.access.mcpServers[server.id]
+          ).length > 0
+      ).length,
+    ])
+  )
 }
 
 // Final request headers for a handshake: secret placeholders substituted.
@@ -205,6 +225,19 @@ export const createMcpServer: AppRouteHandler<CreateMcpServerRoute> = async (
     ])
   )
 
+  const toolMetadata =
+    body.authMode === "static" && body.enabledTools.length > 0
+      ? await discoverStaticMcpToolMetadata(
+          {
+            url: body.url,
+            headers: body.headers,
+            secrets,
+            enabledTools: body.enabledTools,
+          },
+          key
+        )
+      : []
+
   const row = await db
     .insert(schema.mcpServer)
     .values({
@@ -218,6 +251,7 @@ export const createMcpServer: AppRouteHandler<CreateMcpServerRoute> = async (
       headers: body.headers,
       secrets,
       enabledTools: body.enabledTools,
+      toolMetadata,
     })
     .returning()
     .then((rows) => rows[0] ?? null)
@@ -325,20 +359,43 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
     }
   }
 
+  const connectionChanged =
+    (body.url !== undefined && body.url !== existing.url) ||
+    (body.headers !== undefined &&
+      !sameMcpHeaders(body.headers, existing.headers)) ||
+    (body.secrets !== undefined && Object.keys(body.secrets).length > 0)
+  const enabledTools = body.enabledTools ?? existing.enabledTools
+  const needsMetadata =
+    existing.authMode === "static" &&
+    enabledTools.length > 0 &&
+    (connectionChanged ||
+      enabledTools.some(
+        (name) => !existing.toolMetadata.some((tool) => tool.name === name)
+      ))
+  const toolMetadata = needsMetadata
+    ? await discoverStaticMcpToolMetadata(
+        {
+          url: body.url ?? existing.url,
+          headers: body.headers ?? existing.headers,
+          secrets: secrets ?? existing.secrets,
+          enabledTools,
+        },
+        key
+      )
+    : connectionChanged
+      ? []
+      : enabledMcpToolMetadata(existing.toolMetadata, enabledTools)
+
   const oauthResourceChanged =
     existing.authMode === "oauth" &&
     body.url !== undefined &&
     body.url !== existing.url
   const row = await db
     .transaction(async (tx) => {
-      if (oauthResourceChanged) {
-        await tx
-          .delete(schema.mcpServerOAuthAttempt)
-          .where(eq(schema.mcpServerOAuthAttempt.mcpServerId, existing.id))
-      }
-      return await tx
+      const updated = await tx
         .update(schema.mcpServer)
         .set({
+          toolMetadata,
           ...(body.name !== undefined ? { name: body.name } : {}),
           ...(body.description !== undefined
             ? { description: body.description }
@@ -359,9 +416,15 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
               }
             : {}),
         })
-        .where(eq(schema.mcpServer.id, existing.id))
+        .where(mcpMetadataSnapshotWhere(existing))
         .returning()
         .then((rows) => rows[0] ?? null)
+      if (updated && oauthResourceChanged) {
+        await tx
+          .delete(schema.mcpServerOAuthAttempt)
+          .where(eq(schema.mcpServerOAuthAttempt.mcpServerId, existing.id))
+      }
+      return updated
     })
     .catch((err) => {
       if (isUniqueViolation(err)) return "conflict" as const
@@ -791,6 +854,12 @@ export const rediscoverMcpServer: AppRouteHandler<
       }
     }
   }
+  const usesSavedSettings =
+    url === existing.url &&
+    sameMcpHeaders(body.headers ?? existing.headers, existing.headers) &&
+    Object.entries(body.secrets).every(
+      ([name, value]) => secrets[name] === value
+    )
   Object.assign(secrets, body.secrets)
 
   let headers: Record<string, string>
@@ -823,5 +892,6 @@ export const rediscoverMcpServer: AppRouteHandler<
       HttpStatusCodes.BAD_REQUEST
     )
   }
+  if (usesSavedSettings) await cacheMcpToolMetadata(existing, result.tools)
   return c.json({ tools: result.tools }, HttpStatusCodes.OK)
 }

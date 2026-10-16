@@ -1,52 +1,91 @@
-import type { LorCapability } from "@repo/db/schema"
-import { CAPABILITIES } from "./registry"
+import type { ProfileToolGroup } from "./profile-tools"
+import { CONNECTORS } from "./registry"
+import { builtinApprovalTool } from "./tools"
 
-// Approval-target vocabulary (LOR-81). A target is one switch on the approval
-// policy page: coarse per capability (reads included), per custom tool, per
-// MCP server. The string key form is what approval_policy and approval rows
-// store. Lor's own channel messaging is deliberately NOT targetable —
-// answering in chat is the core product (Jacob, 2026-09-02).
+// Core messaging, memory, and run bookkeeping are never gateable.
 export type ApprovalTarget =
-  | { kind: "capability"; capability: LorCapability }
+  | { kind: "builtinTool"; toolName: string }
   | { kind: "customTool"; customToolId: string }
-  | { kind: "mcpServer"; mcpServerId: string }
+  | { kind: "mcpTool"; mcpServerId: string; toolName: string }
 
-// The custom_tools capability is agent-profile grant vocabulary, not an
-// approval unit — per custom_tool / mcp_server targets replace it here.
-export const APPROVAL_CAPABILITY_TARGETS = (
-  Object.keys(CAPABILITIES) as LorCapability[]
-).filter((capability) => capability !== "custom_tools")
+export const APPROVAL_TARGET_MAX_LENGTH = 2048
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export function approvalTargetKey(target: ApprovalTarget): string {
   switch (target.kind) {
-    case "capability":
-      return `capability:${target.capability}`
+    case "builtinTool":
+      return `tool:${target.toolName}`
     case "customTool":
       return `custom_tool:${target.customToolId}`
-    case "mcpServer":
-      return `mcp_server:${target.mcpServerId}`
+    case "mcpTool":
+      return `mcp_tool:${target.mcpServerId}:${encodeURIComponent(target.toolName)}`
   }
 }
 
 export function parseApprovalTargetKey(value: string): ApprovalTarget | null {
+  if (value.length > APPROVAL_TARGET_MAX_LENGTH) return null
   const separator = value.indexOf(":")
   if (separator <= 0) return null
   const kind = value.slice(0, separator)
   const rest = value.slice(separator + 1)
-  if (!rest) return null
-
   switch (kind) {
-    case "capability": {
-      if (rest === "custom_tools" || !Object.hasOwn(CAPABILITIES, rest)) {
+    case "tool":
+      return builtinApprovalTool(rest)
+        ? { kind: "builtinTool", toolName: rest }
+        : null
+    case "custom_tool":
+      return uuid.test(rest) ? { kind: "customTool", customToolId: rest } : null
+    case "mcp_tool": {
+      const split = rest.indexOf(":")
+      const mcpServerId = rest.slice(0, split)
+      if (split < 0 || !uuid.test(mcpServerId)) return null
+      try {
+        const encoded = rest.slice(split + 1)
+        const toolName = decodeURIComponent(encoded)
+        if (
+          !toolName.trim() ||
+          toolName.length > 128 ||
+          encodeURIComponent(toolName) !== encoded
+        )
+          return null
+        return { kind: "mcpTool", mcpServerId, toolName }
+      } catch {
         return null
       }
-      return { kind: "capability", capability: rest as LorCapability }
     }
-    case "custom_tool":
-      return { kind: "customTool", customToolId: rest }
-    case "mcp_server":
-      return { kind: "mcpServer", mcpServerId: rest }
     default:
       return null
+  }
+}
+
+// Names come from the workspace catalog when the caller has it; without it,
+// custom tools fall back to "an API tool" rather than a raw id.
+export function approvalTargetLabel(
+  key: string,
+  groups: readonly ProfileToolGroup[] = []
+): string {
+  const target = parseApprovalTargetKey(key)
+  if (!target) return key
+  switch (target.kind) {
+    case "builtinTool": {
+      const tool = builtinApprovalTool(target.toolName)
+      if (!tool) return key
+      return tool.provider
+        ? `${CONNECTORS[tool.provider].label} · ${tool.label}`
+        : tool.label
+    }
+    case "customTool":
+      return (
+        groups
+          .find((group) => group.kind === "customTools")
+          ?.tools.find((tool) => tool.name === target.customToolId)?.label ??
+        "an API tool"
+      )
+    case "mcpTool": {
+      const server = groups.find(
+        (group) => group.kind === "mcpServer" && group.id === target.mcpServerId
+      )
+      return server ? `${server.name} · ${target.toolName}` : target.toolName
+    }
   }
 }
