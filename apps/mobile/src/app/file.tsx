@@ -281,7 +281,7 @@ function FileView({ file, sessionId, isPending, isError, onRetry }: FileState) {
               label="Open in browser"
               onPress={openInBrowser}
               symbol={{
-                ios: "safari",
+                ios: "arrow.up.right.square",
                 android: "open_in_new",
                 web: "open_in_new",
               }}
