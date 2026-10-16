@@ -1,5 +1,6 @@
 import {
   approvalTargetKey,
+  BUILTIN_GROUPS,
   CONNECTOR_TOOLS,
   CONNECTORS,
   parseApprovalTargetKey,
@@ -18,13 +19,16 @@ export type ApprovalTargetRow = {
   groupKey: string
   groupLabel: string
   readOnlyHint?: boolean
+  // False for connector tools whose connector isn't connected yet; their
+  // rules can still be set and apply once it connects.
+  connected: boolean
 }
 
 export async function workspaceApprovalTargets(
   workspaceId: string,
   reader: Reader = db
 ): Promise<ApprovalTargetRow[]> {
-  const [tools, servers] = await Promise.all([
+  const [tools, servers, connections] = await Promise.all([
     reader
       .select({
         id: schema.customTool.id,
@@ -44,14 +48,25 @@ export async function workspaceApprovalTargets(
       .from(schema.mcpServer)
       .where(eq(schema.mcpServer.workspaceId, workspaceId))
       .orderBy(asc(schema.mcpServer.name)),
+    reader
+      .select({ provider: schema.integrationConnection.provider })
+      .from(schema.integrationConnection)
+      .where(
+        and(
+          eq(schema.integrationConnection.workspaceId, workspaceId),
+          eq(schema.integrationConnection.status, "active")
+        )
+      ),
   ])
+  const connected = new Set(connections.map((row) => row.provider))
   return [
     ...STANDALONE_TOOLS.map((tool) => ({
       ...tool,
       key: approvalTargetKey({ kind: "builtinTool", toolName: tool.name }),
       group: "builtin" as const,
-      groupKey: "builtin",
-      groupLabel: "Built-in tools",
+      groupKey: `builtin:${tool.group}`,
+      groupLabel: BUILTIN_GROUPS[tool.group].label,
+      connected: true,
     })),
     ...Object.values(CONNECTORS).flatMap((connector) =>
       CONNECTOR_TOOLS[connector.id].map((tool) => ({
@@ -60,6 +75,7 @@ export async function workspaceApprovalTargets(
         group: "connector" as const,
         groupKey: `connector:${connector.id}`,
         groupLabel: connector.label,
+        connected: connected.has(connector.id),
       }))
     ),
     ...tools.map((tool) => ({
@@ -69,6 +85,7 @@ export async function workspaceApprovalTargets(
       group: "custom_tool" as const,
       groupKey: "custom_tool",
       groupLabel: "API tools",
+      connected: true,
     })),
     ...servers.flatMap((server) =>
       [...new Set(server.enabledTools)].map((name) => {
@@ -86,6 +103,7 @@ export async function workspaceApprovalTargets(
           group: "mcp_server" as const,
           groupKey: `mcp_server:${server.id}`,
           groupLabel: server.name,
+          connected: true,
         }
       })
     ),

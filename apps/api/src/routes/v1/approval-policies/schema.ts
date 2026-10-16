@@ -48,6 +48,7 @@ export const approvalTargetSchema = z.object({
   groupKey: z.string(),
   groupLabel: z.string(),
   readOnlyHint: z.boolean().optional(),
+  connected: z.boolean(),
 })
 
 export const listApprovalPoliciesResponseSchema = z.object({

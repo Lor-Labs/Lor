@@ -1,13 +1,11 @@
-import { ArrowDown01Icon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
-import { cleanToolDescription, toolGroups } from "@repo/connectors"
-import { Button } from "@repo/ui/components/button"
 import {
-  Collapsible,
-  CollapsiblePanel,
-  CollapsibleTrigger,
-} from "@repo/ui/components/collapsible"
-import { Label } from "@repo/ui/components/label"
+  ApiIcon,
+  ArrowDown01Icon,
+  CloudServerIcon,
+  File02Icon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { Button } from "@repo/ui/components/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,24 +18,46 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
-import { SelectButton } from "@repo/ui/components/select"
 import { Spinner } from "@repo/ui/components/spinner"
-import { Switch } from "@repo/ui/components/switch"
 import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  DISCLOSURE_MOTION,
+  SettingsAction,
+  SettingsDisclosureRow,
   SettingsGroup,
+  SettingsSection,
 } from "@/components/workspace/settings-group"
+import { ToolChecklist } from "@/components/workspace/tool-picker"
 import { useWorkspaceRoles } from "@/hooks/use-workspace-roles"
 import { apiClient } from "@/lib/api-client"
-import type { ApprovalPolicy, ApprovalTarget } from "@/lib/api-types"
+import type {
+  ApprovalPoliciesResponse,
+  ApprovalPolicy,
+  ApprovalTarget,
+} from "@/lib/api-types"
+import { connectorLogo, isConnectorKey } from "@/lib/connector-ui"
 import { formatWorkspaceRole } from "@/lib/permissions"
 
 // Prefixes distinguish roles and people while sharing the saved resolver value.
 const KIND_ANY_MEMBER = "any_member"
 const rolePrefix = "role:"
 const userPrefix = "user:"
+
+type ResolverInput = {
+  resolverKind: ApprovalPolicy["resolverKind"]
+  resolverRole?: string
+  resolverUserId?: string
+}
+
+type ResolverItem = { value: string; label: string }
+
+type Service = {
+  key: string
+  label: string
+  kind: ApprovalTarget["group"]
+  connected: boolean
+  targets: ApprovalTarget[]
+}
 
 function resolverValue(policy: ApprovalPolicy): string {
   switch (policy.resolverKind) {
@@ -54,11 +74,7 @@ function resolverValue(policy: ApprovalPolicy): string {
   }
 }
 
-function valueToResolver(value: string): {
-  resolverKind: ApprovalPolicy["resolverKind"]
-  resolverRole?: string
-  resolverUserId?: string
-} {
+function valueToResolver(value: string): ResolverInput {
   if (value.startsWith(rolePrefix)) {
     return {
       resolverKind: "role",
@@ -74,6 +90,169 @@ function valueToResolver(value: string): {
   return { resolverKind: "any_member" }
 }
 
+function gatedSummary(gated: number, total: number): string {
+  if (gated === 0) return "No approval needed"
+  if (gated === total)
+    return total === 1 ? "Needs approval" : `All ${total} need approval`
+  return `${gated} of ${total} need approval`
+}
+
+function ServiceIcon({ service }: { service: Service }) {
+  const className = "size-4"
+  const [, id] = service.key.split(":")
+  if (service.kind === "connector" && isConnectorKey(id)) {
+    const Logo = connectorLogo(id)
+    return <Logo className={className} />
+  }
+  if (service.key === "builtin:web") {
+    const Logo = connectorLogo(null)
+    return <Logo className={className} />
+  }
+  const icon =
+    service.kind === "builtin"
+      ? File02Icon
+      : service.kind === "custom_tool"
+        ? ApiIcon
+        : CloudServerIcon
+  return <HugeiconsIcon icon={icon} className={className} strokeWidth={2} />
+}
+
+function ResolverPicker({
+  label,
+  policy,
+  resolverItems,
+  personItems,
+  onChange,
+}: {
+  label: string
+  policy: ApprovalPolicy
+  resolverItems: ResolverItem[]
+  personItems: ResolverItem[]
+  onChange: (value: string) => void
+}) {
+  const value = resolverValue(policy)
+  // Keep departed members and deleted roles visible in the trigger.
+  const current =
+    [...resolverItems, ...personItems].find((item) => item.value === value)
+      ?.label ?? "Unavailable approver"
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`Who can approve ${label}: ${current}`}
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-my-1 max-w-40 shrink-0 gap-1 px-2 text-xs text-muted-foreground"
+          />
+        }
+      >
+        <span className="truncate">{current}</span>
+        <HugeiconsIcon
+          icon={ArrowDown01Icon}
+          className="size-3.5 shrink-0"
+          strokeWidth={2}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
+          {resolverItems.map((item) => (
+            <DropdownMenuRadioItem key={item.value} value={item.value}>
+              {item.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger inset>Specific person</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-56 max-w-(--available-width)">
+            <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
+              {personItems.map((item) => (
+                <DropdownMenuRadioItem
+                  key={item.value}
+                  value={item.value}
+                  className="grid-cols-[.75rem_minmax(0,1fr)] [&>span:last-child]:truncate"
+                >
+                  {item.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            {personItems.length === 0 && (
+              <DropdownMenuItem disabled>No members available</DropdownMenuItem>
+            )}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// One service: the same Read/Write checklist as tool settings, where checked
+// means "needs approval". Group checkboxes gate or clear a whole group.
+function ServiceApprovals({
+  service,
+  policyByTarget,
+  resolverItems,
+  personItems,
+  onSetRequired,
+  onSetResolver,
+}: {
+  service: Service
+  policyByTarget: Map<string, ApprovalPolicy>
+  resolverItems: ResolverItem[]
+  personItems: ResolverItem[]
+  onSetRequired: (targets: string[], required: boolean) => void
+  onSetResolver: (target: string, value: string) => void
+}) {
+  const keys = service.targets.map((target) => target.key)
+  const gated = new Set(keys.filter((key) => policyByTarget.has(key)))
+  return (
+    <SettingsDisclosureRow
+      icon={<ServiceIcon service={service} />}
+      title={service.label}
+      summary={gatedSummary(gated.size, keys.length)}
+    >
+      <ToolChecklist
+        tools={service.targets.map((target) => ({
+          name: target.key,
+          label: target.label,
+          description: target.description,
+          readOnlyHint: target.readOnlyHint,
+        }))}
+        selected={gated}
+        // Only built-in and connector catalogs declare reads for sure.
+        providerHints={
+          service.kind === "mcp_server" || service.kind === "custom_tool"
+        }
+        onChange={(next) => {
+          onSetRequired(
+            keys.filter((key) => next.has(key) && !gated.has(key)),
+            true
+          )
+          onSetRequired(
+            keys.filter((key) => !next.has(key) && gated.has(key)),
+            false
+          )
+        }}
+        rowAction={(tool) => {
+          const policy = policyByTarget.get(tool.name)
+          return (
+            policy && (
+              <ResolverPicker
+                label={tool.label ?? tool.name}
+                policy={policy}
+                resolverItems={resolverItems}
+                personItems={personItems}
+                onChange={(value) => onSetResolver(tool.name, value)}
+              />
+            )
+          )
+        }}
+      />
+    </SettingsDisclosureRow>
+  )
+}
+
 const approvalPoliciesQueryKey = (workspaceSlug: string) =>
   ["approval-policies", workspaceSlug] as const
 
@@ -85,9 +264,10 @@ export function ApprovalsSection({
   workspaceSlug: string
 }) {
   const queryClient = useQueryClient()
+  const queryKey = approvalPoliciesQueryKey(workspaceSlug)
 
   const { data, isPending, isError, refetch } = useQuery({
-    queryKey: approvalPoliciesQueryKey(workspaceSlug),
+    queryKey,
     queryFn: async () => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
         "approval-policies"
@@ -109,48 +289,86 @@ export function ApprovalsSection({
   })
   const { data: customRoles } = useWorkspaceRoles(workspaceId)
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({
-      queryKey: approvalPoliciesQueryKey(workspaceSlug),
-    })
+  // Gates and approvers change optimistically; the server answer replaces the
+  // cache when each request settles.
+  const patchPolicies = async (
+    update: (policies: ApprovalPolicy[]) => ApprovalPolicy[]
+  ) => {
+    await queryClient.cancelQueries({ queryKey })
+    const previous =
+      queryClient.getQueryData<ApprovalPoliciesResponse>(queryKey)
+    if (previous)
+      queryClient.setQueryData<ApprovalPoliciesResponse>(queryKey, {
+        ...previous,
+        policies: update(previous.policies),
+      })
+    return { previous }
+  }
+  const rollback = (
+    context: { previous?: ApprovalPoliciesResponse } | undefined
+  ) => {
+    if (context?.previous) queryClient.setQueryData(queryKey, context.previous)
+  }
 
-  const upsert = useMutation({
-    mutationFn: async (input: {
-      target: string
-      resolverKind: ApprovalPolicy["resolverKind"]
-      resolverRole?: string
-      resolverUserId?: string
-    }) => {
+  const setResolver = useMutation({
+    mutationFn: async (input: { target: string } & ResolverInput) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
         "approval-policies"
       ].$put({ param: { workspaceSlug }, json: input })
       if (!res.ok) throw new Error("Failed to save approval policy")
-      return res.json()
     },
-    onSuccess: () => invalidate(),
-    onError: () => toast.error("Couldn't save the approval policy"),
+    onMutate: (input) =>
+      patchPolicies((policies) =>
+        policies.map((policy) =>
+          policy.target === input.target
+            ? {
+                ...policy,
+                resolverKind: input.resolverKind,
+                resolverRole: input.resolverRole ?? null,
+                resolverUserId: input.resolverUserId ?? null,
+              }
+            : policy
+        )
+      ),
+    onError: (_error, _input, context) => {
+      rollback(context)
+      toast.error("Couldn't change who can approve")
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
   })
 
-  const remove = useMutation({
-    mutationFn: async (policyId: string) => {
-      const res = await apiClient.v1.workspaces[":workspaceSlug"][
-        "approval-policies"
-      ][":policyId"].$delete({ param: { workspaceSlug, policyId } })
-      if (!res.ok) throw new Error("Failed to remove approval policy")
-    },
-    onSuccess: () => invalidate(),
-    onError: () => toast.error("Couldn't turn the gate off"),
-  })
-
-  const bulk = useMutation({
+  const setRequired = useMutation({
     mutationFn: async (input: { targets: string[]; required: boolean }) => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"][
         "approval-policies"
       ].bulk.$put({ param: { workspaceSlug }, json: input })
       if (!res.ok) throw new Error("Failed to update approval rules")
     },
-    onSuccess: () => invalidate(),
-    onError: () => toast.error("Couldn't update the approval rules"),
+    onMutate: (input) =>
+      patchPolicies((policies) => {
+        const targets = new Set(input.targets)
+        if (!input.required)
+          return policies.filter((policy) => !targets.has(policy.target))
+        const existing = new Set(policies.map((policy) => policy.target))
+        // New rules start with any member, as the server assigns.
+        return [
+          ...policies,
+          ...input.targets
+            .filter((target) => !existing.has(target))
+            .map((target) => ({
+              id: `pending:${target}`,
+              target,
+              resolverKind: "any_member" as const,
+              resolverRole: null,
+              resolverUserId: null,
+            })),
+        ]
+      }),
+    onError: (_error, _input, context) => {
+      rollback(context)
+      toast.error("Couldn't update the approval rules")
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
   })
 
   if (isPending) {
@@ -175,7 +393,7 @@ export function ApprovalsSection({
 
   const policyByTarget = new Map(data.policies.map((p) => [p.target, p]))
   const members = (membersData?.members ?? []).filter((m) => !m.isBot)
-  const resolverItems = [
+  const resolverItems: ResolverItem[] = [
     { value: KIND_ANY_MEMBER, label: "Any member" },
     ...["admin", "member"].map((role) => ({
       value: `${rolePrefix}${role}`,
@@ -186,265 +404,89 @@ export function ApprovalsSection({
       label: `Role: ${formatWorkspaceRole(role.role)}`,
     })),
   ]
-  const personItems = members.map((m) => ({
+  const personItems: ResolverItem[] = members.map((m) => ({
     value: `${userPrefix}${m.userId}`,
     label: m.name,
   }))
 
-  const busy = upsert.isPending || remove.isPending || bulk.isPending
-  const byGroup = new Map<
-    string,
-    { label: string; kind: ApprovalTarget["group"]; targets: ApprovalTarget[] }
-  >()
+  const services: Service[] = []
   for (const target of data.targets) {
-    const group = byGroup.get(target.groupKey) ?? {
-      label: target.groupLabel,
-      kind: target.group,
-      targets: [],
+    if (target.group === "unavailable") continue
+    let service = services.find((item) => item.key === target.groupKey)
+    if (!service) {
+      service = {
+        key: target.groupKey,
+        label: target.groupLabel,
+        kind: target.group,
+        connected: target.connected,
+        targets: [],
+      }
+      services.push(service)
     }
-    group.targets.push(target)
-    byGroup.set(target.groupKey, group)
+    service.targets.push(target)
   }
+  const unavailable = data.targets.filter(
+    (target) => target.group === "unavailable"
+  )
+
+  const onSetRequired = (targets: string[], required: boolean) => {
+    if (targets.length > 0) setRequired.mutate({ targets, required })
+  }
+  const onSetResolver = (target: string, value: string) =>
+    setResolver.mutate({ target, ...valueToResolver(value) })
+  const rows = (list: Service[]) =>
+    list.map((service) => (
+      <ServiceApprovals
+        key={service.key}
+        service={service}
+        policyByTarget={policyByTarget}
+        resolverItems={resolverItems}
+        personItems={personItems}
+        onSetRequired={onSetRequired}
+        onSetResolver={onSetResolver}
+      />
+    ))
+  const notConnected = services.filter((service) => !service.connected)
 
   return (
     <div className="space-y-6">
-      <p className="px-4 text-sm text-muted-foreground">
-        Choose which tools need approval and who can approve them.
-      </p>
-      {[...byGroup].map(([groupKey, group]) => {
-        const targets = group.targets
-        const gated = targets.filter((target) =>
-          policyByTarget.has(target.key)
-        ).length
-        const sections = toolGroups(
-          targets,
-          group.kind === "mcp_server" || group.kind === "custom_tool"
-        )
-        return (
-          <Collapsible
-            key={groupKey}
-            defaultOpen={gated > 0 || group.kind === "builtin"}
-            className="space-y-2"
-          >
-            <div className="flex items-center justify-between gap-3 px-4">
-              <CollapsibleTrigger className="group flex min-w-0 cursor-pointer items-center gap-2 text-left text-sm font-medium">
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-180"
-                />
-                <span className="truncate">{group.label}</span>
-                <span className="shrink-0 text-xs font-normal text-muted-foreground">
-                  {gated} of {targets.length} require approval
+      <SettingsSection
+        title="Tools"
+        description="Lor asks a person before using a checked tool. Owners can always approve."
+      >
+        <SettingsGroup>
+          {rows(services.filter((service) => service.connected))}
+        </SettingsGroup>
+      </SettingsSection>
+      {notConnected.length > 0 && (
+        <SettingsSection
+          title="Not connected"
+          caption="Rules here apply once the service is connected."
+        >
+          <SettingsGroup>{rows(notConnected)}</SettingsGroup>
+        </SettingsSection>
+      )}
+      {unavailable.length > 0 && (
+        <SettingsSection
+          title="Unavailable rules"
+          caption="These tools no longer exist, so their rules do nothing."
+        >
+          <SettingsGroup>
+            {unavailable.map((target) => (
+              <div key={target.key} className="flex items-center gap-3 py-3">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                  {target.label}
                 </span>
-              </CollapsibleTrigger>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  disabled={busy}
-                  render={<Button variant="ghost" size="sm" />}
+                <SettingsAction
+                  onClick={() => onSetRequired([target.key], false)}
                 >
-                  Bulk actions
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {group.kind !== "unavailable" && (
-                    <>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          bulk.mutate({
-                            targets: targets.map((target) => target.key),
-                            required: true,
-                          })
-                        }
-                      >
-                        Require approval for all
-                      </DropdownMenuItem>
-                      {sections.length > 1 &&
-                        sections.map((section) => (
-                          <DropdownMenuItem
-                            key={section.key}
-                            onClick={() =>
-                              bulk.mutate({
-                                targets: section.tools.map(
-                                  (target) => target.key
-                                ),
-                                required: true,
-                              })
-                            }
-                          >
-                            Require approval for {section.label.toLowerCase()}
-                          </DropdownMenuItem>
-                        ))}
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
-                  <DropdownMenuItem
-                    disabled={gated === 0}
-                    onClick={() =>
-                      bulk.mutate({
-                        targets: targets.map((target) => target.key),
-                        required: false,
-                      })
-                    }
-                  >
-                    Turn off approval for all
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <CollapsiblePanel className={DISCLOSURE_MOTION}>
-              <div className="space-y-4">
-                {sections.map(({ key, label, tools: targets }) => (
-                  <div key={key} className="space-y-2">
-                    {sections.length > 1 && (
-                      <p className="px-4 text-xs font-medium text-muted-foreground">
-                        {label}
-                      </p>
-                    )}
-                    <SettingsGroup>
-                      {targets.map((target) => {
-                        const policy = policyByTarget.get(target.key)
-                        const switchId = `approval-gate-${target.key}`
-                        const value = policy
-                          ? resolverValue(policy)
-                          : KIND_ANY_MEMBER
-                        // Keep departed members and deleted roles visible in the trigger.
-                        const resolverLabel =
-                          [...resolverItems, ...personItems].find(
-                            (item) => item.value === value
-                          )?.label ?? "Unavailable resolver"
-                        const setResolver = (nextValue: string) => {
-                          upsert.mutate({
-                            target: target.key,
-                            ...valueToResolver(nextValue),
-                          })
-                        }
-                        return (
-                          <div key={target.key} className="space-y-2.5 py-3">
-                            <div className="flex items-center justify-between gap-4">
-                              <div className="min-w-0">
-                                <Label htmlFor={switchId} className="text-sm">
-                                  {target.label}
-                                  {target.group === "mcp_server" &&
-                                    target.readOnlyHint === true && (
-                                      <span className="ml-2 text-xs font-normal text-muted-foreground">
-                                        Read only
-                                      </span>
-                                    )}
-                                </Label>
-                                <p
-                                  className="line-clamp-2 text-sm text-muted-foreground"
-                                  title={cleanToolDescription(
-                                    target.description
-                                  )}
-                                >
-                                  {cleanToolDescription(target.description)}
-                                </p>
-                              </div>
-                              <Switch
-                                id={switchId}
-                                checked={!!policy}
-                                disabled={
-                                  busy ||
-                                  (target.group === "unavailable" && !policy)
-                                }
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    upsert.mutate({
-                                      target: target.key,
-                                      resolverKind: "any_member",
-                                    })
-                                  } else if (policy) {
-                                    remove.mutate(policy.id)
-                                  }
-                                }}
-                              />
-                            </div>
-                            {policy && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground">
-                                  Who can approve
-                                </span>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger
-                                    disabled={
-                                      busy || target.group === "unavailable"
-                                    }
-                                    aria-label={`Who can approve ${target.label}: ${resolverLabel}`}
-                                    render={
-                                      <SelectButton
-                                        className="w-56"
-                                        size="sm"
-                                      />
-                                    }
-                                  >
-                                    {resolverLabel}
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent
-                                    align="start"
-                                    className="w-56"
-                                  >
-                                    <DropdownMenuRadioGroup
-                                      value={value}
-                                      onValueChange={setResolver}
-                                    >
-                                      {resolverItems.map((item) => (
-                                        <DropdownMenuRadioItem
-                                          key={item.value}
-                                          value={item.value}
-                                          disabled={
-                                            busy ||
-                                            target.group === "unavailable"
-                                          }
-                                        >
-                                          {item.label}
-                                        </DropdownMenuRadioItem>
-                                      ))}
-                                    </DropdownMenuRadioGroup>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuSub>
-                                      <DropdownMenuSubTrigger inset>
-                                        Specific person
-                                      </DropdownMenuSubTrigger>
-                                      <DropdownMenuSubContent className="w-56 max-w-(--available-width)">
-                                        <DropdownMenuRadioGroup
-                                          value={value}
-                                          onValueChange={setResolver}
-                                        >
-                                          {personItems.map((item) => (
-                                            <DropdownMenuRadioItem
-                                              key={item.value}
-                                              value={item.value}
-                                              disabled={
-                                                busy ||
-                                                target.group === "unavailable"
-                                              }
-                                              className="grid-cols-[.75rem_minmax(0,1fr)] [&>span:last-child]:truncate"
-                                            >
-                                              {item.label}
-                                            </DropdownMenuRadioItem>
-                                          ))}
-                                        </DropdownMenuRadioGroup>
-                                        {personItems.length === 0 && (
-                                          <DropdownMenuItem disabled>
-                                            No members available
-                                          </DropdownMenuItem>
-                                        )}
-                                      </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </SettingsGroup>
-                  </div>
-                ))}
+                  Remove
+                </SettingsAction>
               </div>
-            </CollapsiblePanel>
-          </Collapsible>
-        )
-      })}
+            ))}
+          </SettingsGroup>
+        </SettingsSection>
+      )}
     </div>
   )
 }

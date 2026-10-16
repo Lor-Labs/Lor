@@ -51,6 +51,7 @@ export const listApprovalPolicies: AppRouteHandler<
         group: "unavailable",
         groupKey: "unavailable",
         groupLabel: "Unavailable tools",
+        connected: true,
       } satisfies ApprovalTargetRow)
   }
   return c.json({ policies, targets }, HttpStatusCodes.OK)

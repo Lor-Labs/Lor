@@ -22,15 +22,21 @@ an otherwise disabled tool.
 - Custom MCP tools: `mcp_tool:<server_uuid>:<encodeURIComponent(tool_name)>`.
   Names are scoped to their server, encoded canonically, and never form a
   whole-server rule. A rename is a different tool identity.
-- Settings group tools by service and Read/Write; MCP groups show provider
-  Read only hints and treat unknown hints as other tools. Hints do not bypass
-  approval. Each tool keeps its own resolver choice.
-- Bulk actions store explicit individual keys through one atomic
-  `PUT /approval-policies/bulk` request. Enabling preserves existing resolvers
-  and assigns Any member only to new rules. New tools never inherit a group rule.
-- Built-in targets remain configurable while disconnected. MCP choices use saved
+- Settings show one row per service (Web, Artifacts, each connector, API
+  tools, each MCP server) with an "N of M need approval" summary. A row opens
+  to the same Read/Write checklist as tool settings: a checked tool needs
+  approval, and a group checkbox gates or clears the whole group. A gated
+  tool's row shows its approver picker. MCP groups trust only provider Read
+  only hints; API tools have none. Hints do not bypass approval.
+- Every change goes through one atomic `PUT /approval-policies/bulk` request
+  with explicit keys, applied optimistically in the cache. Enabling preserves
+  existing resolvers and assigns Any member only to new rules. New tools never
+  inherit a group rule.
+- Connectors that aren't connected sit in a separate "Not connected" section;
+  their rules still save and apply once connected. MCP choices use saved
   enabled names and metadata; listing policies performs no MCP handshakes.
-  Missing/disabled tools and unsupported keys remain visible for explicit removal.
+  Missing/disabled tools and unsupported keys appear under "Unavailable rules"
+  for explicit removal.
 - Single saves, bulk saves, and approved configuration proposals verify workspace
   ownership and MCP enabled names. A new MCP server has no discovered tools yet,
   so proposals may gate its tools only after connection and tool review. Created

@@ -1,8 +1,20 @@
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons"
+import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
+import {
+  Collapsible,
+  CollapsiblePanel,
+  CollapsibleTrigger,
+} from "@repo/ui/components/collapsible"
 import { cn } from "@repo/ui/lib/utils"
-import { type ComponentProps, type ReactNode, useEffect, useRef } from "react"
+import {
+  type ComponentProps,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react"
 
 // Shared settings surfaces (Connectors, Agent profiles, LOR.md, Tools): filled,
 // borderless groups with inset dividers under a small heading.
@@ -154,6 +166,77 @@ export function SettingsFooter({
     >
       {children}
     </div>
+  )
+}
+
+// A row that opens to show more (a service's tools): icon, title, summary and
+// an arrow, plus an optional control (e.g. a switch) outside the trigger.
+// Disabled rows stay closed and show no arrow.
+export function SettingsDisclosureRow({
+  icon,
+  title,
+  summary,
+  control,
+  disabled = false,
+  children,
+}: {
+  icon: ReactNode
+  title: ReactNode
+  summary: ReactNode
+  control?: (labelId: string) => ReactNode
+  disabled?: boolean
+  children: ReactNode
+}) {
+  const id = useId()
+  const [open, setOpen] = useState(false)
+  const [instant, setInstant] = useState(false)
+  useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
+
+  return (
+    <Collapsible
+      open={open && !disabled}
+      onOpenChange={setOpen}
+      disabled={disabled}
+    >
+      <div className="flex items-center gap-3">
+        <CollapsibleTrigger
+          onClick={(event) => setInstant(event.detail === 0)}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-sm py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+        >
+          <IconTile size="sm">{icon}</IconTile>
+          <span className="min-w-0 flex-1">
+            <span id={id} className="block text-sm break-words">
+              {title}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {summary}
+            </span>
+          </span>
+          {!disabled && (
+            <HugeiconsIcon
+              icon={ArrowRight01Icon}
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out motion-reduce:transition-none",
+                open && "rotate-90",
+                instant && "transition-none"
+              )}
+              strokeWidth={2}
+            />
+          )}
+        </CollapsibleTrigger>
+        {control?.(id)}
+      </div>
+      <CollapsiblePanel
+        className={cn(
+          DISCLOSURE_MOTION,
+          instant && "transition-none motion-reduce:transition-none"
+        )}
+      >
+        <div className="ml-11 border-t border-border">{children}</div>
+      </CollapsiblePanel>
+    </Collapsible>
   )
 }
 

@@ -13,7 +13,7 @@ import {
   CollapsibleTrigger,
 } from "@repo/ui/components/collapsible"
 import { cn } from "@repo/ui/lib/utils"
-import { useId, useState } from "react"
+import { type ReactNode, useId, useState } from "react"
 import { DISCLOSURE_MOTION, SettingsGroup } from "./settings-group"
 
 type ToolPickerProps = {
@@ -47,7 +47,12 @@ export function ToolChecklist({
   disabled = false,
   providerHints = false,
   defaultExpanded = false,
-}: ToolPickerProps & { defaultExpanded?: boolean }) {
+  rowAction,
+}: ToolPickerProps & {
+  defaultExpanded?: boolean
+  // A control at the end of a tool's row, outside its label.
+  rowAction?: (tool: GroupableTool) => ReactNode
+}) {
   const id = useId()
   const groups = toolGroups(tools, providerHints)
   const countIn = (group: ToolGroup) =>
@@ -173,6 +178,7 @@ export function ToolChecklist({
                           </span>
                         )}
                       </label>
+                      {rowAction?.(tool)}
                     </div>
                   )
                 })}

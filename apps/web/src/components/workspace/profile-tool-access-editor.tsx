@@ -1,6 +1,5 @@
 import {
   ApiIcon,
-  ArrowRight01Icon,
   CloudServerIcon,
   File02Icon,
 } from "@hugeicons/core-free-icons"
@@ -17,18 +16,10 @@ import {
 } from "@repo/connectors"
 import type { ProfileToolAccess, ProfileToolSelection } from "@repo/db/schema"
 import { Button } from "@repo/ui/components/button"
-import {
-  Collapsible,
-  CollapsiblePanel,
-  CollapsibleTrigger,
-} from "@repo/ui/components/collapsible"
 import { Switch } from "@repo/ui/components/switch"
-import { cn } from "@repo/ui/lib/utils"
-import { useId, useState } from "react"
 import {
-  DISCLOSURE_MOTION,
-  IconTile,
   SettingsAction,
+  SettingsDisclosureRow,
   SettingsGroup,
   SettingsLink,
   SettingsSection,
@@ -70,92 +61,52 @@ function ServiceTools({
   access: ProfileToolAccess
   onChange: (access: ProfileToolAccess) => void
 }) {
-  const id = useId()
-  const [open, setOpen] = useState(false)
-  const [instant, setInstant] = useState(false)
   const selection = profileGroupSelection(access, group)
   const mode = selection?.mode ?? "workspace"
   const names = group.tools.map((tool) => tool.name)
   const selected = profileSelectedTools(names, selection)
-  const expandable = mode !== "off" && group.tools.length > 0
   const select = (next: ProfileToolSelection) =>
     onChange(setProfileGroupSelection(access, group, next))
 
   return (
-    <Collapsible
-      open={open && expandable}
-      onOpenChange={setOpen}
-      disabled={!expandable}
-    >
-      <div className="flex items-center gap-3">
-        <CollapsibleTrigger
-          onClick={(event) => setInstant(event.detail === 0)}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-sm py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-        >
-          <IconTile size="sm">
-            <ProfileServiceIcon group={group} className="size-4" />
-          </IconTile>
-          <span className="min-w-0 flex-1">
-            <span id={id} className="block text-sm break-words">
-              {group.name}
-            </span>
-            <span className="block text-xs text-muted-foreground">
-              {profileGroupSummary(group, selection)}
-            </span>
-          </span>
-          {expandable && (
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              className={cn(
-                "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-out motion-reduce:transition-none",
-                open && "rotate-90",
-                instant && "transition-none"
-              )}
-              strokeWidth={2}
-            />
-          )}
-        </CollapsibleTrigger>
+    <SettingsDisclosureRow
+      icon={<ProfileServiceIcon group={group} className="size-4" />}
+      title={group.name}
+      summary={profileGroupSummary(group, selection)}
+      disabled={mode === "off" || group.tools.length === 0}
+      control={(labelId) => (
         <Switch
-          aria-labelledby={id}
+          aria-labelledby={labelId}
           checked={mode !== "off"}
-          onCheckedChange={(checked) => {
-            if (!checked) setOpen(false)
+          onCheckedChange={(checked) =>
             select(checked ? { mode: "workspace" } : { mode: "off" })
-          }}
+          }
         />
-      </div>
-      <CollapsiblePanel
-        className={cn(
-          DISCLOSURE_MOTION,
-          instant && "transition-none motion-reduce:transition-none"
+      )}
+    >
+      <ToolChecklist
+        tools={group.tools}
+        selected={new Set(selected)}
+        // Only built-in and connector catalogs declare reads for sure.
+        providerHints={
+          group.kind === "mcpServer" || group.kind === "customTools"
+        }
+        onChange={(next) =>
+          select({
+            mode: "custom",
+            tools: names.filter((name) => next.has(name)),
+          })
+        }
+      />
+      <div className="flex items-center justify-between gap-3 border-t border-border py-3 text-xs text-muted-foreground">
+        <span>{profileGroupNote(group, selection)}</span>
+        {mode === "custom" && (
+          <SettingsAction onClick={() => select({ mode: "workspace" })}>
+            Use all tools
+          </SettingsAction>
         )}
-      >
-        <div className="ml-11 border-t border-border">
-          <ToolChecklist
-            tools={group.tools}
-            selected={new Set(selected)}
-            // Only built-in and connector catalogs declare reads for sure.
-            providerHints={
-              group.kind === "mcpServer" || group.kind === "customTools"
-            }
-            onChange={(next) =>
-              select({
-                mode: "custom",
-                tools: names.filter((name) => next.has(name)),
-              })
-            }
-          />
-          <div className="flex items-center justify-between gap-3 border-t border-border py-3 text-xs text-muted-foreground">
-            <span>{profileGroupNote(group, selection)}</span>
-            {mode === "custom" && (
-              <SettingsAction onClick={() => select({ mode: "workspace" })}>
-                Use all tools
-              </SettingsAction>
-            )}
-          </div>
-        </div>
-      </CollapsiblePanel>
-    </Collapsible>
+      </div>
+    </SettingsDisclosureRow>
   )
 }
 
