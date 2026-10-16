@@ -36,12 +36,7 @@ describe("Attio tools", () => {
     )
 
     expect(search).toEqual({ results: [] })
-    expect(query).toEqual({
-      mode: "records",
-      target: "companies",
-      results: [],
-      dataTruncated: false,
-    })
+    expect(query).toEqual({ mode: "records", target: "companies", results: [] })
   })
 
   it("reports catalog section failures without hiding successful sections", async () => {

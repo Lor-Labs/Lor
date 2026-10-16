@@ -32,7 +32,15 @@ const serverSchema = z.object({
   // Optional server-only destination for successful signup notifications.
   SIGNUP_WEBHOOK_URL: z.preprocess(
     blankToUndefined,
-    z.url({ protocol: /^https?$/ }).optional()
+    z
+      .url({ protocol: /^https$/ })
+      .or(
+        z.url({
+          protocol: /^http$/,
+          hostname: /^(?:localhost|.*\.localhost|127(?:\.\d{1,3}){3}|\[::1\])$/,
+        })
+      )
+      .optional()
   ),
   AI_GATEWAY_BASE_URL: z.preprocess(
     blankToUndefined,

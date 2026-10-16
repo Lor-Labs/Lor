@@ -130,30 +130,92 @@ function AvatarPicker({
   onFile: (file: File) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const dragCountRef = useRef(0)
+  const [isDragging, setIsDragging] = useState(false)
+
+  const selectFile = (file: File) => {
+    if (busy) return
+    const error = validateAvatarFile(file)
+    if (error) {
+      toast.error(error)
+      return
+    }
+    onFile(file)
+  }
+
   return (
     <>
       <button
         type="button"
-        className="group relative shrink-0 cursor-pointer self-start"
-        disabled={busy}
-        onClick={() => inputRef.current?.click()}
-        aria-label="Change avatar"
+        className="group flex shrink-0 cursor-pointer flex-col items-center gap-2 self-start rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring aria-disabled:cursor-wait"
+        aria-disabled={busy}
+        aria-busy={busy}
+        onClick={() => {
+          if (!busy) inputRef.current?.click()
+        }}
+        onDragEnter={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return
+          e.preventDefault()
+          e.stopPropagation()
+          if (busy) return
+          dragCountRef.current += 1
+          setIsDragging(true)
+        }}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return
+          e.preventDefault()
+          e.stopPropagation()
+          e.dataTransfer.dropEffect = busy ? "none" : "copy"
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          dragCountRef.current = Math.max(0, dragCountRef.current - 1)
+          if (dragCountRef.current === 0) setIsDragging(false)
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          dragCountRef.current = 0
+          setIsDragging(false)
+          if (busy) return
+          if (e.dataTransfer.files.length > 1) {
+            toast.error("Drop one image at a time")
+            return
+          }
+          const file = e.dataTransfer.files[0]
+          if (file) selectFile(file)
+        }}
+        aria-label="Change avatar: click or drop an image"
       >
-        <WebhookAvatar
-          src={src}
-          className="size-20 rounded-xl"
-          iconClassName="size-8"
-        />
-        <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center rounded-full border border-border bg-background p-1.5 text-muted-foreground shadow-sm transition-colors group-hover:text-foreground">
-          {busy ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            <HugeiconsIcon
-              icon={ImageAdd01Icon}
-              className="size-3.5"
-              strokeWidth={2}
-            />
+        <span className="pointer-events-none relative">
+          <WebhookAvatar
+            src={src}
+            className={cn(
+              "size-20 rounded-xl transition-colors motion-reduce:transition-none",
+              isDragging && "border-primary bg-primary/10 ring-2 ring-primary"
+            )}
+            iconClassName="size-8"
+          />
+          <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center rounded-full border border-border bg-background p-1.5 text-muted-foreground shadow-sm transition-colors group-hover:text-foreground">
+            {busy ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <HugeiconsIcon
+                icon={ImageAdd01Icon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+            )}
+          </span>
+        </span>
+        <span
+          className={cn(
+            "pointer-events-none text-[11px] text-muted-foreground",
+            isDragging && "text-primary"
           )}
+        >
+          {busy ? "Uploading…" : isDragging ? "Drop image" : "Click or drop"}
         </span>
       </button>
       <input
@@ -161,16 +223,11 @@ function AvatarPicker({
         type="file"
         accept={AVATAR_MIME_TYPES.join(",")}
         className="hidden"
+        disabled={busy}
         onChange={(e) => {
           const file = e.target.files?.[0]
           e.target.value = ""
-          if (!file) return
-          const error = validateAvatarFile(file)
-          if (error) {
-            toast.error(error)
-            return
-          }
-          onFile(file)
+          if (file) selectFile(file)
         }}
       />
     </>
