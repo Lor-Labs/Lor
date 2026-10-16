@@ -16,7 +16,7 @@ import { createRuntimeMcpOAuthProvider } from "./mcp-runtime-oauth"
 // Remote MCP servers (mcp_server rows), generalizing the Datadog MCP
 // pattern: one session per respond() call, closed when the stream finishes.
 // The server owns its tool list/schemas; the row's `enabledTools` allowlist
-// bounds what binds, and the channel profile's grant picks which servers.
+// bounds what binds; the channel profile narrows those tool names.
 // See reference/automation-primitives.md §4.
 
 export const MCP_SERVERS_PROMPT_LINE =

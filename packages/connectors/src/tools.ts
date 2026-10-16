@@ -1,8 +1,7 @@
-import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
+import type { IntegrationProvider } from "@repo/db/schema"
 
 export type ConnectorToolDescriptor = {
   name: string
-  capability: LorCapability
   label: string
   description: string
   readOnlyHint: boolean
@@ -15,7 +14,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
 })[] = [
   {
     name: "list_betterstack_applications",
-    capability: "betterstack",
     upstreamName: "applications",
     label: "List applications",
     description: "Discover error-tracking applications.",
@@ -24,7 +22,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "list_betterstack_errors",
-    capability: "betterstack",
     upstreamName: "errors",
     label: "List errors",
     description: "List error groups, counts, and triage states.",
@@ -33,7 +30,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "fetch_betterstack_error",
-    capability: "betterstack",
     upstreamName: "error",
     label: "Read error",
     description: "Inspect an error, call site, and occurrences.",
@@ -42,7 +38,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "list_betterstack_sources",
-    capability: "betterstack",
     upstreamName: "sources",
     label: "List sources",
     description: "Discover telemetry sources.",
@@ -51,7 +46,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "fetch_betterstack_source",
-    capability: "betterstack",
     upstreamName: "source",
     label: "Read source",
     description: "Inspect source collections and configuration.",
@@ -60,7 +54,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "list_betterstack_source_fields",
-    capability: "betterstack",
     upstreamName: "source_fields",
     label: "List source fields",
     description: "Discover fields for log and span queries.",
@@ -69,7 +62,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "get_betterstack_query_help",
-    capability: "betterstack",
     upstreamName: "query_help",
     label: "Read query guidance",
     description: "Get the source-specific logs and spans query syntax.",
@@ -78,7 +70,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "get_betterstack_errors_query_help",
-    capability: "betterstack",
     upstreamName: "errors_query_help",
     label: "Read error query guidance",
     description: "Get the exception and error-pattern query syntax.",
@@ -87,7 +78,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "plan_betterstack_query_windows",
-    capability: "betterstack",
     upstreamName: "query_windows",
     label: "Plan query windows",
     description: "Estimate scan size and split long-range queries.",
@@ -96,7 +86,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "query_betterstack",
-    capability: "betterstack",
     upstreamName: "query",
     label: "Query telemetry",
     description:
@@ -106,7 +95,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "list_betterstack_incidents",
-    capability: "betterstack",
     upstreamName: "incidents",
     label: "List incidents",
     description: "List uptime and monitoring incidents.",
@@ -115,7 +103,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "fetch_betterstack_incident",
-    capability: "betterstack",
     upstreamName: "incident",
     label: "Read incident",
     description: "Inspect an incident and its cause.",
@@ -124,7 +111,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "list_betterstack_monitors",
-    capability: "betterstack",
     upstreamName: "monitors",
     label: "List monitors",
     description: "List uptime monitors and current status.",
@@ -133,7 +119,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "fetch_betterstack_monitor",
-    capability: "betterstack",
     upstreamName: "monitor",
     label: "Read monitor",
     description: "Inspect an uptime monitor.",
@@ -142,7 +127,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "resolve_betterstack_incident",
-    capability: "betterstack_write",
     upstreamName: "resolve_incident",
     label: "Resolve incident",
     description: "Mark an incident as resolved; this can notify responders.",
@@ -151,7 +135,6 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
   },
   {
     name: "update_betterstack_error_state",
-    capability: "betterstack_write",
     upstreamName: "update_error_state",
     label: "Update error state",
     description:
@@ -169,7 +152,6 @@ export const CONNECTOR_TOOLS: Record<
   github: [
     {
       name: "search_github",
-      capability: "github",
       label: "Search GitHub",
       description: "Search pull requests and issues.",
       readOnlyHint: true,
@@ -177,7 +159,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "fetch_github",
-      capability: "github",
       label: "Read GitHub item",
       description: "Read a pull request or issue and discussion.",
       readOnlyHint: true,
@@ -185,7 +166,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "investigate_code",
-      capability: "code_intelligence",
       label: "Investigate code",
       description: "Analyze connected repositories.",
       readOnlyHint: true,
@@ -193,7 +173,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "propose_code_change",
-      capability: "code_actions",
       label: "Propose code change",
       description: "Push a branch and open a draft pull request.",
       readOnlyHint: false,
@@ -203,7 +182,6 @@ export const CONNECTOR_TOOLS: Record<
   linear: [
     {
       name: "search_linear",
-      capability: "linear",
       label: "Search Linear",
       description: "Find issues by keyword.",
       readOnlyHint: true,
@@ -211,7 +189,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "list_linear_issues",
-      capability: "linear",
       label: "List Linear issues",
       description: "List work by team, state, assignee, or project.",
       readOnlyHint: true,
@@ -219,7 +196,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "fetch_linear",
-      capability: "linear",
       label: "Read Linear issue",
       description: "Read an issue and its comments.",
       readOnlyHint: true,
@@ -227,7 +203,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "create_linear_issue",
-      capability: "linear_write",
       label: "Create issue",
       description: "Create a Linear issue.",
       readOnlyHint: false,
@@ -235,7 +210,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "comment_linear",
-      capability: "linear_write",
       label: "Comment on issue",
       description: "Add a comment to an issue.",
       readOnlyHint: false,
@@ -243,7 +217,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "update_linear_issue",
-      capability: "linear_write",
       label: "Update issue",
       description: "Change issue fields and workflow state.",
       readOnlyHint: false,
@@ -253,7 +226,6 @@ export const CONNECTOR_TOOLS: Record<
   datadog: [
     {
       name: "search_datadog_logs",
-      capability: "datadog",
       label: "Search logs",
       description: "Search indexed Datadog logs.",
       readOnlyHint: true,
@@ -261,7 +233,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "analyze_datadog_logs",
-      capability: "datadog",
       label: "Analyze logs",
       description: "Count and aggregate Datadog logs.",
       readOnlyHint: true,
@@ -271,7 +242,6 @@ export const CONNECTOR_TOOLS: Record<
   attio: [
     {
       name: "search_attio",
-      capability: "attio",
       label: "Search CRM",
       description: "Search CRM records.",
       readOnlyHint: true,
@@ -279,7 +249,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "fetch_attio_record",
-      capability: "attio",
       label: "Read CRM record",
       description: "Read record values and relationships.",
       readOnlyHint: true,
@@ -287,7 +256,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "query_attio",
-      capability: "attio",
       label: "Query CRM",
       description: "Read schemas, records, and pipelines.",
       readOnlyHint: true,
@@ -295,7 +263,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "fetch_attio_activity",
-      capability: "attio",
       label: "Read CRM activity",
       description: "Read notes, meetings, and transcripts.",
       readOnlyHint: true,
@@ -303,7 +270,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "create_attio_record",
-      capability: "attio_write",
       label: "Create CRM record",
       description: "Create a person, company, deal, or custom record.",
       readOnlyHint: false,
@@ -311,7 +277,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "update_attio_record",
-      capability: "attio_write",
       label: "Update CRM record",
       description: "Update selected fields on an existing record.",
       readOnlyHint: false,
@@ -319,7 +284,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "create_attio_list_entry",
-      capability: "attio_write",
       label: "Add record to list",
       description: "Add an existing record to a list or pipeline.",
       readOnlyHint: false,
@@ -327,7 +291,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "update_attio_list_entry",
-      capability: "attio_write",
       label: "Update list entry",
       description: "Update a pipeline stage or other list entry fields.",
       readOnlyHint: false,
@@ -335,7 +298,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "create_attio_note",
-      capability: "attio_write",
       label: "Add note",
       description: "Add a note to a CRM record.",
       readOnlyHint: false,
@@ -343,7 +305,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "create_attio_task",
-      capability: "attio_write",
       label: "Create task",
       description:
         "Create a task with linked records, assignees, and a deadline.",
@@ -352,7 +313,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "update_attio_task",
-      capability: "attio_write",
       label: "Update task",
       description:
         "Complete or reopen a task, or update its deadline and assignments.",
@@ -363,7 +323,6 @@ export const CONNECTOR_TOOLS: Record<
   notion: [
     {
       name: "search_notion",
-      capability: "notion",
       label: "Search Notion",
       description: "Find selected pages and data sources.",
       readOnlyHint: true,
@@ -371,7 +330,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "fetch_notion_page",
-      capability: "notion",
       label: "Read page",
       description: "Read page content, properties, and comments.",
       readOnlyHint: true,
@@ -379,7 +337,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "query_notion_data_source",
-      capability: "notion",
       label: "Query database",
       description: "Read database schemas and rows.",
       readOnlyHint: true,
@@ -387,7 +344,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "list_notion_users",
-      capability: "notion",
       label: "List people",
       description: "Resolve workspace people without email addresses.",
       readOnlyHint: true,
@@ -395,7 +351,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "create_notion_page",
-      capability: "notion_write",
       label: "Create page",
       description: "Create a page or database entry under a selected parent.",
       readOnlyHint: false,
@@ -403,7 +358,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "append_notion_content",
-      capability: "notion_write",
       label: "Append page content",
       description: "Add Markdown to the end of a page.",
       readOnlyHint: false,
@@ -411,7 +365,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "edit_notion_content",
-      capability: "notion_write",
       label: "Edit page content",
       description:
         "Make targeted text replacements without rewriting the whole page.",
@@ -420,7 +373,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "update_notion_properties",
-      capability: "notion_write",
       label: "Update page properties",
       description:
         "Update a page’s title, status, dates, people, or other editable fields.",
@@ -429,7 +381,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "add_notion_comment",
-      capability: "notion_write",
       label: "Add comment",
       description: "Comment on a page or reply to an existing discussion.",
       readOnlyHint: false,
@@ -439,7 +390,6 @@ export const CONNECTOR_TOOLS: Record<
   cloudwatch: [
     {
       name: "list_cloudwatch_log_groups",
-      capability: "cloudwatch",
       label: "List log groups",
       description: "Discover CloudWatch log groups.",
       readOnlyHint: true,
@@ -447,7 +397,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "search_cloudwatch_logs",
-      capability: "cloudwatch",
       label: "Search logs",
       description: "Run a Logs Insights query.",
       readOnlyHint: true,
@@ -455,7 +404,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "list_cloudwatch_metrics",
-      capability: "cloudwatch",
       label: "List metrics",
       description: "Discover metric namespaces and dimensions.",
       readOnlyHint: true,
@@ -463,7 +411,6 @@ export const CONNECTOR_TOOLS: Record<
     },
     {
       name: "get_cloudwatch_metrics",
-      capability: "cloudwatch",
       label: "Read metrics",
       description: "Fetch metric datapoints.",
       readOnlyHint: true,
@@ -490,4 +437,34 @@ export function enabledConnectorTools(
   return CONNECTOR_TOOLS[provider]
     .filter((tool) => names.has(tool.name))
     .map((tool) => tool.name)
+}
+
+export const STANDALONE_TOOLS = [
+  {
+    name: "search_web",
+    label: "Search web",
+    description: "Search the public web.",
+    readOnlyHint: true,
+  },
+  {
+    name: "fetch_web",
+    label: "Read web page",
+    description: "Read a public web page.",
+    readOnlyHint: true,
+  },
+  {
+    name: "create_artifacts",
+    label: "Create artifacts",
+    description: "Create files in a sandbox workbench.",
+    readOnlyHint: false,
+  },
+] as const
+
+export function builtinApprovalTool(name: string) {
+  for (const [provider, tools] of Object.entries(CONNECTOR_TOOLS)) {
+    const tool = tools.find((tool) => tool.name === name)
+    if (tool) return { ...tool, provider: provider as IntegrationProvider }
+  }
+  const tool = STANDALONE_TOOLS.find((tool) => tool.name === name)
+  return tool ? { ...tool, provider: null } : null
 }

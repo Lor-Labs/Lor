@@ -148,9 +148,10 @@ export const setApprovalPolicyOpSchema = z
   .object({
     op: z.literal("set_approval_policy"),
     target: z.discriminatedUnion("kind", [
-      // An approval-target key that exists today (capability:x, custom_tool:id…).
-      z.object({ kind: z.literal("key"), key: z.string().min(1).max(200) }),
-      // The custom tool / MCP server another op in this proposal creates.
+      // One built-in, custom HTTP, or discovered MCP tool identity.
+      z.object({ kind: z.literal("key"), key: z.string().min(1).max(2048) }),
+      // A custom HTTP tool another op in this proposal creates. MCP tools must
+      // be discovered and enabled before they can be selected for approval.
       z.object({
         kind: z.literal("created"),
         opPosition: z.number().int().min(0),

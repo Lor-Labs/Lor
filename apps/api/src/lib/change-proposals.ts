@@ -4,7 +4,6 @@ import {
   availableCapabilities,
   CAPABILITIES,
   isConnectorEvent,
-  parseApprovalTargetKey,
 } from "@repo/connectors"
 import { and, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
 import type {
@@ -30,6 +29,7 @@ import { nextLoopRunAt, validateLoopSchedule } from "@repo/lor/loop-schedule"
 import { endAfterToDate } from "@repo/lor/loops"
 import { initialMcpServerOAuthStatus } from "@repo/lor/mcp-server-oauth"
 import { encryptSecret } from "@repo/utils/crypto"
+import { approvalTargetIssue } from "./approval-targets"
 import { profileToolAccessIssue } from "./profile-tool-access"
 
 // Apply engine for workspace change proposals (pillar 3,
@@ -416,20 +416,10 @@ async function applyOperation(
         ctx.tx
       )
       if (toolAccessIssue) fail(position, toolAccessIssue)
-      const connections = await ctx.tx
-        .select({ provider: schema.integrationConnection.provider })
-        .from(schema.integrationConnection)
-        .where(
-          and(
-            eq(schema.integrationConnection.workspaceId, ctx.workspaceId),
-            eq(schema.integrationConnection.status, "active")
-          )
-        )
-      const connected = new Set(connections.map((row) => row.provider))
       // Same grantability rule as the agent-profiles route, including the
       // deployment-level web gate.
       const grantable = new Set(
-        availableCapabilities(connected)
+        availableCapabilities()
           .filter(
             (cap) =>
               cap.connector === null &&
@@ -643,42 +633,16 @@ async function applyOperation(
         const id = ctx.createdIds.get(spec.target.opPosition)
         if (kind === "create_custom_tool" && id) {
           targetKey = `custom_tool:${id}`
-        } else if (kind === "create_mcp_server" && id) {
-          targetKey = `mcp_server:${id}`
         } else {
           fail(position, "Referenced operation does not create a gateable tool")
         }
       } else {
-        const parsed = parseApprovalTargetKey(spec.target.key)
-        if (!parsed) fail(position, "Unknown approval target")
-        if (parsed.kind === "customTool") {
-          const owned = await ctx.tx
-            .select({ id: schema.customTool.id })
-            .from(schema.customTool)
-            .where(
-              and(
-                eq(schema.customTool.id, parsed.customToolId),
-                eq(schema.customTool.workspaceId, ctx.workspaceId)
-              )
-            )
-            .limit(1)
-            .then((rows) => rows[0])
-          if (!owned) fail(position, "Unknown custom tool")
-        }
-        if (parsed.kind === "mcpServer") {
-          const owned = await ctx.tx
-            .select({ id: schema.mcpServer.id })
-            .from(schema.mcpServer)
-            .where(
-              and(
-                eq(schema.mcpServer.id, parsed.mcpServerId),
-                eq(schema.mcpServer.workspaceId, ctx.workspaceId)
-              )
-            )
-            .limit(1)
-            .then((rows) => rows[0])
-          if (!owned) fail(position, "Unknown MCP server")
-        }
+        const issue = await approvalTargetIssue(
+          ctx.workspaceId,
+          spec.target.key,
+          ctx.tx
+        )
+        if (issue) fail(position, issue)
         targetKey = spec.target.key
       }
       if (spec.resolverKind === "role" && spec.resolverRole) {

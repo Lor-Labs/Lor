@@ -64,10 +64,7 @@ function refIssue(operations: ChangeOperation[]): string | null {
         }
         break
       case "set_approval_policy":
-        issue = check(index, operation.target, [
-          "create_custom_tool",
-          "create_mcp_server",
-        ])
+        issue = check(index, operation.target, ["create_custom_tool"])
         break
       default:
         break

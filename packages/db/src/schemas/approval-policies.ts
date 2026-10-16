@@ -22,7 +22,7 @@ export const approvalResolverKindEnum = pgEnum("approval_resolver_kind", [
 // (LOR-81). Computed model: a row exists only where the workspace opted in —
 // row existence = gate on, deleting the row turns the gate off. No seeding.
 // Target key forms (see @repo/connectors approval-targets):
-// capability:<lor_capability> | custom_tool:<id> | mcp_server:<id>
+// tool:<builtin_name> | custom_tool:<id> | mcp_tool:<server_id>:<encoded_name>
 export const approvalPolicy = pgTable(
   "approval_policy",
   {

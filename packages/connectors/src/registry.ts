@@ -153,87 +153,6 @@ export type AwsRegion = (typeof AWS_REGIONS)[number]
 // Exhaustive over lorCapabilityEnum — adding a capability value without a
 // descriptor here is a compile error.
 export const CAPABILITIES: Record<LorCapability, CapabilityDescriptor> = {
-  github: {
-    key: "github",
-    label: "GitHub",
-    description: "Search and read pull requests & issues",
-    connector: "github",
-  },
-  code_intelligence: {
-    key: "code_intelligence",
-    label: "Code Intelligence",
-    description:
-      "Analyze and answer questions about your connected repositories",
-    connector: "github",
-  },
-  code_actions: {
-    key: "code_actions",
-    label: "Code Actions",
-    description:
-      "Make code changes and open pull requests for the team to review",
-    connector: "github",
-  },
-  linear: {
-    key: "linear",
-    label: "Linear",
-    description: "Search and read issues, projects & comments",
-    connector: "linear",
-  },
-  linear_write: {
-    key: "linear_write",
-    label: "Write to Linear",
-    description: "Create and update issues and post comments",
-    connector: "linear",
-  },
-  datadog: {
-    key: "datadog",
-    label: "Datadog",
-    description: "Search and analyze logs",
-    connector: "datadog",
-  },
-  attio: {
-    key: "attio",
-    label: "Attio",
-    description: "Search and read CRM records, activity & call transcripts",
-    connector: "attio",
-  },
-  attio_write: {
-    key: "attio_write",
-    label: "Write to Attio",
-    description:
-      "Create and update CRM records, list entries, notes, and tasks",
-    connector: "attio",
-  },
-  notion: {
-    key: "notion",
-    label: "Notion",
-    description: "Search and read selected pages, databases & comments",
-    connector: "notion",
-  },
-  notion_write: {
-    key: "notion_write",
-    label: "Write to Notion",
-    description: "Create pages, edit content and properties, and add comments",
-    connector: "notion",
-  },
-  cloudwatch: {
-    key: "cloudwatch",
-    label: "CloudWatch",
-    description: "Query logs (Logs Insights) and metrics",
-    connector: "cloudwatch",
-  },
-  betterstack: {
-    key: "betterstack",
-    label: "Better Stack",
-    description: "Read errors, query telemetry, and investigate incidents",
-    connector: "betterstack",
-  },
-  betterstack_write: {
-    key: "betterstack_write",
-    label: "Write to Better Stack",
-    description: "Resolve incidents and change error triage states",
-    connector: "betterstack",
-  },
   web: {
     key: "web",
     label: "Web Search",
@@ -299,18 +218,7 @@ export const CONNECTOR_LIST: ConnectorDescriptor[] = Object.values(
 export const CAPABILITY_LIST: CapabilityDescriptor[] =
   Object.values(CAPABILITIES)
 
-export function connectorCapabilities(
-  connector: IntegrationProvider
-): CapabilityDescriptor[] {
-  return CAPABILITY_LIST.filter((c) => c.connector === connector)
-}
-
-// Capabilities a workspace can grant given its active connections. Built-in
-// capabilities (connector: null) are always available.
-export function availableCapabilities(
-  connectedProviders: Set<IntegrationProvider>
-): CapabilityDescriptor[] {
-  return CAPABILITY_LIST.filter(
-    (c) => c.connector === null || connectedProviders.has(c.connector)
-  )
+// Standalone abilities only; connector access is defined by tool selections.
+export function availableCapabilities(): CapabilityDescriptor[] {
+  return CAPABILITY_LIST
 }

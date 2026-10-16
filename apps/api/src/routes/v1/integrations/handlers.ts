@@ -3,7 +3,6 @@ import {
   CONNECTOR_LIST,
   CONNECTOR_TOOLS,
   type ConnectorDescriptor,
-  connectorCapabilities,
   enabledConnectorTools,
   isConnectorEvent,
   recommendedConnectorTools,
@@ -277,13 +276,6 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
         id: descriptor.id,
         name: descriptor.label,
         description: descriptor.description,
-        capabilities: connectorCapabilities(descriptor.id).map(
-          (capability) => ({
-            key: capability.key,
-            label: capability.label,
-            description: capability.description,
-          })
-        ),
         tools: [...CONNECTOR_TOOLS[descriptor.id]],
         enabledTools: conn
           ? enabledConnectorTools(descriptor.id, conn.enabledTools)

@@ -1,5 +1,4 @@
 import {
-  CAPABILITIES,
   CONNECTOR_TOOLS,
   enabledConnectorTools,
   profileSelectedTools,
@@ -14,7 +13,7 @@ import {
 } from "@repo/db/schema"
 
 export type ChannelToolGrants = {
-  // Internal startup/approval groups; connector access is resolved by tool name.
+  // Standalone abilities only; connector access is resolved by tool name.
   capabilities: LorCapability[]
   connectorTools: string[]
   customTools: "all" | string[]
@@ -44,9 +43,8 @@ async function profileGrants(
   const access = profile
     ? profileToolAccessSchema.parse(profile.toolAccess)
     : DEFAULT_PROFILE_TOOL_ACCESS
-  const standaloneCaps = (
+  const standaloneCaps =
     profile && !profile.grantsAll ? profile.capabilities : ALL_LOR_CAPABILITIES
-  ).filter((capability) => CAPABILITIES[capability].connector === null)
   const allCustomTools =
     !profile || profile.grantsAll || standaloneCaps.includes("custom_tools")
   const [connections, mcpServers, customToolGrants] = await Promise.all([
@@ -88,7 +86,6 @@ async function profileGrants(
     for (const descriptor of CONNECTOR_TOOLS[connection.provider]) {
       if (!selected.has(descriptor.name)) continue
       connectorTools.add(descriptor.name)
-      capabilities.add(descriptor.capability)
     }
   }
   const mcpTools: Record<string, string[]> = {}

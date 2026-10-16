@@ -1,6 +1,6 @@
-import { CONNECTOR_LIST, connectorCapabilities } from "@repo/connectors"
+import { CONNECTOR_LIST } from "@repo/connectors"
 import { db } from "@repo/db"
-import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
+import type { IntegrationProvider } from "@repo/db/schema"
 import { integrationConnection } from "@repo/db/schema"
 import { resolveChannelCapabilities } from "@repo/lor/capabilities"
 import {
@@ -20,7 +20,6 @@ export type ChannelConnector = {
 // Composer searches require the matching search tool; code-file browsing also
 // requires the code investigation tool. Profiles and workspace selections apply.
 export function attachableConnectors(
-  capabilities: LorCapability[],
   connected: Set<IntegrationProvider>,
   connectorTools: readonly string[] = [],
   purpose: "records" | "files" | "any" = "any"
@@ -46,10 +45,7 @@ export function attachableConnectors(
         ? canSearch(descriptor.id)
         : purpose === "files"
           ? canBrowseFiles(descriptor.id)
-          : canSearch(descriptor.id) || canBrowseFiles(descriptor.id)) &&
-      connectorCapabilities(descriptor.id).some((capability) =>
-        capabilities.includes(capability.key)
-      )
+          : canSearch(descriptor.id) || canBrowseFiles(descriptor.id))
   ).map((descriptor) => ({
     id: descriptor.id,
     label: descriptor.label,
@@ -58,7 +54,7 @@ export function attachableConnectors(
 }
 
 // Attaching is the composer's mirror of what Lor may read in a channel, so
-// the same capability resolution gates both.
+// the same tool selection gates both.
 export async function allowedChannelConnectors(
   workspaceId: string,
   channelId: string,
@@ -78,7 +74,6 @@ export async function allowedChannelConnectors(
   ])
 
   return attachableConnectors(
-    grants.capabilities,
     new Set(connections.map((row) => row.provider)),
     grants.connectorTools,
     purpose

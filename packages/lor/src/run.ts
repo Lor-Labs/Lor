@@ -97,6 +97,7 @@ export type RunToolResultStore = {
 }
 
 export type RunResume = {
+  approvalResume?: AgentRunContext["approvalResume"]
   // Transcript to resume from: the compaction baseline + steps after it when
   // the dead attempt had compacted, else the rebuilt initial user message +
   // every checkpointed step.

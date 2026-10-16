@@ -41,7 +41,7 @@ export const approval = pgTable(
     runId: uuid("run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),
-    // Machine slug for the gated action, e.g. "linear_write".
+    // Tool approval-target key, or a discretionary action slug.
     action: text("action").notNull(),
     // Human-readable consequences, rendered on the approval card.
     description: text("description").notNull(),

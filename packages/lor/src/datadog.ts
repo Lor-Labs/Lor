@@ -61,8 +61,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   })
 }
 
-// One MCP session per response: created when the channel grants the datadog
-// capability, closed by respond() after the stream finishes. Null (no tools,
+// One MCP session per response: created when a Datadog tool is selected,
+// closed by respond() after the stream finishes. Null (no tools,
 // no prompt line) when credentials are missing, the server is unreachable, or
 // setup exceeds the timeout.
 export async function datadogMcpTools(

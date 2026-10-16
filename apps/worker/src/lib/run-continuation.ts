@@ -526,12 +526,20 @@ export async function buildApprovalContinuation(args: {
         runId: schema.approval.runId,
         status: schema.approval.status,
         toolCallId: schema.approval.toolCallId,
+        toolName: schema.approval.toolName,
+        target: schema.approval.target,
       })
       .from(schema.approval)
       .where(eq(schema.approval.id, args.approvalId))
       .limit(1)
       .then((rows) => rows[0])
-    if (!approval?.runId || !approval.toolCallId) return null
+    if (
+      !approval?.runId ||
+      !approval.toolCallId ||
+      !approval.toolName ||
+      !approval.target
+    )
+      return null
     if (approval.status !== "approved" && approval.status !== "rejected") {
       return null
     }
@@ -565,6 +573,8 @@ export async function buildApprovalContinuation(args: {
     const resume: AgentRunApprovalResume = {
       approvalId,
       approved: approval.status === "approved",
+      toolName: approval.toolName,
+      target: approval.target,
     }
     return {
       predecessorRunId: approval.runId,

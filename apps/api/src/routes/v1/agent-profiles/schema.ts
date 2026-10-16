@@ -42,8 +42,7 @@ export const capabilityDescriptorSchema = z.object({
   key: capabilitySchema,
   label: z.string(),
   description: z.string(),
-  // The connector this capability belongs to — the editor groups by it. Null
-  // for built-in capabilities (web) that need no workspace connection.
+  // Standalone abilities have no connector; connected tools are listed separately.
   connector: z.enum(integrationProviderEnum.enumValues).nullable(),
   connectorLabel: z.string(),
 })

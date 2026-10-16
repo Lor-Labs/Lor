@@ -1,3 +1,4 @@
+import { CONNECTOR_TOOLS } from "@repo/connectors"
 import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import type { CustomTool } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -17,6 +18,9 @@ export const CUSTOM_TOOL_NAME_REGEX = /^[a-z][a-z0-9_]{2,63}$/
 // bind-time skip below is the real enforcement (built-ins always win), so a
 // stale list only means a collision surfaces at bind instead of create.
 export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  ...Object.values(CONNECTOR_TOOLS).flatMap((tools) =>
+    tools.map((tool) => tool.name)
+  ),
   "search",
   "read_thread",
   "view_image",

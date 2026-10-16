@@ -8,7 +8,6 @@ import {
   agentProfile,
   agentProfileCustomTool,
   customTool,
-  integrationConnection,
   type LorCapability,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -99,21 +98,9 @@ function configuredCapabilities(
 }
 
 // Standalone grant groups only. Connector/MCP access is validated by toolAccess.
-async function grantableCapabilities(
-  workspaceId: string
-): Promise<Set<LorCapability>> {
-  const connections = await db
-    .select({ provider: integrationConnection.provider })
-    .from(integrationConnection)
-    .where(
-      and(
-        eq(integrationConnection.workspaceId, workspaceId),
-        eq(integrationConnection.status, "active")
-      )
-    )
-  const connected = new Set(connections.map((r) => r.provider))
+function grantableCapabilities(): Set<LorCapability> {
   return new Set(
-    configuredCapabilities(availableCapabilities(connected)).map((c) => c.key)
+    configuredCapabilities(availableCapabilities()).map((c) => c.key)
   )
 }
 
@@ -129,17 +116,8 @@ export const listAgentProfiles: AppRouteHandler<
     .where(eq(agentProfile.workspaceId, workspace.id))
     .orderBy(desc(agentProfile.isDefault), asc(agentProfile.name))
   const profileIds = profiles.map((p) => p.id)
-  const [grants, connections, tools] = await Promise.all([
+  const [grants, tools] = await Promise.all([
     toolGrantsByProfile(profileIds),
-    db
-      .select({ provider: integrationConnection.provider })
-      .from(integrationConnection)
-      .where(
-        and(
-          eq(integrationConnection.workspaceId, workspace.id),
-          eq(integrationConnection.status, "active")
-        )
-      ),
     db
       .select({
         id: customTool.id,
@@ -151,16 +129,13 @@ export const listAgentProfiles: AppRouteHandler<
       .orderBy(asc(customTool.name)),
   ])
 
-  const connected = new Set(connections.map((r) => r.provider))
-  const caps = configuredCapabilities(availableCapabilities(connected)).map(
-    (c) => ({
-      key: c.key,
-      label: c.label,
-      description: c.description,
-      connector: c.connector,
-      connectorLabel: c.connector ? CONNECTORS[c.connector].label : c.label,
-    })
-  )
+  const caps = configuredCapabilities(availableCapabilities()).map((c) => ({
+    key: c.key,
+    label: c.label,
+    description: c.description,
+    connector: c.connector,
+    connectorLabel: c.connector ? CONNECTORS[c.connector].label : c.label,
+  }))
 
   return c.json(
     {
@@ -196,7 +171,7 @@ export const createAgentProfile: AppRouteHandler<
   // request would otherwise fail the whole insert transaction.
   const customToolIds = [...new Set(body.customToolIds)]
 
-  const grantable = await grantableCapabilities(workspace.id)
+  const grantable = grantableCapabilities()
   const unsupported = capabilities.filter((k) => !grantable.has(k))
   if (unsupported.length > 0) {
     return c.json(
@@ -270,7 +245,7 @@ export const updateAgentProfile: AppRouteHandler<
   const customToolIds = body.customToolIds && [...new Set(body.customToolIds)]
 
   if (capabilities !== undefined) {
-    const grantable = await grantableCapabilities(workspace.id)
+    const grantable = grantableCapabilities()
     const unsupported = capabilities.filter((k) => !grantable.has(k))
     if (unsupported.length > 0) {
       return c.json(

@@ -1,30 +1,36 @@
-import { ALL_LOR_CAPABILITIES } from "@repo/db/schema"
+import { CONNECTOR_TOOLS } from "@repo/connectors"
 import { describe, expect, it } from "vitest"
 import { attachableConnectors } from "@/lib/channel-connectors"
+
+const allTools = Object.values(CONNECTOR_TOOLS).flatMap((tools) =>
+  tools.map((tool) => tool.name)
+)
 
 const ids = (connectors: { id: string }[]) => connectors.map((c) => c.id)
 
 describe("attachableConnectors", () => {
   it("returns nothing when the workspace has no connections", () => {
-    expect(attachableConnectors(ALL_LOR_CAPABILITIES, new Set())).toEqual([])
+    expect(attachableConnectors(new Set(), allTools)).toEqual([])
   })
 
   it("excludes connectors the channel's profile doesn't grant", () => {
     const connected = new Set(["github", "linear"] as const)
-    expect(ids(attachableConnectors(["linear"], connected))).toEqual(["linear"])
+    expect(ids(attachableConnectors(connected, ["search_linear"]))).toEqual([
+      "linear",
+    ])
   })
 
-  it("grants a connector from any one of its capabilities", () => {
+  it("grants file browsing through its investigation tool", () => {
     const connected = new Set(["github"] as const)
-    expect(ids(attachableConnectors(["code_intelligence"], connected))).toEqual(
-      ["github"]
-    )
+    expect(ids(attachableConnectors(connected, ["investigate_code"]))).toEqual([
+      "github",
+    ])
   })
 
   it("flags only connectors whose files can be browsed", () => {
     const connected = new Set(["github", "linear"] as const)
     const byId = new Map(
-      attachableConnectors(ALL_LOR_CAPABILITIES, connected).map((c) => [
+      attachableConnectors(connected, allTools).map((c) => [
         c.id,
         c.supportsFiles,
       ])
@@ -35,7 +41,7 @@ describe("attachableConnectors", () => {
 
   it("excludes connectors with no attachable records", () => {
     const connected = new Set(["datadog"] as const)
-    expect(attachableConnectors(["datadog"], connected)).toEqual([])
+    expect(attachableConnectors(connected, ["search_datadog_logs"])).toEqual([])
   })
 
   it("returns every connected, granted, searchable connector", () => {
@@ -46,7 +52,7 @@ describe("attachableConnectors", () => {
       "attio",
       "datadog",
     ] as const)
-    expect(ids(attachableConnectors(ALL_LOR_CAPABILITIES, connected))).toEqual([
+    expect(ids(attachableConnectors(connected, allTools))).toEqual([
       "github",
       "linear",
       "attio",

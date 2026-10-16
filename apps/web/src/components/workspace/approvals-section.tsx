@@ -1,4 +1,12 @@
+import { ArrowDown01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { cleanToolDescription, toolGroups } from "@repo/connectors"
 import { Button } from "@repo/ui/components/button"
+import {
+  Collapsible,
+  CollapsiblePanel,
+  CollapsibleTrigger,
+} from "@repo/ui/components/collapsible"
 import { Label } from "@repo/ui/components/label"
 import {
   DropdownMenu,
@@ -18,25 +26,13 @@ import { Switch } from "@repo/ui/components/switch"
 import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  DISCLOSURE_MOTION,
   SettingsGroup,
-  SettingsSection,
 } from "@/components/workspace/settings-group"
 import { useWorkspaceRoles } from "@/hooks/use-workspace-roles"
 import { apiClient } from "@/lib/api-client"
 import type { ApprovalPolicy, ApprovalTarget } from "@/lib/api-types"
 import { formatWorkspaceRole } from "@/lib/permissions"
-
-const GROUP_TITLES: Record<ApprovalTarget["group"], string> = {
-  capability: "Connector capabilities",
-  custom_tool: "Custom tools",
-  mcp_server: "MCP servers",
-}
-
-const GROUP_ORDER: ApprovalTarget["group"][] = [
-  "capability",
-  "custom_tool",
-  "mcp_server",
-]
 
 // Prefixes distinguish roles and people while sharing the saved resolver value.
 const KIND_ANY_MEMBER = "any_member"
@@ -48,11 +44,11 @@ function resolverValue(policy: ApprovalPolicy): string {
     case "role":
       return policy.resolverRole
         ? `${rolePrefix}${policy.resolverRole}`
-        : KIND_ANY_MEMBER
+        : "role:unavailable"
     case "user":
       return policy.resolverUserId
         ? `${userPrefix}${policy.resolverUserId}`
-        : KIND_ANY_MEMBER
+        : "user:unavailable"
     default:
       return policy.resolverKind
   }
@@ -146,6 +142,17 @@ export function ApprovalsSection({
     onError: () => toast.error("Couldn't turn the gate off"),
   })
 
+  const bulk = useMutation({
+    mutationFn: async (input: { targets: string[]; required: boolean }) => {
+      const res = await apiClient.v1.workspaces[":workspaceSlug"][
+        "approval-policies"
+      ].bulk.$put({ param: { workspaceSlug }, json: input })
+      if (!res.ok) throw new Error("Failed to update approval rules")
+    },
+    onSuccess: () => invalidate(),
+    onError: () => toast.error("Couldn't update the approval rules"),
+  })
+
   if (isPending) {
     return (
       <div className="flex justify-center py-10">
@@ -184,144 +191,258 @@ export function ApprovalsSection({
     label: m.name,
   }))
 
-  const busy = upsert.isPending || remove.isPending
-  const groups = GROUP_ORDER.map((group) => ({
-    group,
-    targets: data.targets.filter((t) => t.group === group),
-  })).filter(({ targets }) => targets.length > 0)
+  const busy = upsert.isPending || remove.isPending || bulk.isPending
+  const byGroup = new Map<
+    string,
+    { label: string; kind: ApprovalTarget["group"]; targets: ApprovalTarget[] }
+  >()
+  for (const target of data.targets) {
+    const group = byGroup.get(target.groupKey) ?? {
+      label: target.groupLabel,
+      kind: target.group,
+      targets: [],
+    }
+    group.targets.push(target)
+    byGroup.set(target.groupKey, group)
+  }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <p className="px-4 text-sm text-muted-foreground">
-        By default, Lor acts on its own. Turn an action on here and Lor asks
-        first. The action waits until someone approves it.
+        Choose which tools need approval and who can approve them.
       </p>
-      {groups.map(({ group, targets }) => {
-        const gated = targets.filter((t) => policyByTarget.has(t.key)).length
+      {[...byGroup].map(([groupKey, group]) => {
+        const targets = group.targets
+        const gated = targets.filter((target) =>
+          policyByTarget.has(target.key)
+        ).length
+        const sections = toolGroups(
+          targets,
+          group.kind === "mcp_server" || group.kind === "custom_tool"
+        )
         return (
-          <SettingsSection
-            key={group}
-            title={GROUP_TITLES[group]}
-            count={targets.length}
-            action={
-              gated > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {gated} on
-                </span>
-              )
-            }
+          <Collapsible
+            key={groupKey}
+            defaultOpen={gated > 0 || group.kind === "builtin"}
+            className="space-y-2"
           >
-            <SettingsGroup>
-              {targets.map((target) => {
-                const policy = policyByTarget.get(target.key)
-                const switchId = `approval-gate-${target.key}`
-                const value = policy ? resolverValue(policy) : KIND_ANY_MEMBER
-                // Keep departed members and deleted roles visible in the trigger.
-                const resolverLabel =
-                  [...resolverItems, ...personItems].find(
-                    (item) => item.value === value
-                  )?.label ?? "Unavailable resolver"
-                const setResolver = (nextValue: string) => {
-                  upsert.mutate({
-                    target: target.key,
-                    ...valueToResolver(nextValue),
-                  })
-                }
-                return (
-                  <div key={target.key} className="space-y-2.5 py-3">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="min-w-0">
-                        <Label htmlFor={switchId} className="text-sm">
-                          {target.label}
-                        </Label>
-                        <p
-                          className="line-clamp-2 text-sm text-muted-foreground"
-                          title={target.description}
-                        >
-                          {target.description}
-                        </p>
-                      </div>
-                      <Switch
-                        id={switchId}
-                        checked={!!policy}
-                        disabled={busy}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            upsert.mutate({
-                              target: target.key,
-                              resolverKind: "any_member",
-                            })
-                          } else if (policy) {
-                            remove.mutate(policy.id)
-                          }
-                        }}
-                      />
-                    </div>
-                    {policy && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          Who can approve
-                        </span>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger
-                            disabled={busy}
-                            aria-label={`Who can approve ${target.label}: ${resolverLabel}`}
-                            render={<SelectButton className="w-56" size="sm" />}
+            <div className="flex items-center justify-between gap-3 px-4">
+              <CollapsibleTrigger className="group flex min-w-0 cursor-pointer items-center gap-2 text-left text-sm font-medium">
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-180"
+                />
+                <span className="truncate">{group.label}</span>
+                <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                  {gated} of {targets.length} require approval
+                </span>
+              </CollapsibleTrigger>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  disabled={busy}
+                  render={<Button variant="ghost" size="sm" />}
+                >
+                  Bulk actions
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {group.kind !== "unavailable" && (
+                    <>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          bulk.mutate({
+                            targets: targets.map((target) => target.key),
+                            required: true,
+                          })
+                        }
+                      >
+                        Require approval for all
+                      </DropdownMenuItem>
+                      {sections.length > 1 &&
+                        sections.map((section) => (
+                          <DropdownMenuItem
+                            key={section.key}
+                            onClick={() =>
+                              bulk.mutate({
+                                targets: section.tools.map(
+                                  (target) => target.key
+                                ),
+                                required: true,
+                              })
+                            }
                           >
-                            {resolverLabel}
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" className="w-56">
-                            <DropdownMenuRadioGroup
-                              value={value}
-                              onValueChange={setResolver}
-                            >
-                              {resolverItems.map((item) => (
-                                <DropdownMenuRadioItem
-                                  key={item.value}
-                                  value={item.value}
-                                  disabled={busy}
-                                >
-                                  {item.label}
-                                </DropdownMenuRadioItem>
-                              ))}
-                            </DropdownMenuRadioGroup>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuSub>
-                              <DropdownMenuSubTrigger inset>
-                                Specific person
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuSubContent className="w-56 max-w-(--available-width)">
-                                <DropdownMenuRadioGroup
-                                  value={value}
-                                  onValueChange={setResolver}
-                                >
-                                  {personItems.map((item) => (
-                                    <DropdownMenuRadioItem
-                                      key={item.value}
-                                      value={item.value}
-                                      disabled={busy}
-                                      className="grid-cols-[.75rem_minmax(0,1fr)] [&>span:last-child]:truncate"
-                                    >
-                                      {item.label}
-                                    </DropdownMenuRadioItem>
-                                  ))}
-                                </DropdownMenuRadioGroup>
-                                {personItems.length === 0 && (
-                                  <DropdownMenuItem disabled>
-                                    No members available
-                                  </DropdownMenuItem>
-                                )}
-                              </DropdownMenuSubContent>
-                            </DropdownMenuSub>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                            Require approval for {section.label.toLowerCase()}
+                          </DropdownMenuItem>
+                        ))}
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  <DropdownMenuItem
+                    disabled={gated === 0}
+                    onClick={() =>
+                      bulk.mutate({
+                        targets: targets.map((target) => target.key),
+                        required: false,
+                      })
+                    }
+                  >
+                    Turn off approval for all
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <CollapsiblePanel className={DISCLOSURE_MOTION}>
+              <div className="space-y-4">
+                {sections.map(({ key, label, tools: targets }) => (
+                  <div key={key} className="space-y-2">
+                    {sections.length > 1 && (
+                      <p className="px-4 text-xs font-medium text-muted-foreground">
+                        {label}
+                      </p>
                     )}
+                    <SettingsGroup>
+                      {targets.map((target) => {
+                        const policy = policyByTarget.get(target.key)
+                        const switchId = `approval-gate-${target.key}`
+                        const value = policy
+                          ? resolverValue(policy)
+                          : KIND_ANY_MEMBER
+                        // Keep departed members and deleted roles visible in the trigger.
+                        const resolverLabel =
+                          [...resolverItems, ...personItems].find(
+                            (item) => item.value === value
+                          )?.label ?? "Unavailable resolver"
+                        const setResolver = (nextValue: string) => {
+                          upsert.mutate({
+                            target: target.key,
+                            ...valueToResolver(nextValue),
+                          })
+                        }
+                        return (
+                          <div key={target.key} className="space-y-2.5 py-3">
+                            <div className="flex items-center justify-between gap-4">
+                              <div className="min-w-0">
+                                <Label htmlFor={switchId} className="text-sm">
+                                  {target.label}
+                                  {target.group === "mcp_server" &&
+                                    target.readOnlyHint === true && (
+                                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                        Read only
+                                      </span>
+                                    )}
+                                </Label>
+                                <p
+                                  className="line-clamp-2 text-sm text-muted-foreground"
+                                  title={cleanToolDescription(
+                                    target.description
+                                  )}
+                                >
+                                  {cleanToolDescription(target.description)}
+                                </p>
+                              </div>
+                              <Switch
+                                id={switchId}
+                                checked={!!policy}
+                                disabled={
+                                  busy ||
+                                  (target.group === "unavailable" && !policy)
+                                }
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    upsert.mutate({
+                                      target: target.key,
+                                      resolverKind: "any_member",
+                                    })
+                                  } else if (policy) {
+                                    remove.mutate(policy.id)
+                                  }
+                                }}
+                              />
+                            </div>
+                            {policy && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">
+                                  Who can approve
+                                </span>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger
+                                    disabled={
+                                      busy || target.group === "unavailable"
+                                    }
+                                    aria-label={`Who can approve ${target.label}: ${resolverLabel}`}
+                                    render={
+                                      <SelectButton
+                                        className="w-56"
+                                        size="sm"
+                                      />
+                                    }
+                                  >
+                                    {resolverLabel}
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent
+                                    align="start"
+                                    className="w-56"
+                                  >
+                                    <DropdownMenuRadioGroup
+                                      value={value}
+                                      onValueChange={setResolver}
+                                    >
+                                      {resolverItems.map((item) => (
+                                        <DropdownMenuRadioItem
+                                          key={item.value}
+                                          value={item.value}
+                                          disabled={
+                                            busy ||
+                                            target.group === "unavailable"
+                                          }
+                                        >
+                                          {item.label}
+                                        </DropdownMenuRadioItem>
+                                      ))}
+                                    </DropdownMenuRadioGroup>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuSub>
+                                      <DropdownMenuSubTrigger inset>
+                                        Specific person
+                                      </DropdownMenuSubTrigger>
+                                      <DropdownMenuSubContent className="w-56 max-w-(--available-width)">
+                                        <DropdownMenuRadioGroup
+                                          value={value}
+                                          onValueChange={setResolver}
+                                        >
+                                          {personItems.map((item) => (
+                                            <DropdownMenuRadioItem
+                                              key={item.value}
+                                              value={item.value}
+                                              disabled={
+                                                busy ||
+                                                target.group === "unavailable"
+                                              }
+                                              className="grid-cols-[.75rem_minmax(0,1fr)] [&>span:last-child]:truncate"
+                                            >
+                                              {item.label}
+                                            </DropdownMenuRadioItem>
+                                          ))}
+                                        </DropdownMenuRadioGroup>
+                                        {personItems.length === 0 && (
+                                          <DropdownMenuItem disabled>
+                                            No members available
+                                          </DropdownMenuItem>
+                                        )}
+                                      </DropdownMenuSubContent>
+                                    </DropdownMenuSub>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </SettingsGroup>
                   </div>
-                )
-              })}
-            </SettingsGroup>
-          </SettingsSection>
+                ))}
+              </div>
+            </CollapsiblePanel>
+          </Collapsible>
         )
       })}
     </div>

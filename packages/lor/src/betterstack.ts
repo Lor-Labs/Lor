@@ -1,5 +1,4 @@
 import { BETTERSTACK_TOOLS, enabledConnectorTools } from "@repo/connectors"
-import type { LorCapability } from "@repo/db/schema"
 import type { ToolSet } from "ai"
 import { logger } from "./logger"
 import { connectMcpServer } from "./mcp-servers"
@@ -11,7 +10,7 @@ import {
 
 export async function betterstackMcpTools(
   workspaceId: string,
-  capabilities: readonly LorCapability[]
+  selectedTools: ReadonlySet<string>
 ) {
   try {
     const connection = await getBetterstackConnection(workspaceId)
@@ -20,7 +19,7 @@ export async function betterstackMcpTools(
       enabledConnectorTools("betterstack", connection.enabledTools)
     )
     const catalog = BETTERSTACK_TOOLS.filter(
-      (tool) => enabled.has(tool.name) && capabilities.includes(tool.capability)
+      (tool) => enabled.has(tool.name) && selectedTools.has(tool.name)
     )
     if (catalog.length === 0) return null
     const session = await connectMcpServer({

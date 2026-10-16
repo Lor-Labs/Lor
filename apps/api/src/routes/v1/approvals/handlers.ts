@@ -1,4 +1,5 @@
 import { canResolveApproval } from "@repo/auth/permissions"
+import { parseApprovalTargetKey } from "@repo/connectors"
 import {
   and,
   db,
@@ -200,6 +201,12 @@ async function resolveApproval(
 
   const scope = row ? approvalScope(row.run, row.plan) : null
   if (!row || !scope) return { kind: "not_found" }
+  if (
+    resolution === "approved" &&
+    row.approval.target &&
+    !parseApprovalTargetKey(row.approval.target)
+  )
+    return { kind: "conflict" }
 
   // An approval from a voice call resolves only from that call, by someone
   // connected to it, and resumes there.

@@ -1,4 +1,9 @@
-import { type ApprovalTarget, approvalTargetKey } from "@repo/connectors"
+import {
+  type ApprovalTarget,
+  approvalTargetKey,
+  builtinApprovalTool,
+  parseApprovalTargetKey,
+} from "@repo/connectors"
 import { db, eq, schema } from "@repo/db"
 import type { ToolSet } from "ai"
 import { logger } from "./logger"
@@ -20,6 +25,12 @@ export async function loadApprovalGates(
     })
     .from(schema.approvalPolicy)
     .where(eq(schema.approvalPolicy.workspaceId, workspaceId))
+  for (const row of rows) {
+    if (!parseApprovalTargetKey(row.target))
+      throw new Error(
+        "Unsupported approval policy target; review workspace approval settings"
+      )
+  }
   return new Map(rows.map((row) => [row.target, { policyId: row.id }]))
 }
 
@@ -29,10 +40,10 @@ export async function loadApprovalGates(
 export class ToolTargetMap {
   private readonly byToolName = new Map<string, string>()
 
-  add(tools: ToolSet | Record<string, unknown>, target: ApprovalTarget) {
-    const key = approvalTargetKey(target)
+  addBuiltins(tools: ToolSet | Record<string, unknown>) {
     for (const name of Object.keys(tools)) {
-      this.byToolName.set(name, key)
+      if (builtinApprovalTool(name))
+        this.addName(name, { kind: "builtinTool", toolName: name })
     }
   }
 

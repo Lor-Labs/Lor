@@ -2112,6 +2112,11 @@ export async function respond(
     : resolveWorkspaceCapabilities(ctx.workspaceId)
   ).catch(() => EMPTY_TOOL_GRANTS)
   const caps = grants.capabilities
+  const selectedConnectorTools = new Set(grants.connectorTools)
+  const needsConnector = (provider: keyof typeof CONNECTOR_TOOLS) =>
+    CONNECTOR_TOOLS[provider].some((tool) =>
+      selectedConnectorTools.has(tool.name)
+    )
   // MCP handshakes are the slow part of startup; kick them off now (time-
   // bounded inside channelMcpServers) and merge after the built-ins exist.
   // Collisions are filtered at merge, so this needs no takenNames up front.
@@ -2126,14 +2131,11 @@ export async function respond(
           grants.mcpTools
         ).catch(() => null)
       : Promise.resolve(null)
-  const needsGithub =
-    caps.includes("github") ||
-    caps.includes("code_intelligence") ||
-    caps.includes("code_actions")
-  const needsLinear = caps.includes("linear") || caps.includes("linear_write")
-  const needsAttio = caps.includes("attio") || caps.includes("attio_write")
-  const needsNotion = caps.includes("notion") || caps.includes("notion_write")
-  const needsCloudwatch = caps.includes("cloudwatch")
+  const needsGithub = needsConnector("github")
+  const needsLinear = needsConnector("linear")
+  const needsAttio = needsConnector("attio")
+  const needsNotion = needsConnector("notion")
+  const needsCloudwatch = needsConnector("cloudwatch")
   // Independent lookups run concurrently; the Datadog MCP handshake is the
   // slow one and is itself time-bounded inside datadogMcpTools.
   const [
@@ -2158,7 +2160,7 @@ export async function respond(
     needsNotion
       ? resolveWorkspaceNotion(ctx.workspaceId).catch(() => null)
       : null,
-    caps.includes("datadog")
+    needsConnector("datadog")
       ? resolveWorkspaceDatadog(ctx.workspaceId)
           .then((d) => (d ? datadogMcpTools(d.externalId) : null))
           .catch(() => null)
@@ -2166,13 +2168,13 @@ export async function respond(
     needsCloudwatch
       ? resolveWorkspaceCloudwatch(ctx.workspaceId).catch(() => null)
       : null,
-    caps.includes("code_actions")
+    selectedConnectorTools.has("propose_code_change")
       ? githubBaseBranchOverrides(ctx.workspaceId).catch(
           () => ({}) as Record<string, string>
         )
       : ({} as Record<string, string>),
-    caps.includes("betterstack") || caps.includes("betterstack_write")
-      ? betterstackMcpTools(ctx.workspaceId, caps)
+    needsConnector("betterstack")
+      ? betterstackMcpTools(ctx.workspaceId, selectedConnectorTools)
       : null,
   ])
 
@@ -2186,9 +2188,8 @@ export async function respond(
       blaxelConfigured() &&
         github &&
         ctx.channelId &&
-        caps.includes("code_actions")
+        selectedConnectorTools.has("propose_code_change")
     )
-    const selectedConnectorTools = new Set(grants.connectorTools)
     const reservedConnectorNames = new Set([
       ...Object.values(CONNECTOR_TOOLS).flatMap((catalog) =>
         catalog.map((tool) => tool.name)
@@ -2223,10 +2224,8 @@ export async function respond(
         ? messageActionTools
         : {}),
       ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
-      ...(github && caps.includes("github") ? githubTools : {}),
-      ...(blaxelConfigured() && github && caps.includes("code_intelligence")
-        ? codeTools
-        : {}),
+      ...(github ? githubTools : {}),
+      ...(blaxelConfigured() && github ? codeTools : {}),
       ...(codeActionsEnabled ? codeActionTools : {}),
       ...(artifactsEnabled ? artifactTools : {}),
       ...(ctx.plan || ctx.threadRootId ? planTools : {}),
@@ -2234,15 +2233,15 @@ export async function respond(
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
-      ...(linear && caps.includes("linear") ? linearTools : {}),
-      ...(linear && caps.includes("linear_write") ? linearWriteTools : {}),
-      ...(attio && caps.includes("attio") ? attioTools : {}),
-      ...(attio && caps.includes("attio_write") ? attioWriteTools : {}),
-      ...(notion && caps.includes("notion") ? notionTools : {}),
-      ...(notion && caps.includes("notion_write") ? notionWriteTools : {}),
+      ...(linear ? linearTools : {}),
+      ...(linear ? linearWriteTools : {}),
+      ...(attio ? attioTools : {}),
+      ...(attio ? attioWriteTools : {}),
+      ...(notion ? notionTools : {}),
+      ...(notion ? notionWriteTools : {}),
       ...(datadogMcp ? datadogMcp.tools : {}),
       ...(betterstackMcp ? betterstackMcp.tools : {}),
-      ...(cloudwatch && caps.includes("cloudwatch") ? cloudwatchTools : {}),
+      ...(cloudwatch ? cloudwatchTools : {}),
     }
     const takenBuiltinNames = new Set(Object.keys(builtinTools))
     for (const name of takenBuiltinNames) {
@@ -2255,42 +2254,7 @@ export async function respond(
     }
     const hasToolGroup = (group: ToolSet) =>
       Object.keys(group).some((name) => Object.hasOwn(builtinTools, name))
-    // Approval targets for the capability-gated groups. Core tools (brain,
-    // chat search, messaging/reactions, plan/loop bookkeeping) stay unmapped
-    // and can never be gated — answering in chat is the product. Marked from
-    // the source tool sets, so a group that didn't bind simply contributes
-    // names no bound tool answers to.
-    for (const [tools, capability] of [
-      [webTools, "web"],
-      [githubTools, "github"],
-      [codeTools, "code_intelligence"],
-      [codeActionTools, "code_actions"],
-      [artifactTools, "artifacts"],
-      [linearTools, "linear"],
-      [linearWriteTools, "linear_write"],
-      [attioTools, "attio"],
-      [attioWriteTools, "attio_write"],
-      [notionTools, "notion"],
-      [notionWriteTools, "notion_write"],
-      [cloudwatchTools, "cloudwatch"],
-    ] as const) {
-      toolTargets.add(tools, { kind: "capability", capability })
-    }
-    if (datadogMcp) {
-      toolTargets.add(datadogMcp.tools, {
-        kind: "capability",
-        capability: "datadog",
-      })
-    }
-    if (betterstackMcp) {
-      for (const descriptor of BETTERSTACK_TOOLS) {
-        if (Object.hasOwn(builtinTools, descriptor.name))
-          toolTargets.addName(descriptor.name, {
-            kind: "capability",
-            capability: descriptor.capability,
-          })
-      }
-    }
+    toolTargets.addBuiltins(builtinTools)
     // Bound after the built-ins so a workspace row can never shadow one
     // (collisions are skipped inside workspaceCustomTools).
     const customTools =
@@ -2330,11 +2294,15 @@ export async function respond(
         }
         ;(tools as ToolSet)[name] = tool
         boundServerToolNames.add(name)
-        // Only bound names get the mcpServer target — a collision loser must
+        // Only bound names get an MCP tool target — a collision loser must
         // not overwrite the executing tool's approval target.
         const mcpServerId = serverIdByToolName.get(name)
         if (mcpServerId) {
-          toolTargets.addName(name, { kind: "mcpServer", mcpServerId })
+          toolTargets.addName(name, {
+            kind: "mcpTool",
+            mcpServerId,
+            toolName: name,
+          })
         }
       }
     }
@@ -2658,6 +2626,17 @@ export async function respond(
 
     const compactMessageBudget = Math.floor(messageBudget * 0.75)
     const updateMessageBudget = Math.floor(messageBudget * 0.25)
+
+    const approvedResume =
+      run?.resume?.approvalResume ?? ctx.continuation?.approvalResume
+    if (
+      approvedResume?.approved &&
+      (!run?.resume || run.resume.counters.steps === 0) &&
+      toolTargets.targetFor(approvedResume.toolName) !== approvedResume.target
+    )
+      throw new Error(
+        "The approved tool is unavailable or its source changed. Request approval for the current tool."
+      )
 
     const guarded = guardTools(tools, {
       priorBytes: counters.toolOutputBytes,

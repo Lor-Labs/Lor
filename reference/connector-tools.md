@@ -19,8 +19,8 @@ implemented and awaiting authenticated rollout; Attio is ready for review.
 - Custom MCP discovery carries the provider's `readOnlyHint`. The label is a
   provider declaration, not a security guarantee or an approval exemption.
 - Profile connector/MCP selections intersect workspace-enabled tool names.
-  Capability groups are internal startup/approval plumbing. Existing approval
-  rules still apply. Disabled tools must never bind to the agent.
+  Approval rules target individual tools. Connector capability groups are
+  removed; disabled tools must never bind to the agent.
 - `integration_connection.enabled_tools` is a required explicit list. An empty
   array enables no tools. Pre-launch configurations need no compatibility path.
 - New connections save today's recommended names. Reconnecting the same account
@@ -39,8 +39,9 @@ implemented and awaiting authenticated rollout; Attio is ready for review.
 
 ## Rollout
 
-Apply the database schema first, deploy API/worker code next, then deploy the
-web app. The new UI requires the updated integration API response. This task does not change the production database or
+Apply the [per-tool approval migration](approval-policies.md#breaking-rollout)
+and database schema first, deploy API/web code together, configure approval rules,
+then start workers. The new UI requires the updated integration API response. This task does not change the production database or
 deploy services. Verify a real Better Stack connection with a user-supplied API
 token after deployment; the error-reporting DSN is not that token.
 
@@ -90,10 +91,6 @@ ALTER TABLE integration_connection
   ALTER COLUMN enabled_tools SET DEFAULT '{}',
   ALTER COLUMN enabled_tools SET NOT NULL;
 ALTER TYPE integration_provider ADD VALUE IF NOT EXISTS 'betterstack' BEFORE 'webhook';
-ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'betterstack' BEFORE 'web';
-ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'betterstack_write' BEFORE 'web';
-ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'notion_write' AFTER 'notion';
-ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'attio_write' AFTER 'attio';
 ```
 
 New connector tools must be added to `CONNECTOR_TOOLS` as well as the runtime
@@ -106,8 +103,8 @@ Use defaults action. Update the reviewed
 Notion uses the existing official JavaScript SDK and OAuth connection, with no
 MCP server or new deployment secrets. All five writes default on, appear in
 the shared Write group, and retain workspace/profile tool selections and normal
-approval gates. The internal `notion_write` group allows approval rules for
-writes independently of reads.
+approval gates. Each tool has its own approval rule; connector read/write
+capability groups no longer exist.
 
 | Tool | Behavior | Notion capability |
 |---|---|---|
@@ -135,8 +132,8 @@ export and are not available to background archive synthesis.
 
 ### Setup and rollout
 
-1. Apply the schema before deploying the backend (`pnpm db:push`, or the focused
-   `notion_write` enum statement above if all earlier schema changes are applied).
+1. Apply the [per-tool approval migration](approval-policies.md#breaking-rollout),
+   then `pnpm db:push`, before deploying the backend. No Notion-specific enum is needed.
 2. In the Lor Notion connection's Developer portal → Configuration → Capabilities,
    keep Read content, Read comments, and User information without email addresses.
    Enable Insert content, Update content, and Insert comments for these writes.
@@ -146,8 +143,7 @@ export and are not available to background archive synthesis.
 4. New connections enable all nine read/write tools by default. For an existing
    connection, use Reset to defaults or select the desired tools in Workspace
    settings → Connectors → Notion. Check the relevant agent profile and configure
-   a Write to Notion approval rule if edits should require approval. Existing
-   approval rules still apply.
+   approval rules for the individual tools that should ask first.
 5. Verify the enabled operations on a disposable shared page/database after
    deployment, including approval and a disabled-tool case.
 
@@ -172,9 +168,8 @@ Attio keeps its existing REST API and OAuth connection. Seven writes join the
 shared Write checklist and default on for new connections and Reset to defaults.
 Reconnecting the same account preserves its explicit saved selection; it does
 not automatically enable newly added tools. Workspace and profile selections
-still intersect. The internal `attio_write` startup/approval group keeps writes
-separate from reads until the planned per-tool approval redesign; this batch
-does not change that approval architecture.
+still intersect. Approval rules target each individual Attio tool; there is no
+separate connector capability or approval group.
 
 | Tool | Behavior | Required write scope |
 |---|---|---|
@@ -220,8 +215,8 @@ background archive synthesis. No provider-level exactly-once guarantee is made.
 
 ### Setup and rollout
 
-1. Apply the `attio_write` enum change before deploying the backend (`pnpm
-   db:push`, or the focused enum statement above if earlier schema work is applied).
+1. Apply the [per-tool approval migration](approval-policies.md#breaking-rollout),
+   then `pnpm db:push`. No Attio-specific enum is needed.
 2. In the Attio app's Developer Console, retain the required read scopes and
    `webhook:read-write`. Set records, list entries, notes, and tasks to read/write
    using the four scopes above. Their read/write scopes also satisfy the
@@ -231,7 +226,7 @@ background archive synthesis. No provider-level exactly-once guarantee is made.
    have read access; Notion's permissions and reconnection are independent.
 4. For an existing connection, Reset to defaults or select the desired tools.
    New connections start with all eleven reads/writes. Check the channel's agent
-   profile and optionally require approval for Write to Attio.
+   profile and optionally require approval for the individual tools.
 5. Verify operations on disposable CRM records and a list after deployment,
    including approval, a disabled tool, multiselect preservation, and task completion.
 
@@ -264,7 +259,7 @@ existing mobile settings; mobile tool-trail branding includes Better Stack.
 - Read-only selection is a convenience preset rather than the unit of access.
 - Approval rules remain a separate control over permitted actions.
 - The customer-facing Capabilities section is removed. Profile controls and
-  tool selections now describe access; internal startup/approval groups remain.
+  tool selections now describe access; approvals also target individual tools.
 - Pre-launch breaking changes are acceptable. Do not add compatibility paths for
   the previous profile configuration format.
 
@@ -361,7 +356,7 @@ Runs without a channel also honor the workspace default profile.
 - Main and resumed runs bind only effective connector/MCP tool names.
 - Archive synthesis applies the same per-tool intersection and excludes tools
   with approval gates, because this background task cannot request approval.
-- Bulk export refuses approval-gated tools; those must be called directly so
+- Bulk export refuses approval-gated tools by their individual identity; those must be called directly so
   the normal approval flow runs.
 - Composer record search requires the matching enabled search tool; GitHub file
   browsing requires `investigate_code` independently of record-search access.

@@ -12,7 +12,10 @@ import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import WebhookIcon from "@hugeicons/core-free-icons/WebhookIcon"
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { describeProfilePermissions } from "@repo/connectors"
+import {
+  approvalTargetLabel,
+  describeProfilePermissions,
+} from "@repo/connectors"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
 import { useQuery } from "@tanstack/react-query"
 import * as Clipboard from "expo-clipboard"
@@ -117,10 +120,9 @@ function policyTargetLabel(
   if (target.kind === "created") {
     const op = operations.find((o) => o.position === target.opPosition)
     if (op?.spec.op === "create_custom_tool") return `tool ${op.spec.name}`
-    if (op?.spec.op === "create_mcp_server") return `MCP "${op.spec.name}"`
     return `step ${(target.opPosition ?? 0) + 1}`
   }
-  return target.key ?? "an action"
+  return target.key ? approvalTargetLabel(target.key) : "a tool"
 }
 
 function resolverLine(spec: {

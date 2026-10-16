@@ -17,7 +17,10 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
-import { describeProfilePermissions } from "@repo/connectors"
+import {
+  approvalTargetLabel,
+  describeProfilePermissions,
+} from "@repo/connectors"
 import { env } from "@repo/env/client"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
 import { Button } from "@repo/ui/components/button"
@@ -151,10 +154,9 @@ function policyTargetLabel(
   if (target.kind === "created") {
     const op = operations.find((o) => o.position === target.opPosition)
     if (op?.spec.op === "create_custom_tool") return `tool ${op.spec.name}`
-    if (op?.spec.op === "create_mcp_server") return `MCP "${op.spec.name}"`
     return `step ${(target.opPosition ?? 0) + 1}`
   }
-  return target.key ?? "an action"
+  return target.key ? approvalTargetLabel(target.key) : "a tool"
 }
 
 function resolverLine(spec: {

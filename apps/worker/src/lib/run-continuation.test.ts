@@ -751,7 +751,12 @@ describe("parked predecessors", () => {
         conversation: [],
         brainContext: "brain",
         rosterText: "",
-        approvalResume: { approvalId: "sdk-approval-1", approved: true },
+        approvalResume: {
+          approvalId: "sdk-approval-1",
+          approved: true,
+          toolName: "create_linear_issue",
+          target: "tool:create_linear_issue",
+        },
       },
       continuedFromRunId: "run-0",
       compaction: null,

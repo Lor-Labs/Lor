@@ -354,7 +354,7 @@ export const planTools = {
         .string()
         .min(1)
         .max(100)
-        .describe("short machine slug for the action, e.g. linear_write"),
+        .describe("short machine slug for the action, e.g. update_crm_record"),
       description: z
         .string()
         .min(1)

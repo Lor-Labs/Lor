@@ -17,30 +17,11 @@ import {
 } from "./profile-tool-access"
 import { workspace } from "./workspaces"
 
-// What Lor is allowed to *do* in a channel — gated tools/connectors, not the
-// brain (the brain is shared institutional memory, never walled). Add a value
-// as each gated ability lands; brain read/write + chat search are always-on
-// core and deliberately NOT capabilities. See reference/archive/lor-agent-architecture.md §8.1.
+// Standalone abilities and custom HTTP tool grants. Connectors and MCPs use
+// explicit tool selections; approval policies target individual tool identities.
 export const lorCapabilityEnum = pgEnum("lor_capability", [
-  "github",
-  "code_intelligence",
-  // Write side of code intelligence: propose changes as draft pull requests
-  // (and, later, run/test code). Draft-only — Lor never merges.
-  "code_actions",
-  "linear",
-  "linear_write",
-  "datadog",
-  "attio",
-  "attio_write",
-  "notion",
-  "notion_write",
-  "cloudwatch",
-  "betterstack",
-  "betterstack_write",
   "web",
-  // Sandbox workbench sessions that produce file deliverables (artifacts).
   "artifacts",
-  // The workspace's user-defined custom tools (custom_tool rows).
   "custom_tools",
 ])
 
