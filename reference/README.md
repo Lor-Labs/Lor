@@ -35,7 +35,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Open |
 |---|---|
-| `connector-tools.md` | Shared connector tool selections, MCP read-only hints, and Better Stack |
+| `connector-tools.md` | Shared tool selections, MCP read-only hints, Better Stack, and Notion writes |
 | `voice-channels-runbook.md` | Voice calls, transcription, Lor in the call, memory. V0–V7 built; prod setup, live QA and merge open |
 | `approval-policies.md` | Approval gates (LOR-81/83). P6 validation sweep + live QA |
 | `change-proposals.md` | Workspace change proposals (self-configuration pillar 3). P6 vertical-slice QA |

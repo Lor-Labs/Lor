@@ -321,7 +321,8 @@ export function ConnectorsSection({
             <AlertDialogDescription>
               Pages selected here will be available to members of this Lor
               workspace. The Notion member authorizing the connection remains
-              responsible for managing which pages it can access.
+              responsible for managing which pages it can access. Writing is
+              available only for tools you enable.
               {notionConnect?.replacing
                 ? " This will replace the current Notion authorization."
                 : ""}

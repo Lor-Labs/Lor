@@ -1,12 +1,14 @@
 # Connector tool controls
 
 Shared controls, the Better Stack connector, profile tool access, and the
-simplified connector picker are implemented. The UI is ready for review.
+simplified connector picker are implemented. Notion write tools are implemented
+and awaiting review and authenticated rollout.
 
 ## Locked behavior
 
 - Built-in connections save explicit tool names. Each connector owns recommended
-  defaults; Linear includes its reviewed writes, Better Stack starts read only.
+  defaults; Linear and Notion include their reviewed writes, Better Stack starts
+  read only.
 - The tool picker groups tools as Read and Write (built-ins) or Read only and
   Other tools (MCP). Only an explicit `readOnlyHint: true` joins the read group.
   Each group header has a group checkbox and expands to individual checkboxes;
@@ -90,12 +92,78 @@ ALTER TABLE integration_connection
 ALTER TYPE integration_provider ADD VALUE IF NOT EXISTS 'betterstack' BEFORE 'webhook';
 ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'betterstack' BEFORE 'web';
 ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'betterstack_write' BEFORE 'web';
+ALTER TYPE lor_capability ADD VALUE IF NOT EXISTS 'notion_write' AFTER 'notion';
 ```
 
 New connector tools must be added to `CONNECTOR_TOOLS` as well as the runtime
 binding. New recommended defaults affect only new connections and an explicit
 Use defaults action. Update the reviewed
 `SIDE_EFFECT_TOOLS` set when adding built-in write tools.
+
+## Notion write tools
+
+Notion uses the existing official JavaScript SDK and OAuth connection, with no
+MCP server or new deployment secrets. All five writes default on, appear in
+the shared Write group, and retain workspace/profile tool selections and normal
+approval gates. The internal `notion_write` group allows approval rules for
+writes independently of reads.
+
+| Tool | Behavior | Notion capability |
+|---|---|---|
+| Create page | Create a page under a shared page, or an entry in a shared data source, optionally with Markdown | Insert content |
+| Append page content | Add Markdown at the end, preserving existing content | Update content |
+| Edit page content | Targeted search-and-replace; missing or ambiguous matches are rejected | Update content |
+| Update page properties | Update named writable fields, including title, status, dates, people, and relations | Update content |
+| Add comment | Comment on a page or reply using a fetched discussion ID | Insert comments |
+
+Edits do not expose the full-page replacement operation and explicitly disable
+child-page/database deletion. Property inputs exclude computed values and use
+existing select/status option IDs, so they cannot create options or change a
+database schema. Array properties replace that field's values; Lor is instructed
+to retain existing values and avoid updates based on incomplete reads. There are
+no move, archive, delete, or database administration tools.
+
+Each tool makes one mutation request and returns a bounded receipt for the tool
+trail. SDK mutation retries are disabled; only an explicitly rejected 401 can
+refresh authorization and retry. Timeouts and server errors return an unknown
+outcome with instructions to inspect the target before another write. Recorded
+successes and unknown outcomes replay through the existing per-run result store,
+including when the receipt exceeds its output cap. This is recovery protection,
+not provider-level exactly-once delivery. These tools are blocked from bulk
+export and are not available to background archive synthesis.
+
+### Setup and rollout
+
+1. Apply the schema before deploying the backend (`pnpm db:push`, or the focused
+   `notion_write` enum statement above if all earlier schema changes are applied).
+2. In the Lor Notion connection's Developer portal → Configuration → Capabilities,
+   keep Read content, Read comments, and User information without email addresses.
+   Enable Insert content, Update content, and Insert comments for these writes.
+3. Reconnect Notion in Lor after changing the public connection's capabilities.
+   Select the pages/databases Lor should access; shared parents include children.
+   Reconnecting the same account preserves the saved tool selection.
+4. New connections enable all nine read/write tools by default. For an existing
+   connection, use Reset to defaults or select the desired tools in Workspace
+   settings → Connectors → Notion. Check the relevant agent profile and configure
+   a Write to Notion approval rule if edits should require approval. Existing
+   approval rules still apply.
+5. Verify the enabled operations on a disposable shared page/database after
+   deployment, including approval and a disabled-tool case.
+
+Connection setup still verifies only read access; it never performs write probes
+or claims the saved read-scope marker proves write permission. Notion enforces
+the actual token capabilities and page access at execution, and denied writes
+return permission/reconnect guidance. No provider settings, database changes, or
+authenticated writes were performed during implementation. Focused review, lint,
+and type checking are local validation; live behavior remains rollout work.
+
+Provider references: [connection capabilities](https://developers.notion.com/reference/capabilities),
+[Markdown updates](https://developers.notion.com/reference/update-page-markdown),
+[page properties](https://developers.notion.com/reference/patch-page), and
+[comments](https://developers.notion.com/reference/create-a-comment).
+Append currently uses the supported `insert_content` operation with an explicit
+end position; Notion labels this operation legacy, so revisit it when upgrading
+the pinned API version (`2026-03-11`).
 
 ## Validation and remaining rollout
 

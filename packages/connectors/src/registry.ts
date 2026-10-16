@@ -58,7 +58,7 @@ export const CONNECTORS: Record<IntegrationProvider, ConnectorDescriptor> = {
     id: "notion",
     label: "Notion",
     description:
-      "Search and read selected pages, databases, comments, and workspace users.",
+      "Search selected pages and databases, with optional page editing and comments.",
     authType: "oauth",
     envKeys: [
       "NOTION_CLIENT_ID",
@@ -202,6 +202,12 @@ export const CAPABILITIES: Record<LorCapability, CapabilityDescriptor> = {
     key: "notion",
     label: "Notion",
     description: "Search and read selected pages, databases & comments",
+    connector: "notion",
+  },
+  notion_write: {
+    key: "notion_write",
+    label: "Write to Notion",
+    description: "Create pages, edit content and properties, and add comments",
     connector: "notion",
   },
   cloudwatch: {

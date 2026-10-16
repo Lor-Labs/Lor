@@ -63,6 +63,11 @@ const CONNECTORS: Record<
       "fetch_notion_page",
       "query_notion_data_source",
       "list_notion_users",
+      "create_notion_page",
+      "append_notion_content",
+      "edit_notion_content",
+      "update_notion_properties",
+      "add_notion_comment",
     ],
   },
   cloudwatch: {

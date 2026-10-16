@@ -232,7 +232,7 @@ export const connectNotion = createRoute({
   method: "post",
   summary: "Link a Notion authorization to a workspace",
   description:
-    "Exchanges a Notion OAuth code and stores the org-shared, page-picker-scoped read-only token pair encrypted. Requires a Lor workspace admin.",
+    "Exchanges a Notion OAuth code and stores the org-shared, page-picker-scoped token pair encrypted. Available tools are selected separately. Requires a Lor workspace admin.",
   tags: ["Integrations"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

@@ -335,6 +335,48 @@ export const CONNECTOR_TOOLS: Record<
       readOnlyHint: true,
       defaultEnabled: true,
     },
+    {
+      name: "create_notion_page",
+      capability: "notion_write",
+      label: "Create page",
+      description: "Create a page or database entry under a selected parent.",
+      readOnlyHint: false,
+      defaultEnabled: true,
+    },
+    {
+      name: "append_notion_content",
+      capability: "notion_write",
+      label: "Append page content",
+      description: "Add Markdown to the end of a page.",
+      readOnlyHint: false,
+      defaultEnabled: true,
+    },
+    {
+      name: "edit_notion_content",
+      capability: "notion_write",
+      label: "Edit page content",
+      description:
+        "Make targeted text replacements without rewriting the whole page.",
+      readOnlyHint: false,
+      defaultEnabled: true,
+    },
+    {
+      name: "update_notion_properties",
+      capability: "notion_write",
+      label: "Update page properties",
+      description:
+        "Update a page’s title, status, dates, people, or other editable fields.",
+      readOnlyHint: false,
+      defaultEnabled: true,
+    },
+    {
+      name: "add_notion_comment",
+      capability: "notion_write",
+      label: "Add comment",
+      description: "Comment on a page or reply to an existing discussion.",
+      readOnlyHint: false,
+      defaultEnabled: true,
+    },
   ],
   cloudwatch: [
     {

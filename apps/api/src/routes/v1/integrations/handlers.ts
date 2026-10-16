@@ -114,8 +114,9 @@ function attioConnectUrl(state: string): string | null {
 function notionConnectUrl(state: string): string | null {
   if (!env.NOTION_CLIENT_ID) return null
   // Notion capabilities are configured in the Developer portal, not requested
-  // on this URL. Configure only Read content, Read comments, and User
-  // information without email addresses; the connector exposes no write tools.
+  // on this URL. Configure Read/Insert/Update content, Read/Insert comments,
+  // and User information without email addresses. New capabilities require
+  // reauthorization; workspace and profile tool selections still restrict writes.
   const params = new URLSearchParams({
     owner: "user",
     client_id: env.NOTION_CLIENT_ID,

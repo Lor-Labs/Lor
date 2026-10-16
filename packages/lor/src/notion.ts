@@ -38,7 +38,7 @@ function richText(value: unknown): string {
     .trim()
 }
 
-function notionTitle(value: unknown): string {
+export function notionTitle(value: unknown): string {
   const record = asRecord(value)
   if (!record) return "Untitled"
   const direct = richText(record.title)
@@ -55,7 +55,7 @@ function notionTitle(value: unknown): string {
   return "Untitled"
 }
 
-function notionUrl(value: unknown): string | null {
+export function notionUrl(value: unknown): string | null {
   const record = asRecord(value)
   const direct = asString(record?.url)
   if (direct) return direct
@@ -108,6 +108,7 @@ async function listComments(client: Client, blockId: string) {
   return {
     comments: response.results.map((comment) => ({
       id: comment.id,
+      discussionId: comment.discussion_id,
       author: comment.display_name.resolved_name,
       createdTime: comment.created_time,
       lastEditedTime: comment.last_edited_time,
