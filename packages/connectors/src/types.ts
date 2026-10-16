@@ -1,4 +1,4 @@
-import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
+import type { IntegrationProvider } from "@repo/db/schema"
 
 export type ConnectorAuthType = "github-app" | "oauth" | "api-key" | "token"
 
@@ -36,12 +36,4 @@ export type ConnectorEventKey =
 export type ConnectorEventDescriptor = {
   key: ConnectorEventKey
   label: string
-}
-
-export type CapabilityDescriptor = {
-  key: LorCapability
-  label: string
-  description: string
-  // Standalone abilities have no connector; connector tools use explicit names.
-  connector: IntegrationProvider | null
 }

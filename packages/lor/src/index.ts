@@ -2124,7 +2124,7 @@ export async function respond(
     ? resolveChannelCapabilities(ctx.channelId, ctx.workspaceId)
     : resolveWorkspaceCapabilities(ctx.workspaceId)
   ).catch(() => EMPTY_TOOL_GRANTS)
-  const caps = grants.capabilities
+  const selectedBuiltinTools = new Set(grants.builtinTools)
   const selectedConnectorTools = new Set(grants.connectorTools)
   const needsConnector = (provider: keyof typeof CONNECTOR_TOOLS) =>
     CONNECTOR_TOOLS[provider].some((tool) =>
@@ -2195,7 +2195,9 @@ export async function respond(
   // even if tool assembly, setup, step preparation, or streaming throws.
   try {
     const artifactsEnabled = Boolean(
-      blaxelConfigured() && ctx.channelId && caps.includes("artifacts")
+      blaxelConfigured() &&
+        ctx.channelId &&
+        selectedBuiltinTools.has("create_artifacts")
     )
     const codeActionsEnabled = Boolean(
       blaxelConfigured() &&
@@ -2234,7 +2236,7 @@ export async function respond(
       ...(ctx.channelId && ctx.threadRootId && !ctx.voice
         ? messageActionTools
         : {}),
-      ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
+      ...(env.EXA_API_KEY ? webTools : {}),
       ...(github ? githubTools : {}),
       ...(blaxelConfigured() && github ? codeTools : {}),
       ...(codeActionsEnabled ? codeActionTools : {}),
@@ -2257,8 +2259,9 @@ export async function respond(
     const takenBuiltinNames = new Set(Object.keys(builtinTools))
     for (const name of takenBuiltinNames) {
       if (
-        reservedConnectorNames.has(name) &&
-        !selectedConnectorTools.has(name)
+        (reservedConnectorNames.has(name) &&
+          !selectedConnectorTools.has(name)) ||
+        (Object.hasOwn(webTools, name) && !selectedBuiltinTools.has(name))
       ) {
         delete (builtinTools as ToolSet)[name]
       }
@@ -2520,7 +2523,7 @@ export async function respond(
 
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
-      env.EXA_API_KEY && caps.includes("web") ? WEB_PROMPT_LINE : null,
+      hasToolGroup(webTools) ? WEB_PROMPT_LINE : null,
       hasToolGroup(githubTools) ? GITHUB_PROMPT_LINE : null,
       hasToolGroup(linearTools) ? LINEAR_PROMPT_LINE : null,
       hasToolGroup(linearWriteTools) ? LINEAR_WRITE_PROMPT_LINE : null,

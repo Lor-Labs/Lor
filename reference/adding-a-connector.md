@@ -4,14 +4,13 @@ A runbook for wiring a new integration (Notion, Sentry, …) end to end. Three c
 
 ## How it works
 
-`integrationProviderEnum` (`packages/db/src/schemas/integration-connections.ts`) is the source of truth for connector IDs. The registry in **`@repo/connectors`** and provider maps are exhaustive over it, so adding a provider walks you through the missing wiring with compiler errors. `lorCapabilityEnum` contains only standalone profile abilities; adding a connector or tool requires no capability enum value. Steps tagged `[compiler]` are exhaustive; `[manual]` still need the checklist below.
+`integrationProviderEnum` (`packages/db/src/schemas/integration-connections.ts`) is the source of truth for connector IDs. The registry in **`@repo/connectors`** and provider maps are exhaustive over it, so adding a provider walks you through the missing wiring with compiler errors. There is no capability enum: profiles select tools by name in `agent_profile.tool_access`. Steps tagged `[compiler]` are exhaustive; `[manual]` still need the checklist below.
 
 ## 1. Declare it
 
 1. **Provider enum** — add to `integrationProviderEnum`, then `pnpm db:push`. `[manual]`
 2. **Connector descriptor** — add to `@repo/connectors` `CONNECTORS` (`id`, `label`, `description`, `authType`, `envKeys`). `[compiler]` — exhaustive over the provider enum.
-3. **Tool access and approval** — do not add connector capability enum values. Each catalog tool is selected and approved by its stable name. `[manual]`
-4. **Standalone abilities** — only non-connector abilities belong in `CAPABILITIES`. Connector descriptors and their reviewed tool catalog are sufficient for connector access and per-tool approval targets. `[manual]`
+3. **Tool access and approval** — each catalog tool is selected (profiles) and approved (approval rules) by its stable name. The connector descriptor and its reviewed tool catalog are all that's needed. `[manual]`
 
 ## 2. Connect / auth (provider-specific — irreducible)
 
@@ -76,4 +75,4 @@ A runbook for wiring a new integration (Notion, Sentry, …) end to end. Three c
 
 ## Registry status
 
-`@repo/connectors` holds the typed, exhaustive descriptors (`CONNECTORS`, `CAPABILITIES`); the capability catalog, `SourceProvider` map, `listIntegrations`, and all connector logos derive from it (the enums make omissions compile errors). The client-side presentation registry is `apps/web/src/lib/connector-ui.tsx` — the single home for connector logos, composer chip labels, plus the hand-kept tool-name / URL-host associations the tool trail uses. Attachable records live in a third exhaustive registry, `packages/lor/src/connector-search.ts`, which backs both the composer's `/` menu and its search endpoint. Two things stay **deliberately explicit** rather than registry-generated — the `respond()` tool wiring and the `connector-ui` `tools` list — because at this scale hand-written is clearer and the tool names are cheap to keep in sync; the checklist covers them.
+`@repo/connectors` holds the typed, exhaustive descriptors (`CONNECTORS`, `CONNECTOR_TOOLS`); the tool catalog, `SourceProvider` map, `listIntegrations`, and all connector logos derive from it (the enums make omissions compile errors). The client-side presentation registry is `apps/web/src/lib/connector-ui.tsx` — the single home for connector logos, composer chip labels, plus the hand-kept tool-name / URL-host associations the tool trail uses. Attachable records live in a third exhaustive registry, `packages/lor/src/connector-search.ts`, which backs both the composer's `/` menu and its search endpoint. Two things stay **deliberately explicit** rather than registry-generated — the `respond()` tool wiring and the `connector-ui` `tools` list — because at this scale hand-written is clearer and the tool names are cheap to keep in sync; the checklist covers them.

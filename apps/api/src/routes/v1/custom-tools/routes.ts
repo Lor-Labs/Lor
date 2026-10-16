@@ -46,7 +46,7 @@ export const createCustomTool = createRoute({
   method: "post",
   summary: "Create a custom tool",
   description:
-    "Registers an HTTP tool Lor can call in channels whose agent profile grants it (individually or via the blanket custom_tools capability).",
+    "Registers an HTTP tool Lor can call in channels whose agent profile grants it. Profiles that follow all workspace API tools get it immediately.",
   tags: ["Custom Tools"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {

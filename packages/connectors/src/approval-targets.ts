@@ -62,8 +62,7 @@ export function parseApprovalTargetKey(value: string): ApprovalTarget | null {
 // custom tools fall back to "an API tool" rather than a raw id.
 export function approvalTargetLabel(
   key: string,
-  groups: readonly Pick<ProfileToolGroup, "kind" | "id" | "name">[] = [],
-  customTools: readonly { id: string; name: string }[] = []
+  groups: readonly ProfileToolGroup[] = []
 ): string {
   const target = parseApprovalTargetKey(key)
   if (!target) return key
@@ -77,7 +76,9 @@ export function approvalTargetLabel(
     }
     case "customTool":
       return (
-        customTools.find((tool) => tool.id === target.customToolId)?.name ??
+        groups
+          .find((group) => group.kind === "customTools")
+          ?.tools.find((tool) => tool.name === target.customToolId)?.label ??
         "an API tool"
       )
     case "mcpTool": {

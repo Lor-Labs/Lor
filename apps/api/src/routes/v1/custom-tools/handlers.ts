@@ -1,13 +1,5 @@
-import {
-  and,
-  count,
-  db,
-  desc,
-  eq,
-  inArray,
-  isUniqueViolation,
-  schema,
-} from "@repo/db"
+import { profileSelectedTools } from "@repo/connectors"
+import { and, db, desc, eq, isUniqueViolation, schema } from "@repo/db"
 import type { CustomTool } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
@@ -45,19 +37,26 @@ function toResponse(row: CustomTool, usedByProfiles: number) {
   }
 }
 
-// Explicit per-profile grant counts (the blanket capability isn't counted —
-// it has no per-tool rows).
-async function grantCounts(toolIds: string[]): Promise<Map<string, number>> {
+// Profiles whose toolAccess grants each tool, including ones that follow all
+// workspace API tools.
+async function grantCounts(
+  workspaceId: string,
+  toolIds: string[]
+): Promise<Map<string, number>> {
   if (toolIds.length === 0) return new Map()
-  const rows = await db
-    .select({
-      customToolId: schema.agentProfileCustomTool.customToolId,
-      profiles: count(),
-    })
-    .from(schema.agentProfileCustomTool)
-    .where(inArray(schema.agentProfileCustomTool.customToolId, toolIds))
-    .groupBy(schema.agentProfileCustomTool.customToolId)
-  return new Map(rows.map((r) => [r.customToolId, r.profiles]))
+  const profiles = await db
+    .select({ access: schema.agentProfile.toolAccess })
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.workspaceId, workspaceId))
+  return new Map(
+    toolIds.map((id) => [
+      id,
+      profiles.filter(
+        (profile) =>
+          profileSelectedTools([id], profile.access.customTools).length > 0
+      ).length,
+    ])
+  )
 }
 
 // The template must already be a valid https URL to a public host; hosts can
@@ -76,7 +75,10 @@ export const listCustomTools: AppRouteHandler<ListCustomToolsRoute> = async (
     .from(schema.customTool)
     .where(eq(schema.customTool.workspaceId, workspace.id))
     .orderBy(desc(schema.customTool.createdAt))
-  const counts = await grantCounts(rows.map((r) => r.id))
+  const counts = await grantCounts(
+    workspace.id,
+    rows.map((r) => r.id)
+  )
   return c.json(
     { tools: rows.map((r) => toResponse(r, counts.get(r.id) ?? 0)) },
     HttpStatusCodes.OK
@@ -285,7 +287,7 @@ export const updateCustomTool: AppRouteHandler<UpdateCustomToolRoute> = async (
       HttpStatusCodes.NOT_FOUND
     )
   }
-  const counts = await grantCounts([row.id])
+  const counts = await grantCounts(workspace.id, [row.id])
   return c.json(
     { tool: toResponse(row, counts.get(row.id) ?? 0) },
     HttpStatusCodes.OK
@@ -299,7 +301,7 @@ export const deleteCustomTool: AppRouteHandler<DeleteCustomToolRoute> = async (
   assertWorkspaceAuthority(c.var.authority, { customTool: ["manage"] })
   const { toolId } = c.req.valid("param")
 
-  // Profile grants cascade away (agent_profile_custom_tool FK).
+  // Profiles that listed it show it as unavailable until an admin removes it.
   const row = await db
     .delete(schema.customTool)
     .where(

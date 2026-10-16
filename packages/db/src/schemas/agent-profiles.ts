@@ -3,7 +3,6 @@ import {
   boolean,
   index,
   jsonb,
-  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -17,24 +16,9 @@ import {
 } from "./profile-tool-access"
 import { workspace } from "./workspaces"
 
-// Standalone abilities and custom HTTP tool grants. Connectors and MCPs use
-// explicit tool selections; approval policies target individual tool identities.
-export const lorCapabilityEnum = pgEnum("lor_capability", [
-  "web",
-  "artifacts",
-  "custom_tools",
-])
-
-export type LorCapability = (typeof lorCapabilityEnum.enumValues)[number]
-
-// The full set — what a `grantsAll` profile (the permissive default) resolves to,
-// now and as new capabilities are added.
-export const ALL_LOR_CAPABILITIES: LorCapability[] = [
-  ...lorCapabilityEnum.enumValues,
-]
-
 // A named tool-access profile assigned to a channel or category. Resolution is
-// channel profile → parent category's profile → the workspace default.
+// channel profile → parent category's profile → the workspace default. All tool
+// access lives in toolAccess.
 export const agentProfile = pgTable(
   "agent_profile",
   {
@@ -55,13 +39,6 @@ export const agentProfile = pgTable(
     // The workspace fallback (exactly one per workspace): used when a channel and
     // its category both lack an explicit profile.
     isDefault: boolean("is_default").notNull().default(false),
-    // Standalone abilities and HTTP tools still use these internal grants.
-    // Connector and MCP access always comes from toolAccess, even when true.
-    grantsAll: boolean("grants_all").notNull().default(false),
-    capabilities: lorCapabilityEnum("capabilities")
-      .array()
-      .notNull()
-      .default([]),
   },
   (table) => [
     index("agent_profile_workspaceId_idx").on(table.workspaceId),

@@ -1,4 +1,6 @@
+import ApiIcon from "@hugeicons/core-free-icons/ApiIcon"
 import CloudServerIcon from "@hugeicons/core-free-icons/CloudServerIcon"
+import File02Icon from "@hugeicons/core-free-icons/File02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import {
   CONNECTORS,
@@ -17,7 +19,7 @@ import {
 import type { ProfileToolAccess, ProfileToolSelection } from "@repo/db/schema"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { ConnectorIcon, type ConnectorKey } from "@/components/connector-icon"
 import { Button } from "@/components/ui/button"
@@ -26,15 +28,24 @@ import { Switch } from "@/components/ui/switch"
 
 export function ProfileServiceIcon({ group }: { group: ProfileToolGroup }) {
   const foreground = useThemeColor("foreground")
-  return group.kind === "connector" && Object.hasOwn(CONNECTORS, group.id) ? (
-    <ConnectorIcon
-      connector={group.id as ConnectorKey}
-      color={foreground}
-      size={18}
-    />
-  ) : (
-    <HugeiconsIcon icon={CloudServerIcon} color={foreground} size={18} />
-  )
+  if (group.kind === "connector" && Object.hasOwn(CONNECTORS, group.id))
+    return (
+      <ConnectorIcon
+        connector={group.id as ConnectorKey}
+        color={foreground}
+        size={18}
+      />
+    )
+  // ConnectorIcon's null connector is the globe used for web everywhere.
+  if (group.kind === "builtin" && group.id === "web")
+    return <ConnectorIcon connector={null} color={foreground} size={18} />
+  const icon =
+    group.kind === "builtin"
+      ? File02Icon
+      : group.kind === "customTools"
+        ? ApiIcon
+        : CloudServerIcon
+  return <HugeiconsIcon icon={icon} color={foreground} size={18} />
 }
 
 function CheckMark({ state }: { state: "on" | "off" | "mixed" }) {
@@ -262,7 +273,9 @@ function ServiceTools({
           <ToolChecklist
             tools={group.tools}
             selected={selected}
-            providerHints={group.kind === "mcpServer"}
+            providerHints={
+              group.kind === "mcpServer" || group.kind === "customTools"
+            }
             onChange={(tools) =>
               select({
                 mode: "custom",
@@ -299,8 +312,21 @@ export function ProfileToolAccessEditor({
   value: ProfileToolAccess
   onChange: (access: ProfileToolAccess) => void
 }) {
+  const rows = (kinds: ProfileToolGroup["kind"][]) =>
+    groups
+      .filter((group) => kinds.includes(group.kind))
+      .map((group) => (
+        <ServiceTools
+          key={`${group.kind}:${group.id}`}
+          group={group}
+          access={value}
+          onChange={onChange}
+        />
+      ))
+  const services = rows(["connector", "mcpServer"])
+
   return (
-    <View>
+    <View className="gap-four">
       {hasUnavailableProfileSelections(value, groups) && (
         <View className="gap-two rounded-lor-sm border border-separator p-three">
           <Text className="text-sm text-foreground">
@@ -319,20 +345,26 @@ export function ProfileToolAccessEditor({
           </Button>
         </View>
       )}
-      {groups.map((group) => (
-        <ServiceTools
-          key={`${group.kind}:${group.id}`}
-          group={group}
-          access={value}
-          onChange={onChange}
-        />
-      ))}
-      {groups.length === 0 && (
-        <Text className="py-three text-sm text-muted">
-          No services connected yet. This profile will use their workspace tools
-          when you connect them.
-        </Text>
-      )}
+      <Section title="Built-in tools">{rows(["builtin"])}</Section>
+      <Section title="Connected services">
+        {services}
+        {services.length === 0 && (
+          <Text className="py-three text-sm text-muted">
+            No services connected yet. This profile will use their tools when
+            you connect them.
+          </Text>
+        )}
+      </Section>
+      <Section title="API tools">{rows(["customTools"])}</Section>
+    </View>
+  )
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View className="gap-one">
+      <Text className="text-sm font-medium text-foreground">{title}</Text>
+      <View>{children}</View>
     </View>
   )
 }

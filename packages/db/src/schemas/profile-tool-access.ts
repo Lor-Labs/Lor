@@ -12,6 +12,12 @@ export const profileToolSelectionSchema = z.discriminatedUnion("mode", [
     .strict(),
 ])
 
+// Lor's own tools that need no connection, grouped like a service.
+export const BUILTIN_TOOL_GROUPS = ["web", "artifacts"] as const
+export type BuiltinToolGroup = (typeof BUILTIN_TOOL_GROUPS)[number]
+
+// Every tool source uses the same selection: a missing entry follows the
+// workspace (all available tools, including ones added later).
 export const profileToolAccessSchema = z
   .object({
     connectors: z
@@ -27,14 +33,19 @@ export const profileToolAccessSchema = z
         "At most 200 MCP server overrides"
       )
       .default({}),
+    builtins: z
+      .partialRecord(z.enum(BUILTIN_TOOL_GROUPS), profileToolSelectionSchema)
+      .default({}),
+    // Custom HTTP tools; a custom selection lists custom_tool ids.
+    customTools: profileToolSelectionSchema.optional(),
   })
   .strict()
 
 export type ProfileToolSelection = z.infer<typeof profileToolSelectionSchema>
 export type ProfileToolAccess = z.infer<typeof profileToolAccessSchema>
 
-// Missing overrides follow workspace selections; there is no legacy grant fallback.
 export const DEFAULT_PROFILE_TOOL_ACCESS: ProfileToolAccess = {
   connectors: {},
   mcpServers: {},
+  builtins: {},
 }

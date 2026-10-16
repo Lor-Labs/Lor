@@ -7,8 +7,8 @@ import { dynamicTool, jsonSchema, type ToolSet } from "ai"
 import { logger } from "./logger"
 
 // User-defined HTTP tools (custom_tool rows), bound per the channel profile's
-// grant: the blanket custom_tools capability (all tools) or an explicit
-// per-profile list. Templates use {{args.x}} / {{secrets.KEY}} placeholders;
+// toolAccess.customTools: all workspace tools (the default) or listed ids.
+// Templates use {{args.x}} / {{secrets.KEY}} placeholders;
 // secrets are decrypted only at call time and never appear in tool results.
 // See reference/automation-primitives.md §4.
 

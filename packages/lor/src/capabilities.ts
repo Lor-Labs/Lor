@@ -2,19 +2,20 @@ import {
   CONNECTOR_TOOLS,
   enabledConnectorTools,
   profileSelectedTools,
+  STANDALONE_TOOLS,
 } from "@repo/connectors"
 import { and, db, eq, schema } from "@repo/db"
 import {
-  ALL_LOR_CAPABILITIES,
+  BUILTIN_TOOL_GROUPS,
   DEFAULT_PROFILE_TOOL_ACCESS,
-  type LorCapability,
   type ProfileToolAccess,
   profileToolAccessSchema,
 } from "@repo/db/schema"
 
+// Every source resolves to tool names (custom tools: ids) from the profile's
+// toolAccess; a missing entry follows the workspace.
 export type ChannelToolGrants = {
-  // Standalone abilities only; connector access is resolved by tool name.
-  capabilities: LorCapability[]
+  builtinTools: string[]
   connectorTools: string[]
   customTools: "all" | string[]
   mcpServers: string[]
@@ -22,7 +23,7 @@ export type ChannelToolGrants = {
 }
 
 export const EMPTY_TOOL_GRANTS: ChannelToolGrants = {
-  capabilities: [],
+  builtinTools: [],
   connectorTools: [],
   customTools: [],
   mcpServers: [],
@@ -31,8 +32,6 @@ export const EMPTY_TOOL_GRANTS: ChannelToolGrants = {
 
 type Profile = {
   id: string
-  grantsAll: boolean
-  capabilities: LorCapability[]
   toolAccess: ProfileToolAccess
 }
 
@@ -43,11 +42,15 @@ async function profileGrants(
   const access = profile
     ? profileToolAccessSchema.parse(profile.toolAccess)
     : DEFAULT_PROFILE_TOOL_ACCESS
-  const standaloneCaps =
-    profile && !profile.grantsAll ? profile.capabilities : ALL_LOR_CAPABILITIES
-  const allCustomTools =
-    !profile || profile.grantsAll || standaloneCaps.includes("custom_tools")
-  const [connections, mcpServers, customToolGrants] = await Promise.all([
+  const builtinTools = BUILTIN_TOOL_GROUPS.flatMap((group) =>
+    profileSelectedTools(
+      STANDALONE_TOOLS.filter((tool) => tool.group === group).map(
+        (tool) => tool.name
+      ),
+      access.builtins[group]
+    )
+  )
+  const [connections, mcpServers] = await Promise.all([
     db
       .select({
         provider: schema.integrationConnection.provider,
@@ -67,14 +70,7 @@ async function profileGrants(
       })
       .from(schema.mcpServer)
       .where(eq(schema.mcpServer.workspaceId, workspaceId)),
-    profile && !allCustomTools
-      ? db
-          .select({ id: schema.agentProfileCustomTool.customToolId })
-          .from(schema.agentProfileCustomTool)
-          .where(eq(schema.agentProfileCustomTool.profileId, profile.id))
-      : [],
   ])
-  const capabilities = new Set(standaloneCaps)
   const connectorTools = new Set<string>()
   for (const connection of connections) {
     const selected = new Set(
@@ -96,12 +92,17 @@ async function profileGrants(
     )
     if (selected.length > 0) mcpTools[server.id] = selected
   }
+  const custom = access.customTools
   return {
-    capabilities: [...capabilities],
+    builtinTools,
     connectorTools: [...connectorTools],
-    customTools: allCustomTools
-      ? "all"
-      : customToolGrants.map((grant) => grant.id),
+    // Ids are intersected with the workspace's rows when the tools bind.
+    customTools:
+      !custom || custom.mode === "workspace"
+        ? "all"
+        : custom.mode === "off"
+          ? []
+          : custom.tools,
     mcpServers: Object.keys(mcpTools),
     mcpTools,
   }
@@ -109,8 +110,6 @@ async function profileGrants(
 
 const profileColumns = {
   id: schema.agentProfile.id,
-  grantsAll: schema.agentProfile.grantsAll,
-  capabilities: schema.agentProfile.capabilities,
   toolAccess: schema.agentProfile.toolAccess,
 }
 

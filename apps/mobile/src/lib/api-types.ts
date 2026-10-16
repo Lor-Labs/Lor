@@ -46,9 +46,6 @@ export type AgentProfilesResponse = InferResponseType<
   200
 >
 export type AgentProfile = AgentProfilesResponse["profiles"][number]
-export type LorCapabilityKey = AgentProfile["capabilities"][number]
-export type AvailableCapability =
-  AgentProfilesResponse["availableCapabilities"][number]
 export type NotificationSettings = InferResponseType<
   Client["v1"]["notification-settings"]["$get"],
   200

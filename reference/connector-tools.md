@@ -345,11 +345,13 @@ Example profile create/update tool-access payload:
 }
 ```
 
-Standalone abilities (web, artifacts) and individual HTTP tools retain their
-existing internal grants. `grantsAll` never overrides connector or
-MCP tool restrictions. Channel resolution remains channel → category → workspace
-default. Missing channels and failed profile reads do not grant external tools.
-Runs without a channel also honor the workspace default profile.
+`tool_access` also holds `builtins` (`web`, `artifacts`; tools from
+`STANDALONE_TOOLS`) and `customTools` (custom mode lists `custom_tool` ids).
+Every source works the same way: no entry follows the workspace, including
+tools added later. New profiles therefore start with everything on. Channel
+resolution remains channel → category → workspace default. Missing channels and
+failed profile reads do not grant external tools. Runs without a channel also
+honor the workspace default profile.
 
 ### Other execution paths
 

@@ -24,14 +24,14 @@ export const listAgentProfiles = createRoute({
   method: "get",
   summary: "List a workspace's agent profiles",
   description:
-    "Returns agent profiles, workspace-enabled connector/MCP tools, and standalone abilities.",
+    "Returns agent profiles and every tool group a profile can choose from: built-in tools, connected services, MCP servers and API tools.",
   tags: ["Agent Profiles"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: agentProfilesWorkspaceParamsSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listAgentProfilesResponseSchema,
-      description: "Profiles + available capabilities",
+      description: "Profiles + available tool groups",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,

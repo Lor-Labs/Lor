@@ -3,6 +3,7 @@ import type {
   InferRequestType,
   InferResponseType,
 } from "@repo/api-client"
+import type { IntegrationProvider } from "@repo/db/schema"
 
 // ── Channels ──────────────────────────────────────────
 
@@ -30,13 +31,8 @@ export type AgentProfilesResponse = InferResponseType<
   200
 >
 export type AgentProfile = AgentProfilesResponse["profiles"][number]
-export type LorCapabilityKey = AgentProfile["capabilities"][number]
-export type AvailableCapability =
-  AgentProfilesResponse["availableCapabilities"][number]
-// The set of connector ids (the integration provider enum), shared by the
-// capability + integration-status shapes. NonNullable: a capability's
-// connector is null for built-in capabilities (web).
-export type ConnectorKey = NonNullable<AvailableCapability["connector"]>
+// The connector ids (the integration provider enum).
+export type ConnectorKey = IntegrationProvider
 
 // ── Integrations ──────────────────────────────────────────
 

@@ -8,7 +8,10 @@ import {
   profileGroupSelection,
   profileSelectedTools,
 } from "@repo/connectors"
-import type { ProfileToolAccess } from "@repo/db/schema"
+import {
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  type ProfileToolAccess,
+} from "@repo/db/schema"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
@@ -18,47 +21,29 @@ import { useToast } from "heroui-native/toast"
 import { useState } from "react"
 import { Alert, Pressable, Text, View } from "react-native"
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller"
-import { ConnectorIcon } from "@/components/connector-icon"
 import { ProfileToolAccessEditor } from "@/components/profile-tool-access-editor"
 import { Button } from "@/components/ui/button"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
-import { Switch } from "@/components/ui/switch"
 import { useWorkspace } from "@/context/workspace-context"
 import { api } from "@/lib/api"
-import type {
-  AgentProfile,
-  AgentProfilesResponse,
-  AvailableCapability,
-  LorCapabilityKey,
-} from "@/lib/api-types"
+import type { AgentProfile } from "@/lib/api-types"
 import { confirmDiscard } from "@/lib/confirm-discard"
 
 type ProfileValues = {
   name: string
-  capabilities: LorCapabilityKey[]
   toolAccess: ProfileToolAccess
-  customToolIds: string[]
 }
 
 function GrantedChips({
-  available,
   profile,
   groups,
-  tools,
 }: {
-  available: AvailableCapability[]
   groups: ProfileToolGroup[]
-  tools: AgentProfilesResponse["availableCustomTools"]
   profile: AgentProfile
 }) {
-  const foreground = useThemeColor("foreground")
-  const granted = profile.grantsAll
-    ? available
-    : available.filter((cap) => profile.capabilities.includes(cap.key))
-
   const services = groups
     .map((group) => {
       const selection = profileGroupSelection(profile.toolAccess, group)
@@ -69,28 +54,11 @@ function GrantedChips({
       return { group, count, limited: selection?.mode === "custom" }
     })
     .filter(({ count }) => count > 0)
-  const apiTools =
-    profile.grantsAll || profile.capabilities.includes("custom_tools")
-      ? []
-      : tools.filter((tool) => profile.customToolIds.includes(tool.id))
-  if (granted.length === 0 && services.length === 0 && apiTools.length === 0) {
+  if (services.length === 0) {
     return <Text className="text-xs text-muted">Chat & memory only</Text>
   }
   return (
     <View className="flex-row flex-wrap gap-one">
-      {granted.map((cap) => (
-        <View
-          className="flex-row items-center gap-one rounded-lor-sm bg-surface-tertiary px-two py-one"
-          key={cap.key}
-        >
-          <ConnectorIcon
-            color={foreground}
-            connector={cap.connector}
-            size={13}
-          />
-          <Text className="text-xs text-foreground">{cap.label}</Text>
-        </View>
-      ))}
       {services.map(({ group, count, limited }) => (
         <View
           key={`${group.kind}:${group.id}`}
@@ -103,93 +71,27 @@ function GrantedChips({
           </Text>
         </View>
       ))}
-      {apiTools.map((tool) => (
-        <View
-          key={tool.id}
-          className="rounded-lor-sm bg-surface-tertiary px-two py-one"
-        >
-          <Text className="text-xs text-foreground">{tool.name}</Text>
-        </View>
-      ))}
-    </View>
-  )
-}
-
-function SwitchRow({
-  title,
-  description,
-  isSelected,
-  isDisabled,
-  onSelectedChange,
-}: {
-  title: string
-  description: string
-  isSelected: boolean
-  // Covered by the blanket API tools grant: shown on but not editable.
-  isDisabled?: boolean
-  onSelectedChange: () => void
-}) {
-  return (
-    <View className="min-h-11 flex-row items-center gap-three border-b border-separator py-three">
-      <View className="min-w-0 flex-1 gap-one">
-        <Text className="text-sm text-foreground">{title}</Text>
-        <Text className="text-xs text-muted" numberOfLines={2}>
-          {description}
-        </Text>
-      </View>
-      <Switch
-        accessibilityLabel={title}
-        isDisabled={isDisabled}
-        isSelected={isSelected}
-        onSelectedChange={onSelectedChange}
-      />
     </View>
   )
 }
 
 function ProfileEditor({
-  available,
   groups,
-  tools,
   onCancel,
   onSave,
   profile,
   saving,
 }: {
-  available: AvailableCapability[]
   onCancel: () => void
   groups: ProfileToolGroup[]
-  tools: AgentProfilesResponse["availableCustomTools"]
   onSave: (values: ProfileValues) => void
   profile?: AgentProfile
   saving: boolean
 }) {
   const [name, setName] = useState(profile?.name ?? "")
-  const [selected, setSelected] = useState<Set<LorCapabilityKey>>(() => {
-    if (!profile) return new Set()
-    if (profile.grantsAll) return new Set(available.map((cap) => cap.key))
-    return new Set(
-      profile.capabilities.filter((key) =>
-        available.some((cap) => cap.key === key)
-      )
-    )
-  })
-
   const [toolAccess, setToolAccess] = useState<ProfileToolAccess>(
-    profile?.toolAccess ?? { connectors: {}, mcpServers: {} }
+    profile?.toolAccess ?? DEFAULT_PROFILE_TOOL_ACCESS
   )
-  const [customToolIds, setCustomToolIds] = useState(
-    profile?.customToolIds ?? []
-  )
-
-  const toggle = (key: LorCapabilityKey) => {
-    setSelected((previous) => {
-      const next = new Set(previous)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
 
   const save = () => {
     if (
@@ -198,12 +100,7 @@ function ProfileEditor({
       hasUnavailableProfileSelections(toolAccess, groups)
     )
       return
-    onSave({
-      name: name.trim(),
-      capabilities: [...selected],
-      toolAccess,
-      customToolIds,
-    })
+    onSave({ name: name.trim(), toolAccess })
   }
 
   return (
@@ -217,53 +114,14 @@ function ProfileEditor({
         placeholder="Profile name"
         value={name}
       />
-      <View className="gap-two">
-        <Text className="text-sm font-medium text-foreground">
-          Connected services
-        </Text>
-        <Text className="text-xs text-muted">
-          Choose which tools this profile can use. Approval rules still apply.
-        </Text>
-        <ProfileToolAccessEditor
-          groups={groups}
-          value={toolAccess}
-          onChange={setToolAccess}
-        />
-      </View>
-      <View className="gap-two">
-        <Text className="text-sm font-medium text-foreground">
-          Built-in and API tools
-        </Text>
-        <View>
-          {available.map((cap) => (
-            <SwitchRow
-              key={cap.key}
-              title={cap.label}
-              description={cap.description}
-              isSelected={selected.has(cap.key)}
-              onSelectedChange={() => toggle(cap.key)}
-            />
-          ))}
-          {tools.map((tool) => (
-            <SwitchRow
-              key={tool.id}
-              title={tool.name}
-              description={tool.description}
-              isSelected={
-                selected.has("custom_tools") || customToolIds.includes(tool.id)
-              }
-              isDisabled={selected.has("custom_tools")}
-              onSelectedChange={() =>
-                setCustomToolIds((previous) =>
-                  previous.includes(tool.id)
-                    ? previous.filter((id) => id !== tool.id)
-                    : [...previous, tool.id]
-                )
-              }
-            />
-          ))}
-        </View>
-      </View>
+      <Text className="text-xs text-muted">
+        Choose which tools this profile can use. Approval rules still apply.
+      </Text>
+      <ProfileToolAccessEditor
+        groups={groups}
+        value={toolAccess}
+        onChange={setToolAccess}
+      />
       <View className="flex-row justify-end gap-two">
         <Button onPress={onCancel} size="sm" variant="ghost">
           Cancel
@@ -316,21 +174,11 @@ export default function AgentProfilesScreen() {
       const response = input.id
         ? await profiles[":profileId"].$patch({
             param: { workspaceSlug: workspaceSlug ?? "", profileId: input.id },
-            json: {
-              name: input.name,
-              capabilities: input.capabilities,
-              toolAccess: input.toolAccess,
-              customToolIds: input.customToolIds,
-            },
+            json: { name: input.name, toolAccess: input.toolAccess },
           })
         : await profiles.$post({
             param: { workspaceSlug: workspaceSlug ?? "" },
-            json: {
-              name: input.name,
-              capabilities: input.capabilities,
-              toolAccess: input.toolAccess,
-              customToolIds: input.customToolIds,
-            },
+            json: { name: input.name, toolAccess: input.toolAccess },
           })
       if (!response.ok) {
         const error = await response.json()
@@ -449,9 +297,7 @@ export default function AgentProfilesScreen() {
             {data.profiles.map((profile) =>
               editingId === profile.id ? (
                 <ProfileEditor
-                  available={data.availableCapabilities}
                   groups={data.availableToolGroups}
-                  tools={data.availableCustomTools}
                   key={profile.id}
                   onCancel={() => setEditingId(null)}
                   onSave={(values) =>
@@ -482,9 +328,7 @@ export default function AgentProfilesScreen() {
                       ) : null}
                     </View>
                     <GrantedChips
-                      available={data.availableCapabilities}
                       groups={data.availableToolGroups}
-                      tools={data.availableCustomTools}
                       profile={profile}
                     />
                   </View>
@@ -519,9 +363,7 @@ export default function AgentProfilesScreen() {
             )}
             {editingId === "new" ? (
               <ProfileEditor
-                available={data.availableCapabilities}
                 groups={data.availableToolGroups}
-                tools={data.availableCustomTools}
                 onCancel={() => setEditingId(null)}
                 onSave={(values) => save.mutate(values)}
                 saving={save.isPending}

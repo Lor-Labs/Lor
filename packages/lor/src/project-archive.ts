@@ -165,7 +165,7 @@ export async function synthesizeProjectArchive(
         )
       : Promise.resolve(EMPTY_TOOL_GRANTS),
   ])
-  const caps = grants.capabilities
+  const allowedBuiltins = new Set(grants.builtinTools)
   const allowed = new Set(grants.connectorTools)
   const needsConnector = (provider: keyof typeof CONNECTOR_TOOLS) =>
     CONNECTOR_TOOLS[provider].some(
@@ -206,7 +206,7 @@ export async function synthesizeProjectArchive(
       ...sourceTools,
       ...brainReadTools,
       ...brainWriteTools,
-      ...(env.EXA_API_KEY && caps.includes("web") ? webTools : {}),
+      ...(env.EXA_API_KEY ? webTools : {}),
       ...(github ? githubTools : {}),
       ...(blaxelConfigured() && github ? codeTools : {}),
       ...(linear ? linearTools : {}),
@@ -233,7 +233,11 @@ export async function synthesizeProjectArchive(
         approvalGates.has(
           approvalTargetKey({ kind: "builtinTool", toolName: name })
         )
-      if ((connectorNames.has(name) && !allowed.has(name)) || gated)
+      if (
+        (connectorNames.has(name) && !allowed.has(name)) ||
+        (Object.hasOwn(webTools, name) && !allowedBuiltins.has(name)) ||
+        gated
+      )
         delete (tools as Record<string, unknown>)[name]
     }
 
@@ -332,7 +336,8 @@ export async function synthesizeProjectArchive(
       notion && "Notion",
       datadogMcp && "Datadog",
       cloudwatch && "CloudWatch",
-      env.EXA_API_KEY && caps.includes("web") && "web search",
+      Object.keys(webTools).some((name) => Object.hasOwn(tools, name)) &&
+        "web search",
     ].filter(Boolean)
     const connectorLine = connectors.length
       ? `\n\nConnected tools available to verify against: ${connectors.join(", ")}.`

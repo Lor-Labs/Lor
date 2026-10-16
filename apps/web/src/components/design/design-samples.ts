@@ -244,13 +244,13 @@ export const PROPOSAL_SAMPLES: ProposalSample[] = [
         op(2, {
           op: "create_agent_profile",
           name: "Release captain",
-          capabilities: [],
           toolAccess: {
             connectors: {
               github: { mode: "workspace" },
               linear: { mode: "workspace" },
             },
             mcpServers: {},
+            builtins: { artifacts: { mode: "off" } },
           },
           customTools: [],
         }),

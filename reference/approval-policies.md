@@ -39,9 +39,10 @@ an otherwise disabled tool.
   individual target identities. Approved continuations persist tool name and
   target, including crash recovery, and refuse execution if the bound source
   changed or the tool became unavailable. SDK input/signature checks remain.
-- Connector capability groups are removed from the catalog, profile enum,
-  composer eligibility, and runtime loading. Only standalone `web`, `artifacts`,
-  and `custom_tools` grants remain in `lor_capability`.
+- Capability groups are gone entirely: the `lor_capability` enum, `grants_all`
+  and `agent_profile_custom_tool` are removed. Profiles hold all tool access in
+  `tool_access` (built-in web/artifacts, connectors, MCP servers, API tools),
+  where a missing entry follows the workspace. See `connector-tools.md`.
 
 ### Breaking rollout
 
@@ -49,19 +50,21 @@ Once per environment, in this order:
 
 1. Stop the API and workers.
 2. Preview, then run
-   [`migrate-tool-approvals.ts`](../packages/db/src/scripts/migrate-tool-approvals.ts):
-   `pnpm --filter @repo/db exec tsx src/scripts/migrate-tool-approvals.ts --dry-run`,
+   [`migrate-tool-access.ts`](../packages/db/src/scripts/migrate-tool-access.ts):
+   `pnpm --filter @repo/db exec tsx src/scripts/migrate-tool-access.ts --dry-run`,
    then the same command without `--dry-run`.
 3. `pnpm db:push` (it should find nothing left to change for this work).
 4. Deploy the API, web and workers together.
 5. Recreate the approval rules you want, per tool, in Settings → Approvals.
 
-The script removes connector values from profile capabilities and shrinks the
-`lor_capability` enum (db:push cannot drop enum values that rows still use). It
+The script moves each profile's old web, artifacts and API tool grants into
+`tool_access` (kept grants follow the workspace; missing ones become off or a
+custom API tool list), rewrites pending profile proposals the same way, then
+drops `capabilities`, `grants_all`, `agent_profile_custom_tool` and the enum. It
 deletes old capability and whole-MCP approval rules, expires pending approvals
-for those keys, and moves their plans to `waiting_for_input`. It is safe to
-rerun. This is an explicit pre-launch reset, with no automatic policy
-conversion. Historical approval/run records stay intact.
+for those keys, and moves their plans to `waiting_for_input`. One transaction,
+safe to rerun. Approval rules get no automatic conversion. Historical
+approval/run records stay intact.
 
 Old parked actions start a fresh request; old target keys cannot authorize an
 approval resume. Policy rows whose key no longer parses (for example a renamed

@@ -1,6 +1,5 @@
-import type { IntegrationProvider, LorCapability } from "@repo/db/schema"
+import type { IntegrationProvider } from "@repo/db/schema"
 import type {
-  CapabilityDescriptor,
   ConnectorDescriptor,
   ConnectorEventDescriptor,
   ConnectorEventKey,
@@ -150,30 +149,6 @@ export const AWS_REGIONS = [
 
 export type AwsRegion = (typeof AWS_REGIONS)[number]
 
-// Exhaustive over lorCapabilityEnum — adding a capability value without a
-// descriptor here is a compile error.
-export const CAPABILITIES: Record<LorCapability, CapabilityDescriptor> = {
-  web: {
-    key: "web",
-    label: "Web Search",
-    description: "Search the web and read public pages",
-    connector: null,
-  },
-  artifacts: {
-    key: "artifacts",
-    label: "Artifacts",
-    description: "Create files (documents, data, code) in a sandbox workbench",
-    connector: null,
-  },
-  custom_tools: {
-    key: "custom_tools",
-    label: "All API tools",
-    description:
-      "Use all current and future custom HTTP API tools in this workspace",
-    connector: null,
-  },
-}
-
 // Exhaustive over integrationProviderEnum — a new provider must declare its
 // notifiable events (empty is fine; Datadog is live-query only).
 export const CONNECTOR_EVENTS: Record<
@@ -215,10 +190,3 @@ export function isConnectorEvent(
 export const CONNECTOR_LIST: ConnectorDescriptor[] = Object.values(
   CONNECTORS
 ).filter((connector) => !connector.internal)
-export const CAPABILITY_LIST: CapabilityDescriptor[] =
-  Object.values(CAPABILITIES)
-
-// Standalone abilities only; connector access is defined by tool selections.
-export function availableCapabilities(): CapabilityDescriptor[] {
-  return CAPABILITY_LIST
-}

@@ -1,16 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { isWorkspaceRole } from "@repo/auth/permissions"
-import {
-  availableCapabilities,
-  CAPABILITIES,
-  isConnectorEvent,
-} from "@repo/connectors"
+import { isConnectorEvent } from "@repo/connectors"
 import { and, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
 import type {
   ChangeOperation,
   ChangeProposal,
   ChangeProposalOperation,
-  LorCapability,
   OperationResult,
   ResourceRef,
 } from "@repo/db/schema"
@@ -410,34 +405,10 @@ async function applyOperation(
     }
 
     case "create_agent_profile": {
-      const toolAccessIssue = await profileToolAccessIssue(
-        ctx.workspaceId,
-        spec.toolAccess,
-        ctx.tx
-      )
-      if (toolAccessIssue) fail(position, toolAccessIssue)
-      // Same grantability rule as the agent-profiles route, including the
-      // deployment-level web gate.
-      const grantable = new Set(
-        availableCapabilities()
-          .filter(
-            (cap) =>
-              cap.connector === null &&
-              (cap.key !== "web" || Boolean(env.EXA_API_KEY))
-          )
-          .map((cap) => cap.key)
-      )
-      const capabilities: LorCapability[] = []
-      for (const value of spec.capabilities) {
-        if (!Object.hasOwn(CAPABILITIES, value)) {
-          fail(position, `Unknown capability "${value}"`)
-        }
-        const capability = value as LorCapability
-        if (!grantable.has(capability)) {
-          fail(position, `Capability "${value}" needs a connected provider`)
-        }
-        capabilities.push(capability)
-      }
+      if (spec.customTools.length > 0 && spec.toolAccess.customTools)
+        fail(position, "Set API tools with customTools or toolAccess, not both")
+      // Refs resolve first so tools created earlier in this proposal count as
+      // available when toolAccess is validated.
       const customToolIds = await Promise.all(
         spec.customTools.map((ref) =>
           resolveOwnedRef(ctx, ref, position, "create_custom_tool", {
@@ -445,28 +416,33 @@ async function applyOperation(
           })
         )
       )
+      const toolAccess =
+        customToolIds.length > 0
+          ? {
+              ...spec.toolAccess,
+              customTools: {
+                mode: "custom" as const,
+                tools: [...new Set(customToolIds)],
+              },
+            }
+          : spec.toolAccess
+      const toolAccessIssue = await profileToolAccessIssue(
+        ctx.workspaceId,
+        toolAccess,
+        ctx.tx
+      )
+      if (toolAccessIssue) fail(position, toolAccessIssue)
       const inserted = await ctx.tx
         .insert(schema.agentProfile)
         .values({
           workspaceId: ctx.workspaceId,
           name: spec.name,
-          capabilities,
-          toolAccess: spec.toolAccess,
-          grantsAll: false,
+          toolAccess,
           isDefault: false,
         })
         .returning({ id: schema.agentProfile.id })
         .then((rows) => rows[0])
       if (!inserted) fail(position, "Failed to create the profile")
-      const uniqueToolIds = [...new Set(customToolIds)]
-      if (uniqueToolIds.length > 0) {
-        await ctx.tx.insert(schema.agentProfileCustomTool).values(
-          uniqueToolIds.map((customToolId) => ({
-            profileId: inserted.id,
-            customToolId,
-          }))
-        )
-      }
       ctx.createdIds.set(position, inserted.id)
       return { resourceId: inserted.id }
     }

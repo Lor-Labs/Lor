@@ -102,8 +102,8 @@ export const createAgentProfileOpSchema = z
     op: z.literal("create_agent_profile"),
     toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
     name: z.string().trim().min(1).max(80),
-    // Validated against the connector registry at apply (grantability included).
-    capabilities: z.array(z.string().min(1).max(50)).max(50).default([]),
+    // Limits API tools to these (existing or created in this proposal). Empty
+    // leaves toolAccess.customTools in charge; setting both is rejected.
     customTools: z.array(resourceRefSchema).max(50).default([]),
   })
   .strict()

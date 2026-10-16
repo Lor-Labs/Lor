@@ -158,11 +158,7 @@ function policyTargetLabel(
     return `step ${(target.opPosition ?? 0) + 1}`
   }
   return target.key
-    ? approvalTargetLabel(
-        target.key,
-        profileData?.availableToolGroups,
-        profileData?.availableCustomTools
-      )
+    ? approvalTargetLabel(target.key, profileData?.availableToolGroups)
     : "a tool"
 }
 
@@ -283,7 +279,6 @@ function opView(
         details: describeProfilePermissions(
           spec,
           profileData?.availableToolGroups,
-          profileData?.availableCustomTools,
           new Map(
             operations.flatMap((operation) =>
               operation.spec.op === "create_custom_tool"

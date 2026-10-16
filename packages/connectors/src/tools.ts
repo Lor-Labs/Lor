@@ -1,4 +1,4 @@
-import type { IntegrationProvider } from "@repo/db/schema"
+import type { BuiltinToolGroup, IntegrationProvider } from "@repo/db/schema"
 
 export type ConnectorToolDescriptor = {
   name: string
@@ -442,23 +442,43 @@ export function enabledConnectorTools(
 export const STANDALONE_TOOLS = [
   {
     name: "search_web",
+    group: "web",
     label: "Search web",
     description: "Search the public web.",
     readOnlyHint: true,
   },
   {
     name: "fetch_web",
+    group: "web",
     label: "Read web page",
     description: "Read a public web page.",
     readOnlyHint: true,
   },
   {
     name: "create_artifacts",
+    group: "artifacts",
     label: "Create artifacts",
     description: "Create files in a sandbox workbench.",
     readOnlyHint: false,
   },
-] as const
+] as const satisfies readonly {
+  name: string
+  group: BuiltinToolGroup
+  label: string
+  description: string
+  readOnlyHint: boolean
+}[]
+
+export const BUILTIN_GROUPS: Record<
+  BuiltinToolGroup,
+  { label: string; description: string }
+> = {
+  web: { label: "Web", description: "Search the web and read public pages." },
+  artifacts: {
+    label: "Artifacts",
+    description: "Create documents, data and code files in a sandbox.",
+  },
+}
 
 type BuiltinTool = {
   name: string

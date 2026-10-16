@@ -35,7 +35,6 @@ import { apiClient } from "@/lib/api-client"
 import type {
   AgentProfile,
   AgentProfilesResponse,
-  AvailableCapability,
   Channel,
 } from "@/lib/api-types"
 import {
@@ -56,13 +55,9 @@ const TABS: { id: Tab; label: string; icon: IconSvgElement }[] = [
 
 function ProfileCapabilities({
   profile,
-  available,
-  tools,
   groups,
 }: {
   profile: AgentProfile
-  available: AvailableCapability[]
-  tools: AgentProfilesResponse["availableCustomTools"]
   groups: AgentProfilesResponse["availableToolGroups"]
 }) {
   return (
@@ -70,12 +65,7 @@ function ProfileCapabilities({
       <div className="text-xs font-medium text-muted-foreground">
         Lor can use
       </div>
-      <GrantedChips
-        profile={profile}
-        available={available}
-        tools={tools}
-        groups={groups}
-      />
+      <GrantedChips profile={profile} groups={groups} />
     </div>
   )
 }
@@ -362,8 +352,6 @@ export function EditChannelDialog({
                     {previewProfile && profilesData && (
                       <ProfileCapabilities
                         profile={previewProfile}
-                        available={profilesData.availableCapabilities}
-                        tools={profilesData.availableCustomTools}
                         groups={profilesData.availableToolGroups}
                       />
                     )}

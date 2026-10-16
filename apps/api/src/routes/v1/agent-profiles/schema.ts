@@ -1,8 +1,6 @@
 import { z } from "@hono/zod-openapi"
 import {
   DEFAULT_PROFILE_TOOL_ACCESS,
-  integrationProviderEnum,
-  lorCapabilityEnum,
   profileToolAccessSchema,
   selectAgentProfileSchema,
 } from "@repo/db/schema"
@@ -21,37 +19,24 @@ export const agentProfileIdParamsSchema =
       .openapi({ param: { name: "profileId", in: "path", required: true } }),
   })
 
-const capabilitySchema = z.enum(lorCapabilityEnum.enumValues)
-
 export const agentProfileSchema = selectAgentProfileSchema
   .pick({
     id: true,
     name: true,
     isDefault: true,
-    grantsAll: true,
-    capabilities: true,
     toolAccess: true,
   })
   .extend({
     toolAccess: profileToolAccessSchema,
-    // Custom HTTP tool grants.
-    customToolIds: z.array(z.string()),
   })
-
-export const capabilityDescriptorSchema = z.object({
-  key: capabilitySchema,
-  label: z.string(),
-  description: z.string(),
-  // Standalone abilities have no connector; connected tools are listed separately.
-  connector: z.enum(integrationProviderEnum.enumValues).nullable(),
-  connectorLabel: z.string(),
-})
 
 export const listAgentProfilesResponseSchema = z.object({
   profiles: z.array(agentProfileSchema),
+  // Built-in tools, connected services, MCP servers and API tools. For API
+  // tools, a tool's `name` is its custom_tool id and `label` its name.
   availableToolGroups: z.array(
     z.object({
-      kind: z.enum(["connector", "mcpServer"]),
+      kind: z.enum(["builtin", "connector", "mcpServer", "customTools"]),
       id: z.string(),
       name: z.string(),
       description: z.string(),
@@ -65,43 +50,24 @@ export const listAgentProfilesResponseSchema = z.object({
       ),
     })
   ),
-  // Standalone abilities only; connector/MCP choices are in availableToolGroups.
-  availableCapabilities: z.array(capabilityDescriptorSchema),
-  // The workspace's custom tools, selectable per profile in the editor.
-  availableCustomTools: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      description: z.string(),
-    })
-  ),
 })
 
 export const createAgentProfileRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(60),
-    capabilities: z.array(capabilitySchema).default([]),
     toolAccess: profileToolAccessSchema.default(DEFAULT_PROFILE_TOOL_ACCESS),
-    customToolIds: z.array(z.string().uuid()).max(200).default([]),
   })
   .strict()
 
 export const updateAgentProfileRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(60).optional(),
-    capabilities: z.array(capabilitySchema).optional(),
     toolAccess: profileToolAccessSchema.optional(),
-    customToolIds: z.array(z.string().uuid()).max(200).optional(),
   })
   .strict()
-  .refine(
-    (v) =>
-      v.name !== undefined ||
-      v.toolAccess !== undefined ||
-      v.capabilities !== undefined ||
-      v.customToolIds !== undefined,
-    { message: "At least one field must be provided" }
-  )
+  .refine((v) => v.name !== undefined || v.toolAccess !== undefined, {
+    message: "At least one field must be provided",
+  })
 
 export const deleteAgentProfileResponseSchema = z.object({
   success: z.literal(true),
