@@ -17,7 +17,13 @@
 //   pnpm --filter @repo/db exec tsx src/scripts/migrate-tool-access.ts
 import { type AnyColumn, and, eq, inArray, notExists, sql } from "drizzle-orm"
 import { db, schema } from "../index"
-import type { ChangeOperation, ProfileToolAccess } from "../schemas/index"
+import {
+  type ChangeOperation,
+  createAgentProfileOpSchema,
+  DEFAULT_PROFILE_TOOL_ACCESS,
+  type ProfileToolAccess,
+  resourceRefSchema,
+} from "../schemas/index"
 
 const dryRun = process.argv.includes("--dry-run")
 const {
@@ -26,6 +32,7 @@ const {
   approvalPolicy,
   changeProposal,
   changeProposalOperation,
+  mcpServer,
   plan,
 } = schema
 
@@ -61,9 +68,12 @@ function convertAccess(
 
 // Old ops always stored `capabilities` (schema default). customTools refs keep
 // limiting API tools; the custom_tools capability meant all of them.
-function convertOp(spec: Record<string, unknown>): ChangeOperation | null {
-  if (!("capabilities" in spec)) return null
-  const { capabilities, ...rest } = spec
+function convertOp(
+  spec: Record<string, unknown>,
+  servers: { id: string; enabledTools: string[] }[]
+): ChangeOperation | null {
+  if (!("capabilities" in spec) && !("mcpServers" in spec)) return null
+  const { capabilities, mcpServers, ...rest } = spec
   const caps = Array.isArray(capabilities) ? capabilities.map(String) : []
   const refs =
     caps.includes("custom_tools") || !Array.isArray(rest.customTools)
@@ -71,10 +81,31 @@ function convertOp(spec: Record<string, unknown>): ChangeOperation | null {
       : rest.customTools
   const toolAccess = convertAccess(
     (rest.toolAccess ?? {}) as Partial<ProfileToolAccess>,
-    { grantsAll: false, capabilities: caps, customToolIds: [] }
+    "capabilities" in spec
+      ? { grantsAll: false, capabilities: caps, customToolIds: [] }
+      : null
   )
   if (refs.length > 0) delete toolAccess.customTools
-  return { ...rest, toolAccess, customTools: refs } as ChangeOperation
+  if ("mcpServers" in spec) {
+    const granted = new Set(
+      resourceRefSchema
+        .array()
+        .parse(mcpServers)
+        .flatMap((ref) => (ref.kind === "existing" ? [ref.id] : []))
+    )
+    // Created refs have no discovered tools; only existing grants get a snapshot.
+    toolAccess.mcpServers = { ...toolAccess.mcpServers }
+    for (const server of servers) {
+      toolAccess.mcpServers[server.id] ??= granted.has(server.id)
+        ? { mode: "custom", tools: server.enabledTools }
+        : { mode: "off" }
+    }
+  }
+  return createAgentProfileOpSchema.parse({
+    ...rest,
+    toolAccess,
+    customTools: refs,
+  })
 }
 
 const stable = (value: unknown) =>
@@ -98,6 +129,17 @@ const hasGrantTable = await db
     sql`SELECT to_regclass('agent_profile_custom_tool') IS NOT NULL AS present`
   )
   .then((rows) => rows[0]?.present ?? false)
+// A database that never ran this branch's db:push has no tool_access yet. The
+// script adds it (same default as the schema) so it can convert before db:push
+// would drop the old columns.
+const hasToolAccess = await db
+  .execute<{ present: boolean }>(sql`
+    SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'agent_profile' AND column_name = 'tool_access'
+    ) AS present`)
+  .then((rows) => rows[0]?.present ?? false)
+const toolAccessColumn = hasToolAccess ? sql`p.tool_access` : sql`NULL::jsonb`
 
 const profileRows = await db.execute<{
   id: string
@@ -108,7 +150,7 @@ const profileRows = await db.execute<{
 }>(
   hasLegacyProfiles
     ? sql`
-        SELECT p.id, p.tool_access, p.grants_all,
+        SELECT p.id, ${toolAccessColumn} AS tool_access, p.grants_all,
           p.capabilities::text[] AS capabilities,
           ${
             hasGrantTable
@@ -118,9 +160,9 @@ const profileRows = await db.execute<{
           } AS tool_ids
         FROM agent_profile p`
     : sql`
-        SELECT id, tool_access, NULL AS grants_all, NULL AS capabilities,
-          NULL AS tool_ids
-        FROM agent_profile`
+        SELECT p.id, ${toolAccessColumn} AS tool_access, NULL AS grants_all,
+          NULL AS capabilities, NULL AS tool_ids
+        FROM agent_profile p`
 )
 const profileUpdates = profileRows.flatMap((row) => {
   const next = convertAccess(
@@ -138,11 +180,19 @@ const profileUpdates = profileRows.flatMap((row) => {
     : [{ id: row.id, toolAccess: next }]
 })
 
+const servers = await db
+  .select({
+    id: mcpServer.id,
+    workspaceId: mcpServer.workspaceId,
+    enabledTools: mcpServer.enabledTools,
+  })
+  .from(mcpServer)
 const opUpdates = (
   await db
     .select({
       id: changeProposalOperation.id,
       spec: changeProposalOperation.spec,
+      workspaceId: changeProposal.workspaceId,
     })
     .from(changeProposalOperation)
     .innerJoin(
@@ -156,7 +206,10 @@ const opUpdates = (
       )
     )
 ).flatMap((row) => {
-  const spec = convertOp(row.spec as Record<string, unknown>)
+  const spec = convertOp(
+    row.spec as Record<string, unknown>,
+    servers.filter((server) => server.workspaceId === row.workspaceId)
+  )
   return spec ? [{ id: row.id, spec }] : []
 })
 
@@ -178,6 +231,9 @@ const pending = await db
 console.log(
   `Old profile columns: ${hasLegacyProfiles ? "present" : "already removed"}`
 )
+console.log(
+  `tool_access column: ${hasToolAccess ? "present" : "missing (will be added)"}`
+)
 console.log(`Profiles to update: ${profileUpdates.length}`)
 console.log(`Pending profile proposals to rewrite: ${opUpdates.length}`)
 console.log(`Capability or whole-server approval rules: ${policies.length}`)
@@ -190,6 +246,9 @@ if (dryRun) {
 
 const result = await db.transaction(async (tx) => {
   await tx.execute(sql`LOCK TABLE agent_profile IN ACCESS EXCLUSIVE MODE`)
+  await tx.execute(sql`
+    ALTER TABLE agent_profile ADD COLUMN IF NOT EXISTS tool_access jsonb
+      NOT NULL DEFAULT ${sql.raw(`'${JSON.stringify(DEFAULT_PROFILE_TOOL_ACCESS)}'::jsonb`)}`)
   for (const update of profileUpdates) {
     await tx
       .update(agentProfile)

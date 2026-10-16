@@ -14,7 +14,7 @@ const text = z
   .object({ text: z.object({ content: z.string().max(2000) }).strict() })
   .strict()
 const option = z.object({ id: z.string().min(1).max(128) }).strict()
-const person = z.object({ id }).strict()
+const idRef = z.object({ id }).strict()
 const property = z.discriminatedUnion("type", [
   z
     .object({ type: z.literal("title"), title: z.array(text).max(100) })
@@ -53,10 +53,10 @@ const property = z.discriminatedUnion("type", [
     })
     .strict(),
   z
-    .object({ type: z.literal("people"), people: z.array(person).max(100) })
+    .object({ type: z.literal("people"), people: z.array(idRef).max(100) })
     .strict(),
   z
-    .object({ type: z.literal("relation"), relation: z.array(person).max(100) })
+    .object({ type: z.literal("relation"), relation: z.array(idRef).max(100) })
     .strict(),
   z
     .object({

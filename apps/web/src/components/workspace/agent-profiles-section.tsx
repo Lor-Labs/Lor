@@ -340,10 +340,10 @@ export function AgentProfilesSection({
             json: { name: input.name, toolAccess: input.toolAccess },
           })
       if (!res.ok) {
-        const error = await res.json()
-        throw new Error(
-          "message" in error ? error.message : "Failed to save profile"
-        )
+        const error = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(error?.message ?? "Failed to save profile")
       }
       return res.json()
     },

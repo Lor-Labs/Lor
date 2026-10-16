@@ -104,7 +104,7 @@ export const deleteCustomTool = createRoute({
   method: "delete",
   summary: "Delete a custom tool",
   description:
-    "Permanently deletes the tool; profile grants cascade away and the name is freed.",
+    "Permanently deletes the tool and frees its name. Profiles that selected it retain the deleted tool ID as unavailable until an admin removes it.",
   tags: ["Custom Tools"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: customToolIdParamsSchema },

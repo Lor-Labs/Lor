@@ -650,6 +650,8 @@ const approvedRow = {
   runId: "run-1",
   status: "approved",
   toolCallId: "call-1",
+  toolName: "create_linear_issue",
+  target: "tool:create_linear_issue",
 }
 
 const parkedRun = { state: "complete", stopReason: "awaiting_approval" }
@@ -667,6 +669,8 @@ describe("buildApprovalContinuation", () => {
     expect(result?.approvalResume).toEqual({
       approvalId: "sdk-approval-1",
       approved: true,
+      toolName: "create_linear_issue",
+      target: "tool:create_linear_issue",
     })
     // The SDK only reads messages.at(-1) for approval responses.
     expect(result?.messages.at(-1)).toEqual({

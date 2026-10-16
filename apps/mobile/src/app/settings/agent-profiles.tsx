@@ -181,10 +181,10 @@ export default function AgentProfilesScreen() {
             json: { name: input.name, toolAccess: input.toolAccess },
           })
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(
-          "message" in error ? error.message : "Could not save the profile"
-        )
+        const error = (await response.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(error?.message ?? "Could not save the profile")
       }
     },
     onSuccess: () => {

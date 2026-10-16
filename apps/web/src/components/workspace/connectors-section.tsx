@@ -1267,8 +1267,10 @@ function BetterstackConnectDialog({
         json: { apiToken: apiToken.trim() },
       })
       if (!res.ok) {
-        const body = (await res.json()) as { message?: string }
-        throw new Error(body.message ?? "Couldn't connect Better Stack")
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't connect Better Stack")
       }
     },
     onSuccess: async () => {
