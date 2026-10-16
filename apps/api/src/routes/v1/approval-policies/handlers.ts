@@ -1,4 +1,5 @@
 import { isWorkspaceRole } from "@repo/auth/permissions"
+import { parseApprovalTargetKey } from "@repo/connectors"
 import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import {
   type ApprovalTargetRow,
@@ -178,7 +179,11 @@ export const bulkApprovalPolicies: AppRouteHandler<
           (target) => target.key
         )
       )
-      if (targets.some((target) => !available.has(target)))
+      if (
+        targets.some(
+          (target) => !available.has(target) || !parseApprovalTargetKey(target)
+        )
+      )
         return "Unknown approval target"
       // Existing gates keep their resolver. Bulk enabling only adds missing rules.
       await tx

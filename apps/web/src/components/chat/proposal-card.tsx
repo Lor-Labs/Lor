@@ -149,14 +149,21 @@ function profileRefLabel(
 
 function policyTargetLabel(
   target: { kind: string; key?: string; opPosition?: number },
-  operations: ProposalOperation[]
+  operations: ProposalOperation[],
+  profileData: AgentProfilesResponse | undefined
 ): string {
   if (target.kind === "created") {
     const op = operations.find((o) => o.position === target.opPosition)
     if (op?.spec.op === "create_custom_tool") return `tool ${op.spec.name}`
     return `step ${(target.opPosition ?? 0) + 1}`
   }
-  return target.key ? approvalTargetLabel(target.key) : "a tool"
+  return target.key
+    ? approvalTargetLabel(
+        target.key,
+        profileData?.availableToolGroups,
+        profileData?.availableCustomTools
+      )
+    : "a tool"
 }
 
 function resolverLine(spec: {
@@ -325,7 +332,9 @@ function opView(
         title: (
           <>
             Require approval for{" "}
-            <Name>{policyTargetLabel(spec.target, operations)}</Name>
+            <Name>
+              {policyTargetLabel(spec.target, operations, profileData)}
+            </Name>
           </>
         ),
         details: [resolverLine(spec)],

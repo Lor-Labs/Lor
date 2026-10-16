@@ -460,11 +460,38 @@ export const STANDALONE_TOOLS = [
   },
 ] as const
 
-export function builtinApprovalTool(name: string) {
-  for (const [provider, tools] of Object.entries(CONNECTOR_TOOLS)) {
-    const tool = tools.find((tool) => tool.name === name)
-    if (tool) return { ...tool, provider: provider as IntegrationProvider }
-  }
-  const tool = STANDALONE_TOOLS.find((tool) => tool.name === name)
-  return tool ? { ...tool, provider: null } : null
+type BuiltinTool = {
+  name: string
+  label: string
+  description: string
+  readOnlyHint: boolean
+  provider: IntegrationProvider | null
+}
+
+const BUILTIN_TOOLS_BY_NAME: ReadonlyMap<string, BuiltinTool> = new Map<
+  string,
+  BuiltinTool
+>([
+  ...Object.entries(CONNECTOR_TOOLS).flatMap(([provider, tools]) =>
+    tools.map((tool): [string, BuiltinTool] => [
+      tool.name,
+      { ...tool, provider: provider as IntegrationProvider },
+    ])
+  ),
+  ...STANDALONE_TOOLS.map((tool): [string, BuiltinTool] => [
+    tool.name,
+    { ...tool, provider: null },
+  ]),
+])
+
+// Every connector catalog tool name: profile selection filters these, and
+// custom tools may not reuse them.
+export const CONNECTOR_TOOL_NAMES: ReadonlySet<string> = new Set(
+  Object.values(CONNECTOR_TOOLS).flatMap((tools) =>
+    tools.map((tool) => tool.name)
+  )
+)
+
+export function builtinApprovalTool(name: string): BuiltinTool | null {
+  return BUILTIN_TOOLS_BY_NAME.get(name) ?? null
 }

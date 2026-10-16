@@ -1,3 +1,4 @@
+import type { ProfileToolGroup } from "./profile-tools"
 import { CONNECTORS } from "./registry"
 import { builtinApprovalTool } from "./tools"
 
@@ -57,14 +58,33 @@ export function parseApprovalTargetKey(value: string): ApprovalTarget | null {
   }
 }
 
-export function approvalTargetLabel(key: string): string {
+// Names come from the workspace catalog when the caller has it; without it,
+// custom tools fall back to "an API tool" rather than a raw id.
+export function approvalTargetLabel(
+  key: string,
+  groups: readonly Pick<ProfileToolGroup, "kind" | "id" | "name">[] = [],
+  customTools: readonly { id: string; name: string }[] = []
+): string {
   const target = parseApprovalTargetKey(key)
-  if (target?.kind === "builtinTool") {
-    const tool = builtinApprovalTool(target.toolName)
-    if (tool)
+  if (!target) return key
+  switch (target.kind) {
+    case "builtinTool": {
+      const tool = builtinApprovalTool(target.toolName)
+      if (!tool) return key
       return tool.provider
         ? `${CONNECTORS[tool.provider].label} · ${tool.label}`
         : tool.label
+    }
+    case "customTool":
+      return (
+        customTools.find((tool) => tool.id === target.customToolId)?.name ??
+        "an API tool"
+      )
+    case "mcpTool": {
+      const server = groups.find(
+        (group) => group.kind === "mcpServer" && group.id === target.mcpServerId
+      )
+      return server ? `${server.name} · ${target.toolName}` : target.toolName
+    }
   }
-  return target?.kind === "mcpTool" ? target.toolName : key
 }

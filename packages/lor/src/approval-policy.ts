@@ -25,13 +25,18 @@ export async function loadApprovalGates(
     })
     .from(schema.approvalPolicy)
     .where(eq(schema.approvalPolicy.workspaceId, workspaceId))
-  for (const row of rows) {
-    if (!parseApprovalTargetKey(row.target))
-      throw new Error(
-        "Unsupported approval policy target; review workspace approval settings"
-      )
-  }
-  return new Map(rows.map((row) => [row.target, { policyId: row.id }]))
+  // A key that doesn't parse (e.g. a renamed catalog tool) can never match a
+  // bound tool, so skipping it gates nothing less. Settings list it under
+  // "Unavailable tools" for removal.
+  const supported = rows.filter((row) => {
+    if (parseApprovalTargetKey(row.target)) return true
+    logger.warn(
+      { workspaceId, policyId: row.id, target: row.target },
+      "Skipping unsupported approval policy target"
+    )
+    return false
+  })
+  return new Map(supported.map((row) => [row.target, { policyId: row.id }]))
 }
 
 // Maps each bound tool name to the approval target that governs it. Tools with

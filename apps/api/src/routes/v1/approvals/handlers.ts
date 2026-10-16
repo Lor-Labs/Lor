@@ -134,6 +134,7 @@ type ResolveOutcome =
   | { kind: "forbidden" }
   | { kind: "archived" }
   | { kind: "conflict" }
+  | { kind: "unsupported_target" }
   | { kind: "post_failed" }
   | { kind: "resolved"; approval: Approval }
 
@@ -206,7 +207,7 @@ async function resolveApproval(
     row.approval.target &&
     !parseApprovalTargetKey(row.approval.target)
   )
-    return { kind: "conflict" }
+    return { kind: "unsupported_target" }
 
   // An approval from a voice call resolves only from that call, by someone
   // connected to it, and resumes there.
@@ -457,6 +458,15 @@ function resolveHandler(resolution: "approved" | "rejected") {
         return c.json(
           { success: false as const, message: "Already resolved" },
           HttpStatusCodes.CONFLICT
+        )
+      case "unsupported_target":
+        return c.json(
+          {
+            success: false as const,
+            message:
+              "This tool no longer exists, so it can't be approved. Reject the request instead.",
+          },
+          HttpStatusCodes.BAD_REQUEST
         )
       case "post_failed":
         return c.json(

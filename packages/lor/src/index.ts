@@ -1,4 +1,10 @@
-import { BETTERSTACK_TOOLS, CONNECTOR_TOOLS } from "@repo/connectors"
+import {
+  BETTERSTACK_TOOLS,
+  builtinApprovalTool,
+  CONNECTOR_TOOL_NAMES,
+  CONNECTOR_TOOLS,
+  parseApprovalTargetKey,
+} from "@repo/connectors"
 import {
   and,
   asc,
@@ -159,6 +165,13 @@ import {
 import type { OnUsage } from "./usage"
 import { type RunVoiceContext, voicePromptSection, voiceTools } from "./voice"
 import { webTools } from "./web"
+
+// Standalone tools are not filtered like connector tools, so one missing from
+// STANDALONE_TOOLS would bind with no approval target. Fail at boot instead.
+for (const name of Object.keys({ ...webTools, ...artifactTools })) {
+  if (!builtinApprovalTool(name))
+    throw new Error(`Tool ${name} needs a STANDALONE_TOOLS entry`)
+}
 
 // Step cap for the background write-back pass only; the answer loop's
 // ceilings come from the run budgets (reference/agent-harness.md, budgets).
@@ -2191,9 +2204,7 @@ export async function respond(
         selectedConnectorTools.has("propose_code_change")
     )
     const reservedConnectorNames = new Set([
-      ...Object.values(CONNECTOR_TOOLS).flatMap((catalog) =>
-        catalog.map((tool) => tool.name)
-      ),
+      ...CONNECTOR_TOOL_NAMES,
       ...[
         githubTools,
         codeTools,
@@ -2633,10 +2644,22 @@ export async function respond(
       approvedResume?.approved &&
       (!run?.resume || run.resume.counters.steps === 0) &&
       toolTargets.targetFor(approvedResume.toolName) !== approvedResume.target
-    )
+    ) {
+      // Still granted but its server didn't connect: a failed handshake, not a
+      // changed tool.
+      const parked = parseApprovalTargetKey(approvedResume.target)
+      const unreachable =
+        parked?.kind === "mcpTool" &&
+        (grants.mcpTools[parked.mcpServerId] ?? []).includes(parked.toolName) &&
+        !mcpServerSession?.servers.some(
+          (server) => server.id === parked.mcpServerId
+        )
       throw new Error(
-        "The approved tool is unavailable or its source changed. Request approval for the current tool."
+        unreachable
+          ? "Couldn't connect to the MCP server to run the approved tool. Ask Lor to try again."
+          : "The approved tool is unavailable or its source changed. Request approval for the current tool."
       )
+    }
 
     const guarded = guardTools(tools, {
       priorBytes: counters.toolOutputBytes,
