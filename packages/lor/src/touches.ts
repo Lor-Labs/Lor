@@ -11,7 +11,7 @@ import {
   STANDALONE_TOOLS,
   type StandaloneToolName,
 } from "@repo/connectors"
-import { asc, db, eq, schema } from "@repo/db"
+import { and, asc, db, desc, eq, ne, or, schema, sql } from "@repo/db"
 import {
   EMPTY_LOR_RUN_SCOPE,
   resolveLorRunScope,
@@ -24,6 +24,7 @@ import {
   prefixedTokenId,
   splitCallToken,
 } from "./citations"
+import { privateAudienceFilter } from "./retrieval"
 
 // What a session's run touched, recorded after the run persists: tool calls,
 // citations in the reply, and the chat it started from. No model call.
@@ -392,4 +393,173 @@ export async function recordRunTouches(args: {
       }))
     )
     .onConflictDoNothing()
+}
+
+// Strongest first when ranking sessions that touched the same item.
+const ACTION_RANK: Record<TouchAction, number> = {
+  wrote: 0,
+  cited: 1,
+  read: 2,
+  started_from: 3,
+  mentioned: 4,
+}
+const LOOKUP_ROWS_MAX = 200
+const QUERY_ITEMS_MAX = 20
+
+export type SessionHit = {
+  // The session's anchor message: read_thread reads the session from it.
+  messageId: string
+  title: string
+  channel: string | null
+  when: string
+  action: TouchAction
+  item: string
+}
+
+// Sessions that touched any of the items, one hit per session (its strongest
+// action, then recency), under the same audience filter as message search.
+export async function sessionsTouching(args: {
+  workspaceId: string
+  items: ItemRef[]
+  privateContainerChannelId: string | null
+  excludeThreadRootId: string | null
+  limit: number
+}): Promise<SessionHit[]> {
+  if (args.items.length === 0) return []
+  const rows = await db
+    .select({
+      threadRootId: schema.agentSession.threadRootId,
+      title: schema.agentSession.title,
+      channel: schema.channel.name,
+      action: schema.touch.action,
+      value: schema.touch.value,
+      createdAt: schema.touch.createdAt,
+    })
+    .from(schema.touch)
+    .innerJoin(
+      schema.agentSession,
+      eq(schema.agentSession.id, schema.touch.sessionId)
+    )
+    .innerJoin(
+      schema.channel,
+      eq(schema.channel.id, schema.agentSession.channelId)
+    )
+    .where(
+      and(
+        eq(schema.touch.workspaceId, args.workspaceId),
+        or(
+          ...args.items.map((i) =>
+            and(eq(schema.touch.kind, i.kind), eq(schema.touch.value, i.value))
+          )
+        ),
+        privateAudienceFilter(args.privateContainerChannelId),
+        args.excludeThreadRootId
+          ? ne(schema.agentSession.threadRootId, args.excludeThreadRootId)
+          : sql`true`
+      )
+    )
+    .orderBy(desc(schema.touch.createdAt))
+    .limit(LOOKUP_ROWS_MAX)
+
+  const best = new Map<string, (typeof rows)[number]>()
+  for (const row of rows) {
+    const prev = best.get(row.threadRootId)
+    if (!prev || ACTION_RANK[row.action] < ACTION_RANK[prev.action]) {
+      best.set(row.threadRootId, row)
+    }
+  }
+  return [...best.values()]
+    .sort(
+      (a, b) =>
+        ACTION_RANK[a.action] - ACTION_RANK[b.action] ||
+        b.createdAt.getTime() - a.createdAt.getTime()
+    )
+    .slice(0, args.limit)
+    .map((row) => ({
+      messageId: row.threadRootId,
+      title: row.title,
+      channel: row.channel,
+      when: row.createdAt.toISOString(),
+      action: row.action,
+      item: row.value,
+    }))
+}
+
+const ISSUE_KEY = /\b[A-Za-z][A-Za-z0-9]*-\d+\b/g
+const GITHUB_REF = /\b([\w.-]+\/[\w.-]+)#(\d+)\b/g
+
+// Item keys named in free text: links, issue keys and owner/repo#n refs.
+// Lookup only: a false match like UTF-8 finds no touches, so it costs nothing.
+export function itemsInText(text: string): ItemRef[] {
+  const items = new Map<string, ItemRef>()
+  const add = (i: ItemRef | null) => {
+    if (i) items.set(`${i.kind}|${i.value}`, i)
+  }
+  for (const m of text.matchAll(BARE_URL)) {
+    add(urlItem(m[0].replace(/[.,;:!?]+$/, "")))
+  }
+  for (const m of text.matchAll(ISSUE_KEY)) {
+    add(item("linear_issue", linearIssueKey(m[0].toUpperCase())))
+  }
+  for (const m of text.matchAll(GITHUB_REF)) {
+    if (!m[1] || !m[2]) continue
+    // owner/repo#n can be either; the lookup tries both.
+    add(item("github_pr", githubItemKey(m[1], m[2])))
+    add(item("github_issue", githubItemKey(m[1], m[2])))
+  }
+  return [...items.values()].slice(0, QUERY_ITEMS_MAX)
+}
+
+type AnyToolExecute = (
+  input: unknown,
+  options: unknown
+) => Promise<unknown> | unknown
+
+const HINTS_MAX = 3
+
+// Reverse hints: a connector read lists earlier sessions that touched the same
+// item, so Lor learns about past work without deciding to search. Titles,
+// dates and actions only, on a result Lor asked for; nothing is preloaded.
+export function withTouchHints<T extends Record<string, unknown>>(
+  tools: T,
+  scope: {
+    workspaceId: string
+    privateContainerChannelId: string | null
+    threadRootId: string | null
+  }
+): T {
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, t]) => {
+      const original = (t as { execute?: AnyToolExecute }).execute
+      if (
+        typeof original !== "function" ||
+        !isCatalogTool(name) ||
+        !CATALOG_SPECS[name] ||
+        READ_ONLY.get(name) !== true
+      ) {
+        return [name, t]
+      }
+      const execute: AnyToolExecute = async (input, options) => {
+        const output = await original(input, options)
+        if (!isRec(output)) return output
+        const items = touchesForCall({
+          toolName: name,
+          input: isRec(input) ? input : {},
+          output,
+        }).flatMap((x) => (x && !("brainPath" in x) ? [x] : []))
+        if (items.length === 0) return output
+        const earlier = await sessionsTouching({
+          workspaceId: scope.workspaceId,
+          items,
+          privateContainerChannelId: scope.privateContainerChannelId,
+          excludeThreadRootId: scope.threadRootId,
+          limit: HINTS_MAX,
+        }).catch(() => [])
+        return earlier.length > 0
+          ? { ...output, earlierSessions: earlier }
+          : output
+      }
+      return [name, { ...(t as object), execute }]
+    })
+  ) as T
 }

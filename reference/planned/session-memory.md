@@ -275,7 +275,7 @@ projection at 120k estimated tokens instead of reusing compaction notes.
 
 ### Step 5: touches and reverse hints
 
-[x] 5a built 2026-10-16 · [x] 5b built 2026-10-16 · [ ] 5c built · [ ] committed · [ ] db:push · [ ] backfill run
+[x] 5a built 2026-10-16 · [x] 5b built 2026-10-16 · [x] 5c built 2026-10-16 · [ ] committed · [ ] db:push · [ ] backfill run
 
 Split in two. 5a (~530 lines): the `touch` table with `TOUCH_KINDS` /
 `TOUCH_ACTIONS` (`packages/db/src/schemas/touches.ts`); `CONNECTOR_TOOLS` built
@@ -296,7 +296,17 @@ in the run's tool results; links people paste are `mentioned`; unknown hosts
 become `url` touches. Backfill: `packages/lor/src/scripts/backfill-touches.ts`
 (command in its header). Deviation: `mentioned` covers pasted links only, not
 bare `LOR-123` or `owner/repo#n` text, which can't be told apart from noise or
-from PR vs issue without a lookup. 5c: the `search` lookup and reverse hints.
+from PR vs issue without a lookup.
+
+5c (~220 lines): `sessionsTouching` (one hit per session, strongest action
+then recency, message audience filter, current session left out) and
+`itemsInText` (links, issue keys, `owner/repo#n` tried as PR and issue) in
+`touches.ts`. `search` gains a `sessions` kind; its hits skip the rerank
+because they are exact matches, and carry the session's anchor as
+`messageId` for `read_thread`. `withTouchHints` wraps the run's tools before
+`guardTools`. Deviations: hints cover catalog read tools only (connector
+items), not Lor's own read tools; they arrive as an `earlierSessions` field on
+the result rather than a text line. The system prompt names both.
 
 **Schema.** `touch`:
 
