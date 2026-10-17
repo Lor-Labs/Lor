@@ -88,7 +88,7 @@ function SharedRun() {
           <p className="mt-2">
             42 leads, 12 new. The drafts follow Zoe&rsquo;s playbook.
           </p>
-          <FileCard name="drafts/" detail="12 drafts" />
+          <FileCard name="intro-drafts.md" detail="12 drafts" />
         </Turn>
         <Turn avatar={<PersonAvatar src={RAFAEL} />}>
           Nice. I&rsquo;ll take the fintech ones.

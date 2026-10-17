@@ -1,12 +1,12 @@
 import {
   ArrowRight01Icon,
   ComputerTerminal01Icon,
-  File01Icon,
   Loading03Icon,
   LockKeyIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { FileTypeIcon } from "@repo/ui/components/file-type-icon"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
 import Image from "next/image"
@@ -170,17 +170,26 @@ export function ToolStep({ icon, label }: { icon: ReactNode; label: string }) {
   )
 }
 
-export function FileCard({ name, detail }: { name: string; detail: string }) {
+// Copies the app's ArtifactFileCard (FileChip + FileTypeIcon).
+export function FileCard({
+  name,
+  detail,
+  className = "mt-3 w-fit pr-4",
+}: {
+  name: string
+  detail: string
+  className?: string
+}) {
   return (
-    <span className="mt-3 flex w-fit items-center gap-2.5 rounded-lg border border-lor-border-dark bg-lor-surface-dark py-2 pr-4 pl-2.5">
-      <span className="flex size-7 items-center justify-center rounded-md bg-foreground/[0.06] text-lor-text-secondary-dark">
-        <HugeiconsIcon icon={File01Icon} size={15} strokeWidth={1.75} />
-      </span>
-      <span className="flex flex-col">
-        <span className="font-medium text-[12.5px] text-lor-text-dark leading-tight">
+    <span
+      className={`flex min-w-0 items-center gap-2.5 rounded-xl border border-lor-border-dark bg-lor-surface-dark py-2 pl-2.5 ${className}`}
+    >
+      <FileTypeIcon filename={name} className="size-7" />
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate font-medium text-[12.5px] text-lor-text-dark leading-tight">
           {name}
         </span>
-        <span className="text-[11px] text-lor-text-tertiary-dark">
+        <span className="mt-0.5 truncate text-[11px] text-lor-text-tertiary-dark tabular-nums">
           {detail}
         </span>
       </span>

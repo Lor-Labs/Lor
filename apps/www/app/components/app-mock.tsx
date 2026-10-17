@@ -311,10 +311,19 @@ function DetailsRail() {
           </div>
         </div>
         <div>
-          <RailTitle title="Files" aside="1" />
-          <p className="mt-2.5 truncate text-[12px] text-lor-text-secondary-dark">
-            outreach-drafts.md
-          </p>
+          <RailTitle title="Files" aside="2" />
+          <div className="mt-2.5 flex flex-col gap-1.5">
+            <FileCard
+              name="outreach-drafts.md"
+              detail="MD · 4.2 KB"
+              className="w-full pr-3"
+            />
+            <FileCard
+              name="leads.csv"
+              detail="CSV · 1.8 KB"
+              className="w-full pr-3"
+            />
+          </div>
         </div>
       </div>
     </div>

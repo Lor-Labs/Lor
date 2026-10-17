@@ -10,6 +10,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { ReactNode } from "react"
+import { BrowserPreviewMock } from "@/app/components/browser-preview"
 import { LorMark } from "@/app/components/lor-mark"
 import {
   AgentAvatar,
@@ -32,8 +33,9 @@ import {
 } from "@/app/components/week-in-gtm"
 
 // One person's agent workflow becoming the team's: Zoe moves her setup into
-// #gtm, it runs on its own, it asks before sending, and Rafael finishes her
-// session while she is out. Replaces WeekInGtm's feature tour.
+// #gtm, it runs on its own in the channel's browser, it asks before sending,
+// and Rafael finishes her session while she is out. Replaces WeekInGtm's
+// feature tour.
 
 const FILES = [
   { icon: Folder01Icon, name: "scripts/", detail: "4 scripts" },
@@ -207,6 +209,11 @@ const FRAMES: Frame[] = [
     time: "Monday, 9:00 AM",
     title: "The Monday run starts without her.",
     mock: <LoopRunMock />,
+  },
+  {
+    time: "Monday, 9:06 AM",
+    title: "Anyone can watch it work, or take over.",
+    mock: <BrowserPreviewMock />,
   },
   {
     time: "Monday, 9:14 AM",
