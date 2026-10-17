@@ -42,7 +42,7 @@ architectural invariant today:
 | **Custom tool** | user-defined tool descriptor Lor can call (HTTP template + args schema) | workspace registry, per-channel enablement like connectors | new |
 | **Webhook** | user-created inbound URL (a `webhook`-provider connection + its trigger) | channel | exists as `channel_webhook`; folds in |
 | **Trigger** | inbound event: a connector event *or* a webhook delivery | belongs to a connection, **anchored to one channel**; fans out to effects | partially exists (`connector_notification_route` is the POST-only ancestor) |
-| **Effect** | what happens on delivery: **POST**, **Remember**, **Act** — any combination | per trigger | POST + Remember exist in pieces |
+| **Effect** | what happens on delivery: **POST**, **Act** — either or both (Remember removed 2026-10-17, see §2) | per trigger | exists |
 | **Instructions** | layered prompt context: workspace → (channel, future) → trigger | trigger instructions enter context *only* when that trigger fires | workspace exists |
 | **Triggered run** | a normal `agent_run` with trigger provenance | logged always; visible in channel only if Lor posts | machinery exists, composition new |
 
@@ -52,6 +52,14 @@ instructions glue them together ("when this event arrives, use the `query_orders
 look up the account, then …").
 
 ## 2. Effects: POST, Remember, Act
+
+> **Remember removed 2026-10-17** (`planned/context-engine-phase-2.md` Step 1).
+> GitHub, Linear and Attio items are ingested into `source` whether or not a
+> trigger exists, as real text with no summary. Your own webhooks are never
+> ingested: the posted message is the record. An event card is
+> `excludedFromMemory` when its item is ingested; other cards (releases, Attio
+> list entries, your own webhooks) stay searchable chat. The Remember text
+> below is history.
 
 Effects form a cost/power ladder. A trigger can enable any combination. Every trigger is
 anchored to one channel, which is the target/scope of all its effects.

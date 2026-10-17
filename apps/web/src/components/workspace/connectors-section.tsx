@@ -89,8 +89,6 @@ const NOTIFY_OFF = "__off__"
 type TriggerConfig = {
   channelId: string | null
   post: boolean
-  remember: boolean
-  rememberHint: string | null
   actInstructions: string | null
   actWindowSeconds: number
   hourlyRunCap: number
@@ -775,8 +773,6 @@ function EventRoutes({
               event: ev.key,
               channelId: ev.channelId,
               post: ev.post,
-              remember: ev.remember,
-              rememberHint: ev.rememberHint,
               actInstructions: ev.actInstructions,
               actWindowSeconds: ev.actWindowSeconds,
               hourlyRunCap: ev.hourlyRunCap,
@@ -819,8 +815,6 @@ function EventRoutes({
                     disabled={busy || !canManage}
                     value={{
                       post: ev.post,
-                      remember: ev.remember,
-                      rememberHint: ev.rememberHint,
                       actInstructions: ev.actInstructions,
                       actWindowSeconds: ev.actWindowSeconds,
                       hourlyRunCap: ev.hourlyRunCap,

@@ -4,13 +4,11 @@ import { and, db, eq, schema } from "@repo/db"
 import { githubNotificationEmbed } from "@/lib/connector-notification-embeds"
 import {
   dispatchConnectorEvent,
-  type RememberDraft,
+  type EventItem,
 } from "@/lib/connector-triggers"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 
-const toDate = (s?: string | null): Date | null => (s ? new Date(s) : null)
-
-// Fan the event out to its trigger's configured effects (POST / Remember).
+// Fan the event out to its trigger's configured effects (POST / Act).
 // Skips silently when the install isn't mapped to a workspace or the event
 // has no trigger — no row = event off.
 async function dispatchForInstallation(
@@ -18,7 +16,8 @@ async function dispatchForInstallation(
   event: ConnectorEventKey,
   text: string,
   embed: ReturnType<typeof githubNotificationEmbed>,
-  remember?: RememberDraft
+  item: EventItem,
+  ingested: boolean
 ): Promise<void> {
   if (installationId === undefined) return
   await dispatchConnectorEvent({
@@ -28,7 +27,8 @@ async function dispatchForInstallation(
     label: "GitHub",
     text,
     embeds: [embed],
-    remember,
+    item,
+    ingested,
   })
 }
 
@@ -57,19 +57,16 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
           : null,
       }),
       {
-        kind: "pull_request",
-        externalId: `${repo}#${pr.number}`,
         title: pr.title,
         url: pr.html_url,
         author: pr.user?.login ?? null,
-        occurredAt: toDate(pr.created_at),
         content: `${pr.title}\n\n${pr.body ?? ""}`,
-      }
+      },
+      true
     )
   })
 
-  // Merged PRs — high-signal units of change. Shares the opened PR's
-  // externalId, so remembering both upserts one source row in place.
+  // Merged PRs — high-signal units of change.
   webhooks.on("pull_request.closed", async ({ payload }) => {
     const pr = payload.pull_request
     if (!pr.merged) return
@@ -94,14 +91,12 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
           : null,
       }),
       {
-        kind: "pull_request",
-        externalId: `${repo}#${pr.number}`,
         title: pr.title,
         url: pr.html_url,
         author: pr.user?.login ?? null,
-        occurredAt: toDate(pr.merged_at),
         content: `${pr.title}\n\n${pr.body ?? ""}`,
-      }
+      },
+      true
     )
   })
 
@@ -128,16 +123,12 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
           : null,
       }),
       {
-        kind: "issue",
-        externalId: `${repo}#${issue.number}`,
         title: issue.title,
         url: issue.html_url,
         author: issue.user?.login ?? null,
-        occurredAt: toDate(
-          payload.action === "closed" ? issue.closed_at : issue.created_at
-        ),
         content: `${issue.title}\n\n${issue.body ?? ""}`,
-      }
+      },
+      true
     )
   })
 
@@ -164,14 +155,12 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
           : null,
       }),
       {
-        kind: "release",
-        externalId: `${repo}@${release.id}`,
         title,
         url: release.html_url,
         author: release.author?.login ?? null,
-        occurredAt: toDate(release.published_at),
         content: `${title}\n\n${release.body ?? ""}`,
-      }
+      },
+      false
     )
   })
 

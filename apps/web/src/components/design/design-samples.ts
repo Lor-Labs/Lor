@@ -237,8 +237,6 @@ export const PROPOSAL_SAMPLES: ProposalSample[] = [
           event: "pull_request.merged",
           channel: { kind: "existing", id: ENG_CHANNEL },
           post: true,
-          remember: true,
-          rememberHint: null,
           actInstructions: null,
         }),
         op(2, {

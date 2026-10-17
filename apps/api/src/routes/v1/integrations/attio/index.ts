@@ -12,7 +12,7 @@ import { decryptSecret } from "@repo/utils/crypto"
 import { attioNotificationEmbed } from "@/lib/connector-notification-embeds"
 import {
   dispatchConnectorEvent,
-  type RememberDraft,
+  type EventItem,
 } from "@/lib/connector-triggers"
 import { createRouter } from "@/lib/helpers/app/create-app"
 import { logger } from "@/lib/logger"
@@ -51,8 +51,7 @@ type Connection = {
 
 // A processor either isn't ready ("retry" → non-2xx so Attio redelivers with
 // backoff — Attio is the retry scheduler, no queue needed), has nothing to do
-// ("skip"), or returns the dispatch to run after the ack (Remember's summarize
-// call is too slow to hold the response open for).
+// ("skip"), or returns the dispatch to run once every event is processed.
 type ProcessOutcome = "retry" | "skip" | (() => Promise<unknown>)
 
 function verifySignature(
@@ -87,7 +86,7 @@ async function hasEnabledTrigger(
   return !!row
 }
 
-// Best-effort record lookup for titles/links in POST text and Remember drafts.
+// Best-effort record lookup for titles/links in POST text and Act payloads.
 async function fetchRecordSummary(
   externalId: string,
   objectId: string | undefined,
@@ -175,15 +174,13 @@ async function processCallRecording(
           },
         },
       ],
-      remember: {
-        kind: "call_recording",
-        externalId: `call_recording#${recordingId}`,
+      item: {
         title,
         url: recording.webUrl,
         author: null,
-        occurredAt: recording.createdAt ? new Date(recording.createdAt) : null,
         content: `${title}\n\n${transcript}`,
-      } satisfies RememberDraft,
+      } satisfies EventItem,
+      ingested: true,
     })
 }
 
@@ -246,21 +243,16 @@ async function processNote(
             : undefined,
         }),
       ],
-      remember: {
-        kind: "note",
-        externalId: `note#${noteId}`,
+      item: {
         title,
         url: record?.url ?? null,
         author: null,
-        occurredAt:
-          typeof note.created_at === "string"
-            ? new Date(note.created_at)
-            : null,
         content: clip(
           `${title}${record ? ` (note on ${record.title})` : ""}\n\n${body}`,
           CONTENT_INGEST_MAX
         ),
-      } satisfies RememberDraft,
+      } satisfies EventItem,
+      ingested: true,
     })
 }
 
@@ -306,15 +298,12 @@ async function processListEntry(
           fields: [{ name: "List", value: listName, inline: true }],
         }),
       ],
-      remember: {
-        kind: "list_entry",
-        externalId: `list_entry#${entryId}`,
+      item: {
         title: `${recordTitle} added to ${listName}`,
         url: record?.url ?? null,
         author: null,
-        occurredAt: new Date(),
         content: `${recordTitle} was added to the "${listName}" list in Attio.`,
-      } satisfies RememberDraft,
+      } satisfies EventItem,
     })
 }
 
@@ -439,10 +428,8 @@ attioRouter.post("/integrations/attio/webhook", async (c) => {
     }
   }
 
-  // Dispatch, then ack. The slow part (Remember's summarize) is already
-  // fire-and-forget inside dispatchConnectorEvent, so awaiting here is cheap —
-  // and a failure can release the claim and 503 so Attio actually redelivers
-  // (a detached failure after a 200 ack was silently lost).
+  // Dispatch, then ack, so a failure can release the claim and 503 and Attio
+  // actually redelivers (a detached failure after a 200 ack was silently lost).
   try {
     await Promise.all(dispatches.map((run) => run()))
   } catch (err) {

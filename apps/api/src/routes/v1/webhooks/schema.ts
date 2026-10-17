@@ -40,8 +40,6 @@ export const channelWebhookSchema = z.object({
   createdAt: z.string(),
   createdByName: z.string().nullable(),
   post: z.boolean(),
-  remember: z.boolean(),
-  rememberHint: z.string().nullable(),
   actInstructions: z.string().nullable(),
   // Act rate shape (reference/automation-primitives.md §5).
   actWindowSeconds: z.number(),
@@ -71,8 +69,6 @@ export const updateChannelWebhookRequestSchema = z
     name: z.string().trim().min(1).max(80).optional(),
     avatarUrl: z.string().url().max(2048).nullable().optional(),
     post: z.boolean().optional(),
-    remember: z.boolean().optional(),
-    rememberHint: z.string().trim().max(2000).nullable().optional(),
     // The Act effect's instructions for Lor; null = Act off.
     actInstructions: z.string().trim().max(4000).nullable().optional(),
     // 0 = one run per delivery; otherwise deliveries inside the window

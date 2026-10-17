@@ -93,19 +93,13 @@ async function dispatchIssueEvent(event: LinearEvent): Promise<void> {
           actor,
         }),
       ],
-      // Identifier (e.g. LOR-49) is the stable upsert key; without one the
-      // event has nothing addressable to remember.
-      remember: event.data.identifier
-        ? {
-            kind: "issue",
-            externalId: event.data.identifier,
-            title: event.data.title,
-            url: event.url ?? null,
-            author: null,
-            occurredAt: new Date(),
-            content: `${event.data.title}\n\n${event.data.description ?? ""}`,
-          }
-        : undefined,
+      item: {
+        title: event.data.title,
+        url: event.url ?? null,
+        author: null,
+        content: `${event.data.title}\n\n${event.data.description ?? ""}`,
+      },
+      ingested: true,
     })
   } catch (err) {
     logger.error({ err }, "Linear issue event dispatch failed")

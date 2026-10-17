@@ -195,8 +195,6 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             event: connectorTrigger.event,
             channelId: connectorTrigger.channelId,
             post: connectorTrigger.post,
-            remember: connectorTrigger.remember,
-            rememberHint: connectorTrigger.rememberHint,
             actInstructions: connectorTrigger.actInstructions,
             actWindowSeconds: connectorTrigger.actWindowSeconds,
             hourlyRunCap: connectorTrigger.hourlyRunCap,
@@ -305,8 +303,6 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             label: e.label,
             channelId: trigger?.channelId ?? null,
             post: trigger?.post ?? true,
-            remember: trigger?.remember ?? false,
-            rememberHint: trigger?.rememberHint ?? null,
             actInstructions: trigger?.actInstructions ?? null,
             // Unconfigured events show the same defaults a new trigger gets.
             actWindowSeconds:
@@ -915,8 +911,6 @@ export const updateIntegration: AppRouteHandler<
     event,
     channelId,
     post,
-    remember,
-    rememberHint,
     actInstructions,
     actWindowSeconds,
     hourlyRunCap,
@@ -991,8 +985,6 @@ export const updateIntegration: AppRouteHandler<
       event,
       channelId,
       post,
-      remember,
-      rememberHint,
       actInstructions,
       // Absent = keep the column default on create.
       ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
@@ -1004,8 +996,6 @@ export const updateIntegration: AppRouteHandler<
       set: {
         channelId,
         post,
-        remember,
-        rememberHint,
         actInstructions,
         // Absent = leave the configured limits alone.
         ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),

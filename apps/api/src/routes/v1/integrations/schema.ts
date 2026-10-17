@@ -69,8 +69,6 @@ export const integrationStatusSchema = z.object({
       label: z.string(),
       channelId: z.string().nullable(),
       post: z.boolean(),
-      remember: z.boolean(),
-      rememberHint: z.string().nullable(),
       actInstructions: z.string().nullable(),
       // Act rate shape (reference/automation-primitives.md §5).
       actWindowSeconds: z.number(),
@@ -176,9 +174,6 @@ export const updateIntegrationRequestSchema = z.object({
   // the trigger — the event is off.
   channelId: z.string().uuid().nullable(),
   post: z.boolean().default(true),
-  remember: z.boolean().default(false),
-  // Optional steering for Remember's summarize pass.
-  rememberHint: z.string().trim().max(2000).nullable().default(null),
   // The Act effect's instructions for Lor; null = Act off.
   actInstructions: z.string().trim().max(4000).nullable().default(null),
   // Act rate shape. Optional (not defaulted) so a client that doesn't know

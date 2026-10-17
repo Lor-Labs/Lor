@@ -4,17 +4,19 @@ import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
 import type { Embed, IntegrationProvider } from "@repo/db/schema"
 import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/lor/act-runs"
 import { enrichMeetingEmbed } from "@repo/lor/meeting-insights"
-import { type IngestSourceInput, ingestSource } from "@repo/lor/sources"
 import { channelRoom, threadRoom } from "@repo/realtime-types"
 import { startActRun } from "@/lib/act-runs"
 import { getEmitter, postBotMessage } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
 
-// The Remember payload a webhook handler supplies; the trigger resolves the rest.
-export type RememberDraft = Omit<
-  IngestSourceInput,
-  "workspaceId" | "connectionId" | "channelId" | "provider" | "hint"
->
+// The item an event is about, as the webhook handler read it. Feeds the Act
+// run's turn.
+export type EventItem = {
+  title: string
+  url: string | null
+  author: string | null
+  content: string
+}
 
 // Raw payloads logged on trigger_delivery are capped — Lor stores the whole
 // payload only for BYO webhooks, and only up to this.
@@ -23,22 +25,21 @@ const DELIVERY_PAYLOAD_MAX = 64 * 1024
 export type DispatchOutcome = {
   // The posted channel message id, when the POST effect ran.
   posted: string | null
-  remembered: boolean
   // The Act run id, when the Act effect started.
   acted: string | null
 }
 
 // The Act run's user turn: everything the event gave us, most readable first.
 // First-party content lives at the provider, so this snapshot is all the run
-// gets — include the Remember draft's full content when there is one.
+// gets — include the item's full content when there is one.
 function actPayload(input: {
   event: string
   text: string
-  remember?: RememberDraft
+  item?: EventItem
   payload?: string
 }): string {
   const parts = [`Event: ${input.event}`, input.text]
-  const r = input.remember
+  const r = input.item
   if (r) {
     parts.push(
       [
@@ -55,9 +56,9 @@ function actPayload(input: {
   return parts.join("\n\n")
 }
 
-// Fan one connector event out to its trigger's effects (POST, Remember, Act),
-// and log the delivery. No trigger row — or a disabled one — means the event
-// is off (returns null). See reference/automation-primitives.md §2.
+// Fan one connector event out to its trigger's effects (POST, Act), and log
+// the delivery. No trigger row — or a disabled one — means the event is off
+// (returns null). See reference/automation-primitives.md §2.
 export async function dispatchConnectorEvent(input: {
   provider: IntegrationProvider
   externalId: string
@@ -68,8 +69,10 @@ export async function dispatchConnectorEvent(input: {
   embeds?: Embed[]
   // BYO webhook post identity (bucket-restricted, from the stored config).
   avatarUrl?: string
-  // Omit when the event has nothing ingestable; Remember is then a no-op.
-  remember?: RememberDraft
+  item?: EventItem
+  // The event's item is ingested into `source`, so the posted card is only a
+  // pointer and stays out of message search.
+  ingested?: boolean
   // Raw inbound payload for the delivery log (BYO webhooks only).
   payload?: string
 }): Promise<DispatchOutcome | null> {
@@ -78,8 +81,6 @@ export async function dispatchConnectorEvent(input: {
       trigger: {
         id: schema.connectorTrigger.id,
         post: schema.connectorTrigger.post,
-        remember: schema.connectorTrigger.remember,
-        rememberHint: schema.connectorTrigger.rememberHint,
         actInstructions: schema.connectorTrigger.actInstructions,
         actWindowSeconds: schema.connectorTrigger.actWindowSeconds,
         hourlyRunCap: schema.connectorTrigger.hourlyRunCap,
@@ -121,7 +122,7 @@ export async function dispatchConnectorEvent(input: {
 
   let postedMessageId: string | null = null
   if (target.trigger.post) {
-    // A POST failure must not take Remember, the delivery log, or Act with it.
+    // A POST failure must not take the delivery log or Act with it.
     try {
       const message = await postBotMessage({
         channel: target.channel,
@@ -130,10 +131,7 @@ export async function dispatchConnectorEvent(input: {
         embeds: input.embeds,
         overrideName: input.label,
         overrideAvatarUrl: input.avatarUrl,
-        // Memory rule: with Remember on, the `source` row is the canonical copy
-        // and this message is just a pointer; POST-only messages stay canonical
-        // chat content. See reference/automation-primitives.md §2.
-        excludedFromMemory: target.trigger.remember,
+        excludedFromMemory: input.ingested ?? false,
       })
       postedMessageId = message.id
       // Meeting insights are a model call — too slow to hold the webhook ack
@@ -160,30 +158,6 @@ export async function dispatchConnectorEvent(input: {
     }
   }
 
-  const remembered = target.trigger.remember && !!input.remember
-  if (remembered && input.remember) {
-    // Fire-and-forget: the summarize call is too slow to hold webhook acks
-    // open, and an ingest hiccup must not fail the delivery.
-    void ingestSource(
-      {
-        workspaceId: target.connection.workspaceId,
-        connectionId: target.connection.id,
-        channelId: target.channel.id,
-        provider: input.provider,
-        hint: target.trigger.rememberHint,
-        ...input.remember,
-      },
-      // Metered at true cost, never debited — "free ingestion" stays a pricing
-      // decision whose price is visible in the ledger.
-      (u) => void recordUsage(u)
-    ).catch((err) => {
-      logger.error(
-        { err, provider: input.provider, event: input.event },
-        "Connector event ingest failed"
-      )
-    })
-  }
-
   let acted: string | null = null
   // Act's queue lives in the delivery log: any Act-on delivery keeps a capped
   // copy of its run payload, so a flush minutes later can rebuild the turn for
@@ -200,7 +174,6 @@ export async function dispatchConnectorEvent(input: {
       actPayload: actText ? actText.slice(0, ACT_DELIVERY_PAYLOAD_MAX) : null,
       actLabel: actOn ? input.label : null,
       posted: postedMessageId !== null,
-      remembered,
     })
     .returning({ id: schema.triggerDelivery.id })
     .then((rows) => rows[0] ?? null)
@@ -234,13 +207,12 @@ export async function dispatchConnectorEvent(input: {
       event: input.event,
       channelId: target.channel.id,
       posted: postedMessageId !== null,
-      remembered,
       act: actOutcome,
       acted,
     },
     "Dispatched connector event"
   )
-  return { posted: postedMessageId, remembered, acted }
+  return { posted: postedMessageId, acted }
 }
 
 // Follow-up to the POST effect: run meeting-insight enrichment after the base

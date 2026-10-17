@@ -50,9 +50,12 @@ Step 2 can reshape the table. Steps 3 to 5 fill it. Steps 6 to 9 change
 
 ### Step 1: remove Remember
 
-[ ] built · [ ] committed
+[x] built 2026-10-17 · [ ] committed
 
-~350 lines, mostly deletions.
+As built (~430 lines, 340 of them deletions): as below. Deviation: the Step 1
+channel backfill script (`backfill-source-channels.ts`) is deleted here, not in
+Step 2, because it read `connector_trigger.remember`. `ingestSource` stays,
+with no callers, until Step 2 replaces it.
 
 - Schema: drop `connector_trigger.remember`, `connector_trigger.remember_hint`
   and `trigger_delivery.remembered`. The change-proposal trigger spec drops
@@ -116,8 +119,7 @@ Step 2 can reshape the table. Steps 3 to 5 fill it. Steps 6 to 9 change
   document is title plus chunk, and the tool description and system prompt
   describe stored items (PRs, issues, notes, call transcripts) and
   `fetch_source`.
-- Delete `packages/db/src/scripts/backfill-source-channels.ts`. New one-off
-  `packages/db/src/scripts/delete-summary-sources.ts` deletes rows with
+- New one-off `packages/db/src/scripts/delete-summary-sources.ts` deletes rows with
   `content_hash is null`: old summaries, your own webhook rows, releases,
   list entries.
 - `session-memory.md`: mark Step 1's channel scope and rule 2 superseded.
