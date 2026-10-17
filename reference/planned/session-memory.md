@@ -287,7 +287,9 @@ write, edit) and `recordRunTouches`, which the worker calls after a session
 reply persists: the run's tool calls from `agent_run_step`, verified citations
 in the reply, and the session's starting context. Deviations: `started_from`
 rows are written by each run's writer (idempotent), not at session start;
-Better Stack specs are `null` until its MCP input names are checked.
+Better Stack specs were `null` until its MCP input names were known; added
+2026-10-16 from the tools' runtime schemas (incidents by `id`, errors by
+`application_id` + `pattern`, since an error has no single id).
 
 5b (~250 lines): `CONNECTOR_URL_HOSTS` and `itemFromUrl` in `item-keys.ts`
 (GitHub PR, issue, repo; Linear issue; Notion page; Attio record), now also

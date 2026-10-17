@@ -118,6 +118,15 @@ export function linearIssueKey(value: string): string | null {
   return LINEAR_IDENTIFIER.test(trimmed) ? trimmed : null
 }
 
+// A Better Stack error is a pattern within an application; neither alone is
+// unique. Field names come from the tools' runtime input schemas (2026-10-16).
+export function betterstackErrorKey(
+  applicationId: string,
+  pattern: string
+): string {
+  return `${applicationId.trim()}:${pattern.trim()}`
+}
+
 // Plain URLs match exactly: lowercase host, no fragment. null = not a URL.
 export function normalizeUrl(raw: string): string | null {
   try {

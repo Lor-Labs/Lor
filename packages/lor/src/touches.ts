@@ -1,4 +1,5 @@
 import {
+  betterstackErrorKey,
   CONNECTOR_TOOLS,
   type ConnectorToolName,
   githubItemKey,
@@ -51,6 +52,14 @@ const item = (kind: TouchKind, value: string | null): Item | null =>
 
 const notionPage = (id: string | null) =>
   item("notion_page", id ? notionPageKey(id) : null)
+
+function betterstackError(input: Rec): Item | null {
+  const applicationId = str(input, "application_id")
+  const pattern = str(input, "pattern")
+  return applicationId && pattern
+    ? item("betterstack_error", betterstackErrorKey(applicationId, pattern))
+    : null
+}
 
 // A connector item when the URL names one, else the plain URL.
 function urlItem(raw: string): ItemRef | null {
@@ -148,11 +157,11 @@ const CATALOG_SPECS: Record<
   search_cloudwatch_logs: null,
   list_cloudwatch_metrics: null,
   get_cloudwatch_metrics: null,
-  // Better Stack incidents and errors are decided (decision 15) but wait on
-  // its MCP input field names, which its docs don't list.
+  // Better Stack: incidents and errors only (decision 15), keyed from inputs
+  // because its MCP results are untyped text.
   list_betterstack_applications: null,
   list_betterstack_errors: null,
-  fetch_betterstack_error: null,
+  fetch_betterstack_error: (input) => [betterstackError(input)],
   list_betterstack_sources: null,
   fetch_betterstack_source: null,
   list_betterstack_source_fields: null,
@@ -161,11 +170,15 @@ const CATALOG_SPECS: Record<
   plan_betterstack_query_windows: null,
   query_betterstack: null,
   list_betterstack_incidents: null,
-  fetch_betterstack_incident: null,
+  fetch_betterstack_incident: (input) => [
+    item("betterstack_incident", str(input, "id")),
+  ],
   list_betterstack_monitors: null,
   fetch_betterstack_monitor: null,
-  resolve_betterstack_incident: null,
-  update_betterstack_error_state: null,
+  resolve_betterstack_incident: (input) => [
+    item("betterstack_incident", str(input, "id")),
+  ],
+  update_betterstack_error_state: (input) => [betterstackError(input)],
   search_web: null,
   fetch_web: (input, output) => [
     urlItem(str(output, "url") ?? str(input, "url") ?? ""),
