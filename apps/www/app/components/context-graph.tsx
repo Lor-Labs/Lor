@@ -146,7 +146,7 @@ export function ContextGraph() {
         </h2>
         <p className="mt-4 max-w-xl text-pretty text-[16px] text-muted-foreground leading-relaxed">
           Every session, call, deal, issue and file is linked, so any agent can
-          follow the thread. Private channels stay private.
+          follow the thread.
         </p>
       </Reveal>
       <Reveal delay={120}>
