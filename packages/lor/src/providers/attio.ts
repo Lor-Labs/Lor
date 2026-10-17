@@ -326,6 +326,23 @@ export async function attioRequest<T>(
   }
 }
 
+// Ingestion reads: a 404 means the item is gone, and any other failure throws
+// so the job retries (attioRequest folds both into null).
+export async function attioIngestRead<T>(
+  externalId: string,
+  path: string
+): Promise<T | "missing"> {
+  const token = await getAttioAccessToken(externalId)
+  if (!token) throw new Error("Attio connection unavailable")
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  })
+  if (res.status === 404) return "missing"
+  if (!res.ok) throw new Error(`Attio ${path} returned ${res.status}`)
+  return (await res.json()) as T
+}
+
 export type AttioWriteResult<T> =
   | { data: T }
   | {
@@ -441,7 +458,12 @@ export async function fetchAttioCallRecording(
     externalId,
     `/meetings/${encodeURIComponent(meetingId)}/call_recordings/${encodeURIComponent(recordingId)}`
   )
-  const data = response?.data
+  return parseAttioCallRecording(response?.data)
+}
+
+export function parseAttioCallRecording(
+  data: unknown
+): AttioCallRecording | null {
   if (typeof data !== "object" || data === null) return null
   const record = data as {
     status?: unknown

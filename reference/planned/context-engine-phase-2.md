@@ -172,9 +172,17 @@ the new one.
 
 ### Step 4: Linear and Attio
 
-[ ] built · [ ] committed
+[x] built 2026-10-17 · [ ] committed
 
-~380 lines.
+As built (~410 lines): as below. The Linear fetcher is one raw GraphQL query
+that filters `issues` by team key and number (or id) with archived included,
+so a missing issue is an empty list rather than an error to interpret; a
+team move tombstones the old identifier. Attio reads go through
+`attioIngestRead`, which tells a 404 from a transient failure; the recording
+parser is shared with the trigger path (`parseAttioCallRecording`). Attio
+ingestion runs before trigger processing in the webhook loop, and a failure
+503s so Attio redelivers. `ATTIO_WEBHOOK_EVENTS` is what the connect flow
+subscribes to.
 
 - Linear fetcher: `client.issue(ref)` (identifier or id), comments (first
   100), state name, creator, timestamps; trashed is `"missing"`. Key = the

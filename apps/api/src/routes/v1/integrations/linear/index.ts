@@ -1,10 +1,15 @@
 import { LinearWebhookClient } from "@linear/sdk/webhooks"
 import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
+import { tombstoneSource } from "@repo/lor/sources"
 import { linearNotificationEmbed } from "@/lib/connector-notification-embeds"
 import { dispatchConnectorEvent } from "@/lib/connector-triggers"
 import { createRouter } from "@/lib/helpers/app/create-app"
 import { logger } from "@/lib/logger"
+import {
+  enqueueSourceIngest,
+  ingestConnection,
+} from "@/lib/source-ingest-queue"
 
 const linearRouter = createRouter()
 
@@ -28,8 +33,12 @@ type LinearEvent = {
     avatarUrl?: string | null
   } | null
   data?: {
+    id?: string | null
     title?: string | null
     identifier?: string | null
+    // Comment events: the issue the comment belongs to, when it has one.
+    issueId?: string | null
+    issue?: { identifier?: string | null } | null
     description?: string | null
     state?: { type?: string | null; name?: string | null } | null
     creator?: {
@@ -106,6 +115,33 @@ async function dispatchIssueEvent(event: LinearEvent): Promise<void> {
   }
 }
 
+// Ingestion runs whether or not a trigger exists: an issue change or any
+// comment on it refetches the issue; a removed issue is tombstoned. Best-effort:
+// the catch-up sweep covers a miss. reference/planned/context-engine-phase-2.md.
+async function ingestIssueEvent(event: LinearEvent): Promise<void> {
+  if (!event.organizationId) return
+  const ref =
+    event.type === "Issue"
+      ? (event.data?.identifier ?? event.data?.id)
+      : event.type === "Comment"
+        ? (event.data?.issue?.identifier ?? event.data?.issueId)
+        : null
+  if (!ref) return
+  try {
+    const connection = await ingestConnection("linear", event.organizationId)
+    if (!connection) return
+    if (event.type === "Issue" && event.action === "remove") {
+      if (event.data?.identifier) {
+        await tombstoneSource(connection.id, event.data.identifier)
+      }
+      return
+    }
+    await enqueueSourceIngest(connection.id, "issue", ref)
+  } catch (err) {
+    logger.error({ err }, "Linear ingestion enqueue failed")
+  }
+}
+
 // Plain route: the webhook needs the raw body for signature verification and is
 // authenticated by the signature, not a session.
 linearRouter.post("/integrations/linear/webhook", async (c) => {
@@ -168,7 +204,7 @@ linearRouter.post("/integrations/linear/webhook", async (c) => {
     }
   }
 
-  await dispatchIssueEvent(event)
+  await Promise.all([dispatchIssueEvent(event), ingestIssueEvent(event)])
 
   return c.json({ ok: true })
 })

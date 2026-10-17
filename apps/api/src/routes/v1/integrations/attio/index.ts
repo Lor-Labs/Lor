@@ -4,10 +4,12 @@ import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { attioSearchResult } from "@repo/lor/attio"
 import {
+  attioNoteKey,
   attioRequest,
   fetchAttioCallRecording,
   formatAttioTranscript,
 } from "@repo/lor/providers"
+import { tombstoneSource } from "@repo/lor/sources"
 import { decryptSecret } from "@repo/utils/crypto"
 import { attioNotificationEmbed } from "@/lib/connector-notification-embeds"
 import {
@@ -17,6 +19,7 @@ import {
 import { createRouter } from "@/lib/helpers/app/create-app"
 import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
+import { enqueueSourceIngest } from "@/lib/source-ingest-queue"
 
 // Attio event_type → curated ConnectorEventKey. Single source of truth: the
 // connect flow subscribes the webhook to exactly these keys, and the receiver
@@ -27,6 +30,26 @@ export const ATTIO_EVENT_SUBSCRIPTIONS = {
   "note.created": "note_created",
   "list-entry.created": "list_entry_created",
 } as const satisfies Record<string, ConnectorEventKey>
+
+// Ingestion signals: Attio event_type → `source` kind. Every change refetches
+// the item whether or not a trigger exists (`note.updated` is the title,
+// `note-content.updated` the body). reference/planned/context-engine-phase-2.md.
+const ATTIO_INGEST_EVENTS = {
+  "call-recording.created": "call_recording",
+  "note.created": "note",
+  "note.updated": "note",
+  "note-content.updated": "note",
+  "note.deleted": "note",
+} as const
+
+// What the webhook subscribes to. Changing it needs existing Attio
+// connections to reconnect.
+export const ATTIO_WEBHOOK_EVENTS = [
+  ...new Set([
+    ...Object.keys(ATTIO_EVENT_SUBSCRIPTIONS),
+    ...Object.keys(ATTIO_INGEST_EVENTS),
+  ]),
+]
 
 const attioRouter = createRouter()
 
@@ -307,6 +330,27 @@ async function processListEntry(
     })
 }
 
+async function ingestAttioEvent(
+  connectionId: string,
+  event: AttioEvent,
+  kind: (typeof ATTIO_INGEST_EVENTS)[keyof typeof ATTIO_INGEST_EVENTS]
+): Promise<void> {
+  const meetingId = event.id?.meeting_id
+  const recordingId = event.id?.call_recording_id
+  const ref =
+    kind === "note"
+      ? event.id?.note_id
+      : meetingId && recordingId
+        ? `${meetingId}/${recordingId}`
+        : undefined
+  if (!ref) return
+  if (event.event_type === "note.deleted") {
+    await tombstoneSource(connectionId, attioNoteKey(ref))
+    return
+  }
+  await enqueueSourceIngest(connectionId, kind, ref)
+}
+
 const PROCESSORS: Record<
   (typeof ATTIO_EVENT_SUBSCRIPTIONS)[keyof typeof ATTIO_EVENT_SUBSCRIPTIONS],
   (connection: Connection, event: AttioEvent) => Promise<ProcessOutcome>
@@ -407,6 +451,19 @@ attioRouter.post("/integrations/attio/webhook", async (c) => {
   // One event per delivery today; iterate defensively (batching is reserved).
   const dispatches: Array<() => Promise<unknown>> = []
   for (const event of payload.events ?? []) {
+    // Ingestion first: a failure here 503s before any trigger effect runs, so
+    // Attio's redelivery is the retry (it gets no catch-up sweep).
+    const ingestKind =
+      ATTIO_INGEST_EVENTS[event.event_type as keyof typeof ATTIO_INGEST_EVENTS]
+    if (ingestKind) {
+      try {
+        await ingestAttioEvent(connection.id, event, ingestKind)
+      } catch (err) {
+        logger.error({ err, event: event.event_type }, "Attio ingestion failed")
+        await releaseClaim()
+        return c.json({ ok: false, retry: true }, 503)
+      }
+    }
     const key =
       ATTIO_EVENT_SUBSCRIPTIONS[
         event.event_type as keyof typeof ATTIO_EVENT_SUBSCRIPTIONS

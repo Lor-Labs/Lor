@@ -48,7 +48,7 @@ import {
 } from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import type { AppRouteHandler } from "@/lib/types/app-types"
-import { ATTIO_EVENT_SUBSCRIPTIONS } from "@/routes/v1/integrations/attio/index"
+import { ATTIO_WEBHOOK_EVENTS } from "@/routes/v1/integrations/attio/index"
 import type {
   CompleteGithubSetupRoute,
   ConnectAttioRoute,
@@ -752,7 +752,7 @@ export const connectAttio: AppRouteHandler<ConnectAttioRoute> = async (c) => {
 
   const result = await exchangeAttioCode(code, attioRedirectUri(), {
     targetUrl: attioWebhookTargetUrl(),
-    eventTypes: Object.keys(ATTIO_EVENT_SUBSCRIPTIONS),
+    eventTypes: ATTIO_WEBHOOK_EVENTS,
   }).catch(() => null)
   if (!result) {
     return c.json(

@@ -1,10 +1,11 @@
 import type { IntegrationProvider } from "@repo/db/schema"
 import { attioProvider } from "./attio"
+import { fetchAttioSourceItem } from "./attio-ingest"
 import { betterstackProvider } from "./betterstack"
 import { cloudwatchProvider } from "./cloudwatch"
 import { datadogProvider } from "./datadog"
 import { fetchGithubSourceItem, githubProvider } from "./github"
-import { linearProvider } from "./linear"
+import { fetchLinearSourceItem, linearProvider } from "./linear"
 import { notionProvider } from "./notion"
 import type { SourceFetcher, SourceProvider } from "./types"
 import { webhookProvider } from "./webhook"
@@ -32,6 +33,8 @@ export function getSourceProvider(
 // reference/planned/context-engine-phase-2.md.
 export const SOURCE_FETCHERS = {
   github: fetchGithubSourceItem,
+  linear: fetchLinearSourceItem,
+  attio: fetchAttioSourceItem,
 } satisfies Partial<Record<IntegrationProvider, SourceFetcher>>
 
 export type IngestedProvider = keyof typeof SOURCE_FETCHERS
@@ -55,6 +58,7 @@ export {
   formatAttioTranscript,
   getAttioAccessToken,
 } from "./attio"
+export { attioNoteKey } from "./attio-ingest"
 export { connectBetterstack } from "./betterstack"
 export { connectCloudwatch } from "./cloudwatch"
 export { connectDatadog } from "./datadog"
