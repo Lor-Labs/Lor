@@ -35,6 +35,11 @@ A runbook for wiring a new integration (Notion, Sentry, …) end to end. Three c
     in to new tools. There is no legacy configuration fallback. Runtime
     tool groups are intersected with the connection selection after profile
     tool selections. See `reference/connector-tools.md` for the controls and rollout.
+    **Touch spec** — each catalog tool needs an entry in `CATALOG_SPECS`
+    (`packages/lor/src/touches.ts`): which item a call touched, keyed with the
+    helpers in `packages/connectors/src/item-keys.ts`, or `null` for searches,
+    lists and logs. `[compiler]` — keyed by the catalog's literal tool names.
+    A new kind of item is a `TOUCH_KINDS` value plus `pnpm db:push`.
     **Tool module** — `packages/lor/src/<provider>.ts` (`buildXTools`, plus a write variant if you have a write cap). Return **meaningful results**: search tools return arrays of `{ title, url, … }`; write tools echo back what they created (the body/description) so the tool-trail card can show it, not just "ok". `[manual]`
     - **MCP-backed alternative:** when the provider runs a managed MCP server (Datadog), skip hand-written tools — open a per-response MCP session and allowlist its tools (see `datadogMcpTools` in `datadog.ts`; `respond()` closes the session in a `finally`). Schemas/descriptions come from the server; the allowlist keeps upstream additions from silently widening Lor's surface.
 11. **Gate + register in `respond()`** — resolve the connection only when a catalog tool is selected, register available tool implementations, then intersect by tool name (mirror `github`/`code`/`linear`). This wiring stays **explicit by design** — with a handful of connectors it's clearer than a tool-factory registry. Write-back does **not** get connector tools. Approval binding uses `ToolTargetMap.addBuiltins` for the actual bound names; MCP targets include the server ID and raw tool name. `[manual]`
@@ -59,6 +64,7 @@ A runbook for wiring a new integration (Notion, Sentry, …) end to end. Three c
 - [ ] `integrationProviderEnum` + `pnpm db:push`
 - [ ] `CONNECTORS` descriptor (`@repo/connectors`) — compiler-forced
 - [ ] Individual tool names, read-only metadata, and defaults in `CONNECTOR_TOOLS`
+- [ ] Touch spec per tool in `CATALOG_SPECS` (`packages/lor/src/touches.ts`) — compiler-forced
 - [ ] Individual approval targets bind only to the tools actually exposed
 - [ ] Auth flow + connect handler (+ callback route + connect endpoint for OAuth)
 - [ ] Env vars (optional; cross-field refine; mirror any *required* field into API `TEST_ENV`)

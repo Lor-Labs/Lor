@@ -9,9 +9,11 @@ export type ConnectorToolDescriptor = {
 }
 
 // Upstream names verified against Better Stack's official MCP reference/examples.
-export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
+type BetterstackToolDescriptor = ConnectorToolDescriptor & {
   upstreamName: string
-})[] = [
+}
+
+const BETTERSTACK_CATALOG = [
   {
     name: "list_betterstack_applications",
     upstreamName: "applications",
@@ -142,13 +144,15 @@ export const BETTERSTACK_TOOLS: readonly (ConnectorToolDescriptor & {
     readOnlyHint: false,
     defaultEnabled: false,
   },
-]
+] as const satisfies readonly BetterstackToolDescriptor[]
+
+export const BETTERSTACK_TOOLS: readonly BetterstackToolDescriptor[] =
+  BETTERSTACK_CATALOG
 
 // This catalog is reviewed by Lor; custom MCP hints remain provider declarations.
-export const CONNECTOR_TOOLS: Record<
-  IntegrationProvider,
-  readonly ConnectorToolDescriptor[]
-> = {
+// Declared `as const` so tool names form a literal union (ConnectorToolName)
+// that other exhaustive maps key on (touch specs, session-memory.md Step 5).
+const CONNECTOR_TOOL_CATALOG = {
   github: [
     {
       name: "search_github",
@@ -417,9 +421,20 @@ export const CONNECTOR_TOOLS: Record<
       defaultEnabled: true,
     },
   ],
-  betterstack: BETTERSTACK_TOOLS,
+  betterstack: BETTERSTACK_CATALOG,
   webhook: [],
-}
+} as const satisfies Record<
+  IntegrationProvider,
+  readonly ConnectorToolDescriptor[]
+>
+
+export const CONNECTOR_TOOLS: Record<
+  IntegrationProvider,
+  readonly ConnectorToolDescriptor[]
+> = CONNECTOR_TOOL_CATALOG
+
+export type ConnectorToolName =
+  (typeof CONNECTOR_TOOL_CATALOG)[IntegrationProvider][number]["name"]
 
 export function recommendedConnectorTools(
   provider: IntegrationProvider
@@ -468,6 +483,8 @@ export const STANDALONE_TOOLS = [
   description: string
   readOnlyHint: boolean
 }[]
+
+export type StandaloneToolName = (typeof STANDALONE_TOOLS)[number]["name"]
 
 export const BUILTIN_GROUPS: Record<
   BuiltinToolGroup,

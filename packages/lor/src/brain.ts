@@ -255,6 +255,22 @@ export async function ls(
   }
 }
 
+// Touches key brain pages by node id, which survives moves and renames.
+export async function pageNodeId(
+  workspaceId: string,
+  path: string,
+  scopeChannelId: MemoryScope = null
+): Promise<string | null> {
+  const node = await resolvePath(
+    workspaceId,
+    path,
+    scopeChannelId,
+    false,
+    "page"
+  )
+  return node && node !== "root" && node.kind === "page" ? node.id : null
+}
+
 // Citation checks pass the run's memory scope, so a scoped page it cited
 // resolves (context-engine.md §6 #3).
 export async function pageExists(

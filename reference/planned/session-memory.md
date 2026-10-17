@@ -275,7 +275,21 @@ projection at 120k estimated tokens instead of reusing compaction notes.
 
 ### Step 5: touches and reverse hints
 
-[ ] built · [ ] committed · [ ] db:push · [ ] backfill run
+[x] 5a built 2026-10-16 · [ ] 5b built · [ ] committed · [ ] db:push · [ ] backfill run
+
+Split in two. 5a (~530 lines): the `touch` table with `TOUCH_KINDS` /
+`TOUCH_ACTIONS` (`packages/db/src/schemas/touches.ts`); `CONNECTOR_TOOLS` built
+from an `as const` catalog so `ConnectorToolName` is a literal union; key
+helpers in `packages/connectors/src/item-keys.ts`; `packages/lor/src/touches.ts`
+with `CATALOG_SPECS` (exhaustive over catalog tool names, action from
+`readOnlyHint`), `CORE_SPECS` (read_thread, read_call, fetch_source, read,
+write, edit) and `recordRunTouches`, which the worker calls after a session
+reply persists: the run's tool calls from `agent_run_step`, verified citations
+in the reply, and the session's starting context. Deviations: `started_from`
+rows are written by each run's writer (idempotent), not at session start;
+Better Stack specs are `null` until its MCP input names are checked. 5b:
+reply links, `mentioned`, URL parsers, the `search` lookup, reverse hints and
+the backfill.
 
 **Schema.** `touch`:
 

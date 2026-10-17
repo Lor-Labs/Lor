@@ -32,6 +32,7 @@ import type { ProposeLoopExecutor } from "@repo/lor/loops"
 import type { StartPlanInput } from "@repo/lor/plans"
 import { toRealtimePlan } from "@repo/lor/plans"
 import type { ProposeChangeExecutor } from "@repo/lor/proposals"
+import { recordRunTouches } from "@repo/lor/touches"
 import {
   buildMessageFanout,
   loadThreadSummary,
@@ -1235,6 +1236,17 @@ export function createLorRespondProcessor(
                 void recordUsage(u, { messageId: lorMessageId, channelId }),
             }).catch((err) =>
               logger.warn({ err, threadRootId }, "Session title failed")
+            )
+          }
+          if (threadRootId) {
+            void recordRunTouches({
+              workspaceId,
+              channelId,
+              threadRootId,
+              runId: execution?.runId ?? null,
+              replyText: finalText,
+            }).catch((err) =>
+              logger.warn({ err, threadRootId }, "Recording touches failed")
             )
           }
           // Announce the gate only after the run is terminal — the resolve
