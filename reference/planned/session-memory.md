@@ -412,10 +412,15 @@ start from the per-provider `urlHost` regexes in
 
 ## Phase 2: default ingestion (decided direction, not scheduled)
 
-Decided with Jacob on 2026-10-14. Builds on `context-engine.md` §5.3 and §5.5.
+Decided with Jacob on 2026-10-14, scoped 2026-10-17. Builds on
+`context-engine.md` §5.3 and §5.5 (§7 step 3).
 
-- Ingest connected systems into `source` by default: backfill, webhooks as a
-  signal to refetch, a reconcile sweep, tombstones for deletes.
+- Start with GitHub and Linear. GitHub: PRs and issues with their comments
+  and review comments; no releases, commits or code (code work waits for code
+  channels). Linear: issues with their comments.
+- Ingest connected systems into `source` by default: webhooks as a signal to
+  refetch, a reconcile sweep, tombstones for deletes. No backfill on connect
+  for now: a new connection starts empty and fills as items change.
 - Store the real text: title and body, indexed with FTS and embeddings over
   chunks. No per-item summary call. Raw text beat summaries as a retrieval key
   in the research below.
@@ -484,12 +489,16 @@ corpus.
 
 ## Eval (reopen trigger for both deferrals)
 
-Reuses the judged pool in `context-engine.md` §5.11.
+Reuses the judged pool in `context-engine.md` §5.11 (§7 step 0, next after
+phase 1 ships).
 
-- 100 to 200 real questions with gold session and message ids. A model may
-  draft them from real sessions; a person checks every one.
+- Start with 50 real questions with gold session and message ids, growing
+  toward 100 to 200. A model drafts them from real prod sessions and threads;
+  Jacob checks every one. An LLM grades each result 0 to 3, and 10% are graded
+  twice to check the grader.
 - Tags: decision or finding; paraphrase with no shared keywords; exact
-  identifier; what Lor said vs what a person said.
+  identifier; what Lor said vs what a person said; multi-hop (the answer sits
+  2 to 3 references away, the reopen trigger for item-to-item links).
 - Conditions: FTS; + Step 2; + Step 5; + outcome items; + turn embeddings
   (human prompts only, then agent-reply chunks). Each under RRF and the
   reranker.
