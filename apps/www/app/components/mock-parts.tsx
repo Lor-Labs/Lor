@@ -1,11 +1,13 @@
 import {
   ArrowRight01Icon,
-  File01Icon,
+  ChatGptIcon,
+  ClaudeIcon,
   Loading03Icon,
   LockKeyIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { FileTypeIcon } from "@repo/ui/components/file-type-icon"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
 import Image from "next/image"
@@ -51,6 +53,41 @@ export function LorAvatar({ size = "size-7" }: { size?: string }) {
   )
 }
 
+export type Agent = "claude" | "codex"
+
+const AGENTS = {
+  claude: { name: "Claude Code", icon: ClaudeIcon },
+  codex: { name: "Codex", icon: ChatGptIcon },
+} as const
+
+// Lor running a bring-your-own agent: the Lor mark, badged with the agent.
+export function AgentAvatar({ agent = "claude" }: { agent?: Agent }) {
+  return (
+    <span className="relative flex h-fit shrink-0">
+      <LorAvatar />
+      <span className="-right-1 -bottom-1 absolute flex size-4 items-center justify-center rounded-full bg-lor-surface-raised-dark text-lor-text-dark ring-2 ring-lor-bg-dark">
+        <HugeiconsIcon
+          icon={AGENTS[agent].icon}
+          className="size-2.5"
+          strokeWidth={2}
+        />
+      </span>
+    </span>
+  )
+}
+
+// Name row for an agent turn: "Lor · Claude Code".
+export function AgentName({ agent = "claude" }: { agent?: Agent }) {
+  return (
+    <>
+      Lor{" "}
+      <span className="font-normal text-lor-text-tertiary-dark">
+        · {AGENTS[agent].name}
+      </span>
+    </>
+  )
+}
+
 export type SessionState = "running" | "unread" | "needs_you"
 
 export function SessionStateDot({ state }: { state: SessionState }) {
@@ -85,18 +122,26 @@ export function Citation({ children }: { children: ReactNode }) {
   )
 }
 
-// One turn in a session: gutter avatar, no name row (as in the app).
+// One turn in a session: gutter avatar. The app has no name row; `name` adds
+// one where a mock has to read at a glance.
 export function Turn({
   avatar,
+  name,
   children,
 }: {
   avatar: ReactNode
+  name?: ReactNode
   children: ReactNode
 }) {
   return (
     <div className="flex gap-3 pt-4">
       {avatar}
       <div className="min-w-0 flex-1 pt-0.5 text-[13.5px] text-lor-text-dark/90 leading-[1.6]">
+        {name ? (
+          <p className="mb-1 font-medium text-[12.5px] text-lor-text-dark leading-tight">
+            {name}
+          </p>
+        ) : null}
         {children}
       </div>
     </div>
@@ -154,17 +199,26 @@ export function ToolStep({ icon, label }: { icon: ReactNode; label: string }) {
   )
 }
 
-export function FileCard({ name, detail }: { name: string; detail: string }) {
+// Copies the app's ArtifactFileCard (FileChip + FileTypeIcon).
+export function FileCard({
+  name,
+  detail,
+  className = "mt-3 w-fit pr-4",
+}: {
+  name: string
+  detail: string
+  className?: string
+}) {
   return (
-    <span className="mt-3 flex w-fit items-center gap-2.5 rounded-lg border border-lor-border-dark bg-lor-surface-dark py-2 pr-4 pl-2.5">
-      <span className="flex size-7 items-center justify-center rounded-md bg-foreground/[0.06] text-lor-text-secondary-dark">
-        <HugeiconsIcon icon={File01Icon} size={15} strokeWidth={1.75} />
-      </span>
-      <span className="flex flex-col">
-        <span className="font-medium text-[12.5px] text-lor-text-dark leading-tight">
+    <span
+      className={`flex min-w-0 items-center gap-2.5 rounded-xl border border-lor-border-dark bg-lor-surface-dark py-2 pl-2.5 ${className}`}
+    >
+      <FileTypeIcon filename={name} className="size-7" />
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate font-medium text-[12.5px] text-lor-text-dark leading-tight">
           {name}
         </span>
-        <span className="text-[11px] text-lor-text-tertiary-dark">
+        <span className="mt-0.5 truncate text-[11px] text-lor-text-tertiary-dark tabular-nums">
           {detail}
         </span>
       </span>

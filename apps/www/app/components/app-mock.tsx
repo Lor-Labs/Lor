@@ -1,4 +1,5 @@
 import {
+  ClaudeIcon,
   Globe02Icon,
   HashtagIcon,
   Infinity01Icon,
@@ -13,11 +14,10 @@ import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
 import type { ReactNode } from "react"
-import { LorMark } from "@/app/components/lor-mark"
 import {
+  AgentAvatar,
   Citation,
   FileCard,
-  LorAvatar,
   Mention,
   PersonAvatar,
   PlanStep,
@@ -31,8 +31,10 @@ import {
 } from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
 
-// Hero mock: a #gtm loop session. Lor researched leads on its Monday run,
-// Rafael pulled Zoe in, and Zoe is steering the drafts.
+// Hero mock: a #gtm loop session driven by a bring-your-own agent (Claude
+// Code). It researched leads on its Monday run, Rafael pulled Zoe in, and Zoe
+// is steering the drafts. On phones the mock grows to fit, so the teammate
+// turns are never clipped.
 
 function ChannelRow({
   name,
@@ -180,7 +182,7 @@ function SessionColumn() {
         </span>
       </div>
 
-      <div className="mask-b-from-90% min-h-0 flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 md:mask-b-from-90% md:overflow-hidden">
         <div className="mx-auto max-w-xl px-5 pt-2 md:px-8">
           <p className="font-semibold text-[22px] text-lor-text-dark leading-tight tracking-tight">
             Weekly lead research
@@ -194,7 +196,7 @@ function SessionColumn() {
           </p>
           <div className="mt-4 border-lor-border-dark/60 border-t" />
 
-          <Turn avatar={<LorAvatar />}>
+          <Turn avatar={<AgentAvatar />}>
             <WorkLog label="Worked" detail="14 tool calls" open>
               <ToolStep
                 icon={<HugeiconsIcon icon={Globe02Icon} size={13} />}
@@ -214,7 +216,7 @@ function SessionColumn() {
               in Attio, so I skipped them. Drafts for the other 7 follow your
               outbound playbook.
             </p>
-            <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 marker:text-lor-text-tertiary-dark">
+            <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 marker:text-lor-text-tertiary-dark max-md:hidden">
               <li>
                 <span className="font-medium text-lor-text-dark">
                   Ledgerline
@@ -244,7 +246,7 @@ function SessionColumn() {
             Mention the summit in the Paygrove email, and keep it under 80
             words.
           </Turn>
-          <Turn avatar={<LorAvatar />}>
+          <Turn avatar={<AgentAvatar />}>
             <WorkLog
               label="Working…"
               detail="Editing outreach-drafts.md"
@@ -260,9 +262,10 @@ function SessionColumn() {
           <span className="flex-1 text-[13px] text-lor-text-tertiary-dark/70">
             Reply…
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px]">
-            <LorMark className="size-3" />
-            To Lor
+          <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px]">
+            <HugeiconsIcon icon={ClaudeIcon} size={12} />
+            Claude Code
+            <HugeiconsIcon icon={UnfoldMoreIcon} size={11} />
           </span>
           <span className="flex size-6 items-center justify-center rounded-md bg-agent/12 text-agent">
             <HugeiconsIcon icon={SentIcon} size={13} />
@@ -308,10 +311,19 @@ function DetailsRail() {
           </div>
         </div>
         <div>
-          <RailTitle title="Files" aside="1" />
-          <p className="mt-2.5 truncate text-[12px] text-lor-text-secondary-dark">
-            outreach-drafts.md
-          </p>
+          <RailTitle title="Files" aside="2" />
+          <div className="mt-2.5 flex flex-col gap-1.5">
+            <FileCard
+              name="outreach-drafts.md"
+              detail="MD · 4.2 KB"
+              className="w-full pr-3"
+            />
+            <FileCard
+              name="leads.csv"
+              detail="CSV · 1.8 KB"
+              className="w-full pr-3"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -323,7 +335,7 @@ export function AppMock() {
     <MockShell>
       <div
         aria-hidden
-        className="flex h-[480px] bg-lor-sidebar-dark text-left md:h-[668px]"
+        className="flex bg-lor-sidebar-dark text-left md:h-[668px]"
       >
         <MockSidebar />
         <div className="m-2 flex min-w-0 flex-1 overflow-hidden rounded-xl border border-lor-border-dark/60 bg-lor-bg-dark md:ml-0 lg:mr-0">

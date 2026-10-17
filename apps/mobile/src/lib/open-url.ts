@@ -1,25 +1,8 @@
-import * as WebBrowser from "expo-web-browser"
-import { Appearance } from "react-native"
-import { Colors } from "@/constants/theme"
+import { Alert, Linking } from "react-native"
 
-function browserOptions(): WebBrowser.WebBrowserOpenOptions {
-  const palette =
-    Appearance.getColorScheme() === "dark" ? Colors.dark : Colors.light
-
-  return {
-    controlsColor: palette.text,
-    createTask: false,
-    dismissButtonStyle: "close",
-    enableBarCollapsing: true,
-    enableDefaultShareMenuItem: true,
-    presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
-    showTitle: true,
-    toolbarColor: palette.surface,
-  }
-}
-
-// openBrowserAsync rejects (e.g. when another browser sheet is already
-// presented) — swallow it instead of leaving an unhandled rejection.
+// Let the OS use the default browser; an in-app browser forces Safari on iOS.
 export function openExternalUrl(url: string) {
-  WebBrowser.openBrowserAsync(url, browserOptions()).catch(() => {})
+  void Linking.openURL(url).catch(() => {
+    Alert.alert("Couldn't open the link", "Please try again in a moment.")
+  })
 }

@@ -1,31 +1,22 @@
-import { Check } from "lucide-react"
+import { ChatGptIcon, ClaudeIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import Image from "next/image"
 import { AppMock } from "@/app/components/app-mock"
-import { ChannelOutputs } from "@/app/components/channel-outputs"
 import { ClosingCTA } from "@/app/components/closing-cta"
-import { CtaPrimary, CtaSecondary } from "@/app/components/cta"
-import { Pricing } from "@/app/components/pricing"
-import { ProblemVisual } from "@/app/components/problem-visual"
+import { ContextGraph } from "@/app/components/context-graph"
+import { LaptopProblem } from "@/app/components/laptop-problem"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
-import { TrustSection } from "@/app/components/trust-section"
-import { WeekInGtm } from "@/app/components/week-in-gtm"
-import { SIGNUP_URL } from "@/app/lib/urls"
-
-const HERO_POINTS = [
-  { lead: "Give each channel an agent", rest: " with your team's tools" },
-  { lead: "It works when you ask", rest: ", or on a schedule" },
-  { lead: "Everyone sees the work", rest: ", and anyone can step in" },
-  { lead: "You choose what needs approval", rest: ", and who gives it" },
-]
+import { TeamWeek } from "@/app/components/team-week"
+import { WaitlistForm } from "@/app/components/waitlist-form"
 
 // ---------------------------------------------------------------------------
-// Hero — headline, proof points, and the product itself
+// Hero — headline, signup, and the product itself
 // ---------------------------------------------------------------------------
 
 function Hero() {
   return (
-    <section id="product" className="relative p-2 md:p-3">
+    <section className="relative p-2 md:p-3">
       <div className="relative overflow-hidden rounded-[20px] bg-[radial-gradient(ellipse_75%_60%_at_50%_-10%,--theme(--color-agent/.13),transparent)] md:rounded-[28px]">
         <div
           aria-hidden
@@ -50,46 +41,49 @@ function Hero() {
   )
 }
 
+function AgentName({ icon, name }: { icon: IconSvgElement; name: string }) {
+  return (
+    <span className="whitespace-nowrap text-foreground">
+      <HugeiconsIcon
+        icon={icon}
+        strokeWidth={1.75}
+        className="mr-1 inline-block size-[1.1em] align-[-0.2em]"
+      />
+      {name}
+    </span>
+  )
+}
+
 function HeroContent() {
   return (
     <div className="relative mx-auto w-full max-w-6xl px-6 pt-36 pb-16 md:pt-44 md:pb-28">
       <Reveal>
-        <h1 className="max-w-[15ch] text-balance font-semibold text-[clamp(2.75rem,6.5vw,4.75rem)] leading-[1.03] tracking-[-0.035em]">
-          AI agents your{" "}
-          <span className="whitespace-nowrap text-agent">whole team</span> can
-          steer.
+        <h1 className="max-w-[17ch] text-balance font-semibold text-[clamp(2.5rem,6vw,4.5rem)] leading-[1.03] tracking-[-0.035em]">
+          The multiplayer runtime for your{" "}
+          <span className="text-agent">team and agents.</span>
         </h1>
       </Reveal>
 
       <Reveal delay={140}>
-        <div className="mt-9 flex flex-col justify-between gap-8 sm:flex-row sm:items-end">
-          <ul className="flex max-w-[560px] flex-col gap-2.5">
-            {HERO_POINTS.map((point) => (
-              <li
-                key={point.lead}
-                className="flex items-start gap-2.5 text-[15px] text-foreground/75 leading-snug sm:text-[16px]"
-              >
-                <Check
-                  className="mt-1 size-4 shrink-0 text-agent"
-                  strokeWidth={2.5}
-                />
-                <span className="text-balance">
-                  <span className="text-foreground">{point.lead}</span>
-                  {point.rest}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <div className="flex shrink-0 flex-col items-start gap-3 sm:flex-row sm:items-center">
-            <CtaPrimary href={SIGNUP_URL}>Start free</CtaPrimary>
-            <CtaSecondary href="/download">Download for Mac</CtaSecondary>
-          </div>
+        <div className="mt-9 flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
+          <p className="max-w-[540px] text-pretty text-[16px] text-foreground/75 leading-relaxed sm:text-[17px]">
+            Bring <AgentName icon={ClaudeIcon} name="Claude Code" />,{" "}
+            <AgentName icon={ChatGptIcon} name="Codex" />, or whatever agent you
+            already pay for. Every session in Lor is shared with your team, so
+            each agent builds on what the others already learned.
+          </p>
+          <WaitlistForm className="shrink-0" />
         </div>
       </Reveal>
 
       <Reveal delay={300}>
         <div className="mt-16 md:mt-20">
           <AppMock />
+          <p className="sr-only">
+            A #gtm session in Lor, run by Claude Code. It found 12 leads and
+            drafted emails. Rafael asks Zoe to check the Paygrove draft, and Zoe
+            tells the agent what to change.
+          </p>
         </div>
       </Reveal>
     </div>
@@ -103,13 +97,13 @@ function HeroContent() {
 export default function Home() {
   return (
     <div className="flex min-h-[100dvh] flex-col">
-      <Hero />
-      <ProblemVisual />
-      <WeekInGtm />
-      <ChannelOutputs />
-      <TrustSection />
-      <Pricing />
-      <ClosingCTA />
+      <main>
+        <Hero />
+        <LaptopProblem />
+        <ContextGraph />
+        <TeamWeek />
+        <ClosingCTA />
+      </main>
       <SiteFooter />
     </div>
   )

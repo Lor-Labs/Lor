@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og"
 
-export const alt = "Lor: AI agents your whole team can steer"
+export const alt = "Lor: The multiplayer runtime for your team and agents."
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 
@@ -34,7 +34,7 @@ export default function OpengraphImage() {
         Lor
       </div>
       <div style={{ marginTop: 16, fontSize: 72, lineHeight: 1.05 }}>
-        AI agents your whole team can steer.
+        The multiplayer runtime for your team and agents.
       </div>
       <div
         style={{
@@ -45,7 +45,7 @@ export default function OpengraphImage() {
           letterSpacing: "-0.01em",
         }}
       >
-        Works when you ask or on a schedule. Everyone sees the work.
+        Bring Claude Code, Codex, or the agent you already pay for.
       </div>
     </div>,
     size

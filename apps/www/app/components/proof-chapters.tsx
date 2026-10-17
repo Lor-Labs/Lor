@@ -61,7 +61,7 @@ export function ProblemSection() {
   )
 }
 
-function Panel({ children }: { children: ReactNode }) {
+export function Panel({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-xl border border-lor-border-dark/70 bg-lor-surface-dark p-4">
       {children}

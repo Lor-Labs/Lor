@@ -2,17 +2,13 @@
 
 import {
   MotionNavigationMenu,
-  MotionNavigationMenuContent,
   MotionNavigationMenuItem,
   MotionNavigationMenuLink,
   MotionNavigationMenuList,
-  MotionNavigationMenuTrigger,
 } from "@repo/ui/components/unlumen-ui/motion-navigation-menu"
-import { ArrowUpRight } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { LorMark } from "@/app/components/lor-mark"
-import { SIGNUP_URL } from "@/app/lib/urls"
 
 const EASE = "cubic-bezier(0.16,1,0.3,1)"
 // Shared transition: 500ms on every animated property so the whole header
@@ -20,37 +16,9 @@ const EASE = "cubic-bezier(0.16,1,0.3,1)"
 const T = `transition-all duration-500 ease-[${EASE}]`
 
 // Anchors match the section ids on the home page.
-const PRODUCT_LINKS = [
-  {
-    href: "/#integrations",
-    title: "Setup",
-    body: "One playbook, and the right tools in each channel.",
-  },
-  {
-    href: "/#memory",
-    title: "Memory",
-    body: "Chat, calls, and tools, with a source for every claim.",
-  },
-  {
-    href: "/#loops",
-    title: "Schedules",
-    body: "Runs every week, or when something happens.",
-  },
-  {
-    href: "/#control",
-    title: "Approvals",
-    body: "Shared sessions, mentions, and sign-off where it matters.",
-  },
-  {
-    href: "/#examples",
-    title: "Examples",
-    body: "Lead research, error triage, and weekly digests.",
-  },
-  {
-    href: "/#open-source",
-    title: "Open source",
-    body: "AGPL and open models. Self-host it, or let us run it.",
-  },
+const NAV_LINKS = [
+  { href: "/#why", label: "Why Lor" },
+  { href: "/#week", label: "How it works" },
 ]
 
 export function SiteHeader() {
@@ -126,116 +94,20 @@ export function SiteHeader() {
               highlightClassName="rounded-full bg-foreground/[0.07]"
               className={`${T} ${scrolled ? "gap-0" : "gap-1"}`}
             >
-              <MotionNavigationMenuItem value="product">
-                <MotionNavigationMenuTrigger
-                  className={`text-foreground/75 hover:text-foreground ${T} ${
-                    scrolled
-                      ? "px-3 py-1.5 text-[13px]"
-                      : "px-4 py-2 text-[14px]"
-                  }`}
-                >
-                  Product
-                </MotionNavigationMenuTrigger>
-                <MotionNavigationMenuContent highlightClassName="bg-foreground/[0.05] rounded-lg">
-                  <div className="grid w-[420px] grid-cols-2 gap-1 p-1">
-                    {PRODUCT_LINKS.map((link) => (
-                      <MotionNavigationMenuLink
-                        key={link.href}
-                        href={link.href}
-                        className="rounded-lg p-3"
-                      >
-                        <span className="block text-[13px] font-medium text-foreground">
-                          {link.title}
-                        </span>
-                        <span className="mt-0.5 block text-[12px] leading-snug text-foreground/55">
-                          {link.body}
-                        </span>
-                      </MotionNavigationMenuLink>
-                    ))}
-                  </div>
-                </MotionNavigationMenuContent>
-              </MotionNavigationMenuItem>
-
-              <MotionNavigationMenuItem value="resources">
-                <MotionNavigationMenuTrigger
-                  className={`text-foreground/75 hover:text-foreground ${T} ${
-                    scrolled
-                      ? "px-3 py-1.5 text-[13px]"
-                      : "px-4 py-2 text-[14px]"
-                  }`}
-                >
-                  Resources
-                </MotionNavigationMenuTrigger>
-                <MotionNavigationMenuContent highlightClassName="bg-foreground/[0.05] rounded-lg">
-                  <div className="grid w-[320px] gap-1 p-1">
-                    <MotionNavigationMenuLink
-                      href="https://github.com/BuckyMcYolo/lor#readme"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-lg p-3"
-                    >
-                      <span className="block text-[13px] font-medium text-foreground">
-                        Docs
-                      </span>
-                      <span className="mt-0.5 block text-[12px] leading-snug text-foreground/55">
-                        Setup, self-hosting, API reference.
-                      </span>
-                    </MotionNavigationMenuLink>
-                    <MotionNavigationMenuLink
-                      href="https://github.com/BuckyMcYolo/lor/releases"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-lg p-3"
-                    >
-                      <span className="block text-[13px] font-medium text-foreground">
-                        Changelog
-                      </span>
-                      <span className="mt-0.5 block text-[12px] leading-snug text-foreground/55">
-                        What shipped, when, and why.
-                      </span>
-                    </MotionNavigationMenuLink>
-                    <MotionNavigationMenuLink
-                      href="https://github.com/BuckyMcYolo/lor"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-lg p-3"
-                    >
-                      <span className="block text-[13px] font-medium text-foreground">
-                        GitHub
-                      </span>
-                      <span className="mt-0.5 block text-[12px] leading-snug text-foreground/55">
-                        Source, issues, discussions.
-                      </span>
-                    </MotionNavigationMenuLink>
-                  </div>
-                </MotionNavigationMenuContent>
-              </MotionNavigationMenuItem>
-
-              <MotionNavigationMenuItem>
-                <MotionNavigationMenuLink
-                  href="/#pricing"
-                  className={`font-medium text-foreground/75 hover:text-foreground ${T} ${
-                    scrolled
-                      ? "px-3 py-1.5 text-[13px]"
-                      : "px-4 py-2 text-[14px]"
-                  }`}
-                >
-                  Pricing
-                </MotionNavigationMenuLink>
-              </MotionNavigationMenuItem>
-
-              <MotionNavigationMenuItem>
-                <MotionNavigationMenuLink
-                  href="/download"
-                  className={`font-medium text-foreground/75 hover:text-foreground ${T} ${
-                    scrolled
-                      ? "px-3 py-1.5 text-[13px]"
-                      : "px-4 py-2 text-[14px]"
-                  }`}
-                >
-                  Download
-                </MotionNavigationMenuLink>
-              </MotionNavigationMenuItem>
+              {NAV_LINKS.map((link) => (
+                <MotionNavigationMenuItem key={link.href}>
+                  <MotionNavigationMenuLink
+                    href={link.href}
+                    className={`font-medium text-foreground/75 hover:text-foreground ${T} ${
+                      scrolled
+                        ? "px-3 py-1.5 text-[13px]"
+                        : "px-4 py-2 text-[14px]"
+                    }`}
+                  >
+                    {link.label}
+                  </MotionNavigationMenuLink>
+                </MotionNavigationMenuItem>
+              ))}
             </MotionNavigationMenuList>
           </MotionNavigationMenu>
 
@@ -249,21 +121,12 @@ export function SiteHeader() {
 
           {/* Right: CTA */}
           <a
-            href={SIGNUP_URL}
-            className={`group inline-flex items-center rounded-full bg-foreground font-medium text-background hover:bg-foreground/90 active:scale-[0.97] ${T} ${
-              scrolled
-                ? "gap-1.5 py-1.5 pl-3.5 pr-3 text-[12.5px]"
-                : "gap-2 py-2 pl-4 pr-3.5 text-[14px]"
+            href="/#early-access"
+            className={`inline-flex items-center rounded-full bg-foreground font-medium text-background hover:bg-foreground/90 active:scale-[0.97] ${T} ${
+              scrolled ? "px-3.5 py-1.5 text-[12.5px]" : "px-4 py-2 text-[14px]"
             }`}
           >
-            Sign up
-            <ArrowUpRight
-              className={`${T} group-hover:translate-x-0.5 group-hover:-translate-y-0.5 ${
-                scrolled ? "size-3" : "size-3.5"
-              }`}
-              strokeWidth={1.75}
-              aria-hidden
-            />
+            Get early access
           </a>
         </header>
       </div>
