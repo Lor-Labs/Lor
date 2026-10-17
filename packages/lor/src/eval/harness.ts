@@ -124,6 +124,7 @@ async function runRespondFixture(
   )
   const grounded = await groundCitations(workspaceId, answer.text, {
     privateContainerChannelId: null,
+    memoryScopeChannelId: null,
   })
 
   // The answer phase can also save pages; write-back fixtures re-baseline

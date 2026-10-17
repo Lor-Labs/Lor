@@ -517,9 +517,11 @@ Found by reading code on 2026-10-10; not reproduced by running.
    GitHub capability.
 3. **Scoped citations may be stripped.** `groundCitations`
    (`packages/lor/src/index.ts:2974`) calls `pageExists` without a scope.
+   Fixed in `session-memory.md` Step 3b.
 4. **Scoped `/projects/<name>` writes may collide.** The seeded workspace-wide
    `/projects` folder and the scope-less unique key
    `brain_node_parent_name_uq` conflict when a scoped run creates its folder.
+   Fixed in `session-memory.md` Step 3b (scope joins the unique key).
 5. **Filtered vector search may return short lists.** No code sets
    `hnsw.iterative_scan`. Check the hand-installed pgvector version (≥ 0.8) and
    run `EXPLAIN` on prod.

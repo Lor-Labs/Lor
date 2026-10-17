@@ -73,11 +73,19 @@ async function findChild(
   return row ? { id: row.id, kind: row.kind, name } : null
 }
 
+// null = top level; otherwise children of any of the given folders.
+function underParents(parentIds: string[] | null) {
+  return parentIds === null
+    ? isNull(schema.brainNode.parentId)
+    : inArray(schema.brainNode.parentId, parentIds)
+}
+
 async function childrenOf(
   workspaceId: string,
-  parentId: string | null,
+  parentIds: string[] | null,
   scopeChannelId: MemoryScope = null
 ) {
+  if (parentIds?.length === 0) return []
   return db
     .select({
       id: schema.brainNode.id,
@@ -88,9 +96,7 @@ async function childrenOf(
     .where(
       and(
         eq(schema.brainNode.workspaceId, workspaceId),
-        parentId === null
-          ? isNull(schema.brainNode.parentId)
-          : eq(schema.brainNode.parentId, parentId),
+        underParents(parentIds),
         eq(schema.brainNode.status, "active"),
         scopeFilter(scopeChannelId)
       )
@@ -98,29 +104,105 @@ async function childrenOf(
     .orderBy(asc(schema.brainNode.kind), asc(schema.brainNode.name))
 }
 
+type Match = Resolved & { scoped: boolean }
+
+// A scoped run reads two trees, the workspace's and its scope's own, and the
+// same path can exist in both (the unique key includes scope). Walk both and
+// return every node at the path.
+async function resolveMatches(
+  workspaceId: string,
+  path: string,
+  scopeChannelId: MemoryScope,
+  strict: boolean
+): Promise<Match[] | "root"> {
+  const segments = segmentsOf(path)
+  if (segments.length === 0) return "root"
+  let parentIds: string[] | null = null
+  let matches: Match[] = []
+  for (const name of segments) {
+    if (parentIds?.length === 0) return []
+    const rows = await db
+      .select({
+        id: schema.brainNode.id,
+        kind: schema.brainNode.kind,
+        scopeChannelId: schema.brainNode.scopeChannelId,
+      })
+      .from(schema.brainNode)
+      .where(
+        and(
+          eq(schema.brainNode.workspaceId, workspaceId),
+          underParents(parentIds),
+          eq(schema.brainNode.name, name),
+          eq(schema.brainNode.status, "active"),
+          scopeFilter(scopeChannelId, strict)
+        )
+      )
+    matches = rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      name,
+      scoped: r.scopeChannelId !== null,
+    }))
+    parentIds = matches.filter((m) => m.kind === "folder").map((m) => m.id)
+  }
+  return matches
+}
+
+// One node for a path: the scope's own over the workspace's, and the wanted
+// kind when both exist.
+function pickMatch(matches: Match[], kind?: NodeKind): Resolved | null {
+  const ofKind = kind ? matches.filter((m) => m.kind === kind) : matches
+  const pool = ofKind.length > 0 ? ofKind : matches
+  return pool.find((m) => m.scoped) ?? pool[0] ?? null
+}
+
 async function resolvePath(
   workspaceId: string,
   path: string,
   scopeChannelId: MemoryScope = null,
-  strict = false
+  strict = false,
+  kind?: NodeKind
 ): Promise<Resolved | "root" | null> {
-  const segments = segmentsOf(path)
-  if (segments.length === 0) return "root"
-  let parentId: string | null = null
-  let node: Resolved | null = null
-  for (const name of segments) {
-    const child = await findChild(
-      workspaceId,
-      parentId,
-      name,
-      scopeChannelId,
-      strict
-    )
-    if (!child) return null
-    node = child
-    parentId = child.id
+  const matches = await resolveMatches(
+    workspaceId,
+    path,
+    scopeChannelId,
+    strict
+  )
+  return matches === "root" ? "root" : pickMatch(matches, kind)
+}
+
+// The folders a listing covers: both trees' folders at the path, or null for
+// the root. A string is the error to return.
+async function listedFolders(
+  workspaceId: string,
+  path: string,
+  scopeChannelId: MemoryScope
+): Promise<string[] | null | string> {
+  const matches = await resolveMatches(workspaceId, path, scopeChannelId, false)
+  if (matches === "root") return null
+  const folders = matches.filter((m) => m.kind === "folder").map((m) => m.id)
+  if (folders.length > 0) return folders
+  return matches.length > 0
+    ? `${path} is a page — use read`
+    : `no such path: ${path}`
+}
+
+// Same-named folders from both trees list once.
+function groupByName<T extends { name: string; kind: NodeKind; id: string }>(
+  entries: T[]
+) {
+  const groups = new Map<
+    string,
+    { name: string; kind: NodeKind; ids: string[] }
+  >()
+  for (const e of entries) {
+    const key = `${e.kind}:${e.name}`
+    const group = groups.get(key)
+    if (group) group.ids.push(e.id)
+    else groups.set(key, { name: e.name, kind: e.kind, ids: [e.id] })
   }
-  return node
+  return [...groups.values()]
 }
 
 // Write path only — scope-strict so scoped folders never alias workspace ones.
@@ -164,21 +246,29 @@ export async function ls(
   path: string,
   scopeChannelId: MemoryScope = null
 ) {
-  const resolved = await resolvePath(workspaceId, path, scopeChannelId)
-  if (resolved === null) return { error: `no such path: ${path}` }
-  if (resolved !== "root" && resolved.kind === "page") {
-    return { error: `${path} is a page — use read` }
+  const folders = await listedFolders(workspaceId, path, scopeChannelId)
+  if (typeof folders === "string") return { error: folders }
+  const entries = await childrenOf(workspaceId, folders, scopeChannelId)
+  return {
+    path,
+    entries: groupByName(entries).map((e) => ({ name: e.name, kind: e.kind })),
   }
-  const parentId = resolved === "root" ? null : resolved.id
-  const entries = await childrenOf(workspaceId, parentId, scopeChannelId)
-  return { path, entries: entries.map((e) => ({ name: e.name, kind: e.kind })) }
 }
 
+// Citation checks pass the run's memory scope, so a scoped page it cited
+// resolves (context-engine.md §6 #3).
 export async function pageExists(
   workspaceId: string,
-  path: string
+  path: string,
+  scopeChannelId: MemoryScope = null
 ): Promise<boolean> {
-  const node = await resolvePath(workspaceId, path)
+  const node = await resolvePath(
+    workspaceId,
+    path,
+    scopeChannelId,
+    false,
+    "page"
+  )
   return node !== null && node !== "root" && node.kind === "page"
 }
 
@@ -187,7 +277,13 @@ export async function readPage(
   path: string,
   scopeChannelId: MemoryScope = null
 ) {
-  const resolved = await resolvePath(workspaceId, path, scopeChannelId)
+  const resolved = await resolvePath(
+    workspaceId,
+    path,
+    scopeChannelId,
+    false,
+    "page"
+  )
   if (resolved === null) return { error: `no such path: ${path}` }
   if (resolved === "root" || resolved.kind === "folder") {
     return { error: `${path} is a folder — use ls` }
@@ -213,18 +309,18 @@ type TreeEntry = { name: string; kind: NodeKind; children?: TreeEntry[] }
 
 async function buildTree(
   workspaceId: string,
-  parentId: string | null,
+  parentIds: string[] | null,
   depth: number,
   scopeChannelId: MemoryScope = null
 ): Promise<TreeEntry[]> {
-  const kids = await childrenOf(workspaceId, parentId, scopeChannelId)
+  const kids = await childrenOf(workspaceId, parentIds, scopeChannelId)
   const out: TreeEntry[] = []
-  for (const k of kids) {
+  for (const k of groupByName(kids)) {
     const entry: TreeEntry = { name: k.name, kind: k.kind }
     if (k.kind === "folder" && depth > 1) {
       entry.children = await buildTree(
         workspaceId,
-        k.id,
+        k.ids,
         depth - 1,
         scopeChannelId
       )
@@ -240,16 +336,12 @@ export async function tree(
   depth: number,
   scopeChannelId: MemoryScope = null
 ) {
-  const resolved = await resolvePath(workspaceId, path, scopeChannelId)
-  if (resolved === null) return { error: `no such path: ${path}` }
-  if (resolved !== "root" && resolved.kind === "page") {
-    return { error: `${path} is a page — use read` }
-  }
-  const parentId = resolved === "root" ? null : resolved.id
+  const folders = await listedFolders(workspaceId, path, scopeChannelId)
+  if (typeof folders === "string") return { error: folders }
   const clamped = Math.max(1, Math.min(depth, TREE_MAX_DEPTH))
   return {
     path,
-    tree: await buildTree(workspaceId, parentId, clamped, scopeChannelId),
+    tree: await buildTree(workspaceId, folders, clamped, scopeChannelId),
   }
 }
 
@@ -617,7 +709,8 @@ export async function move(
   dst: string,
   scopeChannelId: MemoryScope = null
 ) {
-  const node = await resolvePath(workspaceId, src, scopeChannelId)
+  // Scope-strict like every write: a scoped run can't move workspace memory.
+  const node = await resolvePath(workspaceId, src, scopeChannelId, true)
   if (node === null || node === "root") return { error: `no such path: ${src}` }
 
   const dstSegments = segmentsOf(dst)
@@ -669,8 +762,20 @@ export async function link(
   type: (typeof schema.BRAIN_EDGE_TYPES)[number],
   scopeChannelId: MemoryScope = null
 ) {
-  const fromNode = await resolvePath(workspaceId, from, scopeChannelId)
-  const toNode = await resolvePath(workspaceId, to, scopeChannelId)
+  const fromNode = await resolvePath(
+    workspaceId,
+    from,
+    scopeChannelId,
+    false,
+    "page"
+  )
+  const toNode = await resolvePath(
+    workspaceId,
+    to,
+    scopeChannelId,
+    false,
+    "page"
+  )
   if (fromNode === null || fromNode === "root" || fromNode.kind !== "page") {
     return { error: `${from} is not a page` }
   }

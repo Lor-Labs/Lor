@@ -203,7 +203,7 @@ hits, and channel search labels session hits with the title instead of
 
 ### Step 3: brain page safety
 
-[x] 3a built 2026-10-16 · [ ] 3b built · [ ] committed · [ ] db:push
+[x] 3a built 2026-10-16 · [x] 3b built 2026-10-16 · [ ] committed · [ ] db:push
 
 Split in two. 3a (~265 lines): `brain_node_version`, create-only `writePage`,
 `editPage` (history row and compare-and-swap in one transaction; a lost race,
@@ -211,8 +211,13 @@ whether a 0-row update or the history unique key, returns "changed since you
 read it"), race-safe `ensureFolderPath`, the `edit` tool (replay set, reserved
 names, trail label), prompt lines that name the brain tools, and the write-back
 lock removed. Answer-phase edits record the run id; write-back and archive
-synthesis record none. 3b: the scope-aware unique key and path lookup, and
-scoped citation checks (the last bullet below).
+synthesis record none. 3b (~150 lines): unique key
+`brain_node_parent_scope_name_uq` on (workspace, parent, scope, name);
+`resolveMatches` walks the workspace and scope trees together in a scoped
+read, `pickMatch` prefers the scope's node (and the wanted kind), and `ls` /
+`tree` list both trees' folders once per name. `pageExists` and
+`groundCitations` take the memory scope. Deviation: `move` now resolves its
+source scope-strictly, so a scoped run can't move workspace memory.
 
 - Schema: `brain_node_version` (`nodeId`, `version`, `body`, `runId` nullable,
   `createdAt`). Written in the same transaction as every body change.

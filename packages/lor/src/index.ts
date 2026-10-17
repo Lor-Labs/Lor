@@ -3185,11 +3185,12 @@ function emitGenerateUsage(
 }
 
 // Workspace-scoped, best-effort citation verification. Source citations also
-// follow the run's audience, since grounding writes their title and url.
+// follow the run's audience, since grounding writes their title and url, and
+// page citations resolve in the run's memory scope.
 export async function groundCitations(
   workspaceId: string,
   text: string,
-  scope: Pick<LorRunScope, "privateContainerChannelId">
+  scope: Pick<LorRunScope, "privateContainerChannelId" | "memoryScopeChannelId">
 ): Promise<{ text: string; valid: number; invalid: number }> {
   const tokens = extractCitationTokens(text)
   if (tokens.size === 0) return { text, valid: 0, invalid: 0 }
@@ -3222,7 +3223,11 @@ export async function groundCitations(
         ).catch(() => false)
         resolutions.set(t, { kind: "msg", exists })
       } else {
-        const exists = await pageExists(workspaceId, t).catch(() => false)
+        const exists = await pageExists(
+          workspaceId,
+          t,
+          scope.memoryScopeChannelId
+        ).catch(() => false)
         resolutions.set(t, { kind: "page", exists })
       }
     })

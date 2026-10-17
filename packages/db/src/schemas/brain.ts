@@ -63,10 +63,12 @@ export const brainNode = pgTable(
       .notNull(),
   },
   (table) => [
-    // unique siblings; NULLS NOT DISTINCT so top-level names can't collide.
-    // backing index also serves ls() on (workspace_id, parent_id).
-    unique("brain_node_parent_name_uq")
-      .on(table.workspaceId, table.parentId, table.name)
+    // Unique siblings per memory scope; NULLS NOT DISTINCT so top-level and
+    // workspace-wide names can't collide. Scope is in the key so a scoped
+    // write's own /projects or /channels folder can sit beside the workspace
+    // one. The backing index also serves ls() on (workspace_id, parent_id).
+    unique("brain_node_parent_scope_name_uq")
+      .on(table.workspaceId, table.parentId, table.scopeChannelId, table.name)
       .nullsNotDistinct(),
     index("brain_node_embedding_hnsw_idx").using(
       "hnsw",

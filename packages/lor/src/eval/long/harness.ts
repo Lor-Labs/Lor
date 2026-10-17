@@ -252,6 +252,7 @@ async function runAttempt(task: LongTask, attempt: number): Promise<Attempt> {
     const grounded = allAnswers
       ? await groundCitations(world.workspaceId, allAnswers, {
           privateContainerChannelId: null,
+          memoryScopeChannelId: null,
         })
       : { invalid: 0 }
     const changedPaths = [
