@@ -5,6 +5,7 @@ import { env } from "@repo/env/server"
 import { attioSearchResult } from "@repo/lor/attio"
 import {
   attioNoteKey,
+  attioRecordingKey,
   attioRequest,
   fetchAttioCallRecording,
   formatAttioTranscript,
@@ -335,20 +336,19 @@ async function ingestAttioEvent(
   event: AttioEvent,
   kind: (typeof ATTIO_INGEST_EVENTS)[keyof typeof ATTIO_INGEST_EVENTS]
 ): Promise<void> {
+  const noteId = event.id?.note_id
   const meetingId = event.id?.meeting_id
   const recordingId = event.id?.call_recording_id
-  const ref =
+  const key =
     kind === "note"
-      ? event.id?.note_id
-      : meetingId && recordingId
-        ? `${meetingId}/${recordingId}`
-        : undefined
-  if (!ref) return
+      ? noteId && attioNoteKey(noteId)
+      : meetingId && recordingId && attioRecordingKey(meetingId, recordingId)
+  if (!key) return
   if (event.event_type === "note.deleted") {
-    await tombstoneSource(connectionId, attioNoteKey(ref))
+    await tombstoneSource(connectionId, key)
     return
   }
-  await enqueueSourceIngest(connectionId, kind, ref)
+  await enqueueSourceIngest(connectionId, kind, key)
 }
 
 const PROCESSORS: Record<

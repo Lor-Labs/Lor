@@ -18,10 +18,11 @@ import {
 import { workspace } from "./workspaces"
 
 // An item ingested from a connected service (a GitHub PR or issue, a Linear
-// issue, an Attio note or call recording): its real text, refetched whenever
-// the service signals a change. Workspace-visible: connecting a service shares
-// what it can see. Search runs over source_chunk.
-// See reference/planned/context-engine-phase-2.md.
+// issue, an Attio note or call recording): its real text, refetched when the
+// service sends a webhook. A search index, not a mirror: a missed webhook
+// leaves it stale, and the service stays the source of truth. Workspace-
+// visible: connecting a service shares what it can see. Search runs over
+// source_chunk. See reference/planned/context-engine-phase-2.md.
 
 // archived = deleted at the service or out of the connection's reach. The row
 // stays as a tombstone; its body and chunks are dropped.
@@ -63,8 +64,9 @@ export const source = pgTable(
     contentHash: text("content_hash"),
     sourceCreatedAt: timestamp("source_created_at"),
     sourceUpdatedAt: timestamp("source_updated_at"),
-    // The last successful fetch, changed or not; the verify sweep rechecks the
-    // oldest first. Null only on rows from before ingestion stored real text.
+    // The last successful fetch, changed or not: when the stored copy was
+    // last known current. Null only on rows from before ingestion stored real
+    // text.
     fetchedAt: timestamp("fetched_at"),
     status: sourceStatusEnum("status").notNull().default("active"),
   },
@@ -75,9 +77,10 @@ export const source = pgTable(
       table.provider,
       table.externalId
     ),
-    index("source_connection_fetched_idx").on(
+    // Tombstones look items up by connection and key (or key prefix).
+    index("source_connection_external_idx").on(
       table.connectionId,
-      table.fetchedAt
+      table.externalId
     ),
   ]
 )

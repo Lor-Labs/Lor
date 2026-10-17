@@ -58,7 +58,7 @@ export {
   formatAttioTranscript,
   getAttioAccessToken,
 } from "./attio"
-export { attioNoteKey } from "./attio-ingest"
+export { attioNoteKey, attioRecordingKey } from "./attio-ingest"
 export { connectBetterstack } from "./betterstack"
 export { connectCloudwatch } from "./cloudwatch"
 export { connectDatadog } from "./datadog"

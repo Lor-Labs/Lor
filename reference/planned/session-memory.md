@@ -428,8 +428,10 @@ which also adds Attio and ships with phase 1 in one release.
   and review comments; no releases, commits or code (code work waits for code
   channels). Linear: issues with their comments.
 - Ingest connected systems into `source` by default: webhooks as a signal to
-  refetch, a reconcile sweep, tombstones for deletes. No backfill on connect
-  for now: a new connection starts empty and fills as items change.
+  refetch, tombstones for deletes. No backfill on connect for now: a new
+  connection starts empty and fills as items change. A search index, not a
+  mirror (2026-10-17): no reconcile sweep; a missed webhook leaves an item
+  stale, and current state is fetched live.
 - Store the real text: title and body, indexed with FTS and embeddings over
   chunks. No per-item summary call. Raw text beat summaries as a retrieval key
   in the research below.

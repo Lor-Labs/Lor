@@ -103,7 +103,7 @@ The flow: Lor calls the `investigate_code(repo, question)` tool → clone the re
 - **No repo caching for reads** (freshness) → investigate clones per query, shallow, no deps. Pi comes from our workbench image (exact-pinned). *Amended 2026-08-18 for writes:* code-action sandboxes persist per conversation scope as a **warm cache** — freshness still comes from a fetch+hard-reset at session start, never from trusting the cached checkout.
 - **Draft PRs only**, never auto-merge. Lor pushes only `lor/*` branches (the product namespace GitHub contributors see), never force-pushes.
 - **The coding agent never holds a write token.** Write-scoped tokens (narrowed to one repo, `contents: write`) exist only as per-command env on the orchestrated push, after the session ends.
-- ~~**Webhooks not needed** for GitHub's core loop (brain-centric → no index to sync). They'd only return for proactive notifs/synthesis.~~ **Reversed 2026-10-17:** webhooks are the refetch signal for ingestion, with a catch-up sweep for dropped deliveries (GitHub never redelivers).
+- ~~**Webhooks not needed** for GitHub's core loop (brain-centric → no index to sync). They'd only return for proactive notifs/synthesis.~~ **Reversed 2026-10-17:** webhooks are the refetch signal for ingestion. No catch-up sweep: the stored copy is a search index, not a mirror, so a dropped delivery (GitHub never redelivers) leaves the item stale until its next change, and current state comes from the live tools.
 - **Linear is deferred** until GitHub is done; when resumed: proper OAuth + write scope + webhooks from day 1 (tokens expire ~24h w/ refresh — design researched).
 
 ## Recommended next step

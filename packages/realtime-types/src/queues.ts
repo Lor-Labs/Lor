@@ -129,12 +129,33 @@ export const ATTACHMENT_INDEX_QUEUE = "attachment-index"
 export type AttachmentIndexJobData = { messageId: string; channelId: string }
 
 // Source ingestion (reference/planned/context-engine-phase-2.md): refetches
-// one item from a connected service and stores its text. `ref` is what the
-// provider's fetcher looks up; the stored key comes from the fetched item.
+// one item from a connected service and stores its text. `ref` is the item's
+// stored key (a Linear issue id also works).
 export const SOURCE_INGEST_QUEUE = "source-ingest"
 
 export type SourceIngestJobData = {
   connectionId: string
   kind: string
   ref: string
+}
+
+// A burst of events for one item (a review with ten comments) waits this
+// long and makes one fetch. Events inside the window are deduplicated; one
+// after the fetch starts makes a new job.
+const SOURCE_SETTLE_MS = 15_000
+
+export function sourceIngestJob(data: SourceIngestJobData) {
+  return {
+    name: "ingest",
+    data,
+    opts: {
+      delay: SOURCE_SETTLE_MS,
+      deduplication: {
+        id: `${data.connectionId}-${data.kind}-${data.ref}`,
+        ttl: SOURCE_SETTLE_MS,
+      },
+      attempts: 5,
+      backoff: { type: "exponential", delay: 60_000 },
+    },
+  }
 }

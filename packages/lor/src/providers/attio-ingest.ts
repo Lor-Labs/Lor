@@ -6,8 +6,15 @@ import {
 } from "./attio"
 import type { SourceFetch, SourceFetcher } from "./types"
 
-// Attio notes and call recordings, as text for `source`. Refs: a note id, or
-// "<meetingId>/<recordingId>". reference/planned/context-engine-phase-2.md.
+// Attio notes and call recordings, as text for `source`. A ref is the stored
+// key. reference/planned/context-engine-phase-2.md.
+
+const NOTE_PREFIX = "note#"
+const RECORDING_PREFIX = "call_recording#"
+
+export const attioNoteKey = (noteId: string) => `${NOTE_PREFIX}${noteId}`
+export const attioRecordingKey = (meetingId: string, recordingId: string) =>
+  `${RECORDING_PREFIX}${meetingId}/${recordingId}`
 
 // Below storeSourceItem's body cap, leaving room for the metadata line.
 const TRANSCRIPT_MAX = 190_000
@@ -40,16 +47,15 @@ async function parentRecord(
   return { title: record.title, url: record.url }
 }
 
-export const attioNoteKey = (noteId: string) => `note#${noteId}`
-
 async function fetchNote(
   externalId: string,
-  ref: string
+  key: string
 ): Promise<SourceFetch> {
-  const key = attioNoteKey(ref)
+  const noteId = key.slice(NOTE_PREFIX.length)
+  if (!(key.startsWith(NOTE_PREFIX) && noteId)) return { item: null, gone: [] }
   const res = await attioIngestRead<{ data?: AttioNote }>(
     externalId,
-    `/notes/${enc(ref)}`
+    `/notes/${enc(noteId)}`
   )
   if (res === "missing") return { item: null, gone: [key] }
   const note = res.data
@@ -92,10 +98,11 @@ async function fetchNote(
 
 async function fetchCallRecording(
   externalId: string,
-  ref: string
+  key: string
 ): Promise<SourceFetch> {
-  const key = `call_recording#${ref}`
-  const [meetingId, recordingId] = ref.split("/")
+  const [meetingId, recordingId] = key.startsWith(RECORDING_PREFIX)
+    ? key.slice(RECORDING_PREFIX.length).split("/")
+    : []
   if (!(meetingId && recordingId)) return { item: null, gone: [] }
   const res = await attioIngestRead<{ data?: unknown }>(
     externalId,

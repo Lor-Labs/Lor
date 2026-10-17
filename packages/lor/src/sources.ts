@@ -18,7 +18,9 @@ import { orTsQuery } from "./retrieval"
 import { emitUsage, type OnUsage } from "./usage"
 
 // Items from connected services, stored as real text and searched over
-// chunks. See reference/planned/context-engine-phase-2.md.
+// chunks. A search index, not a mirror: webhooks refetch on a best-effort
+// basis, and anything that needs current state is fetched live.
+// See reference/planned/context-engine-phase-2.md.
 
 // Reject malformed citation ids before querying.
 const UUID_REGEX =
@@ -65,6 +67,8 @@ export type SourceHit = {
   url: string | null
   state: string | null
   when: string
+  // When the stored copy was last fetched. Not a mirror: it can be stale.
+  syncedAt: string | null
   text: string
   truncated?: true
 }
@@ -254,6 +258,7 @@ function chunkCandidates() {
       state: schema.source.state,
       sourceUpdatedAt: schema.source.sourceUpdatedAt,
       createdAt: schema.source.createdAt,
+      fetchedAt: schema.source.fetchedAt,
       bodyLength: sql<number>`length(${schema.source.body})`,
       text: schema.sourceChunk.text,
     })
@@ -326,6 +331,7 @@ export async function searchSources(
         url: row.url,
         state: row.state,
         when: (row.sourceUpdatedAt ?? row.createdAt).toISOString(),
+        syncedAt: row.fetchedAt?.toISOString() ?? null,
         text,
         ...(row.bodyLength > text.length ? { truncated: true as const } : {}),
       }

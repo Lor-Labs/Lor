@@ -4,6 +4,7 @@ import { env } from "@repo/env/server"
 import {
   SOURCE_INGEST_QUEUE,
   type SourceIngestJobData,
+  sourceIngestJob,
 } from "@repo/realtime-types/queues"
 import { Queue } from "bullmq"
 
@@ -22,11 +23,6 @@ function parseRedisUrl(url: string) {
     db: Number.isFinite(dbIndex) ? dbIndex : 0,
   }
 }
-
-// A burst of events for one item (a review with ten comments) waits this
-// long and makes one fetch. Events inside the window are deduplicated; one
-// after the fetch starts makes a new job, so no change is missed.
-const SETTLE_MS = 15_000
 
 let ingestQueue: Queue<SourceIngestJobData> | null = null
 function getIngestQueue(): Queue<SourceIngestJobData> {
@@ -74,14 +70,6 @@ export async function enqueueSourceIngest(
   kind: string,
   ref: string
 ): Promise<void> {
-  await getIngestQueue().add(
-    "ingest",
-    { connectionId, kind, ref },
-    {
-      delay: SETTLE_MS,
-      deduplication: { id: `${connectionId}-${kind}-${ref}`, ttl: SETTLE_MS },
-      attempts: 5,
-      backoff: { type: "exponential", delay: 60_000 },
-    }
-  )
+  const job = sourceIngestJob({ connectionId, kind, ref })
+  await getIngestQueue().add(job.name, job.data, job.opts)
 }

@@ -18,6 +18,14 @@ Jacob, 2026-10-17:
 3. **Ingested items are workspace-visible** (permission rule 3). An item
    remembered in a private channel becomes visible to the whole workspace once
    it is ingested.
+4. **A search index, not a mirror** (2026-10-17). We store as much as we can
+   to make local search and linking easier and faster. We do not keep a 1:1
+   record of the external system: a missed webhook leaves an item stale, and
+   that is acceptable. Anything that depends on current state is fetched live
+   from the service, which stays the source of truth. So: webhooks refetch,
+   deletes we hear about tombstone, and there is no catch-up sweep, cursor
+   table or verify pass. Search hits carry `syncedAt`, and the prompt tells
+   Lor to check the live tool for current state.
 
 Earlier decisions that still hold: no backfill on connect; real text, no
 per-item summary; Remember removed; your own webhooks are not ingested;
@@ -37,16 +45,15 @@ Defaults set while planning. Change them before the step is built if wrong:
   al.). The item itself is kept even when a bot opened it.
 - **Not ingested:** GitHub releases, commits and code; Attio list entries
   (an event, not content), records, tasks and comments; Notion; Better Stack.
-- **Catch-up sweeps cover GitHub and Linear.** Attio redelivers failed
-  webhooks for about 3 days, so it gets none.
 - **Rate limits:** one queue limiter plus retries with backoff. No
   per-connection token bucket until a workspace hits a limit.
 
 ## Steps
 
 Build order: Step 1 removes the only writer of today's `source` rows, so
-Step 2 can reshape the table. Steps 3 to 5 fill it. Steps 6 to 9 change
-`search`. Every step's schema change lands in the one `db:push` at rollout.
+Step 2 can reshape the table. Steps 3 to 5 fill it (Step 5 was cut to
+freshness hints, decision 4). Steps 6 to 9 change `search`. Every step's
+schema change lands in the one `db:push` at rollout.
 
 ### Step 1: remove Remember
 
@@ -144,8 +151,8 @@ from every provider. `issues.transferred` tombstones the old key and enqueues
 the new one.
 
 - `SOURCE_INGEST_QUEUE` (`packages/realtime-types/src/queues.ts`), job data
-  `{ connectionId, kind, ref }`. `ref` is what the fetcher looks up; the
-  stored key comes from the fetched item.
+  `{ connectionId, kind, ref }`. `ref` is the item's stored key (a Linear
+  issue id also works); the stored key comes from the fetched item.
 - API producer `apps/api/src/lib/source-ingest-queue.ts`: BullMQ
   deduplication (id `connectionId-kind-ref`, ttl 15 s) with a 15 s delay, so
   a burst of events for one item makes one fetch, and an event after the
@@ -203,28 +210,30 @@ subscribes to.
   webhook subscribes to the trigger events plus these. Existing Attio
   connections must reconnect to get the new subscriptions.
 - Docs: `adding-a-connector.md` gains an ingestion step (fetcher, webhook
-  events, sweep).
+  events).
 
-### Step 5: catch-up sweeps
+### Step 5: freshness hints (catch-up sweeps cut)
 
-[ ] built · [ ] committed
+[x] built 2026-10-17 · [ ] committed
 
-~280 lines.
+Cut 2026-10-17 by decision 4: the hourly catch-up sweep (per-repo GitHub and
+Linear listings with a `sync_cursor` table) and the daily verify pass were
+built, then removed before commit. Keeping an external system in sync is not
+the goal.
 
-- Schema, new `sync_cursor`: `connectionId` (FK cascade), `stream`, `cursor`
-  (timestamp), `updatedAt`; unique (`connectionId`, `stream`).
-- Maintenance job `sweep-source-updates`, hourly:
-  - GitHub: for each installed repo, `GET /repos/{owner}/{repo}/issues` with
-    `state=all`, `sort=updated`, `since` = cursor minus 10 minutes, up to 3
-    pages of 100. Enqueue each item; move the cursor to the newest
-    `updated_at` seen. About one request per repo per hour.
-  - Linear: `issues` filtered on `updatedAt` after the cursor, including
-    archived, up to 3 pages of 100.
-  - A connection's first sweep only sets its cursor to now (no backfill).
-- Maintenance job `verify-sources`, daily: per connection, enqueue the 100
-  active rows with the oldest `fetchedAt`. A missing item is tombstoned. Over
-  time this rechecks every stored row, which catches deletes that sent no
-  webhook.
+As built (~60 lines):
+
+- Search hits carry `syncedAt` (the item's `fetchedAt`). The `search`
+  description and system prompt say a source is a copy that can be out of
+  date: check the service's fetch tool for current state (open or merged,
+  status, assignee), or say the copy is as of its sync date.
+- Every job `ref` is the item's stored key (Attio refs are `note#<id>` and
+  `call_recording#<meeting>/<recording>`, built with `attioNoteKey` and
+  `attioRecordingKey`).
+- Job options live in one `sourceIngestJob()` helper in
+  `@repo/realtime-types/queues`.
+- The `source` index on (`connectionId`, `fetchedAt`) became one on
+  (`connectionId`, `externalId`) for tombstone lookups.
 
 ### Step 6: BM25 and hybrid search for every kind
 
