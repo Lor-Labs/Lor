@@ -1,5 +1,6 @@
 import {
   ArrowRight01Icon,
+  ComputerTerminal01Icon,
   File01Icon,
   Loading03Icon,
   LockKeyIcon,
@@ -47,6 +48,21 @@ export function LorAvatar({ size = "size-7" }: { size?: string }) {
       className={`flex ${size} shrink-0 items-center justify-center rounded-lg bg-black ring-1 ring-foreground/10`}
     >
       <LorMark className="size-[58%]" />
+    </span>
+  )
+}
+
+// A bring-your-own agent (Claude Code, Codex) working in a Lor session.
+export function AgentAvatar({ size = "size-7" }: { size?: string }) {
+  return (
+    <span
+      className={`flex ${size} shrink-0 items-center justify-center rounded-lg bg-lor-surface-dark text-agent ring-1 ring-foreground/10`}
+    >
+      <HugeiconsIcon
+        icon={ComputerTerminal01Icon}
+        className="size-[55%]"
+        strokeWidth={1.75}
+      />
     </span>
   )
 }

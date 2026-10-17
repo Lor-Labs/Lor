@@ -30,7 +30,7 @@ import { Reveal } from "@/app/components/reveal"
 // One week of #gtm told in product frames: a time, what happened, and the
 // screen. Replaces the claim-per-chapter sections (proof-chapters.tsx).
 
-function SessionTitle({
+export function SessionTitle({
   title,
   meta,
   faces,
@@ -71,7 +71,7 @@ const RUNS = [
   { date: "Sep 29", result: "9 new leads, 9 drafts", running: false },
 ]
 
-function LoopRunMock() {
+export function LoopRunMock() {
   return (
     <MockShell>
       <div aria-hidden className="flex flex-col gap-4 p-5 text-left md:p-6">
@@ -259,7 +259,7 @@ function ApprovalMock() {
   )
 }
 
-type Frame = {
+export type Frame = {
   id?: string
   time: string
   title: string
@@ -312,37 +312,43 @@ export function WeekInGtm() {
           A week in #gtm.
         </h2>
       </Reveal>
-      <ol className="relative mt-16">
-        <span
-          aria-hidden
-          className="absolute top-2 bottom-0 left-[4px] w-px bg-gradient-to-b from-foreground/15 via-foreground/10 to-transparent"
-        />
-        {FRAMES.map((frame) => (
-          <li
-            key={frame.time}
-            id={frame.id}
-            className="relative grid scroll-mt-28 grid-cols-1 gap-6 pb-20 pl-8 last:pb-0 md:grid-cols-[15rem_minmax(0,1fr)] md:gap-12"
-          >
-            <span
-              aria-hidden
-              className="absolute top-[7px] left-0 size-[9px] rounded-full bg-agent ring-4 ring-background"
-            />
-            <Reveal>
-              <div className="md:sticky md:top-32">
-                <p className="text-[13px] text-muted-foreground tabular-nums">
-                  {frame.time}
-                </p>
-                <h3 className="mt-1.5 text-balance font-semibold text-xl leading-snug tracking-[-0.02em] md:text-2xl">
-                  {frame.title}
-                </h3>
-              </div>
-            </Reveal>
-            <Reveal delay={120}>
-              <div className="max-w-2xl">{frame.mock}</div>
-            </Reveal>
-          </li>
-        ))}
-      </ol>
+      <FrameTimeline frames={FRAMES} />
     </section>
+  )
+}
+
+export function FrameTimeline({ frames }: { frames: Frame[] }) {
+  return (
+    <ol className="relative mt-16">
+      <span
+        aria-hidden
+        className="absolute top-2 bottom-0 left-[4px] w-px bg-gradient-to-b from-foreground/15 via-foreground/10 to-transparent"
+      />
+      {frames.map((frame) => (
+        <li
+          key={frame.time}
+          id={frame.id}
+          className="relative grid scroll-mt-28 grid-cols-1 gap-6 pb-20 pl-8 last:pb-0 md:grid-cols-[15rem_minmax(0,1fr)] md:gap-12"
+        >
+          <span
+            aria-hidden
+            className="absolute top-[7px] left-0 size-[9px] rounded-full bg-agent ring-4 ring-background"
+          />
+          <Reveal>
+            <div className="md:sticky md:top-32">
+              <p className="text-[13px] text-muted-foreground tabular-nums">
+                {frame.time}
+              </p>
+              <h3 className="mt-1.5 text-balance font-semibold text-xl leading-snug tracking-[-0.02em] md:text-2xl">
+                {frame.title}
+              </h3>
+            </div>
+          </Reveal>
+          <Reveal delay={120}>
+            <div className="max-w-2xl">{frame.mock}</div>
+          </Reveal>
+        </li>
+      ))}
+    </ol>
   )
 }
