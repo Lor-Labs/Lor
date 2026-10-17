@@ -9,6 +9,7 @@ import {
   and,
   asc,
   db,
+  desc,
   eq,
   inArray,
   LOR_USER_ID,
@@ -189,6 +190,9 @@ const SEARCH_POOL_MAX = 30
 // Memory hits carry most of their page; `read` returns the rest.
 const MEMORY_BODY_MAX = 3000
 const SNIPPET_MAX = 500
+// Matched words in **bold**; two fragments of up to 50 words each.
+const HEADLINE_OPTIONS =
+  'StartSel=**, StopSel=**, MaxWords=50, MinWords=15, MaxFragments=2, FragmentDelimiter=" ... "'
 // read_thread window size — a page, not a cap: omitted counts + before/after
 // cursors expose the rest of the thread instead of silently dropping it.
 const THREAD_MAX = 100
@@ -201,7 +205,7 @@ const SYSTEM_PROMPT_HEAD = `You are Lor, the knowledge keeper for this team's wo
 
 You have two kinds of memory:
 - Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
-- Everything else the team has produced: one search tool covers the full chat message history (all channels), past voice calls, and the summarized activity of connected integrations (GitHub, Linear, …). Each hit is tagged with its type — a message comes back with its full text (read_thread pulls the rest of its thread; cite it [[msg:…]]); a call comes back as one topic of its transcript or its summary (read_call reads the transcript around it; cite it [[call:…@time]]); an integration source comes back as a stored summary (cite it [[src:…]] by id, not by pasting the url); for the full, current item use that service's fetch tool when you have one.`
+- Everything else the team has produced: one search tool covers the full chat message history (all channels), past voice calls, and the summarized activity of connected integrations (GitHub, Linear, …). Each hit is tagged with its type — a message comes back with its text, or the passages that matched when it is long (read_thread reads it in full with the rest of its thread; a message from a Lor session carries its sessionTitle; cite it [[msg:…]]); a call comes back as one topic of its transcript or its summary (read_call reads the transcript around it; cite it [[call:…@time]]); an integration source comes back as a stored summary (cite it [[src:…]] by id, not by pasting the url); for the full, current item use that service's fetch tool when you have one.`
 
 const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
 
@@ -518,13 +522,15 @@ async function searchMessages(
   const tsv = sql`to_tsvector('english', coalesce(${schema.message.content}, ''))`
   const tsq = orTsQuery(query)
 
-  const rows = await db
+  const ranked = db
     .select({
       messageId: schema.message.id,
       channelId: schema.message.channelId,
+      threadRootId: schema.message.threadRootId,
       content: schema.message.content,
       createdAt: schema.message.createdAt,
       authorName: schema.user.name,
+      rank: sql<number>`ts_rank(${tsv}, ${tsq})`.as("rank"),
     })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
@@ -544,13 +550,40 @@ async function searchMessages(
     )
     .orderBy(sql`ts_rank(${tsv}, ${tsq}) desc`)
     .limit(limit)
+    .as("ranked")
+
+  // ts_headline re-parses each document, so it runs on the ranked pool only.
+  // Long messages (Lor's session replies) return the passages that matched
+  // rather than their opening, so the reranker scores the relevant part.
+  const length = sql<number>`length(coalesce(${ranked.content}, ''))`
+  const rows = await db
+    .select({
+      messageId: ranked.messageId,
+      channelId: ranked.channelId,
+      createdAt: ranked.createdAt,
+      authorName: ranked.authorName,
+      length,
+      text: sql<string>`case when ${length} <= ${SNIPPET_MAX} then coalesce(${ranked.content}, '') else ts_headline('english', ${ranked.content}, ${tsq}, ${HEADLINE_OPTIONS}) end`,
+      sessionId: schema.agentSession.id,
+      sessionTitle: schema.agentSession.title,
+    })
+    .from(ranked)
+    .leftJoin(
+      schema.agentSession,
+      eq(schema.agentSession.threadRootId, ranked.threadRootId)
+    )
+    .orderBy(desc(ranked.rank))
 
   return rows.map((r) => ({
     messageId: r.messageId,
     channelId: r.channelId,
     author: userDisplayName({ name: r.authorName }),
     when: r.createdAt.toISOString(),
-    text: (r.content ?? "").slice(0, SNIPPET_MAX),
+    text: r.text,
+    ...(r.length > SNIPPET_MAX ? { truncated: true } : {}),
+    ...(r.sessionId
+      ? { sessionId: r.sessionId, sessionTitle: r.sessionTitle }
+      : {}),
   }))
 }
 
@@ -565,9 +598,17 @@ async function readThread(
     .select({
       id: schema.message.id,
       threadRootId: schema.message.threadRootId,
+      sessionTitle: schema.agentSession.title,
     })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
+    .leftJoin(
+      schema.agentSession,
+      eq(
+        schema.agentSession.threadRootId,
+        sql`coalesce(${schema.message.threadRootId}, ${schema.message.id})`
+      )
+    )
     .where(
       and(
         eq(schema.message.id, messageId),
@@ -634,6 +675,7 @@ async function readThread(
     : []
 
   return {
+    ...(msg.sessionTitle !== null ? { sessionTitle: msg.sessionTitle } : {}),
     messages: rows.map((r) => ({
       messageId: r.id,
       author: userDisplayName({ name: r.authorName }),
@@ -752,7 +794,7 @@ async function searchMemoryPages(
 export const searchTools = {
   search: tool({
     description:
-      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its full text — cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` is a stored summary of an item from a connected service — cite it as [[src:<id>]] (don't paste its url), and use that service's fetch tool for the full, current item when you have one. Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
+      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its text; when it is long you get the passages that matched (matched words in **bold**) and `truncated: true`, so call read_thread for the full message; a message from a Lor session carries `sessionTitle`; cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` is a stored summary of an item from a connected service — cite it as [[src:<id>]] (don't paste its url), and use that service's fetch tool for the full, current item when you have one. Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
     inputSchema: z.object({
       query: z.string().describe("a short natural-language query or phrase"),
       types: z
@@ -903,7 +945,7 @@ export const chatTools = {
     description:
       "Read the thread a message belongs to: the root message plus a window of up to 100 messages centred on the one you asked about. omittedBefore/omittedAfter report how many thread messages fall outside the window — page to them by passing before (older) or after (newer) with a message id from this thread.",
     inputSchema: z.object({
-      messageId: z.string().describe("a message id from search_messages"),
+      messageId: z.string().describe("a message id from search"),
       before: z
         .string()
         .optional()

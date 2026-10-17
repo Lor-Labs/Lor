@@ -173,7 +173,18 @@ run after `db:push` with `--dry-run` first (command in its header).
 
 ### Step 2: session-aware search hits
 
-[ ] built · [ ] committed
+[x] built 2026-10-16 · [ ] committed
+
+As built (~195 lines): Lor's `searchMessages` ranks in a subquery, then runs
+`ts_headline` on the pool only: messages over 500 characters return their
+matched passages (matched words in `**bold**`, since Postgres does not
+document an empty highlight marker) with `truncated: true`. Hits and
+`read_thread` carry `sessionTitle`. The API returns `sessionId` /
+`sessionTitle` on message hits and up to 5 title-matched `sessions` on page 1,
+archived included. Web ⌘K and header search pass `sessionId` straight to
+navigation, skipping the location lookup. Mobile shows the title on message
+hits, and channel search labels session hits with the title instead of
+"In thread"; mobile has no Sessions group yet.
 
 - `searchMessages`: join `agent_session` on the thread root; return
   `sessionId` and `sessionTitle`. Replace `slice(0, 500)` with a window around

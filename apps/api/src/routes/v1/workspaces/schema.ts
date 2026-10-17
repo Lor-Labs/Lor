@@ -193,10 +193,23 @@ const searchResultMessageSchema = z.object({
   channelId: z.string().uuid(),
   channelName: z.string(),
   threadRootId: z.string().uuid().nullable(),
+  // Set when the message is inside a Lor session.
+  sessionId: z.string().uuid().nullable(),
+  sessionTitle: z.string().nullable(),
   author: messageAuthorSchema,
   mentions: z.array(messageAuthorSchema),
 })
 
+const searchResultSessionSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  channelId: z.string().uuid(),
+  channelName: z.string(),
+  archived: z.boolean(),
+  lastActivityAt: z.string().datetime(),
+})
+
+// Sessions whose title matches come back on the first page only.
 export const searchMessagesResponseSchema = paginatedResponseSchema(
   searchResultMessageSchema
-)
+).extend({ sessions: z.array(searchResultSessionSchema) })

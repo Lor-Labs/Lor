@@ -25,6 +25,7 @@ The phone matches web's session model: `@Lor` starts a session, Lor works only i
 - [x] How Lor works bottom sheet (phone-shaped scenes) — Step 34
 - [ ] A failed start from the New session screen lands on "Session unavailable" and loses the draft (the channel composer gets it back).
 - [ ] Approve or reject doesn't move the Channels-tab row (needs you → running) at once; the server's activity push moves it a moment later.
+- [ ] Search has no Sessions group for title matches (web ⌘K shows one; the API already returns `sessions` on page 1). Mobile shows the session title on message hits — `planned/session-memory.md` Step 2.
 
 ## Post-launch — onboarding (web shipped 2026-10-08, `reference/onboarding.md`)
 

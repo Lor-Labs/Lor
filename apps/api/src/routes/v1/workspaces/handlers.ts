@@ -662,6 +662,8 @@ export const updateWorkspace: AppRouteHandler<UpdateWorkspaceRoute> = async (
 
 // ── Search ──────────────────────────────────────────────
 
+const SESSION_SEARCH_LIMIT = 5
+
 export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
   c
 ) => {
@@ -697,6 +699,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
     nextPage: null,
     prevPage: null,
     data: [],
+    sessions: [],
   }
 
   if (workspaceChannels.length === 0) {
@@ -723,7 +726,7 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
     visibleToSessionChatFilter(currentUser.id, schema.message.threadRootId)
   )
 
-  const [countResult, messages] = await Promise.all([
+  const [countResult, messages, sessions] = await Promise.all([
     db.select({ total: count() }).from(schema.message).where(whereConditions),
     db
       .select({
@@ -732,6 +735,8 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
         createdAt: schema.message.createdAt,
         channelId: schema.message.channelId,
         threadRootId: schema.message.threadRootId,
+        sessionId: schema.agentSession.id,
+        sessionTitle: schema.agentSession.title,
         author: {
           id: schema.user.id,
           name: schema.user.name,
@@ -740,10 +745,34 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
       })
       .from(schema.message)
       .innerJoin(schema.user, eq(schema.message.authorId, schema.user.id))
+      .leftJoin(
+        schema.agentSession,
+        eq(schema.agentSession.threadRootId, schema.message.threadRootId)
+      )
       .where(whereConditions)
       .orderBy(desc(schema.message.createdAt))
       .limit(perPage)
       .offset(offset),
+    // Archived sessions stay findable by title (workspace-model.md).
+    page === 1
+      ? db
+          .select({
+            id: schema.agentSession.id,
+            title: schema.agentSession.title,
+            channelId: schema.agentSession.channelId,
+            archivedAt: schema.agentSession.archivedAt,
+            lastActivityAt: schema.agentSession.lastActivityAt,
+          })
+          .from(schema.agentSession)
+          .where(
+            and(
+              inArray(schema.agentSession.channelId, searchChannelIds),
+              ilike(schema.agentSession.title, searchPattern)
+            )
+          )
+          .orderBy(desc(schema.agentSession.lastActivityAt))
+          .limit(SESSION_SEARCH_LIMIT)
+      : Promise.resolve([]),
   ])
 
   const itemsTotal = countResult[0]?.total ?? 0
@@ -798,6 +827,8 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
         channelId: msg.channelId,
         channelName: channelMap.get(msg.channelId) ?? "unknown",
         threadRootId: msg.threadRootId,
+        sessionId: msg.sessionId,
+        sessionTitle: msg.sessionTitle,
         author: {
           id: msg.author.id,
           name: msg.author.name,
@@ -810,6 +841,14 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
           image: mention.image,
           avatarColor: avatarColorByUserId.get(mention.id) ?? null,
         })),
+      })),
+      sessions: sessions.map((session) => ({
+        id: session.id,
+        title: session.title,
+        channelId: session.channelId,
+        channelName: channelMap.get(session.channelId) ?? "unknown",
+        archived: session.archivedAt !== null,
+        lastActivityAt: session.lastActivityAt.toISOString(),
       })),
     },
     HttpStatusCodes.OK
