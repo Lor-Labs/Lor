@@ -112,12 +112,8 @@ export async function getCloudwatchCredentials(
 }
 
 // No ingestion: CloudWatch is on-demand tools only (log volume rules out eager
-// `sources` rows), so fetchContent has nothing to resolve.
+// `source` rows).
 export const cloudwatchProvider: SourceProvider = {
-  async fetchContent() {
-    return null
-  },
-
   async verifyConnection(connection) {
     const creds = await getCloudwatchCredentials(connection.externalId)
     if (!creds) return null

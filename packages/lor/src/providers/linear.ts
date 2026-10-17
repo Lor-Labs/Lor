@@ -6,7 +6,6 @@ import { logger } from "../logger"
 import type { SourceProvider } from "./types"
 
 const TOKEN_URL = "https://api.linear.app/oauth/token"
-const MAX_COMMENTS = 10
 // Refresh slightly before actual expiry to avoid racing the boundary.
 const REFRESH_SKEW_MS = 60_000
 const REQUEST_TIMEOUT_MS = 10_000
@@ -210,30 +209,7 @@ export async function linearClientFor(
   return token ? new LinearClient({ accessToken: token }) : null
 }
 
-function clip(s: string, max = 8000): string {
-  return s.length > max ? `${s.slice(0, max)}\n…(truncated)` : s
-}
-
 export const linearProvider: SourceProvider = {
-  async fetchContent(source, connection) {
-    if (source.kind !== "issue") return null
-    const client = await linearClientFor(connection.externalId)
-    if (!client) return null
-    const issue = await client.issue(source.externalId).catch(() => null)
-    if (!issue) return null
-
-    const state = await issue.state
-    let out = `# ${issue.identifier} ${issue.title}\nState: ${state?.name ?? "unknown"}\n\n${issue.description ?? "(no description)"}`
-    const comments = await issue
-      .comments({ first: MAX_COMMENTS })
-      .then((c) => c.nodes)
-      .catch(() => [])
-    for (const c of comments) {
-      out += `\n\n— ${c.body}`
-    }
-    return clip(out)
-  },
-
   async verifyConnection(connection) {
     const client = await linearClientFor(connection.externalId)
     if (!client) return null

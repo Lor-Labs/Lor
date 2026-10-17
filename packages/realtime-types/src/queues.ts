@@ -127,3 +127,14 @@ export type ProjectArchiveJobData = { projectId: string }
 export const ATTACHMENT_INDEX_QUEUE = "attachment-index"
 
 export type AttachmentIndexJobData = { messageId: string; channelId: string }
+
+// Source ingestion (reference/planned/context-engine-phase-2.md): refetches
+// one item from a connected service and stores its text. `ref` is what the
+// provider's fetcher looks up; the stored key comes from the fetched item.
+export const SOURCE_INGEST_QUEUE = "source-ingest"
+
+export type SourceIngestJobData = {
+  connectionId: string
+  kind: string
+  ref: string
+}

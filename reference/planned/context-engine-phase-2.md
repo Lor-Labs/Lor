@@ -132,9 +132,16 @@ replaces it with the fetchers; the cleanup script keys on `fetchedAt is null`
 
 ### Step 3: ingest queue and GitHub
 
-[ ] built · [ ] committed
+[x] built 2026-10-17 · [ ] committed
 
-~380 lines.
+As built (~520 lines changed, ~150 of them deletions): as below. Fetchers
+return `{ item, gone }`: `gone` lists stored keys to tombstone (a 404 or 410,
+or a key that moved). `SOURCE_FETCHERS` is a `satisfies` map, so
+`IngestedProvider` widens as Step 4 adds Linear and Attio. The GitHub fetcher
+uses `issues.get` for PRs and issues alike; a review with no text counts only
+when it approves or requests changes. `SourceProvider.fetchContent` is gone
+from every provider. `issues.transferred` tombstones the old key and enqueues
+the new one.
 
 - `SOURCE_INGEST_QUEUE` (`packages/realtime-types/src/queues.ts`), job data
   `{ connectionId, kind, ref }`. `ref` is what the fetcher looks up; the

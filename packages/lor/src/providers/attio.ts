@@ -404,10 +404,6 @@ export async function attioWriteRequest<T>(
 }
 
 export const attioProvider: SourceProvider = {
-  async fetchContent() {
-    return null
-  },
-
   async verifyConnection(connection) {
     const token = await getAttioAccessToken(connection.externalId)
     if (!token) return null
