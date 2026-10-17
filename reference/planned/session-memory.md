@@ -489,8 +489,11 @@ corpus.
 
 ## Eval (reopen trigger for both deferrals)
 
-Reuses the judged pool in `context-engine.md` §5.11 (§7 step 0, next after
-phase 1 ships).
+Reuses the judged pool in `context-engine.md` §5.11 (§7 step 0). **Deferred
+2026-10-17:** with no users there is too little real data to draft questions
+from. Until it exists, the deferrals below reopen on gaps seen in real use
+(for example Lor missing answers that sit in past sessions). The long-task
+eval for model and prompt changes is unaffected.
 
 - Start with 50 real questions with gold session and message ids, growing
   toward 100 to 200. A model drafts them from real prod sessions and threads;

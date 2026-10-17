@@ -548,7 +548,7 @@ moves to root. Status and scope as decided with Jacob on 2026-10-17.
 
 | # | Step | Status |
 |---|---|---|
-| 0 | Judged-pool eval baseline on current `search` (§5.11): 50 questions to start, drafted by a model from prod sessions and threads and checked by Jacob, LLM-graded 0 to 3 with 10% graded twice. Include multi-hop questions (the answer sits 2 to 3 references away) | Next |
+| 0 | Judged-pool eval baseline on current `search` (§5.11): 50 questions to start, drafted by a model from prod sessions and threads and checked by Jacob, LLM-graded 0 to 3 with 10% graded twice. Include multi-hop questions (the answer sits 2 to 3 references away) | Deferred 2026-10-17: no users yet, so too little real data to draft from. Until it exists, deferred items reopen on gaps seen in real use, and step 5 keeps its starting values |
 | 1 | `source` scoped by channel (`session-memory.md` Step 1). `access_container` and connection access modes dropped (permission rules) | Done; rest in step 3 |
 | 2 | `touch` table, session lookup in `search`, reverse hints (`session-memory.md` Step 5) | Done |
 | 3 | Ingestion (`session-memory.md` Phase 2): GitHub and Linear first; PRs and issues with their comments and review comments, no releases; real text, no per-item summary; webhooks as a signal, reconcile, tombstones; no backfill on connect for now; Remember removed | Decided, not written as steps |
