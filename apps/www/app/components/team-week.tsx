@@ -1,6 +1,7 @@
 import {
   BrowserIcon,
-  ComputerTerminal01Icon,
+  ChatGptIcon,
+  ClaudeIcon,
   Csv01Icon,
   File01Icon,
   Folder01Icon,
@@ -45,12 +46,12 @@ const AGENTS: { name: string; detail: string; icon: ReactNode }[] = [
   {
     name: "Claude Code",
     detail: "Zoe's subscription",
-    icon: <HugeiconsIcon icon={ComputerTerminal01Icon} size={15} />,
+    icon: <HugeiconsIcon icon={ClaudeIcon} size={15} />,
   },
   {
     name: "Codex",
     detail: "Theo's subscription",
-    icon: <HugeiconsIcon icon={ComputerTerminal01Icon} size={15} />,
+    icon: <HugeiconsIcon icon={ChatGptIcon} size={15} />,
   },
   { name: "Lor", detail: "Built in", icon: <LorMark className="size-3.5" /> },
 ]

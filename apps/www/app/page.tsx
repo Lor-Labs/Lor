@@ -1,3 +1,5 @@
+import { ChatGptIcon, ClaudeIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import Image from "next/image"
 import { AppMock } from "@/app/components/app-mock"
 import { ClosingCTA } from "@/app/components/closing-cta"
@@ -38,6 +40,19 @@ function Hero() {
   )
 }
 
+function AgentName({ icon, name }: { icon: IconSvgElement; name: string }) {
+  return (
+    <span className="whitespace-nowrap text-foreground">
+      <HugeiconsIcon
+        icon={icon}
+        strokeWidth={1.75}
+        className="mr-1 inline-block size-[1.1em] align-[-0.2em]"
+      />
+      {name}
+    </span>
+  )
+}
+
 function HeroContent() {
   return (
     <div className="relative mx-auto w-full max-w-6xl px-6 pt-36 pb-16 md:pt-44 md:pb-28">
@@ -51,9 +66,10 @@ function HeroContent() {
       <Reveal delay={140}>
         <div className="mt-9 flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
           <p className="max-w-[540px] text-pretty text-[16px] text-foreground/75 leading-relaxed sm:text-[17px]">
-            Bring Claude Code, Codex, or whatever agent you already pay for. Lor
-            gives it a cloud computer, your team&rsquo;s tools and context, and
-            sessions your whole team can jump into.
+            Bring <AgentName icon={ClaudeIcon} name="Claude Code" />,{" "}
+            <AgentName icon={ChatGptIcon} name="Codex" />, or whatever agent you
+            already pay for. Lor gives it a cloud computer, your team&rsquo;s
+            tools and context, and sessions your whole team can jump into.
           </p>
           <WaitlistForm className="shrink-0" />
         </div>

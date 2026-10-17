@@ -1,5 +1,5 @@
 import {
-  ComputerTerminal01Icon,
+  ClaudeIcon,
   Globe02Icon,
   HashtagIcon,
   Infinity01Icon,
@@ -263,7 +263,7 @@ function SessionColumn() {
             Reply…
           </span>
           <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px]">
-            <HugeiconsIcon icon={ComputerTerminal01Icon} size={12} />
+            <HugeiconsIcon icon={ClaudeIcon} size={12} />
             Claude Code
             <HugeiconsIcon icon={UnfoldMoreIcon} size={11} />
           </span>
