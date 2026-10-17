@@ -2,6 +2,7 @@ import { HashtagIcon, LockKeyIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   AgentAvatar,
+  AgentName,
   ChatLine,
   FileCard,
   PersonAvatar,
@@ -80,17 +81,20 @@ function SharedRun() {
           }
           faces={[THEO, RAFAEL]}
         />
-        <Turn avatar={<PersonAvatar src={THEO} />}>
+        <Turn avatar={<PersonAvatar src={THEO} />} name="Theo">
           Run Zoe&rsquo;s lead pull for this week.
         </Turn>
-        <Turn avatar={<AgentAvatar />}>
+        <Turn
+          avatar={<AgentAvatar agent="codex" />}
+          name={<AgentName agent="codex" />}
+        >
           <WorkLog label="Worked" detail="ran scripts/enrich-leads.ts" />
           <p className="mt-2">
             42 leads, 12 new. The drafts follow Zoe&rsquo;s playbook.
           </p>
           <FileCard name="intro-drafts.md" detail="12 drafts" />
         </Turn>
-        <Turn avatar={<PersonAvatar src={RAFAEL} />}>
+        <Turn avatar={<PersonAvatar src={RAFAEL} />} name="Rafael">
           Nice. I&rsquo;ll take the fintech ones.
         </Turn>
       </div>

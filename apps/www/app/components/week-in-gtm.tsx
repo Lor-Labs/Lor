@@ -66,7 +66,7 @@ export function SessionTitle({
 }
 
 const RUNS = [
-  { date: "Oct 13", result: "Researching leads", running: true },
+  { date: "Today", result: "Researching leads", running: true },
   { date: "Oct 6", result: "5 new leads, 5 drafts", running: false },
   { date: "Sep 29", result: "9 new leads, 9 drafts", running: false },
 ]
@@ -263,6 +263,7 @@ export type Frame = {
   id?: string
   time: string
   title: string
+  caption?: string
   mock: ReactNode
 }
 
@@ -328,7 +329,7 @@ export function FrameTimeline({ frames }: { frames: Frame[] }) {
         <li
           key={frame.time}
           id={frame.id}
-          className="relative grid scroll-mt-28 grid-cols-1 gap-6 pb-20 pl-8 last:pb-0 md:grid-cols-[15rem_minmax(0,1fr)] md:gap-12"
+          className="relative grid scroll-mt-28 grid-cols-1 gap-6 pb-20 pl-8 last:pb-0 md:grid-cols-[18rem_minmax(0,1fr)] md:gap-12"
         >
           <span
             aria-hidden
@@ -342,6 +343,11 @@ export function FrameTimeline({ frames }: { frames: Frame[] }) {
               <h3 className="mt-1.5 text-balance font-semibold text-xl leading-snug tracking-[-0.02em] md:text-2xl">
                 {frame.title}
               </h3>
+              {frame.caption ? (
+                <p className="mt-2.5 text-pretty text-[15px] text-muted-foreground leading-relaxed">
+                  {frame.caption}
+                </p>
+              ) : null}
             </div>
           </Reveal>
           <Reveal delay={120}>

@@ -1,6 +1,7 @@
 import {
   ArrowRight01Icon,
-  ComputerTerminal01Icon,
+  ChatGptIcon,
+  ClaudeIcon,
   Loading03Icon,
   LockKeyIcon,
   Tick02Icon,
@@ -52,18 +53,38 @@ export function LorAvatar({ size = "size-7" }: { size?: string }) {
   )
 }
 
-// A bring-your-own agent (Claude Code, Codex) working in a Lor session.
-export function AgentAvatar({ size = "size-7" }: { size?: string }) {
+export type Agent = "claude" | "codex"
+
+const AGENTS = {
+  claude: { name: "Claude Code", icon: ClaudeIcon },
+  codex: { name: "Codex", icon: ChatGptIcon },
+} as const
+
+// Lor running a bring-your-own agent: the Lor mark, badged with the agent.
+export function AgentAvatar({ agent = "claude" }: { agent?: Agent }) {
   return (
-    <span
-      className={`flex ${size} shrink-0 items-center justify-center rounded-lg bg-lor-surface-dark text-agent ring-1 ring-foreground/10`}
-    >
-      <HugeiconsIcon
-        icon={ComputerTerminal01Icon}
-        className="size-[55%]"
-        strokeWidth={1.75}
-      />
+    <span className="relative flex h-fit shrink-0">
+      <LorAvatar />
+      <span className="-right-1 -bottom-1 absolute flex size-4 items-center justify-center rounded-full bg-lor-surface-raised-dark text-lor-text-dark ring-2 ring-lor-bg-dark">
+        <HugeiconsIcon
+          icon={AGENTS[agent].icon}
+          className="size-2.5"
+          strokeWidth={2}
+        />
+      </span>
     </span>
+  )
+}
+
+// Name row for an agent turn: "Lor · Claude Code".
+export function AgentName({ agent = "claude" }: { agent?: Agent }) {
+  return (
+    <>
+      Lor{" "}
+      <span className="font-normal text-lor-text-tertiary-dark">
+        · {AGENTS[agent].name}
+      </span>
+    </>
   )
 }
 
@@ -101,18 +122,26 @@ export function Citation({ children }: { children: ReactNode }) {
   )
 }
 
-// One turn in a session: gutter avatar, no name row (as in the app).
+// One turn in a session: gutter avatar. The app has no name row; `name` adds
+// one where a mock has to read at a glance.
 export function Turn({
   avatar,
+  name,
   children,
 }: {
   avatar: ReactNode
+  name?: ReactNode
   children: ReactNode
 }) {
   return (
     <div className="flex gap-3 pt-4">
       {avatar}
       <div className="min-w-0 flex-1 pt-0.5 text-[13.5px] text-lor-text-dark/90 leading-[1.6]">
+        {name ? (
+          <p className="mb-1 font-medium text-[12.5px] text-lor-text-dark leading-tight">
+            {name}
+          </p>
+        ) : null}
         {children}
       </div>
     </div>
