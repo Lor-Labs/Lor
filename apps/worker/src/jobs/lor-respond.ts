@@ -79,6 +79,7 @@ import { titleSessionAfterFirstReply } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
 import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
+import { sessionArchived, sessionGateContext } from "@/lib/writeback-gate"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
 type RedisClient = ReturnType<typeof createClient>
@@ -955,7 +956,15 @@ export function createLorRespondProcessor(
             flushPendingText()
             closeReasoningSegment()
 
-            gateText = `${conversation
+            const turnIds = new Set(
+              conversation.flatMap((t) => (t.messageId ? [t.messageId] : []))
+            )
+            const sessionContext = contextThreadRootId
+              ? await sessionGateContext(contextThreadRootId, turnIds).catch(
+                  () => ""
+                )
+              : ""
+            gateText = `${sessionContext ? `${sessionContext}\n` : ""}${conversation
               .map((t) => formatSpeakerLine(t.authorName, t.content))
               .join("\n")}\n\nLor: ${answer.text}`
           } catch (err) {
@@ -1277,7 +1286,11 @@ export function createLorRespondProcessor(
             { lorMessageId, length: finalText.length, stoppedByUser },
             "Lor reply complete"
           )
-          if (stoppedByUser) {
+          const archivedStop =
+            stoppedByUser && contextThreadRootId
+              ? await sessionArchived(contextThreadRootId).catch(() => false)
+              : false
+          if (stoppedByUser && !archivedStop) {
             await runWriter.close()
             return
           }

@@ -180,6 +180,8 @@ const WRITEBACK_MAX_STEPS = 30
 // Per-request input size that triggers compaction (compaction.ts).
 const COMPACT_INPUT_TOKENS = env.LOR_COMPACT_INPUT_TOKENS
 const WRITEBACK_TIMEOUT_MS = 5 * 60_000
+// Transcript budget for the write-back pass (estimated tokens).
+const WRITEBACK_INPUT_TOKENS = 120_000
 // search runs each backend independently, so the cap is per result kind
 // (messages vs. sources), not shared — one corpus can't starve the other.
 const SEARCH_PER_KIND_DEFAULT = 6
@@ -261,7 +263,7 @@ const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write or edit (or mkdi
 
 Standing workspace instructions: when this workspace has instructions set, their complete current text appears in a "Workspace instructions" section of this prompt — there is no separate file to read. If that section is absent, none are set yet. To change them, call propose_instructions with the complete new text (merge your change into the current text from the prompt, don't drop existing guidance); it files a pending proposal that a workspace admin must approve before anything takes effect. This tool is always available to you — if a call fails, say what the error was; never claim the tool is missing from your session.`
 
-const GATE_QUESTION = `Decide whether the exchange above is worth saving to the team's long-term memory. The bar is high — memory is for knowledge a teammate would genuinely benefit from weeks from now.
+const GATE_QUESTION = `Decide whether the latest exchange above is worth saving to the team's long-term memory. Session context before "This turn:" only helps you read that exchange; judge what the exchange itself states or settles. The bar is high — memory is for knowledge a teammate would genuinely benefit from weeks from now.
 
 Answer true ONLY if the exchange states a specific, durable, workspace-specific fact of one of these kinds:
 - a settled decision (not a proposal still under discussion),
@@ -3126,7 +3128,9 @@ export async function writeBack(
     reasoning: "high",
     instructions: `${buildSystemPrompt([])}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}`,
     messages: [
-      ...ctx.priorMessages,
+      // Long sessions replay their whole transcript; bound what write-back
+      // re-reads. Under the budget this is the transcript unchanged.
+      ...fitMessagesToBudget(ctx.priorMessages, WRITEBACK_INPUT_TOKENS),
       { role: "user", content: WRITEBACK_INSTRUCTION },
     ],
     tools: {

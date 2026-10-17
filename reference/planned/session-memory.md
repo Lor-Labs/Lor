@@ -253,7 +253,16 @@ source scope-strictly, so a scoped run can't move workspace memory.
 
 ### Step 4: write-back sees the session
 
-[ ] built · [ ] committed
+[x] built 2026-10-16 · [ ] committed
+
+As built (~120 lines): `apps/worker/src/lib/writeback-gate.ts`.
+`sessionGateContext` prefixes the gate input with the session title, its
+starting context and people's earlier prompts (newest first, 8,000
+characters), then "This turn:"; the gate question says to judge only that
+turn. Deviations: an archive stop is detected by the session's `archivedAt`
+when the run stopped, not by a new stop reason (no schema change); and
+write-back bounds its transcript with the existing `fitMessagesToBudget`
+projection at 120k estimated tokens instead of reusing compaction notes.
 
 - Gate input on continued turns: session title, seed context
   (`agent_session_context`), earlier human turns under a token cap, then the
