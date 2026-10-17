@@ -3,6 +3,8 @@ import {
   type ConnectorToolName,
   githubItemKey,
   githubRepoKey,
+  type ItemRef,
+  itemFromUrl,
   linearIssueKey,
   normalizeUrl,
   notionPageKey,
@@ -48,6 +50,11 @@ const item = (kind: TouchKind, value: string | null): Item | null =>
 
 const notionPage = (id: string | null) =>
   item("notion_page", id ? notionPageKey(id) : null)
+
+// A connector item when the URL names one, else the plain URL.
+function urlItem(raw: string): ItemRef | null {
+  return itemFromUrl(raw) ?? item("url", normalizeUrl(raw))
+}
 
 const linearFromOutput = (_input: Rec, output: Rec) => [
   item("linear_issue", linearIssueKey(str(output, "identifier") ?? "")),
@@ -160,7 +167,7 @@ const CATALOG_SPECS: Record<
   update_betterstack_error_state: null,
   search_web: null,
   fetch_web: (input, output) => [
-    item("url", normalizeUrl(str(output, "url") ?? str(input, "url") ?? "")),
+    urlItem(str(output, "url") ?? str(input, "url") ?? ""),
   ],
   create_artifacts: (_input, output) =>
     Array.isArray(output.files)
@@ -259,6 +266,46 @@ function toolCallsOf(messages: unknown[]): ToolCall[] {
   return calls
 }
 
+// Everything the run's tools returned, as text: a link in the reply counts
+// only if it came from here, so a made-up link records nothing. Covers MCP
+// and custom tools, whose results have no typed fields.
+function toolResultText(messages: unknown[]): string {
+  const parts: string[] = []
+  for (const message of messages) {
+    if (!isRec(message) || !Array.isArray(message.content)) continue
+    for (const part of message.content) {
+      if (!isRec(part) || part.type !== "tool-result" || !isRec(part.output)) {
+        continue
+      }
+      if (String(part.output.type).startsWith("error")) continue
+      parts.push(JSON.stringify(part.output))
+    }
+  }
+  return parts.join("\n")
+}
+
+const MARKDOWN_LINK = /\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s>]+)>/g
+const BARE_URL = /https?:\/\/[^\s<>()[\]"']+/g
+
+function linkTouches(reply: string, seen: string): (Touch | null)[] {
+  return [...reply.matchAll(MARKDOWN_LINK)].map((m) => {
+    const url = m[1] ?? m[2] ?? ""
+    if (!seen.includes(url)) return null
+    const found = urlItem(url)
+    return found ? { ...found, action: "cited" } : null
+  })
+}
+
+// Links people pasted into the turn's prompts.
+function mentionTouches(prompts: string[]): (Touch | null)[] {
+  return prompts.flatMap((text) =>
+    [...text.matchAll(BARE_URL)].map((m) => {
+      const found = urlItem(m[0].replace(/[.,;:!?]+$/, ""))
+      return found ? { ...found, action: "mentioned" } : null
+    })
+  )
+}
+
 function citationTouches(text: string): (Touch | BrainPathTouch | null)[] {
   return [...extractCitationTokens(text)].map((token) => {
     switch (classifyToken(token)) {
@@ -281,6 +328,8 @@ export async function recordRunTouches(args: {
   runId: string | null
   // The persisted (grounded) reply, so only verified citations count.
   replyText: string
+  // The turn's prompts, for links people pasted.
+  promptTexts: string[]
 }): Promise<void> {
   const session = await db
     .select({ id: schema.agentSession.id })
@@ -304,9 +353,12 @@ export async function recordRunTouches(args: {
       .where(eq(schema.agentSessionContext.sessionId, session.id)),
   ])
 
+  const seen = steps.map((s) => toolResultText(s.messages)).join("\n")
   const found = [
     ...steps.flatMap((s) => toolCallsOf(s.messages).flatMap(touchesForCall)),
     ...citationTouches(args.replyText),
+    ...linkTouches(args.replyText, seen),
+    ...mentionTouches(args.promptTexts),
     ...context.map((c) => touchOf("message", c.messageId, "started_from")),
   ]
   const scope = found.some((t) => t && "brainPath" in t)

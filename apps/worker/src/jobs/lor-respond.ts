@@ -478,6 +478,8 @@ export function createLorRespondProcessor(
           let answer: Awaited<ReturnType<typeof respond>>
           let workspaceId: string
           let gateText: string
+          // This turn's prompts, for links people pasted (touches).
+          let promptTexts: string[] = []
           // Tools Lor consults while answering — accumulated for the durable
           // trail persisted on the message, and streamed live via lor:tool.
           const toolCalls: LorToolCall[] = trail ? [...trail.toolCalls] : []
@@ -957,6 +959,7 @@ export function createLorRespondProcessor(
             flushPendingText()
             closeReasoningSegment()
 
+            promptTexts = conversation.map((t) => t.content)
             const turnIds = new Set(
               conversation.flatMap((t) => (t.messageId ? [t.messageId] : []))
             )
@@ -1245,6 +1248,7 @@ export function createLorRespondProcessor(
               threadRootId,
               runId: execution?.runId ?? null,
               replyText: finalText,
+              promptTexts,
             }).catch((err) =>
               logger.warn({ err, threadRootId }, "Recording touches failed")
             )

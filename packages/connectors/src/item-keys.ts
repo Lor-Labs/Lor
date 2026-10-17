@@ -1,6 +1,104 @@
+import type { IntegrationProvider, TouchKind } from "@repo/db/schema"
+
 // Stable keys for items in connected services, shared by Lor's touches and
 // stored sources so the same item always has one key.
 // reference/planned/session-memory.md "Stable keys".
+
+export type ItemRef = { kind: TouchKind; value: string }
+
+// Which hosts belong to each connector. Shared with the web tool trail.
+export const CONNECTOR_URL_HOSTS: Record<IntegrationProvider, RegExp> = {
+  github: /(^|\.)github\.com\b/i,
+  linear: /(^|\.)linear\.app\b/i,
+  datadog: /(^|\.)datadoghq\.(com|eu)$/i,
+  attio: /(^|\.)attio\.com$/i,
+  notion: /(^|\.)notion\.(so|site|com)$/i,
+  cloudwatch: /(^|\.)console\.aws\.amazon\.com$/i,
+  betterstack: /(^|\.)betterstack\.com$/i,
+  webhook: /$^/,
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const NOTION_ID = /([0-9a-f]{32})$/i
+
+// The item a URL points at, per connector. null = this connector's URLs name
+// no single item Lor tracks (logs, consoles, dashboards).
+type ItemUrlParser = {
+  host: RegExp
+  parse: (segments: string[], url: URL) => ItemRef | null
+}
+
+const ITEM_URL_PARSERS: Record<IntegrationProvider, ItemUrlParser | null> = {
+  github: {
+    host: CONNECTOR_URL_HOSTS.github,
+    parse: (segments, url) => {
+      // api.github.com/repos/<owner>/<repo>/(pulls|issues)/<n>
+      const [owner, repo, kind, number] = url.hostname.startsWith("api.")
+        ? segments.slice(1)
+        : segments
+      if (!owner || !repo) return null
+      const ownerRepo = `${owner}/${repo}`
+      if (number && /^\d+$/.test(number)) {
+        if (kind === "pull" || kind === "pulls") {
+          return { kind: "github_pr", value: githubItemKey(ownerRepo, number) }
+        }
+        if (kind === "issues") {
+          return {
+            kind: "github_issue",
+            value: githubItemKey(ownerRepo, number),
+          }
+        }
+      }
+      return { kind: "github_repo", value: githubRepoKey(ownerRepo) }
+    },
+  },
+  // linear.app/<team>/issue/<IDENTIFIER>/<title-slug>
+  linear: {
+    host: CONNECTOR_URL_HOSTS.linear,
+    parse: (segments) => {
+      const at = segments.indexOf("issue")
+      const key =
+        at >= 0 ? linearIssueKey(segments[at + 1]?.toUpperCase() ?? "") : null
+      return key ? { kind: "linear_issue", value: key } : null
+    },
+  },
+  // notion.so/<title-slug>-<32 hex>, also *.notion.site and app.notion.com
+  notion: {
+    host: CONNECTOR_URL_HOSTS.notion,
+    parse: (segments) => {
+      const id = segments.at(-1)?.match(NOTION_ID)?.[1]
+      return id ? { kind: "notion_page", value: notionPageKey(id) } : null
+    },
+  },
+  // app.attio.com/<workspace>/<object>/<recordId>/<tab>
+  attio: {
+    host: CONNECTOR_URL_HOSTS.attio,
+    parse: (segments) => {
+      const recordId = segments[2]
+      return recordId && UUID.test(recordId)
+        ? { kind: "attio_record", value: recordId.toLowerCase() }
+        : null
+    },
+  },
+  datadog: null,
+  cloudwatch: null,
+  betterstack: null,
+  webhook: null,
+}
+
+export function itemFromUrl(raw: string): ItemRef | null {
+  let url: URL
+  try {
+    url = new URL(raw.trim())
+  } catch {
+    return null
+  }
+  const segments = url.pathname.split("/").filter(Boolean)
+  for (const parser of Object.values(ITEM_URL_PARSERS)) {
+    if (parser?.host.test(url.hostname)) return parser.parse(segments, url)
+  }
+  return null
+}
 
 // owner/repo#n, lowercased: GitHub matches repos case-insensitively.
 export function githubItemKey(repo: string, number: number | string): string {
