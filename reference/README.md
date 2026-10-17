@@ -72,6 +72,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `playbooks.md` | Working idea, not a spec |
 | `private-lor-questions.md` | Deferred platform decision (2026-09-28) |
 | `session-memory.md` | Context engine phase 1: scope `source` (leak fix), session-aware search hits, brain page versions + `edit` + per-page concurrency (no workspace lock), write-back gate context, the general `touch` table with sessions first and reverse hints. Phase 2 direction: default ingestion into `source`, real text, Remember removed. Decisions locked 2026-10-14; session summaries and turn embeddings deferred behind an eval |
+| `session-memory-research.md` | Research record behind `session-memory.md`: the 2026-10-14 literature pass (sources, setups, exact numbers, verification labels, unverified claims) and the internal code audits |
 | `slack-connector-next.md` | Read-only Slack connector, not started |
 | `sync-engine.md` | Sync engine research (Zero, TanStack DB, Electric, PowerSync, Convex, local-first) and a proposed Zero-first spike with go/no-go gates. Not committed; only the timing is decided: React Query until the sessions branch merges |
 

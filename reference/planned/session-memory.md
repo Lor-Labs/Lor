@@ -482,7 +482,9 @@ Reuses the judged pool in `context-engine.md` §5.11.
 ## Evidence
 
 Research pass 2026-10-14. Rows marked ✓ were checked against the primary
-source in this session; the rest come from the research pass's reading.
+source in this session; the rest come from the research pass's reading. The
+full record (every source, setup, number, label and the internal audits) is
+[`session-memory-research.md`](./session-memory-research.md).
 
 | Source | Finding | Used for |
 |---|---|---|
