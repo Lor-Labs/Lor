@@ -79,6 +79,35 @@ export const brainNode = pgTable(
   ]
 )
 
+// A page's previous bodies: every body change saves the old one here in the
+// same transaction, so an edit or rewrite can always be recovered.
+// reference/planned/session-memory.md Step 3.
+export const brainNodeVersion = pgTable(
+  "brain_node_version",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    nodeId: uuid("node_id")
+      .notNull()
+      .references(() => brainNode.id, { onDelete: "cascade" }),
+    // The version this body had before the change replaced it.
+    version: integer("version").notNull(),
+    body: text("body").notNull(),
+    // The agent run that made the change; null outside a run (write-back,
+    // archive synthesis). FK omitted (schema import cycle).
+    runId: uuid("run_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("brain_node_version_node_version_uidx").on(
+      table.nodeId,
+      table.version
+    ),
+  ]
+)
+
 // Controlled vocabulary for typed edges between pages — add values deliberately.
 export const BRAIN_EDGE_TYPES = [
   "relates_to",

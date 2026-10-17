@@ -7,9 +7,10 @@ import {
   inArray,
   isNotNull,
   isNull,
+  isUniqueViolation,
   or,
   schema,
-  sql,
+  TransactionRollbackError,
 } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
@@ -138,14 +139,19 @@ async function ensureFolderPath(
       true
     )
     if (!child) {
+      // A concurrent write may create the same folder; reuse it.
       const created: { id: string } | undefined = await db
         .insert(schema.brainNode)
         .values({ workspaceId, kind: "folder", parentId, name, scopeChannelId })
+        .onConflictDoNothing()
         .returning({ id: schema.brainNode.id })
         .then((rows) => rows[0])
-      if (!created) throw new Error(`failed to create folder "${name}"`)
-      child = { id: created.id, kind: "folder", name }
-    } else if (child.kind === "page") {
+      child = created
+        ? { id: created.id, kind: "folder", name }
+        : await findChild(workspaceId, parentId, name, scopeChannelId, true)
+      if (!child) throw new Error(`failed to create folder "${name}"`)
+    }
+    if (child.kind === "page") {
       throw new Error(`"${name}" is a page, not a folder`)
     }
     parentId = child.id
@@ -394,28 +400,32 @@ export type BrainWriteScope = {
   rootPath: string
 }
 
+// Scoped writes are confined under the scope's folder — updating a
+// workspace-visible page from a private channel would leak at retrieval.
+function scopedSegments(path: string, scope: BrainWriteScope | null) {
+  const pathSegments = segmentsOf(path)
+  if (!scope) return pathSegments
+  const rootSegments = segmentsOf(scope.rootPath)
+  return isPrefix(rootSegments, pathSegments)
+    ? pathSegments
+    : [...rootSegments, ...pathSegments]
+}
+
+const alreadyExists = (path: string) =>
+  `${path} already exists. Read it, then use edit to change it.`
+
+// Create only: changing an existing page goes through editPage, so a rewrite
+// can never silently drop facts (session-memory.md decision 10).
 export async function writePage(
   workspaceId: string,
   path: string,
   body: string,
   scope: BrainWriteScope | null = null
 ): Promise<
-  | { error: string }
-  | { path: string; action: "created" | "updated"; nodeId: string }
+  { error: string } | { path: string; action: "created"; nodeId: string }
 > {
-  // Scoped writes are confined under the scope's folder — updating a
-  // workspace-visible page from a private channel would leak at retrieval.
-  let effectivePath = path
-  if (scope) {
-    const rootSegments = segmentsOf(scope.rootPath)
-    const pathSegments = segmentsOf(path)
-    if (!isPrefix(rootSegments, pathSegments)) {
-      effectivePath = `${scope.rootPath}/${pathSegments.join("/")}`
-    }
-  }
   const scopeChannelId = scope?.scopeChannelId ?? null
-
-  const segments = segmentsOf(effectivePath)
+  const segments = scopedSegments(path, scope)
   if (segments.length === 0) return { error: "cannot write to the root" }
   const leaf = segments[segments.length - 1] as string
   const cpath = `/${segments.join("/")}`
@@ -433,34 +443,134 @@ export async function writePage(
     true
   )
   if (existing?.kind === "folder") return { error: `${cpath} is a folder` }
+  if (existing) return { error: alreadyExists(cpath) }
 
   const embedding = await embedDocument(`${cpath}\n\n${body}`).catch(() => null)
+  try {
+    const inserted = await db
+      .insert(schema.brainNode)
+      .values({
+        workspaceId,
+        kind: "page",
+        parentId,
+        name: leaf,
+        body,
+        embedding,
+        scopeChannelId,
+      })
+      .returning({ id: schema.brainNode.id })
+      .then((rows) => rows[0])
+    if (!inserted) return { error: "write failed" }
+    await recordProjectBrainFolder(workspaceId, scope)
+    return { path: cpath, action: "created" as const, nodeId: inserted.id }
+  } catch (err) {
+    // A concurrent write created the page first.
+    if (isUniqueViolation(err)) return { error: alreadyExists(cpath) }
+    throw err
+  }
+}
 
-  if (existing) {
+// A targeted replacement that keeps the rest of the page. Saves the previous
+// body, and only lands if nobody changed the page in between (compare-and-swap
+// on version); parallel write-backs need no workspace lock.
+export async function editPage(
+  workspaceId: string,
+  path: string,
+  oldText: string,
+  newText: string,
+  scope: BrainWriteScope | null = null,
+  runId: string | null = null
+): Promise<
+  | { error: string }
+  | { path: string; action: "updated"; nodeId: string; body: string }
+> {
+  if (!oldText)
+    return { error: "oldText is empty; pass the exact text to replace" }
+  const scopeChannelId = scope?.scopeChannelId ?? null
+  const segments = scopedSegments(path, scope)
+  const cpath = `/${segments.join("/")}`
+  const node = await resolvePath(workspaceId, cpath, scopeChannelId, true)
+  if (node === null || node === "root") {
+    return { error: `no such page: ${cpath}. Use write to create it.` }
+  }
+  if (node.kind === "folder") return { error: `${cpath} is a folder` }
+
+  const outcome: { error: string } | { body: string; version: number } =
+    await db
+      .transaction(async (tx) => {
+        const page = await tx
+          .select({
+            body: schema.brainNode.body,
+            version: schema.brainNode.version,
+          })
+          .from(schema.brainNode)
+          .where(eq(schema.brainNode.id, node.id))
+          .limit(1)
+          .then((r) => r[0])
+        if (!page) return { error: `no such page: ${cpath}` }
+        const body = page.body ?? ""
+        const at = body.indexOf(oldText)
+        if (at === -1) {
+          return {
+            error: `oldText was not found in ${cpath}. Read the page and copy the exact text to replace.`,
+          }
+        }
+        if (body.indexOf(oldText, at + 1) !== -1) {
+          return {
+            error: `oldText appears more than once in ${cpath}. Include more surrounding text so it matches once.`,
+          }
+        }
+        const next =
+          body.slice(0, at) + newText + body.slice(at + oldText.length)
+        await tx.insert(schema.brainNodeVersion).values({
+          workspaceId,
+          nodeId: node.id,
+          version: page.version,
+          body,
+          runId,
+        })
+        const updated = await tx
+          .update(schema.brainNode)
+          .set({ body: next, version: page.version + 1 })
+          .where(
+            and(
+              eq(schema.brainNode.id, node.id),
+              eq(schema.brainNode.version, page.version)
+            )
+          )
+          .returning({ id: schema.brainNode.id })
+        // Rolls back the history row too.
+        if (updated.length === 0) tx.rollback()
+        return { body: next, version: page.version + 1 }
+      })
+      .catch((err: unknown) => {
+        // A concurrent edit of the same version fails on the version check
+        // or, if it commits first, on the history row's unique key.
+        if (err instanceof TransactionRollbackError || isUniqueViolation(err)) {
+          return {
+            error: `${cpath} changed since you read it. Read it again, then retry the edit.`,
+          }
+        }
+        throw err
+      })
+  if ("error" in outcome) return outcome
+
+  // Embed after commit; an edit landing meanwhile keeps its own embedding.
+  const embedding = await embedDocument(`${cpath}\n\n${outcome.body}`).catch(
+    () => null
+  )
+  if (embedding) {
     await db
       .update(schema.brainNode)
-      .set({ body, embedding, version: sql`${schema.brainNode.version} + 1` })
-      .where(eq(schema.brainNode.id, existing.id))
-    await recordProjectBrainFolder(workspaceId, scope)
-    return { path: cpath, action: "updated" as const, nodeId: existing.id }
+      .set({ embedding })
+      .where(
+        and(
+          eq(schema.brainNode.id, node.id),
+          eq(schema.brainNode.version, outcome.version)
+        )
+      )
   }
-
-  const inserted = await db
-    .insert(schema.brainNode)
-    .values({
-      workspaceId,
-      kind: "page",
-      parentId,
-      name: leaf,
-      body,
-      embedding,
-      scopeChannelId,
-    })
-    .returning({ id: schema.brainNode.id })
-    .then((rows) => rows[0])
-  if (!inserted) return { error: "write failed" }
-  await recordProjectBrainFolder(workspaceId, scope)
-  return { path: cpath, action: "created" as const, nodeId: inserted.id }
+  return { path: cpath, action: "updated", nodeId: node.id, body: outcome.body }
 }
 
 // First scoped write pins project.brainFolderId for archive synthesis. Scope
@@ -599,8 +709,23 @@ const writeContext = z.object({
   scopeChannelId: z.string().nullable().optional(),
   // Scoped writes are confined under this folder.
   scopeFolderPath: z.string().nullable().optional(),
+  // Recorded on page history; null outside a run.
+  runId: z.string().nullable().optional(),
   onWrite: z.custom<(e: BrainWriteEvent) => void | Promise<void>>().optional(),
 })
+
+// Listener failures should not make a committed write look failed.
+async function notifyWrite(
+  context: z.infer<typeof writeContext>,
+  event: BrainWriteEvent
+) {
+  if (!context.onWrite) return
+  try {
+    await context.onWrite(event)
+  } catch (err) {
+    logger.error({ err, path: event.path }, "Lor onWrite listener failed")
+  }
+}
 
 function writeScopeOf(context: {
   scopeChannelId?: string | null
@@ -662,7 +787,7 @@ export const brainReadTools = {
 export const brainWriteTools = {
   write: tool({
     description:
-      "Create or update a brain page at a path (parent folders are created automatically). Overwrites the page body.",
+      "Create a new brain page at a path (parent folders are created automatically). Fails if the page already exists; change an existing page with edit.",
     inputSchema: z.object({
       path: z.string().describe("page path, e.g. /decisions/auth"),
       body: z.string().describe("the page contents (Markdown)"),
@@ -672,25 +797,50 @@ export const brainWriteTools = {
       const result = await wrap(() =>
         writePage(context.workspaceId, path, body, writeScopeOf(context))
       )
-      // Listener failures should not make a committed write look failed.
-      if (context.onWrite && "action" in result) {
-        try {
-          await context.onWrite({
-            nodeId: result.nodeId,
-            path: result.path,
-            action: result.action,
-          })
-        } catch (err) {
-          logger.error(
-            { err, path: result.path },
-            "Lor onWrite listener failed"
-          )
-        }
+      if ("action" in result) {
+        await notifyWrite(context, {
+          nodeId: result.nodeId,
+          path: result.path,
+          action: result.action,
+        })
       }
       // Echo the body so the tool-trail card can show what was saved. The
       // node id stays out of the model-facing result — it cites paths.
       return "action" in result
         ? { path: result.path, action: result.action, body }
+        : result
+    },
+    strict: true,
+  }),
+  edit: tool({
+    description:
+      "Change part of an existing brain page: replace oldText, which must appear exactly once in the page, with newText. The rest of the page stays as it is. Read the page first and copy oldText exactly.",
+    inputSchema: z.object({
+      path: z.string().describe("page path, e.g. /decisions/auth"),
+      oldText: z.string().describe("exact text to replace"),
+      newText: z.string().describe("replacement text (Markdown)"),
+    }),
+    contextSchema: writeContext,
+    execute: async ({ path, oldText, newText }, { context }) => {
+      const result = await wrap(() =>
+        editPage(
+          context.workspaceId,
+          path,
+          oldText,
+          newText,
+          writeScopeOf(context),
+          context.runId ?? null
+        )
+      )
+      if ("action" in result) {
+        await notifyWrite(context, {
+          nodeId: result.nodeId,
+          path: result.path,
+          action: result.action,
+        })
+      }
+      return "action" in result
+        ? { path: result.path, action: result.action, oldText, newText }
         : result
     },
     strict: true,

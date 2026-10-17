@@ -204,7 +204,7 @@ const ROSTER_LIMIT = 100
 const SYSTEM_PROMPT_HEAD = `You are Lor, the knowledge keeper for this team's workspace. You answer questions about the team's work, decisions, history, and people.
 
 You have two kinds of memory:
-- Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
+- Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write (new pages) / edit (changes to existing pages) / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
 - Everything else the team has produced: one search tool covers the full chat message history (all channels), past voice calls, and the summarized activity of connected integrations (GitHub, Linear, …). Each hit is tagged with its type — a message comes back with its text, or the passages that matched when it is long (read_thread reads it in full with the rest of its thread; a message from a Lor session carries its sessionTitle; cite it [[msg:…]]); a call comes back as one topic of its transcript or its summary (read_call reads the transcript around it; cite it [[call:…@time]]); an integration source comes back as a stored summary (cite it [[src:…]] by id, not by pasting the url); for the full, current item use that service's fetch tool when you have one.`
 
 const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
@@ -257,7 +257,7 @@ function buildSystemPrompt(connectorLines: string[]): string {
 // mention token so its @mentions notify + highlight like a person's.
 const MENTION_GUIDANCE = `Mentioning teammates: each person under "People you can mention" below has a mention token like <@0b9c1d2e-...>. To @-mention someone — notifying and highlighting them exactly as a teammate tagging them would — write their token verbatim, copied character-for-character from the list. Typing their name as plain text, even with an "@" (e.g. @Jane), does NOT create a mention and does NOT notify them; only the exact token does. So whenever you address or refer to one of these people, use their token in place of their name. Mention people naturally where it fits — you needn't tag everyone, just those you're actually speaking to or about.`
 
-const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.
+const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write or edit (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.
 
 Standing workspace instructions: when this workspace has instructions set, their complete current text appears in a "Workspace instructions" section of this prompt — there is no separate file to read. If that section is absent, none are set yet. To change them, call propose_instructions with the complete new text (merge your change into the current text from the prompt, don't drop existing guidance); it files a pending proposal that a workspace admin must approve before anything takes effect. This tool is always available to you — if a call fails, say what the error was; never claim the tool is missing from your session.`
 
@@ -278,7 +278,7 @@ const WRITEBACK_INSTRUCTION = `You've just answered. Now step back and act as th
 
 Your bar for saving is high. Only save specific, durable, workspace-specific knowledge a teammate would genuinely benefit from weeks from now: a settled decision, how one of the team's systems or processes actually works, who owns or is responsible for something, a resolved problem and its fix, or a lasting convention. Save nothing for small talk, transient status, questions that state no new fact, opinions, speculation, undecided proposals, general or how-to knowledge, or anything vague or one-off. When in doubt, save nothing — a sparse, trustworthy brain is worth far more than a cluttered one.
 
-- If (and only if) something clears that bar: first browse your brain (ls / tree / read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer updating or extending an existing page over creating a new one; only create a page for a genuinely new topic. Write the smallest change that captures the fact (write creates parent folders automatically), and use link only when the relationship to another page is clear. Keep pages tight, factual, and self-contained.
+- If (and only if) something clears that bar: first browse your brain (ls / tree / read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer changing an existing page with edit over creating a new one; only create a page with write for a genuinely new topic. Make the smallest change that captures the fact (write creates parent folders automatically), and use link only when the relationship to another page is clear. Keep pages tight, factual, and self-contained.
 - Otherwise, do nothing. This is the common case.
 
 Page format — begin every page with a short frontmatter block, then the body:
@@ -1146,11 +1146,19 @@ function coreToolsContext(
   scope: LorRunScope,
   onWrite?: (e: BrainWriteEvent) => void,
   onProposal?: (e: InstructionsProposalEvent) => void | Promise<void>,
-  onUsage?: OnUsage
+  onUsage?: OnUsage,
+  runId: string | null = null
 ) {
   // Brain reads/search admit the run's scoped nodes; message retrieval may
   // reach the run's own private container. See resolveLorRunScope.
   const workspace = { workspaceId, scopeChannelId: scope.memoryScopeChannelId }
+  const pageWrite = {
+    workspaceId,
+    scopeChannelId: scope.memoryScopeChannelId,
+    scopeFolderPath: scope.memoryFolderPath,
+    runId,
+    onWrite,
+  }
   const retrieval = {
     workspaceId,
     privateContainerChannelId: scope.privateContainerChannelId,
@@ -1169,12 +1177,8 @@ function coreToolsContext(
     ls: workspace,
     read: workspace,
     tree: workspace,
-    write: {
-      workspaceId,
-      scopeChannelId: scope.memoryScopeChannelId,
-      scopeFolderPath: scope.memoryFolderPath,
-      onWrite,
-    },
+    write: pageWrite,
+    edit: pageWrite,
     mkdir: workspace,
     move: workspace,
     link: workspace,
@@ -1343,6 +1347,8 @@ export function toolLabel(toolName: string, input: unknown): string {
       return path ? `Reading memory ${path}` : "Reading memory"
     case "write":
       return path ? `Saving ${path}` : "Saving to memory"
+    case "edit":
+      return path ? `Updating ${path}` : "Updating memory"
     case "mkdir":
       return path ? `Creating folder ${path}` : "Creating a folder"
     case "move":
@@ -1982,6 +1988,15 @@ export function toolDetail(
         detail: { summary: body ? `${heading}\n\n${body}` : heading },
       }
     }
+    case "edit": {
+      const path = asString(rec?.path)
+      const newText = asString(rec?.newText)
+      const heading = path ? `Updated ${path}` : "Updated a page"
+      return {
+        status: "ok",
+        detail: { summary: newText ? `${heading}\n\n${newText}` : heading },
+      }
+    }
     case "mkdir": {
       const path = asString(rec?.path)
       return {
@@ -2384,7 +2399,8 @@ export async function respond(
         runScope,
         onMemoryWritten,
         onInstructionsProposal,
-        onUsage
+        onUsage,
+        run?.runId ?? null
       ),
       ...(ctx.channelId && ctx.threadRootId
         ? {

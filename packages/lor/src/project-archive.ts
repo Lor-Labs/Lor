@@ -264,6 +264,7 @@ export async function synthesizeProjectArchive(
       read: readContext,
       tree: readContext,
       write: { workspaceId: args.workspaceId, onWrite: onMemoryWritten },
+      edit: { workspaceId: args.workspaceId, onWrite: onMemoryWritten },
       mkdir: { workspaceId: args.workspaceId },
       move: { workspaceId: args.workspaceId },
       link: { workspaceId: args.workspaceId },

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { checkCredits, recordUsage } from "@repo/billing"
 import {
   and,
@@ -86,8 +85,6 @@ type RedisClient = ReturnType<typeof createClient>
 
 // Batch streamed tokens so we publish ~every 24 chars, not per chunk.
 const FLUSH_THRESHOLD = 24
-// Write-back lock TTL (s); auto-releases if the worker crashes.
-const WRITEBACK_LOCK_TTL = 120
 // Floor of remaining budget below which the optional write-back is skipped.
 const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
 const WRITEBACK_MIN_CREDITS = 50
@@ -1312,20 +1309,9 @@ export function createLorRespondProcessor(
             await execution.setPhase("writeback")
           }
 
-          // Phase 3 — autonomous write-back. Per-workspace lock serializes brain
-          // writes; skip if another holds it (resurfaces on a later mention).
-          const lockKey = `lor:writeback:${workspaceId}`
-          const lockToken = randomUUID()
-          const acquired = await redis
-            .set(lockKey, lockToken, { NX: true, EX: WRITEBACK_LOCK_TTL })
-            .catch(() => null)
-          if (acquired !== "OK") {
-            logger.info(
-              { workspaceId, lorMessageId },
-              "Write-back skipped; another is in progress"
-            )
-            return
-          }
+          // Phase 3 — autonomous write-back. Parallel write-backs are safe:
+          // brain writes are create-only and edits compare-and-swap per page
+          // (reference/planned/session-memory.md Step 3).
           try {
             await writeBack(
               {
@@ -1362,14 +1348,6 @@ export function createLorRespondProcessor(
           } catch (err) {
             logger.error({ err, lorMessageId }, "Lor write-back failed")
           } finally {
-            // Release only if we still own it: if write-back outran the TTL and a
-            // newer worker re-acquired, an unconditional DEL would drop its lock.
-            await redis
-              .eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                { keys: [lockKey], arguments: [lockToken] }
-              )
-              .catch(() => {})
             // Flush any write-back memory events buffered after completion.
             await runWriter.close()
           }
