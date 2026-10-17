@@ -13,7 +13,14 @@ import {
 } from "@repo/db"
 import { formatCallTime } from "@repo/realtime-types/call-transcript"
 import { embedCallQuery } from "./embeddings"
-import { orTsQuery, privateAudienceFilter } from "./retrieval"
+import {
+  bm25Score,
+  type DbTransaction,
+  fuseByRank,
+  orTsQuery,
+  privateAudienceFilter,
+  withIterativeScan,
+} from "./retrieval"
 
 // Past voice calls for Lor (reference/voice-channels-runbook.md V7): search
 // over voice_passage (topic sections and summaries of ended calls), reading
@@ -21,7 +28,6 @@ import { orTsQuery, privateAudienceFilter } from "./retrieval"
 // the run's channel audience, never the asker's access.
 
 const POOL_FACTOR = 3
-const RRF_K = 60
 // A section can run for a whole topic; read_call returns the rest.
 const SNIPPET_MAX = 1500
 // One long call would otherwise fill every result slot.
@@ -30,8 +36,9 @@ const READ_PAGE_LINES = 300
 
 const { voicePassage, voiceSession } = schema
 
-// Must match the voice_passage_text_tsv_idx expression exactly.
-const passageTsv = sql`to_tsvector('english', ${voicePassage.context} || ' ' || ${voicePassage.text})`
+// Must match the voice_passage_text_tsv_idx and _bm25_idx expressions.
+const passageText = sql`${voicePassage.context} || ' ' || ${voicePassage.text}`
+const passageTsv = sql`to_tsvector('english', ${passageText})`
 
 // "4:05" or "1:04:05" to ms; plain digits are already ms (a citation that was
 // grounded before). Null when it's neither.
@@ -46,8 +53,8 @@ export function parseCallTime(value: string) {
   return seconds * 1000
 }
 
-function passages() {
-  return db
+function passages(executor: Pick<DbTransaction, "select"> = db) {
+  return executor
     .select({
       id: voicePassage.id,
       sessionId: voicePassage.sessionId,
@@ -85,37 +92,31 @@ export async function searchCalls(
   const [keyword, vector] = await Promise.all([
     passages()
       .where(and(scope, sql`${passageTsv} @@ ${tsq}`))
-      .orderBy(sql`ts_rank(${passageTsv}, ${tsq}) desc`)
+      .orderBy(
+        bm25Score(sql`(${passageText})`, query, schema.VOICE_PASSAGE_BM25_INDEX)
+      )
       .limit(pool),
     embedCallQuery(query)
       .then((embedding) =>
-        passages()
-          .where(and(scope, isNotNull(voicePassage.embedding)))
-          .orderBy(cosineDistance(voicePassage.embedding, embedding))
-          .limit(pool)
+        withIterativeScan((tx) =>
+          passages(tx)
+            .where(and(scope, isNotNull(voicePassage.embedding)))
+            .orderBy(cosineDistance(voicePassage.embedding, embedding))
+            .limit(pool)
+        )
       )
       .catch(() => [] as Passage[]),
   ])
 
-  const scored = new Map<string, { row: Passage; score: number }>()
-  for (const list of [keyword, vector]) {
-    list.forEach((row, rank) => {
-      const entry = scored.get(row.id) ?? { row, score: 0 }
-      entry.score += 1 / (RRF_K + rank + 1)
-      scored.set(row.id, entry)
-    })
-  }
-
   const perCall = new Map<string, number>()
-  return [...scored.values()]
-    .sort((a, b) => b.score - a.score)
-    .filter(({ row }) => {
+  return fuseByRank([keyword, vector], (row) => row.id)
+    .filter((row) => {
       const hits = perCall.get(row.sessionId) ?? 0
       perCall.set(row.sessionId, hits + 1)
       return hits < MAX_HITS_PER_CALL
     })
     .slice(0, limit)
-    .map(({ row }) => ({
+    .map((row) => ({
       sessionId: row.sessionId,
       kind: row.kind,
       channel: row.channelName,

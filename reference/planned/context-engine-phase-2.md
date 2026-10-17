@@ -237,10 +237,30 @@ As built (~60 lines):
 
 ### Step 6: BM25 and hybrid search for every kind
 
-[ ] built · [ ] committed
+[x] built 2026-10-17 · [ ] committed
 
-~350 lines. Needs `pg_textsearch` installed with `shared_preload_libraries`
-on dev and prod before `db:push`.
+As built (~350 lines): `bm25Score`, `fuseByRank` and `withIterativeScan` in
+`retrieval.ts`; attachment, call and source search use all three, and the
+three copies of RRF are now one. Memory search fuses `brainCandidates`
+(vector) with the new `brainKeywordCandidates` (GIN tsvector match plus BM25
+order over name and body); either side failing leaves the other. Index names
+are exported constants beside their tables (`ATTACHMENT_CHUNK_BM25_INDEX`,
+`VOICE_PASSAGE_BM25_INDEX`, `SOURCE_CHUNK_BM25_INDEX`,
+`BRAIN_NODE_BM25_INDEX`). `to_bm25query(text, text)` and
+`text <@> bm25query` were checked in the pg_textsearch SQL. Deviations:
+
+- **No BM25 for chat messages.** DMs share the `message` table, and an index
+  can't filter on the channel type, so a BM25 index would take its term
+  statistics from DM text (DMs are never indexed). Messages keep `ts_rank`.
+- **`strict_order`, not `relaxed_order`:** exact distance order, so there is
+  no re-sort in code. Needs pgvector 0.8 or later on every database.
+- Unverified until the extension is installed: whether `db:push` sees the
+  `bm25` indexes as unchanged on later pushes (Drizzle writes
+  `WITH (text_config=english)`, the form Postgres stores).
+
+Needs `pg_textsearch` installed with `shared_preload_libraries` on dev and
+prod before `db:push`. Without it, the keyword side of these kinds errors and
+search returns none of those kinds.
 
 - BM25 indexes (`USING bm25 (...) WITH (text_config = 'english')`) on message
   content, attachment chunk text, voice passage context and text, source
@@ -317,7 +337,8 @@ on dev and prod before `db:push`.
 ## Rollout (Jacob, after every step is built)
 
 1. Install `pg_textsearch` on dev and prod: `shared_preload_libraries`,
-   restart, `CREATE EXTENSION pg_textsearch`.
+   restart, `CREATE EXTENSION pg_textsearch`. Confirm pgvector is 0.8 or
+   later on dev too (prod is 0.8.2).
 2. `db:push` (phase 1 and phase 2 schema in one push).
 3. Scripts, each with `--dry-run` first:
    `pnpm --filter @repo/db exec tsx src/scripts/delete-summary-sources.ts`,

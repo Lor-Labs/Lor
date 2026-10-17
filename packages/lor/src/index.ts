@@ -63,6 +63,7 @@ import { BETTERSTACK_PROMPT_LINE, betterstackMcpTools } from "./betterstack"
 import {
   type BrainWriteEvent,
   brainCandidates,
+  brainKeywordCandidates,
   brainPageDetails,
   brainReadTools,
   brainWriteTools,
@@ -137,7 +138,12 @@ import {
   proposeChangeTool,
 } from "./proposals"
 import { RERANK_MIN_SCORE, rerankTexts } from "./rerank"
-import { orTsQuery, privateAudienceFilter, userDisplayName } from "./retrieval"
+import {
+  fuseByRank,
+  orTsQuery,
+  privateAudienceFilter,
+  userDisplayName,
+} from "./retrieval"
 import {
   addStepToCounters,
   budgetViolation,
@@ -524,6 +530,8 @@ async function searchMessages(
 ) {
   const tsv = sql`to_tsvector('english', coalesce(${schema.message.content}, ''))`
   const tsq = orTsQuery(query)
+  // ts_rank, not BM25: a BM25 index on `message` would draw its term
+  // statistics from DM text too, and DMs are never indexed.
 
   const ranked = db
     .select({
@@ -756,8 +764,8 @@ const workspaceContext = z.object({
   privateContainerChannelId: z.string().nullable().optional(),
 })
 
-// Memory (brain) pages by meaning, admitting the run's scoped pages the same
-// way brain reads do.
+// Memory (brain) pages by meaning and by keyword, fused, admitting the run's
+// scoped pages the same way brain reads do. Each side fails alone.
 async function searchMemoryPages(
   workspaceId: string,
   query: string,
@@ -765,14 +773,28 @@ async function searchMemoryPages(
   scopeChannelId: string | null,
   onUsage?: OnUsage
 ) {
-  const embedded = await embedBrainQueryWithUsage(query)
-  onUsage?.({
-    workspaceId,
-    tool: "lor.embed",
-    model: embedded.model,
-    inputTokens: embedded.tokens,
-  })
-  return brainCandidates(workspaceId, embedded.embedding, limit, scopeChannelId)
+  const [vector, keyword] = await Promise.all([
+    embedBrainQueryWithUsage(query)
+      .then((embedded) => {
+        onUsage?.({
+          workspaceId,
+          tool: "lor.embed",
+          model: embedded.model,
+          inputTokens: embedded.tokens,
+        })
+        return brainCandidates(
+          workspaceId,
+          embedded.embedding,
+          limit,
+          scopeChannelId
+        )
+      })
+      .catch(() => []),
+    brainKeywordCandidates(workspaceId, query, limit, scopeChannelId).catch(
+      () => []
+    ),
+  ])
+  return fuseByRank([keyword, vector], (page) => page.id).slice(0, limit)
 }
 
 // Shared with the archive-synthesis path (project-archive.ts), which builds

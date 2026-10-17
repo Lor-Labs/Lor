@@ -10,12 +10,14 @@ import {
   isUniqueViolation,
   or,
   schema,
+  sql,
   TransactionRollbackError,
 } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
 import { embedDocument } from "./embeddings"
 import { logger } from "./logger"
+import { bm25Score, orTsQuery, withIterativeScan } from "./retrieval"
 
 const TREE_DEFAULT_DEPTH = 2
 const TREE_MAX_DEPTH = 4
@@ -438,8 +440,24 @@ async function pageLinks(
   return links
 }
 
-// Nearest active pages by vector. `search` reranks these with every other
-// kind of result, then resolves paths only for the pages it keeps.
+const candidateColumns = {
+  id: schema.brainNode.id,
+  name: schema.brainNode.name,
+  body: schema.brainNode.body,
+}
+
+function activePages(workspaceId: string, scopeChannelId: MemoryScope) {
+  return and(
+    eq(schema.brainNode.workspaceId, workspaceId),
+    eq(schema.brainNode.kind, "page"),
+    eq(schema.brainNode.status, "active"),
+    scopeFilter(scopeChannelId)
+  )
+}
+
+// Nearest active pages by vector. `search` fuses these with the keyword side,
+// reranks them with every other kind of result, then resolves paths only for
+// the pages it keeps.
 export async function brainCandidates(
   workspaceId: string,
   queryEmbedding: number[],
@@ -447,23 +465,43 @@ export async function brainCandidates(
   scopeChannelId: MemoryScope = null
 ): Promise<{ id: string; name: string; body: string }[]> {
   const distance = cosineDistance(schema.brainNode.embedding, queryEmbedding)
+  const rows = await withIterativeScan((tx) =>
+    tx
+      .select(candidateColumns)
+      .from(schema.brainNode)
+      .where(
+        and(
+          activePages(workspaceId, scopeChannelId),
+          isNotNull(schema.brainNode.embedding)
+        )
+      )
+      .orderBy(distance)
+      .limit(limit)
+  )
+  return rows.map((r) => ({ ...r, body: r.body ?? "" }))
+}
+
+// Must match the brain_node_text_tsv_idx and _bm25_idx expressions.
+const pageText = sql`${schema.brainNode.name} || ' ' || coalesce(${schema.brainNode.body}, '')`
+
+// Active pages whose name or body matches the query's words, by BM25.
+// Exact names and identifiers a vector can blur come from this side.
+export async function brainKeywordCandidates(
+  workspaceId: string,
+  query: string,
+  limit: number,
+  scopeChannelId: MemoryScope = null
+): Promise<{ id: string; name: string; body: string }[]> {
   const rows = await db
-    .select({
-      id: schema.brainNode.id,
-      name: schema.brainNode.name,
-      body: schema.brainNode.body,
-    })
+    .select(candidateColumns)
     .from(schema.brainNode)
     .where(
       and(
-        eq(schema.brainNode.workspaceId, workspaceId),
-        eq(schema.brainNode.kind, "page"),
-        eq(schema.brainNode.status, "active"),
-        isNotNull(schema.brainNode.embedding),
-        scopeFilter(scopeChannelId)
+        activePages(workspaceId, scopeChannelId),
+        sql`to_tsvector('english', ${pageText}) @@ ${orTsQuery(query)}`
       )
     )
-    .orderBy(distance)
+    .orderBy(bm25Score(sql`(${pageText})`, query, schema.BRAIN_NODE_BM25_INDEX))
     .limit(limit)
   return rows.map((r) => ({ ...r, body: r.body ?? "" }))
 }

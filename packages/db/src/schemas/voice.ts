@@ -220,6 +220,9 @@ export const voiceCaptureGap = pgTable(
 // transcript, or its summary. `context` says where it sits (call, channel,
 // date, speakers, and what was going on) and is indexed with the text
 // (contextual retrieval). A rebuildable index; live calls are never indexed.
+// The BM25 index (pg_textsearch) ranks keyword matches; queries name it.
+export const VOICE_PASSAGE_BM25_INDEX = "voice_passage_text_bm25_idx"
+
 export const voicePassage = pgTable(
   "voice_passage",
   {
@@ -257,6 +260,9 @@ export const voicePassage = pgTable(
       "gin",
       sql`to_tsvector('english', ${table.context} || ' ' || ${table.text})`
     ),
+    index(VOICE_PASSAGE_BM25_INDEX)
+      .using("bm25", sql`(${table.context} || ' ' || ${table.text})`)
+      .with({ text_config: "english" }),
   ]
 )
 

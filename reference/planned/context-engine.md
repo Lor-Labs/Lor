@@ -541,6 +541,7 @@ Found by reading code on 2026-10-10; not reproduced by running.
    `hnsw.iterative_scan`. Check the hand-installed pgvector version (≥ 0.8) and
    run `EXPLAIN` on prod. Checked 2026-10-17: pgvector 0.8.2 on Postgres
    17.11, so the setting is available; set it in vector queries in §7 step 4.
+   Built 2026-10-17 (`withIterativeScan`, `strict_order`).
 6. **MVP spec is stale** on prefetch, the read-only answer loop, and §6's
    "stored summaries are workspace-visible" premise.
 

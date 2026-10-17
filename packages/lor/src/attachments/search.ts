@@ -1,20 +1,28 @@
 import { and, cosineDistance, db, eq, isNotNull, schema, sql } from "@repo/db"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { embedAttachmentQuery } from "../embeddings"
-import { orTsQuery, privateAudienceFilter, userDisplayName } from "../retrieval"
+import {
+  bm25Score,
+  type DbTransaction,
+  fuseByRank,
+  orTsQuery,
+  privateAudienceFilter,
+  userDisplayName,
+  withIterativeScan,
+} from "../retrieval"
 import { pieceLabel } from "./kinds"
 
 const POOL_FACTOR = 3
-const RRF_K = 60
 const SNIPPET_MAX = 1000
 // A long PDF or a big workbook would otherwise fill every result slot.
 const MAX_HITS_PER_FILE = 2
 
-// Must match the attachment_chunk_text_tsv_idx expression exactly.
-const chunkTsv = sql`to_tsvector('english', translate(${schema.attachmentChunk.filename}, '._-', '   ') || ' ' || ${schema.attachmentChunk.text})`
+// Must match the attachment_chunk_text_tsv_idx and _bm25_idx expressions.
+const chunkText = sql`translate(${schema.attachmentChunk.filename}, '._-', '   ') || ' ' || ${schema.attachmentChunk.text}`
+const chunkTsv = sql`to_tsvector('english', ${chunkText})`
 
-function candidates() {
-  return db
+function candidates(executor: Pick<DbTransaction, "select"> = db) {
+  return executor
     .select({
       id: schema.attachmentChunk.id,
       messageId: schema.attachmentChunk.messageId,
@@ -64,38 +72,38 @@ export async function searchAttachments(
   const [keyword, vector] = await Promise.all([
     candidates()
       .where(and(scope, sql`${chunkTsv} @@ ${tsq}`))
-      .orderBy(sql`ts_rank(${chunkTsv}, ${tsq}) desc`)
+      .orderBy(
+        bm25Score(
+          sql`(${chunkText})`,
+          query,
+          schema.ATTACHMENT_CHUNK_BM25_INDEX
+        )
+      )
       .limit(pool),
     embedAttachmentQuery(query)
       .then((embedding) =>
-        candidates()
-          .where(and(scope, isNotNull(schema.attachmentChunk.embedding)))
-          .orderBy(cosineDistance(schema.attachmentChunk.embedding, embedding))
-          .limit(pool)
+        withIterativeScan((tx) =>
+          candidates(tx)
+            .where(and(scope, isNotNull(schema.attachmentChunk.embedding)))
+            .orderBy(
+              cosineDistance(schema.attachmentChunk.embedding, embedding)
+            )
+            .limit(pool)
+        )
       )
       .catch(() => [] as Candidate[]),
   ])
 
-  const scored = new Map<string, { row: Candidate; score: number }>()
-  for (const list of [keyword, vector]) {
-    list.forEach((row, rank) => {
-      const entry = scored.get(row.id) ?? { row, score: 0 }
-      entry.score += 1 / (RRF_K + rank + 1)
-      scored.set(row.id, entry)
-    })
-  }
-
   const perFile = new Map<string, number>()
-  return [...scored.values()]
-    .sort((a, b) => b.score - a.score)
-    .filter(({ row }) => {
+  return fuseByRank([keyword, vector], (row) => row.id)
+    .filter((row) => {
       const key = `${row.messageId}:${row.url}`
       const hits = perFile.get(key) ?? 0
       perFile.set(key, hits + 1)
       return hits < MAX_HITS_PER_FILE
     })
     .slice(0, limit)
-    .map(({ row }) => ({
+    .map((row) => ({
       messageId: row.messageId,
       channelId: row.channelId,
       url: row.url,

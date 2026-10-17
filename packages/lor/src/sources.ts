@@ -14,7 +14,13 @@ import { z } from "zod"
 import { splitText } from "./attachments/split"
 import { embedDocumentsWithUsage, embedSourceQuery } from "./embeddings"
 import { logger } from "./logger"
-import { orTsQuery } from "./retrieval"
+import {
+  bm25Score,
+  type DbTransaction,
+  fuseByRank,
+  orTsQuery,
+  withIterativeScan,
+} from "./retrieval"
 import { emitUsage, type OnUsage } from "./usage"
 
 // Items from connected services, stored as real text and searched over
@@ -31,7 +37,6 @@ const CHUNK_CHARS = 2000
 const MAX_CHUNKS = 60
 const EMBED_BATCH_SIZE = 32
 const POOL_FACTOR = 3
-const RRF_K = 60
 // One long PR thread would otherwise fill every result slot.
 const MAX_HITS_PER_SOURCE = 2
 const FETCH_PAGE_CHARS = 20_000
@@ -245,8 +250,8 @@ export function tombstoneSourcesWithPrefix(
   )
 }
 
-function chunkCandidates() {
-  return db
+function chunkCandidates(executor: Pick<DbTransaction, "select"> = db) {
+  return executor
     .select({
       chunkId: schema.sourceChunk.id,
       sourceId: schema.source.id,
@@ -287,37 +292,35 @@ export async function searchSources(
   const [keyword, vector] = await Promise.all([
     chunkCandidates()
       .where(and(scope, sql`${chunkTsv} @@ ${tsq}`))
-      .orderBy(sql`ts_rank(${chunkTsv}, ${tsq}) desc`)
+      .orderBy(
+        bm25Score(
+          sql`${schema.sourceChunk.text}`,
+          query,
+          schema.SOURCE_CHUNK_BM25_INDEX
+        )
+      )
       .limit(pool),
     embedSourceQuery(query)
       .then((embedding) =>
-        chunkCandidates()
-          .where(and(scope, isNotNull(schema.sourceChunk.embedding)))
-          .orderBy(cosineDistance(schema.sourceChunk.embedding, embedding))
-          .limit(pool)
+        withIterativeScan((tx) =>
+          chunkCandidates(tx)
+            .where(and(scope, isNotNull(schema.sourceChunk.embedding)))
+            .orderBy(cosineDistance(schema.sourceChunk.embedding, embedding))
+            .limit(pool)
+        )
       )
       .catch(() => [] as ChunkCandidate[]),
   ])
 
-  const scored = new Map<string, { row: ChunkCandidate; score: number }>()
-  for (const list of [keyword, vector]) {
-    list.forEach((row, rank) => {
-      const entry = scored.get(row.chunkId) ?? { row, score: 0 }
-      entry.score += 1 / (RRF_K + rank + 1)
-      scored.set(row.chunkId, entry)
-    })
-  }
-
   const perSource = new Map<string, number>()
-  return [...scored.values()]
-    .sort((a, b) => b.score - a.score)
-    .filter(({ row }) => {
+  return fuseByRank([keyword, vector], (row) => row.chunkId)
+    .filter((row) => {
       const hits = perSource.get(row.sourceId) ?? 0
       perSource.set(row.sourceId, hits + 1)
       return hits < MAX_HITS_PER_SOURCE
     })
     .slice(0, limit)
-    .map(({ row }) => {
+    .map((row) => {
       const header = `${row.title}\n\n`
       const text = row.text.startsWith(header)
         ? row.text.slice(header.length)

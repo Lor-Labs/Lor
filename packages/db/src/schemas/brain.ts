@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 import {
   type AnyPgColumn,
   halfvec,
@@ -25,6 +25,10 @@ export const brainNodeStatusEnum = pgEnum("brain_node_status", [
   "active",
   "archived",
 ])
+
+// Keyword search over page name and body: the GIN index decides matches, the
+// BM25 index (pg_textsearch) ranks them; queries name it.
+export const BRAIN_NODE_BM25_INDEX = "brain_node_text_bm25_idx"
 
 export const brainNode = pgTable(
   "brain_node",
@@ -78,6 +82,14 @@ export const brainNode = pgTable(
       table.workspaceId,
       table.scopeChannelId
     ),
+    // Expression indexes; queries must use the identical expressions.
+    index("brain_node_text_tsv_idx").using(
+      "gin",
+      sql`to_tsvector('english', ${table.name} || ' ' || coalesce(${table.body}, ''))`
+    ),
+    index(BRAIN_NODE_BM25_INDEX)
+      .using("bm25", sql`(${table.name} || ' ' || coalesce(${table.body}, ''))`)
+      .with({ text_config: "english" }),
   ]
 )
 

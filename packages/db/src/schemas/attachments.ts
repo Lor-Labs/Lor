@@ -15,6 +15,10 @@ import { channel } from "./channels"
 import { message } from "./messages"
 import { workspace } from "./workspaces"
 
+// BM25 corpus statistics (pg_textsearch) for ranking keyword matches; the
+// GIN index still decides which rows match. Queries name it explicitly.
+export const ATTACHMENT_CHUNK_BM25_INDEX = "attachment_chunk_text_bm25_idx"
+
 // One searchable piece of a chat attachment: a whole image, or one page,
 // slide, or part of a document. A rebuildable index derived from
 // message.attachments + R2. DMs are never indexed (they will be E2E
@@ -58,6 +62,12 @@ export const attachmentChunk = pgTable(
       "gin",
       sql`to_tsvector('english', translate(${table.filename}, '._-', '   ') || ' ' || ${table.text})`
     ),
+    index(ATTACHMENT_CHUNK_BM25_INDEX)
+      .using(
+        "bm25",
+        sql`(translate(${table.filename}, '._-', '   ') || ' ' || ${table.text})`
+      )
+      .with({ text_config: "english" }),
   ]
 )
 
