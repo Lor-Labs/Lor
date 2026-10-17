@@ -3,6 +3,7 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import Image from "next/image"
 import { AppMock } from "@/app/components/app-mock"
 import { ClosingCTA } from "@/app/components/closing-cta"
+import { ContextGraph } from "@/app/components/context-graph"
 import { LaptopProblem } from "@/app/components/laptop-problem"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
@@ -68,8 +69,8 @@ function HeroContent() {
           <p className="max-w-[540px] text-pretty text-[16px] text-foreground/75 leading-relaxed sm:text-[17px]">
             Bring <AgentName icon={ClaudeIcon} name="Claude Code" />,{" "}
             <AgentName icon={ChatGptIcon} name="Codex" />, or whatever agent you
-            already pay for. Lor gives it a cloud computer, your team&rsquo;s
-            tools and context, and sessions your whole team can jump into.
+            already pay for. Every session in Lor is shared with your team, so
+            each agent builds on what the others already learned.
           </p>
           <WaitlistForm className="shrink-0" />
         </div>
@@ -99,6 +100,7 @@ export default function Home() {
       <main>
         <Hero />
         <LaptopProblem />
+        <ContextGraph />
         <TeamWeek />
         <ClosingCTA />
       </main>

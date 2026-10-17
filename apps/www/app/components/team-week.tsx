@@ -32,8 +32,8 @@ import {
   SessionTitle,
 } from "@/app/components/week-in-gtm"
 
-// One person's agent workflow becoming the team's: Zoe moves her setup into
-// #gtm, it runs on its own in the channel's browser, it asks before sending,
+// One person's agent workflow becoming the team's: Zoe sets up #gtm, it runs
+// on its own in the channel's browser, it asks before sending,
 // and Rafael finishes her session while she is out. Turns carry name rows so
 // each frame reads at a glance. Replaces WeekInGtm's feature tour.
 
@@ -124,7 +124,7 @@ function ChannelComputerMock() {
             </span>
           </p>
           <p className="mt-1 font-mono text-[11px] text-lor-text-tertiary-dark">
-            ~/gtm · moved from Zoe&rsquo;s laptop
+            ~/gtm · shared with everyone in #gtm
           </p>
           <div className="mt-2 flex flex-col">
             {FILES.map((file) => (
@@ -214,16 +214,16 @@ function RafaelPicksUpMock() {
 const FRAMES: Frame[] = [
   {
     time: "Friday, 4:12 PM",
-    title: "Zoe moves her setup off her laptop.",
+    title: "Zoe sets up #gtm.",
     caption:
-      "Her scripts, her playbook and a signed-in browser move to a computer all of #gtm shares. Everyone brings their own agent.",
+      "Her scripts, her playbook and a signed-in browser go on a computer the whole channel shares. Everyone brings their own agent.",
     mock: <ChannelComputerMock />,
   },
   {
     time: "Monday, 9:00 AM",
     title: "The Monday run starts without her.",
     caption:
-      "It runs on the #gtm computer every week, whether her laptop is open or not.",
+      "It runs on the #gtm computer every week, and the results land where the whole team can see them.",
     mock: <LoopRunMock />,
   },
   {
@@ -243,7 +243,7 @@ const FRAMES: Frame[] = [
     time: "Thursday, 2:40 PM",
     title: "Zoe is out. Rafael finishes what she started.",
     caption:
-      "Her whole session is still there. Rafael adds the missing price, and the agent finishes the draft.",
+      "Her session is open to the whole channel. Rafael adds the missing price, and the agent picks up where she left off.",
     mock: <RafaelPicksUpMock />,
   },
 ]

@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://lor.chat"),
   title: "Lor | The multiplayer runtime for your team and agents",
   description:
-    "Bring Claude Code, Codex, or whatever agent you already pay for. Lor gives it a cloud computer, your team's tools and context, and sessions your whole team can jump into.",
+    "Bring Claude Code, Codex, or whatever agent you already pay for. Every session in Lor is shared with your team, so each agent builds on what the others already learned.",
   icons: {
     icon: [
       { url: "/lor-icon.svg", type: "image/svg+xml" },
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Lor | The multiplayer runtime for your team and agents",
     description:
-      "Bring the agent you already pay for. Lor gives it a cloud computer and a session your whole team can jump into.",
+      "Bring the agent you already pay for. In Lor, every agent builds on what your team's other sessions already learned.",
     url: "https://lor.chat",
     siteName: "Lor",
     type: "website",
