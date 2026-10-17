@@ -10,6 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { LOR_EMBED_DIMENSIONS } from "../constants"
+import { channel } from "./channels"
 import {
   integrationConnection,
   integrationProviderEnum,
@@ -18,9 +19,8 @@ import { workspace } from "./workspaces"
 
 // Track B: one ingested unit of external knowledge — a summary + pointer +
 // embedding for a meaningful event (PR merged, issue closed, release, …).
-// Embed the summary, not the document; structured details are live-fetched via
-// fetch_source, so the row stays fully typed (no metadata bag).
-// See reference/lor-mvp-spec.md §6.
+// Embed the summary, not the document; the row stays fully typed (no metadata
+// bag). See reference/lor-mvp-spec.md §6.
 
 export const sourceStatusEnum = pgEnum("source_status", ["active", "archived"])
 
@@ -39,13 +39,18 @@ export const source = pgTable(
     connectionId: uuid("connection_id")
       .notNull()
       .references(() => integrationConnection.id, { onDelete: "cascade" }),
+    // The remembering trigger's channel; readers apply its audience, so a
+    // private channel's sources stay in it. Null rows never match a reader.
+    // reference/planned/session-memory.md (permission rules).
+    channelId: uuid("channel_id").references(() => channel.id, {
+      onDelete: "cascade",
+    }),
     provider: integrationProviderEnum("provider").notNull(),
     // Provider-specific unit, e.g. "pull_request" | "issue" | "release" |
     // "discussion" | "workflow_run". Free text — kinds vary across providers.
     kind: text("kind").notNull(),
     // Stable provider id for upsert/dedupe, e.g. "owner/repo#123" or a node id.
     externalId: text("external_id").notNull(),
-    // Pointer to the source; full content is live-fetched, never stored whole.
     url: text("url"),
     title: text("title").notNull(),
     // The actor (e.g. GitHub login). Null when an event has no clear author.
@@ -69,6 +74,7 @@ export const source = pgTable(
       "hnsw",
       table.embedding.op("halfvec_cosine_ops")
     ),
+    index("source_channel_idx").on(table.channelId),
   ]
 )
 
@@ -76,6 +82,10 @@ export const sourceRelations = relations(source, ({ one }) => ({
   workspace: one(workspace, {
     fields: [source.workspaceId],
     references: [workspace.id],
+  }),
+  channel: one(channel, {
+    fields: [source.channelId],
+    references: [channel.id],
   }),
   connection: one(integrationConnection, {
     fields: [source.connectionId],

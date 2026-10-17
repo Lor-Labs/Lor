@@ -143,7 +143,14 @@ to 400 lines.
 
 ### Step 1: scope `source`
 
-[ ] built · [ ] committed · [ ] db:push · [ ] backfill run
+[x] built 2026-10-16 · [ ] committed · [ ] db:push · [ ] backfill run
+
+As built (~190 lines): `visibleSource()` in `sources.ts` holds the shared
+filter; `searchSources`, `fetchSourceContent` and `resolveSourceCitation`
+take `privateContainerChannelId`. `groundCitations` takes the run scope, and
+the worker resolves it once per reply (falls back to public-only). Search
+results drop `hasMore`. Backfill: `packages/db/src/scripts/backfill-source-channels.ts`,
+run after `db:push` with `--dry-run` first (command in its header).
 
 - Schema: `source.channelId`, the channel of the trigger that stored the row
   (FK, cascade: deleting the channel deletes its remembered rows).
@@ -202,6 +209,11 @@ to 400 lines.
   `RESERVED_TOOL_NAMES` (`custom-tools.ts:20`). No approval wiring: core
   memory tools are never gateable (`approval-targets.ts`).
 - `ensureFolderPath`: insert with `on conflict do nothing`, then re-select.
+- Two scope bugs from `context-engine.md` §6, folded in 2026-10-16: citation
+  checks call `pageExists` without the run's memory scope (`index.ts:3155`;
+  widen the `groundCitations` scope from Step 1), and the unique key
+  `brain_node_parent_name_uq` ignores `scopeChannelId`, so a scoped
+  `/projects` folder can collide with the workspace one (`brain.ts:68`).
 - Remove the write-back lock (`lor-respond.ts:1302-1315`,
   `WRITEBACK_LOCK_TTL`). This also removes the lock-held return that skips
   `runWriter.close()`.

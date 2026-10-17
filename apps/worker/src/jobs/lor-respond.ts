@@ -11,6 +11,10 @@ import {
   or,
   schema,
 } from "@repo/db"
+import {
+  EMPTY_LOR_RUN_SCOPE,
+  resolveLorRunScope,
+} from "@repo/db/queries/channel-access"
 import type {
   Loop,
   LorMemory,
@@ -1011,7 +1015,15 @@ export function createLorRespondProcessor(
             // Verify [[…]] citations (brain pages, messages, sources); strip any
             // that don't resolve so a hallucinated source can't masquerade as real
             // (settles on reload), and enrich valid source cites with their url.
-            const grounded = await groundCitations(workspaceId, answer.text)
+            // A failed scope lookup falls back to public-only sources.
+            const citationScope = await resolveLorRunScope(channelId).catch(
+              () => EMPTY_LOR_RUN_SCOPE
+            )
+            const grounded = await groundCitations(
+              workspaceId,
+              answer.text,
+              citationScope
+            )
             if (grounded.invalid > 0) {
               logger.warn(
                 { lorMessageId, invalid: grounded.invalid },
@@ -1054,7 +1066,8 @@ export function createLorRespondProcessor(
               if (cached) return cached
               const mapped = groundCitations(
                 workspaceId,
-                answer.text.slice(0, at)
+                answer.text.slice(0, at),
+                citationScope
               )
                 .then((g) => g.text.length)
                 .catch(() => at)

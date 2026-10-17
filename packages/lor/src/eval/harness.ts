@@ -122,7 +122,9 @@ async function runRespondFixture(
       onUsage,
     }
   )
-  const grounded = await groundCitations(workspaceId, answer.text)
+  const grounded = await groundCitations(workspaceId, answer.text, {
+    privateContainerChannelId: null,
+  })
 
   // The answer phase can also save pages; write-back fixtures re-baseline
   // after respond so they measure only what writeBack itself changes.
@@ -183,7 +185,7 @@ async function runFixture(
       }
     }
     const embedded = await embedSourceQueryWithUsage(fixture.query)
-    const hits = await searchSources(workspaceId, embedded.embedding, 3)
+    const hits = await searchSources(workspaceId, embedded.embedding, 3, null)
     return {
       ...emptyResult(),
       answer: hits.map((hit) => `${hit.title}\n${hit.summary}`).join("\n\n"),

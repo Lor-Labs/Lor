@@ -201,7 +201,7 @@ const SYSTEM_PROMPT_HEAD = `You are Lor, the knowledge keeper for this team's wo
 
 You have two kinds of memory:
 - Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
-- Everything else the team has produced: one search tool covers the full chat message history (all channels), past voice calls, and the summarized activity of connected integrations (GitHub, Linear, …). Each hit is tagged with its type — a message comes back with its full text (read_thread pulls the rest of its thread; cite it [[msg:…]]); a call comes back as one topic of its transcript or its summary (read_call reads the transcript around it; cite it [[call:…@time]]); an integration source comes back as a summary you can expand with fetch_source (cite it [[src:…]] by id, not by pasting the url).`
+- Everything else the team has produced: one search tool covers the full chat message history (all channels), past voice calls, and the summarized activity of connected integrations (GitHub, Linear, …). Each hit is tagged with its type — a message comes back with its full text (read_thread pulls the rest of its thread; cite it [[msg:…]]); a call comes back as one topic of its transcript or its summary (read_call reads the transcript around it; cite it [[call:…@time]]); an integration source comes back as a stored summary (cite it [[src:…]] by id, not by pasting the url); for the full, current item use that service's fetch tool when you have one.`
 
 const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
 
@@ -717,9 +717,15 @@ const workspaceContext = z.object({
 async function searchSourceSummaries(
   workspaceId: string,
   query: string,
-  limit: number
+  limit: number,
+  privateContainerChannelId: string | null
 ) {
-  return searchSources(workspaceId, await embedSourceQuery(query), limit)
+  return searchSources(
+    workspaceId,
+    await embedSourceQuery(query),
+    limit,
+    privateContainerChannelId
+  )
 }
 
 // Memory (brain) pages by meaning, admitting the run's scoped pages the same
@@ -746,7 +752,7 @@ async function searchMemoryPages(
 export const searchTools = {
   search: tool({
     description:
-      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its full text — cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` comes back as a summary with `hasMore: true` — call fetch_source with its id for the full body, and cite it as [[src:<id>]] (don't paste its url). Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
+      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its full text — cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` is a stored summary of an item from a connected service — cite it as [[src:<id>]] (don't paste its url), and use that service's fetch tool for the full, current item when you have one. Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
     inputSchema: z.object({
       query: z.string().describe("a short natural-language query or phrase"),
       types: z
@@ -815,9 +821,12 @@ export const searchTools = {
               ).catch(() => [])
             : [],
           want("sources")
-            ? searchSourceSummaries(context.workspaceId, query, pool).catch(
-                () => []
-              )
+            ? searchSourceSummaries(
+                context.workspaceId,
+                query,
+                pool,
+                context.privateContainerChannelId ?? null
+              ).catch(() => [])
             : [],
         ]
       )
@@ -839,7 +848,7 @@ export const searchTools = {
           document: `${c.context}\n${c.text}`,
         })),
         ...sources.map((s) => ({
-          result: { type: "source" as const, hasMore: true, ...s },
+          result: { type: "source" as const, ...s },
           document: `${s.title}\n${s.summary}`,
         })),
       ]
@@ -1114,7 +1123,7 @@ function coreToolsContext(
     view_image: retrieval,
     read_attachment: retrieval,
     read_call: retrieval,
-    fetch_source: { workspaceId },
+    fetch_source: retrieval,
     ls: workspace,
     read: workspace,
     tree: workspace,
@@ -3117,10 +3126,12 @@ function emitGenerateUsage(
   }
 }
 
-// Workspace-scoped, best-effort citation verification.
+// Workspace-scoped, best-effort citation verification. Source citations also
+// follow the run's audience, since grounding writes their title and url.
 export async function groundCitations(
   workspaceId: string,
-  text: string
+  text: string,
+  scope: Pick<LorRunScope, "privateContainerChannelId">
 ): Promise<{ text: string; valid: number; invalid: number }> {
   const tokens = extractCitationTokens(text)
   if (tokens.size === 0) return { text, valid: 0, invalid: 0 }
@@ -3132,7 +3143,8 @@ export async function groundCitations(
       if (kind === "src") {
         const source = await resolveSourceCitation(
           workspaceId,
-          prefixedTokenId(t)
+          prefixedTokenId(t),
+          scope.privateContainerChannelId
         ).catch(() => null)
         resolutions.set(t, { kind: "src", source })
       } else if (kind === "call") {

@@ -13,7 +13,7 @@ import { logger } from "@/lib/logger"
 // The Remember payload a webhook handler supplies; the trigger resolves the rest.
 export type RememberDraft = Omit<
   IngestSourceInput,
-  "workspaceId" | "connectionId" | "provider" | "hint"
+  "workspaceId" | "connectionId" | "channelId" | "provider" | "hint"
 >
 
 // Raw payloads logged on trigger_delivery are capped — Lor stores the whole
@@ -168,6 +168,7 @@ export async function dispatchConnectorEvent(input: {
       {
         workspaceId: target.connection.workspaceId,
         connectionId: target.connection.id,
+        channelId: target.channel.id,
         provider: input.provider,
         hint: target.trigger.rememberHint,
         ...input.remember,

@@ -4,6 +4,7 @@ import { z } from "zod"
 import { embedDocumentWithUsage } from "./embeddings"
 import { lorSmallModel, smallGatewayOptions } from "./models"
 import { getSourceProvider } from "./providers"
+import { privateAudienceFilter } from "./retrieval"
 import type { OnUsage, UsageEvent } from "./usage"
 
 // Reject malformed citation ids before querying.
@@ -20,10 +21,25 @@ export type SourceHit = {
   summary: string
 }
 
+// Every source read: active row and connection, plus the remembering channel's
+// audience (requires the connection and channel joins).
+function visibleSource(
+  workspaceId: string,
+  privateContainerChannelId: string | null
+) {
+  return and(
+    eq(schema.source.workspaceId, workspaceId),
+    eq(schema.source.status, "active"),
+    eq(schema.integrationConnection.status, "active"),
+    privateAudienceFilter(privateContainerChannelId)
+  )
+}
+
 export async function searchSources(
   workspaceId: string,
   queryEmbedding: number[],
-  limit: number
+  limit: number,
+  privateContainerChannelId: string | null
 ): Promise<SourceHit[]> {
   const distance = cosineDistance(schema.source.embedding, queryEmbedding)
   const rows = await db
@@ -42,11 +58,10 @@ export async function searchSources(
       schema.integrationConnection,
       eq(schema.source.connectionId, schema.integrationConnection.id)
     )
+    .innerJoin(schema.channel, eq(schema.source.channelId, schema.channel.id))
     .where(
       and(
-        eq(schema.source.workspaceId, workspaceId),
-        eq(schema.source.status, "active"),
-        eq(schema.integrationConnection.status, "active"),
+        visibleSource(workspaceId, privateContainerChannelId),
         isNotNull(schema.source.embedding)
       )
     )
@@ -64,7 +79,10 @@ export async function searchSources(
   }))
 }
 
-const workspaceContext = z.object({ workspaceId: z.string() })
+const sourceContext = z.object({
+  workspaceId: z.string(),
+  privateContainerChannelId: z.string().nullable().optional(),
+})
 
 export const sourceTools = {
   fetch_source: tool({
@@ -73,13 +91,16 @@ export const sourceTools = {
     inputSchema: z.object({
       id: z.string().describe("a source id from search_sources"),
     }),
-    contextSchema: workspaceContext,
+    contextSchema: sourceContext,
     execute: async ({ id }, { context }) => {
       try {
         // Live reads must use connector tools so profile and approval gates apply.
-        return await fetchSourceContent(context.workspaceId, id, {
-          live: false,
-        })
+        return await fetchSourceContent(
+          context.workspaceId,
+          id,
+          context.privateContainerChannelId ?? null,
+          { live: false }
+        )
       } catch {
         return { error: "fetch failed" }
       }
@@ -91,6 +112,7 @@ export const sourceTools = {
 export async function fetchSourceContent(
   workspaceId: string,
   id: string,
+  privateContainerChannelId: string | null,
   options: { live: boolean } = { live: true }
 ) {
   const row = await db
@@ -108,12 +130,11 @@ export async function fetchSourceContent(
       schema.integrationConnection,
       eq(schema.source.connectionId, schema.integrationConnection.id)
     )
+    .innerJoin(schema.channel, eq(schema.source.channelId, schema.channel.id))
     .where(
       and(
         eq(schema.source.id, id),
-        eq(schema.source.workspaceId, workspaceId),
-        eq(schema.source.status, "active"),
-        eq(schema.integrationConnection.status, "active")
+        visibleSource(workspaceId, privateContainerChannelId)
       )
     )
     .limit(1)
@@ -139,10 +160,12 @@ export async function fetchSourceContent(
   }
 }
 
-// Active-connection and tenant-scoped source citation lookup.
+// Grounding writes the title and url into the reply, so it applies the same
+// audience as search.
 export async function resolveSourceCitation(
   workspaceId: string,
-  id: string
+  id: string,
+  privateContainerChannelId: string | null
 ): Promise<{ url: string | null; title: string } | null> {
   if (!UUID_REGEX.test(id)) return null
   const row = await db
@@ -152,12 +175,11 @@ export async function resolveSourceCitation(
       schema.integrationConnection,
       eq(schema.source.connectionId, schema.integrationConnection.id)
     )
+    .innerJoin(schema.channel, eq(schema.source.channelId, schema.channel.id))
     .where(
       and(
         eq(schema.source.id, id),
-        eq(schema.source.workspaceId, workspaceId),
-        eq(schema.source.status, "active"),
-        eq(schema.integrationConnection.status, "active")
+        visibleSource(workspaceId, privateContainerChannelId)
       )
     )
     .limit(1)
@@ -167,8 +189,15 @@ export async function resolveSourceCitation(
 
 export type IngestSourceInput = Omit<
   typeof schema.source.$inferInsert,
-  "id" | "summary" | "embedding" | "status" | "createdAt" | "updatedAt"
+  | "id"
+  | "channelId"
+  | "summary"
+  | "embedding"
+  | "status"
+  | "createdAt"
+  | "updatedAt"
 > & {
+  channelId: string
   content: string
   // Optional steering for the summarize pass (a trigger's Remember hint) —
   // e.g. "this receives call transcripts; capture attendees and decisions".
@@ -242,6 +271,10 @@ export async function ingestSource(
         schema.source.externalId,
       ],
       set: {
+        // A reinstall or a second trigger re-remembers the same item: follow
+        // the latest connection and channel.
+        connectionId: input.connectionId,
+        channelId: input.channelId,
         title: input.title,
         url: input.url ?? null,
         author: input.author ?? null,

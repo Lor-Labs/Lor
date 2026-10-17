@@ -542,6 +542,7 @@ export async function seedWorld(): Promise<World> {
     PRS.map(([num, title, author, daysAgo, summary], i) => ({
       workspaceId,
       connectionId: connection.id,
+      channelId: channels.eng,
       provider: "github" as const,
       kind: "pull_request" as const,
       externalId: `evalco/app#${num}`,

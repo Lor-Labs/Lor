@@ -250,7 +250,9 @@ async function runAttempt(task: LongTask, attempt: number): Promise<Attempt> {
     const after = await brainSnapshot(world.workspaceId)
     const allAnswers = answers.join("\n\n")
     const grounded = allAnswers
-      ? await groundCitations(world.workspaceId, allAnswers)
+      ? await groundCitations(world.workspaceId, allAnswers, {
+          privateContainerChannelId: null,
+        })
       : { invalid: 0 }
     const changedPaths = [
       ...new Set([...before.keys(), ...after.keys()]),

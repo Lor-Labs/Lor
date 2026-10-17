@@ -136,6 +136,7 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
   await ingestSource({
     workspaceId: workspace.id,
     connectionId: connection.id,
+    channelId: channel.id,
     provider: "github",
     kind: "pull_request",
     externalId: "eval-org/app#42",
@@ -171,6 +172,7 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
     await db.insert(schema.source).values({
       workspaceId: workspace.id,
       connectionId: connection.id,
+      channelId: channel.id,
       provider: "github",
       kind: "pull_request",
       externalId: distractor.externalId,
