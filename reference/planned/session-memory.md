@@ -410,10 +410,12 @@ start from the per-provider `urlHost` regexes in
   parser and per-tool `TouchSpec` next to the existing "add it to
   `CONNECTOR_TOOLS`" rule.
 
-## Phase 2: default ingestion (decided direction, not scheduled)
+## Phase 2: default ingestion
 
 Decided with Jacob on 2026-10-14, scoped 2026-10-17. Builds on
-`context-engine.md` §5.3 and §5.5 (§7 step 3).
+`context-engine.md` §5.3 and §5.5 (§7 step 3). Build steps:
+[`context-engine-phase-2.md`](./context-engine-phase-2.md) (2026-10-17),
+which also adds Attio and ships with phase 1 in one release.
 
 - Start with GitHub and Linear. GitHub: PRs and issues with their comments
   and review comments; no releases, commits or code (code work waits for code
