@@ -82,9 +82,15 @@ with no callers, until Step 2 replaces it.
 
 ### Step 2: store real text
 
-[ ] built · [ ] committed
+[x] built 2026-10-17 · [ ] committed
 
-~400 lines.
+As built (~530 lines): as below, plus the reembed script and both eval seeds
+moved to `source_chunk` / `storeSourceItem`. `storeSourceItem` returns
+`stored`, `unchanged` or `stale`; the newer-wins guard is the upsert's
+`setWhere`. The body excludes the title (it is its own column; every chunk
+starts with it). Deviations: `SourceProvider.fetchContent` stays until Step 3
+replaces it with the fetchers; the cleanup script keys on `fetchedAt is null`
+(tombstones also clear `contentHash`).
 
 - Schema, `source`:
   - add `body` (text, not null, default `''`), `state`, `sourceCreatedAt`,
@@ -119,8 +125,8 @@ with no callers, until Step 2 replaces it.
   document is title plus chunk, and the tool description and system prompt
   describe stored items (PRs, issues, notes, call transcripts) and
   `fetch_source`.
-- New one-off `packages/db/src/scripts/delete-summary-sources.ts` deletes rows with
-  `content_hash is null`: old summaries, your own webhook rows, releases,
+- New one-off `packages/db/src/scripts/delete-summary-sources.ts` deletes rows
+  never fetched by ingestion: old summaries, your own webhook rows, releases,
   list entries.
 - `session-memory.md`: mark Step 1's channel scope and rule 2 superseded.
 

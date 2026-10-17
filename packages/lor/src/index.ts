@@ -99,7 +99,7 @@ import {
 } from "./compaction"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
-import { embedBrainQueryWithUsage, embedSourceQuery } from "./embeddings"
+import { embedBrainQueryWithUsage } from "./embeddings"
 import {
   githubBaseBranchOverrides,
   githubTools,
@@ -208,7 +208,7 @@ const SYSTEM_PROMPT_HEAD = `You are Lor, the knowledge keeper for this team's wo
 
 You have two kinds of memory:
 - Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write (new pages) / edit (changes to existing pages) / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
-- Everything else the team has produced: one search tool covers the full chat message history (all channels), past voice calls, the summarized activity of connected integrations (GitHub, Linear, …), and earlier Lor sessions that worked on an issue, PR or link your query names. When a connector read returns earlierSessions, those are earlier Lor sessions that touched the same item; read_thread with a session's messageId reads it. Each hit is tagged with its type — a message comes back with its text, or the passages that matched when it is long (read_thread reads it in full with the rest of its thread; a message from a Lor session carries its sessionTitle; cite it [[msg:…]]); a call comes back as one topic of its transcript or its summary (read_call reads the transcript around it; cite it [[call:…@time]]); an integration source comes back as a stored summary (cite it [[src:…]] by id, not by pasting the url); for the full, current item use that service's fetch tool when you have one.`
+- Everything else the team has produced: one search tool covers the full chat message history (all channels), past voice calls, items from connected services (GitHub pull requests and issues, Linear issues, Attio notes and call transcripts, with their discussion), and earlier Lor sessions that worked on an issue, PR or link your query names. When a connector read returns earlierSessions, those are earlier Lor sessions that touched the same item; read_thread with a session's messageId reads it. Each hit is tagged with its type — a message comes back with its text, or the passages that matched when it is long (read_thread reads it in full with the rest of its thread; a message from a Lor session carries its sessionTitle; cite it [[msg:…]]); a call comes back as one topic of its transcript or its summary (read_call reads the transcript around it; cite it [[call:…@time]]); a source comes back as the passage that matched (fetch_source reads the whole stored item; cite it [[src:…]] by id, not by pasting the url); for the live item use that service's fetch tool when you have one.`
 
 const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
 
@@ -756,23 +756,6 @@ const workspaceContext = z.object({
   privateContainerChannelId: z.string().nullable().optional(),
 })
 
-// Both backends rank independently and each is capped, so a bag of keywords
-// can't flood one side and a phrase degrades gracefully on the other — the
-// model just writes one natural query and lets each corpus return its best.
-async function searchSourceSummaries(
-  workspaceId: string,
-  query: string,
-  limit: number,
-  privateContainerChannelId: string | null
-) {
-  return searchSources(
-    workspaceId,
-    await embedSourceQuery(query),
-    limit,
-    privateContainerChannelId
-  )
-}
-
 // Memory (brain) pages by meaning, admitting the run's scoped pages the same
 // way brain reads do.
 async function searchMemoryPages(
@@ -797,7 +780,7 @@ async function searchMemoryPages(
 export const searchTools = {
   search: tool({
     description:
-      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and the summarized activity of connected integrations like GitHub and Linear (semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its text; when it is long you get the passages that matched (matched words in **bold**) and `truncated: true`, so call read_thread for the full message; a message from a Lor session carries `sessionTitle`; cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` is a stored summary of an item from a connected service — cite it as [[src:<id>]] (don't paste its url), and use that service's fetch tool for the full, current item when you have one; a `session` is an earlier Lor session that touched an item your query names (an issue key like LOR-123, a ref like owner/repo#88, or a link), with `action` saying how (wrote, cited, read, started_from, mentioned) — call read_thread with its messageId to read that session. Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
+      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and items from connected services, stored with their discussion: GitHub pull requests and issues, Linear issues, Attio notes and call transcripts (keyword + semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its text; when it is long you get the passages that matched (matched words in **bold**) and `truncated: true`, so call read_thread for the full message; a message from a Lor session carries `sessionTitle`; cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` is an item from a connected service with its `state` and the passage that matched (`text`) — cite it as [[src:<id>]] (don't paste its url); call fetch_source with its id to read the whole stored item, especially when `truncated` is true, or use that service's fetch tool for the live item; a `session` is an earlier Lor session that touched an item your query names (an issue key like LOR-123, a ref like owner/repo#88, or a link), with `action` saying how (wrote, cited, read, started_from, mentioned) — call read_thread with its messageId to read that session. Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
     inputSchema: z.object({
       query: z.string().describe("a short natural-language query or phrase"),
       types: z
@@ -891,12 +874,7 @@ export const searchTools = {
               ).catch(() => [])
             : [],
           want("sources")
-            ? searchSourceSummaries(
-                context.workspaceId,
-                query,
-                pool,
-                context.privateContainerChannelId ?? null
-              ).catch(() => [])
+            ? searchSources(context.workspaceId, query, pool).catch(() => [])
             : [],
         ]
       )
@@ -919,7 +897,7 @@ export const searchTools = {
         })),
         ...sources.map((s) => ({
           result: { type: "source" as const, ...s },
-          document: `${s.title}\n${s.summary}`,
+          document: `${s.title}\n${s.text}`,
         })),
       ]
       // One rerank over every kind orders results by relevance and drops
@@ -1375,7 +1353,7 @@ export function toolLabel(toolName: string, input: unknown): string {
       }
     }
     case "fetch_source":
-      return "Fetching a source"
+      return "Reading a stored item"
     case "ls":
     case "tree":
       return "Looking through memory"
@@ -1568,8 +1546,7 @@ export function toolDetail(
       return {
         status: "ok",
         detail: {
-          summary:
-            rec?.live === true ? "Fetched live content" : "Used stored summary",
+          summary: "Read the stored item",
           items: title ? [{ title, url: asString(rec?.url) }] : undefined,
         },
       }
@@ -3246,8 +3223,7 @@ export async function groundCitations(
       if (kind === "src") {
         const source = await resolveSourceCitation(
           workspaceId,
-          prefixedTokenId(t),
-          scope.privateContainerChannelId
+          prefixedTokenId(t)
         ).catch(() => null)
         resolutions.set(t, { kind: "src", source })
       } else if (kind === "call") {

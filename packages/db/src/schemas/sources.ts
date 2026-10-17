@@ -1,7 +1,8 @@
-import { relations } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 import {
   halfvec,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -10,18 +11,20 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { LOR_EMBED_DIMENSIONS } from "../constants"
-import { channel } from "./channels"
 import {
   integrationConnection,
   integrationProviderEnum,
 } from "./integration-connections"
 import { workspace } from "./workspaces"
 
-// Track B: one ingested unit of external knowledge — a summary + pointer +
-// embedding for a meaningful event (PR merged, issue closed, release, …).
-// Embed the summary, not the document; the row stays fully typed (no metadata
-// bag). See reference/lor-mvp-spec.md §6.
+// An item ingested from a connected service (a GitHub PR or issue, a Linear
+// issue, an Attio note or call recording): its real text, refetched whenever
+// the service signals a change. Workspace-visible: connecting a service shares
+// what it can see. Search runs over source_chunk.
+// See reference/planned/context-engine-phase-2.md.
 
+// archived = deleted at the service or out of the connection's reach. The row
+// stays as a tombstone; its body and chunks are dropped.
 export const sourceStatusEnum = pgEnum("source_status", ["active", "archived"])
 
 export const source = pgTable(
@@ -39,28 +42,30 @@ export const source = pgTable(
     connectionId: uuid("connection_id")
       .notNull()
       .references(() => integrationConnection.id, { onDelete: "cascade" }),
-    // The remembering trigger's channel; readers apply its audience, so a
-    // private channel's sources stay in it. Null rows never match a reader.
-    // reference/planned/session-memory.md (permission rules).
-    channelId: uuid("channel_id").references(() => channel.id, {
-      onDelete: "cascade",
-    }),
     provider: integrationProviderEnum("provider").notNull(),
-    // Provider-specific unit, e.g. "pull_request" | "issue" | "release" |
-    // "discussion" | "workflow_run". Free text — kinds vary across providers.
+    // Provider-specific unit, e.g. "pull_request" | "issue" | "note" |
+    // "call_recording".
     kind: text("kind").notNull(),
-    // Stable provider id for upsert/dedupe, e.g. "owner/repo#123" or a node id.
+    // Stable provider key for upsert, e.g. "owner/repo#123" (lowercased),
+    // "LOR-123", "note#<id>".
     externalId: text("external_id").notNull(),
     url: text("url"),
     title: text("title").notNull(),
-    // The actor (e.g. GitHub login). Null when an event has no clear author.
+    // The item's author as the service names them (a GitHub login, a name).
     author: text("author"),
-    // The embedded text (a short summary)
-    summary: text("summary").notNull(),
-    // Qwen3 Embedding 4B at native dimensions; half precision keeps HNSW
-    // indexing below pgvector's float32 vector dimension limit.
-    embedding: halfvec("embedding", { dimensions: LOR_EMBED_DIMENSIONS }),
-    occurredAt: timestamp("occurred_at"),
+    // e.g. "open" | "merged" | "closed", or the Linear workflow state name.
+    state: text("state"),
+    // The item as text (title excluded): a metadata line, the description,
+    // then its discussion.
+    body: text("body").notNull().default(""),
+    // Hash of title, state and body; chunks are rebuilt only when it changes.
+    // Null on tombstones.
+    contentHash: text("content_hash"),
+    sourceCreatedAt: timestamp("source_created_at"),
+    sourceUpdatedAt: timestamp("source_updated_at"),
+    // The last successful fetch, changed or not; the verify sweep rechecks the
+    // oldest first. Null only on rows from before ingestion stored real text.
+    fetchedAt: timestamp("fetched_at"),
     status: sourceStatusEnum("status").notNull().default("active"),
   },
   (table) => [
@@ -70,28 +75,67 @@ export const source = pgTable(
       table.provider,
       table.externalId
     ),
-    index("source_embedding_hnsw_idx").using(
-      "hnsw",
-      table.embedding.op("halfvec_cosine_ops")
+    index("source_connection_fetched_idx").on(
+      table.connectionId,
+      table.fetchedAt
     ),
-    index("source_channel_idx").on(table.channelId),
   ]
 )
 
-export const sourceRelations = relations(source, ({ one }) => ({
+// One searchable piece of a source's body. Every chunk starts with the item's
+// title, so a title match finds any chunk.
+export const sourceChunk = pgTable(
+  "source_chunk",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => source.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+    embedding: halfvec("embedding", { dimensions: LOR_EMBED_DIMENSIONS }),
+  },
+  (table) => [
+    uniqueIndex("source_chunk_source_position_uidx").on(
+      table.sourceId,
+      table.position
+    ),
+    index("source_chunk_embedding_hnsw_idx").using(
+      "hnsw",
+      table.embedding.op("halfvec_cosine_ops")
+    ),
+    // Expression index; queries must use the identical expression.
+    index("source_chunk_text_tsv_idx").using(
+      "gin",
+      sql`to_tsvector('english', ${table.text})`
+    ),
+    index("source_chunk_workspace_idx").on(table.workspaceId),
+  ]
+)
+
+export const sourceRelations = relations(source, ({ one, many }) => ({
   workspace: one(workspace, {
     fields: [source.workspaceId],
     references: [workspace.id],
-  }),
-  channel: one(channel, {
-    fields: [source.channelId],
-    references: [channel.id],
   }),
   connection: one(integrationConnection, {
     fields: [source.connectionId],
     references: [integrationConnection.id],
   }),
+  chunks: many(sourceChunk),
+}))
+
+export const sourceChunkRelations = relations(sourceChunk, ({ one }) => ({
+  source: one(source, {
+    fields: [sourceChunk.sourceId],
+    references: [source.id],
+  }),
 }))
 
 export type Source = typeof source.$inferSelect
 export type NewSource = typeof source.$inferInsert
+export type SourceChunk = typeof sourceChunk.$inferSelect

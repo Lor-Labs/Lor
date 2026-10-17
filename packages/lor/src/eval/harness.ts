@@ -1,10 +1,7 @@
 import { closeDb } from "@repo/db"
 import { searchBrain } from "../brain"
 import { extractCitationTokens } from "../citations"
-import {
-  embedBrainQueryWithUsage,
-  embedSourceQueryWithUsage,
-} from "../embeddings"
+import { embedBrainQueryWithUsage } from "../embeddings"
 import {
   type ConversationTurn,
   groundCitations,
@@ -12,6 +9,7 @@ import {
   type UsageEvent,
   writeBack,
 } from "../index"
+import { LOR_EMBED_MODEL } from "../models"
 import { searchSources } from "../sources"
 import {
   type EvalCheck,
@@ -185,13 +183,12 @@ async function runFixture(
         usageModels: [embedded.model],
       }
     }
-    const embedded = await embedSourceQueryWithUsage(fixture.query)
-    const hits = await searchSources(workspaceId, embedded.embedding, 3, null)
+    const hits = await searchSources(workspaceId, fixture.query, 3)
     return {
       ...emptyResult(),
-      answer: hits.map((hit) => `${hit.title}\n${hit.summary}`).join("\n\n"),
+      answer: hits.map((hit) => `${hit.title}\n${hit.text}`).join("\n\n"),
       retrievalKeys: hits.map((hit) => hit.title),
-      usageModels: [embedded.model],
+      usageModels: [LOR_EMBED_MODEL],
     }
   }
   return runRespondFixture(fixture, workspaceId, userName)

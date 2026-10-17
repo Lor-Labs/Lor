@@ -117,7 +117,8 @@ calls, citations, reverse hints) follows the same rules.
    pages from a private channel stay in that channel (`privateAudienceFilter`,
    brain memory scope). Built.
 2. **Stored connector data follows the channel it came from.** A remembered
-   `source` row keeps its trigger's channel (Step 1).
+   `source` row keeps its trigger's channel (Step 1). Retired 2026-10-17:
+   Remember is removed, and ingested items follow rule 3.
 3. **Connecting a service shares what it can see with the whole workspace.**
    This covers live tool calls today and phase 2 ingestion. The boundary is
    chosen when connecting: the repos the GitHub app is installed on, the
@@ -144,6 +145,12 @@ to 400 lines.
 ### Step 1: scope `source`
 
 [x] built 2026-10-16 · [ ] committed · [ ] db:push · [ ] backfill run
+
+> **Channel scope superseded 2026-10-17** by phase 2
+> (`context-engine-phase-2.md` Steps 1 and 2). With Remember removed, no
+> stored item comes from a channel: `source.channel_id` and the backfill
+> script are gone before reaching a database, and stored items are
+> workspace-visible (rule 3). The active-connection filter stays.
 
 As built (~190 lines): `visibleSource()` in `sources.ts` holds the shared
 filter; `searchSources`, `fetchSourceContent` and `resolveSourceCitation`
