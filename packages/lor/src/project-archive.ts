@@ -43,7 +43,7 @@ Write brain pages under the folder path you are given:
 - Capture what the project set out to do, the key decisions AND their rationale, the outcome, and any follow-ups or loose ends.
 - A few focused pages beat many shallow ones; one page is fine for a small project.
 - Write conclusions the team should remember, not a play-by-play. Leave out sensitive interpersonal details.
-- Use the link tool (supersedes / part_of / relates_to) when a page supersedes or extends existing workspace memory.
+- Use the link tool (supersedes / part_of / relates_to) when a page supersedes or extends existing workspace memory. A decision that replaces an earlier one goes on its own page, linked supersedes from the new page to the old one; never rewrite the old decision.
 
 Then reply with your final message: a concise closing summary to post in the project's channel — the outcome, the key decisions, and any follow-ups. A few short paragraphs or bullets, plain markdown, no heading. Do not mention memory tools or file paths.`
 

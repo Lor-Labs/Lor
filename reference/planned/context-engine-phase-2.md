@@ -1,11 +1,11 @@
 # Context engine phase 2: ingestion, search, ranking, conflicts
 
-> Status: planned 2026-10-17, not built. Builds `context-engine.md` §7 steps 3
-> (ingestion), 4 (search), 5 (ranking) and 7 (conflicts) on the
-> `context-engine` branch. It ships in one release with phase 1
+> Status: planned 2026-10-17; all 9 steps built 2026-10-17 on the
+> `context-engine` branch (`db:push` run on dev; scripts and rollout owed).
+> Builds `context-engine.md` §7 steps 3 (ingestion), 4 (search), 5 (ranking)
+> and 7 (conflicts). It ships in one release with phase 1
 > ([`session-memory.md`](./session-memory.md)); the rollout is at the end.
-> Code facts checked at `6663af23`; re-check file:line refs before each step.
-> Each step is about 300 to 400 lines.
+> Code facts checked at `6663af23`.
 
 ## Decisions
 
@@ -323,9 +323,16 @@ reorder close calls (rerank 0.5 against 0.6 is a 0.4 logit gap).
 
 ### Step 9: conflicts
 
-[ ] built · [ ] committed
+[x] built 2026-10-17 · [ ] committed
 
-~200 lines. No model call: the write-time and query-time classifiers in
+As built (~150 lines): as below. `supersededPageIds` finds which memory
+candidates a visible, active page supersedes; those rank with authority
+`superseded` (0) and return `supersededBy` (paths and dates, newest first).
+Calls carry `callStartedAt` as their date. `aiGenerated` appears only when
+true. The `link` tool description says supersedes runs from the newer page to
+the one it replaces; `read` links also carry `since`.
+
+No model call: the write-time and query-time classifiers in
 `context-engine.md` §5.10 are not built.
 
 - Hits carry `when`, `authority` (`merged_pr`, `file`, `issue`, `call`,

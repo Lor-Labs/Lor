@@ -4,7 +4,8 @@
 // reference/planned/context-engine.md §5.7, context-engine-phase-2.md Step 8.
 
 // merged code > human docs > issues > calls ≈ chat > Lor-written text (intent,
-// not fact).
+// not fact) > a memory page another page supersedes. Search hits carry the
+// class name as `authority`.
 export const AUTHORITY = {
   merged_pr: 1,
   file: 0.8,
@@ -12,6 +13,7 @@ export const AUTHORITY = {
   call: 0.4,
   chat: 0.4,
   lor: 0.2,
+  superseded: 0,
 } as const
 
 export type AuthorityClass = keyof typeof AUTHORITY

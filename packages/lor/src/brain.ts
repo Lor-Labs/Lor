@@ -388,7 +388,14 @@ async function pagePath(nodeId: string): Promise<string> {
   return `/${parts.join("/")}`
 }
 
-export type BrainLink = { type: string; direction: "out" | "in"; path: string }
+// `since` is when the link was made: for supersedes, when the old page was
+// replaced.
+export type BrainLink = {
+  type: string
+  direction: "out" | "in"
+  path: string
+  since: string
+}
 
 // Links are filtered by the reader's scope: a link to a page the reader
 // cannot open would still leak that page's path, even though read refuses it.
@@ -402,6 +409,7 @@ async function pageLinks(
       type: schema.brainEdge.type,
       fromNodeId: schema.brainEdge.fromNodeId,
       toNodeId: schema.brainEdge.toNodeId,
+      createdAt: schema.brainEdge.createdAt,
     })
     .from(schema.brainEdge)
     .where(
@@ -440,9 +448,37 @@ async function pageLinks(
       type: e.type,
       direction: outgoing ? "out" : "in",
       path: await pagePath(outgoing ? e.toNodeId : e.fromNodeId),
+      since: e.createdAt.toISOString(),
     })
   }
   return links
+}
+
+// Pages among `nodeIds` that a page the reader can see supersedes. Search
+// ranks them last among relevant results and marks them outdated.
+export async function supersededPageIds(
+  workspaceId: string,
+  nodeIds: string[],
+  scopeChannelId: MemoryScope
+): Promise<Set<string>> {
+  if (nodeIds.length === 0) return new Set()
+  const rows = await db
+    .select({ id: schema.brainEdge.toNodeId })
+    .from(schema.brainEdge)
+    .innerJoin(
+      schema.brainNode,
+      eq(schema.brainNode.id, schema.brainEdge.fromNodeId)
+    )
+    .where(
+      and(
+        eq(schema.brainEdge.workspaceId, workspaceId),
+        eq(schema.brainEdge.type, "supersedes"),
+        inArray(schema.brainEdge.toNodeId, nodeIds),
+        eq(schema.brainNode.status, "active"),
+        scopeFilter(scopeChannelId)
+      )
+    )
+  return new Set(rows.map((r) => r.id))
 }
 
 const candidateColumns = {
@@ -1053,7 +1089,7 @@ export const brainWriteTools = {
   }),
   link: tool({
     description:
-      "Create a typed link between two brain pages from the fixed set of edge types.",
+      "Create a typed link between two brain pages from the fixed set of edge types. For supersedes, link from the newer page to the page it replaces; the old page then shows as outdated in search.",
     inputSchema: z.object({
       from: z.string().describe("source page path"),
       to: z.string().describe("target page path"),
