@@ -296,9 +296,17 @@ to when they were stored. Dates compare against ISO strings cast to
 
 ### Step 8: ranking priors
 
-[ ] built · [ ] committed
+[x] built 2026-10-17 · [ ] committed
 
-~220 lines.
+As built (~150 lines): as below. `ranking.ts` holds `AUTHORITY`,
+`HALF_LIFE_DAYS`, `priorScore` and `sourcePrior`; each `search` candidate
+carries a `prior` (authority class, date, half-life). Memory candidates now
+carry `updatedAt`; message hits say whether Lor wrote them (`LOR_USER_ID`).
+Connected items: Attio notes count as human docs (0.8, 365 days), Attio
+recordings as calls; a GitHub item is open (no decay) when its state is open
+or draft; Linear state names don't say open or closed, so Linear issues never
+decay. Scale check: the priors add at most 0.6 in logit space, so they only
+reorder close calls (rerank 0.5 against 0.6 is a 0.4 logit gap).
 
 - Keep the rerank cutoff (`RERANK_MIN_SCORE`, 0.45). Order the kept results by
   `logit(p) + 0.3 R + 0.3 A`, with p the rerank score.

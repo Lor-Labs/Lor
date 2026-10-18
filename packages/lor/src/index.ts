@@ -137,6 +137,7 @@ import {
   type ProposeChangeExecutor,
   proposeChangeTool,
 } from "./proposals"
+import { HALF_LIFE_DAYS, priorScore, sourcePrior } from "./ranking"
 import { RERANK_MIN_SCORE, rerankTexts } from "./rerank"
 import {
   authorFilter,
@@ -553,6 +554,7 @@ async function searchMessages(
       threadRootId: schema.message.threadRootId,
       content: schema.message.content,
       createdAt: schema.message.createdAt,
+      authorId: schema.message.authorId,
       authorName: schema.user.name,
       rank: sql<number>`ts_rank(${tsv}, ${tsq})`.as("rank"),
     })
@@ -588,6 +590,7 @@ async function searchMessages(
       messageId: ranked.messageId,
       channelId: ranked.channelId,
       createdAt: ranked.createdAt,
+      authorId: ranked.authorId,
       authorName: ranked.authorName,
       length,
       text: sql<string>`case when ${length} <= ${SNIPPET_MAX} then coalesce(${ranked.content}, '') else ts_headline('english', ${ranked.content}, ${tsq}, ${HEADLINE_OPTIONS}) end`,
@@ -602,15 +605,18 @@ async function searchMessages(
     .orderBy(desc(ranked.rank))
 
   return rows.map((r) => ({
-    messageId: r.messageId,
-    channelId: r.channelId,
-    author: userDisplayName({ name: r.authorName }),
-    when: r.createdAt.toISOString(),
-    text: r.text,
-    ...(r.length > SNIPPET_MAX ? { truncated: true } : {}),
-    ...(r.sessionId
-      ? { sessionId: r.sessionId, sessionTitle: r.sessionTitle }
-      : {}),
+    hit: {
+      messageId: r.messageId,
+      channelId: r.channelId,
+      author: userDisplayName({ name: r.authorName }),
+      when: r.createdAt.toISOString(),
+      text: r.text,
+      ...(r.length > SNIPPET_MAX ? { truncated: true } : {}),
+      ...(r.sessionId
+        ? { sessionId: r.sessionId, sessionTitle: r.sessionTitle }
+        : {}),
+    },
+    fromLor: r.authorId === LOR_USER_ID,
   }))
 }
 
@@ -960,42 +966,76 @@ export const searchTools = {
         ...memory.map((p) => ({
           result: { type: "memory" as const, nodeId: p.id, body: p.body },
           document: `${p.name}\n${p.body}`,
+          prior: {
+            authority: "lor" as const,
+            at: p.updatedAt,
+            halfLifeDays: HALF_LIFE_DAYS.doc,
+          },
         })),
-        ...messages.map((m) => ({
-          result: { type: "message" as const, ...m },
-          document: m.text,
+        ...messages.map(({ hit, fromLor }) => ({
+          result: { type: "message" as const, ...hit },
+          document: hit.text,
+          prior: {
+            authority: fromLor ? ("lor" as const) : ("chat" as const),
+            at: new Date(hit.when),
+            halfLifeDays: HALF_LIFE_DAYS.chat,
+          },
         })),
         ...attachments.map((a) => ({
           result: { type: "attachment" as const, ...a },
           document: `${a.filename}\n${a.text}`,
+          prior: {
+            authority: "file" as const,
+            at: new Date(a.when),
+            halfLifeDays: HALF_LIFE_DAYS.doc,
+          },
         })),
         ...calls.map((c) => ({
           result: { type: "call" as const, ...c },
           document: `${c.context}\n${c.text}`,
+          prior: {
+            authority: "call" as const,
+            at: new Date(c.callStartedAt),
+            halfLifeDays: HALF_LIFE_DAYS.call,
+          },
         })),
         ...sources.map((s) => ({
           result: { type: "source" as const, ...s },
           document: `${s.title}\n${s.text}`,
+          prior: sourcePrior(s),
         })),
       ]
-      // One rerank over every kind orders results by relevance and drops
-      // weak matches, so a search with no real answer returns nothing. On
-      // failure, each kind keeps its own order and nothing is dropped.
+      // One rerank over every kind gates results by relevance and drops weak
+      // matches, so a search with no real answer returns nothing. Recency
+      // and authority priors then reorder what passed. On failure, each kind
+      // keeps its own order, nothing is dropped and no priors apply.
       const ranking = await rerankTexts({
         workspaceId: context.workspaceId,
         query,
         documents: candidates.map((c) => c.document),
         onUsage: context.onUsage,
       })
+      const now = Date.now()
       const ordered = ranking
         ? ranking
             .filter((r) => r.score >= RERANK_MIN_SCORE)
-            .map((r) => candidates[r.index])
+            .flatMap((r) => {
+              const candidate = candidates[r.index]
+              return candidate
+                ? [
+                    {
+                      candidate,
+                      score: priorScore(r.score, candidate.prior, now),
+                    },
+                  ]
+                : []
+            })
+            .sort((a, b) => b.score - a.score)
+            .map((r) => r.candidate)
         : candidates
       const perKind = new Map<string, number>()
       const results = []
       for (const candidate of ordered) {
-        if (!candidate) continue
         const kept = perKind.get(candidate.result.type) ?? 0
         if (kept >= n) continue
         perKind.set(candidate.result.type, kept + 1)

@@ -449,6 +449,14 @@ const candidateColumns = {
   id: schema.brainNode.id,
   name: schema.brainNode.name,
   body: schema.brainNode.body,
+  updatedAt: schema.brainNode.updatedAt,
+}
+
+export type BrainCandidate = {
+  id: string
+  name: string
+  body: string
+  updatedAt: Date
 }
 
 // `search` dates match when a page was last updated.
@@ -475,7 +483,7 @@ export async function brainCandidates(
   limit: number,
   scopeChannelId: MemoryScope = null,
   filters: SearchFilters = {}
-): Promise<{ id: string; name: string; body: string }[]> {
+): Promise<BrainCandidate[]> {
   const distance = cosineDistance(schema.brainNode.embedding, queryEmbedding)
   const rows = await withIterativeScan((tx) =>
     tx
@@ -504,7 +512,7 @@ export async function brainKeywordCandidates(
   limit: number,
   scopeChannelId: MemoryScope = null,
   filters: SearchFilters = {}
-): Promise<{ id: string; name: string; body: string }[]> {
+): Promise<BrainCandidate[]> {
   const tsq = orTsQuery(query)
   const rows = await db
     .select(candidateColumns)
