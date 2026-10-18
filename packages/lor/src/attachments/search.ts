@@ -2,7 +2,6 @@ import { and, cosineDistance, db, eq, isNotNull, schema, sql } from "@repo/db"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { embedAttachmentQuery } from "../embeddings"
 import {
-  bm25Score,
   type DbTransaction,
   fuseByRank,
   orTsQuery,
@@ -17,9 +16,8 @@ const SNIPPET_MAX = 1000
 // A long PDF or a big workbook would otherwise fill every result slot.
 const MAX_HITS_PER_FILE = 2
 
-// Must match the attachment_chunk_text_tsv_idx and _bm25_idx expressions.
-const chunkText = sql`translate(${schema.attachmentChunk.filename}, '._-', '   ') || ' ' || ${schema.attachmentChunk.text}`
-const chunkTsv = sql`to_tsvector('english', ${chunkText})`
+// Must match the attachment_chunk_text_tsv_idx expression exactly.
+const chunkTsv = sql`to_tsvector('english', translate(${schema.attachmentChunk.filename}, '._-', '   ') || ' ' || ${schema.attachmentChunk.text})`
 
 function candidates(executor: Pick<DbTransaction, "select"> = db) {
   return executor
@@ -72,13 +70,7 @@ export async function searchAttachments(
   const [keyword, vector] = await Promise.all([
     candidates()
       .where(and(scope, sql`${chunkTsv} @@ ${tsq}`))
-      .orderBy(
-        bm25Score(
-          sql`(${chunkText})`,
-          query,
-          schema.ATTACHMENT_CHUNK_BM25_INDEX
-        )
-      )
+      .orderBy(sql`ts_rank(${chunkTsv}, ${tsq}) desc`)
       .limit(pool),
     embedAttachmentQuery(query)
       .then((embedding) =>

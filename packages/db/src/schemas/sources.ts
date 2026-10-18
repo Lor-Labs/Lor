@@ -86,10 +86,7 @@ export const source = pgTable(
 )
 
 // One searchable piece of a source's body. Every chunk starts with the item's
-// title, so a title match finds any chunk. The BM25 index (pg_textsearch)
-// ranks keyword matches; queries name it.
-export const SOURCE_CHUNK_BM25_INDEX = "source_chunk_text_bm25_idx"
-
+// title, so a title match finds any chunk.
 export const sourceChunk = pgTable(
   "source_chunk",
   {
@@ -119,9 +116,6 @@ export const sourceChunk = pgTable(
       "gin",
       sql`to_tsvector('english', ${table.text})`
     ),
-    index(SOURCE_CHUNK_BM25_INDEX)
-      .using("bm25", table.text)
-      .with({ text_config: "english" }),
     index("source_chunk_workspace_idx").on(table.workspaceId),
   ]
 )

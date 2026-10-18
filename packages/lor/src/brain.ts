@@ -17,7 +17,7 @@ import { tool } from "ai"
 import { z } from "zod"
 import { embedDocument } from "./embeddings"
 import { logger } from "./logger"
-import { bm25Score, orTsQuery, withIterativeScan } from "./retrieval"
+import { orTsQuery, withIterativeScan } from "./retrieval"
 
 const TREE_DEFAULT_DEPTH = 2
 const TREE_MAX_DEPTH = 4
@@ -481,27 +481,25 @@ export async function brainCandidates(
   return rows.map((r) => ({ ...r, body: r.body ?? "" }))
 }
 
-// Must match the brain_node_text_tsv_idx and _bm25_idx expressions.
-const pageText = sql`${schema.brainNode.name} || ' ' || coalesce(${schema.brainNode.body}, '')`
+// Must match the brain_node_text_tsv_idx expression exactly.
+const pageTsv = sql`to_tsvector('english', ${schema.brainNode.name} || ' ' || coalesce(${schema.brainNode.body}, ''))`
 
-// Active pages whose name or body matches the query's words, by BM25.
-// Exact names and identifiers a vector can blur come from this side.
+// Active pages whose name or body matches the query's words. Exact names and
+// identifiers a vector can blur come from this side.
 export async function brainKeywordCandidates(
   workspaceId: string,
   query: string,
   limit: number,
   scopeChannelId: MemoryScope = null
 ): Promise<{ id: string; name: string; body: string }[]> {
+  const tsq = orTsQuery(query)
   const rows = await db
     .select(candidateColumns)
     .from(schema.brainNode)
     .where(
-      and(
-        activePages(workspaceId, scopeChannelId),
-        sql`to_tsvector('english', ${pageText}) @@ ${orTsQuery(query)}`
-      )
+      and(activePages(workspaceId, scopeChannelId), sql`${pageTsv} @@ ${tsq}`)
     )
-    .orderBy(bm25Score(sql`(${pageText})`, query, schema.BRAIN_NODE_BM25_INDEX))
+    .orderBy(sql`ts_rank(${pageTsv}, ${tsq}) desc`)
     .limit(limit)
   return rows.map((r) => ({ ...r, body: r.body ?? "" }))
 }

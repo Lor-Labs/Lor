@@ -556,7 +556,7 @@ moves to root. Status and scope as decided with Jacob on 2026-10-17.
 | 1 | `source` scoped by channel (`session-memory.md` Step 1). `access_container` and connection access modes dropped (permission rules) | Done; rest in step 3 |
 | 2 | `touch` table, session lookup in `search`, reverse hints (`session-memory.md` Step 5) | Done |
 | 3 | Ingestion (`session-memory.md` Phase 2): GitHub, Linear and Attio; PRs and issues with their comments and review comments, no releases; Attio notes and call recordings; real text, no per-item summary; webhooks as a signal, tombstones; a search index, not a mirror (no reconcile, current state fetched live); no backfill on connect for now; Remember removed | Built in `context-engine-phase-2.md` Steps 1 to 5 |
-| 4 | Hybrid search for every kind; `search` filters (`author`, `channel`, `since`/`until`, `kind`, more later); `hnsw.iterative_scan`; `pg_textsearch` BM25 (needs the extension and `shared_preload_libraries` on Railway, installed by Jacob) | Planned in `context-engine-phase-2.md` Steps 6 and 7 |
+| 4 | Hybrid search for every kind; `search` filters (`author`, `channel`, `since`/`until`, `kind`, more later); `hnsw.iterative_scan`; ~~`pg_textsearch` BM25~~ (dropped: not on Railway) | Step 6 built in `context-engine-phase-2.md`; filters in Step 7 |
 | 5 | Calibrated relevance cutoff + priors: authority (merged code/PR > human doc > issue > call ≈ chat > Lor-written) and recency half-lives (chat ~30 d, calls ~60 d, open issues/PRs none, docs/memory ~1 y) as starting values; retune on the eval | Planned in `context-engine-phase-2.md` Step 8 |
 | 6 | People: identities across services and a hidden ranking signal from who did the work (name open: "involvement" or "familiarity"); never scores, heat maps or leaderboards. GitHub App user authorization waits for this step | Later |
 | 7 | Conflicts: show both sides with dates and which weighs more; dated `supersedes` edges on brain pages instead of edits | Planned in `context-engine-phase-2.md` Step 9 (no model call) |
@@ -598,6 +598,9 @@ moves to root. Status and scope as decided with Jacob on 2026-10-17.
 7. **pg_textsearch** (needs PG ≥ 17 + preload) — check `SHOW server_version`
    on Railway first. **Decided 2026-10-17:** yes. Railway runs Postgres 17.11;
    Jacob installs the extension and the preload; used from §7 step 4.
+   **Reversed the same day:** Railway's managed Postgres does not offer
+   `pg_textsearch`, and our own Postgres image is not worth it for better
+   candidate ordering ahead of the reranker. Keyword search keeps `ts_rank`.
 8. **Outside agents.** Whether Lor later exposes the engine over MCP to
    Claude Code / Cursor (Unblocked's product) or keeps it internal. **Decided
    2026-10-17:** internal for now.

@@ -14,7 +14,6 @@ import {
 import { formatCallTime } from "@repo/realtime-types/call-transcript"
 import { embedCallQuery } from "./embeddings"
 import {
-  bm25Score,
   type DbTransaction,
   fuseByRank,
   orTsQuery,
@@ -36,9 +35,8 @@ const READ_PAGE_LINES = 300
 
 const { voicePassage, voiceSession } = schema
 
-// Must match the voice_passage_text_tsv_idx and _bm25_idx expressions.
-const passageText = sql`${voicePassage.context} || ' ' || ${voicePassage.text}`
-const passageTsv = sql`to_tsvector('english', ${passageText})`
+// Must match the voice_passage_text_tsv_idx expression exactly.
+const passageTsv = sql`to_tsvector('english', ${voicePassage.context} || ' ' || ${voicePassage.text})`
 
 // "4:05" or "1:04:05" to ms; plain digits are already ms (a citation that was
 // grounded before). Null when it's neither.
@@ -92,9 +90,7 @@ export async function searchCalls(
   const [keyword, vector] = await Promise.all([
     passages()
       .where(and(scope, sql`${passageTsv} @@ ${tsq}`))
-      .orderBy(
-        bm25Score(sql`(${passageText})`, query, schema.VOICE_PASSAGE_BM25_INDEX)
-      )
+      .orderBy(sql`ts_rank(${passageTsv}, ${tsq}) desc`)
       .limit(pool),
     embedCallQuery(query)
       .then((embedding) =>

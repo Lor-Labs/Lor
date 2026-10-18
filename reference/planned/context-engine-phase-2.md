@@ -30,7 +30,8 @@ Jacob, 2026-10-17:
 Earlier decisions that still hold: no backfill on connect; real text, no
 per-item summary; Remember removed; your own webhooks are not ingested;
 `fetch_source` stays stored-only; tool access never hides data (rule 5);
-`pg_textsearch` yes; no item-to-item links.
+no item-to-item links. `pg_textsearch` was dropped 2026-10-17: Railway does
+not offer it (Step 6).
 
 Defaults set while planning. Change them before the step is built if wrong:
 
@@ -235,45 +236,32 @@ As built (~60 lines):
 - The `source` index on (`connectionId`, `fetchedAt`) became one on
   (`connectionId`, `externalId`) for tombstone lookups.
 
-### Step 6: BM25 and hybrid search for every kind
+### Step 6: hybrid search for every kind (BM25 dropped)
 
-[x] built 2026-10-17 · [ ] committed
+[x] built 2026-10-17 · [x] committed (BM25 removal not yet)
 
-As built (~350 lines): `bm25Score`, `fuseByRank` and `withIterativeScan` in
-`retrieval.ts`; attachment, call and source search use all three, and the
-three copies of RRF are now one. Memory search fuses `brainCandidates`
-(vector) with the new `brainKeywordCandidates` (GIN tsvector match plus BM25
-order over name and body); either side failing leaves the other. Index names
-are exported constants beside their tables (`ATTACHMENT_CHUNK_BM25_INDEX`,
-`VOICE_PASSAGE_BM25_INDEX`, `SOURCE_CHUNK_BM25_INDEX`,
-`BRAIN_NODE_BM25_INDEX`). `to_bm25query(text, text)` and
-`text <@> bm25query` were checked in the pg_textsearch SQL. Deviations:
+**BM25 dropped 2026-10-17:** Railway's managed Postgres does not offer
+`pg_textsearch`, and running our own Postgres image is not worth it for this.
+BM25 only improves which candidates reach the reranker; the reranker sets the
+final order. Keyword sides keep `ts_rank`. Revisit if keyword search visibly
+misses, or if we leave Railway's Postgres. `context-engine.md` §8 decision 7
+is reversed. BM25 was built first and removed in a follow-up.
 
-- **No BM25 for chat messages.** DMs share the `message` table, and an index
-  can't filter on the channel type, so a BM25 index would take its term
-  statistics from DM text (DMs are never indexed). Messages keep `ts_rank`.
-- **`strict_order`, not `relaxed_order`:** exact distance order, so there is
-  no re-sort in code. Needs pgvector 0.8 or later on every database.
-- Unverified until the extension is installed: whether `db:push` sees the
-  `bm25` indexes as unchanged on later pushes (Drizzle writes
-  `WITH (text_config=english)`, the form Postgres stores).
+As built (~250 lines after the removal):
 
-Needs `pg_textsearch` installed with `shared_preload_libraries` on dev and
-prod before `db:push`. Without it, the keyword side of these kinds errors and
-search returns none of those kinds.
-
-- BM25 indexes (`USING bm25 (...) WITH (text_config = 'english')`) on message
-  content, attachment chunk text, voice passage context and text, source
-  chunk text, and brain page name and body.
-- Keyword sides keep today's match (`@@` with `orTsQuery`, the existing GIN
-  indexes) and order by `<@> to_bm25query(query, '<index name>')`, ascending
-  (scores are negative). The index name must be explicit: the planner cannot
-  infer it for parameterized queries.
-- Brain gains a keyword side, fused with its vector side by RRF.
-- Iterative scan: a helper runs each vector query in a transaction with
-  `SET LOCAL hnsw.iterative_scan = relaxed_order`, then re-sorts by distance
-  in code. Used by brain, attachments, calls and sources.
-- Check: `EXPLAIN` the keyword and vector queries on prod after the install.
+- `fuseByRank` (one copy of RRF, used by attachments, calls, sources and
+  memory) and `withIterativeScan` in `retrieval.ts`.
+- Memory search fuses `brainCandidates` (vector) with the new
+  `brainKeywordCandidates` (`ts_rank` over a new GIN tsvector index on page
+  name and body, `brain_node_text_tsv_idx`). Either side failing leaves the
+  other.
+- Iterative scan: vector queries for memory, attachments, calls and sources
+  run in a transaction with `SET LOCAL hnsw.iterative_scan = strict_order`
+  (exact distance order, so no re-sort). Needs pgvector 0.8 or later.
+- `scripts/push.mjs` runs `src/scripts/ensure-extensions.ts` before
+  `drizzle-kit push`: `create extension if not exists` for `vector`, `pg_trgm`
+  and `pg_stat_statements`, so a new database needs no manual step.
+- Check: `EXPLAIN` the vector queries on prod after the push.
 
 ### Step 7: search filters
 
@@ -336,10 +324,9 @@ search returns none of those kinds.
 
 ## Rollout (Jacob, after every step is built)
 
-1. Install `pg_textsearch` on dev and prod: `shared_preload_libraries`,
-   restart, `CREATE EXTENSION pg_textsearch`. Confirm pgvector is 0.8 or
-   later on dev too (prod is 0.8.2).
-2. `db:push` (phase 1 and phase 2 schema in one push).
+1. Confirm pgvector is 0.8 or later on dev (prod is 0.8.2).
+2. `db:push` (phase 1 and phase 2 schema in one push). It creates the
+   required extensions first.
 3. Scripts, each with `--dry-run` first:
    `pnpm --filter @repo/db exec tsx src/scripts/delete-summary-sources.ts`,
    then `pnpm --filter @repo/lor exec tsx src/scripts/backfill-touches.ts`.

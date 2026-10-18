@@ -530,8 +530,6 @@ async function searchMessages(
 ) {
   const tsv = sql`to_tsvector('english', coalesce(${schema.message.content}, ''))`
   const tsq = orTsQuery(query)
-  // ts_rank, not BM25: a BM25 index on `message` would draw its term
-  // statistics from DM text too, and DMs are never indexed.
 
   const ranked = db
     .select({

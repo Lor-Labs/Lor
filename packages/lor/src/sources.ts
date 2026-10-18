@@ -15,7 +15,6 @@ import { splitText } from "./attachments/split"
 import { embedDocumentsWithUsage, embedSourceQuery } from "./embeddings"
 import { logger } from "./logger"
 import {
-  bm25Score,
   type DbTransaction,
   fuseByRank,
   orTsQuery,
@@ -292,13 +291,7 @@ export async function searchSources(
   const [keyword, vector] = await Promise.all([
     chunkCandidates()
       .where(and(scope, sql`${chunkTsv} @@ ${tsq}`))
-      .orderBy(
-        bm25Score(
-          sql`${schema.sourceChunk.text}`,
-          query,
-          schema.SOURCE_CHUNK_BM25_INDEX
-        )
-      )
+      .orderBy(sql`ts_rank(${chunkTsv}, ${tsq}) desc`)
       .limit(pool),
     embedSourceQuery(query)
       .then((embedding) =>
