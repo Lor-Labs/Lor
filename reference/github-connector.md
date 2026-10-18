@@ -18,8 +18,9 @@ status, Workflow run, Meta.
 - **Ingestion (2026-10-17, `planned/context-engine-phase-2.md` Step 3):** PR,
   issue, review, issue comment and review comment events enqueue a refetch of
   the item into `source`; deletes, transfers and removed repos tombstone it.
-  Needs two more subscriptions on the prod and dev Apps: **Issue comment** and
-  **Pull request review comment**.
+  Needs two more subscriptions: **Issue comment** and **Pull request review
+  comment** (both added to the prod App 2026-10-17; dev App to check). Push
+  stays off until a push event handler exists.
 
 Install settings (prod App, 2026-10-07): the App is public. Request user
 authorization during installation is off, so GitHub uses the Setup URL
