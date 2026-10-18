@@ -117,7 +117,8 @@ async function dispatchIssueEvent(event: LinearEvent): Promise<void> {
 
 // Ingestion runs whether or not a trigger exists: an issue change or any
 // comment on it refetches the issue; a removed issue is tombstoned. Best-effort:
-// the catch-up sweep covers a miss. reference/planned/context-engine-phase-2.md.
+// a missed event leaves the stored issue stale until it changes again.
+// reference/planned/context-engine-phase-2.md.
 async function ingestIssueEvent(event: LinearEvent): Promise<void> {
   if (!event.organizationId) return
   const ref =

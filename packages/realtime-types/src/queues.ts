@@ -143,6 +143,11 @@ export type SourceIngestJobData = {
 // long and makes one fetch. Events inside the window are deduplicated; one
 // after the fetch starts makes a new job.
 const SOURCE_SETTLE_MS = 15_000
+// Retries back off exponentially from 60 s: 5 attempts span about 15 minutes.
+// A call recording whose transcript isn't ready retries for about 8.5 hours
+// (10 attempts), since a job with no trigger gets no Attio redelivery.
+const SOURCE_ATTEMPTS = 5
+const RECORDING_ATTEMPTS = 10
 
 export function sourceIngestJob(data: SourceIngestJobData) {
   return {
@@ -154,7 +159,8 @@ export function sourceIngestJob(data: SourceIngestJobData) {
         id: `${data.connectionId}-${data.kind}-${data.ref}`,
         ttl: SOURCE_SETTLE_MS,
       },
-      attempts: 5,
+      attempts:
+        data.kind === "call_recording" ? RECORDING_ATTEMPTS : SOURCE_ATTEMPTS,
       backoff: { type: "exponential", delay: 60_000 },
     },
   }
