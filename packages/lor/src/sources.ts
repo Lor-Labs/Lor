@@ -15,9 +15,12 @@ import { splitText } from "./attachments/split"
 import { embedDocumentsWithUsage, embedSourceQuery } from "./embeddings"
 import { logger } from "./logger"
 import {
+  authorFilter,
   type DbTransaction,
+  dateFilter,
   fuseByRank,
   orTsQuery,
+  type SearchFilters,
   withIterativeScan,
 } from "./retrieval"
 import { emitUsage, type OnUsage } from "./usage"
@@ -283,10 +286,18 @@ type ChunkCandidate = Awaited<ReturnType<typeof chunkCandidates>>[number]
 export async function searchSources(
   workspaceId: string,
   query: string,
-  limit: number
+  limit: number,
+  filters: SearchFilters = {}
 ): Promise<SourceHit[]> {
   const pool = limit * POOL_FACTOR
-  const scope = visibleSource(workspaceId)
+  const scope = and(
+    visibleSource(workspaceId),
+    authorFilter(schema.source.author, filters.author),
+    dateFilter(
+      sql`coalesce(${schema.source.sourceUpdatedAt}, ${schema.source.createdAt})`,
+      filters
+    )
+  )
   const tsq = orTsQuery(query)
   const [keyword, vector] = await Promise.all([
     chunkCandidates()

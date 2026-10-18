@@ -25,7 +25,12 @@ import {
   prefixedTokenId,
   splitCallToken,
 } from "./citations"
-import { privateAudienceFilter } from "./retrieval"
+import {
+  channelFilter,
+  dateFilter,
+  privateAudienceFilter,
+  type SearchFilters,
+} from "./retrieval"
 
 // What a session's run touched, recorded after the run persists: tool calls,
 // citations in the reply, and the chat it started from. No model call.
@@ -437,8 +442,11 @@ export async function sessionsTouching(args: {
   privateContainerChannelId: string | null
   excludeThreadRootId: string | null
   limit: number
+  // `search` filters: the session's channel, and when the touch happened.
+  filters?: SearchFilters
 }): Promise<SessionHit[]> {
   if (args.items.length === 0) return []
+  const filters = args.filters ?? {}
   const rows = await db
     .select({
       threadRootId: schema.agentSession.threadRootId,
@@ -468,7 +476,9 @@ export async function sessionsTouching(args: {
         privateAudienceFilter(args.privateContainerChannelId),
         args.excludeThreadRootId
           ? ne(schema.agentSession.threadRootId, args.excludeThreadRootId)
-          : sql`true`
+          : sql`true`,
+        channelFilter(filters.channel),
+        dateFilter(schema.touch.createdAt, filters)
       )
     )
     .orderBy(desc(schema.touch.createdAt))

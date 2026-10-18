@@ -17,7 +17,12 @@ import { tool } from "ai"
 import { z } from "zod"
 import { embedDocument } from "./embeddings"
 import { logger } from "./logger"
-import { orTsQuery, withIterativeScan } from "./retrieval"
+import {
+  dateFilter,
+  orTsQuery,
+  type SearchFilters,
+  withIterativeScan,
+} from "./retrieval"
 
 const TREE_DEFAULT_DEPTH = 2
 const TREE_MAX_DEPTH = 4
@@ -446,12 +451,18 @@ const candidateColumns = {
   body: schema.brainNode.body,
 }
 
-function activePages(workspaceId: string, scopeChannelId: MemoryScope) {
+// `search` dates match when a page was last updated.
+function activePages(
+  workspaceId: string,
+  scopeChannelId: MemoryScope,
+  filters: SearchFilters
+) {
   return and(
     eq(schema.brainNode.workspaceId, workspaceId),
     eq(schema.brainNode.kind, "page"),
     eq(schema.brainNode.status, "active"),
-    scopeFilter(scopeChannelId)
+    scopeFilter(scopeChannelId),
+    dateFilter(schema.brainNode.updatedAt, filters)
   )
 }
 
@@ -462,7 +473,8 @@ export async function brainCandidates(
   workspaceId: string,
   queryEmbedding: number[],
   limit: number,
-  scopeChannelId: MemoryScope = null
+  scopeChannelId: MemoryScope = null,
+  filters: SearchFilters = {}
 ): Promise<{ id: string; name: string; body: string }[]> {
   const distance = cosineDistance(schema.brainNode.embedding, queryEmbedding)
   const rows = await withIterativeScan((tx) =>
@@ -471,7 +483,7 @@ export async function brainCandidates(
       .from(schema.brainNode)
       .where(
         and(
-          activePages(workspaceId, scopeChannelId),
+          activePages(workspaceId, scopeChannelId, filters),
           isNotNull(schema.brainNode.embedding)
         )
       )
@@ -490,14 +502,18 @@ export async function brainKeywordCandidates(
   workspaceId: string,
   query: string,
   limit: number,
-  scopeChannelId: MemoryScope = null
+  scopeChannelId: MemoryScope = null,
+  filters: SearchFilters = {}
 ): Promise<{ id: string; name: string; body: string }[]> {
   const tsq = orTsQuery(query)
   const rows = await db
     .select(candidateColumns)
     .from(schema.brainNode)
     .where(
-      and(activePages(workspaceId, scopeChannelId), sql`${pageTsv} @@ ${tsq}`)
+      and(
+        activePages(workspaceId, scopeChannelId, filters),
+        sql`${pageTsv} @@ ${tsq}`
+      )
     )
     .orderBy(sql`ts_rank(${pageTsv}, ${tsq}) desc`)
     .limit(limit)

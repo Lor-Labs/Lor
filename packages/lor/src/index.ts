@@ -139,9 +139,14 @@ import {
 } from "./proposals"
 import { RERANK_MIN_SCORE, rerankTexts } from "./rerank"
 import {
+  authorFilter,
+  channelFilter,
+  dateFilter,
   fuseByRank,
   orTsQuery,
+  parseFilterDate,
   privateAudienceFilter,
+  type SearchFilters,
   userDisplayName,
 } from "./retrieval"
 import {
@@ -194,6 +199,15 @@ const WRITEBACK_INPUT_TOKENS = 120_000
 const SEARCH_PER_KIND_DEFAULT = 6
 const SEARCH_PER_KIND_MAX = 15
 // Each backend returns a wider pool for the reranker to choose from.
+// Which `search` filters each kind can apply; dates apply to every kind.
+const KIND_FILTERS = {
+  memory: { author: false, channel: false },
+  messages: { author: true, channel: true },
+  attachments: { author: true, channel: true },
+  calls: { author: false, channel: true },
+  sources: { author: true, channel: false },
+  sessions: { author: false, channel: true },
+} as const
 const SEARCH_POOL_FACTOR = 3
 const SEARCH_POOL_MAX = 30
 // Memory hits carry most of their page; `read` returns the rest.
@@ -526,7 +540,8 @@ async function searchMessages(
   workspaceId: string,
   query: string,
   limit: number,
-  privateContainerChannelId: string | null = null
+  privateContainerChannelId: string | null = null,
+  filters: SearchFilters = {}
 ) {
   const tsv = sql`to_tsvector('english', coalesce(${schema.message.content}, ''))`
   const tsq = orTsQuery(query)
@@ -554,6 +569,9 @@ async function searchMessages(
         // own private container.
         privateAudienceFilter(privateContainerChannelId),
         outsideLiveSessionChatFilter(schema.message.threadRootId),
+        authorFilter(schema.user.name, filters.author),
+        channelFilter(filters.channel),
+        dateFilter(schema.message.createdAt, filters),
         sql`${tsv} @@ ${tsq}`
       )
     )
@@ -769,6 +787,7 @@ async function searchMemoryPages(
   query: string,
   limit: number,
   scopeChannelId: string | null,
+  filters: SearchFilters,
   onUsage?: OnUsage
 ) {
   const [vector, keyword] = await Promise.all([
@@ -784,13 +803,18 @@ async function searchMemoryPages(
           workspaceId,
           embedded.embedding,
           limit,
-          scopeChannelId
+          scopeChannelId,
+          filters
         )
       })
       .catch(() => []),
-    brainKeywordCandidates(workspaceId, query, limit, scopeChannelId).catch(
-      () => []
-    ),
+    brainKeywordCandidates(
+      workspaceId,
+      query,
+      limit,
+      scopeChannelId,
+      filters
+    ).catch(() => []),
   ])
   return fuseByRank([keyword, vector], (page) => page.id).slice(0, limit)
 }
@@ -800,7 +824,7 @@ async function searchMemoryPages(
 export const searchTools = {
   search: tool({
     description:
-      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and items from connected services, stored with their discussion: GitHub pull requests and issues, Linear issues, Attio notes and call transcripts (keyword + semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its text; when it is long you get the passages that matched (matched words in **bold**) and `truncated: true`, so call read_thread for the full message; a message from a Lor session carries `sessionTitle`; cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` is a stored copy of an item from a connected service with its `state` and the passage that matched (`text`) — cite it as [[src:<id>]] (don't paste its url); call fetch_source with its id to read the whole stored item, especially when `truncated` is true; the copy is as of `syncedAt` and can be out of date, so use that service's fetch tool for current state (open or merged, status, assignee); a `session` is an earlier Lor session that touched an item your query names (an issue key like LOR-123, a ref like owner/repo#88, or a link), with `action` saying how (wrote, cited, read, started_from, mentioned) — call read_thread with its messageId to read that session. Pass `types` to search only some kinds. Call repeatedly with different queries to investigate.",
+      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and items from connected services, stored with their discussion: GitHub pull requests and issues, Linear issues, Attio notes and call transcripts (keyword + semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its text; when it is long you get the passages that matched (matched words in **bold**) and `truncated: true`, so call read_thread for the full message; a message from a Lor session carries `sessionTitle`; cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` is a stored copy of an item from a connected service with its `state` and the passage that matched (`text`) — cite it as [[src:<id>]] (don't paste its url); call fetch_source with its id to read the whole stored item, especially when `truncated` is true; the copy is as of `syncedAt` and can be out of date, so use that service's fetch tool for current state (open or merged, status, assignee); a `session` is an earlier Lor session that touched an item your query names (an issue key like LOR-123, a ref like owner/repo#88, or a link), with `action` saying how (wrote, cited, read, started_from, mentioned) — call read_thread with its messageId to read that session. Pass `types` to search only some kinds. Narrow with filters when the question names them: `author` (part of a person's name, or a GitHub login for connected items), `channel` (a channel name), and `since` / `until` (dates like 2026-10-01; `until` includes that day). A kind that can't apply a filter you pass is left out: `author` applies to messages, files and connected items; `channel` to messages, files, calls and sessions; dates to every kind (memory pages by when they were last updated, connected items by their last update). Call repeatedly with different queries to investigate.",
     inputSchema: z.object({
       query: z.string().describe("a short natural-language query or phrase"),
       types: z
@@ -820,6 +844,22 @@ export const searchTools = {
         .number()
         .optional()
         .describe("max results of each kind, 1–15 (default 6)"),
+      author: z
+        .string()
+        .optional()
+        .describe("only results by this person (part of a name or a login)"),
+      channel: z
+        .string()
+        .optional()
+        .describe("only results from this channel (its name)"),
+      since: z
+        .string()
+        .optional()
+        .describe("only results from this date on, e.g. 2026-10-01"),
+      until: z
+        .string()
+        .optional()
+        .describe("only results up to and including this date"),
     }),
     contextSchema: workspaceContext.extend({
       // Brain scope (see resolveLorRunScope); null = workspace-wide pages only.
@@ -828,7 +868,21 @@ export const searchTools = {
       threadRootId: z.string().nullable().optional(),
       onUsage: z.custom<OnUsage>().optional(),
     }),
-    execute: async ({ query, types, limit }, { context }) => {
+    execute: async (
+      { query, types, limit, author, channel, since, until },
+      { context }
+    ) => {
+      const sinceDate = parseFilterDate(since, { endOfDay: false })
+      const untilDate = parseFilterDate(until, { endOfDay: true })
+      if (sinceDate === null || untilDate === null) {
+        return { error: "since and until must be dates like 2026-10-01" }
+      }
+      const filters: SearchFilters = {
+        author: author?.trim() || undefined,
+        channel: channel?.trim() || undefined,
+        since: sinceDate,
+        until: untilDate,
+      }
       const n = Math.floor(
         Math.min(
           Math.max(limit ?? SEARCH_PER_KIND_DEFAULT, 1),
@@ -837,15 +891,12 @@ export const searchTools = {
       )
       const pool = Math.min(n * SEARCH_POOL_FACTOR, SEARCH_POOL_MAX)
       // An empty/absent types array means all kinds; a non-empty one filters.
-      const want = (
-        t:
-          | "memory"
-          | "messages"
-          | "attachments"
-          | "calls"
-          | "sources"
-          | "sessions"
-      ) => !types || types.length === 0 || types.includes(t)
+      // A kind that can't apply a given filter is skipped, not searched
+      // unfiltered.
+      const want = (t: keyof typeof KIND_FILTERS) =>
+        (!types || types.length === 0 || types.includes(t)) &&
+        (!filters.author || KIND_FILTERS[t].author) &&
+        (!filters.channel || KIND_FILTERS[t].channel)
       const sessionHits = want("sessions")
         ? sessionsTouching({
             workspaceId: context.workspaceId,
@@ -854,6 +905,7 @@ export const searchTools = {
               context.privateContainerChannelId ?? null,
             excludeThreadRootId: context.threadRootId ?? null,
             limit: n,
+            filters,
           }).catch(() => [])
         : Promise.resolve([])
       // Each backend is isolated: one failing (e.g. the embedding call) still
@@ -866,6 +918,7 @@ export const searchTools = {
                 query,
                 pool,
                 context.memoryScopeChannelId ?? null,
+                filters,
                 context.onUsage
               ).catch(() => [])
             : [],
@@ -874,7 +927,8 @@ export const searchTools = {
                 context.workspaceId,
                 query,
                 pool,
-                context.privateContainerChannelId ?? null
+                context.privateContainerChannelId ?? null,
+                filters
               ).catch(() => [])
             : [],
           want("attachments")
@@ -882,7 +936,8 @@ export const searchTools = {
                 context.workspaceId,
                 query,
                 pool,
-                context.privateContainerChannelId ?? null
+                context.privateContainerChannelId ?? null,
+                filters
               ).catch(() => [])
             : [],
           want("calls")
@@ -890,11 +945,14 @@ export const searchTools = {
                 context.workspaceId,
                 query,
                 pool,
-                context.privateContainerChannelId ?? null
+                context.privateContainerChannelId ?? null,
+                filters
               ).catch(() => [])
             : [],
           want("sources")
-            ? searchSources(context.workspaceId, query, pool).catch(() => [])
+            ? searchSources(context.workspaceId, query, pool, filters).catch(
+                () => []
+              )
             : [],
         ]
       )

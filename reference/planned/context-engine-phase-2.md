@@ -265,9 +265,17 @@ As built (~250 lines after the removal):
 
 ### Step 7: search filters
 
-[ ] built · [ ] committed
+[x] built 2026-10-17 · [ ] committed
 
-~300 lines.
+As built (~240 lines): as below. `SearchFilters`, `parseFilterDate`,
+`authorFilter`, `channelFilter` and `dateFilter` live in `retrieval.ts`;
+each search function takes an optional `filters` argument, and `search` skips
+a kind by a `KIND_FILTERS` table. Details: `channel` is a case-insensitive
+exact name with a leading `#` ignored (a substring would let "eng" match
+"engineering"); a bare-date `until` includes that day; a bad date returns an
+error to the model; sources filter dates on their last update, falling back
+to when they were stored. Dates compare against ISO strings cast to
+`timestamp`, the same UTC wall clock Drizzle stores.
 
 - `search` inputs: `author`, `channel`, `since`, `until` (ISO dates).
 - Applied per kind:

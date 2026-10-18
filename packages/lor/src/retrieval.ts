@@ -1,4 +1,4 @@
-import { db, schema, sql } from "@repo/db"
+import { type AnyColumn, and, db, ilike, type SQL, schema, sql } from "@repo/db"
 
 // How a person appears everywhere in the app (message author header, mention
 // pill, composer): their real name. Lor reads and mentions people by this same
@@ -16,6 +16,61 @@ export function userDisplayName(u: { name: string }): string {
 // user text for us.
 export function orTsQuery(query: string) {
   return sql`replace(websearch_to_tsquery('english', ${query})::text, '&', '|')::tsquery`
+}
+
+// `search` filters the model fills in. A kind that can't apply a given filter
+// is skipped rather than searched unfiltered.
+// reference/planned/context-engine-phase-2.md Step 7.
+export type SearchFilters = {
+  author?: string
+  channel?: string
+  since?: Date
+  until?: Date
+}
+
+// "2026-10-01" or a full ISO time; null when it isn't a date. A bare date as
+// `until` includes that whole day.
+export function parseFilterDate(
+  value: string | undefined,
+  { endOfDay }: { endOfDay: boolean }
+): Date | null | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  const date = new Date(trimmed)
+  if (Number.isNaN(date.getTime())) return null
+  if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    date.setUTCDate(date.getUTCDate() + 1)
+  }
+  return date
+}
+
+const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
+
+// Case-insensitive substring, so "ana" matches "Ana Ruiz" and the login
+// "anaz".
+export function authorFilter(column: AnyColumn, author: string | undefined) {
+  const value = author?.trim()
+  return value ? ilike(column, `%${escapeLike(value)}%`) : undefined
+}
+
+// Case-insensitive exact channel name; a leading # is ignored. Needs the
+// channel join.
+export function channelFilter(channel: string | undefined) {
+  const value = channel?.trim().replace(/^#/, "").toLowerCase()
+  return value ? sql`lower(${schema.channel.name}) = ${value}` : undefined
+}
+
+// Timestamps are stored as UTC wall-clock `timestamp` (Drizzle drops the
+// zone), so compare against the ISO string cast the same way.
+export function dateFilter(column: AnyColumn | SQL, filters: SearchFilters) {
+  return and(
+    filters.since
+      ? sql`${column} >= ${filters.since.toISOString()}::timestamp`
+      : undefined,
+    filters.until
+      ? sql`${column} < ${filters.until.toISOString()}::timestamp`
+      : undefined
+  )
 }
 
 const RRF_K = 60

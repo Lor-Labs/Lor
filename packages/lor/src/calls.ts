@@ -14,10 +14,13 @@ import {
 import { formatCallTime } from "@repo/realtime-types/call-transcript"
 import { embedCallQuery } from "./embeddings"
 import {
+  channelFilter,
   type DbTransaction,
+  dateFilter,
   fuseByRank,
   orTsQuery,
   privateAudienceFilter,
+  type SearchFilters,
   withIterativeScan,
 } from "./retrieval"
 
@@ -79,12 +82,15 @@ export async function searchCalls(
   workspaceId: string,
   query: string,
   limit: number,
-  privateContainerChannelId: string | null = null
+  privateContainerChannelId: string | null = null,
+  filters: SearchFilters = {}
 ) {
   const pool = limit * POOL_FACTOR
   const scope = and(
     eq(voicePassage.workspaceId, workspaceId),
-    privateAudienceFilter(privateContainerChannelId)
+    privateAudienceFilter(privateContainerChannelId),
+    channelFilter(filters.channel),
+    dateFilter(voiceSession.startedAt, filters)
   )
   const tsq = orTsQuery(query)
   const [keyword, vector] = await Promise.all([

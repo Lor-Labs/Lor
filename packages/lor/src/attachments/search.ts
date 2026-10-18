@@ -2,10 +2,14 @@ import { and, cosineDistance, db, eq, isNotNull, schema, sql } from "@repo/db"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { embedAttachmentQuery } from "../embeddings"
 import {
+  authorFilter,
+  channelFilter,
   type DbTransaction,
+  dateFilter,
   fuseByRank,
   orTsQuery,
   privateAudienceFilter,
+  type SearchFilters,
   userDisplayName,
   withIterativeScan,
 } from "../retrieval"
@@ -56,14 +60,18 @@ export async function searchAttachments(
   workspaceId: string,
   query: string,
   limit: number,
-  privateContainerChannelId: string | null = null
+  privateContainerChannelId: string | null = null,
+  filters: SearchFilters = {}
 ) {
   const pool = limit * POOL_FACTOR
   const scope = and(
     eq(schema.attachmentChunk.workspaceId, workspaceId),
     eq(schema.message.excludedFromMemory, false),
     privateAudienceFilter(privateContainerChannelId),
-    outsideLiveSessionChatFilter(schema.message.threadRootId)
+    outsideLiveSessionChatFilter(schema.message.threadRootId),
+    authorFilter(schema.user.name, filters.author),
+    channelFilter(filters.channel),
+    dateFilter(schema.message.createdAt, filters)
   )
   const tsq = orTsQuery(query)
 
