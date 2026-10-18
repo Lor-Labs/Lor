@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { checkCredits, recordUsage } from "@repo/billing"
 import {
   and,
@@ -11,6 +10,10 @@ import {
   or,
   schema,
 } from "@repo/db"
+import {
+  EMPTY_LOR_RUN_SCOPE,
+  resolveLorRunScope,
+} from "@repo/db/queries/channel-access"
 import type {
   Loop,
   LorMemory,
@@ -29,6 +32,7 @@ import type { ProposeLoopExecutor } from "@repo/lor/loops"
 import type { StartPlanInput } from "@repo/lor/plans"
 import { toRealtimePlan } from "@repo/lor/plans"
 import type { ProposeChangeExecutor } from "@repo/lor/proposals"
+import { recordRunTouches } from "@repo/lor/touches"
 import {
   buildMessageFanout,
   loadThreadSummary,
@@ -76,14 +80,13 @@ import { titleSessionAfterFirstReply } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
 import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
+import { sessionArchived, sessionGateContext } from "@/lib/writeback-gate"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
 type RedisClient = ReturnType<typeof createClient>
 
 // Batch streamed tokens so we publish ~every 24 chars, not per chunk.
 const FLUSH_THRESHOLD = 24
-// Write-back lock TTL (s); auto-releases if the worker crashes.
-const WRITEBACK_LOCK_TTL = 120
 // Floor of remaining budget below which the optional write-back is skipped.
 const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
 const WRITEBACK_MIN_CREDITS = 50
@@ -475,6 +478,8 @@ export function createLorRespondProcessor(
           let answer: Awaited<ReturnType<typeof respond>>
           let workspaceId: string
           let gateText: string
+          // This turn's prompts, for links people pasted (touches).
+          let promptTexts: string[] = []
           // Tools Lor consults while answering — accumulated for the durable
           // trail persisted on the message, and streamed live via lor:tool.
           const toolCalls: LorToolCall[] = trail ? [...trail.toolCalls] : []
@@ -954,7 +959,16 @@ export function createLorRespondProcessor(
             flushPendingText()
             closeReasoningSegment()
 
-            gateText = `${conversation
+            promptTexts = conversation.map((t) => t.content)
+            const turnIds = new Set(
+              conversation.flatMap((t) => (t.messageId ? [t.messageId] : []))
+            )
+            const sessionContext = contextThreadRootId
+              ? await sessionGateContext(contextThreadRootId, turnIds).catch(
+                  () => ""
+                )
+              : ""
+            gateText = `${sessionContext ? `${sessionContext}\n` : ""}${conversation
               .map((t) => formatSpeakerLine(t.authorName, t.content))
               .join("\n")}\n\nLor: ${answer.text}`
           } catch (err) {
@@ -1011,7 +1025,15 @@ export function createLorRespondProcessor(
             // Verify [[…]] citations (brain pages, messages, sources); strip any
             // that don't resolve so a hallucinated source can't masquerade as real
             // (settles on reload), and enrich valid source cites with their url.
-            const grounded = await groundCitations(workspaceId, answer.text)
+            // A failed scope lookup falls back to public-only sources.
+            const citationScope = await resolveLorRunScope(channelId).catch(
+              () => EMPTY_LOR_RUN_SCOPE
+            )
+            const grounded = await groundCitations(
+              workspaceId,
+              answer.text,
+              citationScope
+            )
             if (grounded.invalid > 0) {
               logger.warn(
                 { lorMessageId, invalid: grounded.invalid },
@@ -1054,7 +1076,8 @@ export function createLorRespondProcessor(
               if (cached) return cached
               const mapped = groundCitations(
                 workspaceId,
-                answer.text.slice(0, at)
+                answer.text.slice(0, at),
+                citationScope
               )
                 .then((g) => g.text.length)
                 .catch(() => at)
@@ -1218,6 +1241,18 @@ export function createLorRespondProcessor(
               logger.warn({ err, threadRootId }, "Session title failed")
             )
           }
+          if (threadRootId) {
+            void recordRunTouches({
+              workspaceId,
+              channelId,
+              threadRootId,
+              runId: execution?.runId ?? null,
+              replyText: finalText,
+              promptTexts,
+            }).catch((err) =>
+              logger.warn({ err, threadRootId }, "Recording touches failed")
+            )
+          }
           // Announce the gate only after the run is terminal — the resolve
           // endpoint refuses to resume a run that hasn't finished parking.
           // Ids only; cards read the durable row via the approvals query.
@@ -1267,7 +1302,11 @@ export function createLorRespondProcessor(
             { lorMessageId, length: finalText.length, stoppedByUser },
             "Lor reply complete"
           )
-          if (stoppedByUser) {
+          const archivedStop =
+            stoppedByUser && contextThreadRootId
+              ? await sessionArchived(contextThreadRootId).catch(() => false)
+              : false
+          if (stoppedByUser && !archivedStop) {
             await runWriter.close()
             return
           }
@@ -1299,20 +1338,9 @@ export function createLorRespondProcessor(
             await execution.setPhase("writeback")
           }
 
-          // Phase 3 — autonomous write-back. Per-workspace lock serializes brain
-          // writes; skip if another holds it (resurfaces on a later mention).
-          const lockKey = `lor:writeback:${workspaceId}`
-          const lockToken = randomUUID()
-          const acquired = await redis
-            .set(lockKey, lockToken, { NX: true, EX: WRITEBACK_LOCK_TTL })
-            .catch(() => null)
-          if (acquired !== "OK") {
-            logger.info(
-              { workspaceId, lorMessageId },
-              "Write-back skipped; another is in progress"
-            )
-            return
-          }
+          // Phase 3 — autonomous write-back. Parallel write-backs are safe:
+          // brain writes are create-only and edits compare-and-swap per page
+          // (reference/planned/session-memory.md Step 3).
           try {
             await writeBack(
               {
@@ -1349,14 +1377,6 @@ export function createLorRespondProcessor(
           } catch (err) {
             logger.error({ err, lorMessageId }, "Lor write-back failed")
           } finally {
-            // Release only if we still own it: if write-back outran the TTL and a
-            // newer worker re-acquired, an unconditional DEL would drop its lock.
-            await redis
-              .eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                { keys: [lockKey], arguments: [lockToken] }
-              )
-              .catch(() => {})
             // Flush any write-back memory events buffered after completion.
             await runWriter.close()
           }

@@ -99,12 +99,8 @@ export async function getDatadogCredentials(
 }
 
 // No ingestion: Datadog is on-demand tools only (log volume rules out eager
-// `sources` rows), so fetchContent has nothing to resolve.
+// `source` rows).
 export const datadogProvider: SourceProvider = {
-  async fetchContent() {
-    return null
-  },
-
   async verifyConnection(connection) {
     const creds = await getDatadogCredentials(connection.externalId)
     if (!creds) return null

@@ -30,6 +30,7 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "tree",
   "read",
   "write",
+  "edit",
   "mkdir",
   "move",
   "link",

@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm"
+import { relations, sql } from "drizzle-orm"
 import {
   type AnyPgColumn,
   halfvec,
@@ -63,10 +63,12 @@ export const brainNode = pgTable(
       .notNull(),
   },
   (table) => [
-    // unique siblings; NULLS NOT DISTINCT so top-level names can't collide.
-    // backing index also serves ls() on (workspace_id, parent_id).
-    unique("brain_node_parent_name_uq")
-      .on(table.workspaceId, table.parentId, table.name)
+    // Unique siblings per memory scope; NULLS NOT DISTINCT so top-level and
+    // workspace-wide names can't collide. Scope is in the key so a scoped
+    // write's own /projects or /channels folder can sit beside the workspace
+    // one. The backing index also serves ls() on (workspace_id, parent_id).
+    unique("brain_node_parent_scope_name_uq")
+      .on(table.workspaceId, table.parentId, table.scopeChannelId, table.name)
       .nullsNotDistinct(),
     index("brain_node_embedding_hnsw_idx").using(
       "hnsw",
@@ -75,6 +77,41 @@ export const brainNode = pgTable(
     index("brain_node_workspace_scope_idx").on(
       table.workspaceId,
       table.scopeChannelId
+    ),
+    // Keyword search over page name and body. Expression index; queries must
+    // use the identical expression.
+    index("brain_node_text_tsv_idx").using(
+      "gin",
+      sql`to_tsvector('english', ${table.name} || ' ' || coalesce(${table.body}, ''))`
+    ),
+  ]
+)
+
+// A page's previous bodies: every body change saves the old one here in the
+// same transaction, so an edit or rewrite can always be recovered.
+// reference/planned/session-memory.md Step 3.
+export const brainNodeVersion = pgTable(
+  "brain_node_version",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    nodeId: uuid("node_id")
+      .notNull()
+      .references(() => brainNode.id, { onDelete: "cascade" }),
+    // The version this body had before the change replaced it.
+    version: integer("version").notNull(),
+    body: text("body").notNull(),
+    // The agent run that made the change; null outside a run (write-back,
+    // archive synthesis). FK omitted (schema import cycle).
+    runId: uuid("run_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("brain_node_version_node_version_uidx").on(
+      table.nodeId,
+      table.version
     ),
   ]
 )

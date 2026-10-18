@@ -17,6 +17,9 @@ type SearchResult = {
   channelId: string
   channelName: string
   threadRootId?: string | null
+  // Workspace search only; DM results never come from a Lor session.
+  sessionId?: string | null
+  sessionTitle?: string | null
   author: {
     id: string
     name: string
@@ -97,6 +100,7 @@ export function HeaderSearch({
         id: msg.id,
         channelId: msg.channelId,
         threadRootId: msg.threadRootId ?? null,
+        sessionId: msg.sessionId,
       })
     }
   }
@@ -171,10 +175,15 @@ export function HeaderSearch({
                     {getAvatarInitials(msg.author.name)}
                   </AvatarFallback>
                 </Avatar>
-                <span className="text-[11px] font-semibold">
+                <span className="shrink-0 text-[11px] font-semibold">
                   {msg.author.name}
                 </span>
-                <span className="ml-auto text-[10px] text-muted-foreground">
+                {msg.sessionTitle && (
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                    in {msg.sessionTitle}
+                  </span>
+                )}
+                <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
                   {formatTime(msg.createdAt)}
                 </span>
               </div>

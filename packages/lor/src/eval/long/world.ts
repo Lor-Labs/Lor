@@ -1,7 +1,7 @@
 import { db, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { writePage } from "../../brain"
-import { embedDocument } from "../../embeddings"
+import { storeSourceItem } from "../../sources"
 import { ensureLorUser } from "../seed"
 
 // A small company with two weeks of history. The billing migration changed
@@ -535,23 +535,23 @@ export async function seedWorld(): Promise<World> {
     })
     .returning({ id: schema.integrationConnection.id })
   if (!connection) throw new Error("seed: connection insert failed")
-  const embeddings = await Promise.all(
-    PRS.map(([, , , , summary]) => embedDocument(summary).catch(() => null))
-  )
-  await db.insert(schema.source).values(
-    PRS.map(([num, title, author, daysAgo, summary], i) => ({
-      workspaceId,
-      connectionId: connection.id,
-      provider: "github" as const,
-      kind: "pull_request" as const,
-      externalId: `evalco/app#${num}`,
-      url: `https://github.com/evalco/app/pull/${num}`,
-      title,
-      author: author.toLowerCase(),
-      summary,
-      embedding: embeddings[i] ?? null,
-      occurredAt: at(daysAgo),
-    }))
+  await Promise.all(
+    PRS.map(([num, title, author, daysAgo, body]) =>
+      storeSourceItem(
+        { id: connection.id, workspaceId, provider: "github" },
+        {
+          kind: "pull_request",
+          externalId: `evalco/app#${num}`,
+          url: `https://github.com/evalco/app/pull/${num}`,
+          title,
+          author: author.toLowerCase(),
+          state: "merged",
+          body,
+          sourceCreatedAt: at(daysAgo),
+          sourceUpdatedAt: at(daysAgo),
+        }
+      )
+    )
   )
 
   await db.insert(schema.message).values(

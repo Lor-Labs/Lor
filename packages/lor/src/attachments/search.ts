@@ -1,11 +1,21 @@
 import { and, cosineDistance, db, eq, isNotNull, schema, sql } from "@repo/db"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { embedAttachmentQuery } from "../embeddings"
-import { orTsQuery, privateAudienceFilter, userDisplayName } from "../retrieval"
+import {
+  authorFilter,
+  channelFilter,
+  type DbTransaction,
+  dateFilter,
+  fuseByRank,
+  orTsQuery,
+  privateAudienceFilter,
+  type SearchFilters,
+  userDisplayName,
+  withIterativeScan,
+} from "../retrieval"
 import { pieceLabel } from "./kinds"
 
 const POOL_FACTOR = 3
-const RRF_K = 60
 const SNIPPET_MAX = 1000
 // A long PDF or a big workbook would otherwise fill every result slot.
 const MAX_HITS_PER_FILE = 2
@@ -13,8 +23,8 @@ const MAX_HITS_PER_FILE = 2
 // Must match the attachment_chunk_text_tsv_idx expression exactly.
 const chunkTsv = sql`to_tsvector('english', translate(${schema.attachmentChunk.filename}, '._-', '   ') || ' ' || ${schema.attachmentChunk.text})`
 
-function candidates() {
-  return db
+function candidates(executor: Pick<DbTransaction, "select"> = db) {
+  return executor
     .select({
       id: schema.attachmentChunk.id,
       messageId: schema.attachmentChunk.messageId,
@@ -50,14 +60,18 @@ export async function searchAttachments(
   workspaceId: string,
   query: string,
   limit: number,
-  privateContainerChannelId: string | null = null
+  privateContainerChannelId: string | null = null,
+  filters: SearchFilters = {}
 ) {
   const pool = limit * POOL_FACTOR
   const scope = and(
     eq(schema.attachmentChunk.workspaceId, workspaceId),
     eq(schema.message.excludedFromMemory, false),
     privateAudienceFilter(privateContainerChannelId),
-    outsideLiveSessionChatFilter(schema.message.threadRootId)
+    outsideLiveSessionChatFilter(schema.message.threadRootId),
+    authorFilter(schema.user.name, filters.author),
+    channelFilter(filters.channel),
+    dateFilter(schema.message.createdAt, filters)
   )
   const tsq = orTsQuery(query)
 
@@ -68,34 +82,28 @@ export async function searchAttachments(
       .limit(pool),
     embedAttachmentQuery(query)
       .then((embedding) =>
-        candidates()
-          .where(and(scope, isNotNull(schema.attachmentChunk.embedding)))
-          .orderBy(cosineDistance(schema.attachmentChunk.embedding, embedding))
-          .limit(pool)
+        withIterativeScan((tx) =>
+          candidates(tx)
+            .where(and(scope, isNotNull(schema.attachmentChunk.embedding)))
+            .orderBy(
+              cosineDistance(schema.attachmentChunk.embedding, embedding)
+            )
+            .limit(pool)
+        )
       )
       .catch(() => [] as Candidate[]),
   ])
 
-  const scored = new Map<string, { row: Candidate; score: number }>()
-  for (const list of [keyword, vector]) {
-    list.forEach((row, rank) => {
-      const entry = scored.get(row.id) ?? { row, score: 0 }
-      entry.score += 1 / (RRF_K + rank + 1)
-      scored.set(row.id, entry)
-    })
-  }
-
   const perFile = new Map<string, number>()
-  return [...scored.values()]
-    .sort((a, b) => b.score - a.score)
-    .filter(({ row }) => {
+  return fuseByRank([keyword, vector], (row) => row.id)
+    .filter((row) => {
       const key = `${row.messageId}:${row.url}`
       const hits = perFile.get(key) ?? 0
       perFile.set(key, hits + 1)
       return hits < MAX_HITS_PER_FILE
     })
     .slice(0, limit)
-    .map(({ row }) => ({
+    .map((row) => ({
       messageId: row.messageId,
       channelId: row.channelId,
       url: row.url,

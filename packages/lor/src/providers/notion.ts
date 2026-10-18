@@ -385,10 +385,6 @@ export async function notionWriteCall<T>(
 }
 
 export const notionProvider: SourceProvider = {
-  async fetchContent() {
-    return null
-  },
-
   async verifyConnection(connection) {
     const bot = await notionCall(connection.externalId, (client) =>
       client.users.me({})

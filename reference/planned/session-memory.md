@@ -117,7 +117,8 @@ calls, citations, reverse hints) follows the same rules.
    pages from a private channel stay in that channel (`privateAudienceFilter`,
    brain memory scope). Built.
 2. **Stored connector data follows the channel it came from.** A remembered
-   `source` row keeps its trigger's channel (Step 1).
+   `source` row keeps its trigger's channel (Step 1). Retired 2026-10-17:
+   Remember is removed, and ingested items follow rule 3.
 3. **Connecting a service shares what it can see with the whole workspace.**
    This covers live tool calls today and phase 2 ingestion. The boundary is
    chosen when connecting: the repos the GitHub app is installed on, the
@@ -143,7 +144,20 @@ to 400 lines.
 
 ### Step 1: scope `source`
 
-[ ] built · [ ] committed · [ ] db:push · [ ] backfill run
+[x] built 2026-10-16 · [ ] committed · [ ] db:push · [ ] backfill run
+
+> **Channel scope superseded 2026-10-17** by phase 2
+> (`context-engine-phase-2.md` Steps 1 and 2). With Remember removed, no
+> stored item comes from a channel: `source.channel_id` and the backfill
+> script are gone before reaching a database, and stored items are
+> workspace-visible (rule 3). The active-connection filter stays.
+
+As built (~190 lines): `visibleSource()` in `sources.ts` holds the shared
+filter; `searchSources`, `fetchSourceContent` and `resolveSourceCitation`
+take `privateContainerChannelId`. `groundCitations` takes the run scope, and
+the worker resolves it once per reply (falls back to public-only). Search
+results drop `hasMore`. Backfill: `packages/db/src/scripts/backfill-source-channels.ts`,
+run after `db:push` with `--dry-run` first (command in its header).
 
 - Schema: `source.channelId`, the channel of the trigger that stored the row
   (FK, cascade: deleting the channel deletes its remembered rows).
@@ -166,7 +180,18 @@ to 400 lines.
 
 ### Step 2: session-aware search hits
 
-[ ] built · [ ] committed
+[x] built 2026-10-16 · [ ] committed
+
+As built (~195 lines): Lor's `searchMessages` ranks in a subquery, then runs
+`ts_headline` on the pool only: messages over 500 characters return their
+matched passages (matched words in `**bold**`, since Postgres does not
+document an empty highlight marker) with `truncated: true`. Hits and
+`read_thread` carry `sessionTitle`. The API returns `sessionId` /
+`sessionTitle` on message hits and up to 5 title-matched `sessions` on page 1,
+archived included. Web ⌘K and header search pass `sessionId` straight to
+navigation, skipping the location lookup. Mobile shows the title on message
+hits, and channel search labels session hits with the title instead of
+"In thread"; mobile has no Sessions group yet.
 
 - `searchMessages`: join `agent_session` on the thread root; return
   `sessionId` and `sessionTitle`. Replace `slice(0, 500)` with a window around
@@ -185,7 +210,21 @@ to 400 lines.
 
 ### Step 3: brain page safety
 
-[ ] built · [ ] committed · [ ] db:push
+[x] 3a built 2026-10-16 · [x] 3b built 2026-10-16 · [ ] committed · [ ] db:push
+
+Split in two. 3a (~265 lines): `brain_node_version`, create-only `writePage`,
+`editPage` (history row and compare-and-swap in one transaction; a lost race,
+whether a 0-row update or the history unique key, returns "changed since you
+read it"), race-safe `ensureFolderPath`, the `edit` tool (replay set, reserved
+names, trail label), prompt lines that name the brain tools, and the write-back
+lock removed. Answer-phase edits record the run id; write-back and archive
+synthesis record none. 3b (~150 lines): unique key
+`brain_node_parent_scope_name_uq` on (workspace, parent, scope, name);
+`resolveMatches` walks the workspace and scope trees together in a scoped
+read, `pickMatch` prefers the scope's node (and the wanted kind), and `ls` /
+`tree` list both trees' folders once per name. `pageExists` and
+`groundCitations` take the memory scope. Deviation: `move` now resolves its
+source scope-strictly, so a scoped run can't move workspace memory.
 
 - Schema: `brain_node_version` (`nodeId`, `version`, `body`, `runId` nullable,
   `createdAt`). Written in the same transaction as every body change.
@@ -202,6 +241,11 @@ to 400 lines.
   `RESERVED_TOOL_NAMES` (`custom-tools.ts:20`). No approval wiring: core
   memory tools are never gateable (`approval-targets.ts`).
 - `ensureFolderPath`: insert with `on conflict do nothing`, then re-select.
+- Two scope bugs from `context-engine.md` §6, folded in 2026-10-16: citation
+  checks call `pageExists` without the run's memory scope (`index.ts:3155`;
+  widen the `groundCitations` scope from Step 1), and the unique key
+  `brain_node_parent_name_uq` ignores `scopeChannelId`, so a scoped
+  `/projects` folder can collide with the workspace one (`brain.ts:68`).
 - Remove the write-back lock (`lor-respond.ts:1302-1315`,
   `WRITEBACK_LOCK_TTL`). This also removes the lock-held return that skips
   `runWriter.close()`.
@@ -216,7 +260,16 @@ to 400 lines.
 
 ### Step 4: write-back sees the session
 
-[ ] built · [ ] committed
+[x] built 2026-10-16 · [ ] committed
+
+As built (~120 lines): `apps/worker/src/lib/writeback-gate.ts`.
+`sessionGateContext` prefixes the gate input with the session title, its
+starting context and people's earlier prompts (newest first, 8,000
+characters), then "This turn:"; the gate question says to judge only that
+turn. Deviations: an archive stop is detected by the session's `archivedAt`
+when the run stopped, not by a new stop reason (no schema change); and
+write-back bounds its transcript with the existing `fitMessagesToBudget`
+projection at 120k estimated tokens instead of reusing compaction notes.
 
 - Gate input on continued turns: session title, seed context
   (`agent_session_context`), earlier human turns under a token cap, then the
@@ -229,7 +282,40 @@ to 400 lines.
 
 ### Step 5: touches and reverse hints
 
-[ ] built · [ ] committed · [ ] db:push · [ ] backfill run
+[x] 5a built 2026-10-16 · [x] 5b built 2026-10-16 · [x] 5c built 2026-10-16 · [ ] committed · [ ] db:push · [ ] backfill run
+
+Split in two. 5a (~530 lines): the `touch` table with `TOUCH_KINDS` /
+`TOUCH_ACTIONS` (`packages/db/src/schemas/touches.ts`); `CONNECTOR_TOOLS` built
+from an `as const` catalog so `ConnectorToolName` is a literal union; key
+helpers in `packages/connectors/src/item-keys.ts`; `packages/lor/src/touches.ts`
+with `CATALOG_SPECS` (exhaustive over catalog tool names, action from
+`readOnlyHint`), `CORE_SPECS` (read_thread, read_call, fetch_source, read,
+write, edit) and `recordRunTouches`, which the worker calls after a session
+reply persists: the run's tool calls from `agent_run_step`, verified citations
+in the reply, and the session's starting context. Deviations: `started_from`
+rows are written by each run's writer (idempotent), not at session start;
+Better Stack specs were `null` until its MCP input names were known; added
+2026-10-16 from the tools' runtime schemas (incidents by `id`, errors by
+`application_id` + `pattern`, since an error has no single id).
+
+5b (~250 lines): `CONNECTOR_URL_HOSTS` and `itemFromUrl` in `item-keys.ts`
+(GitHub PR, issue, repo; Linear issue; Notion page; Attio record), now also
+used by the web tool trail. Reply links are `cited` only when the URL appears
+in the run's tool results; links people paste are `mentioned`; unknown hosts
+become `url` touches. Backfill: `packages/lor/src/scripts/backfill-touches.ts`
+(command in its header). Deviation: `mentioned` covers pasted links only, not
+bare `LOR-123` or `owner/repo#n` text, which can't be told apart from noise or
+from PR vs issue without a lookup.
+
+5c (~220 lines): `sessionsTouching` (one hit per session, strongest action
+then recency, message audience filter, current session left out) and
+`itemsInText` (links, issue keys, `owner/repo#n` tried as PR and issue) in
+`touches.ts`. `search` gains a `sessions` kind; its hits skip the rerank
+because they are exact matches, and carry the session's anchor as
+`messageId` for `read_thread`. `withTouchHints` wraps the run's tools before
+`guardTools`. Deviations: hints cover catalog read tools only (connector
+items), not Lor's own read tools; they arrive as an `earlierSessions` field on
+the result rather than a text line. The system prompt names both.
 
 **Schema.** `touch`:
 
@@ -331,12 +417,21 @@ start from the per-provider `urlHost` regexes in
   parser and per-tool `TouchSpec` next to the existing "add it to
   `CONNECTOR_TOOLS`" rule.
 
-## Phase 2: default ingestion (decided direction, not scheduled)
+## Phase 2: default ingestion
 
-Decided with Jacob on 2026-10-14. Builds on `context-engine.md` §5.3 and §5.5.
+Decided with Jacob on 2026-10-14, scoped 2026-10-17. Builds on
+`context-engine.md` §5.3 and §5.5 (§7 step 3). Build steps:
+[`context-engine-phase-2.md`](./context-engine-phase-2.md) (2026-10-17),
+which also adds Attio and ships with phase 1 in one release.
 
-- Ingest connected systems into `source` by default: backfill, webhooks as a
-  signal to refetch, a reconcile sweep, tombstones for deletes.
+- Start with GitHub and Linear. GitHub: PRs and issues with their comments
+  and review comments; no releases, commits or code (code work waits for code
+  channels). Linear: issues with their comments.
+- Ingest connected systems into `source` by default: webhooks as a signal to
+  refetch, tombstones for deletes. No backfill on connect for now: a new
+  connection starts empty and fills as items change. A search index, not a
+  mirror (2026-10-17): no reconcile sweep; a missed webhook leaves an item
+  stale, and current state is fetched live.
 - Store the real text: title and body, indexed with FTS and embeddings over
   chunks. No per-item summary call. Raw text beat summaries as a retrieval key
   in the research below.
@@ -405,12 +500,19 @@ corpus.
 
 ## Eval (reopen trigger for both deferrals)
 
-Reuses the judged pool in `context-engine.md` §5.11.
+Reuses the judged pool in `context-engine.md` §5.11 (§7 step 0). **Deferred
+2026-10-17:** with no users there is too little real data to draft questions
+from. Until it exists, the deferrals below reopen on gaps seen in real use
+(for example Lor missing answers that sit in past sessions). The long-task
+eval for model and prompt changes is unaffected.
 
-- 100 to 200 real questions with gold session and message ids. A model may
-  draft them from real sessions; a person checks every one.
+- Start with 50 real questions with gold session and message ids, growing
+  toward 100 to 200. A model drafts them from real prod sessions and threads;
+  Jacob checks every one. An LLM grades each result 0 to 3, and 10% are graded
+  twice to check the grader.
 - Tags: decision or finding; paraphrase with no shared keywords; exact
-  identifier; what Lor said vs what a person said.
+  identifier; what Lor said vs what a person said; multi-hop (the answer sits
+  2 to 3 references away, the reopen trigger for item-to-item links).
 - Conditions: FTS; + Step 2; + Step 5; + outcome items; + turn embeddings
   (human prompts only, then agent-reply chunks). Each under RRF and the
   reranker.
@@ -422,7 +524,9 @@ Reuses the judged pool in `context-engine.md` §5.11.
 ## Evidence
 
 Research pass 2026-10-14. Rows marked ✓ were checked against the primary
-source in this session; the rest come from the research pass's reading.
+source in this session; the rest come from the research pass's reading. The
+full record (every source, setup, number, label and the internal audits) is
+[`session-memory-research.md`](./session-memory-research.md).
 
 | Source | Finding | Used for |
 |---|---|---|

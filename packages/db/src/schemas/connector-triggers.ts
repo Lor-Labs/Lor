@@ -22,9 +22,9 @@ export const ACT_DEFAULTS = {
 } as const
 
 // A trigger: one connector event kind (e.g. GitHub "pr_merged") anchored to a
-// channel, fanning out to effects — POST (message into the channel), Remember
-// (summarize + embed into `source`), Act (unattended agent run; column
-// reserved, executed in a later phase). No row = that event is off. `event`
+// channel, fanning out to effects — POST (message into the channel) and Act
+// (unattended agent run). Connected items are ingested into `source` whether
+// or not a trigger exists. No row = that event is off. `event`
 // keys are declared in the @repo/connectors registry (CONNECTOR_EVENTS) and
 // validated at the API layer. See reference/automation-primitives.md.
 export const connectorTrigger = pgTable(
@@ -39,9 +39,6 @@ export const connectorTrigger = pgTable(
       .notNull()
       .references(() => channel.id, { onDelete: "cascade" }),
     post: boolean("post").notNull().default(true),
-    remember: boolean("remember").notNull().default(false),
-    // Optional steering for Remember's summarize pass.
-    rememberHint: text("remember_hint"),
     // Act instructions — null = Act off.
     actInstructions: text("act_instructions"),
     enabled: boolean("enabled").notNull().default(true),

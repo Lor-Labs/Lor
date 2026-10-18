@@ -10,7 +10,10 @@
 > Phase 1 is planned in [`session-memory.md`](./session-memory.md) (decisions
 > locked 2026-10-14): scope `source`, session-aware search, safe brain writes,
 > and the general `touch` table with sessions as its first origin. The item
-> table keeps the name `source`, and default ingestion is phase 2.
+> table keeps the name `source`, and default ingestion is phase 2. Phase 1 was
+> built 2026-10-16. Revised 2026-10-17: §7 holds the current build order and
+> §8 the decisions; item-to-item links (§5.4), time-correlation hints and all
+> code work are dropped or deferred.
 
 ## 1. Goal
 
@@ -181,6 +184,9 @@ Lor runs open-weight models, so measure before deciding (§5.8).
    brain pages stay Lor-authored (`automation-primitives.md`: no direct brain
    writes from inbound paths). Pages cite the artifacts they came from.
 4. **A webhook is a signal.** Refetch canonical state; reconcile on a schedule.
+   *Revised 2026-10-17:* no scheduled reconcile. Ingested items are a search
+   index, not a mirror; current state is fetched live
+   (`context-engine-phase-2.md` decision 4).
 5. **Filter by audience, not asker.** A Lor answer in a channel is read by
    every channel member.
 6. **Relevance gates; priors reorder.** Recency can never lift an irrelevant
@@ -301,6 +307,13 @@ User deletions propagate through tombstones; everything else is kept forever
 (system-of-record retention).
 
 ### 5.4 Linking
+
+> **Dropped 2026-10-17** (§7 step 11): no item-to-item link table for now. Lor
+> follows references through its tools, and stored text plus search finds
+> identifiers. Session-to-item links live in `touch`. A lighter option, a
+> `refs` list on each ingested item shown in search hits, was also considered
+> and skipped: no half version. Revisit the full graph only if the eval's
+> multi-hop questions fail. Kept for history.
 
 **Identifiers** (run on `source`, message and session-step writes; never DMs):
 
@@ -514,37 +527,43 @@ Found by reading code on 2026-10-10; not reproduced by running.
    planned in `session-memory.md` Step 1.
 2. **Installation-token tools ignore repo privacy.** `search_github` and
    `investigate_code` can read any installed repo from any channel with the
-   GitHub capability.
+   GitHub capability. Accepted 2026-10-16 by permission rule 3 in
+   `session-memory.md`: connecting a service shares what it can see with the
+   whole workspace.
 3. **Scoped citations may be stripped.** `groundCitations`
    (`packages/lor/src/index.ts:2974`) calls `pageExists` without a scope.
+   Fixed in `session-memory.md` Step 3b.
 4. **Scoped `/projects/<name>` writes may collide.** The seeded workspace-wide
    `/projects` folder and the scope-less unique key
    `brain_node_parent_name_uq` conflict when a scoped run creates its folder.
+   Fixed in `session-memory.md` Step 3b (scope joins the unique key).
 5. **Filtered vector search may return short lists.** No code sets
    `hnsw.iterative_scan`. Check the hand-installed pgvector version (≥ 0.8) and
-   run `EXPLAIN` on prod.
+   run `EXPLAIN` on prod. Checked 2026-10-17: pgvector 0.8.2 on Postgres
+   17.11, so the setting is available; set it in vector queries in §7 step 4.
+   Built 2026-10-17 (`withIterativeScan`, `strict_order`).
 6. **MVP spec is stale** on prefetch, the read-only answer loop, and §6's
    "stored summaries are workspace-visible" premise.
 
-## 7. Build order (proposed)
+## 7. Build order (revised 2026-10-17)
 
 Ordered by value against cost. Each step should be a runbook step when this
-moves to root.
+moves to root. Status and scope as decided with Jacob on 2026-10-17.
 
-| # | Step | Inference cost |
+| # | Step | Status |
 |---|---|---|
-| 0 | Fix §6; judged-pool eval baseline on current `search` | Eval only |
-| 1 | `source` grows into the item table (scope first, `session-memory.md` Step 1), `access_container`, connection access modes, audience filter, `brain_node_input` | None |
-| 2 | `touch` (sessions first, `session-memory.md` Step 5) + identifier/metadata edges; 1–2 hop expansion in `search` | None |
-| 3 | Ingestion: webhook-as-signal, backfill, reconcile, tombstones; GitHub + Linear first; real text, no per-item summary; Remember removed | Embeddings |
-| 4 | Hybrid search for every kind; `search` filters; iterative scan | None |
-| 5 | Calibrated gate + priors (R, A, P); retune τ on the pool | Rerank |
-| 6 | `person_identity`; expertise signal E | None |
-| 7 | Bi-temporal brain edges, `contradicts`, write-time and query-time conflict checks | Small |
-| 8 | Code Tier 0 + 1 | Small |
-| 9 | Conventions from review comments via change proposals | Small |
-| 10 | `possibly_related` time-correlation candidates | None |
-| 11 | LLM edges; code Tier 2 — only if evals show the gap | Budgeted |
+| 0 | Judged-pool eval baseline on current `search` (§5.11): 50 questions to start, drafted by a model from prod sessions and threads and checked by Jacob, LLM-graded 0 to 3 with 10% graded twice. Include multi-hop questions (the answer sits 2 to 3 references away) | Deferred 2026-10-17: no users yet, so too little real data to draft from. Until it exists, deferred items reopen on gaps seen in real use, and step 5 keeps its starting values |
+| 1 | `source` scoped by channel (`session-memory.md` Step 1). `access_container` and connection access modes dropped (permission rules) | Done; rest in step 3 |
+| 2 | `touch` table, session lookup in `search`, reverse hints (`session-memory.md` Step 5) | Done |
+| 3 | Ingestion (`session-memory.md` Phase 2): GitHub, Linear and Attio; PRs and issues with their comments and review comments, no releases; Attio notes and call recordings; real text, no per-item summary; webhooks as a signal, tombstones; a search index, not a mirror (no reconcile, current state fetched live); no backfill on connect for now; Remember removed | Built in `context-engine-phase-2.md` Steps 1 to 5 |
+| 4 | Hybrid search for every kind; `search` filters (`author`, `channel`, `since`/`until`, `kind`, more later); `hnsw.iterative_scan`; ~~`pg_textsearch` BM25~~ (dropped: not on Railway) | Built in `context-engine-phase-2.md` Steps 6 and 7 |
+| 5 | Calibrated relevance cutoff + priors: authority (merged code/PR > human doc > issue > call ≈ chat > Lor-written) and recency half-lives (chat ~30 d, calls ~60 d, open issues/PRs none, docs/memory ~1 y) as starting values; retune on the eval | Built in `context-engine-phase-2.md` Step 8 (starting values, untuned) |
+| 6 | People: identities across services and a hidden ranking signal from who did the work (name open: "involvement" or "familiarity"); never scores, heat maps or leaderboards. GitHub App user authorization waits for this step | Later |
+| 7 | Conflicts: show both sides with dates and which weighs more; dated `supersedes` edges on brain pages instead of edits | Built in `context-engine-phase-2.md` Step 9 (no model call) |
+| 8 | Code index (Tier 0 + 1), code parsing | Deferred to code channels |
+| 9 | Conventions from review comments via change proposals | Later |
+| 10 | `possibly_related` time-correlation hints | Dropped |
+| 11 | Item-to-item links (`item_edge`, §5.4) and 1 to 2 hop expansion; LLM edges; code Tier 2 | Dropped: Lor follows references through its tools, and stored text plus search finds identifiers. Revisit only if the eval's multi-hop questions fail |
 
 ## 8. Decisions needed
 
@@ -553,11 +572,14 @@ moves to root.
    `voyage/rerank-2.5` is already proprietary. Either the open-weight rule
    covers generation only, or rerank/decision models get an explicit
    exception. Open alternatives on the gateway: Laya (Apache-2.0, ~half Jev's
-   zero-shot accuracy) or LLM-as-judge (slower, costlier).
+   zero-shot accuracy) or LLM-as-judge (slower, costlier). **Decided
+   2026-10-17:** a written exception for rerank and relevance models;
+   generation stays open-weight.
 2. **Embed individual messages?** Reverses MVP spec §11 ("never embed
    individual messages"). Cost ~$1 per 1M messages; fixes paraphrase misses.
    Session turns: deferred behind an eval (`session-memory.md`, 2026-10-14).
-   Channel chat messages: still open.
+   **Decided 2026-10-17:** channel chat messages are deferred behind the same
+   eval.
 3. **Ingest by default.** Reverses `github-connector.md` "no embedding by
    default of GitHub PRs/issues" and "webhooks not needed". The engine needs
    GitHub and Linear ingested without a per-trigger Remember. **Decided
@@ -565,15 +587,23 @@ moves to root.
    summary, remove Remember, and do not ingest your own webhooks (the posted
    chat message is the record). See `session-memory.md` Phase 2.
 4. **Code index order.** Move `code-channels.md` §11 `code_chunk` embeddings to
-   Tier 2.
+   Tier 2. **Decided 2026-10-17:** all code work (index, parsing) waits for code
+   channels; decide the order then.
 5. **Default access mode** for new connections: `workspace` (today) or `sync`.
    **Decided 2026-10-16:** no access modes; every connection is
    workspace-wide (`session-memory.md`, permission rules).
-6. **GitHub App user authorization** for identity (off today).
+6. **GitHub App user authorization** for identity (off today). **Decided
+   2026-10-17:** not now; it waits for the people step (§7 step 6) or code
+   channels.
 7. **pg_textsearch** (needs PG ≥ 17 + preload) — check `SHOW server_version`
-   on Railway first.
+   on Railway first. **Decided 2026-10-17:** yes. Railway runs Postgres 17.11;
+   Jacob installs the extension and the preload; used from §7 step 4.
+   **Reversed the same day:** Railway's managed Postgres does not offer
+   `pg_textsearch`, and our own Postgres image is not worth it for better
+   candidate ordering ahead of the reranker. Keyword search keeps `ts_rank`.
 8. **Outside agents.** Whether Lor later exposes the engine over MCP to
-   Claude Code / Cursor (Unblocked's product) or keeps it internal.
+   Claude Code / Cursor (Unblocked's product) or keeps it internal. **Decided
+   2026-10-17:** internal for now.
 
 Compatible with existing rules and not up for change: DMs never indexed;
 data kept forever with deletions propagated; brain pages stay Lor-authored;

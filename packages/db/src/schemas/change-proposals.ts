@@ -58,8 +58,6 @@ export const setTriggerOpSchema = z.object({
   event: z.string().min(1).max(100),
   channel: resourceRefSchema,
   post: z.boolean().default(true),
-  remember: z.boolean().default(false),
-  rememberHint: z.string().trim().max(2000).nullable().default(null),
   actInstructions: z.string().trim().max(4000).nullable().default(null),
 })
 

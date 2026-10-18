@@ -25,6 +25,7 @@
     "./project-archive": "./src/project-archive.ts",
     "./providers": "./src/providers/index.ts",
     "./sources": "./src/sources.ts",
+    "./touches": "./src/touches.ts",
     "./voice-entities": "./src/voice-entities.ts",
     "./plans": "./src/plans.ts",
     "./mcp-server-oauth": "./src/mcp-server-oauth.ts",

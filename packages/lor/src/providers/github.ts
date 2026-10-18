@@ -1,7 +1,8 @@
+import { githubItemKey } from "@repo/connectors"
 import { env } from "@repo/env/server"
 import { App, Octokit } from "octokit"
 import { logger } from "../logger"
-import type { SourceProvider } from "./types"
+import type { SourceFetcher, SourceProvider } from "./types"
 
 function fromBase64(s: string): string | undefined {
   try {
@@ -684,94 +685,180 @@ export async function openPullRequest(
   }
 }
 
-export const githubProvider: SourceProvider = {
-  async fetchContent(source, connection) {
-    const app = getApp()
-    if (!app) return null
-    const installationId = Number(connection.externalId)
-    if (!Number.isFinite(installationId)) return null
-    const octokit = await app.getInstallationOctokit(installationId)
+// Ingestion reads the whole first page of each discussion list, more than
+// fetch_github: comments and reviews are where decisions live.
+const INGEST_PAGE_SIZE = 100
+const INGEST_REQUEST_TIMEOUT_MS = 15_000
 
-    if (source.kind === "pull_request") {
-      const ref = parseRef(source.externalId, "#")
-      if (!ref) return null
-      const { data } = await octokit.rest.pulls.get({
-        owner: ref.owner,
-        repo: ref.repo,
-        pull_number: ref.id,
+const REVIEW_VERDICTS: Record<string, string> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "requested changes",
+  COMMENTED: "commented",
+  DISMISSED: "dismissed",
+}
+
+type GithubUser = { login: string; type: string } | null | undefined
+
+const login = (user: GithubUser) => user?.login ?? "unknown"
+const day = (iso: string | null | undefined) => iso?.slice(0, 10) ?? "?"
+
+// Bot output (CI reports, AI review summaries) is long LLM-written text that
+// retrievers over-rank. The item stays; its bot comments don't.
+const isBot = (user: GithubUser) => user?.type === "Bot"
+
+// One PR or issue with its discussion, as text for `source`. `ref` is a
+// lowercased owner/repo#n key. 404 and 410 mean deleted or out of the
+// installation's reach.
+export const fetchGithubSourceItem: SourceFetcher = async (
+  connection,
+  _kind,
+  ref
+) => {
+  const app = getApp()
+  if (!app) throw new Error("GitHub App not configured")
+  const installationId = Number(connection.externalId)
+  const parsed = parseRef(ref, "#")
+  if (!(Number.isFinite(installationId) && parsed)) {
+    return { item: null, gone: [] }
+  }
+  const octokit = await app.getInstallationOctokit(installationId)
+  const request = () => ({
+    signal: AbortSignal.timeout(INGEST_REQUEST_TIMEOUT_MS),
+  })
+
+  let issue: Awaited<ReturnType<typeof octokit.rest.issues.get>>["data"]
+  try {
+    const response = await octokit.rest.issues.get({
+      owner: parsed.owner,
+      repo: parsed.repo,
+      issue_number: parsed.id,
+      request: request(),
+    })
+    issue = response.data
+  } catch (err) {
+    const status = (err as { status?: number }).status
+    if (status === 404 || status === 410) return { item: null, gone: [ref] }
+    throw err
+  }
+
+  const repo =
+    issue.repository_url.split("/repos/")[1] ?? `${parsed.owner}/${parsed.repo}`
+  const [owner = parsed.owner, name = parsed.repo] = repo.split("/")
+  const target = { owner, repo: name, per_page: INGEST_PAGE_SIZE }
+  const isPr = Boolean(issue.pull_request)
+  const [comments, reviews, reviewComments] = await Promise.all([
+    octokit.rest.issues
+      .listComments({
+        ...target,
+        issue_number: issue.number,
+        request: request(),
       })
-      const state = data.merged ? "merged" : data.state
-      let out = `# ${data.title}\nState: ${state} · by ${data.user?.login ?? "unknown"}\n\n${data.body ?? "(no description)"}`
-      // PR discussion is split across issue comments and review comments.
-      const [comments, reviewComments] = await Promise.all([
-        octokit.rest.issues
-          .listComments({
-            owner: ref.owner,
-            repo: ref.repo,
-            issue_number: ref.id,
-            per_page: MAX_COMMENTS,
+      .then((r) => r.data),
+    isPr
+      ? octokit.rest.pulls
+          .listReviews({
+            ...target,
+            pull_number: issue.number,
+            request: request(),
           })
           .then((r) => r.data)
-          .catch(() => []),
-        octokit.rest.pulls
+      : [],
+    isPr
+      ? octokit.rest.pulls
           .listReviewComments({
-            owner: ref.owner,
-            repo: ref.repo,
-            pull_number: ref.id,
-            per_page: MAX_COMMENTS,
+            ...target,
+            pull_number: issue.number,
+            request: request(),
           })
           .then((r) => r.data)
-          .catch(() => []),
-      ])
-      for (const cm of comments) {
-        out += `\n\n— ${cm.user?.login ?? "unknown"}: ${cm.body ?? ""}`
+      : [],
+  ])
+
+  const discussion = [
+    ...comments.flatMap((c) =>
+      isBot(c.user) || !c.body?.trim()
+        ? []
+        : [
+            {
+              at: c.created_at,
+              text: `— ${login(c.user)} (${day(c.created_at)}): ${c.body.trim()}`,
+            },
+          ]
+    ),
+    ...reviews.flatMap((r) => {
+      const verdict = REVIEW_VERDICTS[r.state]
+      const body = r.body?.trim()
+      if (isBot(r.user) || !verdict || (r.state === "COMMENTED" && !body)) {
+        return []
       }
-      for (const rc of reviewComments) {
-        out += `\n\n— ${rc.user?.login ?? "unknown"} on ${rc.path}: ${rc.body ?? ""}`
-      }
-      return clip(out)
-    }
+      return [
+        {
+          at: r.submitted_at ?? "",
+          text: `— ${login(r.user)} reviewed: ${verdict} (${day(r.submitted_at)})${body ? `: ${body}` : ""}`,
+        },
+      ]
+    }),
+    ...reviewComments.flatMap((c) =>
+      isBot(c.user) || !c.body.trim()
+        ? []
+        : [
+            {
+              at: c.created_at,
+              text: `— ${login(c.user)} on ${c.path} (${day(c.created_at)}): ${c.body.trim()}`,
+            },
+          ]
+    ),
+  ].sort((a, b) => a.at.localeCompare(b.at))
 
-    if (source.kind === "issue") {
-      const ref = parseRef(source.externalId, "#")
-      if (!ref) return null
-      const { data } = await octokit.rest.issues.get({
-        owner: ref.owner,
-        repo: ref.repo,
-        issue_number: ref.id,
-      })
-      let out = `# ${data.title}\nState: ${data.state} · by ${data.user?.login ?? "unknown"}\n\n${data.body ?? "(no description)"}`
-      const comments = await octokit.rest.issues
-        .listComments({
-          owner: ref.owner,
-          repo: ref.repo,
-          issue_number: ref.id,
-          per_page: MAX_COMMENTS,
-        })
-        .then((r) => r.data)
-        .catch(() => [])
-      for (const cm of comments) {
-        out += `\n\n— ${cm.user?.login ?? "unknown"}: ${cm.body ?? ""}`
-      }
-      return clip(out)
-    }
+  const mergedAt = issue.pull_request?.merged_at
+  const state = mergedAt
+    ? "merged"
+    : isPr && issue.draft && issue.state === "open"
+      ? "draft"
+      : issue.state
+  const labels = issue.labels.flatMap((l) =>
+    typeof l === "string" ? [l] : l.name ? [l.name] : []
+  )
+  const meta = [
+    `${isPr ? "Pull request" : "Issue"} ${repo}#${issue.number}`,
+    !isPr && issue.state_reason === "not_planned"
+      ? "closed as not planned"
+      : state,
+    `by ${login(issue.user)}`,
+    `opened ${day(issue.created_at)}`,
+    mergedAt
+      ? `merged ${day(mergedAt)}`
+      : issue.closed_at
+        ? `closed ${day(issue.closed_at)}`
+        : null,
+    labels.length > 0 ? `labels: ${labels.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
 
-    if (source.kind === "release") {
-      const ref = parseRef(source.externalId, "@")
-      if (!ref) return null
-      const { data } = await octokit.rest.repos.getRelease({
-        owner: ref.owner,
-        repo: ref.repo,
-        release_id: ref.id,
-      })
-      return clip(
-        `# ${data.name ?? data.tag_name}\n\n${data.body ?? "(no notes)"}`
-      )
-    }
+  const key = githubItemKey(repo, issue.number)
+  return {
+    item: {
+      kind: isPr ? "pull_request" : "issue",
+      externalId: key,
+      url: issue.html_url,
+      title: issue.title,
+      author: issue.user?.login ?? null,
+      state,
+      body: [
+        meta,
+        issue.body?.trim() || "(no description)",
+        ...discussion.map((d) => d.text),
+      ].join("\n\n"),
+      sourceCreatedAt: new Date(issue.created_at),
+      sourceUpdatedAt: new Date(issue.updated_at),
+    },
+    // A transferred issue or renamed repo answers under its new key.
+    gone: key === ref ? [] : [ref],
+  }
+}
 
-    return null
-  },
-
+export const githubProvider: SourceProvider = {
   async verifyConnection(connection) {
     const app = getApp()
     if (!app) return null

@@ -1,10 +1,10 @@
-import { randomUUID, timingSafeEqual } from "node:crypto"
+import { timingSafeEqual } from "node:crypto"
 import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
 import {
   dispatchConnectorEvent,
-  type RememberDraft,
+  type EventItem,
 } from "@/lib/connector-triggers"
 import { createRouter } from "@/lib/helpers/app/create-app"
 import { logger } from "@/lib/logger"
@@ -33,7 +33,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const MAX_EXECUTE_BYTES = 512 * 1024
-const REMEMBER_CONTENT_MAX = 64 * 1024
+const ITEM_CONTENT_MAX = 64 * 1024
 const TITLE_MAX = 120
 
 function tokensMatch(candidate: string, expected: string) {
@@ -110,37 +110,20 @@ async function resolveWebhook(
   }
 }
 
-// The Remember draft for a delivery: heuristic title (first rendered line),
-// upsert key honoring a sender-supplied `external_id`/`id`, and the rendered
-// markdown as content. Summarization (hint-steered) happens in ingestSource.
-function deliveryRememberDraft(
-  body: unknown,
-  content: string,
-  fallbackTitle: string
-): RememberDraft {
-  const record =
-    typeof body === "object" && body !== null
-      ? (body as Record<string, unknown>)
-      : {}
-  const externalKey =
-    typeof record.external_id === "string" && record.external_id
-      ? record.external_id
-      : typeof record.id === "string" && record.id
-        ? record.id
-        : randomUUID()
+// The Act payload's item for a delivery: heuristic title (first rendered
+// line) and the rendered markdown as content. Your own webhooks are never
+// ingested; the posted message is the record.
+function deliveryItem(content: string, fallbackTitle: string): EventItem {
   const firstLine = content
     .split("\n")
     .map((line) => line.replace(/[#*>`_~[\]()]/g, "").trim())
     .find(Boolean)
   const title = (firstLine || fallbackTitle).slice(0, TITLE_MAX)
   return {
-    kind: "delivery",
-    externalId: `delivery#${externalKey}`,
     title,
     url: null,
     author: null,
-    occurredAt: new Date(),
-    content: content.slice(0, REMEMBER_CONTENT_MAX),
+    content: content.slice(0, ITEM_CONTENT_MAX),
   }
 }
 
@@ -213,11 +196,7 @@ webhooksRouter.post(
         label: parsed.data.username ?? resolved.value.name,
         avatarUrl: resolved.value.avatarUrl,
         text: parsed.data.content,
-        remember: deliveryRememberDraft(
-          read.body,
-          parsed.data.content,
-          resolved.value.name
-        ),
+        item: deliveryItem(parsed.data.content, resolved.value.name),
         payload: read.raw,
       })
       return c.json({ success: true, messageId: outcome?.posted ?? null })
@@ -255,15 +234,15 @@ webhooksRouter.post(
       )
     }
 
-    // Chat: content stays markdown, embeds become structured cards. Remember
-    // still gets the full markdown render (Lor needs a text form).
+    // Chat: content stays markdown, embeds become structured cards. Act still
+    // gets the full markdown render (Lor needs a text form).
     const body = parsed.data
     const content = body.content?.trim() ?? ""
     const embeds = discordEmbedsToMessageEmbeds(body)
     if (!content && embeds.length === 0) {
       return c.json({ success: false, message: "Nothing to post" }, 400)
     }
-    const rememberText = renderDiscordWebhookBody(body)
+    const itemText = renderDiscordWebhookBody(body)
 
     try {
       await dispatchConnectorEvent({
@@ -274,11 +253,7 @@ webhooksRouter.post(
         avatarUrl: resolved.value.avatarUrl,
         text: content,
         embeds,
-        remember: deliveryRememberDraft(
-          read.body,
-          rememberText,
-          resolved.value.name
-        ),
+        item: deliveryItem(itemText, resolved.value.name),
         payload: read.raw,
       })
       return c.body(null, 204)
@@ -317,7 +292,7 @@ webhooksRouter.post(
     if (!content && embeds.length === 0) {
       return c.text("invalid_payload", 400)
     }
-    const rememberText = renderSlackWebhookBody(body)
+    const itemText = renderSlackWebhookBody(body)
 
     try {
       await dispatchConnectorEvent({
@@ -328,11 +303,7 @@ webhooksRouter.post(
         avatarUrl: resolved.value.avatarUrl,
         text: content,
         embeds,
-        remember: deliveryRememberDraft(
-          read.body,
-          rememberText,
-          resolved.value.name
-        ),
+        item: deliveryItem(itemText, resolved.value.name),
         payload: read.raw,
       })
       return c.text("ok")

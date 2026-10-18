@@ -1,16 +1,43 @@
 import type { Webhooks } from "@octokit/webhooks"
-import type { ConnectorEventKey } from "@repo/connectors"
+import {
+  type ConnectorEventKey,
+  githubItemKey,
+  githubRepoKey,
+} from "@repo/connectors"
 import { and, db, eq, schema } from "@repo/db"
+import { tombstoneSource, tombstoneSourcesWithPrefix } from "@repo/lor/sources"
 import { githubNotificationEmbed } from "@/lib/connector-notification-embeds"
 import {
   dispatchConnectorEvent,
-  type RememberDraft,
+  type EventItem,
 } from "@/lib/connector-triggers"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
+import {
+  enqueueSourceIngest,
+  ingestConnection,
+} from "@/lib/source-ingest-queue"
 
-const toDate = (s?: string | null): Date | null => (s ? new Date(s) : null)
+function ingestConnectionFor(installationId: number | undefined) {
+  return installationId === undefined
+    ? Promise.resolve(null)
+    : ingestConnection("github", String(installationId))
+}
 
-// Fan the event out to its trigger's configured effects (POST / Remember).
+// Ingestion runs whether or not a trigger exists: any change to a PR or issue
+// or its discussion refetches the item. See
+// reference/planned/context-engine-phase-2.md Step 3.
+async function ingestItem(
+  installationId: number | undefined,
+  repo: string,
+  number: number,
+  kind: "pull_request" | "issue"
+): Promise<void> {
+  const connection = await ingestConnectionFor(installationId)
+  if (!connection) return
+  await enqueueSourceIngest(connection.id, kind, githubItemKey(repo, number))
+}
+
+// Fan the event out to its trigger's configured effects (POST / Act).
 // Skips silently when the install isn't mapped to a workspace or the event
 // has no trigger — no row = event off.
 async function dispatchForInstallation(
@@ -18,7 +45,8 @@ async function dispatchForInstallation(
   event: ConnectorEventKey,
   text: string,
   embed: ReturnType<typeof githubNotificationEmbed>,
-  remember?: RememberDraft
+  item: EventItem,
+  ingested: boolean
 ): Promise<void> {
   if (installationId === undefined) return
   await dispatchConnectorEvent({
@@ -28,7 +56,8 @@ async function dispatchForInstallation(
     label: "GitHub",
     text,
     embeds: [embed],
-    remember,
+    item,
+    ingested,
   })
 }
 
@@ -57,19 +86,16 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
           : null,
       }),
       {
-        kind: "pull_request",
-        externalId: `${repo}#${pr.number}`,
         title: pr.title,
         url: pr.html_url,
         author: pr.user?.login ?? null,
-        occurredAt: toDate(pr.created_at),
         content: `${pr.title}\n\n${pr.body ?? ""}`,
-      }
+      },
+      true
     )
   })
 
-  // Merged PRs — high-signal units of change. Shares the opened PR's
-  // externalId, so remembering both upserts one source row in place.
+  // Merged PRs — high-signal units of change.
   webhooks.on("pull_request.closed", async ({ payload }) => {
     const pr = payload.pull_request
     if (!pr.merged) return
@@ -94,14 +120,12 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
           : null,
       }),
       {
-        kind: "pull_request",
-        externalId: `${repo}#${pr.number}`,
         title: pr.title,
         url: pr.html_url,
         author: pr.user?.login ?? null,
-        occurredAt: toDate(pr.merged_at),
         content: `${pr.title}\n\n${pr.body ?? ""}`,
-      }
+      },
+      true
     )
   })
 
@@ -128,16 +152,12 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
           : null,
       }),
       {
-        kind: "issue",
-        externalId: `${repo}#${issue.number}`,
         title: issue.title,
         url: issue.html_url,
         author: issue.user?.login ?? null,
-        occurredAt: toDate(
-          payload.action === "closed" ? issue.closed_at : issue.created_at
-        ),
         content: `${issue.title}\n\n${issue.body ?? ""}`,
-      }
+      },
+      true
     )
   })
 
@@ -164,14 +184,12 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
           : null,
       }),
       {
-        kind: "release",
-        externalId: `${repo}@${release.id}`,
         title,
         url: release.html_url,
         author: release.author?.login ?? null,
-        occurredAt: toDate(release.published_at),
         content: `${title}\n\n${release.body ?? ""}`,
-      }
+      },
+      false
     )
   })
 
@@ -183,6 +201,83 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       await invalidateGithubRepoCache(String(payload.installation.id))
     }
   )
+
+  // Ingestion signals. The fetch reads the whole item, so the action only
+  // says something changed.
+  webhooks.on(
+    [
+      "pull_request.opened",
+      "pull_request.edited",
+      "pull_request.closed",
+      "pull_request.reopened",
+      "pull_request.ready_for_review",
+      "pull_request.converted_to_draft",
+      "pull_request_review.submitted",
+      "pull_request_review.edited",
+      "pull_request_review.dismissed",
+      "pull_request_review_comment.created",
+      "pull_request_review_comment.edited",
+      "pull_request_review_comment.deleted",
+    ],
+    ({ payload }) =>
+      ingestItem(
+        payload.installation?.id,
+        payload.repository.full_name,
+        payload.pull_request.number,
+        "pull_request"
+      )
+  )
+
+  webhooks.on(
+    [
+      "issues.opened",
+      "issues.edited",
+      "issues.closed",
+      "issues.reopened",
+      "issue_comment.created",
+      "issue_comment.edited",
+      "issue_comment.deleted",
+    ],
+    ({ payload }) =>
+      ingestItem(
+        payload.installation?.id,
+        payload.repository.full_name,
+        payload.issue.number,
+        payload.issue.pull_request ? "pull_request" : "issue"
+      )
+  )
+
+  // Deleted, or moved to another repo: the old key is gone. A transferred
+  // issue is fetched under its new key.
+  webhooks.on(["issues.deleted", "issues.transferred"], async ({ payload }) => {
+    const connection = await ingestConnectionFor(payload.installation?.id)
+    if (!connection) return
+    await tombstoneSource(
+      connection.id,
+      githubItemKey(payload.repository.full_name, payload.issue.number)
+    )
+    if (payload.action === "transferred") {
+      await enqueueSourceIngest(
+        connection.id,
+        "issue",
+        githubItemKey(
+          payload.changes.new_repository.full_name,
+          payload.changes.new_issue.number
+        )
+      )
+    }
+  })
+
+  webhooks.on("installation_repositories.removed", async ({ payload }) => {
+    const connection = await ingestConnectionFor(payload.installation.id)
+    if (!connection) return
+    for (const repo of payload.repositories_removed) {
+      await tombstoneSourcesWithPrefix(
+        connection.id,
+        `${githubRepoKey(repo.full_name)}#`
+      )
+    }
+  })
 
   // App lifecycle: uninstall drops the connection (sources cascade-purge);
   // suspend/unsuspend toggles status. Workspace mapping is the setup flow.

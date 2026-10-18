@@ -22,7 +22,7 @@ import {
 import { Spinner } from "@repo/ui/components/spinner"
 import { Kbd } from "@repo/ui/components/unlumen-ui/kbd"
 import { useQuery } from "@tanstack/react-query"
-import { useParams } from "@tanstack/react-router"
+import { useNavigate, useParams } from "@tanstack/react-router"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
@@ -36,6 +36,8 @@ type SearchResult = {
   channelId: string
   channelName: string
   threadRootId: string | null
+  sessionId: string | null
+  sessionTitle: string | null
   author: {
     name: string
   }
@@ -46,13 +48,22 @@ type SearchResult = {
   }>
 }
 
+type SessionResult = {
+  id: string
+  title: string
+  channelName: string
+  archived: boolean
+}
+
 type SearchResponse = {
   itemsTotal: number
   data: SearchResult[]
+  sessions: SessionResult[]
 }
 
 export function WorkspaceCommand() {
   const { workspaceSlug } = useParams({ strict: false })
+  const navigate = useNavigate()
   const navigateToWorkspaceMessage = useMessageSearchNavigation()
   const openNewSession = useOpenNewSession()
   const { setTheme } = useTheme()
@@ -114,9 +125,22 @@ export function WorkspaceCommand() {
         id: message.id,
         channelId: message.channelId,
         threadRootId: message.threadRootId,
+        sessionId: message.sessionId,
       })
     },
     [navigateToWorkspaceMessage]
+  )
+
+  const goToSession = useCallback(
+    (sessionId: string) => {
+      if (!workspaceSlug) return
+      setOpen(false)
+      void navigate({
+        to: "/$workspaceSlug/session/$sessionId",
+        params: { workspaceSlug, sessionId },
+      })
+    },
+    [navigate, workspaceSlug]
   )
 
   const runTheme = useCallback(
@@ -129,8 +153,11 @@ export function WorkspaceCommand() {
 
   const hasQuery = debouncedQuery.length > 0
   const results = data?.data ?? []
+  const sessions = data?.sessions ?? []
   const showResults = hasQuery && !isFetching && results.length > 0
-  const showEmpty = hasQuery && !isFetching && results.length === 0
+  const showSessions = hasQuery && !isFetching && sessions.length > 0
+  const showEmpty =
+    hasQuery && !isFetching && results.length === 0 && sessions.length === 0
   const showLoader = hasQuery && isFetching
 
   return (
@@ -166,8 +193,37 @@ export function WorkspaceCommand() {
 
                 {showEmpty && (
                   <div className="py-6 text-center text-sm text-muted-foreground">
-                    No messages found for “{debouncedQuery}”.
+                    No results for “{debouncedQuery}”.
                   </div>
+                )}
+
+                {showSessions && (
+                  <CommandGroup>
+                    <CommandGroupLabel>Sessions</CommandGroupLabel>
+                    {sessions.map((session) => (
+                      <CommandItem
+                        key={session.id}
+                        value={`session-${session.id}`}
+                        onClick={() => goToSession(session.id)}
+                        className="items-start"
+                      >
+                        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className="truncate text-sm text-foreground">
+                            {session.title}
+                          </span>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span>#{session.channelName}</span>
+                            {session.archived && (
+                              <>
+                                <span>·</span>
+                                <span>Archived</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
                 )}
 
                 {showResults && (
@@ -182,9 +238,17 @@ export function WorkspaceCommand() {
                       >
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <div className="flex items-center gap-1.5 text-xs">
-                            <span className="font-medium text-foreground">
+                            <span className="shrink-0 font-medium text-foreground">
                               #{msg.channelName}
                             </span>
+                            {msg.sessionTitle && (
+                              <>
+                                <span className="text-muted-foreground">·</span>
+                                <span className="min-w-0 truncate text-foreground">
+                                  {msg.sessionTitle}
+                                </span>
+                              </>
+                            )}
                             <span className="text-muted-foreground">·</span>
                             <span className="truncate text-muted-foreground">
                               {msg.author.name}

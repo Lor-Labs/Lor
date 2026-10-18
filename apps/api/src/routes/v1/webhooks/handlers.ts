@@ -43,8 +43,6 @@ type WebhookRow = {
   createdAt: Date
   channelId: string
   post: boolean
-  remember: boolean
-  rememberHint: string | null
   actInstructions: string | null
   actWindowSeconds: number
   hourlyRunCap: number
@@ -72,8 +70,6 @@ function toResponse(
     createdAt: row.createdAt.toISOString(),
     createdByName,
     post: row.post,
-    remember: row.remember,
-    rememberHint: row.rememberHint,
     actInstructions: row.actInstructions,
     actWindowSeconds: row.actWindowSeconds,
     hourlyRunCap: row.hourlyRunCap,
@@ -90,8 +86,6 @@ const webhookSelection = {
   createdAt: integrationConnection.createdAt,
   channelId: connectorTrigger.channelId,
   post: connectorTrigger.post,
-  remember: connectorTrigger.remember,
-  rememberHint: connectorTrigger.rememberHint,
   actInstructions: connectorTrigger.actInstructions,
   actWindowSeconds: connectorTrigger.actWindowSeconds,
   hourlyRunCap: connectorTrigger.hourlyRunCap,
@@ -372,8 +366,6 @@ export const createChannelWebhook: AppRouteHandler<
           createdAt: result.connection.createdAt,
           channelId: result.trigger.channelId,
           post: result.trigger.post,
-          remember: result.trigger.remember,
-          rememberHint: result.trigger.rememberHint,
           actInstructions: result.trigger.actInstructions,
           actWindowSeconds: result.trigger.actWindowSeconds,
           hourlyRunCap: result.trigger.hourlyRunCap,
@@ -397,8 +389,6 @@ export const updateChannelWebhook: AppRouteHandler<
     name,
     avatarUrl,
     post,
-    remember,
-    rememberHint,
     actInstructions,
     actWindowSeconds,
     hourlyRunCap,
@@ -456,8 +446,6 @@ export const updateChannelWebhook: AppRouteHandler<
     }
     if (
       post !== undefined ||
-      remember !== undefined ||
-      rememberHint !== undefined ||
       actInstructions !== undefined ||
       actWindowSeconds !== undefined ||
       hourlyRunCap !== undefined ||
@@ -467,8 +455,6 @@ export const updateChannelWebhook: AppRouteHandler<
         .update(connectorTrigger)
         .set({
           ...(post !== undefined ? { post } : {}),
-          ...(remember !== undefined ? { remember } : {}),
-          ...(rememberHint !== undefined ? { rememberHint } : {}),
           ...(actInstructions !== undefined ? { actInstructions } : {}),
           ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
           ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
