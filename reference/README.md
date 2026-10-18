@@ -66,12 +66,14 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `agent-browser.md` | Cloud browser Lor drives in a session: live view, take over, per-channel logins. Research and design 2026-10-12; builds after the sessions branch merges; vendor (Browserbase or Steel) decided by a spike |
 | `linear-projects.md` | Lor projects linked to Linear projects. Split from onboarding 2026-10-07; open for its own design thread |
 | `code-channels.md` | Multiplayer AI coding architecture, design agreed 2026-10-05 |
-| `context-engine.md` | Unblocked-style linked, ranked, permission-safe context. Research + proposed design 2026-10-10; decisions in §8 open |
+| `context-engine.md` | Unblocked-style linked, ranked, permission-safe context. Research + proposed design 2026-10-10; §7 build order and §8 decisions revised 2026-10-17 |
+| `context-engine-phase-2.md` | Runbook, 2026-10-17: Remember removed, GitHub/Linear/Attio ingested as real text with chunks on webhooks (a search index, not a mirror); BM25 + hybrid search, filters, ranking priors, conflicts. Ships with phase 1 in one release |
 | `live-collaboration.md` | Editor decision (TipTap over Plate, 2026-10-09) and the MIT build map for live multiplayer documents |
 | `self-configuration.md` | Vision for Lor proposing changes to itself; pillars 1–2 shipped (root runbooks), pillar 3 in flight |
 | `playbooks.md` | Working idea, not a spec |
 | `private-lor-questions.md` | Deferred platform decision (2026-09-28) |
 | `session-memory.md` | Context engine phase 1: scope `source` (leak fix), session-aware search hits, brain page versions + `edit` + per-page concurrency (no workspace lock), write-back gate context, the general `touch` table with sessions first and reverse hints. Phase 2 direction: default ingestion into `source`, real text, Remember removed. Decisions locked 2026-10-14; session summaries and turn embeddings deferred behind an eval |
+| `session-memory-research.md` | Research record behind `session-memory.md`: the 2026-10-14 literature pass (sources, setups, exact numbers, verification labels, unverified claims) and the internal code audits |
 | `slack-connector-next.md` | Read-only Slack connector, not started |
 | `sync-engine.md` | Sync engine research (Zero, TanStack DB, Electric, PowerSync, Convex, local-first) and a proposed Zero-first spike with go/no-go gates. Not committed; only the timing is decided: React Query until the sessions branch merges |
 

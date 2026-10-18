@@ -1,6 +1,6 @@
 import { Globe02Icon, WebhookIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { BETTERSTACK_TOOLS } from "@repo/connectors"
+import { BETTERSTACK_TOOLS, CONNECTOR_URL_HOSTS } from "@repo/connectors"
 import { AttioLogo } from "@repo/ui/components/logos/attio"
 import { AWSCloudWatchLogo } from "@repo/ui/components/logos/aws-cloudwatch"
 import { BetterStackLogo } from "@repo/ui/components/logos/betterstack"
@@ -128,13 +128,13 @@ function attioLabel(url: URL): string {
 const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
   github: {
     logo: GithubMark,
-    urlHost: /(^|\.)github\.com\b/i,
+    urlHost: CONNECTOR_URL_HOSTS.github,
     tools: ["search_github", "fetch_github"],
     linkLabel: githubLabel,
   },
   linear: {
     logo: LinearMark,
-    urlHost: /(^|\.)linear\.app\b/i,
+    urlHost: CONNECTOR_URL_HOSTS.linear,
     tools: [
       "search_linear",
       "list_linear_issues",
@@ -148,13 +148,13 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
   datadog: {
     logo: DatadogMark,
     // Anchored to the hostname end so datadoghq.com.evil.com can't wear the mark.
-    urlHost: /(^|\.)datadoghq\.(com|eu)$/i,
+    urlHost: CONNECTOR_URL_HOSTS.datadog,
     tools: ["search_datadog_logs", "analyze_datadog_logs"],
     linkLabel: () => "Datadog",
   },
   attio: {
     logo: AttioMark,
-    urlHost: /(^|\.)attio\.com$/i,
+    urlHost: CONNECTOR_URL_HOSTS.attio,
     tools: [
       "search_attio",
       "fetch_attio_record",
@@ -172,7 +172,7 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
   },
   notion: {
     logo: NotionMark,
-    urlHost: /(^|\.)notion\.(so|site|com)$/i,
+    urlHost: CONNECTOR_URL_HOSTS.notion,
     tools: [
       "search_notion",
       "fetch_notion_page",
@@ -189,7 +189,7 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
   cloudwatch: {
     logo: CloudwatchMark,
     // Regional consoles are subdomains (us-east-1.console.aws.amazon.com).
-    urlHost: /(^|\.)console\.aws\.amazon\.com$/i,
+    urlHost: CONNECTOR_URL_HOSTS.cloudwatch,
     tools: [
       "list_cloudwatch_log_groups",
       "search_cloudwatch_logs",
@@ -200,14 +200,14 @@ const CONNECTOR_UI: Record<ConnectorKey, ConnectorUI> = {
   },
   betterstack: {
     logo: BetterStackLogo,
-    urlHost: /(^|\.)betterstack\.com$/i,
+    urlHost: CONNECTOR_URL_HOSTS.betterstack,
     tools: BETTERSTACK_TOOLS.map((tool) => tool.name),
     linkLabel: () => "Better Stack",
   },
   // BYO inbound webhooks have no agent tools or URL host.
   webhook: {
     logo: WebhookMark,
-    urlHost: /$^/,
+    urlHost: CONNECTOR_URL_HOSTS.webhook,
     tools: [],
     linkLabel: () => null,
   },

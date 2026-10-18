@@ -1,8 +1,4 @@
-import {
-  BrainIcon,
-  BubbleChatIcon,
-  MagicWand01Icon,
-} from "@hugeicons/core-free-icons"
+import { BubbleChatIcon, MagicWand01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
@@ -18,7 +14,7 @@ import { Textarea } from "@repo/ui/components/textarea"
 import type { ReactNode } from "react"
 
 // Shared effect rows for trigger config (BYO webhooks + connector events).
-// One trigger can fan out to any combination of the three effects.
+// One trigger can fan out to either effect or both.
 
 // The handoff note from the newest Act run on this trigger — what Lor
 // concluded last time, shown so the next run's starting point is visible.
@@ -32,8 +28,6 @@ export type TriggerLastAct = {
 
 export type TriggerEffectsValue = {
   post: boolean
-  remember: boolean
-  rememberHint: string | null
   // null = Act off; empty string = Act on, Lor uses judgment
   actInstructions: string | null
   // Act rate shape: 0 = one run per delivery, otherwise deliveries inside the
@@ -242,38 +236,6 @@ export function TriggerEffects({
         disabled={disabled}
         onCheckedChange={(checked) => onPatch({ post: checked })}
       />
-      <EffectRow
-        id={`${idPrefix}-remember`}
-        icon={BrainIcon}
-        title="Remember"
-        description="Lor summarizes the data into memory so it can recall it later"
-        checked={value.remember}
-        disabled={disabled}
-        onCheckedChange={(checked) => onPatch({ remember: checked })}
-      >
-        {value.remember && (
-          <Input
-            key={value.rememberHint ?? ""}
-            defaultValue={value.rememberHint ?? ""}
-            placeholder="Optional hint for how to summarize this data"
-            className="h-8 text-xs"
-            disabled={disabled}
-            onBlur={(e) => {
-              const next = e.target.value.trim()
-              if (next === (value.rememberHint ?? "")) return
-              onPatch({ rememberHint: next || null })
-            }}
-            onKeyDown={(e) => {
-              // Escape closes the surrounding dialog without blurring — commit
-              // first so typed text isn't silently dropped.
-              if (e.key !== "Escape") return
-              const next = e.currentTarget.value.trim()
-              if (next === (value.rememberHint ?? "")) return
-              onPatch({ rememberHint: next || null })
-            }}
-          />
-        )}
-      </EffectRow>
       <EffectRow
         id={`${idPrefix}-act`}
         icon={MagicWand01Icon}

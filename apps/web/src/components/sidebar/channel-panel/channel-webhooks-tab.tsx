@@ -290,8 +290,6 @@ export function ChannelWebhooksTab({
       name?: string
       avatarUrl?: string
       post?: boolean
-      remember?: boolean
-      rememberHint?: string | null
       actInstructions?: string | null
       actWindowSeconds?: number
       hourlyRunCap?: number
@@ -305,8 +303,6 @@ export function ChannelWebhooksTab({
           name: input.name,
           avatarUrl: input.avatarUrl,
           post: input.post,
-          remember: input.remember,
-          rememberHint: input.rememberHint,
           actInstructions: input.actInstructions,
           actWindowSeconds: input.actWindowSeconds,
           hourlyRunCap: input.hourlyRunCap,
@@ -498,11 +494,6 @@ export function ChannelWebhooksTab({
                             Post
                           </Badge>
                         )}
-                        {hook.remember && (
-                          <Badge variant="outline" size="sm">
-                            Remember
-                          </Badge>
-                        )}
                         {hook.actInstructions !== null && (
                           <>
                             <Badge variant="outline" size="sm">
@@ -585,8 +576,6 @@ export function ChannelWebhooksTab({
                           disabled={updateMutation.isPending}
                           value={{
                             post: hook.post,
-                            remember: hook.remember,
-                            rememberHint: hook.rememberHint,
                             actInstructions: hook.actInstructions,
                             actWindowSeconds: hook.actWindowSeconds,
                             hourlyRunCap: hook.hourlyRunCap,

@@ -11,6 +11,7 @@ import type { RunToolResultStore } from "./run"
 // (reference/automation-primitives.md §5).
 export const SIDE_EFFECT_TOOLS = new Set([
   "write",
+  "edit",
   "mkdir",
   "move",
   "link",

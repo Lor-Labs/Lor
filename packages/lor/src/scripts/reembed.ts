@@ -36,7 +36,7 @@ type Failure = {
 }
 
 async function columnType(
-  table: "brain_node" | "source"
+  table: "brain_node" | "source_chunk"
 ): Promise<string | undefined> {
   const rows = await db.execute(
     sql.raw(
@@ -54,7 +54,7 @@ async function columnType(
 async function migrateEmbeddingColumns(): Promise<void> {
   const expected = `halfvec(${LOR_EMBED_DIMENSIONS})`
   const brainType = await columnType("brain_node")
-  const sourceType = await columnType("source")
+  const sourceType = await columnType("source_chunk")
 
   if (brainType !== expected) {
     console.log(`Migrating brain_node.embedding: ${brainType} -> ${expected}`)
@@ -79,22 +79,24 @@ async function migrateEmbeddingColumns(): Promise<void> {
   }
 
   if (sourceType !== expected) {
-    console.log(`Migrating source.embedding: ${sourceType} -> ${expected}`)
+    console.log(
+      `Migrating source_chunk.embedding: ${sourceType} -> ${expected}`
+    )
     await db.transaction(async (tx) => {
       await tx.execute(
-        sql.raw("DROP INDEX IF EXISTS source_embedding_hnsw_idx")
+        sql.raw("DROP INDEX IF EXISTS source_chunk_embedding_hnsw_idx")
       )
       await tx.execute(
         sql.raw(
-          `ALTER TABLE source
+          `ALTER TABLE source_chunk
            ALTER COLUMN embedding TYPE ${expected}
            USING NULL::${expected}`
         )
       )
       await tx.execute(
         sql.raw(
-          `CREATE INDEX source_embedding_hnsw_idx
-           ON source USING hnsw (embedding halfvec_cosine_ops)`
+          `CREATE INDEX source_chunk_embedding_hnsw_idx
+           ON source_chunk USING hnsw (embedding halfvec_cosine_ops)`
         )
       )
     })
@@ -211,31 +213,34 @@ async function reembedBrain(failures: Failure[]): Promise<number> {
 }
 
 async function reembedSources(failures: Failure[]): Promise<number> {
-  const sources = await db
+  const chunks = await db
     .select({
-      id: schema.source.id,
-      summary: schema.source.summary,
+      id: schema.sourceChunk.id,
+      text: schema.sourceChunk.text,
     })
-    .from(schema.source)
-    .where(isNull(schema.source.embedding))
+    .from(schema.sourceChunk)
+    .where(isNull(schema.sourceChunk.embedding))
 
-  console.log(`Sources requiring embeddings: ${sources.length}`)
+  console.log(`Source chunks requiring embeddings: ${chunks.length}`)
   let succeeded = 0
-  await mapConcurrent(sources, async (source, completed) => {
+  await mapConcurrent(chunks, async (chunk, completed) => {
     try {
-      const embedding = await embedWithRetry(source.summary)
+      const embedding = await embedWithRetry(chunk.text)
       await db
-        .update(schema.source)
+        .update(schema.sourceChunk)
         .set({ embedding })
         .where(
-          and(eq(schema.source.id, source.id), isNull(schema.source.embedding))
+          and(
+            eq(schema.sourceChunk.id, chunk.id),
+            isNull(schema.sourceChunk.embedding)
+          )
         )
       succeeded++
-      console.log(`  source ${completed}/${sources.length}: ${source.id}`)
+      console.log(`  source chunk ${completed}/${chunks.length}: ${chunk.id}`)
     } catch (error) {
       failures.push({
         type: "source",
-        id: source.id,
+        id: chunk.id,
         error: error instanceof Error ? error.message : String(error),
       })
     }
@@ -253,7 +258,7 @@ async function main(): Promise<void> {
   const brain = await reembedBrain(failures)
   const sources = await reembedSources(failures)
 
-  console.log(`Embedded ${brain} brain pages and ${sources} sources.`)
+  console.log(`Embedded ${brain} brain pages and ${sources} source chunks.`)
   if (failures.length > 0) {
     console.error(`${failures.length} rows failed; rerun the command to retry:`)
     for (const failure of failures) {

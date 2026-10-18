@@ -15,6 +15,12 @@ status, Workflow run, Meta.
   subscription: GitHub sends them to every App by default.
 - Pull request review, Discussion, Discussion comment, Deployment status and
   Workflow run are delivered and ignored.
+- **Ingestion (2026-10-17, `planned/context-engine-phase-2.md` Step 3):** PR,
+  issue, review, issue comment and review comment events enqueue a refetch of
+  the item into `source`; deletes, transfers and removed repos tombstone it.
+  Needs two more subscriptions: **Issue comment** and **Pull request review
+  comment** (both added to the prod App 2026-10-17; dev App to check). Push
+  stays off until a push event handler exists.
 
 Install settings (prod App, 2026-10-07): the App is public. Request user
 authorization during installation is off, so GitHub uses the Setup URL
@@ -94,11 +100,11 @@ The flow: Lor calls the `investigate_code(repo, question)` tool → clone the re
 
 ## Decisions locked (do NOT re-litigate)
 
-- **No embedding by default** of GitHub PRs/issues — brain-centric. The old `SOURCE_INGEST_ENABLED` flag is gone: an event becomes a source only when its trigger has Remember on (`apps/api/src/lib/connector-triggers.ts`).
+- ~~**No embedding by default** of GitHub PRs/issues — brain-centric. The old `SOURCE_INGEST_ENABLED` flag is gone: an event becomes a source only when its trigger has Remember on (`apps/api/src/lib/connector-triggers.ts`).~~ **Reversed 2026-10-17** (`planned/context-engine.md` §8 decision 3): PRs and issues with their comments and reviews are ingested by default as real text, chunked and embedded; Remember is removed.
 - **No repo caching for reads** (freshness) → investigate clones per query, shallow, no deps. Pi comes from our workbench image (exact-pinned). *Amended 2026-08-18 for writes:* code-action sandboxes persist per conversation scope as a **warm cache** — freshness still comes from a fetch+hard-reset at session start, never from trusting the cached checkout.
 - **Draft PRs only**, never auto-merge. Lor pushes only `lor/*` branches (the product namespace GitHub contributors see), never force-pushes.
 - **The coding agent never holds a write token.** Write-scoped tokens (narrowed to one repo, `contents: write`) exist only as per-command env on the orchestrated push, after the session ends.
-- **Webhooks not needed** for GitHub's core loop (brain-centric → no index to sync). They'd only return for proactive notifs/synthesis.
+- ~~**Webhooks not needed** for GitHub's core loop (brain-centric → no index to sync). They'd only return for proactive notifs/synthesis.~~ **Reversed 2026-10-17:** webhooks are the refetch signal for ingestion. No catch-up sweep: the stored copy is a search index, not a mirror, so a dropped delivery (GitHub never redelivers) leaves the item stale until its next change, and current state comes from the live tools.
 - **Linear is deferred** until GitHub is done; when resumed: proper OAuth + write scope + webhooks from day 1 (tokens expire ~24h w/ refresh — design researched).
 
 ## Recommended next step

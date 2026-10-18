@@ -226,7 +226,6 @@ function opView(
         details: [
           [
             spec.post ? "posts to the channel" : "does not post",
-            spec.remember && "saves to memory",
             spec.actInstructions && "acts on each event",
           ]
             .filter(Boolean)

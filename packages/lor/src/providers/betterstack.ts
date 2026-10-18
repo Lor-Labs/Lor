@@ -79,9 +79,6 @@ export async function getBetterstackConnection(workspaceId: string) {
 }
 
 export const betterstackProvider: SourceProvider = {
-  async fetchContent() {
-    return null
-  },
   async verifyConnection(connection) {
     const key = env.INTEGRATION_ENCRYPTION_KEY
     if (!key) return null

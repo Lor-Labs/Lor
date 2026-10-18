@@ -10,7 +10,7 @@ export type EmbedResult = {
 const BRAIN_QUERY_INSTRUCTION =
   "Given a question from a team workspace, retrieve the institutional-memory pages that answer or contextualize it."
 const SOURCE_QUERY_INSTRUCTION =
-  "Given a question from a team workspace, retrieve external work-event summaries that answer or contextualize it."
+  "Given a question from a team workspace, retrieve passages from its pull requests, issues, notes, and call transcripts in connected tools that answer or contextualize it."
 const ATTACHMENT_QUERY_INSTRUCTION =
   "Given a question from a team workspace, retrieve screenshots, images, and files shared in chat whose contents answer or contextualize it."
 const CALL_QUERY_INSTRUCTION =

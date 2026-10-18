@@ -16,6 +16,8 @@ import {
   type LorRespondJobData,
   PROJECT_ARCHIVE_QUEUE,
   type ProjectArchiveJobData,
+  SOURCE_INGEST_QUEUE,
+  type SourceIngestJobData,
   TRIGGERED_RUN_QUEUE,
   type TriggeredRunJobData,
   VOICE_REQUEST_QUEUE,
@@ -37,6 +39,7 @@ import {
   sweepDeadRuns,
   sweepOrphanedPlaceholders,
 } from "@/jobs/prune-run-events"
+import { createSourceIngestProcessor } from "@/jobs/source-ingest"
 import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
 import { createVoiceRequestProcessor } from "@/jobs/voice-request"
@@ -154,6 +157,39 @@ async function bootstrap() {
         err: error,
       },
       "Attachment-index worker error"
+    )
+  })
+
+  // Source ingestion. The limiter is one budget across connections; a
+  // provider rate limit fails the job, and its backoff retries it later.
+  const sourceIngestWorker = new Worker<SourceIngestJobData>(
+    SOURCE_INGEST_QUEUE,
+    createSourceIngestProcessor(),
+    {
+      connection: {
+        ...redisOpts,
+        maxRetriesPerRequest: null,
+      },
+      concurrency: 2,
+      limiter: { max: 5, duration: 1000 },
+    }
+  )
+
+  sourceIngestWorker.on("failed", (job, error) => {
+    logger.error(
+      { jobId: job?.id, data: job?.data, err: error },
+      "Source-ingest job failed"
+    )
+  })
+
+  sourceIngestWorker.on("error", (error) => {
+    logger.error(
+      {
+        queue: SOURCE_INGEST_QUEUE,
+        workerId: sourceIngestWorker.id,
+        err: error,
+      },
+      "Source-ingest worker error"
     )
   })
 
@@ -421,6 +457,7 @@ async function bootstrap() {
       queues: [
         LINK_UNFURL_QUEUE,
         ATTACHMENT_INDEX_QUEUE,
+        SOURCE_INGEST_QUEUE,
         LOR_RESPOND_QUEUE,
         TRIGGERED_RUN_QUEUE,
         LOOP_RUN_QUEUE,
@@ -436,6 +473,7 @@ async function bootstrap() {
     logger.info("Shutting down...")
     await linkUnfurlWorker.close()
     await attachmentIndexWorker.close()
+    await sourceIngestWorker.close()
     await lorRespondWorker.close()
     await triggeredRunWorker.close()
     await loopRunWorker.close()

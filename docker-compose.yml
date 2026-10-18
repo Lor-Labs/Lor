@@ -1,7 +1,7 @@
 services:
   postgres:
     # pgvector's official image = postgres + the vector extension binaries
-    # (pg_trgm ships in contrib). Extensions are still created manually.
+    # (pg_trgm ships in contrib). `pnpm db:push` creates the extensions.
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:

@@ -1,12 +1,12 @@
 import { LinearClient } from "@linear/sdk"
+import { linearIssueKey } from "@repo/connectors"
 import { and, db, eq, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { logger } from "../logger"
-import type { SourceProvider } from "./types"
+import type { SourceFetcher, SourceProvider } from "./types"
 
 const TOKEN_URL = "https://api.linear.app/oauth/token"
-const MAX_COMMENTS = 10
 // Refresh slightly before actual expiry to avoid racing the boundary.
 const REFRESH_SKEW_MS = 60_000
 const REQUEST_TIMEOUT_MS = 10_000
@@ -210,30 +210,127 @@ export async function linearClientFor(
   return token ? new LinearClient({ accessToken: token }) : null
 }
 
-function clip(s: string, max = 8000): string {
-  return s.length > max ? `${s.slice(0, max)}\n…(truncated)` : s
+// One query for the issue and its discussion. A filter (not issue(id:)) so a
+// missing issue is an empty list, not an error; archived and trashed issues
+// still match.
+const INGEST_ISSUE_QUERY = `query LorIngestIssue($filter: IssueFilter!) {
+  issues(filter: $filter, first: 1, includeArchived: true) {
+    nodes {
+      identifier title description url createdAt updatedAt archivedAt trashed
+      priorityLabel
+      state { name }
+      team { key }
+      project { name }
+      creator { name }
+      assignee { name }
+      labels(first: 20) { nodes { name } }
+      comments(first: 100) {
+        nodes { body createdAt user { name } botActor { name } }
+      }
+    }
+  }
+}`
+
+type IngestIssue = {
+  identifier: string
+  title: string
+  description: string | null
+  url: string
+  createdAt: string
+  updatedAt: string
+  archivedAt: string | null
+  trashed: boolean | null
+  priorityLabel: string
+  state: { name: string } | null
+  team: { key: string } | null
+  project: { name: string } | null
+  creator: { name: string } | null
+  assignee: { name: string } | null
+  labels: { nodes: { name: string }[] }
+  comments: {
+    nodes: {
+      body: string
+      createdAt: string
+      user: { name: string } | null
+      botActor: { name: string | null } | null
+    }[]
+  }
+}
+
+const day = (iso: string) => iso.slice(0, 10)
+
+// One issue with its comments, as text for `source`. `ref` is an identifier
+// (LOR-123) or an issue id; the stored key is always the identifier.
+export const fetchLinearSourceItem: SourceFetcher = async (
+  connection,
+  _kind,
+  ref
+) => {
+  const client = await linearClientFor(connection.externalId)
+  if (!client) throw new Error("Linear connection unavailable")
+  const identifier = linearIssueKey(ref)
+  const match = identifier ? /^(.+)-(\d+)$/.exec(identifier) : null
+  const filter = match
+    ? { team: { key: { eq: match[1] } }, number: { eq: Number(match[2]) } }
+    : { id: { eq: ref } }
+  const response = await client.client.rawRequest<
+    { issues: { nodes: IngestIssue[] } },
+    { filter: typeof filter }
+  >(INGEST_ISSUE_QUERY, { filter })
+  const issue = response.data?.issues.nodes[0]
+  if (!issue) {
+    if (!response.data) throw new Error("Linear issue query returned no data")
+    return { item: null, gone: identifier ? [identifier] : [] }
+  }
+  if (issue.trashed) return { item: null, gone: [issue.identifier] }
+
+  // Integration comments (GitHub sync, bots) are machine text.
+  const discussion = issue.comments.nodes
+    .filter((c) => !c.botActor && c.body.trim())
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map(
+      (c) =>
+        `— ${c.user?.name ?? "unknown"} (${day(c.createdAt)}): ${c.body.trim()}`
+    )
+  const labels = issue.labels.nodes.map((l) => l.name)
+  const state = issue.state?.name ?? null
+  const meta = [
+    `Issue ${issue.identifier}`,
+    issue.archivedAt ? `${state ?? "unknown"} (archived)` : state,
+    issue.project ? `project ${issue.project.name}` : null,
+    issue.priorityLabel && issue.priorityLabel !== "No priority"
+      ? `priority ${issue.priorityLabel}`
+      : null,
+    issue.creator ? `by ${issue.creator.name}` : null,
+    issue.assignee ? `assigned to ${issue.assignee.name}` : null,
+    `opened ${day(issue.createdAt)}`,
+    labels.length > 0 ? `labels: ${labels.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+
+  return {
+    item: {
+      kind: "issue",
+      externalId: issue.identifier,
+      url: issue.url,
+      title: issue.title,
+      author: issue.creator?.name ?? null,
+      state,
+      body: [
+        meta,
+        issue.description?.trim() || "(no description)",
+        ...discussion,
+      ].join("\n\n"),
+      sourceCreatedAt: new Date(issue.createdAt),
+      sourceUpdatedAt: new Date(issue.updatedAt),
+    },
+    // A team move changes the identifier; the old key is gone.
+    gone: identifier && identifier !== issue.identifier ? [identifier] : [],
+  }
 }
 
 export const linearProvider: SourceProvider = {
-  async fetchContent(source, connection) {
-    if (source.kind !== "issue") return null
-    const client = await linearClientFor(connection.externalId)
-    if (!client) return null
-    const issue = await client.issue(source.externalId).catch(() => null)
-    if (!issue) return null
-
-    const state = await issue.state
-    let out = `# ${issue.identifier} ${issue.title}\nState: ${state?.name ?? "unknown"}\n\n${issue.description ?? "(no description)"}`
-    const comments = await issue
-      .comments({ first: MAX_COMMENTS })
-      .then((c) => c.nodes)
-      .catch(() => [])
-    for (const c of comments) {
-      out += `\n\n— ${c.body}`
-    }
-    return clip(out)
-  },
-
   async verifyConnection(connection) {
     const client = await linearClientFor(connection.externalId)
     if (!client) return null

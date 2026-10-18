@@ -75,11 +75,13 @@ export function ChannelSearchOverlay({
     return (
       <Pressable
         accessibilityHint={
-          item.threadRootId
-            ? "Opens the thread containing this message"
-            : "Returns to the channel and focuses this message"
+          item.sessionTitle
+            ? "Opens the session containing this message"
+            : item.threadRootId
+              ? "Opens the thread containing this message"
+              : "Returns to the channel and focuses this message"
         }
-        accessibilityLabel={`Message from ${displayName}${item.threadRootId ? " in a thread" : ""}: ${preview}`}
+        accessibilityLabel={`Message from ${displayName}${item.sessionTitle ? ` in session ${item.sessionTitle}` : item.threadRootId ? " in a thread" : ""}: ${preview}`}
         accessibilityRole="button"
         className="mx-three flex-row gap-three border-b border-separator px-one py-three active:bg-surface-secondary"
         onPress={() => {
@@ -112,7 +114,12 @@ export function ChannelSearchOverlay({
           {item.threadRootId ? (
             <View className="flex-row items-center gap-one">
               <HugeiconsIcon color={muted} icon={ThreadIcon} size={12} />
-              <Text className="text-xs font-medium text-muted">In thread</Text>
+              <Text
+                className="min-w-0 shrink text-xs font-medium text-muted"
+                numberOfLines={1}
+              >
+                {item.sessionTitle ?? "In thread"}
+              </Text>
             </View>
           ) : null}
           <View className="max-h-[66px] overflow-hidden" pointerEvents="none">

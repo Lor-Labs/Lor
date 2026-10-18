@@ -76,6 +76,7 @@ function MessageResultRow({
             numberOfLines={1}
           >
             in #{message.channelName}
+            {message.sessionTitle ? ` · ${message.sessionTitle}` : ""}
           </Text>
           <Text className="text-[11px] text-muted">
             {formatDateTime(message.createdAt)}

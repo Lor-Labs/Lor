@@ -31,7 +31,6 @@ export const triggerDelivery = pgTable(
     actLabel: text("act_label"),
     // Which effects this delivery actually kicked off.
     posted: boolean("posted").notNull().default(false),
-    remembered: boolean("remembered").notNull().default(false),
     // The triggered agent run. Many deliveries share one run when batched.
     runId: uuid("run_id"),
   },

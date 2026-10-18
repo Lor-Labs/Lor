@@ -1,8 +1,7 @@
 import { and, db, eq, LOR_USER_ID, schema } from "@repo/db"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { writePage } from "../brain"
-import { embedDocument } from "../embeddings"
-import { ingestSource } from "../sources"
+import { storeSourceItem } from "../sources"
 
 export type SeededWorkspace = {
   workspaceId: string
@@ -133,54 +132,48 @@ export async function seedEvalWorkspace(): Promise<SeededWorkspace> {
       .returning({ id: schema.integrationConnection.id }),
     "integration connection"
   )
-  await ingestSource({
-    workspaceId: workspace.id,
-    connectionId: connection.id,
-    provider: "github",
-    kind: "pull_request",
-    externalId: "eval-org/app#42",
-    url: "https://github.com/eval-org/app/pull/42",
-    title: "Add JWT refresh-token rotation",
-    author: "alice",
-    occurredAt: new Date(),
-    content:
-      "Implements refresh-token rotation for the auth service: short-lived access tokens, rotating refresh tokens stored hashed, and automatic revocation when a used token is replayed.",
-  })
-
-  const sourceDistractors = [
+  const pullRequests = [
     {
-      externalId: "eval-org/app#43",
+      number: 42,
+      title: "Add JWT refresh-token rotation",
+      author: "alice",
+      body: "Implements refresh-token rotation for the auth service: short-lived access tokens, rotating refresh tokens stored hashed, and automatic revocation when a used token is replayed.",
+    },
+    {
+      number: 43,
       title: "Update dashboard color palette",
-      summary:
-        "Updates dashboard colors and contrast tokens to match the revised visual design system.",
+      author: "eval-contributor",
+      body: "Updates dashboard colors and contrast tokens to match the revised visual design system.",
     },
     {
-      externalId: "eval-org/app#44",
+      number: 44,
       title: "Optimize image upload pipeline",
-      summary:
-        "Reduces media upload latency by resizing images earlier and parallelizing object storage writes.",
+      author: "eval-contributor",
+      body: "Reduces media upload latency by resizing images earlier and parallelizing object storage writes.",
     },
     {
-      externalId: "eval-org/app#45",
+      number: 45,
       title: "Export monthly billing reports",
-      summary:
-        "Adds scheduled CSV exports for monthly invoices and payment reconciliation.",
+      author: "eval-contributor",
+      body: "Adds scheduled CSV exports for monthly invoices and payment reconciliation.",
     },
   ]
-  for (const distractor of sourceDistractors) {
-    await db.insert(schema.source).values({
-      workspaceId: workspace.id,
-      connectionId: connection.id,
-      provider: "github",
-      kind: "pull_request",
-      externalId: distractor.externalId,
-      url: `https://github.com/eval-org/app/pull/${distractor.externalId.split("#")[1]}`,
-      title: distractor.title,
-      author: "eval-contributor",
-      summary: distractor.summary,
-      embedding: await embedDocument(distractor.summary).catch(() => null),
-      occurredAt: new Date(),
-    })
+  const now = new Date()
+  for (const pr of pullRequests) {
+    await storeSourceItem(
+      { id: connection.id, workspaceId: workspace.id, provider: "github" },
+      {
+        kind: "pull_request",
+        externalId: `eval-org/app#${pr.number}`,
+        url: `https://github.com/eval-org/app/pull/${pr.number}`,
+        title: pr.title,
+        author: pr.author,
+        state: "merged",
+        body: pr.body,
+        sourceCreatedAt: now,
+        sourceUpdatedAt: now,
+      }
+    )
   }
 
   await db.insert(schema.message).values([

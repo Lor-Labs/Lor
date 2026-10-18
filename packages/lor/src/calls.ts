@@ -13,7 +13,16 @@ import {
 } from "@repo/db"
 import { formatCallTime } from "@repo/realtime-types/call-transcript"
 import { embedCallQuery } from "./embeddings"
-import { orTsQuery, privateAudienceFilter } from "./retrieval"
+import {
+  channelFilter,
+  type DbTransaction,
+  dateFilter,
+  fuseByRank,
+  orTsQuery,
+  privateAudienceFilter,
+  type SearchFilters,
+  withIterativeScan,
+} from "./retrieval"
 
 // Past voice calls for Lor (reference/voice-channels-runbook.md V7): search
 // over voice_passage (topic sections and summaries of ended calls), reading
@@ -21,7 +30,6 @@ import { orTsQuery, privateAudienceFilter } from "./retrieval"
 // the run's channel audience, never the asker's access.
 
 const POOL_FACTOR = 3
-const RRF_K = 60
 // A section can run for a whole topic; read_call returns the rest.
 const SNIPPET_MAX = 1500
 // One long call would otherwise fill every result slot.
@@ -46,8 +54,8 @@ export function parseCallTime(value: string) {
   return seconds * 1000
 }
 
-function passages() {
-  return db
+function passages(executor: Pick<DbTransaction, "select"> = db) {
+  return executor
     .select({
       id: voicePassage.id,
       sessionId: voicePassage.sessionId,
@@ -74,12 +82,15 @@ export async function searchCalls(
   workspaceId: string,
   query: string,
   limit: number,
-  privateContainerChannelId: string | null = null
+  privateContainerChannelId: string | null = null,
+  filters: SearchFilters = {}
 ) {
   const pool = limit * POOL_FACTOR
   const scope = and(
     eq(voicePassage.workspaceId, workspaceId),
-    privateAudienceFilter(privateContainerChannelId)
+    privateAudienceFilter(privateContainerChannelId),
+    channelFilter(filters.channel),
+    dateFilter(voiceSession.startedAt, filters)
   )
   const tsq = orTsQuery(query)
   const [keyword, vector] = await Promise.all([
@@ -89,33 +100,25 @@ export async function searchCalls(
       .limit(pool),
     embedCallQuery(query)
       .then((embedding) =>
-        passages()
-          .where(and(scope, isNotNull(voicePassage.embedding)))
-          .orderBy(cosineDistance(voicePassage.embedding, embedding))
-          .limit(pool)
+        withIterativeScan((tx) =>
+          passages(tx)
+            .where(and(scope, isNotNull(voicePassage.embedding)))
+            .orderBy(cosineDistance(voicePassage.embedding, embedding))
+            .limit(pool)
+        )
       )
       .catch(() => [] as Passage[]),
   ])
 
-  const scored = new Map<string, { row: Passage; score: number }>()
-  for (const list of [keyword, vector]) {
-    list.forEach((row, rank) => {
-      const entry = scored.get(row.id) ?? { row, score: 0 }
-      entry.score += 1 / (RRF_K + rank + 1)
-      scored.set(row.id, entry)
-    })
-  }
-
   const perCall = new Map<string, number>()
-  return [...scored.values()]
-    .sort((a, b) => b.score - a.score)
-    .filter(({ row }) => {
+  return fuseByRank([keyword, vector], (row) => row.id)
+    .filter((row) => {
       const hits = perCall.get(row.sessionId) ?? 0
       perCall.set(row.sessionId, hits + 1)
       return hits < MAX_HITS_PER_CALL
     })
     .slice(0, limit)
-    .map(({ row }) => ({
+    .map((row) => ({
       sessionId: row.sessionId,
       kind: row.kind,
       channel: row.channelName,

@@ -160,7 +160,7 @@ export function renderDiscordWebhookBody(body: DiscordWebhookBody): string {
 }
 
 // Chat presentation: embeds become structured cards on the message (the
-// markdown renderers above survive for Remember/Act, where Lor needs a
+// markdown renderers above survive for Act, where Lor needs a
 // text form of the whole payload).
 export function discordEmbedsToMessageEmbeds(
   body: DiscordWebhookBody

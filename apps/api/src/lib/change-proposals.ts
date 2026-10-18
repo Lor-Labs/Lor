@@ -220,8 +220,6 @@ async function applyOperation(
           event: spec.event,
           channelId,
           post: spec.post,
-          remember: spec.remember,
-          rememberHint: spec.rememberHint,
           actInstructions: spec.actInstructions,
         })
         .onConflictDoUpdate({
@@ -232,8 +230,6 @@ async function applyOperation(
           set: {
             channelId,
             post: spec.post,
-            remember: spec.remember,
-            rememberHint: spec.rememberHint,
             actInstructions: spec.actInstructions,
           },
         })
