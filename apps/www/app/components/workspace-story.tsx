@@ -219,12 +219,6 @@ export function WorkspaceStory() {
   return (
     <div
       ref={root}
-      onPointerEnter={(event) => {
-        if (event.pointerType === "mouse") setHovered(true)
-      }}
-      onPointerLeave={(event) => {
-        if (event.pointerType === "mouse") setHovered(false)
-      }}
       onFocusCapture={(event) => {
         if (
           !playbackControl.current?.contains(event.target) &&
@@ -292,6 +286,12 @@ export function WorkspaceStory() {
       </div>
       <div
         className="grid"
+        onPointerEnter={(event) => {
+          if (event.pointerType === "mouse") setHovered(true)
+        }}
+        onPointerLeave={(event) => {
+          if (event.pointerType === "mouse") setHovered(false)
+        }}
         onPointerDown={() => setPaused(true)}
         onFocusCapture={() => setPaused(true)}
       >
