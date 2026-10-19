@@ -1,6 +1,8 @@
 "use client"
 
-import { type KeyboardEvent, useId, useRef, useState } from "react"
+import { PauseIcon, PlayIcon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react"
 import { LaunchChecklist } from "@/app/components/launch-checklist"
 import { Citation, FileCard, WorkLog } from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
@@ -53,6 +55,8 @@ const SCENES = [
     files: ["launch-plan.md"],
   },
 ] as const
+
+const SCENE_DURATION_MS = 10_000
 
 function Conversation({ scene }: { scene: number }) {
   if (scene === 1)
@@ -110,9 +114,90 @@ function Conversation({ scene }: { scene: number }) {
 
 export function WorkspaceStory() {
   const [active, setActive] = useState(0)
+  const [cycle, setCycle] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const [inView, setInView] = useState(false)
+  const [pageVisible, setPageVisible] = useState(false)
+  const [reducedMotion, setReducedMotion] = useState(true)
+  const [automatic, setAutomatic] = useState(false)
   const id = useId()
+  const root = useRef<HTMLDivElement>(null)
   const tabs = useRef<(HTMLButtonElement | null)[]>([])
+  const panels = useRef<(HTMLDivElement | null)[]>([])
+  const progress = useRef<HTMLSpanElement>(null)
+  const progressAnimation = useRef<Animation | null>(null)
+  const playbackControl = useRef<HTMLButtonElement>(null)
   const scene = SCENES[active] ?? SCENES[0]
+  const running = !paused && !hovered && inView && pageVisible && !reducedMotion
+
+  useEffect(() => {
+    const element = root.current
+    if (!element) return
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const updateMotion = () => setReducedMotion(media.matches)
+    const updateVisibility = () => setPageVisible(!document.hidden)
+    updateMotion()
+    updateVisibility()
+    media.addEventListener("change", updateMotion)
+    document.addEventListener("visibilitychange", updateVisibility)
+    const observer = new IntersectionObserver(
+      ([entry]) => setInView(!!entry && entry.intersectionRatio >= 0.35),
+      { threshold: 0.35 }
+    )
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+      media.removeEventListener("change", updateMotion)
+      document.removeEventListener("visibilitychange", updateVisibility)
+    }
+  }, [])
+
+  // One compositor animation drives both the visible countdown and advancement.
+  useEffect(() => {
+    const element = progress.current
+    if (!element || reducedMotion) return
+    const animation = element.animate(
+      [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
+      { duration: SCENE_DURATION_MS, easing: "linear", fill: "forwards" }
+    )
+    animation.pause()
+    progressAnimation.current = animation
+    animation.onfinish = () => {
+      if (progressAnimation.current !== animation) return
+      setAutomatic(true)
+      setActive((current) => (current + 1) % SCENES.length)
+    }
+    return () => {
+      animation.onfinish = null
+      animation.cancel()
+      progressAnimation.current = null
+    }
+  }, [active, cycle, reducedMotion])
+
+  useEffect(() => {
+    const animation = progressAnimation.current
+    if (running) animation?.play()
+    else animation?.pause()
+  }, [active, cycle, reducedMotion, running])
+
+  useEffect(() => {
+    const panel = panels.current[active]
+    if (!panel || !automatic || reducedMotion) return
+    const animation = panel.animate([{ opacity: 0.6 }, { opacity: 1 }], {
+      duration: 180,
+      easing: getComputedStyle(document.documentElement)
+        .getPropertyValue("--ease-out")
+        .trim(),
+    })
+    return () => animation.cancel()
+  }, [active, automatic, reducedMotion])
+
+  function selectScene(index: number) {
+    setAutomatic(false)
+    setActive(index)
+    setCycle((current) => current + 1)
+  }
 
   function handleKeyDown(
     event: KeyboardEvent<HTMLButtonElement>,
@@ -126,17 +211,34 @@ export function WorkspaceStory() {
     else if (event.key === "End") next = SCENES.length - 1
     else return
     event.preventDefault()
-    setActive(next)
+    setPaused(true)
+    selectScene(next)
     tabs.current[next]?.focus()
   }
 
   return (
-    <div>
+    <div
+      ref={root}
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse") setHovered(true)
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === "mouse") setHovered(false)
+      }}
+      onFocusCapture={(event) => {
+        if (
+          !playbackControl.current?.contains(event.target) &&
+          event.target.matches(":focus-visible")
+        ) {
+          setPaused(true)
+        }
+      }}
+    >
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div
           role="tablist"
           aria-label="A team working in Lor"
-          className="grid w-full grid-cols-2 gap-1 sm:w-auto sm:grid-cols-4"
+          className="grid w-full grid-cols-2 gap-1 rounded-xl bg-lor-sidebar-dark/80 p-1 ring-1 ring-inset ring-foreground/[0.08] sm:w-auto sm:grid-cols-4"
         >
           {SCENES.map((item, index) => (
             <button
@@ -150,57 +252,90 @@ export function WorkspaceStory() {
               aria-controls={`${id}-panel-${index}`}
               aria-selected={active === index}
               tabIndex={active === index ? 0 : -1}
-              onClick={() => setActive(index)}
+              onClick={() => selectScene(index)}
               onKeyDown={(event) => handleKeyDown(event, index)}
-              className={`min-h-11 cursor-pointer rounded-lg px-3 text-sm transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-agent ${active === index ? "bg-foreground/[0.08] text-foreground" : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"}`}
+              className={`relative isolate min-h-11 cursor-pointer overflow-hidden rounded-lg px-3.5 text-[13px] focus-visible:outline-2 focus-visible:outline-agent ${active === index ? "bg-agent/10 text-foreground" : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"}`}
             >
-              {item.label}
+              {active === index && !reducedMotion ? (
+                <span
+                  ref={progress}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 -z-10 origin-left bg-agent/25"
+                  style={{ transform: "scaleX(0)" }}
+                />
+              ) : null}
+              <span className="relative">{item.label}</span>
             </button>
           ))}
         </div>
-        <span className="px-3 text-[11px] text-muted-foreground">
-          Product preview
-        </span>
+        <div className="ml-auto flex items-center gap-3">
+          <span className="text-[11px] text-muted-foreground">
+            Product preview
+          </span>
+          {!reducedMotion ? (
+            <button
+              ref={playbackControl}
+              type="button"
+              aria-label={
+                paused ? "Resume automatic preview" : "Pause automatic preview"
+              }
+              title={
+                paused ? "Resume automatic preview" : "Pause automatic preview"
+              }
+              onClick={() => setPaused((current) => !current)}
+              className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-foreground/5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-agent"
+            >
+              <HugeiconsIcon icon={paused ? PlayIcon : PauseIcon} size={16} />
+            </button>
+          ) : null}
+        </div>
       </div>
-      {SCENES.map((item, index) => (
-        <div
-          key={item.label}
-          id={`${id}-panel-${index}`}
-          role="tabpanel"
-          aria-labelledby={`${id}-tab-${index}`}
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: Tab panels need a focus target after the tab list.
-          tabIndex={0}
-          hidden={active !== index}
-          className="rounded-3xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
-        >
-          {active === index ? (
-            <MockShell>
-              <div className="flex bg-lor-sidebar-dark text-left md:min-h-[650px]">
-                <PreviewSidebar active={scene.active} />
+      <div
+        className="grid"
+        onPointerDown={() => setPaused(true)}
+        onFocusCapture={() => setPaused(true)}
+      >
+        {SCENES.map((item, index) => (
+          <div
+            key={item.label}
+            ref={(element) => {
+              panels.current[index] = element
+            }}
+            id={`${id}-panel-${index}`}
+            role="tabpanel"
+            aria-labelledby={`${id}-tab-${index}`}
+            tabIndex={active === index ? 0 : -1}
+            aria-hidden={active !== index}
+            inert={active !== index}
+            className={`col-start-1 row-start-1 min-w-0 rounded-3xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent ${active === index ? "" : "invisible pointer-events-none"}`}
+          >
+            <MockShell className="h-full" innerClassName="h-full">
+              <div className="flex h-full max-h-[700px] min-h-[650px] overflow-y-auto overscroll-y-contain bg-lor-sidebar-dark text-left">
+                <PreviewSidebar active={item.active} />
                 <div className="flex min-w-0 flex-1 flex-col lg:flex-row">
                   <div className="m-2 flex min-w-0 flex-1 overflow-hidden rounded-xl border border-lor-border-dark/60 md:ml-0">
-                    {active === 0 ? (
+                    {index === 0 ? (
                       <TeamChatPreview />
-                    ) : active === 2 ? (
+                    ) : index === 2 ? (
                       <LaunchChecklist headingLevel={2} />
                     ) : (
                       <PreviewDocument
-                        title={scene.title}
-                        channel={scene.channel}
+                        title={item.title}
+                        channel={item.channel}
                         headingLevel={2}
-                        starter={active === 1 ? "Theo" : "Rafael"}
-                        agent={active === 1 ? "Codex" : "Lor"}
+                        starter={index === 1 ? "Theo" : "Rafael"}
+                        agent={index === 1 ? "Codex" : "Lor"}
                       >
-                        <Conversation scene={active} />
+                        <Conversation scene={index} />
                       </PreviewDocument>
                     )}
                   </div>
-                  {active === 1 || active === 3 ? (
+                  {index === 1 || index === 3 ? (
                     <PreviewDetails
-                      plan={[...scene.plan]}
-                      files={[...scene.files]}
+                      plan={[...item.plan]}
+                      files={[...item.files]}
                       context={
-                        active === 1
+                        index === 1
                           ? "launch · 4 messages"
                           : "launch · Friday launch"
                       }
@@ -209,11 +344,11 @@ export function WorkspaceStory() {
                 </div>
               </div>
             </MockShell>
-          ) : null}
-        </div>
-      ))}
+          </div>
+        ))}
+      </div>
       <p
-        aria-live="polite"
+        aria-live={paused || reducedMotion ? "polite" : "off"}
         aria-atomic="true"
         className="mt-5 min-h-10 px-1 text-sm leading-relaxed text-muted-foreground"
       >

@@ -51,6 +51,12 @@ editable customer email, and engineering's QA sign-off. Keep the live teammate
 presence and ownership visible beside those artifacts. The surrounding workspace
 chrome stays consistent with Lor; the artifacts can have their own visual style.
 
+The hero cycles through its four scenes every ten seconds, with a fill across
+the active tab. Pause while hovered, offscreen, or in a background tab. Keyboard
+navigation and interacting with a scene stop rotation until the visitor resumes
+it; reduced-motion visitors get manual tabs. Keep panels mounted so edits survive
+switching scenes, and keep the preview height stable as the scenes advance.
+
 ## Earlier direction — 2026-10-12 (historical)
 
 This doc sets how Lor is described in all marketing copy and in sales
