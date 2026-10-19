@@ -12,40 +12,36 @@ export function Reveal({
   delay?: number
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [shown, setShown] = useState(false)
+  const [hidden, setHidden] = useState(false)
 
   useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setShown(true)
+    const element = ref.current
+    if (
+      !element ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    )
       return
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) {
-            setShown(true)
-            io.disconnect()
-            break
-          }
+    // Keep server-rendered content visible; only reveal sections below the fold.
+    if (element.getBoundingClientRect().top < window.innerHeight) return
+    setHidden(true)
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setHidden(false)
+          observer.disconnect()
         }
       },
-      { threshold: 0.12, rootMargin: "0px 0px -10% 0px" }
+      { threshold: 0.05 }
     )
-    io.observe(el)
-    return () => io.disconnect()
+    observer.observe(element)
+    return () => observer.disconnect()
   }, [])
 
   return (
     <div
       ref={ref}
-      style={{ transitionDelay: `${delay}ms` }}
-      className={`transition-[opacity,transform,filter] duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-        shown
-          ? "translate-y-0 opacity-100 blur-0"
-          : "translate-y-10 opacity-0 blur-[6px]"
-      } ${className}`}
+      style={{ transitionDelay: hidden ? "0ms" : `${delay}ms` }}
+      className={`transition-[opacity,transform] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transform-none motion-reduce:opacity-100 motion-reduce:transition-none ${hidden ? "translate-y-5 opacity-0" : "translate-y-0 opacity-100"} ${className}`}
     >
       {children}
     </div>

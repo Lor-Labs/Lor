@@ -152,6 +152,13 @@ Cursor's current public page lists Teams from $30/user and separately purchased 
 
 ## 6. BYO API keys and subscriptions
 
+Architecture update, 2026-10-19: [shared harness sessions](harness-sessions.md)
+now targets Pi for managed chat/cowork/code sessions and eligible official
+harnesses for personal subscriptions. Direct subscription-funded inference
+outside those harnesses is deferred. The workbook has not been recalculated for
+this broader runtime coverage; its code-only offload figures below describe the
+earlier integration scope.
+
 ### BYO API credentials
 
 Keep the same seat price and included product for BYOK. Do not consume AI credits for inference paid through the customer's provider account. Search, transcription, code storage and normal sandbox/browser time remain included. Only runtime above the pooled allowances creates a Lor infrastructure charge. Background ingestion and retrieval remain Lor costs; do not silently bill that housekeeping to the customer's key.
@@ -175,9 +182,9 @@ The workbook's 60% BYOS case is an **economic hypothesis about avoided Lor infer
 
 That case costs the typical ten-member team $290 to Lor plus an illustrative $200 of subscriptions: **$490 total**. If those subscriptions are already owned, incremental spend is $290. Its modeled Lor contribution is 47.2%; the remaining Lor-funded inference fits inside the AI allowance. Buying subscriptions solely to replace cheap default inference is usually poor economics. Premium coding is a stronger use case.
 
-A CLI-only integration offloads only code inference. In the typical default-model case, that is just $0.99/member/month of Lor vendor cost, or about $2.96/member of retail cloud consumption. It does not remove browser inference, main Lor responses, indexing, storage or sandbox costs. A local runner can additionally remove hosted sandbox hours for the work actually moved local; checkpoints, sync, context and Lor's background services remain. The workbook conservatively keeps all execution in Lor's cloud for its BYO comparisons.
+The earlier coding-child-only integration offloads only code inference. In the typical default-model case, that is just $0.99/member/month of Lor vendor cost, or about $2.96/member of retail cloud consumption. Those figures do not describe the new shared-harness target, which can also move a session's main loop into the selected official harness. Indexing, storage, sandbox and other Lor-hosted services still cost money. A local runner can additionally remove hosted sandbox hours for the work actually moved local; checkpoints, sync, context and Lor's background services remain. The workbook conservatively keeps all execution in Lor's cloud for its BYO comparisons.
 
-**Rollout:** managed default inference and BYOK first; personal official-CLI support as a constrained code-channel feature; broader ChatGPT plan sharing after commercial eligibility is established. Keep Loops on an explicitly budgeted workspace API account or Lor Cloud. Do not make subscription approvals a launch dependency.
+**Runtime rollout:** follow [the shared-session plan](harness-sessions.md#6-implementation-sequence): Pi primary runtime first, then eligible official-harness adapters on the same session model. Personal subscription support is no longer architecturally restricted to code channels. Keep Loops on an explicitly budgeted workspace API account or Lor Cloud, defer direct subscription inference, and do not make provider eligibility a managed-launch dependency. Pricing assumptions still need a separate update using measured costs.
 
 ## 7. Model selection changes price more than embeddings do
 

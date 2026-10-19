@@ -1,7 +1,65 @@
 # Positioning
 
-**Status:** Direction from 2026-10-12. Not locked. No public copy has changed.
-Promotion of `apps/www` is still gated on the demo video.
+**Current direction — 2026-10-19:** Lor is the team workspace for the AI era.
+The www headline is "Work with AI, together." Keep "A workspace for your whole
+team" above it. Teams can use Lor alongside their current chat; the copy should
+not imply that switching chat apps is required. Show the broader workspace vision
+through the product examples. The earlier direction is retained as history.
+
+## Current www story
+
+The reason Lor matters comes before the infrastructure: as more work happens
+through conversations with AI, team chat becomes the team's workspace. People
+join the work itself, rather than receiving pasted outputs from private AI chats.
+
+The hero starts with ordinary team chat in #launch: the team needs a shared view
+of Friday's launch, Theo builds a checklist, and everyone can update their part.
+Engineering's QA sign-off clears the customer email for marketing. Someone later
+asks why that handoff exists. Channel know-how appears through an account-research
+example. Knowledge retention appears through a customer handover. Bring-your-own
+harness supports the story rather than leading it.
+
+**Copy correction:** Describe the reader's experience. Do not narrate the roadmap
+with "we're building toward," "the foundation," or lists of internal feature
+categories. Show the ambition through examples. Keep the small "Product preview"
+label on the interactive example; early-access signup remains the call to action.
+These illustrative scenarios are not customer testimonials or a release checklist.
+
+Product illustrations follow the real app's document-style session layout:
+avatar gutters without author-name rows, inline replies, channel sessions in the
+sidebar, and a separate Details/file panel. Use the app's shared Lor tokens and
+components rather than inventing different chrome for the marketing site.
+
+Vary the work on screen: people in channel chat, Codex when engineering joins,
+an actual shared launch checklist inside #launch, and a saved account-research
+routine running in #gtm. Apps and routines should look like things the team uses,
+not more chat transcripts describing them. Keep these as interactive product
+previews, with local-only example data.
+
+Show everyday communication inside the hero's workspace, with voice presence
+in the sidebar. Do not put a call stage inside a channel conversation or add a
+separate mock chat/call section. Channels are people talking to people; agent
+work opens in its own session.
+
+The tool-building point is distribution: the checklist lives in the team's channel,
+and everyone there can use it without extra accounts or setup. Show this in the
+hero; do not add a generic "make any tool" section. The interactive QA handoff
+shows a process tailored to this team, beyond a generic task list. Its email
+status is illustrative; the preview does not send anything.
+
+The launch app shows the work itself: landing-page and help-doc previews, an
+editable customer email, and engineering's QA sign-off. Keep the live teammate
+presence and ownership visible beside those artifacts. The surrounding workspace
+chrome stays consistent with Lor; the artifacts can have their own visual style.
+
+The hero cycles through its four scenes every four seconds, with a fill across
+the active tab. Hovering the tabs keeps the countdown running; hovering the
+preview itself pauses it. Also pause offscreen or in a background tab. Keyboard
+navigation and interacting with a scene stop rotation until the visitor resumes
+it; reduced-motion visitors get manual tabs. Keep panels mounted so edits survive
+switching scenes, and keep the preview height stable as the scenes advance.
+
+## Earlier direction — 2026-10-12 (historical)
 
 This doc sets how Lor is described in all marketing copy and in sales
 conversations. It also records how that differs from the copy we have now.

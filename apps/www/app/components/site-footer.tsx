@@ -1,5 +1,3 @@
-import { TESTFLIGHT_URL } from "@/app/lib/urls"
-
 type LinkGroup = {
   title: string
   links: { label: string; href: string; external?: boolean }[]
@@ -10,15 +8,9 @@ const GROUPS: LinkGroup[] = [
     title: "Lor",
     links: [
       { label: "Why Lor", href: "/#why" },
-      { label: "How it works", href: "/#week" },
+      { label: "The workspace", href: "/#workspace" },
+      { label: "What you can do", href: "/#vision" },
       { label: "Early access", href: "/#early-access" },
-    ],
-  },
-  {
-    title: "Apps",
-    links: [
-      { label: "Download for Mac", href: "/download" },
-      { label: "iOS alpha", href: TESTFLIGHT_URL, external: true },
     ],
   },
 ]

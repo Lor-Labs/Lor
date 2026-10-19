@@ -123,14 +123,18 @@ live there. Update its checkboxes and deviations log as phases land. Private
 questions to Lor are deferred (`reference/planned/private-lor-questions.md`). Broader
 priorities live in `reference/product-direction.md`.
 
-### Code channels (multiplayer AI coding)
+### Shared harness sessions and code channels
 
-The target architecture for code channels — per-step checkpoints (Postgres
-conversation + git-host commits on Code Storage or Cloudflare Artifacts),
-fork/handoff/rewind, local clone, Yjs live editing, the push-driven code index,
-and Claude Code/Codex CLI support with subscription rules — lives in
-`reference/planned/code-channels.md`. Design only, not built; its locked decisions and
-rejected alternatives explain the shape.
+The target runtime and Pi-first migration plan live in
+`reference/planned/harness-sessions.md`: one session model for chat/cowork/code,
+Lor-owned memory/permissions/approvals/budgets, native runtime persistence and
+completed-turn checkpoints. Postgres owns native Pi state and common durable
+activity history for every harness; private Git holds
+workspace revisions joined by immutable checkpoint references. Official harnesses
+retain their supported native payloads. Code workspace collaboration,
+fork/handoff/rewind, deferred Lor CLI local/cloud handoff, Yjs and the independent code index live in
+`reference/planned/code-channels.md`. Both are design only, not built. Convert the
+main Lor loop to Pi first; harness capabilities belong to the foundation.
 
 ### Attachment search + reranking
 

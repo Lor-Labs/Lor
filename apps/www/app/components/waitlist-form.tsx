@@ -157,7 +157,7 @@ export function WaitlistForm({
               setState({ status: "idle" })
             }
           }}
-          className="h-12 min-w-0 flex-1 rounded-full border border-foreground/[0.12] bg-foreground/[0.03] px-5 text-[15px] text-foreground outline-none transition-colors duration-300 placeholder:text-muted-foreground/70 read-only:opacity-60 focus:border-agent/60 focus:bg-foreground/[0.05]"
+          className="h-12 min-w-0 flex-1 rounded-full border border-foreground/[0.12] bg-foreground/[0.03] px-5 text-base text-foreground outline-none transition-colors duration-300 placeholder:text-muted-foreground/70 read-only:opacity-60 focus:border-agent/60 focus:bg-foreground/[0.05]"
         />
         <button
           type="submit"
