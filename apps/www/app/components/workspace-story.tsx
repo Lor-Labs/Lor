@@ -1,10 +1,10 @@
 "use client"
 
 import { type KeyboardEvent, useId, useRef, useState } from "react"
+import { LaunchChecklist } from "@/app/components/launch-checklist"
 import { Citation, FileCard, WorkLog } from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
 import { TeamChatPreview } from "@/app/components/team-chat-preview"
-import { LaunchChecklist } from "@/app/components/workspace-apps"
 import {
   PreviewDetails,
   PreviewDocument,

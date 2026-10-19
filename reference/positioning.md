@@ -46,6 +46,11 @@ hero; do not add a generic "make any tool" section. The interactive QA handoff
 shows a process tailored to this team, beyond a generic task list. Its email
 status is illustrative; the preview does not send anything.
 
+The launch app shows the work itself: landing-page and help-doc previews, an
+editable customer email, and engineering's QA sign-off. Keep the live teammate
+presence and ownership visible beside those artifacts. The surrounding workspace
+chrome stays consistent with Lor; the artifacts can have their own visual style.
+
 ## Earlier direction — 2026-10-12 (historical)
 
 This doc sets how Lor is described in all marketing copy and in sales
