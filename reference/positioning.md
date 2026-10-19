@@ -1,7 +1,40 @@
 # Positioning
 
-**Status:** Direction from 2026-10-12. Not locked. No public copy has changed.
-Promotion of `apps/www` is still gated on the demo video.
+**Current direction — 2026-10-18:** Lor is the team workspace for the AI era.
+The www redesign leads with the broader product vision, per Jacob's direction:
+"Team chat was just the beginning." This supersedes the narrower shared-agent
+pitch and the demo-video gate below. The earlier direction is retained as history.
+
+## Current www story
+
+The reason Lor matters comes before the infrastructure: as more work happens
+through conversations with AI, team chat becomes the team's workspace. People
+join the work itself, rather than receiving pasted outputs from private AI chats.
+
+The page shows ordinary work: Zoe pulls together customer feedback, Theo joins
+to build a feedback board, the team uses it, and someone later asks why they
+made it. Channel know-how appears through an account-research example. Knowledge
+retention appears through a customer handover. Bring-your-own harness supports
+the story rather than leading it.
+
+**Copy correction:** Describe the reader's experience. Do not narrate the roadmap
+with "we're building toward," "the foundation," or lists of internal feature
+categories. Show the ambition through examples. Keep the small "Product preview"
+label on the interactive example; early-access signup remains the call to action.
+These illustrative scenarios are not customer testimonials or a release checklist.
+
+Product illustrations follow the real app's document-style session layout:
+avatar gutters without author-name rows, inline replies, channel sessions in the
+sidebar, and a separate Details/file panel. Use the app's shared Lor tokens and
+components rather than inventing different chrome for the marketing site.
+
+Vary the work on screen: Claude Code for research, Codex when engineering joins,
+an actual shared feedback board inside #product, and a saved account-research
+routine running in #gtm. Apps and routines should look like things the team uses,
+not more chat transcripts describing them. Keep these as interactive product
+previews, with local-only example data.
+
+## Earlier direction — 2026-10-12 (historical)
 
 This doc sets how Lor is described in all marketing copy and in sales
 conversations. It also records how that differs from the copy we have now.

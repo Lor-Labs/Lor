@@ -152,7 +152,7 @@ function MobileCard({ platform }: { platform: MobilePlatform }) {
 export default function DownloadPage() {
   return (
     <div className="flex min-h-svh flex-col">
-      <main className="flex-1">
+      <main id="main-content" className="flex-1">
         <section className="relative overflow-hidden">
           <div
             aria-hidden

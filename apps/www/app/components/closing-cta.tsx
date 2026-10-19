@@ -14,11 +14,11 @@ export function ClosingCTA() {
       <Reveal>
         <div className="relative mx-auto flex max-w-2xl flex-col items-center text-center">
           <h2 className="text-balance font-semibold text-4xl leading-[1.05] tracking-[-0.03em] md:text-[56px]">
-            One runtime for your whole team.
+            Bring your team along.
           </h2>
           <p className="mt-6 max-w-md text-pretty text-[16px] text-muted-foreground leading-relaxed">
-            Bring Claude Code, Codex, or your own. Lor brings the computer, the
-            context and the team.
+            Get early access to Lor. Leave your email and we&rsquo;ll be in
+            touch.
           </p>
           <WaitlistForm className="mt-10" align="center" />
         </div>
