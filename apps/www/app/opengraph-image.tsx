@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og"
 
 export const alt =
-  "Lor: Team chat was just the beginning. A workspace for your whole team."
+  "Lor: Work with AI, together. A workspace for your whole team."
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 
@@ -35,7 +35,7 @@ export default function OpengraphImage() {
         Lor
       </div>
       <div style={{ marginTop: 16, fontSize: 72, lineHeight: 1.05 }}>
-        Team chat was just the beginning.
+        Work with AI, together.
       </div>
       <div
         style={{

@@ -1,9 +1,10 @@
 # Positioning
 
-**Current direction — 2026-10-18:** Lor is the team workspace for the AI era.
-The www redesign leads with the broader product vision, per Jacob's direction:
-"Team chat was just the beginning." This supersedes the narrower shared-agent
-pitch and the demo-video gate below. The earlier direction is retained as history.
+**Current direction — 2026-10-19:** Lor is the team workspace for the AI era.
+The www headline is "Work with AI, together." Keep "A workspace for your whole
+team" above it. Teams can use Lor alongside their current chat; the copy should
+not imply that switching chat apps is required. Show the broader workspace vision
+through the product examples. The earlier direction is retained as history.
 
 ## Current www story
 

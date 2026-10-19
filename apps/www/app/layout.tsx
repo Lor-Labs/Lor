@@ -16,7 +16,7 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lor.chat"),
-  title: "Lor | Team chat was just the beginning",
+  title: "Lor | Work with AI, together",
   description:
     "Lor is where your team talks and gets work done. Bring AI into the conversation, pull in an engineer, and turn an idea into something everyone can use.",
   icons: {
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     apple: "/lor-icon.png",
   },
   openGraph: {
-    title: "Lor | Team chat was just the beginning",
+    title: "Lor | Work with AI, together",
     description:
       "Work with AI and your team in the same place. Bring someone into a conversation, build something together, and pick up where they left off.",
     url: "https://lor.chat",

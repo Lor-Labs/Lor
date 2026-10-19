@@ -31,8 +31,8 @@ function Hero() {
         </p>
         <div className="grid items-start gap-8 lg:grid-cols-[1.4fr_1fr] lg:gap-16">
           <h1 className="max-w-[14ch] text-balance font-medium text-[clamp(3.25rem,6.7vw,6rem)] leading-[1.02] tracking-[-0.055em]">
-            Team chat was
-            <span className="text-foreground/45"> just the beginning.</span>
+            Work with AI,
+            <span className="block text-foreground/45">together.</span>
           </h1>
           <div className="pb-1 lg:pb-2">
             <p className="max-w-[36ch] text-pretty text-[17px] text-foreground/70 leading-relaxed md:text-lg">
