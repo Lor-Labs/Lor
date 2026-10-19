@@ -65,7 +65,8 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `pricing-and-billing.md` | Pricing proposal and editable economics for LOR-16, 2026-10-16: included search, voice and code storage; separate AI credits/BYOK/BYOS; pooled browser/sandbox allowances and heavy-use overage; margins and billing gaps; no production pricing changes |
 | `agent-browser.md` | Cloud browser Lor drives in a session: live view, take over, per-channel logins. Research and design 2026-10-12; builds after the sessions branch merges; vendor (Browserbase or Steel) decided by a spike |
 | `linear-projects.md` | Lor projects linked to Linear projects. Split from onboarding 2026-10-07; open for its own design thread |
-| `code-channels.md` | Multiplayer AI coding architecture, design agreed 2026-10-05 |
+| `code-channels.md` | Code workspace collaboration, fork/rewind, local clone and Yjs; aligned with shared harness sessions 2026-10-19; design only |
+| `harness-sessions.md` | Finalized architecture, 2026-10-19: Pi-first migration, common Postgres activity, native Pi state + private Git files, checkpoint/fork and import rules; implementation gates recorded; CLI deferred; not built |
 | `context-engine.md` | Unblocked-style linked, ranked, permission-safe context. Research + proposed design 2026-10-10; §7 build order and §8 decisions revised 2026-10-17 |
 | `context-engine-phase-2.md` | Runbook, 2026-10-17: Remember removed, GitHub/Linear/Attio ingested as real text with chunks on webhooks (a search index, not a mirror); BM25 + hybrid search, filters, ranking priors, conflicts. Ships with phase 1 in one release |
 | `live-collaboration.md` | Editor decision (TipTap over Plate, 2026-10-09) and the MIT build map for live multiplayer documents |
