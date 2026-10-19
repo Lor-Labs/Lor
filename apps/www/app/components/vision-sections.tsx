@@ -1,3 +1,4 @@
+import { AgentChoice } from "@/app/components/agent-choice"
 import { Citation, WorkLog } from "@/app/components/mock-parts"
 import { Reveal } from "@/app/components/reveal"
 import { ChannelWorkflow } from "@/app/components/workspace-apps"
@@ -118,22 +119,6 @@ function KeepTheHistory() {
           </PreviewDocument>
         </PreviewFrame>
       </Reveal>
-    </section>
-  )
-}
-
-function AgentChoice() {
-  return (
-    <section className="mx-auto max-w-[1240px] px-5 sm:px-8">
-      <div className="flex flex-col justify-between gap-5 border-y border-foreground/10 py-9 md:flex-row md:items-center md:gap-12">
-        <h2 className="max-w-sm text-2xl font-medium tracking-tight">
-          Keep the agent you like working with.
-        </h2>
-        <p className="max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-          Claude Code, Codex, or your own setup. You don&rsquo;t have to change
-          how you work with AI to let your teammates join in.
-        </p>
-      </div>
     </section>
   )
 }
