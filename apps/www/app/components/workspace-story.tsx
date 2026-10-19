@@ -292,7 +292,7 @@ export function WorkspaceStory() {
         onPointerLeave={(event) => {
           if (event.pointerType === "mouse") setHovered(false)
         }}
-        onPointerDown={() => setPaused(true)}
+        onClick={() => setPaused(true)}
         onFocusCapture={() => setPaused(true)}
       >
         {SCENES.map((item, index) => (

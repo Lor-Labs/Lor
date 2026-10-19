@@ -14,7 +14,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { ResendLogo } from "@repo/ui/components/logos/resend"
-import { useId, useState } from "react"
+import { useId, useRef, useState } from "react"
 import { PersonAvatar, RAFAEL, THEO, ZOE } from "@/app/components/mock-parts"
 
 const PEOPLE = [
@@ -124,11 +124,13 @@ export function LaunchChecklist({
     text: "Zoe updated the landing page.",
   })
   const editorId = useId()
+  const editToggleRef = useRef<HTMLButtonElement>(null)
   const Heading = headingLevel === 2 ? "h2" : "h3"
 
   function finishEditing() {
     setEditing(false)
     setActivity({ avatar: RAFAEL, text: "Rafael updated the email draft." })
+    editToggleRef.current?.focus()
   }
 
   function toggleQa() {
@@ -296,6 +298,7 @@ export function LaunchChecklist({
                 </div>
               </div>
               <button
+                ref={editToggleRef}
                 type="button"
                 aria-label={editing ? "Save email draft" : "Edit email draft"}
                 aria-expanded={editing}
