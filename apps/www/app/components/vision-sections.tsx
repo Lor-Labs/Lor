@@ -1,5 +1,6 @@
 import { Citation, WorkLog } from "@/app/components/mock-parts"
 import { Reveal } from "@/app/components/reveal"
+import { TeamChatPreview } from "@/app/components/team-chat-preview"
 import { ChannelWorkflow, FeedbackBoard } from "@/app/components/workspace-apps"
 import {
   PreviewDocument,
@@ -31,6 +32,36 @@ function WhyLor() {
               tried, ask their own questions, and help finish the job.
             </p>
           </div>
+        </Reveal>
+      </div>
+    </section>
+  )
+}
+
+function TalkTogether() {
+  return (
+    <section
+      id="team-chat"
+      className="border-b border-foreground/[0.07] px-5 py-24 sm:px-8 md:py-28 scroll-mt-24"
+    >
+      <div className="mx-auto grid max-w-[1240px] items-center gap-12 lg:grid-cols-[1.1fr_1fr] lg:gap-24">
+        <Reveal className="order-2 lg:order-1">
+          <PreviewFrame>
+            <TeamChatPreview />
+          </PreviewFrame>
+        </Reveal>
+        <Reveal className="order-1 lg:order-2">
+          <h2 className="max-w-[18ch] text-balance text-4xl font-medium leading-[1.08] tracking-[-0.04em] md:text-[52px]">
+            Some things are easier to talk through.
+          </h2>
+          <p className="mt-7 max-w-[40ch] text-[17px] leading-relaxed text-muted-foreground">
+            Send a message, share a file, or jump into a voice call. Your
+            team&rsquo;s everyday conversations belong here, too.
+          </p>
+          <p className="mt-5 max-w-[40ch] text-[17px] leading-relaxed text-muted-foreground">
+            See who&rsquo;s around, join them for a few minutes, and keep
+            working together while you talk.
+          </p>
         </Reveal>
       </div>
     </section>
@@ -168,6 +199,7 @@ export function VisionSections() {
   return (
     <>
       <WhyLor />
+      <TalkTogether />
       <BuildTogether />
       <TeamKnowHow />
       <KeepTheHistory />

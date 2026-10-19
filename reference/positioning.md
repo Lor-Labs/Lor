@@ -34,6 +34,11 @@ routine running in #gtm. Apps and routines should look like things the team uses
 not more chat transcripts describing them. Keep these as interactive product
 previews, with local-only example data.
 
+Show everyday team communication too: ordinary people chatting in #general,
+a voice room with participants and call controls, and voice presence in the
+workspace sidebar. Lor is also where people talk to each other, without an
+agent needing to be part of every exchange.
+
 ## Earlier direction — 2026-10-12 (historical)
 
 This doc sets how Lor is described in all marketing copy and in sales

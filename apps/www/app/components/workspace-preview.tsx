@@ -12,6 +12,7 @@ import {
   Search01Icon,
   SentIcon,
   UnfoldMoreIcon,
+  VolumeHighIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
@@ -231,7 +232,29 @@ export function PreviewSidebar({ active }: { active: string }) {
           ) : null}
         </div>
       ))}
-      <div className="mt-auto flex items-center gap-2 px-2 pt-10 text-xs text-lor-text-secondary-dark">
+      <div className="mt-2 mb-4">
+        <p className="flex items-center gap-2 px-2 py-1.5 text-[13px] text-lor-text-secondary-dark">
+          <HugeiconsIcon
+            icon={VolumeHighIcon}
+            size={14}
+            className="opacity-60"
+          />
+          team-room
+        </p>
+        {[
+          { name: "Theo", avatar: THEO },
+          { name: "Rafael", avatar: RAFAEL },
+        ].map((person) => (
+          <p
+            key={person.name}
+            className="ml-6 flex items-center gap-2 px-2 py-1 text-xs text-lor-text-tertiary-dark"
+          >
+            <PersonAvatar src={person.avatar} size="size-4" />
+            {person.name}
+          </p>
+        ))}
+      </div>
+      <div className="mt-auto flex items-center gap-2 px-2 pt-5 text-xs text-lor-text-secondary-dark">
         <PersonAvatar src={ZOE} size="size-6" />
         Zoe
       </div>
