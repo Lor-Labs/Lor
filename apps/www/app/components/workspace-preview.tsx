@@ -206,7 +206,9 @@ export function PreviewSidebar({ active }: { active: string }) {
         { name: "gtm", sessions: ["Research next week's accounts"] },
       ].map((channel) => (
         <div key={channel.name} className="mb-2">
-          <p className="flex items-center gap-2 px-2 py-1.5 text-[13px] text-lor-text-secondary-dark">
+          <p
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] ${active === channel.name ? "bg-foreground/[0.06] font-medium text-lor-text-dark" : "text-lor-text-secondary-dark"}`}
+          >
             <HugeiconsIcon
               icon={HashtagIcon}
               size={14}

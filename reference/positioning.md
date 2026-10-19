@@ -11,8 +11,8 @@ The reason Lor matters comes before the infrastructure: as more work happens
 through conversations with AI, team chat becomes the team's workspace. People
 join the work itself, rather than receiving pasted outputs from private AI chats.
 
-The page shows ordinary work: Zoe pulls together customer feedback, Theo joins
-to build a feedback board, the team uses it, and someone later asks why they
+The hero starts with ordinary team chat in #product: Zoe shares customer notes,
+Theo offers to build a feedback board, the team uses it, and someone later asks why they
 made it. Channel know-how appears through an account-research example. Knowledge
 retention appears through a customer handover. Bring-your-own harness supports
 the story rather than leading it.
@@ -28,16 +28,20 @@ avatar gutters without author-name rows, inline replies, channel sessions in the
 sidebar, and a separate Details/file panel. Use the app's shared Lor tokens and
 components rather than inventing different chrome for the marketing site.
 
-Vary the work on screen: Claude Code for research, Codex when engineering joins,
+Vary the work on screen: people in channel chat, Codex when engineering joins,
 an actual shared feedback board inside #product, and a saved account-research
 routine running in #gtm. Apps and routines should look like things the team uses,
 not more chat transcripts describing them. Keep these as interactive product
 previews, with local-only example data.
 
-Show everyday team communication too: ordinary people chatting in #general,
-a voice room with participants and call controls, and voice presence in the
-workspace sidebar. Lor is also where people talk to each other, without an
-agent needing to be part of every exchange.
+Show everyday communication inside the hero's workspace, with voice presence
+in the sidebar. Do not put a call stage inside a channel conversation or add a
+separate mock chat/call section. Channels are people talking to people; agent
+work opens in its own session.
+
+The tool-building point is distribution: the board lives in the team's channel,
+and everyone there can use it without extra accounts or setup. Show this in the
+hero; do not add a generic "make any tool" section.
 
 ## Earlier direction — 2026-10-12 (historical)
 

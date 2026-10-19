@@ -1,13 +1,9 @@
 "use client"
 
 import { type KeyboardEvent, useId, useRef, useState } from "react"
-import {
-  Citation,
-  FileCard,
-  Mention,
-  WorkLog,
-} from "@/app/components/mock-parts"
+import { Citation, FileCard, WorkLog } from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
+import { TeamChatPreview } from "@/app/components/team-chat-preview"
 import { FeedbackBoard } from "@/app/components/workspace-apps"
 import {
   PreviewDetails,
@@ -18,18 +14,14 @@ import {
 
 const SCENES = [
   {
-    label: "Work it out",
-    title: "What are customers asking for?",
+    label: "Talk to your team",
+    title: "product",
     channel: "product",
-    active: "Customer feedback",
+    active: "product",
     caption:
-      "Zoe starts with the customer calls. Theo joins when there's something to build.",
-    plan: [
-      "Read the customer calls",
-      "Group the repeated requests",
-      "Check what's already in Linear",
-    ],
-    files: ["customer-feedback.md"],
+      "It starts with a conversation in #product. Zoe shares her notes; Theo offers to help.",
+    plan: [],
+    files: [],
   },
   {
     label: "Ask an engineer",
@@ -46,7 +38,8 @@ const SCENES = [
     title: "A home for customer feedback",
     channel: "product",
     active: "Feedback board",
-    caption: "The idea from that chat is now something the whole team can use.",
+    caption:
+      "The board lives in #product. Everyone in the channel can use it, with no extra accounts or setup.",
     plan: ["Add the customer quotes", "Share with the product team"],
     files: [],
   },
@@ -112,36 +105,7 @@ function Conversation({ scene }: { scene: number }) {
         </PreviewTurn>
       </>
     )
-  return (
-    <>
-      <PreviewTurn person="Zoe">
-        What keeps coming up in our customer calls? Check what we already have
-        in Linear, too.
-      </PreviewTurn>
-      <PreviewTurn person="Claude Code">
-        <WorkLog label="Worked" detail="Read customer calls · Checked Linear" />
-        <p className="mt-3">
-          Inviting teammates during setup came up again. People think they need
-          to finish onboarding before anyone else can join.
-        </p>
-        <p className="mt-3">
-          There&rsquo;s already an issue for it. I put the other requests and
-          the original quotes in the notes.
-        </p>
-        <FileCard
-          name="customer-feedback.md"
-          detail="Requests, quotes, and related issues"
-        />
-      </PreviewTurn>
-      <PreviewTurn person="Zoe" aside>
-        <Mention>@Theo</Mention> can we make a little board for these? I keep
-        losing things in the spreadsheet.
-      </PreviewTurn>
-      <PreviewTurn person="Theo" aside>
-        Yep. I&rsquo;ll use these notes and keep the customer quotes in there.
-      </PreviewTurn>
-    </>
-  )
+  return null
 }
 
 export function WorkspaceStory() {
@@ -215,39 +179,29 @@ export function WorkspaceStory() {
                 <PreviewSidebar active={scene.active} />
                 <div className="flex min-w-0 flex-1 flex-col lg:flex-row">
                   <div className="m-2 flex min-w-0 flex-1 overflow-hidden rounded-xl border border-lor-border-dark/60 md:ml-0">
-                    {active === 2 ? (
+                    {active === 0 ? (
+                      <TeamChatPreview />
+                    ) : active === 2 ? (
                       <FeedbackBoard headingLevel={2} />
                     ) : (
                       <PreviewDocument
                         title={scene.title}
                         channel={scene.channel}
                         headingLevel={2}
-                        starter={
-                          active === 1
-                            ? "Theo"
-                            : active === 3
-                              ? "Rafael"
-                              : "Zoe"
-                        }
-                        agent={
-                          active === 1
-                            ? "Codex"
-                            : active === 0
-                              ? "Claude Code"
-                              : "Lor"
-                        }
+                        starter={active === 1 ? "Theo" : "Rafael"}
+                        agent={active === 1 ? "Codex" : "Lor"}
                       >
                         <Conversation scene={active} />
                       </PreviewDocument>
                     )}
                   </div>
-                  {active !== 2 ? (
+                  {active === 1 || active === 3 ? (
                     <PreviewDetails
                       plan={[...scene.plan]}
                       files={[...scene.files]}
                       context={
                         active === 1
-                          ? "product · Customer feedback"
+                          ? "product · 4 messages"
                           : "product · Customer calls"
                       }
                     />

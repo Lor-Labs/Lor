@@ -1,170 +1,121 @@
-"use client"
-
 import {
-  CallEnd01Icon,
-  ClosedCaptionIcon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
   HashtagIcon,
-  Mic01Icon,
-  MicOff01Icon,
+  MoreHorizontalIcon,
   PlusSignIcon,
+  Search01Icon,
   SentIcon,
-  VolumeHighIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { useState } from "react"
+import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
+import type { ReactNode } from "react"
 import {
-  ChatLine,
+  FileCard,
+  Mention,
   PersonAvatar,
   RAFAEL,
   THEO,
   ZOE,
 } from "@/app/components/mock-parts"
 
-// The call floats over channel chat in the app. Keep it in flow here so both
-// the conversation and the call remain readable in the smaller illustration.
-export function TeamChatPreview() {
-  const [joined, setJoined] = useState(true)
-  const [muted, setMuted] = useState(false)
-  const [captions, setCaptions] = useState(true)
-
+function ChannelMessage({
+  person,
+  time,
+  children,
+}: {
+  person: "Zoe" | "Theo" | "Rafael"
+  time: string
+  children: ReactNode
+}) {
+  const avatars = { Zoe: ZOE, Theo: THEO, Rafael: RAFAEL }
   return (
-    <div className="bg-lor-bg-dark text-left">
-      <div className="flex h-12 items-center gap-2 border-b border-lor-border-dark/60 px-4 text-lor-text-secondary-dark">
-        <HugeiconsIcon icon={HashtagIcon} size={17} />
-        <h3 className="text-sm font-medium text-lor-text-dark">general</h3>
-        <span className="ml-auto text-[10px] text-lor-text-tertiary-dark">
-          Product preview
+    <div className="flex gap-3 py-2.5">
+      <PersonAvatar src={avatars[person]} size="size-9" className="mt-0.5" />
+      <div className="min-w-0 flex-1">
+        <p className="flex items-baseline gap-2">
+          <span className="text-sm font-semibold text-lor-text-dark">
+            {person}
+          </span>
+          <span className="text-[11px] text-lor-text-tertiary-dark">
+            {time}
+          </span>
+        </p>
+        <div className="mt-1 text-[13.5px] leading-[1.65] text-lor-text-dark/90">
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Mirrors ChatHeader, channel MessageItem, DateDivider and the channel composer.
+export function TeamChatPreview() {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col bg-lor-bg-dark text-left">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-lor-border-dark/60 px-4 text-lor-text-tertiary-dark">
+        <span
+          aria-hidden="true"
+          className="hidden items-center gap-2 border-r border-lor-border-dark/60 pr-3 sm:flex"
+        >
+          <SidebarToggleIcon isOpen className="mr-1 size-4" strokeWidth={1.5} />
+          <HugeiconsIcon icon={ArrowLeft01Icon} size={15} />
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            size={15}
+            className="opacity-40"
+          />
+        </span>
+        <HugeiconsIcon icon={HashtagIcon} size={18} />
+        <h2 className="text-[15px] font-semibold text-lor-text-dark">
+          product
+        </h2>
+        <span aria-hidden="true" className="ml-auto flex items-center gap-3">
+          <HugeiconsIcon icon={Search01Icon} size={16} />
+          <SidebarToggleIcon
+            isOpen
+            className="size-4 -scale-x-100"
+            strokeWidth={1.5}
+          />
+          <HugeiconsIcon icon={MoreHorizontalIcon} size={17} />
         </span>
       </div>
-      <div className="px-5 pt-3 pb-5 sm:px-6">
-        <div className="mb-1 flex items-center gap-3 text-[10px] text-lor-text-tertiary-dark">
-          <span className="h-px flex-1 bg-lor-border-dark/50" />
-          Today
-          <span className="h-px flex-1 bg-lor-border-dark/50" />
+      <div className="flex flex-1 flex-col justify-end px-4 pt-6 pb-3 sm:px-6">
+        <div className="relative my-3 flex items-center">
+          <div className="h-px w-full bg-lor-border-dark/60" />
+          <span className="absolute left-1/2 -translate-x-1/2 rounded-full border border-lor-border-dark/60 bg-lor-bg-dark px-2.5 py-0.5 text-[11px] font-medium text-lor-text-tertiary-dark">
+            Today
+          </span>
         </div>
-        <ChatLine avatar={ZOE} name="Zoe" time="10:42 AM">
-          Homepage is ready for a final look. Anything we should change before
-          Friday?
-        </ChatLine>
-        <ChatLine avatar={THEO} name="Theo" time="10:43 AM">
-          One thing on mobile. Easier to show you — I&rsquo;m in team-room.
-        </ChatLine>
-        <ChatLine avatar={RAFAEL} name="Rafael" time="10:43 AM">
-          Joining. I&rsquo;ve got the customer notes open too.
-        </ChatLine>
-        <div className="mt-5 overflow-hidden rounded-xl border border-lor-border-dark bg-lor-surface-dark shadow-lg">
-          <div className="flex items-center gap-2 px-3.5 py-3 text-xs text-lor-text-secondary-dark">
-            <HugeiconsIcon icon={VolumeHighIcon} size={15} />
-            <span className="font-medium text-lor-text-dark">team-room</span>
-            <span className="ml-auto flex items-center gap-1.5 text-[10px] text-lor-text-tertiary-dark">
-              <span className="size-1.5 rounded-full bg-lor-success-dark" />
-              {joined ? "3 in call" : "2 in call"}
-            </span>
-          </div>
-          <div className="grid grid-cols-3 gap-2 px-3.5">
-            {[
-              { name: "Theo", avatar: THEO, speaking: true },
-              { name: "Rafael", avatar: RAFAEL, speaking: false },
-              { name: "Zoe (you)", avatar: ZOE, speaking: false },
-            ].map((person) => (
-              <div
-                key={person.name}
-                className={`relative flex aspect-video min-h-20 items-center justify-center rounded-lg bg-lor-bg-dark ${joined && person.speaking ? "ring-1 ring-inset ring-agent/70" : ""} ${!joined && person.avatar === ZOE ? "opacity-25" : ""}`}
-              >
-                <PersonAvatar src={person.avatar} size="size-10 sm:size-12" />
-                <span className="absolute bottom-1.5 left-1.5 rounded bg-lor-bg-dark/80 px-1 text-[10px] text-lor-text-secondary-dark">
-                  {person.name}
-                </span>
-                {person.avatar === ZOE && muted && joined ? (
-                  <HugeiconsIcon
-                    icon={MicOff01Icon}
-                    size={12}
-                    className="absolute top-2 right-2 text-lor-danger-dark"
-                  />
-                ) : null}
-              </div>
-            ))}
-          </div>
-          <div className="flex min-h-14 items-center justify-center px-4 py-3 text-center text-[11px] leading-relaxed text-lor-text-secondary-dark">
-            {joined && captions ? (
-              <p>
-                <span className="mr-1.5 text-lor-text-tertiary-dark">Theo</span>
-                &ldquo;Let&rsquo;s give the headline a little more room on
-                mobile.&rdquo;
-              </p>
-            ) : (
-              <p className="text-lor-text-tertiary-dark">
-                {joined
-                  ? "Captions off"
-                  : "Theo and Rafael are still in the call."}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center justify-center gap-2 border-t border-lor-border-dark/60 px-4 py-3">
-            {joined ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setMuted((value) => !value)}
-                  aria-label={
-                    muted
-                      ? "Unmute microphone in preview"
-                      : "Mute microphone in preview"
-                  }
-                  aria-pressed={muted}
-                  className={`flex size-9 cursor-pointer items-center justify-center rounded-md border border-lor-border-dark transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-agent ${muted ? "bg-lor-danger-dark/10 text-lor-danger-dark" : "text-lor-text-secondary-dark hover:bg-foreground/5"}`}
-                >
-                  <HugeiconsIcon
-                    icon={muted ? MicOff01Icon : Mic01Icon}
-                    size={17}
-                  />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCaptions((value) => !value)}
-                  aria-label="Captions in preview"
-                  aria-pressed={captions}
-                  className={`flex size-9 cursor-pointer items-center justify-center rounded-md border border-lor-border-dark transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-agent ${captions ? "bg-foreground/[0.06] text-lor-text-dark" : "text-lor-text-tertiary-dark hover:bg-foreground/5"}`}
-                >
-                  <HugeiconsIcon icon={ClosedCaptionIcon} size={18} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setJoined(false)}
-                  aria-label="Leave preview call"
-                  className="flex size-9 cursor-pointer items-center justify-center rounded-md bg-lor-danger-dark/10 text-lor-danger-dark transition-colors hover:bg-lor-danger-dark/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-agent"
-                >
-                  <HugeiconsIcon icon={CallEnd01Icon} size={17} />
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setJoined(true)
-                  setMuted(false)
-                }}
-                className="flex min-h-9 cursor-pointer items-center gap-2 rounded-md bg-foreground px-3 text-xs font-medium text-background transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-agent"
-              >
-                <HugeiconsIcon icon={VolumeHighIcon} size={14} />
-                Join call
-              </button>
-            )}
-          </div>
-          <p className="sr-only" role="status">
-            {joined
-              ? `Preview call joined. Microphone ${muted ? "muted" : "on"}.`
-              : "You left the preview call."}
+        <ChannelMessage person="Zoe" time="10:42 AM">
+          Three calls this week asking to invite teammates during setup. People
+          think they have to finish everything on their own first.
+        </ChannelMessage>
+        <ChannelMessage person="Rafael" time="10:44 AM">
+          Same from Paygrove. Where are we keeping these? I have a few buried in
+          my notes.
+        </ChannelMessage>
+        <ChannelMessage person="Zoe" time="10:45 AM">
+          I pulled the quotes together. <Mention>@Theo</Mention> could we keep a
+          board right here in #product? I keep losing things in the spreadsheet.
+          <FileCard
+            name="customer-feedback.md"
+            detail="Customer quotes and related issues"
+          />
+        </ChannelMessage>
+        <ChannelMessage person="Theo" time="10:47 AM">
+          Yep. I&rsquo;ll make it so anyone here can add a request after a call.
+          We can keep the original quotes next to each one.
+        </ChannelMessage>
+      </div>
+      <div aria-hidden="true" className="px-4 pt-2 pb-4 sm:px-6">
+        <div className="rounded-lg border border-lor-border-dark bg-lor-surface-dark/40 px-3.5 py-3 text-lor-text-tertiary-dark">
+          <p className="text-[13px]">
+            Message #product, or @Lor to start a session
           </p>
-        </div>
-        <div
-          aria-hidden="true"
-          className="mt-5 rounded-lg border border-lor-border-dark/70 px-3.5 py-3 text-lor-text-tertiary-dark"
-        >
-          <p className="text-[12px]">Message #general</p>
-          <div className="mt-4 flex items-center justify-between">
-            <HugeiconsIcon icon={PlusSignIcon} size={15} />
-            <HugeiconsIcon icon={SentIcon} size={15} />
+          <div className="mt-5 flex items-center justify-between">
+            <HugeiconsIcon icon={PlusSignIcon} size={16} />
+            <HugeiconsIcon icon={SentIcon} size={16} />
           </div>
         </div>
       </div>
