@@ -51,7 +51,7 @@ editable customer email, and engineering's QA sign-off. Keep the live teammate
 presence and ownership visible beside those artifacts. The surrounding workspace
 chrome stays consistent with Lor; the artifacts can have their own visual style.
 
-The hero cycles through its four scenes every ten seconds, with a fill across
+The hero cycles through its four scenes every four seconds, with a fill across
 the active tab. Pause while hovered, offscreen, or in a background tab. Keyboard
 navigation and interacting with a scene stop rotation until the visitor resumes
 it; reduced-motion visitors get manual tabs. Keep panels mounted so edits survive

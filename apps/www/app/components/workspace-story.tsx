@@ -56,7 +56,7 @@ const SCENES = [
   },
 ] as const
 
-const SCENE_DURATION_MS = 10_000
+const SCENE_DURATION_MS = 4_000
 
 function Conversation({ scene }: { scene: number }) {
   if (scene === 1)
