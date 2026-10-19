@@ -8,12 +8,12 @@ import {
   Globe02Icon,
   HashtagIcon,
   Link01Icon,
-  Mail01Icon,
   PencilEdit02Icon,
   SourceCodeIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { ResendLogo } from "@repo/ui/components/logos/resend"
 import { useId, useState } from "react"
 import { PersonAvatar, RAFAEL, THEO, ZOE } from "@/app/components/mock-parts"
 
@@ -284,14 +284,17 @@ export function LaunchChecklist({
 
           <div className="flex min-w-0 flex-col rounded-2xl bg-foreground/[0.035] p-1.5 ring-1 ring-inset ring-foreground/[0.07]">
             <div className="flex items-center justify-between gap-2 px-2.5 pt-2 pb-3">
-              <p className="flex items-center gap-1.5 text-xs font-medium text-lor-text-dark">
-                <HugeiconsIcon
-                  icon={Mail01Icon}
-                  size={14}
-                  className="text-lor-text-tertiary-dark"
-                />
-                Customer email
-              </p>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <ResendLogo className="size-8 shrink-0 rounded-lg bg-black ring-1 ring-inset ring-white/[0.08]" />
+                <div>
+                  <p className="text-xs font-medium text-lor-text-dark">
+                    Customer email
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-lor-text-tertiary-dark">
+                    via Resend
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
                 aria-label={editing ? "Save email draft" : "Edit email draft"}
