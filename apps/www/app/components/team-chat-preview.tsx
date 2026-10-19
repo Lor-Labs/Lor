@@ -67,9 +67,7 @@ export function TeamChatPreview() {
           />
         </span>
         <HugeiconsIcon icon={HashtagIcon} size={18} />
-        <h2 className="text-[15px] font-semibold text-lor-text-dark">
-          product
-        </h2>
+        <h2 className="text-[15px] font-semibold text-lor-text-dark">launch</h2>
         <span aria-hidden="true" className="ml-auto flex items-center gap-3">
           <HugeiconsIcon icon={Search01Icon} size={16} />
           <SidebarToggleIcon
@@ -88,30 +86,30 @@ export function TeamChatPreview() {
           </span>
         </div>
         <ChannelMessage person="Zoe" time="10:42 AM">
-          Three calls this week asking to invite teammates during setup. People
-          think they have to finish everything on their own first.
+          Are we still good for Friday? I have the page ready but no idea where
+          we are on everything else.
         </ChannelMessage>
         <ChannelMessage person="Rafael" time="10:44 AM">
-          Same from Paygrove. Where are we keeping these? I have a few buried in
-          my notes.
+          Docs are done. Holding the customer email until Theo gives us the
+          go-ahead. Don&rsquo;t want a repeat of last time 😅
         </ChannelMessage>
         <ChannelMessage person="Zoe" time="10:45 AM">
-          I pulled the quotes together. <Mention>@Theo</Mention> could we keep a
-          board right here in #product? I keep losing things in the spreadsheet.
+          <Mention>@Theo</Mention> can we put a little launch checklist in here?
+          Who owns what, what&rsquo;s ready, what&rsquo;s still waiting.
           <FileCard
-            name="customer-feedback.md"
-            detail="Customer quotes and related issues"
+            name="launch-plan.md"
+            detail="Friday · Owners and launch notes"
           />
         </ChannelMessage>
         <ChannelMessage person="Theo" time="10:47 AM">
-          Yep. I&rsquo;ll make it so anyone here can add a request after a call.
-          We can keep the original quotes next to each one.
+          On it. I&rsquo;ll make the email wait on my QA sign-off. Then everyone
+          can see when we&rsquo;re good to go.
         </ChannelMessage>
       </div>
       <div aria-hidden="true" className="px-4 pt-2 pb-4 sm:px-6">
         <div className="rounded-lg border border-lor-border-dark bg-lor-surface-dark/40 px-3.5 py-3 text-lor-text-tertiary-dark">
           <p className="text-[13px]">
-            Message #product, or @Lor to start a session
+            Message #launch, or @Lor to start a session
           </p>
           <div className="mt-5 flex items-center justify-between">
             <HugeiconsIcon icon={PlusSignIcon} size={16} />

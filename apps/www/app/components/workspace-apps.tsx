@@ -1,9 +1,7 @@
 "use client"
 
 import {
-  ArrowUp01Icon,
   DashboardSquare01Icon,
-  GridViewIcon,
   HashtagIcon,
   ListViewIcon,
   PlayIcon,
@@ -37,193 +35,217 @@ function ChannelBar({
   )
 }
 
-const REQUESTS = [
+const LAUNCH_CHECKS = [
   {
-    id: "owners",
-    title: "See who owns each account",
-    quote: "We both followed up with the same person.",
-    company: "Paygrove",
-    votes: 6,
-    person: RAFAEL,
-    status: "Inbox",
+    title: "Landing page",
+    detail: "Copy and screenshots",
+    owner: "Zoe",
+    avatar: ZOE,
   },
   {
-    id: "export",
-    title: "Export the weekly report",
-    quote: "I need to send this to our board.",
-    company: "Northline",
-    votes: 4,
-    person: ZOE,
-    status: "Inbox",
+    title: "Help docs",
+    detail: "Ready for customer questions",
+    owner: "Rafael",
+    avatar: RAFAEL,
   },
   {
-    id: "invite",
-    title: "Invite the team during setup",
-    quote: "I thought I had to set it all up myself.",
-    company: "Meridian",
-    votes: 12,
-    person: ZOE,
-    status: "Building",
-  },
-  {
-    id: "digest",
-    title: "A quieter daily digest",
-    quote: "One email at the end of the day would be perfect.",
-    company: "Common Ground",
-    votes: 8,
-    person: THEO,
-    status: "Building",
+    title: "Announcement",
+    detail: "Email and social copy",
+    owner: "Zoe",
+    avatar: ZOE,
   },
 ] as const
 
-export function FeedbackBoard({ headingLevel = 3 }: { headingLevel?: 2 | 3 }) {
-  const [view, setView] = useState<"Board" | "List">("Board")
-  const [votes, setVotes] = useState<string[]>([])
+export function LaunchChecklist({
+  headingLevel = 3,
+}: {
+  headingLevel?: 2 | 3
+}) {
+  const [qaReady, setQaReady] = useState(false)
   const Heading = headingLevel === 2 ? "h2" : "h3"
-
-  function vote(id: string) {
-    setVotes((current) =>
-      current.includes(id)
-        ? current.filter((item) => item !== id)
-        : [...current, id]
-    )
-  }
-
-  function requestCard(request: (typeof REQUESTS)[number]) {
-    const voted = votes.includes(request.id)
-    return (
-      <div
-        key={request.id}
-        className={`min-w-0 rounded-lg border border-lor-border-dark/70 bg-lor-bg-dark p-3.5 ${view === "List" ? "flex items-center gap-3" : ""}`}
-      >
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium leading-snug text-lor-text-dark">
-            {request.title}
-          </p>
-          <p className="mt-3 text-xs leading-relaxed text-lor-text-secondary-dark">
-            &ldquo;{request.quote}&rdquo;
-          </p>
-          <p className="mt-1.5 text-[10px] text-lor-text-tertiary-dark">
-            {request.company} · Customer call
-          </p>
-        </div>
-        <div
-          className={`flex items-center gap-2 ${view === "Board" ? "mt-4 justify-between" : "shrink-0"}`}
-        >
-          <button
-            type="button"
-            aria-label={`Support ${request.title}`}
-            aria-pressed={voted}
-            onClick={() => vote(request.id)}
-            className={`inline-flex h-8 min-w-10 cursor-pointer items-center justify-center gap-1 rounded-md border px-1.5 text-[11px] tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-agent ${voted ? "border-agent/35 bg-agent/10 text-agent" : "border-lor-border-dark/70 text-lor-text-secondary-dark hover:bg-foreground/5"}`}
-          >
-            <HugeiconsIcon icon={ArrowUp01Icon} size={12} />
-            {request.votes + (voted ? 1 : 0)}
-          </button>
-          {view === "Board" ? (
-            <PersonAvatar src={request.person} size="size-5" />
-          ) : (
-            <span className="hidden text-[10px] text-lor-text-tertiary-dark @sm:inline">
-              {request.status}
-            </span>
-          )}
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="@container flex min-w-0 flex-1 flex-col bg-lor-bg-dark text-left">
-      <ChannelBar channel="product">
+      <ChannelBar channel="launch">
         <HugeiconsIcon icon={DashboardSquare01Icon} size={14} />
-        <span className="text-lor-text-dark">Feedback board</span>
-        <span className="ml-auto rounded border border-lor-border-dark px-1.5 py-0.5 text-[10px]">
+        <span className="text-lor-text-dark">Launch checklist</span>
+        <span className="ml-auto shrink-0 rounded border border-lor-border-dark px-1.5 py-0.5 text-[10px]">
           Team app
         </span>
       </ChannelBar>
-      <div className="px-4 pt-6 pb-4 @sm:px-6">
-        <div className="flex items-start justify-between gap-3">
+      <div className="flex-1 px-4 py-6 @sm:px-6 @lg:px-8 @lg:py-8">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <Heading className="text-[23px] font-semibold leading-tight tracking-tight text-lor-text-dark">
-              Customer feedback
+            <p className="mb-2 text-[11px] text-lor-text-tertiary-dark">
+              Friday · 10:00 AM
+            </p>
+            <Heading className="text-[26px] font-semibold leading-tight tracking-tight text-lor-text-dark">
+              Friday&rsquo;s launch
             </Heading>
-            <p className="mt-2 text-xs text-lor-text-tertiary-dark">
-              Made by Theo. Used by all of #product.
+            <p className="mt-2 text-xs leading-relaxed text-lor-text-secondary-dark">
+              Everyone&rsquo;s part. All in one place.
             </p>
           </div>
           <div
+            className="flex -space-x-1.5 pt-1"
             aria-label="Zoe, Rafael and Theo are here"
-            className="flex -space-x-1 pt-1"
           >
             {[ZOE, RAFAEL, THEO].map((person) => (
               <PersonAvatar
                 key={person}
                 src={person}
-                size="size-6"
+                size="size-7"
                 className="ring-2 ring-lor-bg-dark"
               />
             ))}
           </div>
         </div>
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <p className="text-xs text-lor-text-secondary-dark">
-            4 requests{" "}
-            <span className="mx-1 text-lor-text-tertiary-dark">·</span> 4
-            customers
-          </p>
-          <div
-            role="group"
-            aria-label="Feedback view"
-            className="flex rounded-md bg-foreground/[0.04] p-0.5"
-          >
-            {(["Board", "List"] as const).map((label) => (
-              <button
-                type="button"
-                key={label}
-                aria-pressed={view === label}
-                onClick={() => setView(label)}
-                className={`flex h-8 cursor-pointer items-center gap-1.5 rounded px-2 text-[11px] transition-colors focus-visible:outline-2 focus-visible:outline-agent ${view === label ? "bg-lor-surface-dark text-lor-text-dark shadow-sm" : "text-lor-text-tertiary-dark hover:text-lor-text-dark"}`}
-              >
-                <HugeiconsIcon
-                  icon={label === "Board" ? GridViewIcon : ListViewIcon}
-                  size={13}
-                />
-                {label}
-              </button>
+        <div className="mt-7 mb-6">
+          <div className="mb-2.5 flex items-baseline justify-between gap-3 text-xs">
+            <span className="font-medium text-lor-text-dark">
+              <span className="tabular-nums">{qaReady ? 4 : 3} of 4</span> ready
+            </span>
+            <span
+              className={
+                qaReady
+                  ? "text-lor-success-dark"
+                  : "text-lor-text-tertiary-dark"
+              }
+            >
+              {qaReady ? "All clear for launch" : "Waiting on final QA"}
+            </span>
+          </div>
+          <div className="flex gap-1.5" aria-hidden="true">
+            {[0, 1, 2, 3].map((step) => (
+              <span
+                key={step}
+                className={`h-1 flex-1 rounded-full ${step < 3 || qaReady ? "bg-lor-success-dark/70" : "bg-foreground/[0.08]"}`}
+              />
             ))}
           </div>
         </div>
-      </div>
-      <div className="flex-1 border-t border-lor-border-dark/60 bg-lor-sidebar-dark/60 p-3 @sm:p-4">
-        {view === "Board" ? (
-          <div className="grid gap-4 @min-[380px]:grid-cols-2">
-            {(["Inbox", "Building"] as const).map((status) => (
-              <div key={status}>
-                <p className="mb-3 flex items-center gap-2 px-1 text-xs font-medium text-lor-text-secondary-dark">
-                  <span
-                    className={`size-1.5 rounded-full ${status === "Building" ? "bg-agent" : "bg-lor-text-tertiary-dark"}`}
-                  />
-                  {status}
-                  <span className="ml-auto text-[10px] text-lor-text-tertiary-dark">
-                    2
+        <div className="grid gap-5 @min-[680px]:grid-cols-[minmax(0,1fr)_230px]">
+          <div>
+            <div className="mb-1 flex items-center gap-2 text-[11px] text-lor-text-tertiary-dark">
+              <HugeiconsIcon icon={ListViewIcon} size={13} />
+              Launch checks
+            </div>
+            <div className="divide-y divide-lor-border-dark/60">
+              {LAUNCH_CHECKS.map((check) => (
+                <div key={check.title} className="flex items-center gap-3 py-4">
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-lor-success-dark/10 text-lor-success-dark">
+                    <HugeiconsIcon
+                      icon={Tick02Icon}
+                      size={12}
+                      strokeWidth={2}
+                    />
                   </span>
-                </p>
-                <div className="space-y-3">
-                  {REQUESTS.filter((request) => request.status === status).map(
-                    requestCard
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-medium text-lor-text-dark">
+                      {check.title}
+                    </p>
+                    <p className="mt-1 text-[11px] text-lor-text-tertiary-dark">
+                      {check.detail}
+                    </p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-lor-text-secondary-dark">
+                    <PersonAvatar src={check.avatar} size="size-5" />
+                    <span className="hidden @sm:inline">{check.owner}</span>
+                  </span>
+                </div>
+              ))}
+              <div className="flex items-start gap-3 pt-4 pb-1">
+                <span
+                  className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full ${qaReady ? "bg-lor-success-dark/10 text-lor-success-dark" : "border border-warning/40 text-warning"}`}
+                >
+                  {qaReady ? (
+                    <HugeiconsIcon
+                      icon={Tick02Icon}
+                      size={12}
+                      strokeWidth={2}
+                    />
+                  ) : (
+                    <span className="size-1.5 rounded-full bg-warning" />
                   )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[13px] font-medium text-lor-text-dark">
+                      Final QA
+                    </p>
+                    <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-lor-text-secondary-dark">
+                      <PersonAvatar src={THEO} size="size-5" />
+                      <span className="hidden @sm:inline">Theo</span>
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-lor-text-tertiary-dark">
+                    {qaReady
+                      ? "Signed off by Theo"
+                      : "One last pass before we tell customers"}
+                  </p>
+                  <button
+                    type="button"
+                    aria-label={
+                      qaReady ? "Reopen final QA" : "Mark final QA ready"
+                    }
+                    onClick={() => setQaReady((ready) => !ready)}
+                    className={`mt-3 inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-[11px] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-agent active:scale-[0.97] ${qaReady ? "border-lor-border-dark text-lor-text-secondary-dark hover:bg-foreground/5" : "border-foreground/10 bg-foreground/[0.08] text-lor-text-dark hover:bg-foreground/[0.12]"}`}
+                  >
+                    {qaReady ? "Reopen QA" : "Mark ready"}
+                    {!qaReady ? (
+                      <HugeiconsIcon icon={Tick02Icon} size={13} />
+                    ) : null}
+                  </button>
                 </div>
               </div>
-            ))}
+            </div>
           </div>
-        ) : (
-          <div className="space-y-2">{REQUESTS.map(requestCard)}</div>
-        )}
+          <div className="flex flex-col rounded-lg border border-lor-border-dark/70 bg-lor-sidebar-dark/60 p-4">
+            <p className="text-[11px] text-lor-text-tertiary-dark">
+              After QA sign-off
+            </p>
+            <p className="mt-3 text-[15px] font-medium text-lor-text-dark">
+              Customer email
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-lor-text-secondary-dark">
+              Ready in drafts. Rafael sends it once engineering gives the
+              go-ahead.
+            </p>
+            <div className="mt-4 flex items-center gap-2 text-[11px] text-lor-text-secondary-dark">
+              <PersonAvatar src={RAFAEL} size="size-5" />
+              Rafael
+            </div>
+            <div
+              role="status"
+              className="mt-5 border-t border-lor-border-dark/60 pt-4 @min-[680px]:mt-auto"
+            >
+              <p
+                className={`flex items-center gap-2 text-xs font-medium ${qaReady ? "text-lor-success-dark" : "text-warning"}`}
+              >
+                {qaReady ? (
+                  <HugeiconsIcon icon={Tick02Icon} size={14} />
+                ) : (
+                  <span className="size-1.5 rounded-full bg-warning" />
+                )}
+                {qaReady ? "Clear to send" : "On hold"}
+              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-lor-text-tertiary-dark">
+                {qaReady
+                  ? "Theo signed off. You’re good to go, Rafael."
+                  : "Waiting for Theo to mark QA ready."}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
-      <div className="flex items-center gap-2 border-t border-lor-border-dark/60 px-4 py-3 text-[10px] text-lor-text-tertiary-dark">
-        <PersonAvatar src={RAFAEL} size="size-4" />
-        Rafael added the Paygrove request
-        <span className="ml-auto">Just now</span>
+      <div className="flex items-center gap-2 border-t border-lor-border-dark/60 px-4 py-3 text-[10px] text-lor-text-tertiary-dark @sm:px-6">
+        <PersonAvatar src={qaReady ? THEO : ZOE} size="size-4" />
+        <span>
+          {qaReady
+            ? "Theo marked final QA ready"
+            : "Zoe marked the announcement ready"}
+        </span>
+        <span className="ml-auto shrink-0">Just now</span>
       </div>
     </div>
   )

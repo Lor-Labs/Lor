@@ -4,7 +4,7 @@ import { type KeyboardEvent, useId, useRef, useState } from "react"
 import { Citation, FileCard, WorkLog } from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
 import { TeamChatPreview } from "@/app/components/team-chat-preview"
-import { FeedbackBoard } from "@/app/components/workspace-apps"
+import { LaunchChecklist } from "@/app/components/workspace-apps"
 import {
   PreviewDetails,
   PreviewDocument,
@@ -15,42 +15,42 @@ import {
 const SCENES = [
   {
     label: "Talk to your team",
-    title: "product",
-    channel: "product",
-    active: "product",
+    title: "launch",
+    channel: "launch",
+    active: "launch",
     caption:
-      "It starts with a conversation in #product. Zoe shares her notes; Theo offers to help.",
+      "Friday’s launch starts in #launch. The team works out what they need, together.",
     plan: [],
     files: [],
   },
   {
     label: "Ask an engineer",
-    title: "Build a feedback board",
+    title: "Build our launch checklist",
     channel: "engineering",
-    active: "Build a feedback board",
+    active: "Build our launch checklist",
     caption:
       "Theo takes the conversation into code. He already knows what Zoe needs and why.",
-    plan: ["Read Zoe's notes", "Build the board", "Add team access"],
-    files: ["feedback-board.tsx", "customer-feedback.md"],
+    plan: ["Read the launch plan", "Build the checklist", "Add the QA handoff"],
+    files: ["launch-checklist.tsx", "launch-plan.md"],
   },
   {
     label: "Use it together",
-    title: "A home for customer feedback",
-    channel: "product",
-    active: "Feedback board",
+    title: "Friday’s launch",
+    channel: "launch",
+    active: "Launch checklist",
     caption:
-      "The board lives in #product. Everyone in the channel can use it, with no extra accounts or setup.",
-    plan: ["Add the customer quotes", "Share with the product team"],
+      "One place to see who’s ready. Built for this team, right in #launch. No extra accounts or setup.",
+    plan: [],
     files: [],
   },
   {
     label: "Come back to it",
-    title: "Why do we have a separate feedback board?",
-    channel: "product",
-    active: "Customer feedback",
+    title: "Why isn’t the email on a timer?",
+    channel: "launch",
+    active: "Launch decisions",
     caption: "Months later, the reason behind the decision is still there.",
     plan: ["Find the original discussion", "Read the decisions"],
-    files: ["customer-feedback.md"],
+    files: ["launch-plan.md"],
   },
 ] as const
 
@@ -59,25 +59,26 @@ function Conversation({ scene }: { scene: number }) {
     return (
       <>
         <PreviewTurn person="Theo">
-          Build a board from Zoe&rsquo;s notes. Keep the customer&rsquo;s
-          wording next to each request, and let anyone in #product add to it.
+          Make a launch checklist from this conversation. Give each item an
+          owner, and keep the customer email on hold until I sign off on QA.
+          Everyone in #launch should be able to update their part.
         </PreviewTurn>
         <PreviewTurn person="Codex">
           <WorkLog label="Worked" detail="Read the repo · Created 2 files" />
           <p className="mt-3">
-            The board is ready to review. I used the existing team sign-in, so
-            everyone in #product has access.
+            It&rsquo;s in #launch. When you mark QA ready, Rafael will see the
+            email is clear to go. Everyone in the channel already has access.
           </p>
           <FileCard
-            name="feedback-board.tsx"
-            detail="Customer requests and quotes"
+            name="launch-checklist.tsx"
+            detail="Owners, readiness, and the QA handoff"
           />
         </PreviewTurn>
         <PreviewTurn person="Zoe" aside>
-          Can we link each request to the customer call it came from?
+          Can we reuse it next Friday too? Same owners, fresh checklist.
         </PreviewTurn>
         <PreviewTurn person="Theo" aside>
-          Good call. Adding that now.
+          Yep, adding that.
         </PreviewTurn>
       </>
     )
@@ -85,23 +86,22 @@ function Conversation({ scene }: { scene: number }) {
     return (
       <>
         <PreviewTurn person="Rafael">
-          Why did we make a separate feedback board? Why not put everything
-          straight into Linear?
+          Why do we wait for Theo instead of scheduling the launch email for 10?
         </PreviewTurn>
         <PreviewTurn person="Lor">
           <WorkLog label="Worked" detail="Read the original conversation" />
           <p className="mt-3">
-            Zoe wanted somewhere to keep what customers actually said, including
-            requests the team hadn&rsquo;t decided to build.
+            The last launch slipped after the email was already scheduled.
+            Customers got the announcement before the feature was live.
           </p>
           <p className="mt-3">
-            The agreement was to keep raw feedback on the board and move a
-            request into Linear once engineering picked it up.
-            <Citation>Product discussion</Citation>
+            Zoe and Theo agreed to make QA sign-off the go-ahead for the email,
+            so Rafael wouldn&rsquo;t have to chase an update on launch day.
+            <Citation>Launch discussion</Citation>
           </p>
         </PreviewTurn>
         <PreviewTurn person="Rafael">
-          Makes sense. I&rsquo;ll keep doing it that way.
+          Got it. We&rsquo;ll keep that for the next one.
         </PreviewTurn>
       </>
     )
@@ -182,7 +182,7 @@ export function WorkspaceStory() {
                     {active === 0 ? (
                       <TeamChatPreview />
                     ) : active === 2 ? (
-                      <FeedbackBoard headingLevel={2} />
+                      <LaunchChecklist headingLevel={2} />
                     ) : (
                       <PreviewDocument
                         title={scene.title}
@@ -201,8 +201,8 @@ export function WorkspaceStory() {
                       files={[...scene.files]}
                       context={
                         active === 1
-                          ? "product · 4 messages"
-                          : "product · Customer calls"
+                          ? "launch · 4 messages"
+                          : "launch · Friday launch"
                       }
                     />
                   ) : null}

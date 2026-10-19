@@ -201,8 +201,8 @@ export function PreviewSidebar({ active }: { active: string }) {
       </p>
       {[
         { name: "general", sessions: [] },
-        { name: "product", sessions: ["Customer feedback"] },
-        { name: "engineering", sessions: ["Build a feedback board"] },
+        { name: "launch", sessions: ["Launch decisions"] },
+        { name: "engineering", sessions: ["Build our launch checklist"] },
         { name: "gtm", sessions: ["Research next week's accounts"] },
       ].map((channel) => (
         <div key={channel.name} className="mb-2">
@@ -224,12 +224,12 @@ export function PreviewSidebar({ active }: { active: string }) {
               {name}
             </p>
           ))}
-          {channel.name === "product" ? (
+          {channel.name === "launch" ? (
             <p
-              className={`ml-5 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs ${active === "Feedback board" ? "bg-foreground/[0.06] font-medium text-lor-text-dark" : "text-lor-text-tertiary-dark"}`}
+              className={`ml-5 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs ${active === "Launch checklist" ? "bg-foreground/[0.06] font-medium text-lor-text-dark" : "text-lor-text-tertiary-dark"}`}
             >
               <HugeiconsIcon icon={DashboardSquare01Icon} size={13} />
-              Feedback board
+              Launch checklist
             </p>
           ) : null}
         </div>
