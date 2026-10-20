@@ -34,8 +34,9 @@ authority (§4.3). Do not infer production readiness from the common API alone.
 | AI SDK | Upgrade `ai` repo-wide to the version the harness requires (≥ `7.0.145`). Change the remaining AI SDK callers (write-back, placement, titles, classifiers, embeddings, rerank) where the upgrade needs it. |
 | Legacy engine | **Delete it** (2026-10-20). No one uses the app yet, so there is no flag, rollout, drain or import. Old sessions have no native state; their first Pi run starts from the visible session history, like any first run. Legacy run tables keep their rows but receive no new writes; dropping them is a separate later decision. |
 | System prompt | Lor's own prompt replaces Pi's "expert coding assistant" prompt, including Pi's tool guidance and dropping the Pi-docs section. Mechanism (§4.8): a small adapter patch passing Pi's `systemPromptOverride`, sent upstream; `before_agent_start` alone misses approval resumes. |
-| Tool permissions | A new **Computer** built-in group in agent-profile tool access (workspace default, then category, then channel) holds Pi's `bash`, `read`, `write`, `edit`, `grep`, `find` and `ls`; on by default. When the group is off, the tools stay in the session's fixed list and are refused when called. `bash`, `write` and `edit` are **not** workspace approval targets: a **per-user computer permission mode** decides them, like Claude Code and Codex: **manual** (ask before every call), **auto** (a classifier asks only for potentially destructive calls), **bypass** (allow all). Read-only tools never ask (§4.6). |
-| Approvals | `request_approval` pauses the turn like any gate and continues after the decision. A new message while approvals are pending denies them and runs next; Stop denies them and ends the turn (§4.2). |
+| Tool permissions | A new **Sandbox** built-in group in agent-profile tool access (workspace default, then category, then channel) holds Pi's `bash`, `read`, `write`, `edit`, `grep`, `find` and `ls`; on by default. When the group is off, the tools stay in the session's fixed list and are refused when called. `bash`, `write` and `edit` are **not** workspace approval targets: a **per-user sandbox permission mode** decides them, like Claude Code and Codex: **manual** (ask before every call), **auto** (a classifier asks only for potentially destructive calls), **bypass** (allow all). Read-only tools never ask (§4.6). |
+| Approvals | `request_approval` pauses the turn like any gate and continues after the decision. Anyone in the session can approve sandbox asks. Steering while approvals are pending denies them and runs next; a queued message waits for the decision; Stop denies them and ends the turn (§4.2). |
+| Sandbox mode details | The turn starter's mode applies; default **auto**; a per-session switch comes later with the code-channel composer. **Loop and Act runs are autonomous:** classifier only, higher tolerance, a flagged call is refused with "try a safer way" and never waits for a human. Voice uses the speaker's mode. The classifier is Jev through `experimental_decide` (§4.6). |
 | Quality check | Jacob runs `eval:long` on the Pi path before the switch. The eval harness moves to the Pi path. |
 | Skills and slash commands | Out of phase 1; moved to the self-configuration work. |
 | Versions | **Pinned 2026-10-20:** `@ai-sdk/harness-pi@1.0.160`, `@ai-sdk/harness@1.0.158`, `ai@7.0.147`, Pi `1.3.0` (direct dependency plus a root pnpm override). Exact versions; the harness ships breaking changes in patch releases. 1.0.159 → 1.0.160 only bumped `ai`. |
@@ -232,7 +233,7 @@ insertion of approval results.
 - **Revocation:** before `continueStream`, the worker reloads gates, grants and
   the resolver's access, and turns a revoked approval into `approved: false`
   with a reason. Lor's execute wrapper and the `tool_call` hook check again.
-- **Freeze the computer permission mode** (§4.6) with the turn's saved config,
+- **Freeze the sandbox permission mode** (§4.6) with the turn's saved config,
   so a looser mode at resume cannot run a rejected built-in call.
 - **Voice:** keep computing `canPark` at run start (a static `denied` when
   nobody in the call can approve); the existing watcher covers people leaving;
@@ -246,15 +247,19 @@ insertion of approval results.
 
 - **Built-in tools:** only `bash`, `write` and `edit` can ever ask; `read`,
   `grep`, `find` and `ls` never ask. They are **not** workspace approval-policy
-  targets. A per-user computer permission mode decides (§4.6). The adapter needs
+  targets. A per-user sandbox permission mode decides (§4.6). The adapter needs
   a per-call approval callback for built-in tools (patch + upstream PR, §4.6).
 - **`request_approval`:** a host tool that always requires approval. The turn
   pauses like any gate and continues after the decision; the card shows the
   request, with no closing text before it.
-- **A new message while approvals are pending** denies them, with a reason that
-  points to the message; the turn finishes and the message runs as the next
-  turn (Claude Code treats typing at a permission prompt as a "no"). **Stop**
-  denies all pending approvals and ends the turn.
+- **Anyone in the session can approve** (decided 2026-10-20; channel write
+  access is the floor). Workspace gates keep their configured resolvers.
+- **Steering while approvals are pending** denies them, with a reason that points
+  to the steering message; the turn finishes and that message runs next (Claude
+  Code treats typing at a permission prompt as a "no"). A message that only
+  queues waits until the pending set is decided, because the harness refuses a
+  new prompt while a turn is unfinished. **Stop** denies all pending approvals
+  and ends the turn.
 
 ### 4.3 Durability (G2): save per turn; Postgres is the authority
 
@@ -499,13 +504,13 @@ others are adapter wrappers. All route through `SandboxSession`.
 
 **Permissions (decision 2026-10-20):** agent-profile tool access has two built-in
 groups today, `web` and `artifacts` (`BUILTIN_TOOL_GROUPS` in
-`profile-tool-access.ts`). Add a **Computer** group holding `bash`, `read`,
+`profile-tool-access.ts`). Add a **Sandbox** group holding `bash`, `read`,
 `write`, `edit`, `grep`, `find` and `ls`, on by default. When a profile turns the
 group off, the tools stay in the session's fixed list (§4.3) and are refused
 when called. Agent profiles already resolve per channel (channel, then category,
-then workspace default), so Computer on/off works at each level.
+then workspace default), so Sandbox on/off works at each level.
 
-**Computer permission mode (decision 2026-10-20).** `bash`, `write` and `edit`
+**Sandbox permission mode (decision 2026-10-20).** `bash`, `write` and `edit`
 are not workspace approval-policy targets. Each person chooses a mode in their
 user settings (a per-user row, like `user_notification_settings`):
 
@@ -515,9 +520,19 @@ user settings (a per-user row, like `user_notification_settings`):
 | Auto | A classifier allows routine calls and asks for potentially destructive ones | Never ask |
 | Bypass | Allow every call | Never ask |
 
-- **Auto classifier:** Lor's small model reads the tool name, arguments and the
-  recent request and returns allow or ask with a short reason. A classifier
-  error asks (fail closed). Its usage is billed like other auxiliary calls.
+- **Auto classifier:** a decision model, TypeSafe's Jev (`typesafe-ai/jev`
+  through the Gateway), called with `experimental_decide` (available in
+  `ai@7.0.147`; question types `boolean`, `choice`, `score`). The SDK posts to
+  the Gateway's `/decision-model` endpoint and gets `{type: "boolean",
+  probability}` back (verified in `@ai-sdk/gateway@4.0.120`); TypeSafe's own API
+  calls this question type `noul`, and the Gateway maps it. A `refusal` answer
+  counts as a classifier error. One `boolean` question: is this call
+  potentially destructive or irreversible? It reads the
+  tool name, the arguments (long `write` content truncated; Jev's state limit is
+  32k) and the recent request. A probability above the chat threshold asks. A
+  classifier error asks (fail closed). Its usage is billed like other auxiliary
+  calls. Gateway catalog flags for Jev (2026-09-30): no ZDR, no training.
+  Thresholds start as untuned guesses.
 - **Mechanism:** the adapter's static `permissionMode` cannot express a
   per-call decision. Patch the adapter (`pnpm patch`, then upstream) with a
   per-call built-in approval callback, `(call) => "allow" | "ask" | {deny,
@@ -529,17 +544,22 @@ user settings (a per-user row, like `user_notification_settings`):
   and cannot reach the worker, and Git publishing stays host-controlled. It can
   still delete session files and make network calls.
 
-**Open, needs Jacob (proposals):**
+**Decided with Jacob, 2026-10-20:**
 
-- **Whose mode applies, and who approves.** Proposed: the mode of the person
-  whose message started the turn; only that person approves its asks. Anyone
-  else in the session can send a new message instead, which denies the pending
-  asks (§4.2) and runs under their own mode. Loop and Act runs use the owner's
-  mode, and an ask parks the run for the owner. Voice uses the speaker's mode,
-  with today's rule that only someone in the call can approve.
-- **Default mode** for new users. Proposed: auto.
-- **Per-session switch** (like Claude Code's mode toggle). Proposed: later, with
-  the code-channel composer; phase 1 has the user setting only.
+- **Whose mode applies:** the mode of the person whose message started the turn.
+- **Who approves:** anyone in the session (sessions are multiplayer), with the
+  usual floor of channel write access. Anyone can also interrupt by **steering**
+  (§4.2); a message that only queues waits for the decision.
+- **Loop and Act runs are autonomous** and never ask. They use the classifier
+  only, with a higher tolerance than chats: only a clearly dangerous call is
+  refused. A refused call returns a tool result telling the model the command
+  was flagged as dangerous and to try a safer way, so the run continues without
+  a human. A classifier error also refuses (fail closed). Workspace approval
+  policies for connector, custom and MCP tools still apply to these runs as today.
+- **Voice** uses the speaker's mode; only someone in the call can approve, as today.
+- **Default mode** for new users: auto.
+- **Per-session switch** (like Claude Code's mode toggle): later, with the
+  code-channel composer. Phase 1 has the user setting only.
 
 **Tool-name collisions:** Lor's brain tools are literally `ls`, `read`, `tree`,
 `write`, `edit`, `mkdir`, `move`, `link` and `search` (`brain.ts`). `ls`, `read`,
@@ -704,7 +724,7 @@ per adapter; record unsupported behavior honestly.
 | G0 Runtime | **Closed 2026-10-20**: `HarnessAgent` + `harness-pi` | §3 |
 | G1 Images | Supported in 1.0.159; mapping specified (§4.1) | Text-first prompt with labeled images; inline bytes; resume carries them; model compatibility checked |
 | G2 Native state | Mechanism specified 2026-10-20 (§4.3) | Postgres save at every save point; restore + load check; stable tool list; crash re-runs the turn |
-| G3 Approvals | Mapping and product calls decided (§4.2, §4.6); computer-mode details open | Gates and `request_approval` mapped; pending set; per-user computer mode; exact decisions; no unapproved or duplicate execution after resume |
+| G3 Approvals | Mapping and product calls decided (§4.2, §4.6) | Gates and `request_approval` mapped; pending set; per-user sandbox mode; exact decisions; no unapproved or duplicate execution after resume |
 | G4 Compaction | Specified (§4.4): Pi's trigger, Lor instructions, window override | Lor instructions via `session_before_compact`; plan state re-injected; no overflow on a K3 fallback; entry and usage saved |
 | G5 Gateway/budgets/retries | Specified (§4.5): payload hook, session id, spend-only limits | Routing on normal and summary requests; per-step counters; tool block near the deadline or spend limit; abort at the limit |
 | G6 Sandbox lifecycle | Every run, unlimited capacity and one sandbox per call decided | Owner per run kind; lost-workspace notice; quota failure visible; no silent recreation |
@@ -883,8 +903,8 @@ as completed turns.
 | `packages/lor/src/index.ts`, `run.ts`, `initial-message.ts` | Keep scoped setup, context building and UI callbacks. Replace the `streamText` loop (`prepareStep`, `stopWhen`, post-loop sweep) with the Pi adapter and delete it. Build Lor's system prompt for `before_agent_start` (§4.8) and the turn prompt text-first with labeled images. |
 | `packages/lor/src/images.ts` | Keep limits and conversion; fetch and inline images for Pi prompts. |
 | `packages/lor/src/brain.ts`, `compaction.ts`, `plans.ts` | Keep brain, retrieval, write-back and plan state. Rename brain tools (§4.6). Compaction goes through `session_before_compact`; delete `compaction.ts`. |
-| `packages/db/src/schemas/profile-tool-access.ts`, `packages/connectors/src/tools.ts` | Add the Computer built-in group (§4.6). Pi's built-in tools stay out of the workspace approval-target vocabulary. |
-| New per-user settings row in `packages/db/src/schemas/` (pattern: `user-notification-settings.ts`); user settings UI on web and mobile | The computer permission mode (manual, auto, bypass) and the auto classifier call (§4.6). |
+| `packages/db/src/schemas/profile-tool-access.ts`, `packages/connectors/src/tools.ts` | Add the Sandbox built-in group (§4.6). Pi's built-in tools stay out of the workspace approval-target vocabulary. |
+| New per-user settings row in `packages/db/src/schemas/` (pattern: `user-notification-settings.ts`); user settings UI on web and mobile | The sandbox permission mode (manual, auto, bypass) and the auto classifier call (§4.6). |
 | `packages/lor/src/eval/long/` | Move the long-task eval to the Pi path so Jacob can run it before the switch. |
 | `packages/lor/src/models.ts`, `usage.ts` | Keep model/routing and credit semantics; add gateway options through the payload hook and the summary stream function. |
 | `packages/lor/src/tool-guard.ts`, `approval-policy.ts`, `custom-tools.ts` | Keep grants, targets, output limits and execution context. Map gates to harness approvals. Update `SIDE_EFFECT_TOOLS` and the reserved-name list for the rename. |
@@ -922,14 +942,15 @@ works (decision 2026-10-20; no one uses the app yet).
 - [x] Approval mapping (§4.2): gates, pending set, partial batches, revocation,
   host-tool rebinding, argument binding. Three product calls are open (§4.2).
 - [x] Budget limits decided (2026-10-20): spend only, no step/tool/token ceilings (§4.5).
-- [x] Product decisions (2026-10-20): Lor's own system prompt, the Computer tool
+- [x] Product decisions (2026-10-20): Lor's own system prompt, the Sandbox tool
   group, legacy deletion, `eval:long` before the switch, skills deferred.
 - [x] Session core contract and ports defined (§6).
 - [x] Approval calls decided (2026-10-20): only `bash`/`write`/`edit` can ask,
-  under a per-user computer permission mode; `request_approval` pauses like a
+  under a per-user sandbox permission mode; `request_approval` pauses like a
   gate; a new message denies pending approvals; Stop denies and ends (§4.2, §4.6).
-- [ ] Jacob confirms the computer-mode proposals in §4.6 (whose mode applies,
-  default mode, per-session switch).
+- [x] Sandbox-mode details decided (2026-10-20, §4.6): the turn starter's mode;
+  anyone in the session approves; default auto; Loop and Act autonomous with the
+  classifier only; per-session switch later.
 
 Exit: every gate in §5 has a recorded seam; the focused upstream changes are
 listed; no claim that unmodified stock APIs meet Lor's guarantees.
@@ -952,7 +973,7 @@ version rejection. No destructive history rewrite.
 - [ ] Build Lor's system prompt for `before_agent_start` (§4.8).
 - [ ] Wire the stable tool list, renamed brain tools, exact execute context,
   output limits, images, Gateway options and current event consumers.
-- [ ] Add the Computer tool group, the per-user computer permission mode, the
+- [ ] Add the Sandbox tool group, the per-user sandbox permission mode, the
   auto classifier and the per-call built-in approval patch (§4.6).
 - [ ] Apply every override in §4.9.
 - [ ] Reuse harness approval/continuation APIs with Lor policy and durable decisions.
@@ -1028,10 +1049,10 @@ reader/build. No automatic fallback to fresh history.
 |---|---|
 | Adapter, Pi Durable, cross-harness and repository review | Completed by source/documentation review, 2026-10-19/20. |
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
-| Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Computer tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
+| Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20 except the computer-mode proposals for Jacob (§4.6); 1.2–1.6 not started. |
-| Upstream changes / SDK publication | None submitted. Candidates for `@ai-sdk/harness-pi` PRs (each starts as a `pnpm patch` where Lor needs it): a `systemPrompt` option passing Pi's `systemPromptOverride` (needed, §4.8); a per-call built-in approval callback that checks the delivered decision before asking (needed for the computer permission modes, §4.6); keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2–1.6 not started. |
+| Upstream changes / SDK publication | None submitted. Candidates for `@ai-sdk/harness-pi` PRs (each starts as a `pnpm patch` where Lor needs it): a `systemPrompt` option passing Pi's `systemPromptOverride` (needed, §4.8); a per-call built-in approval callback that checks the delivered decision before asking (needed for the sandbox permission modes, §4.6); keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |
 
 ## Sources
 
