@@ -355,7 +355,11 @@ user authenticating directly; the earlier blanket prohibition in this document
 was too broad. This does not authorize extracting subscription tokens or making
 one person's plan a shared team account. [Claude Code terms](https://code.claude.com/docs/en/legal-and-compliance)
 
-The hosted auth path for each provider must be verified before enabling it.
+Anthropic's Agent SDK docs also state that third parties may not offer claude.ai
+login or rate limits without prior approval, and OpenAI requires an interest form
+for remotely hosted apps. Vercel's adapter subscription modes read the host
+user's own credential files, a single-developer feature. The hosted auth path for
+each provider must be verified with the vendor before enabling it.
 Recipient credentials apply after handoff; unattended Loops stay on an authorized
 managed/workspace mode initially. Direct subscription-funded inference outside
 the official harnesses is deferred. Pricing/eligibility details live in

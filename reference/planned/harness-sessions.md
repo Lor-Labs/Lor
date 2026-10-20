@@ -9,8 +9,9 @@
 > is written for review; implementation has not started. This document supersedes
 > the separate coding-agent runtime and late harness phase in the original
 > [code-channel design](code-channels.md).
-> The specific Pi runtime integration is provisional: the initial review omitted
-> Pi Durable, now a required comparison in runbook gate G0. Product decisions remain agreed.
+> Runtime decided 2026-10-20 (runbook G0): Vercel `HarnessAgent` +
+> `@ai-sdk/harness-pi`; Pi Durable is rejected for phase 1. Phase 1 saves native
+> Pi state per completed turn. Product decisions remain agreed.
 
 ## 1. Agreed direction
 
@@ -18,10 +19,10 @@
 - Pi is the default harness for Lor-funded sessions. Eligible personal subscription modes use the provider's official harness, initially Claude Code and Codex. Direct subscription-funded inference outside those harnesses is deferred.
 - Lor owns permissions, memory, tools, approvals, plans, Loops, queues, budgets, billing, collaboration and durable session identity. The selected harness owns the model/tool loop and its native context.
 - Harness selection, native-state persistence and capability differences belong in the first phase. Additional provider adapters can follow the Pi conversion; they must not require a second session architecture.
-- Shared code and consistent behavior across Pi, Claude Code and Codex take priority over a Pi-only simplification. Reject Pi Durable if it makes the other harnesses harder to adopt; keep any native task/storage machinery behind the shared runtime boundary.
+- Shared code and consistent behavior across Pi, Claude Code and Codex take priority over a Pi-only simplification. On this basis the runtime is `HarnessAgent` + `@ai-sdk/harness-pi` (2026-10-20): Vercel's Claude Code and Codex adapters share that harness spec. Pi Durable is Pi-only and is rejected for phase 1.
 - A user-visible checkpoint follows a completed user turn, including all its model/tool iterations. Recovery inside that turn remains a separate requirement.
 - Fork and rewind preserve both conversation state and workspace state. Rewind creates another branch and excludes later branch context. It does not undo external actions.
-- Every Lor agent chat gets an isolated sandbox, regardless of chat type or harness. Provision on its first agent run, reuse the logical workspace across turns and allow standby between runs or while awaiting approval. A new request must not create a new empty workspace or discard native history. Further allocation cost optimization is deferred.
+- Every Lor agent run gets its session's isolated sandbox, regardless of chat type or harness, including voice, Loop and Act runs. Provision on the session's first agent run, reuse the logical workspace across turns and allow standby between runs or while awaiting approval. A new request must not create a new empty workspace or discard native history. If the sandbox itself is lost (crash or deletion), phase 1 continues the session in a new empty sandbox and Lor tells the model and the people in the session that earlier files are gone; phase 2 checkpoints rebuild it from the last completed turn instead. Further allocation cost optimization is deferred.
 - Postgres owns native Pi session/checkpoint state and a common activity history for every harness. Private Git stores workspace revisions when files are involved; an immutable checkpoint joins them. A Lor CLI is deferred; future local/cloud transfer follows the import rules in §5.
 
 ## 2. What changes in the current code
@@ -57,18 +58,16 @@ Lor session (chat / cowork / code)
   -> common events and messages -> existing Lor UI
 ```
 
-Prefer supported Vercel integration where it meets Lor's requirements, with policy,
-storage and remote execution supplied at explicit boundaries. Compare Pi Durable
-before finalizing the runtime or repairing the coding-agent adapter; it supplies
-a separate upstream durability/task model. The [runbook](pi-harness-runbook.md)
-requires a Pi/Claude Code/Codex integration comparison before that choice; Durable
-is not selected and must not create a separate product or recovery coordinator.
-The runbook records the inspected published versions, supported extension options and concrete
-gaps. Prompt images and strict native persistence need changes; compaction policy,
-request budgets, cold approval resume and sandbox lifecycle need further contract
-review. Sandbox access at startup fits the every-chat model and is not a blocker.
-Compare supported configuration/extensions and focused upstream
-changes before selecting a direct Pi SDK fallback or custom machinery.
+Use Vercel's `HarnessAgent` with `@ai-sdk/harness-pi`, with policy, storage and
+remote execution supplied at explicit boundaries. The [runbook](pi-harness-runbook.md)
+records the comparison (Pi Durable and Vercel's `durable-harness` were rejected
+for phase 1), the pinned versions and the adapter defaults Lor must override.
+Prompt images are supported upstream since `harness-pi` 1.0.159. The adapter's
+native-state handling cannot be Lor's authority: Lor saves native state to
+Postgres per completed turn and verifies it on restore. Compaction settings,
+gateway routing, budgets, approvals and sandbox lifecycle map onto supported
+hooks. Prefer configuration, extensions and focused upstream changes before a
+direct Pi SDK fallback or custom machinery.
 
 The adapter needs start/resume, input/steer, stop, event delivery, durable native
 state references, resource/command discovery and declared fork capabilities.
@@ -90,12 +89,12 @@ is needed instead, retain the same control contract over RPC.
 | Concern | Required behavior |
 |---|---|
 | Memory | Retain Lor's scoped Postgres brain and retrieval tools. Pi session history is working context, not a replacement for shared memory. Use names such as `memory_read` where native file tools would collide. |
-| Compaction | Prefer Pi's native compactor with Lor-controlled scoped context, working-state/plan inputs, budgets and persistence. Capture summary usage and commit the selected native branch/leaf and compaction boundary before further inference. One compaction owner; no competing Lor summarizer on the Pi path. |
+| Compaction | Pi's native compactor with its default trigger, plus Lor's instructions (copy IDs and citations exactly) through `session_before_compact`, with plan state re-injected. Capture summary usage and save the compaction entry with the turn. One compaction owner; no competing Lor summarizer on the Pi path. |
 | Write-back | Retain the existing memory write-back policy and audit trail. Small classifiers, embedding, reranking and other auxiliary API calls need not become interactive harness sessions. |
 | Tools and approvals | Lor service calls remain scope checked and approval gated. Native shell/tools need their own execution policy; wrapping Lor's tools does not intercept arbitrary Bash/network side effects. |
-| Budgets and usage | Account for every model attempt, retry and child; preserve cumulative ceilings. Treat missing usage as unknown. Subscription quota failure must not silently switch the bill to Lor. |
+| Budgets and usage | Spend is the only run limit: no step, tool-call or token ceilings, so long code turns are not cut short. Target: the workspace balance with auto top-up and an admin monthly cap; a run stops gracefully only when the balance cannot be refilled. Keep Stop, a high wall-clock backstop and per-step usage counters. Count automatic compaction usage. Treat missing usage as unknown. Subscription quota failure must not silently switch the bill to Lor. |
 | Steering/stop | Preserve ordered input and exactly-once consumption of durable steering rows. Stop/lease loss must prevent the next request/tool dispatch; handle already-running tools explicitly. |
-| Recovery | A persistence failure must stop progress. An event listener that reports/swallow errors is not a durability gate. Inspect the pinned Pi hook and abort behavior before replacing the existing awaited checkpoint path. |
+| Recovery | Phase 1 saves native state per completed turn and at approval/stop boundaries; a failed save fails the run. A worker crash mid-turn re-runs that turn from the last save. An event listener that reports/swallows errors is not a durability gate. Mid-turn native recovery is deferred. |
 | Skills/commands | One scoped resource catalogue and version manifest. Lor owns product commands such as fork/rewind/share; runtime-native commands are capability advertised. Terminal-only commands need not exist in the web UI. |
 | Identity | Each run resolves driver, runtime and paying credential owner. Fork/takeover never copies credentials. Managed Loops use an authorized workspace billing mode; personal subscription use remains personal. |
 
@@ -197,7 +196,7 @@ blocks and tool activity. Preserve their native boundaries in the adapters.
 
 ### Two durability boundaries
 
-- **Recovery progress:** current `agent_run_step` is one model/tool iteration. Pi must retain an equivalent safe native recovery boundary, usage counters and tool receipts during a long user turn.
+- **Recovery progress:** current `agent_run_step` is one model/tool iteration. In phase 1, Pi saves native state per completed turn (and at approval/stop); usage counters and tool receipts still update per step. A crash mid-turn re-runs that turn. Mid-turn native recovery can return later through an upstream session-store option.
 - **Product checkpoint:** a completed user turn, or a committed human workspace change. It can contain many recovery steps. Persist one even if files did not change; reuse the previous file revision in that case.
 
 A checkpoint manifest needs:
@@ -334,11 +333,12 @@ contracts, lifecycle gates, approval/recovery mapping and staged enrollment.
 They do not bring the later Git, official-provider or fork/rewind work into phase 1.
 
 - [ ] Introduce runtime kind/version and native-state references on the existing session/run model, plus explicit legacy vs Pi recovery dispatch. Define capabilities for commands, skills, native forks, approvals and persistence now.
-- [ ] Select compatible Vercel adapter/Pi/AI SDK versions after resolving the runbook's image, persistence and request-control gates. Prefer supported extensions or focused upstream changes; record the blocker before choosing direct SDK integration. Preserve the current event/UI contract.
+- [x] Choose the runtime (2026-10-20): `HarnessAgent` + `@ai-sdk/harness-pi`.
+- [ ] Pin exact Vercel adapter/Pi/AI SDK versions and apply the runbook's adapter overrides (stable tool list, explicit auth, no host context files, no workspace-controlled settings). Prefer supported extensions or focused upstream changes; record the blocker before choosing direct SDK integration. Preserve the current event/UI contract.
 - [ ] Retain scoped tools, memory, context, plans, steering, stop and usage/budget enforcement. Reuse upstream approval continuation, native compaction/retries, provider transport and remote file/shell tools where they meet the contract. Do not bypass grants or expose worker files through native tools.
-- [ ] Implement incremental native Pi persistence in Postgres and resume. Verify that persistence/lease failures halt execution before another request or tool dispatch. Restore in a fresh process using durable data rather than a surviving local session file.
+- [ ] Save native Pi state to Postgres per completed turn and at approval/stop boundaries, under lease and expected-head checks; a failed save fails the run. Restore in a fresh process from Postgres and verify the loaded state, rather than trusting a surviving local or sandbox session file. A crash mid-turn re-runs the turn.
 - [ ] Materialize the common durable message/tool/activity view from Pi entries, with source IDs and checkpoint boundaries. Keep completed history independent of transient streaming-event retention; define the same adapter contract for Claude/Codex.
-- [ ] Give every agent chat an isolated sandbox from its first run, with stable workspace identity, reuse across turns and safe standby/recovery independent of chat type or harness. Review expiration/replacement policies against retained state. Defer further allocation cost optimization. Retain useful workbench/artifact plumbing; remove obligatory child coding dispatch from the default path only after direct tool coverage exists.
+- [ ] Give every agent run its session's isolated sandbox from the session's first run, including voice, Loop and Act runs, with stable workspace identity, reuse across turns and safe standby independent of chat type or harness. Build as if sandboxes are unlimited (no idle TTL or reclamation in phase 1). Until phase 2 checkpoints, a lost sandbox continues empty with a visible notice; quota errors fail visibly. Defer further allocation cost optimization. Retain useful workbench/artifact plumbing; remove obligatory child coding dispatch from the default path only after direct tool coverage exists.
 - [ ] Add scoped skills and supported slash-command discovery. Keep Lor product commands separate from runtime commands; do not enable arbitrary host extensions or global skill discovery.
 - [ ] Migrate new sessions first. Drain in-flight legacy runs under their original engine. For an old session, create an explicit Pi continuation from authorized legacy history at a safe boundary; retain old history and mark the import. Do not promise native fidelity for that conversion.
 - [ ] Review the actual execution, recovery, approval and scope paths; use focused type checking/lint/builds without tests, per repository policy. Update as-built docs only when the implementation lands.
@@ -384,12 +384,12 @@ durable file checkpoints, and validate provider restore/auth before enabling eac
 official harness. Routine choices stay within this plan; a finding that changes
 the agreed behavior should be brought back as a concrete tradeoff.
 
-- Pi Durable comparison and exact compatible dependency set, with integration surfaces for images, durable progress, approvals, native compaction, Gateway/budgets and safe sandbox lifecycle. Every-chat sandbox provisioning is decided. Prefer supported Vercel integration where sufficient; compare existing upstream Durable machinery before choosing custom repairs. See runbook gates G0–G7.
+- Exact compatible dependency set and the remaining runbook gates G1–G7: image mapping, per-turn save and restore check, approvals, the overflow check on a fallback model, Gateway routing, adapter overrides and Bun verification. The runtime (G0), per-turn saving, spend-only run limits, Pi's compaction trigger, sandboxes for every run kind (one per voice call), unlimited sandbox capacity, Bun and the repo-wide `ai` upgrade are decided.
 - Private Git vendor, official-harness opaque payload storage, retention, and how transcript deletion affects forks/backups. Postgres ownership of native Pi state is decided.
 - CLI transport/version compatibility and local/cloud ownership-transfer UX; precise commands are not yet specified.
 - Full filesystem snapshot allowlist, large artifacts, child-session persistence and runtime-specific restore path handling.
 - How much historical context a cross-harness handoff imports, with clear user-visible limits.
-- Provider-specific hosted authentication eligibility. Direct subscription inference remains deferred, irrespective of that eligibility.
+- Provider-specific hosted authentication eligibility. The Vercel adapters' subscription modes read the host user's own credential files (single developer). Anthropic's Agent SDK docs state that third parties may not offer claude.ai login or rate limits without prior approval, and OpenAI requires an interest form for remotely hosted apps; confirm with both vendors before planning phase 2 around personal subscriptions. Direct subscription inference remains deferred, irrespective of that eligibility.
 
 ## Sources and scope
 
@@ -398,7 +398,7 @@ verified when implementation starts. Public docs are not evidence that Lor has
 implemented these guarantees.
 
 - [Pi SDK](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/sdk.md), [extensions](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/extensions.md), [RPC commands](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/rpc-commands.md).
-- [Vercel Pi adapter](https://ai-sdk.dev/providers/ai-sdk-harnesses/pi): preferred integration, conditional on the [runbook's versioned source review and gates](pi-harness-runbook.md); it does not erase runtime capability differences.
+- [Vercel Pi adapter](https://ai-sdk.dev/providers/ai-sdk-harnesses/pi): chosen integration (2026-10-20), with the overrides and gates in the [runbook](pi-harness-runbook.md); it does not erase runtime capability differences. Vercel's [Claude Code](https://ai-sdk.dev/providers/ai-sdk-harnesses/claude-code) and [Codex](https://ai-sdk.dev/providers/ai-sdk-harnesses/codex) adapters share its harness spec.
 - [Codex app server](https://learn.chatgpt.com/docs/app-server): native thread lifecycle and completed-turn fork boundaries.
 - [Claude session storage](https://code.claude.com/docs/en/agent-sdk/session-storage): native storage and restore requirements need adapter-specific handling.
 - [Provider billing/authentication distinctions](pricing-and-billing.md#6-byo-api-keys-and-subscriptions), [Claude hosted use terms](https://code.claude.com/docs/en/legal-and-compliance).

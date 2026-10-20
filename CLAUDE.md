@@ -134,14 +134,16 @@ workspace revisions joined by immutable checkpoint references. Official harnesse
 retain their supported native payloads. Code workspace collaboration,
 fork/handoff/rewind, deferred Lor CLI local/cloud handoff, Yjs and the independent code index live in
 `reference/planned/code-channels.md`. These are design only, not built. The
-phase-1 implementation runbook is `reference/planned/pi-harness-runbook.md`,
-revised to prefer Vercel's Pi adapter, native compaction and existing remote tools,
-with concrete durability/image/control gates before implementation. Runtime
-selection is provisional pending comparison with Pi Durable (G0), omitted from
-the initial review; reject it if it complicates Claude Code/Codex adoption or
-requires separate product/recovery code. Do not build duplicate durability
-machinery first. Every Lor agent chat gets an isolated sandbox on its first run, reused across turns with
-safe standby/recovery; further allocation cost optimization is deferred. Keep its
+phase-1 implementation runbook is `reference/planned/pi-harness-runbook.md`.
+Runtime decided 2026-10-20: Vercel `HarnessAgent` + `@ai-sdk/harness-pi` (Pi
+Durable rejected for phase 1), Pi's native compactor and the adapter's remote
+tools, with the adapter defaults Lor must override listed in the runbook. Phase 1
+saves native Pi state to Postgres per completed turn; spend is the only run
+limit (no step/tool/token ceilings; workspace balance with auto top-up is the target).
+Every Lor agent run, including voice, Loop and Act runs, gets its session's
+isolated sandbox on the first run, reused across turns with standby; until
+phase 2 checkpoints, a lost sandbox continues empty with a notice. Build as if
+sandboxes are unlimited; cost optimization is deferred. Keep its
 internal session core separate from Lor policy/UI; SDK publication is deferred.
 It covers only the main Lor loop's Pi conversion and shared foundation;
 implementation has not started. Update its slices and gates as

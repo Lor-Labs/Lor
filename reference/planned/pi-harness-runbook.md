@@ -1,625 +1,699 @@
 # Pi foundation migration runbook — phase 1
 
-> Status: revised after independent adapter review, 2026-10-19. **Documentation
-> only; implementation not started.** Implements phase 1 of
+> Status: revised 2026-10-20 after a source review of the exact published
+> packages, the repository and vendor docs. **Documentation only;
+> implementation not started.** Implements phase 1 of
 > [Shared harness sessions](harness-sessions.md). Repository baseline: `dev`
 > at `7d663fdf`; planning branch: `codex/pi-harness-sessions`.
 >
-> **Runtime choice reopened:** the initial review omitted `pi-durable`. Its
-> preliminary source review below requires a new comparison (G0) before selecting
-> the runtime or implementing adapter repairs. Existing findings about
-> `harness-pi`/`pi-coding-agent` do not describe Pi Durable.
+> **Runtime decided (G0 closed 2026-10-20):** Vercel `HarnessAgent` +
+> `@ai-sdk/harness-pi`. Pi Durable is rejected for phase 1. Vercel's
+> `durable-harness` is a reference design, not a dependency. See §3.
 
-Prefer **supported Vercel integration where it meets Lor's requirements**, native
-Pi compaction and existing remote file/shell tools. Compare Pi Durable in G0
-before selecting the runtime. Lor supplies application policy, storage and integration.
-**Selection priority:** shared code and a consistent product across Pi, Claude Code
-and Codex take precedence over convenience within the Pi implementation. Reject
-Pi Durable if it makes adopting the other harnesses harder than the shared route.
-The published adapter is a credible starting point, but is not yet a drop-in
-replacement that satisfies all of Lor's recovery, image and execution-control requirements.
-Close the concrete gates below before choosing a direct SDK fallback or enabling
-Pi sessions. Do not infer production readiness from the common API alone.
+Use Vercel's Pi adapter, Pi's native compactor and the adapter's remote
+file/shell tools. Lor supplies policy, storage, budgets and the Blaxel bridge.
+The adapter is a good base but is not a drop-in replacement: several defaults
+must be overridden (§4.9) and its native-state handling cannot be Lor's
+authority (§4.3). Do not infer production readiness from the common API alone.
 
 ## 1. Decisions and scope
 
-The previous draft selected custom machinery too early. This revision removes
-those defaults:
+### Decisions locked with Jacob, 2026-10-20
 
-| Previous proposal | Revised decision |
+| Topic | Decision |
 |---|---|
-| Direct Pi SDK by default | Evaluate `HarnessAgent` + `createPi` first; use supported configuration/extensions, then focused upstream changes. Direct SDK remains a conditional fallback. |
-| New Pi-to-AI-SDK inference bridge | Start with Pi's existing Gateway provider; preserve routing using supported provider configuration/payload hooks where sufficient. No new transport unless a concrete gap remains. |
-| Port Lor's summarizer into the new primary loop | Prefer Pi's native compactor. Lor supplies scoped context, authoritative plan/working-state inputs, budget permission and persistence. |
-| Disable native retries and implement Lor retries | Configure and account for native retries, including compaction/provider retries. Add only missing controls; do not stack retry engines. |
-| New native approval/batch replay dispatcher | Reuse harness approval/continuation state and Pi adapter replay. Lor retains policy decisions, resolver authorization and durable receipts. |
-| New filesystem/shell tool implementations | Reuse the adapter's remote tools. If direct SDK is necessary, use Pi tool factories with explicit remote operations. |
-| Zero sandbox allocation for plain chat | Every Lor agent chat gets an isolated sandbox, provisioned on its first run and reused across turns. Standby is part of the lifecycle; further cost optimizations are deferred. |
-| Six prescribed new storage tables | Preserve required data/atomicity, but choose the minimum additive schema after the native-state contract is settled. Reuse existing runs, approvals and tool receipts where their semantics fit. |
-| Session code mixed with product behavior | Keep an internal session core behind injected storage, policy and execution interfaces; no new published SDK or general plugin platform. |
+| Runtime (G0) | `HarnessAgent` + `@ai-sdk/harness-pi`. Vercel ships Claude Code and Codex adapters on the same harness spec, so phase 2 reuses the session core. Pi Durable and `durable-harness` are rejected for phase 1 (§3). |
+| Durability (G2) | **Save native state per completed turn**, plus approval suspension and stop. A worker crash mid-turn loses that turn's native progress; recovery re-runs the turn from the last saved turn. Mid-turn native recovery is not required in phase 1. Re-evaluate an upstream session-store contribution later if crash loss hurts in real use. |
+| Budgets (G5) | **Spend is the real limit** (§4.5). Drop the step, tool-call and token ceilings for Pi runs; keep Stop, the per-call output limit and a high wall-clock backstop. Target: the workspace balance with auto top-up and an admin monthly cap, stopping only when the balance cannot be refilled. Interim while billing is off: `AGENT_RUN_MAX_CREDITS` as a raised emergency backstop. No new strict gate before every model request. Count automatic compaction usage. |
+| Compaction (G4) | Keep Pi's default trigger and algorithm. Add Lor's instructions (copy IDs, citations, URLs and file paths exactly) through `session_before_compact`. Revisit the trigger only if real use shows a cost or quality problem. |
+| Pi settings | None in phase 1: compaction, retries and cache warming keep Pi's defaults. If a setting must change later, patch the adapter with `pnpm patch` to pass a settings record and send the same change upstream as a PR. |
+| Sandboxes (G6) | Every agent run gets its session sandbox, **including voice, Loop and Act runs**. Each needs a session workspace owner before it provisions. |
+| Lost workspace (G6) | **Interim until phase 2.** If a session's sandbox no longer exists (crash or deletion), continue the session in a new empty sandbox and tell the model and the people in the session that earlier files are gone. Fail the run only when the native **conversation** state is missing or corrupt. Phase 2 Git checkpoints replace this: Lor rebuilds the sandbox from the last completed-turn commit. |
+| Capacity | Build as if sandboxes are unlimited. No idle TTL or reclamation for session sandboxes in phase 1; capacity planning is deferred. A quota error still fails the run visibly. |
+| Worker runtime | Run the Pi path on **Bun**, the worker's current runtime. Verify the adapter on Bun in 1.1; move the Pi path to Node only if a concrete Bun failure appears. |
+| AI SDK | Upgrade `ai` repo-wide to the version the harness requires (≥ `7.0.145`). Change legacy code where the upgrade needs it, and re-verify the legacy approval park/resume path. |
+| Versions | Re-baseline on `@ai-sdk/harness-pi@1.0.159`, `@ai-sdk/harness@1.0.157`, Pi `1.3.0`. Pin exact versions; the harness ships breaking changes in patch releases. |
 
-The agreed product architecture remains:
+### Earlier revisions (kept for the record)
+
+| Earlier proposal | Decision |
+|---|---|
+| Direct Pi SDK by default | Use `HarnessAgent` + `createPi`; supported configuration/extensions first, then focused upstream changes. Direct SDK is a per-gap fallback. |
+| New Pi-to-AI-SDK inference bridge | Use Pi's Gateway provider. Add routing through the payload hook (§4.5). No new transport. |
+| Port Lor's summarizer into the new loop | Use Pi's native compactor with Lor's instructions through `session_before_compact` (§4.4). |
+| Disable native retries and implement Lor retries | Use Pi's retries. Do not stack retry engines. |
+| New native approval/batch replay dispatcher | Reuse harness approval/continuation state and Pi adapter replay. |
+| New filesystem/shell tool implementations | Reuse the adapter's remote tools. |
+| Zero sandbox allocation for plain chat | Every agent run gets an isolated session sandbox. Cost optimization is deferred. |
+| Six prescribed new storage tables | Minimum additive schema after the native-state contract is settled. |
+| Session code mixed with product behavior | Internal session core behind injected storage, policy and execution interfaces; no published SDK. |
+| Pi Durable as a phase-1 candidate | Rejected for phase 1 (§3). |
+
+### Agreed product architecture
 
 - One session model for Lor chat/cowork/code, with Pi the Lor-funded primary
   runtime. Human channel chat remains human chat.
 - Shared session orchestration, product behavior and Lor services must support
   official Claude Code/Codex adapters without a second architecture. Pi-specific
-  task/document APIs must not become dependencies of the common product layer.
+  APIs must not become dependencies of the common product layer.
 - Lor owns memory, permissions, approvals, plans, Loops, queues, budgets, billing,
   collaboration and durable identity. Pi owns the model/tool loop and native context.
 - Postgres owns native Pi history and common durable activity. Private Git will
   own checkpoint file trees, joined through immutable checkpoint references.
 - A completed user turn and a model/tool iteration are different boundaries.
-  Mid-turn recovery must preserve committed context and avoid blindly replaying
-  uncertain external effects. A moving branch name is not a historical checkpoint.
-- Every Lor agent chat gets a sandbox, regardless of chat type or harness. Create
-  it on the first agent run, reuse the same logical workspace across turns and
-  allow standby between runs. Human-only channels do not create agent runtimes.
+  Phase 1 saves native state at completed turns (and approval/stop boundaries).
+  Recovery after a crash re-runs the interrupted turn; it must not blindly
+  replay uncertain external effects. A moving branch name is not a historical checkpoint.
+- Every Lor agent run gets its session sandbox, regardless of chat type or harness.
+  Create it on the session's first agent run, reuse the same logical workspace
+  across turns and allow standby between runs. Human-only channels do not create
+  agent runtimes.
 - Credentials and permission decisions are resolved afresh, not restored from
   snapshots. A sandbox does not grant permission to execute every available tool.
 
 This is **phase 1 only**. Phase 2 adds private Git checkpoints and official
-Claude Code/Codex adapters with eligible subscription authentication. Phase 3
-adds forks/handoffs/strict rewind; phase 4 adds code collaboration. CLI, publishing
-an SDK, direct subscription inference, an extension marketplace, a new terminal
-UI and allocation cost optimizations are deferred. Do not use extraction-readiness
-to expand this migration.
+Claude Code/Codex adapters. Phase 3 adds forks/handoffs/strict rewind; phase 4
+adds code collaboration. CLI, publishing an SDK, direct subscription inference,
+an extension marketplace, a new terminal UI, mid-turn native recovery and
+allocation cost optimizations are deferred. Billing changes (the workspace
+balance limit, auto top-up, the monthly cap and the in-run balance check, §4.5)
+are not part of phase 1; they ship with the billing work in
+[pricing-and-billing.md](pricing-and-billing.md). Phase 1 only keeps usage
+recording unchanged and raises the per-run credit backstop. Do not use extraction-readiness to
+expand this migration.
 
-Until phase 2, native conversation recovery can survive worker loss, but a
-workspace without a durable file revision cannot promise exact reconstruction
-after disk loss. Preserve available files and report missing state explicitly.
-Do not create an empty workspace and call it an exact resume.
+Until phase 2, workspace files have no durable revision. A lost sandbox loses
+its files (artifacts saved through `writeArtifactVersion` survive). Lor says so
+explicitly and continues in a fresh workspace; it never presents a fresh
+workspace as an exact resume. Phase 2 checkpoints restore the files of the last
+completed turn instead.
 
 ## 2. Evidence baseline
 
-Reviewed public documentation and downloaded published packages into `/tmp` for
-source inspection; nothing was installed in this repository and no tests or
-runtime experiments were run. Source-observed behavior is distinguished below
-from candidate changes and unverified runtime guarantees.
+Source review of published package archives, the repository and vendor docs,
+2026-10-19/20. Nothing was installed in this repository; no tests or runtime
+experiments ran. Verified source behavior is separated from inference below.
 
-| Component | Inspected version | Significance |
+| Component | Version | Notes |
 |---|---|---|
-| `@ai-sdk/harness-pi` | `1.0.158` | Published adapter, not an assumed feature from repository `main`. |
-| `@ai-sdk/harness` | `1.0.156` | Exact dependency of that adapter; itself depends on `ai@7.0.145`. |
-| `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai` | `1.0.3` | Inspected matching Pi baseline; adapter declares `^1.0.3`, so implementation must lock the resolved family. |
-| `@ai-sdk/provider-utils` | `5.0.63` | `SandboxSession` contract used by the adapter. |
-| Existing Lor | AI SDK declaration `^7.0.11`; sandbox Pi `0.84.1` | Existing CLI image does not determine the new host adapter's version. Review dependency alignment and native format compatibility explicitly. |
+| `@ai-sdk/harness-pi` | `1.0.159` (first review on `1.0.158`) | 1.0.159 added prompt image input. Depends on `pi-coding-agent ^1.0.3`. |
+| `@ai-sdk/harness` | `1.0.157` | Shared by the Pi, Claude Code (`1.0.161`) and Codex (`1.0.159`) adapters. Needs `ai@7.0.145`. Docs label it experimental; ~8 releases a week; breaking changes ship as patches (e.g. 1.0.92, 1.0.123). |
+| `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai` | `1.3.0` (first review on `1.0.3`) | `^1.0.3` resolves to 1.3.0 on a fresh install. Compaction, session manager and Gateway behavior below were rechecked on 1.3.0. |
+| `@ai-sdk/provider-utils` | `5.0.64` | `SandboxSession` contract unchanged from 5.0.63. |
+| Existing Lor | `ai@7.0.11`; sandbox image Pi `0.84.1` | The worker **runs on Bun** (`oven/bun:1-slim`). Harness packages declare `node >=22`, and the Pi adapter patches `node:fs` process-wide; Bun support is unverified (decision: try Bun first). |
 
-Harness packages are still documented as experimental. These versions are the
-**evaluation baseline**, not an instruction to upgrade the entire repository or
-claim Bun compatibility. Review the final lockfile, worker runtime and package
-exports before implementation enrollment. [Pi adapter documentation][pi-doc]
+Source keys: **P** = `@ai-sdk/harness-pi` `src/`; **H** = `@ai-sdk/harness`
+`src/`; **C** = `pi-coding-agent` `dist/core/`; **A** = `pi-ai` `dist/`.
+Function and type names are the evidence anchors. Reinspect them if versions
+change; a newer doc example does not prove an older package has that behavior.
 
-Source keys below refer to files inside these exact published archives:
+## 3. Runtime choice (G0) — closed
 
-- **P** — [harness-pi 1.0.158 archive][pi-package], files under `src/`: `pi-session.ts`,
-  `pi-resume-state.ts`, `pi-tool-batch.ts`, `pi-utils.ts`, `pi-translate.ts`,
-  `pi-auth.ts`, `pi-model-resolver.ts`, `pi-remote-ops.ts`, `pi-read-operations.ts`,
-  `pi-workspace-mirror.ts`, `pi-harness.ts`; also the package-root `CHANGELOG.md`.
-- **H** — [harness 1.0.156 archive][harness-package], files under `src/agent/`:
-  `harness-agent-session.ts`, `harness-agent.ts`,
-  `harness-agent-settings.ts`, `internal/run-prompt.ts`,
-  `internal/to-harness-stream.ts`, `internal/turn-telemetry.ts`; also
-  `src/v1/harness-v1-lifecycle-state.ts` and `src/v1/harness-v1-session.ts`.
-- **C** — [Pi coding-agent 1.0.3 archive][coding-package], files under `dist/core/`:
-  `agent-session.{js,d.ts}`, `sdk.js`, `session-manager.d.ts`,
-  `settings-manager.d.ts`, `extensions/{types.d.ts,runner.js}`,
-  `compaction/compaction.js` and `tools/*.d.ts`.
-- **A** — [Pi AI 1.0.3 archive][ai-package]:
-  `dist/providers/vercel-ai-gateway.js` and the provider/request APIs.
-- **S** — [provider-utils 5.0.63 archive][utils-package]: `src/types/sandbox.ts`.
+The deciding constraint is shared code and consistent behavior across Pi,
+Claude Code and Codex.
 
-Use the named functions/types as searchable evidence anchors. Reinspect them if
-versions change; a newer documentation example does not prove an older package
-has that behavior.
+| Candidate | Assessment |
+|---|---|
+| **`HarnessAgent` + `harness-pi` (chosen)** | Vercel publishes Claude Code and Codex adapters on the same `HarnessV1` spec, released together with `harness-pi`. Lifecycle (create/resume/detach/stop/`suspendTurn`), the opaque continuation state with framework-owned pending approvals, host-tool approvals and the UI stream are written once for all three. Gaps are adapter-specific and listed below. |
+| Pi Durable (`@earendil-works/pi-durable@1.3.0`) | Strongest persistence model: awaited atomic `Storage.commit`, tool intent recorded before execution, durable retries/compaction, prompt images. Rejected for phase 1: Pi-only, so Claude Code/Codex would need a second session core; no approval pause (`beforeTool` waits in memory; upstream issue #10852 open); `beforeRequest` fails open (#11055); no conversation deletion (#11026), which conflicts with Lor's deletion rule; Postgres storage must be written (no cross-process locking; the third-party adapter is single-owner); storage contract changed in 1.1.0 and 1.2.0. Revisit after #10852 lands and the API settles. |
+| Vercel `durable-harness` (`0.0.1-beta.6`) | Nearly Lor's target design: the session is a Workflow run, its event log is the source of truth, a crash resumes the turn elsewhere, unsafe tools never run twice, one VM and drive per session, idle cleanup tells the session its files are gone. Rejected as a dependency: separate stack (not `@ai-sdk/harness`); Claude Code/Codex run only in Vercel Sandbox (Lor uses Blaxel); no human-approval API; text-only input; its own Postgres queue beside BullMQ; repo created 2026-10-16. Use it as a reference design. |
+| Direct Pi SDK | Per-gap fallback inside the same session boundary only. Record the blocker first. |
 
-### Additional candidate: Pi Durable — preliminary review
+**Cross-harness facts to carry into phase 2** (verified from adapter source):
 
-The user identified [Pi Durable][durable-post] after the initial review. This was
-an omission in the candidate comparison. It is a separate experimental harness,
-not an automatic durability upgrade to `pi-coding-agent`. The latest Vercel
-adapter metadata checked here (`1.0.159`) still depends on `pi-coding-agent`, not
-`pi-durable`; the detailed adapter findings below remain pinned to `1.0.158`.
+- All three adapters keep native state in the sandbox HOME; their resume state
+  is only a pointer. Pi and Codex silently start a fresh conversation when that
+  state is missing. Lor's Postgres copy and load check (§4.3) must exist per adapter.
+- Codex has no built-in tool approvals (allow-all only, platform sandbox off) and
+  starts a new native thread when instructions, tools or skills change.
+- Claude Code and Codex run a bridge inside the sandbox. The worker must reach an
+  exposed sandbox port, and credentials stay out of the sandbox only with request
+  transformations. No AI SDK Blaxel sandbox adapter exists.
+- No adapter implements `readHistory`.
+- Adapter "subscription" modes read the host user's own credential files: a
+  single-developer feature. Anthropic's Agent SDK docs state that third parties
+  may not offer claude.ai login or rate limits without prior approval; OpenAI
+  requires an interest form for remotely hosted apps. Confirm hosted terms with
+  both vendors before planning phase 2 around personal subscriptions.
 
-Inspected `@earendil-works/pi-durable@1.3.0` from its [published archive][durable-package],
-without installing or running it. Its `README.md`, `dist/types.d.ts`,
-`dist/session/session.js` and `dist/harness/{generation,tool,compaction}.js` show:
+## 4. Requirement findings and decisions — selected adapter
 
-- `Session` awaits atomic `Storage.commit` before adopting/publishing state;
-  fatal storage errors fail the session. `ToolTask` commits intent before execution
-  and recovers according to an explicit replay policy.
-- Native tasks cover generation, tools, retries and compaction. Compaction
-  settings, result placement and usage recording are built into this runtime.
-- Typed documents, submission deduplication, conversation forks and committed
-  activity views overlap with machinery proposed here. Remote `ExecutionEnv`
-  implementations can supply built-in coding tools without worker-local access.
+### 4.1 Images (G1): mapping task, not a blocker
 
-This makes Durable a serious alternative to repairing the coding-agent wrapper.
-It is **not yet a completed Lor compatibility review**:
+**Observed (1.0.159):** H `extractHarnessPromptContent` and P
+`extractPiPromptContent` pass prompt images to `AgentSession.prompt`. Limits:
+images must be inline (base64, bytes or data URLs; URLs and provider references
+are rejected); only image media types; any text after an image throws
+`HarnessCapabilityUnsupportedError`; the model must declare image input. Pi
+stores prompt images inline as base64 in the native journal. The `read` tool
+returns image blocks; host-tool `toModelOutput` images have a conversion path.
 
-- Shipped storage includes memory, SQLite and JSONL/Cloudflare adapters; Postgres
-  requires an implementation of `Storage`. One process owns a storage at a time,
-  with no built-in cross-process locking. Map storage scope, worker ownership,
-  fencing and atomic Lor accounting before choosing the topology.
-- Approval hooks/memos are useful primitives, not proof of Lor's durable parked
-  approval/resolver protocol. Recheck permissions on recovery. Ordinary hook
-  errors may be reported and skipped; `beforeTool` fails closed. Budget gates
-  must cover actual generation, retries and background compaction requests.
-- Verify images, Gateway policy, resource/command support, UI/event mapping,
-  worker runtime and version compatibility. Usage recording does not establish
-  a hard budget or complete accounting for requests interrupted by a crash.
-- Durable conversation forks do not snapshot external files or undo side effects.
-  Keep Postgres/Git checkpoints, current permission checks and every-chat sandboxes.
-  If selected, persist Durable's native records/tasks/documents, not an invented
-  conversion to coding-agent `SessionManager` journal entries.
+**Lor today:** `initial-message.ts` inlines up to 8 images (5 MB each, `images.ts`)
+next to the messages they belong to. `view_image` sends bytes through
+`toModelOutput`; stored transcripts keep only a receipt. Continuation deltas
+and steering show images only as `[file: …]` lines.
 
-**G0 decision:** compare a supported Vercel integration, focused Vercel adapter
-changes and direct use of this upstream durable harness behind the internal
-session boundary. Prefer the supported option that preserves Lor's contract with
-the least new machinery across all three harnesses, not just the Pi path. Durable
-is acceptable only as an implementation detail that preserves shared integration
-and does not make Claude Code/Codex adoption harder. Do not assume Vercel already
-wraps Durable, replace the
-runtime without comparison, or build duplicate durability/compaction engines.
-The four product phases and the no-implementation status remain unchanged.
+**Decision:** fetch and inline authorized images at the prompt boundary. Put all
+text first, then the images, each labeled in the text with its message and
+attachment ID. Keep `view_image`. Native entries will carry image bytes, so the
+Postgres store must stage large payloads (§5). Gateway catalog: DeepSeek V4.1
+Flash and Kimi K3 accept image input; some endpoints (e.g. `runinfra`,
+`baseten`) lack the vision tag, which Lor's provider order avoids.
 
-## 3. Requirement findings and decisions — coding-agent adapter baseline
+### 4.2 Approvals (G3): reuse the harness protocol
 
-### Images: prompt support is a concrete adapter blocker
+**Observed:** H persists pending approvals (a list), client tool results,
+completed host results and frozen turn settings. P persists pending native
+batches with completed results and approval decisions; cold replay reuses
+completed results, suppresses duplicate output and zeroes replayed usage.
+Replay is keyed by tool-call ID; calls running at a crash run again.
+`reattachInProcess: false` restores from persisted state. Sources: H lifecycle
+state/`run-prompt`; P `pi-resume-state`, `pi-tool-batch`,
+`requestBuiltinToolApproval`, `doContinueTurn`.
 
-**Observed:** P `extractUserText` rejects every non-text user content part and
-`doPromptTurn` passes only text. C `AgentSession.prompt` accepts an `images`
-option. P's remote `read` now delegates to Pi's read-tool factory and returns
-image blocks; host-tool `toModelOutput` images also have a conversion path. These
-are separate capabilities. [Pi limitations][pi-doc]
+**Lor today:** two kinds of approval. Policy gates return `user-approval` from
+`approval-policy.ts`; the discretionary `request_approval` plan tool sets a flag
+that forces a final text step. A run parks, the post-loop sweep makes the step
+durable, `fileParkedApproval` inserts the row, and the run stops with
+`awaiting_approval`. Partial unique indexes allow one pending approval per run
+and per plan. Resolution starts a **successor run** that replays the chain and
+ends with the `tool-approval-response`. Latent bug: `index.ts` overwrites
+`parked` per request, so two gated calls in one step file only the last one.
 
-**Lor impact:** `packages/lor/src/index.ts` includes images directly in initial
-conversation input and exposes `view_image`. Preserving only image-reading tools
-would change the existing experience and does not close prompt-image support.
+**Decision:** keep the harness protocol. Remove the proposed Lor batch replayer
+and manual insertion of approval results. Map policy gates to harness
+`toolApproval` with exact arguments; keep resolver authorization, voice
+restrictions, HMAC binding intent and plan waiting states. Save native state at
+the suspension (§4.3) and release the worker. Map `request_approval` explicitly
+(it is a tool result plus a parked plan, not a gate). The harness supports
+several pending approvals; present them as a set and drop the one-per-run index
+for Pi runs, which also removes today's multi-gate bug. Confirm partially
+answered batches, revocation and host-tool context rebinding in 1.1. Tool-call
+IDs must be non-empty: the Anthropic Messages path copies provider IDs, while
+the OpenAI Chat Completions path defaults missing IDs to `""` (A
+`openai-completions`), so do not configure Chat Completions.
 
-**Decision:** prefer a focused adapter change carrying authorized image content
-through prompt normalization, Pi invocation and native resume. An inline extension
-cannot intercept a prompt rejected before Pi receives it. A tool-based image
-workaround is not equivalent and is not the migration default. Confirm MIME,
-byte/URL handling, size limits, model support and attachment retention at the
-same boundary Lor uses today. Do not silently discard images or switch engines
-within a Pi session.
+### 4.3 Durability (G2): save per turn; Postgres is the authority
 
-### Approvals/resume: reuse the supplied machinery
+**Observed:**
 
-**Observed:** H persists pending approvals, client tool results, completed host
-results and frozen turn settings in lifecycle state. P persists pending native
-batches including completed results and native approval decisions. Its cold
-replay reuses completed results and suppresses duplicate visible output; replayed
-assistant usage is zeroed while original native entries remain. Built-in approval
-requests and custom host-tool approvals are supported. `reattachInProcess: false`
-selects persisted restoration instead of depending on a live process. Sources:
-H lifecycle types/session/`run-prompt`; P `pi-resume-state`, `pi-tool-batch`,
-`requestBuiltinToolApproval` and `doContinueTurn`.
+- Pi runs in the worker process (P). During a turn the journal is a local file
+  under the worker's temp directory. P `persistSessionFileToSandbox` copies it to
+  `$HOME/.ai-sdk/harness-pi/<sha256(id)>` in the sandbox only on stop, detach or
+  suspend. Resume JSON holds a filename and pending-batch data, not the native bytes.
+- `doStop`/`doSuspendTurn` swallow copy failures. A missing restored file makes
+  P create a fresh `SessionManager` instead of failing.
+- The sandbox HOME is writable by the model's `bash`. The journal is reloaded on
+  cold resume without an integrity check.
+- P `rebuildPiSession` disposes the session and calls `SessionManager.create`
+  (a new, empty journal) when the sorted host-tool names change between turns.
+  Calling harness `compact()` on a freshly resumed session builds it with no
+  tools, so the next prompt also drops restored history.
+- H lifecycle callbacks use `Promise.allSettled`; P `piSession.subscribe` is a
+  void emitter. C extension `message_end` runs before the journal append.
+- C `SessionManager.inMemory(cwd, opts, entries)` can start from external
+  entries, but the adapter always uses file-backed create/open.
 
-**Decision:** keep this protocol. Remove the proposed Lor native batch replayer,
-synthetic stop protocol and manual insertion of approval tool results. Lor maps
-its existing policy targets and exact tool arguments to harness approval IDs,
-persists decisions, checks current grants and resumes using the supplied
-continuation APIs. Preserve resolver authorization, voice restrictions and
-plan waiting states.
+**Decision (2026-10-20): save per turn.**
 
-**Open:** persistence of the complete journal plus continuation envelope must
-satisfy the next section. Adapter replay is not proof of exactly-once effects
-across a crash during a remote mutation. H supports multiple pending approvals;
-Lor currently has one pending approval per run/plan. Prefer serializing presentation
-of an opaque pending set and submitting decisions through supported APIs; compare
-that with a supported sequential policy. Do not prescribe a new executor or
-silently approve/drop sibling calls. Confirm partially answered batches, revocation
-and host-tool context rebinding before enrollment. [Harness lifecycle][harness-doc]
+1. Save points: completed turn, approval suspension, user stop, budget stop.
+   Each save is one Postgres transaction: new native journal entries, the
+   harness continuation state, activity projection, counters, stop reason and
+   the new head. Guard it with the lease generation and the expected previous
+   head. A failed save fails the run; it never reports a completed turn.
+2. Before each resume, write the saved journal from Postgres into the sandbox
+   path the pinned adapter reads, then verify that the loaded session matches
+   the saved head (an inline extension reads the loaded entries, or compare the
+   file hash before resume). Missing, mismatched or corrupt state fails the run
+   visibly. Never accept the adapter's silent fresh start. The sandbox file is a
+   runtime copy; Postgres is the authority. The path is adapter-internal: pin
+   the version and recheck it on upgrade.
+   Save from the worker's live copy, not the sandbox copy, so a model edit to
+   the sandbox file never reaches Postgres; the next restore overwrites it. Add
+   the adapter's state folder (`$HOME/.ai-sdk/harness-pi`) to
+   `fileToolPathPolicy.deniedRoots` so the file tools refuse it. That policy
+   does not restrict `bash`; the restore makes `bash` edits harmless.
+3. Keep **one stable host-tool list per session**. Bind every tool the session
+   may use and deny unavailable ones at execute time, so a grant or connector
+   change never changes the tool-name set. Do not call harness `compact()` on a
+   freshly resumed session.
+4. Worker crash mid-turn: the turn's native progress is lost. BullMQ's second
+   attempt re-runs the turn from the last saved head with the same input and a
+   note that an earlier attempt was interrupted and may have changed files or
+   external systems. Lor side-effect tools keep `agent_run_tool_result`
+   receipts, so an identical repeated call returns the stored result; a
+   different call is not deduplicated. Usage of the lost attempt is still
+   counted (recorded per step, §4.5) and not re-billed. Clients get today's
+   replace frame. Sandbox file changes from the lost attempt stay.
+5. Later option, not phase 1: an upstream session-store option for the adapter
+   (load entries from a store, awaited append per entry) would restore mid-turn
+   recovery. `SessionManager.inMemory(entries)` makes it plausible.
 
-### Persistence: stock durability is weaker than Lor requires
+### 4.4 Compaction (G4): Pi's algorithm, Lor's instructions and settings
 
-**Observed, concrete gaps:**
+**Observed (1.3.0):** C `shouldCompact` triggers when context tokens exceed
+`contextWindow − reserveTokens`. Defaults: `reserveTokens` 16,384,
+`keepRecentTokens` 20,000. For DeepSeek V4.1 Flash (1,048,576 window) that is
+about **1.03M tokens**. Auto-compaction passes no custom instructions.
+`session_before_compact` may cancel or return a replacement. The exported C
+`compact(preparation, model, apiKey, headers, customInstructions, signal,
+thinkingLevel, streamFn, …)` and `generateSummaryWithUsage` take custom
+instructions, a model, a stream function and the previous summary (iterative
+update). Compaction requests skip `before_provider_request` (they get
+`before_provider_headers`) and retry 3 times. P `doCompact` discards the native
+result; the normalized event has no usage, but the turn's usage total includes
+auto-compaction cost. Harness `compact()` aborts a running turn.
 
-- P `persistSessionFileToSandbox` copies a local native journal into a private
-  sandbox directory. Resume JSON contains a filename and pending-batch data,
-  not all native bytes. Persisting only that JSON in Postgres is insufficient.
-- P `doStop`/`doSuspendTurn` catch journal-copy failures as best effort. A missing
-  restored file can lead to fresh `SessionManager.create` instead of a failed
-  resume. Lor must never silently lose native context this way.
-- H lifecycle callbacks use `Promise.allSettled`; callback errors do not stop
-  execution. P's high-level `piSession.subscribe` forwards events through a void
-  emitter; waiting while consuming the result stream does not itself stop Pi.
-- H `stopWhen` can suspend a result at a step boundary, but Pi's event emitter has
-  no corresponding awaited producer acknowledgment. It is not evidence that a
-  DB commit finishes before the next native model request or built-in tool.
-- C extension handlers are awaited but common event/payload handler exceptions
-  are reported and swallowed. An extension that merely throws on a failed save
-  is not a reliable durability barrier. C emits `message_end` extensions before
-  appending the message to its session journal.
+**Lor today (`compaction.ts`):** triggers at about 520k tokens (0.75 × min(700k,
+0.8 × window) minus instructions and tool schemas); keeps a ~60k verbatim tail;
+keeps the first message byte-identical for the prompt cache; summarizes only new
+activity on the small model with an identifier-preserving prompt; merges notes
+(12k cap) across recovery and successor runs; re-reads plan state from the DB;
+falls back to pruning after 3 failures; `fitMessagesToBudget` as a hard limit.
 
-Sources: P `pi-resume-state`, `rebuildPiSession`, `doStop`, `doSuspendTurn`,
-`piSession.subscribe`; H `notify`, `toHarnessStream`, `run-prompt`; C
-`_handleAgentEvent`, `ExtensionRunner.emit` and `emitBeforeProviderRequest`.
+Pi also recovers from a context-overflow error: C detects it with pi-ai
+`isContextOverflow` (provider error patterns, including Kimi's "exceeded model
+token limit"), compacts and retries once.
 
-**Decision:** prefer a focused adapter/native integration improvement that offers
-strict native load/save and awaited dispatch/checkpoint hooks with propagated
-failure. Required boundaries are initial input, finalized assistant before tool
-execution, tool result before further effects, compaction before subsequent
-inference, approval suspension and completed turn. Preserve upstream native
-replay semantics. This is a proposed extension surface, not an existing API.
+**Decision (2026-10-20): Pi's trigger, Lor's instructions.**
 
-**Compare before choosing:** a trusted extension can read native state and help
-projection, but needs a proven failure latch/abort path for every operation;
-a `SandboxSession` decorator can copy lifecycle files to Postgres, but alone
-cannot fix swallowed saves or mid-turn advancement; a thin direct-SDK adapter
-can access low-level awaited listeners, but must still preserve compaction,
-recovery and file-tool behavior. Prefer the focused upstream surface if it meets
-the contract; do not use filesystem watchers or monkey-patched private fields
-as the authority. No upstream change has been submitted or accepted by this plan.
+- Keep Pi's default trigger (`reserveTokens` 16,384, `keepRecentTokens` 20,000)
+  and algorithm. No settings change (§4.9).
+- Handle `session_before_compact` with a trusted inline extension that calls
+  Pi's exported `compact()` with Lor's instructions: copy message IDs, citation
+  IDs, URLs, file paths and other identifiers exactly; keep open decisions and
+  plan progress. Return the result with its usage. The summary uses the session
+  model, as Pi does by default. This keeps Pi's cut-point and iterative-summary
+  algorithm; no upstream change and no second compactor.
+- Re-inject current plan state after compaction through the `context` hook, at
+  the end of the context (prompt cache, §4.8).
+- Accepted changes from today: compaction starts near 1.03M tokens instead of
+  ~520k; Pi summarizes Lor's first context message once it falls outside the
+  kept tail; summary requests carry no gateway `order`/fallback options unless
+  the hook passes Lor's routed stream function (optional).
+- Known edge: Kimi K3's window (1,000,000) is smaller than DeepSeek's trigger
+  point. A gateway fallback to K3 above 1M tokens is rejected; Pi's overflow
+  recovery should compact and retry. 1.1 confirms that the gateway's error text
+  matches `isContextOverflow`.
+- Revisit the trigger (through the settings patch, §4.9) only if real use shows
+  a cost or quality problem at very long contexts. The long-task eval ran with
+  today's ~520k trigger.
+- Commit the compaction entry with the turn save. Count its usage.
+- The legacy path keeps `compaction.ts` unchanged.
 
-### Compaction: native algorithm, Lor policy and durable results
+### 4.5 Gateway, retries and budgets (G5): match today
 
-**Observed:** H sessions expose compaction and P `doCompact` calls
-`AgentSession.compact(customInstructions)`. C implements native summary/tail
-selection, compaction entries, threshold and overflow recovery, plus
-`session_before_compact`, `session_compact`, context and system-context hooks.
-A successful native compaction entry includes usage. P's normalized compaction
-event currently exposes summary/trigger/token information, not that usage, and
-`doCompact` discards the returned native result. Sources: P `doCompact`,
-`translatePiEvent`; C `compact`, `_runAutoCompaction`, `_runDefaultCompaction`,
-`completeSummarization` and extension types.
+**Gateway (verified):** pi-ai sends Gateway traffic to `https://ai-gateway.vercel.sh`
+with the Anthropic Messages API. Both Lor models are in pi-ai's catalog (DeepSeek
+V4.1 Flash: 1,048,576 context, 32,768 output; Kimi K3: 1,000,000 / 131,072),
+with `allowEmptySignature` for DeepSeek's unsigned thinking blocks (1.3.0). An
+unknown model ID throws. The Gateway accepts `providerOptions.gateway` in the
+Messages JSON body. pi-ai's `compat.vercelGatewayRouting` is ignored on this API
+(upstream issue #9211), so add `models`/`order` with a `before_provider_request`
+extension. That hook does not cover compaction, so the summary stream function
+(§4.4) must add the same options.
 
-**Decision:** reuse Pi's native compactor; keep Lor's Postgres brain and
-write-back distinct. Supply working-state requirements and authoritative plan
-context through supported instructions/context hooks. Keep important IDs,
-external-action receipts and current plan state available without relying only
-on generated prose. Retain original native history and the selected compaction
-boundary. Retire the old Lor summarizer only on the Pi path after these behaviors
-are mapped; legacy runs keep their current compactor.
+**Caching:** `caching: "auto"` adds markers only for Anthropic, MiniMax and
+Alibaba; DeepSeek caches implicitly and Moonshot is not listed. Cache hits depend
+on the `x-session-affinity` header, which pi-ai sets from the session ID. Use
+the Lor session ID. Pi `cacheRetention` is not Gateway caching.
 
-**Open:** `compact(customInstructions)` is available, but the automatic
-`session_before_compact` result supports cancellation or a replacement compaction,
-not a documented general instructions/settings override. Compare a controlled
-manual invocation at a safe boundary with a small adapter option for native
-compaction instructions/settings. Avoid replacing the summary algorithm merely
-to add Lor's prompt. Capture native compaction usage and commit the native entry
-before further work. Cancel a compaction when budget/ownership is unavailable;
-if existing context cannot fit, stop explicitly. Do not launch manual compaction
-as a fire-and-forget task while another operation owns the turn.
+**Retries:** use Pi's retry loop (on by default, 3 tries, 2 s base) and provider
+retries. The adapter does not expose retry settings (§4.9). No outer Lor retry.
 
-### Gateway, retries and budgets: preserve policy without a new transport
+**Lor today:** per-run ceilings (500 steps; 10M input tokens with cache reads at
+×0.1; 1M output tokens; 1,000 tool calls; 256 KB per tool output and 16 MB in
+total; 2 h; 2,000 credits = $20 at Lor's prices), counted per step in a
+lease-guarded CAS. A forced final answer near a ceiling, a hard stop at it,
+abort on stop or lease loss. `checkCredits` checks the workspace balance only
+before a run starts. There is no check before each model request; retries are
+not counted separately; compaction/search/rerank/embedding usage is billed but
+not counted toward ceilings. The ceilings are per run (one turn); nothing limits
+a whole thread.
 
-**Observed:** P has isolated auth/credential stores, provider configuration and
-Gateway model resolution. A's Gateway provider uses the Anthropic Messages API.
-Gateway supports `providerOptions.gateway` on that API, including routing options;
-C provides payload/header hooks and provider registration. This gives us a
-plausible existing route for Lor's `models`, `order` and `caching` options without
-a Pi-to-AI-SDK message bridge. [Gateway routing][gateway-options]
+**Decision (2026-10-20): spend is the real limit.** Code-session turns can be
+long, with many tool calls and repeated compaction. Step, tool-call and token
+ceilings measure activity, not cost, and would cut real work short (near 1M
+tokens of context, the 10M input ceiling trips after about 80 steps).
 
-**Limits:** `createPi` does not itself expose Lor's existing Gateway-options
-object. C installs normal request payload hooks on the agent; native summarization
-uses the stream function with separate request options. Do not assume a normal
-request extension also covers compaction. Pi `cacheRetention` is not the same
-setting as Gateway automatic caching. Default base URLs/protocols also differ
-from the existing sandbox CLI configuration. Sources: P `pi-auth`,
-`pi-model-resolver`, `PiHarnessSettings`; C `sdk.js`, `_runDefaultCompaction`,
-`completeSummarization`; A Gateway provider.
+- Drop the step, tool-call, input-token and output-token ceilings for Pi runs.
+- Keep the Stop button, abort on lease loss, and the per-call output limit on
+  Lor host tools (it protects the context, not money).
+- Keep the wall clock only as a high backstop for a stuck run.
+- Money (target; **not part of phase 1**, built with the billing work in
+  [pricing-and-billing.md](pricing-and-billing.md#9-stripe-autumn-and-the-current-implementation)):
+  the workspace balance is the limit. Auto top-up refills it when it falls below
+  a threshold; a run stops gracefully (save the turn, keep partial output,
+  `out_of_credits`) only when the balance is exhausted and cannot be refilled.
+  An admin-set monthly dollar cap on top-ups is the guard against a runaway
+  loop. Check the live balance during the run, not only before it starts;
+  parallel sessions share one balance. In-flight requests may overshoot slightly.
+- Interim while billing is off in prod: keep `AGENT_RUN_MAX_CREDITS` as an
+  operator-only emergency backstop, raised well above a normal long turn. It is
+  the only spend limit while there is no balance.
 
-**Decision:** map existing `packages/lor/src/models.ts` policy onto Pi's native
-provider and supported hooks first. Verify model IDs, fallback/provider order,
-cache semantics, reasoning, image support, resolved-model attribution and usage.
-Use explicit request-scoped credentials; no ambient provider or subscription
-fallback. Keep auxiliary AI SDK services. Add a transport bridge only if this
-route and a focused provider/adapter improvement demonstrably cannot preserve
-required behavior.
+Pi mapping:
 
-**Retries:** prefer configured Pi retry/backoff and provider retry settings, with
-one Lor run deadline and cumulative budget. C's native summarizer also retries;
-do not retain an outer Lor retry loop that multiplies those attempts. Expose
-missing settings through a focused adapter option or isolated application-owned
-settings input before inventing a scheduler. Settings files must be generated
-from explicit Lor configuration, never inherited from a worker user's home.
+- Read per-step usage from harness `finish-step` parts (P maps Pi assistant
+  `message_end` usage). Update run counters and the usage ledger per step, as
+  today, even though native state saves per turn.
+- Near the deadline or the spend limit, block further tool calls in the
+  `tool_call` extension hook (it fails closed) so the model answers. At the
+  limit, abort.
+- Count built-in tool output from tool result events.
+- Count automatic compaction usage (already in Pi's turn total).
+- Cache warming stays at Pi's default (§4.9). If it ever sends requests, count
+  their `cache_warm` usage.
+- A strict check before every model request stays deferred, as today.
 
-**Budget gap:** `stopWhen`, observability callbacks and an abort signal are useful
-but do not constitute a strict pre-dispatch gate for every Pi operation. Native
-summarization can issue multiple requests and retries, and not all of its usage
-appears in the common stream. Require a shared request/tool gate and native
-usage accounting, covering initial calls, retries, compaction and optional children.
-A narrow provider/stream middleware that delegates to the existing transport is
-less work than a new transport; compare its coverage with a focused upstream
-request hook. No gap may reset counters, treat unknown usage as zero, permit
-unbounded retry or silently bill another identity.
+### 4.6 File/shell tools and tool names
 
-Specify what each ceiling guarantees. A pre-dispatch check cannot undo the cost
-of an admitted in-flight request. Preserve output limits and reserve allowance
-where required; do not claim an exact spend cap from delayed usage events alone.
+**Observed:** P exposes seven built-ins: `read`, `write`, `edit`, `bash`, `grep`,
+`find` (as `glob`) and `ls`. Only `read` uses Pi's own tool definition; the
+others are adapter wrappers. All route through `SandboxSession`.
 
-### File/shell tools: reuse remote implementations
+**Decision:** use the adapter's tools. Lor implements a thin Blaxel
+`SandboxSession` bridge, not new tools. No fallback to worker-local operations.
 
-**Observed:** P already routes file/shell operations through `SandboxSession`.
-Its read path uses Pi's `createReadToolDefinition` with remote operations; other
-adapter tools include their own compatible wrappers. Do not claim every adapter
-tool is literally Pi's factory. C exports file/shell factories with injectable
-operations, including read, write, edit, bash, grep, find and ls. Sources:
-P `buildBuiltinToolDefinition`, `pi-remote-ops`, `pi-read-operations`; C `tools/*.d.ts`.
+**Tool-name collisions:** Lor's brain tools are literally `ls`, `read`, `tree`,
+`write`, `edit`, `mkdir`, `move`, `link` and `search` (`brain.ts`). `ls`, `read`,
+`write` and `edit` collide with Pi built-ins. Rename the brain tools (e.g.
+`memory_read`) on the Pi path and update every dependent:
 
-**Decision:** use the adapter's existing tools. If direct SDK is selected, reuse
-Pi's factories and supply every filesystem/process operation remotely. Lor
-implements a thin Blaxel `SandboxSession` bridge, not new edit algorithms, output
-parsers or tool schemas. Keep Lor brain tools under unambiguous names such as
-`memory_read`; canonical approval/grant identity survives model-facing aliases.
+- `SIDE_EFFECT_TOOLS` idempotency keys (`tool-guard.ts`)
+- the reserved-name list (`custom-tools.ts`); add `bash`, `grep`, `find`, `glob`,
+  which workspace custom tools can use today
+- web and mobile tool trails (`TARGET_TOOLS` in `lor-tool-trail.tsx`)
+- prompt text, e.g. the `search` description that says "call read"
+- approval-gate targets and the eval harness
 
-**Boundaries:** no fallback to worker-local operations. Trusted runtime scratch
-and resource mirrors may live in isolated temporary directories; model tools
-cannot inspect arbitrary worker files. P disables filesystem extension discovery,
-but trusted inline extensions execute in the host. Do not load user/repository
-code extensions there or register native MCP paths that bypass Lor's scoped
-connector wrappers. File-root policy does not constrain `bash`; preserve actual
-sandbox isolation, grant separation, credential exclusion and host-controlled
-Git publishing. Inspect real path/symlink handling and stale process termination.
+Canonical approval/grant identity must survive the rename.
 
-### Every chat gets a sandbox: provision once, reuse and allow standby
+### 4.7 Steering and stop
 
-**Observed:** H `createSession` resolves sandbox working-directory/home metadata
-and performs setup; P checks host/workspace correspondence, resolves home and
-private state paths, loads native files and mirrors resources. These operations
-use the supplied sandbox before the first model-requested execution tool. This
-fits the agreed first-run provisioning model. Sources: H `createSession`; P `createPiSession`,
-`syncHostWorkspaceFromSandbox`; S `SandboxSession`.
+**Lor today:** realtime always passes `threadScope: true`, so session runs queue
+triggering messages (one run per message, sender re-authorized at dequeue).
+**Ambient** messages (people talking to each other in the session) are injected
+as context only at each step boundary and recorded in `coveredMessageIds`.
+Stop aborts the in-flight request through Redis pub/sub and keeps partial text.
 
-**Decision, agreed 2026-10-19:** every Lor agent chat gets an isolated sandbox,
-including ordinary chat, cowork and code sessions across supported harnesses.
-Provision on the first agent run; retain its logical workspace across messages,
-worker attempts and approval continuations. Empty chat creation/history viewing
-does not itself start a run. Do not create a new sandbox per message or wait for
-the first file/shell tool. The user-facing contract is the same for every chat.
+**Observed:** the harness exposes text-only `experimental_steerTurn`, which calls
+Pi `steer`. Pi follow-up messages are not exposed. Abort, `stop`,
+`suspendTurn` and `destroy` exist.
 
-At safe turn/approval boundaries, persist native progress and settle active work
-before releasing connections so Blaxel can enter standby. On the next run,
-reattach to that workspace and restore the committed native state. Blaxel manages
-standby automatically; it retains working state and still charges for storage.
-Expiration/deletion removes state and is a separate operation. [Blaxel lifecycle][blaxel-lifecycle]
+**Decision:** keep the queue model. Map ambient messages through the `context`
+hook (appended at the end) rather than `steer`, and record coverage at the turn
+save. Map stop to abort plus a stop save (§4.3).
 
-**Recovery:** Postgres remains authoritative for Pi history; private Git provides
-file checkpoints in phase 2. Standby snapshots do not replace either. Reclaim or
-replace a workspace only with explicit recovery guarantees; missing files fail
-visibly rather than silently producing a fresh workspace. Review current idle
-deletion policies and unhealthy-sandbox replacement before enrollment.
+### 4.8 Prompt cache stability
 
-**Deferred:** zero-VM plain chat, virtual-to-remote promotion and special deferred
-bootstrap infrastructure. Startup sandbox I/O is no longer an adapter blocker or
-a reason to choose direct SDK integration. Accept provisioning/storage overhead
-for a consistent product; observe capacity and usage, then optimize costs later.
-Image support and strict persistence/request gates remain required independently.
+**Observed:** Pi's coding system prompt cannot be replaced. It includes the
+worker's Pi doc paths, the working directory, and tool snippets. The adapter
+appends Lor's session instructions after it (`appendSystemPromptOverride`).
+Neither Lor model accepts system messages mid-conversation, so changed
+instructions rewrite the start of the prompt.
 
-## 4. How to choose the integration
+**Decision:** keep per-request values out of the system prompt, as today. LOR.md,
+connector lines and voice/Loop sections may be rebuilt per turn; accept a cache
+miss only when they actually change. Put volatile state (plan state, delta,
+elapsed time, ambient messages) at the end of the turn's user message or
+through the `context` hook at the end of the context. The stable tool list
+(§4.3) also keeps tool snippets stable. Set `x-session-affinity` (§4.5).
+
+### 4.9 Adapter defaults Lor must override (G7)
+
+Each item is verified in P/C source unless marked.
+
+| Default | Risk | Required handling |
+|---|---|---|
+| Host-tool name set change rebuilds the session with an empty journal | Silent loss of conversation | Stable tool list per session (§4.3) |
+| Missing restored journal creates a fresh session | Silent loss of conversation | Postgres restore + load check (§4.3) |
+| Without an `auth` record, Pi reads every `*_API_KEY`, `*_BASE_URL` and `VERCEL_OIDC_TOKEN` in the worker env and `~/.pi/agent/auth.json` | Worker credentials reach the runtime | Always pass an explicit request-scoped `auth` record |
+| Context files: `noContextFiles` is not set, so AGENTS.md/CLAUDE.md are read from the working directory upward | Host files above the workspace mount reach the prompt | Disable for phase 1; repository instruction files are never workspace instructions (`agent-harness.md`) |
+| No settings record: P uses `SettingsManager.inMemory()`; passing `agentDir` loads global settings **and** `<workspace>/.pi/settings.json` | A settings folder would let the model change Pi's settings by writing a workspace file | Phase 1 changes no settings, so never pass `agentDir`. If a setting must change later: `pnpm patch` the adapter to pass a settings record (`SettingsManager.inMemory(settings)` already accepts one) and send the same change upstream |
+| `cacheWarming: "streaming"` default | Background requests (1-token replays near the cache expiry) | Keep the default. Evaluated 2026-10-20: C `CacheWarmer` warms only when the model has a cache lifetime (`promptCache`) and the expected saving is at least $0.05, and stops when the run settles. No Gateway model in pi-ai 1.3.0 has `promptCache`, so it stays inactive for Lor's models. Count `cache_warm` usage if it ever appears |
+| Text starting with `/skill:` or `/` expands skills or extension commands | Team members trigger runtime commands by accident | Escape a leading `/` in user and ambient text; Lor editor slash actions stay separate |
+| The journal lives in the sandbox HOME | Model can tamper with history | Save from the worker copy, restore from Postgres, load check, and `deniedRoots` for the file tools (§4.3) |
+| The adapter patches `node:fs` for the whole process; mount paths include the session ID | Collisions with a fixed `workDir`; unknown behavior on Bun | Never set a fixed `workDir`; verify the patch on Bun (Node only if Bun fails) |
+| MCP results over 20 KB spill to the host temp dir | Worker disk exposure | Do not register MCP servers with the adapter; keep Lor's connector wrappers |
+| Mirror sync and the skills check repeat every turn (P), plus startup round trips | Added latency per turn | Measure; keep the mirror small |
+
+Also: trusted inline extensions run in the worker. Do not load user or
+repository extensions. Inspect real path/symlink handling and stale process
+termination in the Blaxel bridge.
+
+### 4.10 Every agent run gets a sandbox (G6)
+
+**Agreed 2026-10-19, extended 2026-10-20:** every agent run gets its session
+sandbox: chat, cowork and code sessions, and voice, Loop and Act runs. Provision
+on the session's first agent run; reuse it across turns, worker attempts and
+approval continuations. Empty session creation or history viewing does not start
+a run.
+
+**Lor today:** plain chat never gets a sandbox. `investigate_code` uses a throwaway
+`inv-{uuid}`; `create_artifacts` keeps `wbs-{threadRootId}` for 24 h idle;
+`propose_code_change` keeps `code-{scope}` for 7 days idle. Unhealthy or
+undersized sandboxes are deleted and recreated with only a log warning
+(`blaxel.ts`). Code checkouts run `reset --hard && clean -fd`; the workbench
+resets `/workspace/out`. The sandbox Pi receives `AI_GATEWAY_API_KEY` in its
+environment. A Blaxel quota error fails one tool (`SANDBOX_QUOTA_REASON`).
+
+**Blaxel facts (docs, 2026-10-20):** standby after ~5–15 s idle, resume in under
+25 ms with processes kept; standby charges for snapshot/volume storage, not CPU
+or memory. **Standby sandboxes count against quota:** 10 (Tier 0), 50 (Tier 1),
+200 (Tier 2), higher tiers more. Tier 0 caps sandbox life at 7 days; Tier 1
+deletes after a hard 30 days regardless of activity; Tier 2+ has no cap.
+`ttl-idle` counts only resume/suspend as activity. Deleted sandboxes cannot be
+recovered; the sandbox filesystem is lost on deletion or crash. Cold create time
+is not published.
+
+**Decisions:**
+
+- Workspace owner: each run binds to a session workspace before it provisions.
+  Voice runs have no `agent_session` today; they are scoped to the call's voice
+  session (`scopeKey = request.sessionId` in `voice-request.ts`). Decision
+  (2026-10-20): one sandbox per call, created on the first Lor run in that call.
+  Joining a call never creates one. Revisit when voice channels launch; they may
+  ship after the first release. Loop runs create a session per run
+  (`loop-session.ts`); Act runs adopt a provisional session (`trigger-session.ts`).
+- Lost workspace (interim until phase 2): continue in a new empty sandbox and
+  tell the model and the session that earlier files are gone. Never recreate a
+  sandbox silently, as `blaxel.ts` does today. Fail only for missing conversation
+  state. Phase 2 checkpoints rebuild the sandbox from the last completed turn.
+- Capacity (decision 2026-10-20): build as if sandboxes are unlimited. No idle
+  TTL or reclamation for session sandboxes in phase 1. A quota error fails the
+  run with a visible capacity state; it never falls back to worker-local tools.
+- Latency: measure first-run provisioning and per-turn setup, especially for
+  voice's live 10-minute interaction.
+- At safe turn/approval boundaries, save native state and settle active work
+  before releasing connections so Blaxel can enter standby.
+- The Pi loop runs in the worker, so the session sandbox does not need the
+  Gateway key. Keep it out of session sandboxes; the legacy child keeps its
+  current behavior until replaced.
+- Deferred: zero-VM plain chat, virtual-to-remote promotion and allocation cost
+  optimization.
+
+## 5. Gates
 
 Use this order **per gap**, not a blanket rewrite:
 
-| Option | Appropriate use | Limit / decision trigger |
+| Option | Appropriate use | Limit |
 |---|---|---|
-| Existing adapter configuration and harness APIs | Auth, tools/filtering, scoped skills, approvals, lifecycle envelopes, compaction entry point, UI stream | Preferred wherever source supports the required semantics. |
-| Trusted inline Pi extension | Context/instructions, resource policy, provider payload customization, native observations | Does not fix rejection before Pi receives input; exception swallowing and compaction coverage must be accounted for. |
-| Thin Lor bridge/decorator | Blaxel operations, scoped host tools, durable policy/accounting and projections | Reuse provider algorithms; do not describe a best-effort lifecycle copy as a strict checkpoint. |
-| Upstream Pi Durable harness | Existing durable tasks, storage commits, compaction, forks and execution environments | Accept only if contained behind the same runtime boundary without making Claude Code/Codex adoption harder; assess total integration work, not Pi savings alone. |
-| Focused upstream adapter/Pi change | Prompt images; strict state store and awaited checkpoints; full request/usage hooks; compaction/retry settings | Define narrow contract, affected functions and compatibility cost. A candidate patch is not an available feature or a promised upstream release. |
-| Direct Pi SDK inside the same session boundary | Specific remaining blocker demonstrably costly or impossible to solve above | Record the blocker and maintenance tradeoff. Retain native compactor, retry/tool implementations and provider transport wherever possible. |
-| Custom compactor, tool replay or inference transport | Only a separately evidenced unmet requirement | Not authorized by the preference for Pi, and not default work in this runbook. |
+| Adapter configuration and harness APIs | Auth, tools, skills, approvals, lifecycle envelopes, UI stream | Preferred wherever source supports the required semantics |
+| Trusted inline Pi extension | `session_before_compact`, `context`, `tool_call`, `before_provider_request`, load checks | Most handler errors are swallowed; `tool_call` fails closed |
+| Thin Lor bridge/decorator | Blaxel operations, scoped host tools, policy/accounting, Postgres save/restore, projections | Reuse provider algorithms |
+| Focused upstream adapter/Pi change | Keep history when the tool list changes; fail instead of a fresh start on a missing journal; a settings record if needed; later a session store | A candidate patch is not a shipped feature |
+| Direct Pi SDK inside the same session boundary | A remaining blocker that is costly or impossible above | Record the blocker and the maintenance cost |
+| Custom compactor, tool replay or inference transport | Only a separately evidenced unmet requirement | Not default work |
 
-**Provisional target:** Vercel adapter plus Lor's policy/storage/Blaxel bridges,
-subject to the Pi Durable comparison in G0. **Readiness:** runtime selection open;
-not approved for production enrollment. Do not route image turns to one runtime and
-text turns to another inside the same session to disguise a capability gap.
+Do not route image turns to one runtime and text turns to another inside a
+session. Native authentication, resume payloads and capability limits can differ
+per adapter; record unsupported behavior honestly.
 
-**Cross-harness acceptance:** before selecting the Pi runtime, map Pi, Claude Code
-and Codex onto the same session lifecycle, sandbox operations, scoped Lor tools,
-approval authority, activity/UI contract, accounting and checkpoint references.
-Identify shared code versus adapter-specific work and compare both candidates'
-maintenance cost. This is a design/source review in phase 1; building the official
-provider adapters stays in phase 2.
-
-Native authentication, resume payloads and capability limits can differ behind
-that boundary. Common product/queue/storage code must not require Pi Durable's
-task graph or documents. Do not rebuild an official harness's internal loop inside
-Pi Durable to claim compatibility. Reject Durable if it requires a separate
-product approval, UI or recovery coordinator, or complicates the other adapters. A common API
-does not guarantee identical native capabilities: record unsupported behavior
-honestly, while preserving Lor's required permissions and recovery guarantees.
-
-Close these gates before selecting the final implementation dependency set:
-
-| Gate | Current status | Acceptance evidence required |
+| Gate | Status | Acceptance evidence |
 |---|---|---|
-| G0 Runtime comparison | Open; cross-harness consistency is the deciding constraint | Map Pi/Claude Code/Codex onto shared lifecycle, policy, activity and checkpoint code; reject Durable if it makes other-harness adoption harder. Compare total integration/maintenance cost and close required recovery/control gaps. |
-| G1 Images | Confirmed stock prompt limitation | Native image prompt + tool-image + resume paths retain authorized content and model compatibility. |
-| G2 Durable native state | Confirmed sandbox-copy / best-effort gap | Postgres-authoritative load and incremental commits; missing state fails; every required boundary blocks further dispatch until committed. |
-| G3 Approvals | Reusable upstream protocol; Lor mapping open | Persist full native/envelope state, exact decisions, multiple pending calls and completed receipts; resume without unapproved/duplicate execution. |
-| G4 Compaction | Native algorithm available; policy/usage/persistence open | Working notes/plan/context survive; native result and all summary usage committed; no second compactor. |
-| G5 Gateway/budgets/retries | Native transport available; coverage open | Existing routing semantics and cumulative ceilings cover each actual dispatch, retry and summary; unknown usage remains explicit. |
-| G6 Sandbox lifecycle | Every-chat provisioning agreed; lifecycle integration open | First run provisions an isolated sandbox for every agent chat; later runs reuse it; safe standby, ownership and explicit recovery/expiration handling preserve state. Startup allocation is not a blocker. |
-| G7 Isolation/runtime | Source mechanisms available; compatibility open | No worker-local model tools, untrusted host extensions or grant bypass; actual worker runtime/dependency compatibility reviewed. |
+| G0 Runtime | **Closed 2026-10-20**: `HarnessAgent` + `harness-pi` | §3 |
+| G1 Images | Supported in 1.0.159; mapping open | Text-first prompt with labeled images; inline bytes; resume carries them; model compatibility checked |
+| G2 Native state | Per-turn save decided; implementation open | Postgres save at every save point; restore + load check; stable tool list; crash re-runs the turn |
+| G3 Approvals | Harness protocol reused; Lor mapping open | Gates and `request_approval` mapped; pending set; exact decisions; no unapproved or duplicate execution after resume |
+| G4 Compaction | Pi's default trigger + Lor instructions decided; overflow check open | Lor instructions via `session_before_compact`; plan state re-injected; overflow recovery works on a K3 fallback; entry and usage saved |
+| G5 Gateway/budgets/retries | Spend-only limits decided; mapping open | Routing on normal and summary requests; per-step counters; tool block near the deadline or spend limit; abort at the limit |
+| G6 Sandbox lifecycle | Every run, unlimited capacity and one sandbox per call decided | Owner per run kind; lost-workspace notice; quota failure visible; no silent recreation |
+| G7 Isolation/runtime | Override list recorded (§4.9); Bun and the `ai` upgrade decided | Every row in §4.9 handled; adapter works on Bun; legacy path re-verified after the `ai` upgrade |
 
-For each unresolved gate record: current source behavior, chosen supported seam
-or proposed focused change, remaining limitation, and why the alternative costs
-more or weakens requirements. Resolve these decisions before implementation
-slices that depend on them. No upstream PR, dependency patch or application code
-is included in this documentation task.
+For each open gate record: source behavior, chosen seam or focused change,
+remaining limitation, and why the alternative costs more. No upstream PR,
+dependency patch or application code is part of this documentation task.
 
-## 5. Internal architecture and durable contract
+## 6. Internal architecture and durable contract
 
 Keep the implementation within `packages/lor` initially, with a small internal
-`session-core/` (or equivalent) boundary. Do not create/publish a new package.
+`session-core/` boundary. Do not create or publish a new package.
 
 | Internal layer | Owns | Must not depend on |
 |---|---|---|
-| Session core | Runtime binding/version, lifecycle orchestration, committed cursor, native state references, typed activity, cancel/steer/resume interfaces | Lor DB schema, channel roles, brain implementation, Loop policy, UI components, global credentials or Pi Durable task/document types |
-| Runtime integration | `HarnessAgent`/Pi configuration and native-state conversion; supported capabilities | Product authorization decisions or rendering |
-| Injected ports | Native-state store, ownership/dispatch gate, sandbox operations, usage sink, approval decisions, resources and scoped tools | A promise to support arbitrary third-party plugins in phase 1 |
-| Lor integration | Postgres transactions, queue/lease ownership, context/memory/tools, approval authority, budgets, billing and current UI mapping | A second model/tool loop |
+| Session core | Runtime binding/version, lifecycle orchestration, saved head, native state references, typed activity, cancel/steer/resume interfaces | Lor DB schema, channel roles, brain implementation, Loop policy, UI components or global credentials |
+| Runtime integration | `HarnessAgent`/Pi configuration, inline extensions, native-state conversion | Product authorization decisions or rendering |
+| Injected ports | Native-state store, ownership gate, sandbox operations, usage sink, approval decisions, resources and scoped tools | Arbitrary third-party plugins |
+| Lor integration | Postgres transactions, queue/lease ownership, context/memory/tools, approval authority, budgets, billing, current UI mapping | A second model/tool loop |
 
-The core may use Vercel's public types rather than duplicating every event or
-schema. Keep native payloads versioned/opaque where appropriate and capabilities
-explicit. This supports future extraction without designing a public SDK, CLI,
-new wire protocol or second product session model now.
+The core may use Vercel's public types. Keep native payloads versioned and
+capabilities explicit, so the Claude Code and Codex adapters fit the same core
+in phase 2.
 
 ### Data to retain
 
 Extend existing session/run records and add only data that cannot fit safely:
 
 - Sticky runtime binding and exact adapter/native-format versions; product owner,
-  logical workspace reference, original input/turn identity and frozen run config.
-  Approval successors keep logical turn identity; worker attempts remain separate.
+  workspace reference, original input/turn identity and frozen run config.
+  Approval successors keep logical turn identity; worker attempts stay separate.
 - Native header, entries/IDs/ancestry, active leaf and compaction state, plus the
-  **complete harness continuation envelope**: pending approvals/results/batches,
-  frozen turn settings and completed result receipts. None is replaced by visible
-  messages or a sandbox filename.
-- Immutable recovery references, expected parent/head, input/steering coverage,
+  **complete harness continuation state**: pending approvals/results/batches,
+  frozen turn settings and completed result receipts. Visible messages or a
+  sandbox filename never replace them.
+- The saved head per session, expected parent head, input/steering coverage,
   cumulative counters and per-claim writer generation. Native entry sequence is
-  not `agent_run.steps`. Replayed native branches may change entry IDs; dedupe
-  semantic tool calls using original runtime/call identity and source provenance.
-- Common durable activity, preferably projected from native entries, including
-  messages, available tools/results, file-change metadata, approvals, usage and
-  terminal states. `agent_run_event` TTL data cannot be its sole source.
+  not `agent_run.steps`. Deduplicate semantic tool calls by original call
+  identity and source provenance.
+- Common durable activity, projected from native entries: messages, tools and
+  results, file-change metadata, approvals, usage and terminal states.
+  `agent_run_event` (pruned 7 days after a run ends) cannot be its only source.
 - Retained instruction/resource/context content and artifact references.
   Credentials are resolved afresh. Keep private history out of code exports.
+- Native entries carry prompt images as base64 (§4.1). Stage large payloads
+  first, or reference stored attachments where the format allows.
 
-Do not store an independently maintained full AI SDK transcript beside each Pi
-journal. Store native entries incrementally and version control-envelope snapshots;
-reference source payloads from UI projections. Keep legacy `agent_run_step`
-readable. A bounded compatibility projection for existing write-back is allowed.
+Do not store a separate full AI SDK transcript beside each Pi journal. Store
+native entries incrementally at each save. Keep legacy `agent_run_step` readable.
+A bounded compatibility projection for existing write-back is allowed.
 
-At a recovery boundary, atomically commit native progress/envelope, operation
-receipts, activity, coverage/accounting and the new head under expected-parent
-and claim-generation checks. Stage large durable payloads first. Failure stops
-progress; a lost lease cannot advance the head. Before a replacement writer
-uses the same workspace, fence/stop old remote processes. If termination cannot
-be established, block workspace recovery. No DB check can retroactively undo an
-already executed external action.
+At a save point, atomically commit native entries, continuation state, receipts,
+activity, coverage/counters and the new head under expected-parent and
+claim-generation checks. Failure stops progress; a lost lease cannot advance the
+head. Before a replacement writer uses the same workspace, stop old remote
+processes; if termination cannot be established, block workspace recovery.
 
-Receipts reduce replay but cannot provide exactly-once arbitrary API mutations.
-Reuse current caching/approval records where suitable, add native call identity
-and durable intent/result state as needed, and reconcile unknown outcomes using
-provider IDs/idempotency keys. Identical arguments in two intentional calls are
-not the same operation. Imported historical results never execute or bill anew.
+Receipts reduce replay but cannot make arbitrary API mutations exactly-once.
+Today's receipt key is `hash(tool name + input)` per run, so two intended
+identical calls merge, and custom/MCP tools have no protection on replay.
+Reconcile unknown outcomes with provider IDs or idempotency keys where they
+exist. Imported historical results never execute or bill again.
 
 ### Required lifecycle behavior
 
 1. Enqueue with a sticky runtime selection; claim with a generation. Existing
    session/thread, voice and Act/Loop scope rules remain authoritative.
-2. Load the selected committed native state and envelope from Postgres. Reject
+2. Load the saved native state and continuation state from Postgres. Reject
    missing, incompatible or corrupt state explicitly. Bind current credentials,
-   permissions and scoped services without changing historical inputs. Provision
-   the session sandbox on its first run or reconnect to the existing workspace;
-   enforce ownership and explicit recovery if the physical sandbox is missing.
-3. Commit initial/delta inputs and steering coverage before inference uses them.
-   Use the selected integration's awaited gates for requests and tools.
-4. Feed scoped Lor tools through harness APIs; reuse built-in remote operations.
-   Use upstream approval suspension/continuation; persist the complete native
-   state and settle active work before releasing the worker and sandbox
-   connections. No lease is held while waiting for a user; standby may retain the
-   workspace for the continuation.
-5. Let Pi compact/retry within Lor's allowed budget. Commit native compaction and
-   usage before its context is used by another request. A hard stop prevents
-   further dispatch; partial output and unknown effects remain distinguishable.
-6. Publish the completed user-turn boundary and final Lor message. Preserve the
-   worker answer/write-back phase so recovery does not regenerate a finished
-   answer or duplicate memory effects.
+   permissions and scoped services. Provision the session sandbox on its first
+   run or reconnect to it; on a lost workspace, continue in a new one with a
+   notice (§4.10). Restore the journal into the sandbox and run the load check.
+3. Run the turn with the session's stable tool list. Record usage and counters
+   per step; block tools near ceilings; abort at ceilings, stop or lease loss.
+4. On approval suspension, save (§4.3) and release the worker and sandbox
+   connections. No lease is held while waiting for a user.
+5. Let Pi compact and retry within Lor's limits. Compaction runs through Lor's
+   `session_before_compact` handler.
+6. At the end of the turn, save, then publish the completed turn and final Lor
+   message. Preserve the worker answer/write-back phase so recovery does not
+   regenerate a finished answer or duplicate memory effects.
 
-A stopped process may lose an in-flight generation; recovery resumes from a
-committed boundary, not an exact token-stream freeze. Do not confuse that limit
-with permission to lose completed tools or committed conversation state. Do not
-label approval pauses or failed/budget-stopped iterations as completed turns.
+A crashed attempt loses its in-flight turn; the retry re-runs it from the last
+saved head (§4.3). Do not label approval pauses or failed/budget-stopped turns
+as completed turns.
 
-## 6. Repository implementation map
+## 7. Repository implementation map
 
 | Current code | Preserve / change |
 |---|---|
-| `packages/lor/src/index.ts`, `run.ts` | Extract scoped setup and UI callbacks; separate legacy transcript recovery from native runtime/envelope references; persist the final assistant message even when its iteration has no tool calls. |
-| `packages/lor/src/brain.ts`, `compaction.ts`, `plans.ts` | Retain brain, retrieval, write-back, notes requirements and authoritative plan state. Pi path uses native compaction; legacy path retains its existing implementation. |
-| `packages/lor/src/models.ts`, `usage.ts` | Preserve model/routing and credit semantics; adapt to existing native provider hooks and capture auxiliary usage. |
-| `packages/lor/src/tool-guard.ts`, `approval-policy.ts` | Keep grants, targets, output limits and exact execution context. Map to harness approval APIs; strengthen receipts only where required. |
-| `apps/worker/src/lib/agent-run.ts`, `run-continuation.ts` | Native dispatch, generation fencing, guarded progress/accounting and fresh-process restore; retain legacy readers. |
-| Worker `jobs/lor-respond.ts`, `voice-request.ts`, `lib/run-queue.ts` | Preserve queued successors, stop/steering, approval resumes, voice limits and answer/write-back phases. |
-| Realtime `services/lor.ts`, API `lib/scope-runs.ts`, Lor `act-runs.ts`, `agent-sessions.ts` | Audit every run producer; bind provisional Act runs to their eventual session before native state creation. |
-| API `routes/v1/approvals/handlers.ts`, DB approval schema | Preserve resolver checks, plan/voice rules and resolution/enqueue idempotency; reconcile pending-set presentation. |
-| `packages/db/src/schemas/agent-sessions.ts`, `agent-runs.ts` | Add minimum native/envelope/receipt/activity storage and runtime references without replacing legacy history. |
-| `packages/lor/src/sandbox/{blaxel,workbench,code-session}.ts`, `code.ts`, artifact services | Thin remote operation bridge, sandbox binding for every agent chat, standby/expiration handling and process fencing; reuse artifact/Git helpers. No silent unhealthy-sandbox recreation or output-directory reset that destroys session work. |
-| Shared session/realtime types and current web/mobile consumers | Preserve events, approvals, tool details and files; expose only supported commands/resources. Current editor slash actions remain distinct. |
+| `packages/lor/src/index.ts`, `run.ts`, `initial-message.ts` | Extract scoped setup and UI callbacks; separate legacy transcript recovery from native runtime references. Keep the post-loop sweep that saves a text-only final step on the legacy path. Build the Pi turn prompt text-first with labeled images. |
+| `packages/lor/src/images.ts` | Keep limits and conversion; fetch and inline images for Pi prompts. |
+| `packages/lor/src/brain.ts`, `compaction.ts`, `plans.ts` | Keep brain, retrieval, write-back and plan state. Rename brain tools on the Pi path (§4.6). Pi path compacts through `session_before_compact`; legacy keeps `compaction.ts`. |
+| `packages/lor/src/models.ts`, `usage.ts` | Keep model/routing and credit semantics; add gateway options through the payload hook and the summary stream function. |
+| `packages/lor/src/tool-guard.ts`, `approval-policy.ts`, `custom-tools.ts` | Keep grants, targets, output limits and execution context. Map gates to harness approvals. Update `SIDE_EFFECT_TOOLS` and the reserved-name list for the rename. |
+| `apps/worker/src/lib/agent-run.ts`, `run-continuation.ts` | Native dispatch, generation fencing, per-step counters, per-turn saves and fresh-process restore; keep legacy readers. Today's continuation silently falls back to fresh context on error; the Pi path must fail visibly instead. |
+| Worker `jobs/lor-respond.ts`, `voice-request.ts`, `lib/run-queue.ts`, `loop-session.ts`, `trigger-session.ts`, `voice-continuation.ts`, `voice-approvals.ts` | Keep queued successors, stop, approval resumes, voice limits and answer/write-back phases. Bind each run kind to a session workspace. |
+| Realtime `services/lor.ts`, `index.ts`; API `lib/scope-runs.ts`, `lib/act-runs.ts`; Lor `act-runs.ts`, `agent-sessions.ts` | Audit every run producer; bind provisional Act runs to their session before native state is created. |
+| API `routes/v1/approvals/handlers.ts`, `packages/db/src/schemas/approvals.ts` | Keep resolver checks, plan/voice rules and resolution idempotency; present a pending set for Pi runs. |
+| `packages/db/src/schemas/agent-sessions.ts`, `agent-runs.ts` | Add minimum native/continuation/receipt/activity storage and runtime references. |
+| `packages/lor/src/sandbox/{blaxel,workbench,code-session,investigate,pi-config}.ts`, `code.ts`, `artifacts/tool.ts`, `code-actions.ts` | Thin Blaxel `SandboxSession` bridge, session sandbox for every run, lost-workspace notice, quota handling, process fencing; reuse artifact/Git helpers. Replace silent unhealthy-sandbox recreation and the output-directory reset on the Pi path. |
+| Web/mobile `lor-tool-trail.tsx`, shared session/realtime types | Keep events, approvals, tool details and files; update `TARGET_TOOLS` for renamed tools. |
 
-Retain existing connector/MCP wrappers rather than simultaneously migrating them
-to Pi-native MCP. Preserve permissions, cancellation, per-tool context and cleanup.
-Remove obligatory child coding/artifact dispatch only after equivalent primary
-capabilities exist. Optional child delegation retains its own usage and recovery
-requirements; it does not justify a second default session architecture.
+Keep the existing connector/MCP wrappers; do not register MCP servers with the
+adapter. Remove obligatory child coding/artifact dispatch only after the primary
+runtime has equivalent capability.
 
-## 7. Implementation slices — all within phase 1
+## 8. Implementation slices — all within phase 1
 
-Keep enrollment off until required gates close. The first slice is a bounded
-integration decision, not approval to build every candidate workaround.
+Keep enrollment off until required gates close.
 
-### 1.1 — Select the minimum integration and close contract gates
+### 1.1 — Close the remaining contract questions
 
-- [ ] Reconfirm exact adapter/Pi/AI SDK versions and worker runtime compatibility.
-- [ ] Complete G0, including Pi Durable's native task/storage model, before
-  committing to coding-agent adapter repairs or a custom durability layer.
-- [ ] Map all three harnesses to shared product/coordinator code and record
-  provider-specific work. Reject a Pi choice that complicates Claude Code/Codex
-  adoption; do not implement the later-phase adapters in this slice.
-- [ ] Resolve G1–G7 for the selected runtime using §4. Record candidate upstream changes
-  separately from shipped APIs and accepted product tradeoffs.
-- [ ] Select native-state/persistence and request-gating surfaces before schema or
-  engine implementation. Preserve upstream approvals/replay and native compaction.
-- [ ] Define the internal core/ports and versioned lifecycle contract. Record why
-  any direct-SDK fallback is necessary; do not prebuild two implementations.
+- [x] G0 runtime decided (2026-10-20): `HarnessAgent` + `harness-pi`.
+- [ ] Pin exact versions (`harness-pi` 1.0.159, `harness` 1.0.157, Pi 1.3.0 or
+  newer after recheck). Verify the adapter on Bun (decided: Bun first).
+- [ ] Upgrade `ai` repo-wide (7.0.11 → the harness's version, ≥ 7.0.145).
+  Re-verify the legacy approval park/resume path, which was verified against
+  7.0.11 internals (`collectToolApprovals`, `initialResponseMessages`), and
+  change legacy code where needed.
+- [ ] Confirm which journal copy is complete and readable at each save point,
+  and how the load check reads the loaded session (§4.3).
+- [ ] Confirm that the gateway's error for a K3 fallback above 1M tokens matches
+  pi-ai `isContextOverflow`, so Pi's overflow recovery compacts and retries (§4.4).
+- [ ] Map `request_approval`, partial batches, revocation and host-tool context
+  rebinding (§4.2).
+- [x] Budget limits decided (2026-10-20): spend only, no step/tool/token ceilings (§4.5).
+- [ ] Define the internal core/ports and versioned lifecycle contract.
 
-Exit: concrete integration decision, complete list of focused changes still
-needed, and no claim that unmodified stock APIs already meet Lor's guarantees.
+Exit: every gate in §5 has a recorded seam; the focused upstream changes are
+listed; no claim that unmodified stock APIs meet Lor's guarantees.
 
 ### 1.2 — Add native state and explicit dispatch
 
-- [ ] Add only required schema/references from §5; preserve legacy defaults/readers.
-- [ ] Implement expected-head/claim-generation transactions, source deduplication,
-  native/envelope storage and operation/accounting identity.
-- [ ] Separate legacy/Pi resume and sticky enrollment selection. Missing native
-  data fails explicitly; flags cannot change the engine of an existing run.
+- [ ] Add only the schema and references from §6; keep legacy defaults/readers.
+- [ ] Implement expected-head/claim-generation saves, source deduplication,
+  native/continuation storage and operation/accounting identity.
+- [ ] Separate legacy and Pi resume and sticky enrollment selection. Missing
+  native data fails explicitly; flags cannot change the engine of an existing run.
 
-Exit: storage/code review covers owner isolation, atomic coverage/counters/head
-updates, retained payloads and version rejection. No destructive history rewrite.
+Exit: storage review covers owner isolation, atomic save, retained payloads and
+version rejection. No destructive history rewrite.
 
-### 1.3 — Integrate the selected adapter and existing Lor services
+### 1.3 — Integrate the adapter and Lor services
 
 - [ ] Extract context/tool setup from `respond`; keep the legacy path during rollout.
-- [ ] Wire scoped tools, exact execute context, output limits, image paths, existing
-  Gateway transport/configuration and current event/result consumers.
+- [ ] Wire the stable tool list, renamed brain tools, exact execute context,
+  output limits, images, Gateway options and current event consumers.
+- [ ] Apply every override in §4.9.
 - [ ] Reuse harness approval/continuation APIs with Lor policy and durable decisions.
-- [ ] Integrate native compaction, retries, steering and stop with the approved
-  persistence/dispatch/accounting boundaries. Keep auxiliary services unchanged.
+- [ ] Add the compaction handler, per-step counters, tool block near ceilings,
+  ambient context, steering and stop.
 
-Exit: source review follows every request/tool/summary through permission,
-accounting and durability gates, including cold approval resume and final text.
+Exit: source review follows every request, tool and summary through permission,
+accounting and save points, including cold approval resume and a crashed turn.
 
-### 1.4 — Attach remote workspace operations and scoped resources
+### 1.4 — Attach session sandboxes and scoped resources
 
-- [ ] Implement the thin Blaxel operations bridge using the selected supported
-  tools; provision a sandbox on the first run of every agent chat and reconnect
-  to its workspace on later runs, independent of chat type or harness.
-- [ ] Preserve stable workspace identity, artifacts, checkout/publish policy,
-  process fencing and explicit missing-workspace handling. Release connections
-  at safe boundaries; review expiration/replacement against retained state.
-- [ ] Supply scoped, versioned skills and supported commands through existing
-  resource APIs. Keep editor actions, Lor product commands and runtime commands
-  distinct; no untrusted host extension discovery.
+- [ ] Implement the thin Blaxel bridge; provision on a session's first run and
+  reconnect later, for every run kind.
+- [ ] Keep workspace identity, artifacts, checkout/publish policy and process
+  fencing. Add the lost-workspace notice and the visible quota failure.
+- [ ] Supply scoped, versioned skills and supported commands. Keep editor
+  actions, Lor product commands and runtime commands distinct.
 - [ ] Replace mandatory child dispatch only after primary capability coverage.
 
-Exit: every agent chat has an isolated sandbox from its first run, with reuse and
-safe standby/recovery. Execution tools cannot access worker files or bypass Lor
-tool/credential policy. Further allocation cost optimization is deferred.
+Exit: every agent run has its session sandbox, with reuse, standby and explicit
+lost-workspace handling. Tools cannot reach worker files or bypass Lor policy.
 
 ### 1.5 — Wire producers and durable activity
 
-- [ ] Audit every production `agentRun` insert and `respond` caller, including
-  voice, Loops, Act, approval successors and provisional scope adoption.
-- [ ] Project completed semantic history from retained native/envelope sources
-  with stable origin IDs; token deltas remain transient.
-- [ ] Preserve current web/mobile tool, memory, plan, approval and message
-  behavior; add only required capability/resource discovery and invocation.
+- [ ] Audit every production `agentRun` insert and `respond` caller: realtime
+  messages, API scope runs (approvals, proposals, plan continuations), worker
+  queue drains, Loops, Act, voice and `packages/lor` `act-runs.ts`.
+- [ ] Project completed semantic history from saved native entries with stable
+  origin IDs; token deltas stay transient.
+- [ ] Preserve web/mobile tool, memory, plan, approval and message behavior.
 
 Exit: no Pi run enters a legacy continuation reader, and completed history does
 not disappear when transient stream rows expire.
@@ -627,59 +701,62 @@ not disappear when transient stream rows expire.
 ### 1.6 — Enroll, review and document
 
 - [ ] Start with new internal sessions; drain legacy runs/approvals on legacy.
-- [ ] Support explicit old-session import only at an idle boundary without pending
-  approvals/unknown effects, using authorized context and native-supported import
-  or an explicitly labeled bootstrap. Passing a full messages array to
-  `HarnessAgent` does not import that history. Keep provenance and old records.
-- [ ] Expand enrollment after gates/review close. Keep existing Pi sessions on a
-  compatible Pi build during rollback; never silently downgrade their native state.
-- [ ] Update as-built harness/context/artifact/approval docs only as code ships,
-  and mark phase-1 checklist items individually. Later-phase work remains planned.
+- [ ] Support explicit old-session import only at an idle boundary without
+  pending approvals or unknown effects, with provenance. Passing a full messages
+  array to `HarnessAgent` does not import history.
+- [ ] Expand enrollment after review. Keep existing Pi sessions on a compatible
+  Pi build during rollback; never silently downgrade their native state.
+- [ ] Update as-built docs as code ships and tick phase-1 items individually.
 
-Exit: the shared primary path preserves Lor controls, native recovery and activity;
-workspace restore limits remain explicit until coordinated Git checkpoints ship.
+Exit: the shared primary path keeps Lor's controls, per-turn native recovery and
+activity; workspace limits stay explicit until Git checkpoints ship.
 
-## 8. Verification, rollout and record
+## 9. Verification, rollout and record
 
 No tests, ad hoc test scripts, smoke/eval commands, browser test harnesses or
-`pnpm run validate`, per repository policy. This revision is based on source and
-documentation review, not runtime proof. For later implementation use focused
-code/SQL review, lint, type checking and builds that do not execute tests. Inspect
-scripts before invoking aggregate tasks.
+`pnpm run validate`, per repository policy. This revision is source and
+documentation review, not runtime proof. For implementation use focused
+code/SQL review, lint, type checking and builds that do not execute tests.
 
-Record code references for each gate and trace normal/failure/recovery paths:
-input/steering deduplication; images; multiple approvals; uncertain side effects;
-compaction/retry usage; stop/lease loss; stale workspace processes; final text-only
-output; event expiry; every run producer; and cold restore with no local native
-files. A successful ordinary chat does not establish these guarantees.
+Trace these paths in review: images; multiple approvals; a crash mid-turn; a
+lost workspace; tool-list stability across grant changes; compaction trigger and
+usage; stop and lease loss; stale workspace processes; ambient messages; event
+expiry; every run producer; cold restore with no local native files.
 
-Deploy additive schema before compatible workers/API/realtime, keeping enrollment
-off while incompatible versions are mixed. `db:push` is a mutation, not validation;
-prepare/review the schema diff and intended target before deployment. Do not run
-it as part of this documentation task.
+Deploy additive schema before compatible workers/API/realtime, with enrollment
+off while versions are mixed. `db:push` is a mutation, not validation; prepare
+and review the schema diff first. Do not run it as part of this documentation task.
 
-Observe normal internal use for stuck runs/approvals, missing usage, persistence
-failures and workspace recovery blocks. Disable new enrollment on regression;
-pause affected Pi execution separately when needed. Preserve native data and a
-compatible reader/build. No automatic fallback to fresh history.
+Observe internal use for stuck runs/approvals, missing usage, save failures,
+lost-workspace notices and quota failures. Disable new enrollment on regression.
+Preserve native data and a compatible reader/build. No automatic fallback to
+fresh history.
 
 | Record | Status |
 |---|---|
-| Initial adapter review | Completed for coding-agent path; Pi Durable was omitted, so runtime selection is reopened. |
-| Pi Durable comparison (G0) | Preliminary `1.3.0` source review recorded; full Lor compatibility comparison outstanding. |
-| Every-chat sandbox decision | Agreed 2026-10-19; replaces zero-allocation plain-chat requirement. Provision on first run, reuse and allow standby; optimize costs later. |
-| Integration gates G1–G7 | Findings recorded; implementation solutions not yet validated. |
+| Adapter, Pi Durable, cross-harness and repository review | Completed by source/documentation review, 2026-10-19/20. |
+| G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
+| Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade | Decided with Jacob 2026-10-20. |
+| Gates G1–G7 | Findings and seams recorded; implementation not validated. |
 | Implementation slices 1.1–1.6 | Not started. |
-| Upstream changes / SDK publication | None submitted; publishing deferred. |
+| Upstream changes / SDK publication | None submitted. Candidates for `@ai-sdk/harness-pi` PRs: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |
 
-[pi-doc]: https://ai-sdk.dev/providers/ai-sdk-harnesses/pi
-[harness-doc]: https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent
-[gateway-options]: https://vercel.com/docs/ai-gateway/models-and-providers/provider-options
-[blaxel-lifecycle]: https://blaxel.ai/blog/understand-the-lifecycle-of-a-blaxel-sandbox
-[durable-post]: https://earendil.com/posts/pi-durable/
-[durable-package]: https://registry.npmjs.org/@earendil-works/pi-durable/-/pi-durable-1.3.0.tgz
-[pi-package]: https://registry.npmjs.org/@ai-sdk/harness-pi/-/harness-pi-1.0.158.tgz
-[harness-package]: https://registry.npmjs.org/@ai-sdk/harness/-/harness-1.0.156.tgz
-[coding-package]: https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.0.3.tgz
-[ai-package]: https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-1.0.3.tgz
-[utils-package]: https://registry.npmjs.org/@ai-sdk/provider-utils/-/provider-utils-5.0.63.tgz
+## Sources
+
+- AI SDK harness: [Pi adapter](https://ai-sdk.dev/providers/ai-sdk-harnesses/pi),
+  [HarnessAgent](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent),
+  [adapter capabilities](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-adapters).
+- AI Gateway: [Anthropic Messages API](https://vercel.com/docs/ai-gateway/sdks-and-apis/anthropic-messages-api),
+  [provider options](https://vercel.com/docs/ai-gateway/models-and-providers/provider-options),
+  [automatic caching](https://vercel.com/docs/ai-gateway/models-and-providers/automatic-caching).
+- Blaxel: [lifecycle](https://blaxel.ai/blog/understand-the-lifecycle-of-a-blaxel-sandbox),
+  [quotas](https://docs.blaxel.ai/Security/Quotas),
+  [expiration](https://docs.blaxel.ai/Sandboxes/Expiration).
+- Alternatives: [Pi Durable post](https://earendil.com/posts/pi-durable/),
+  [Vercel agent harnesses (`durable-harness`)](https://vercel.com/docs/agent-harnesses).
+- Package archives reviewed:
+  [harness-pi 1.0.159](https://registry.npmjs.org/@ai-sdk/harness-pi/-/harness-pi-1.0.159.tgz),
+  [harness 1.0.157](https://registry.npmjs.org/@ai-sdk/harness/-/harness-1.0.157.tgz),
+  [pi-coding-agent 1.3.0](https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.3.0.tgz),
+  [pi-ai 1.3.0](https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-1.3.0.tgz),
+  [pi-durable 1.3.0](https://registry.npmjs.org/@earendil-works/pi-durable/-/pi-durable-1.3.0.tgz).
