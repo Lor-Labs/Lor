@@ -1,135 +1,123 @@
 "use client"
 
-import {
-  MotionNavigationMenu,
-  MotionNavigationMenuItem,
-  MotionNavigationMenuLink,
-  MotionNavigationMenuList,
-} from "@repo/ui/components/unlumen-ui/motion-navigation-menu"
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { LorMark } from "@/app/components/lor-mark"
 
-const EASE = "cubic-bezier(0.16,1,0.3,1)"
-// Shared transition: 500ms on every animated property so the whole header
-// "settles" together as the page scrolls.
-const T = `transition-all duration-500 ease-[${EASE}]`
-
-// Anchors match the section ids on the home page.
 const NAV_LINKS = [
   { href: "/#why", label: "Why Lor" },
-  { href: "/#week", label: "How it works" },
+  { href: "/#workspace", label: "The workspace" },
+  { href: "/#vision", label: "What you can do" },
 ]
 
 export function SiteHeader() {
   const [scrolled, setScrolled] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
 
-  // Sentinel lives just below the top edge. When it leaves the viewport,
-  // the pill condenses + materializes — no scroll listeners.
   useEffect(() => {
     const el = sentinelRef.current
     if (!el) return
-    const io = new IntersectionObserver(
-      ([entry]) => setScrolled(!entry?.isIntersecting),
-      { threshold: 0, rootMargin: "0px" }
+    const observer = new IntersectionObserver(([entry]) =>
+      setScrolled(!entry?.isIntersecting)
     )
-    io.observe(el)
-    return () => io.disconnect()
+    observer.observe(el)
+    return () => observer.disconnect()
   }, [])
 
   return (
     <>
       <div
         ref={sentinelRef}
-        aria-hidden
+        aria-hidden="true"
         className="pointer-events-none absolute top-8 h-px w-px"
       />
-
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-4">
-        <header
-          data-scrolled={scrolled}
-          className={[
-            "pointer-events-auto flex items-center rounded-full",
-            T,
-            scrolled
-              ? "gap-x-2 border border-foreground/[0.07] bg-background/55 py-1.5 pl-3 pr-1.5 shadow-[0_10px_40px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl backdrop-saturate-150"
-              : "gap-x-4 border border-transparent bg-transparent py-2.5 pl-5 pr-2.5 shadow-none",
-          ].join(" ")}
+      <header
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && menuOpen) {
+            setMenuOpen(false)
+            menuButtonRef.current?.focus()
+          }
+        }}
+        className={`fixed inset-x-0 top-0 z-50 border-b px-5 transition-colors duration-200 sm:px-8 ${scrolled || menuOpen ? "border-foreground/10 bg-background/95 backdrop-blur-xl" : "border-transparent bg-background/70"}`}
+      >
+        <a
+          href="#main-content"
+          className="sr-only rounded bg-foreground p-3 text-background focus:not-sr-only focus:absolute focus:top-3 focus:left-3"
         >
-          {/* Left: brand */}
+          Skip to content
+        </a>
+        <div className="mx-auto flex h-20 max-w-[1240px] items-center justify-between gap-4">
           <Link
             href="/"
             aria-label="Lor home"
-            className={`group inline-flex items-center px-1 ${T} ${
-              scrolled ? "gap-1.5" : "gap-2"
-            }`}
+            onClick={() => setMenuOpen(false)}
+            className="flex min-h-11 items-center gap-2.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
           >
-            <LorMark className={scrolled ? "size-5" : "size-6"} />
-            <span
-              className={`font-semibold text-foreground tracking-tight ${T} ${
-                scrolled ? "text-[17px]" : "text-[20px]"
-              }`}
-            >
-              Lor
-            </span>
+            <LorMark className="w-8" />
+            <span className="text-2xl font-semibold tracking-tight">Lor</span>
           </Link>
-
-          {/* Divider — fades in only once condensed */}
-          <span
-            aria-hidden
-            className={`mx-1 h-5 w-px bg-foreground/[0.08] max-md:hidden ${T} ${
-              scrolled ? "opacity-100" : "opacity-0"
-            }`}
-          />
-
-          {/* Center: nav. Hidden on phones, where it overflows the pill. */}
-          <MotionNavigationMenu
-            springStiffness={350}
-            springDamping={32}
-            gooey
-            className="max-md:hidden"
+          <nav
+            aria-label="Main navigation"
+            className="hidden items-center gap-8 md:flex"
           >
-            <MotionNavigationMenuList
-              highlightClassName="rounded-full bg-foreground/[0.07]"
-              className={`${T} ${scrolled ? "gap-0" : "gap-1"}`}
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="py-3 text-sm text-foreground/60 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/#early-access"
+              onClick={() => setMenuOpen(false)}
+              className="inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-[13px] font-medium text-background transition-transform duration-200 hover:bg-foreground/90 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
             >
-              {NAV_LINKS.map((link) => (
-                <MotionNavigationMenuItem key={link.href}>
-                  <MotionNavigationMenuLink
-                    href={link.href}
-                    className={`font-medium text-foreground/75 hover:text-foreground ${T} ${
-                      scrolled
-                        ? "px-3 py-1.5 text-[13px]"
-                        : "px-4 py-2 text-[14px]"
-                    }`}
-                  >
-                    {link.label}
-                  </MotionNavigationMenuLink>
-                </MotionNavigationMenuItem>
-              ))}
-            </MotionNavigationMenuList>
-          </MotionNavigationMenu>
-
-          {/* Divider */}
-          <span
-            aria-hidden
-            className={`mx-1 h-5 w-px bg-foreground/[0.08] max-md:hidden ${T} ${
-              scrolled ? "opacity-100" : "opacity-0"
-            }`}
-          />
-
-          {/* Right: CTA */}
-          <a
-            href="/#early-access"
-            className={`inline-flex items-center rounded-full bg-foreground font-medium text-background hover:bg-foreground/90 active:scale-[0.97] ${T} ${
-              scrolled ? "px-3.5 py-1.5 text-[12.5px]" : "px-4 py-2 text-[14px]"
-            }`}
-          >
-            Get early access
-          </a>
-        </header>
-      </div>
+              Get early access
+            </Link>
+            <button
+              ref={menuButtonRef}
+              type="button"
+              aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+              aria-expanded={menuOpen}
+              aria-controls="mobile-navigation"
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="relative flex size-11 cursor-pointer items-center justify-center rounded-full border border-foreground/15 focus-visible:outline-2 focus-visible:outline-agent md:hidden"
+            >
+              <span
+                aria-hidden="true"
+                className={`absolute h-px w-4 bg-foreground transition-transform duration-200 motion-reduce:transition-none ${menuOpen ? "rotate-45" : "-translate-y-1"}`}
+              />
+              <span
+                aria-hidden="true"
+                className={`absolute h-px w-4 bg-foreground transition-transform duration-200 motion-reduce:transition-none ${menuOpen ? "-rotate-45" : "translate-y-1"}`}
+              />
+            </button>
+          </div>
+        </div>
+        <nav
+          id="mobile-navigation"
+          aria-label="Mobile navigation"
+          hidden={!menuOpen}
+          className="border-t border-foreground/10 py-3 md:hidden"
+        >
+          {NAV_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={() => setMenuOpen(false)}
+              className="block rounded-lg px-2 py-3 text-base text-foreground/75 hover:bg-foreground/5 focus-visible:outline-2 focus-visible:outline-agent"
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+      </header>
     </>
   )
 }

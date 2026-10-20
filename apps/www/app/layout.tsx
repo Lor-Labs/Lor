@@ -16,9 +16,9 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lor.chat"),
-  title: "Lor | The multiplayer runtime for your team and agents",
+  title: "Lor | Work with AI, together",
   description:
-    "Bring Claude Code, Codex, or whatever agent you already pay for. Every session in Lor is shared with your team, so each agent builds on what the others already learned.",
+    "Lor is where your team talks and gets work done. Bring AI into the conversation, pull in an engineer, and turn an idea into something everyone can use.",
   icons: {
     icon: [
       { url: "/lor-icon.svg", type: "image/svg+xml" },
@@ -28,9 +28,9 @@ export const metadata: Metadata = {
     apple: "/lor-icon.png",
   },
   openGraph: {
-    title: "Lor | The multiplayer runtime for your team and agents",
+    title: "Lor | Work with AI, together",
     description:
-      "Bring the agent you already pay for. In Lor, every agent builds on what your team's other sessions already learned.",
+      "Work with AI and your team in the same place. Bring someone into a conversation, build something together, and pick up where they left off.",
     url: "https://lor.chat",
     siteName: "Lor",
     type: "website",
