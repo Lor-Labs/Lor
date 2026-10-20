@@ -31,7 +31,12 @@ authority (§4.3). Do not infer production readiness from the common API alone.
 | Lost workspace (G6) | **Interim until phase 2.** If a session's sandbox no longer exists (crash or deletion), continue the session in a new empty sandbox and tell the model and the people in the session that earlier files are gone. Fail the run only when the native **conversation** state is missing or corrupt. Phase 2 Git checkpoints replace this: Lor rebuilds the sandbox from the last completed-turn commit. |
 | Capacity | Build as if sandboxes are unlimited. No idle TTL or reclamation for session sandboxes in phase 1; capacity planning is deferred. A quota error still fails the run visibly. |
 | Worker runtime | Run the Pi path on **Bun**, the worker's current runtime. Verify the adapter on Bun in 1.1; move the Pi path to Node only if a concrete Bun failure appears. |
-| AI SDK | Upgrade `ai` repo-wide to the version the harness requires (≥ `7.0.145`). Change legacy code where the upgrade needs it, and re-verify the legacy approval park/resume path. |
+| AI SDK | Upgrade `ai` repo-wide to the version the harness requires (≥ `7.0.145`). Change the remaining AI SDK callers (write-back, placement, titles, classifiers, embeddings, rerank) where the upgrade needs it. |
+| Legacy engine | **Delete it** (2026-10-20). No one uses the app yet, so there is no flag, rollout, drain or import. Old sessions have no native state; their first Pi run starts from the visible session history, like any first run. Legacy run tables keep their rows but receive no new writes; dropping them is a separate later decision. |
+| System prompt | Lor's own prompt replaces Pi's "expert coding assistant" prompt through a `before_agent_start` extension. Keep Pi's tool list and tool rules; drop the Pi-docs section. |
+| Tool permissions | A new **Computer** built-in group in agent-profile tool access holds Pi's `bash`, `read`, `write`, `edit`, `grep`, `find` and `ls`; on by default. Each of these tools is an approval-policy target, off by default like every gate. When the group is off, the tools stay in the session's fixed list and are refused when called. |
+| Quality check | Jacob runs `eval:long` on the Pi path before the switch. The eval harness moves to the Pi path. |
+| Skills and slash commands | Out of phase 1; moved to the self-configuration work. |
 | Versions | Re-baseline on `@ai-sdk/harness-pi@1.0.159`, `@ai-sdk/harness@1.0.157`, Pi `1.3.0`. Pin exact versions; the harness ships breaking changes in patch releases. |
 
 ### Earlier revisions (kept for the record)
@@ -74,8 +79,8 @@ authority (§4.3). Do not infer production readiness from the common API alone.
 This is **phase 1 only**. Phase 2 adds private Git checkpoints and official
 Claude Code/Codex adapters. Phase 3 adds forks/handoffs/strict rewind; phase 4
 adds code collaboration. CLI, publishing an SDK, direct subscription inference,
-an extension marketplace, a new terminal UI, mid-turn native recovery and
-allocation cost optimizations are deferred. Billing changes (the workspace
+an extension marketplace, a new terminal UI, mid-turn native recovery, skills,
+slash commands and allocation cost optimizations are deferred. Billing changes (the workspace
 balance limit, auto top-up, the monthly cap and the in-run balance check, §4.5)
 are not part of phase 1; they ship with the billing work in
 [pricing-and-billing.md](pricing-and-billing.md). Phase 1 only keeps usage
@@ -185,9 +190,11 @@ and manual insertion of approval results. Map policy gates to harness
 `toolApproval` with exact arguments; keep resolver authorization, voice
 restrictions, HMAC binding intent and plan waiting states. Save native state at
 the suspension (§4.3) and release the worker. Map `request_approval` explicitly
-(it is a tool result plus a parked plan, not a gate). The harness supports
-several pending approvals; present them as a set and drop the one-per-run index
-for Pi runs, which also removes today's multi-gate bug. Confirm partially
+(it is a tool result plus a parked plan, not a gate). Pi's built-in tools become
+approval targets too (§4.6); built-in approvals go through
+`requestBuiltinToolApproval`. The harness supports several pending approvals;
+present them as a set and drop the one-per-run index, which also removes
+today's multi-gate bug. Confirm partially
 answered batches, revocation and host-tool context rebinding in 1.1. Tool-call
 IDs must be non-empty: the Anthropic Messages path copies provider IDs, while
 the OpenAI Chat Completions path defaults missing IDs to `""` (A
@@ -299,7 +306,7 @@ token limit"), compacts and retries once.
   a cost or quality problem at very long contexts. The long-task eval ran with
   today's ~520k trigger.
 - Commit the compaction entry with the turn save. Count its usage.
-- The legacy path keeps `compaction.ts` unchanged.
+- `compaction.ts` is deleted with the legacy engine.
 
 ### 4.5 Gateway, retries and budgets (G5): match today
 
@@ -375,10 +382,18 @@ others are adapter wrappers. All route through `SandboxSession`.
 **Decision:** use the adapter's tools. Lor implements a thin Blaxel
 `SandboxSession` bridge, not new tools. No fallback to worker-local operations.
 
+**Permissions (decision 2026-10-20):** agent-profile tool access has two built-in
+groups today, `web` and `artifacts` (`BUILTIN_TOOL_GROUPS` in
+`profile-tool-access.ts`). Add a **Computer** group holding `bash`, `read`,
+`write`, `edit`, `grep`, `find` and `ls`, on by default. Each tool is also an
+approval-policy target (`tool:<name>`), off by default like every gate. When a
+profile turns the group off, the tools stay in the session's fixed list (§4.3)
+and are refused when called.
+
 **Tool-name collisions:** Lor's brain tools are literally `ls`, `read`, `tree`,
 `write`, `edit`, `mkdir`, `move`, `link` and `search` (`brain.ts`). `ls`, `read`,
 `write` and `edit` collide with Pi built-ins. Rename the brain tools (e.g.
-`memory_read`) on the Pi path and update every dependent:
+`memory_read`) and update every dependent:
 
 - `SIDE_EFFECT_TOOLS` idempotency keys (`tool-guard.ts`)
 - the reserved-name list (`custom-tools.ts`); add `bash`, `grep`, `find`, `glob`,
@@ -405,20 +420,30 @@ Pi `steer`. Pi follow-up messages are not exposed. Abort, `stop`,
 hook (appended at the end) rather than `steer`, and record coverage at the turn
 save. Map stop to abort plus a stop save (§4.3).
 
-### 4.8 Prompt cache stability
+### 4.8 System prompt and prompt cache
 
-**Observed:** Pi's coding system prompt cannot be replaced. It includes the
-worker's Pi doc paths, the working directory, and tool snippets. The adapter
-appends Lor's session instructions after it (`appendSystemPromptOverride`).
-Neither Lor model accepts system messages mid-conversation, so changed
-instructions rewrite the start of the prompt.
+**Observed:** Pi's default prompt (C `buildSystemPromptSections`) opens with "You
+are an expert coding assistant operating inside pi, a coding agent harness",
+then lists tools and rules, then a Pi-docs section with the worker's Pi doc
+paths, then the working directory. The adapter only appends Lor's session
+instructions after it (`appendSystemPromptOverride`). A `before_agent_start`
+extension result may set `systemPrompt`, which replaces the complete system
+prompt for that turn; the event carries the rendered prompt and
+`systemPromptOptions`. Neither Lor model accepts system messages
+mid-conversation, so a changed system prompt rewrites the start of the prompt.
 
-**Decision:** keep per-request values out of the system prompt, as today. LOR.md,
-connector lines and voice/Loop sections may be rebuilt per turn; accept a cache
-miss only when they actually change. Put volatile state (plan state, delta,
-elapsed time, ambient messages) at the end of the turn's user message or
-through the `context` hook at the end of the context. The stable tool list
-(§4.3) also keeps tool snippets stable. Set `x-session-affinity` (§4.5).
+**Decision (2026-10-20): Lor's own prompt.** A trusted `before_agent_start`
+extension replaces the system prompt with Lor's prompt (today's base prompt,
+connector lines, LOR.md, plan rules and trigger/Loop/voice sections) plus Pi's
+tool list and tool rules. Drop Pi's preamble, Pi-docs section and context-file
+section. Lor is a team workspace agent, not only a coding assistant.
+
+**Cache rules:** build the prompt from per-session inputs only, so it is
+byte-identical across turns until LOR.md, connectors or rules actually change.
+Put volatile state (plan state, delta, elapsed time, ambient messages) at the
+end of the turn's user message or through the `context` hook at the end of the
+context. The stable tool list (§4.3) keeps the tool section stable. Set
+`x-session-affinity` (§4.5).
 
 ### 4.9 Adapter defaults Lor must override (G7)
 
@@ -432,6 +457,7 @@ Each item is verified in P/C source unless marked.
 | Context files: `noContextFiles` is not set, so AGENTS.md/CLAUDE.md are read from the working directory upward | Host files above the workspace mount reach the prompt | Disable for phase 1; repository instruction files are never workspace instructions (`agent-harness.md`) |
 | No settings record: P uses `SettingsManager.inMemory()`; passing `agentDir` loads global settings **and** `<workspace>/.pi/settings.json` | A settings folder would let the model change Pi's settings by writing a workspace file | Phase 1 changes no settings, so never pass `agentDir`. If a setting must change later: `pnpm patch` the adapter to pass a settings record (`SettingsManager.inMemory(settings)` already accepts one) and send the same change upstream |
 | `cacheWarming: "streaming"` default | Background requests (1-token replays near the cache expiry) | Keep the default. Evaluated 2026-10-20: C `CacheWarmer` warms only when the model has a cache lifetime (`promptCache`) and the expected saving is at least $0.05, and stops when the run settles. No Gateway model in pi-ai 1.3.0 has `promptCache`, so it stays inactive for Lor's models. Count `cache_warm` usage if it ever appears |
+| Pi's system prompt opens as a coding assistant and lists the worker's Pi doc paths | Wrong role for team chat; worker paths in every prompt | Replace it with Lor's prompt through `before_agent_start` (§4.8) |
 | Text starting with `/skill:` or `/` expands skills or extension commands | Team members trigger runtime commands by accident | Escape a leading `/` in user and ambient text; Lor editor slash actions stay separate |
 | The journal lives in the sandbox HOME | Model can tamper with history | Save from the worker copy, restore from Postgres, load check, and `deniedRoots` for the file tools (§4.3) |
 | The adapter patches `node:fs` for the whole process; mount paths include the session ID | Collisions with a fixed `workDir`; unknown behavior on Bun | Never set a fixed `workDir`; verify the patch on Bun (Node only if Bun fails) |
@@ -488,8 +514,8 @@ is not published.
 - At safe turn/approval boundaries, save native state and settle active work
   before releasing connections so Blaxel can enter standby.
 - The Pi loop runs in the worker, so the session sandbox does not need the
-  Gateway key. Keep it out of session sandboxes; the legacy child keeps its
-  current behavior until replaced.
+  Gateway key. Keep it out of session sandboxes; the existing coding child
+  (`investigate_code`, workbench Pi) keeps its current behavior until replaced.
 - Deferred: zero-VM plain chat, virtual-to-remote promotion and allocation cost
   optimization.
 
@@ -519,7 +545,7 @@ per adapter; record unsupported behavior honestly.
 | G4 Compaction | Pi's default trigger + Lor instructions decided; overflow check open | Lor instructions via `session_before_compact`; plan state re-injected; overflow recovery works on a K3 fallback; entry and usage saved |
 | G5 Gateway/budgets/retries | Spend-only limits decided; mapping open | Routing on normal and summary requests; per-step counters; tool block near the deadline or spend limit; abort at the limit |
 | G6 Sandbox lifecycle | Every run, unlimited capacity and one sandbox per call decided | Owner per run kind; lost-workspace notice; quota failure visible; no silent recreation |
-| G7 Isolation/runtime | Override list recorded (§4.9); Bun and the `ai` upgrade decided | Every row in §4.9 handled; adapter works on Bun; legacy path re-verified after the `ai` upgrade |
+| G7 Isolation/runtime | Override list recorded (§4.9); Bun, the `ai` upgrade and legacy deletion decided | Every row in §4.9 handled; adapter works on Bun; remaining AI SDK callers work after the `ai` upgrade |
 
 For each open gate record: source behavior, chosen seam or focused change,
 remaining limitation, and why the alternative costs more. No upstream PR,
@@ -565,8 +591,9 @@ Extend existing session/run records and add only data that cannot fit safely:
   first, or reference stored attachments where the format allows.
 
 Do not store a separate full AI SDK transcript beside each Pi journal. Store
-native entries incrementally at each save. Keep legacy `agent_run_step` readable.
-A bounded compatibility projection for existing write-back is allowed.
+native entries incrementally at each save. Legacy `agent_run_step` rows stay in
+place, but nothing writes or reads them after the legacy engine is deleted.
+Write-back reads a bounded projection of the Pi activity.
 
 At a save point, atomically commit native entries, continuation state, receipts,
 activity, coverage/counters and the new head under expected-parent and
@@ -607,17 +634,19 @@ as completed turns.
 
 | Current code | Preserve / change |
 |---|---|
-| `packages/lor/src/index.ts`, `run.ts`, `initial-message.ts` | Extract scoped setup and UI callbacks; separate legacy transcript recovery from native runtime references. Keep the post-loop sweep that saves a text-only final step on the legacy path. Build the Pi turn prompt text-first with labeled images. |
+| `packages/lor/src/index.ts`, `run.ts`, `initial-message.ts` | Keep scoped setup, context building and UI callbacks. Replace the `streamText` loop (`prepareStep`, `stopWhen`, post-loop sweep) with the Pi adapter and delete it. Build Lor's system prompt for `before_agent_start` (§4.8) and the turn prompt text-first with labeled images. |
 | `packages/lor/src/images.ts` | Keep limits and conversion; fetch and inline images for Pi prompts. |
-| `packages/lor/src/brain.ts`, `compaction.ts`, `plans.ts` | Keep brain, retrieval, write-back and plan state. Rename brain tools on the Pi path (§4.6). Pi path compacts through `session_before_compact`; legacy keeps `compaction.ts`. |
+| `packages/lor/src/brain.ts`, `compaction.ts`, `plans.ts` | Keep brain, retrieval, write-back and plan state. Rename brain tools (§4.6). Compaction goes through `session_before_compact`; delete `compaction.ts`. |
+| `packages/db/src/schemas/profile-tool-access.ts`, `packages/connectors/src/tools.ts`, approval target vocabulary in `@repo/connectors` | Add the Computer built-in group and approval targets for Pi's built-in tools (§4.6). |
+| `packages/lor/src/eval/long/` | Move the long-task eval to the Pi path so Jacob can run it before the switch. |
 | `packages/lor/src/models.ts`, `usage.ts` | Keep model/routing and credit semantics; add gateway options through the payload hook and the summary stream function. |
 | `packages/lor/src/tool-guard.ts`, `approval-policy.ts`, `custom-tools.ts` | Keep grants, targets, output limits and execution context. Map gates to harness approvals. Update `SIDE_EFFECT_TOOLS` and the reserved-name list for the rename. |
-| `apps/worker/src/lib/agent-run.ts`, `run-continuation.ts` | Native dispatch, generation fencing, per-step counters, per-turn saves and fresh-process restore; keep legacy readers. Today's continuation silently falls back to fresh context on error; the Pi path must fail visibly instead. |
+| `apps/worker/src/lib/agent-run.ts`, `run-continuation.ts` | Native dispatch, generation fencing, per-step counters, per-turn saves and fresh-process restore. Delete the legacy transcript replay (`replayChain`, continuation deltas). Today's continuation silently falls back to fresh context on error; the Pi path fails visibly instead. Re-point the context meter (`GET /v1/runs/context/{scopeKey}`) to Pi usage. |
 | Worker `jobs/lor-respond.ts`, `voice-request.ts`, `lib/run-queue.ts`, `loop-session.ts`, `trigger-session.ts`, `voice-continuation.ts`, `voice-approvals.ts` | Keep queued successors, stop, approval resumes, voice limits and answer/write-back phases. Bind each run kind to a session workspace. |
 | Realtime `services/lor.ts`, `index.ts`; API `lib/scope-runs.ts`, `lib/act-runs.ts`; Lor `act-runs.ts`, `agent-sessions.ts` | Audit every run producer; bind provisional Act runs to their session before native state is created. |
-| API `routes/v1/approvals/handlers.ts`, `packages/db/src/schemas/approvals.ts` | Keep resolver checks, plan/voice rules and resolution idempotency; present a pending set for Pi runs. |
+| API `routes/v1/approvals/handlers.ts`, `packages/db/src/schemas/approvals.ts` | Keep resolver checks, plan/voice rules and resolution idempotency; present a pending set and drop the one-per-run index. |
 | `packages/db/src/schemas/agent-sessions.ts`, `agent-runs.ts` | Add minimum native/continuation/receipt/activity storage and runtime references. |
-| `packages/lor/src/sandbox/{blaxel,workbench,code-session,investigate,pi-config}.ts`, `code.ts`, `artifacts/tool.ts`, `code-actions.ts` | Thin Blaxel `SandboxSession` bridge, session sandbox for every run, lost-workspace notice, quota handling, process fencing; reuse artifact/Git helpers. Replace silent unhealthy-sandbox recreation and the output-directory reset on the Pi path. |
+| `packages/lor/src/sandbox/{blaxel,workbench,code-session,investigate,pi-config}.ts`, `code.ts`, `artifacts/tool.ts`, `code-actions.ts` | Thin Blaxel `SandboxSession` bridge, session sandbox for every run, lost-workspace notice, quota handling, process fencing; reuse artifact/Git helpers. Replace silent unhealthy-sandbox recreation and the output-directory reset. |
 | Web/mobile `lor-tool-trail.tsx`, shared session/realtime types | Keep events, approvals, tool details and files; update `TARGET_TOOLS` for renamed tools. |
 
 Keep the existing connector/MCP wrappers; do not register MCP servers with the
@@ -626,17 +655,16 @@ runtime has equivalent capability.
 
 ## 8. Implementation slices — all within phase 1
 
-Keep enrollment off until required gates close.
+There is no enrollment flag: the legacy engine is deleted once the Pi path
+works (decision 2026-10-20; no one uses the app yet).
 
 ### 1.1 — Close the remaining contract questions
 
 - [x] G0 runtime decided (2026-10-20): `HarnessAgent` + `harness-pi`.
 - [ ] Pin exact versions (`harness-pi` 1.0.159, `harness` 1.0.157, Pi 1.3.0 or
   newer after recheck). Verify the adapter on Bun (decided: Bun first).
-- [ ] Upgrade `ai` repo-wide (7.0.11 → the harness's version, ≥ 7.0.145).
-  Re-verify the legacy approval park/resume path, which was verified against
-  7.0.11 internals (`collectToolApprovals`, `initialResponseMessages`), and
-  change legacy code where needed.
+- [ ] Upgrade `ai` repo-wide (7.0.11 → the harness's version, ≥ 7.0.145) and
+  fix the remaining AI SDK callers where needed.
 - [ ] Confirm which journal copy is complete and readable at each save point,
   and how the load check reads the loaded session (§4.3).
 - [ ] Confirm that the gateway's error for a K3 fallback above 1M tokens matches
@@ -644,6 +672,8 @@ Keep enrollment off until required gates close.
 - [ ] Map `request_approval`, partial batches, revocation and host-tool context
   rebinding (§4.2).
 - [x] Budget limits decided (2026-10-20): spend only, no step/tool/token ceilings (§4.5).
+- [x] Product decisions (2026-10-20): Lor's own system prompt, the Computer tool
+  group, legacy deletion, `eval:long` before the switch, skills deferred.
 - [ ] Define the internal core/ports and versioned lifecycle contract.
 
 Exit: every gate in §5 has a recorded seam; the focused upstream changes are
@@ -651,20 +681,23 @@ listed; no claim that unmodified stock APIs meet Lor's guarantees.
 
 ### 1.2 — Add native state and explicit dispatch
 
-- [ ] Add only the schema and references from §6; keep legacy defaults/readers.
+- [ ] Add only the schema and references from §6.
 - [ ] Implement expected-head/claim-generation saves, source deduplication,
   native/continuation storage and operation/accounting identity.
-- [ ] Separate legacy and Pi resume and sticky enrollment selection. Missing
-  native data fails explicitly; flags cannot change the engine of an existing run.
+- [ ] Record the runtime kind and version per session (Pi now; Claude Code and
+  Codex in phase 2). Missing native data fails explicitly.
 
 Exit: storage review covers owner isolation, atomic save, retained payloads and
 version rejection. No destructive history rewrite.
 
 ### 1.3 — Integrate the adapter and Lor services
 
-- [ ] Extract context/tool setup from `respond`; keep the legacy path during rollout.
+- [ ] Replace the `streamText` loop in `respond` with the Pi adapter; keep
+  context building and scoped tools.
+- [ ] Build Lor's system prompt for `before_agent_start` (§4.8).
 - [ ] Wire the stable tool list, renamed brain tools, exact execute context,
   output limits, images, Gateway options and current event consumers.
+- [ ] Add the Computer tool group and approval targets for Pi's built-in tools (§4.6).
 - [ ] Apply every override in §4.9.
 - [ ] Reuse harness approval/continuation APIs with Lor policy and durable decisions.
 - [ ] Add the compaction handler, per-step counters, tool block near ceilings,
@@ -679,9 +712,10 @@ accounting and save points, including cold approval resume and a crashed turn.
   reconnect later, for every run kind.
 - [ ] Keep workspace identity, artifacts, checkout/publish policy and process
   fencing. Add the lost-workspace notice and the visible quota failure.
-- [ ] Supply scoped, versioned skills and supported commands. Keep editor
-  actions, Lor product commands and runtime commands distinct.
 - [ ] Replace mandatory child dispatch only after primary capability coverage.
+
+Skills and slash commands are out of phase 1 (moved to the self-configuration
+work). User text that starts with `/` is still escaped (§4.9).
 
 Exit: every agent run has its session sandbox, with reuse, standby and explicit
 lost-workspace handling. Tools cannot reach worker files or bypass Lor policy.
@@ -695,26 +729,29 @@ lost-workspace handling. Tools cannot reach worker files or bypass Lor policy.
   origin IDs; token deltas stay transient.
 - [ ] Preserve web/mobile tool, memory, plan, approval and message behavior.
 
-Exit: no Pi run enters a legacy continuation reader, and completed history does
-not disappear when transient stream rows expire.
+Exit: every run producer uses the Pi path, and completed history does not
+disappear when transient stream rows expire.
 
-### 1.6 — Enroll, review and document
+### 1.6 — Delete the legacy engine, check quality and document
 
-- [ ] Start with new internal sessions; drain legacy runs/approvals on legacy.
-- [ ] Support explicit old-session import only at an idle boundary without
-  pending approvals or unknown effects, with provenance. Passing a full messages
-  array to `HarnessAgent` does not import history.
-- [ ] Expand enrollment after review. Keep existing Pi sessions on a compatible
-  Pi build during rollback; never silently downgrade their native state.
-- [ ] Update as-built docs as code ships and tick phase-1 items individually.
+- [ ] Delete the legacy engine: the `streamText` loop, `compaction.ts`, legacy
+  continuation replay and their callers. Legacy tables keep their rows; nothing
+  writes or reads them. Old sessions start from their visible history on their
+  first Pi run. Passing a full messages array to `HarnessAgent` does not import
+  history, so no import path is built.
+- [ ] Move `packages/lor/src/eval/long/` to the Pi path. Jacob runs `eval:long`
+  and reviews the results before the switch.
+- [ ] Update as-built docs (`agent-harness.md`, `context-continuation.md`,
+  `approval-policies.md`, `artifacts.md`) and tick phase-1 items individually.
 
-Exit: the shared primary path keeps Lor's controls, per-turn native recovery and
+Exit: one engine. The Pi path keeps Lor's controls, per-turn native recovery and
 activity; workspace limits stay explicit until Git checkpoints ship.
 
 ## 9. Verification, rollout and record
 
-No tests, ad hoc test scripts, smoke/eval commands, browser test harnesses or
-`pnpm run validate`, per repository policy. This revision is source and
+No tests, ad hoc test scripts, browser test harnesses or `pnpm run validate`,
+per repository policy. One exception (decision 2026-10-20): Jacob runs
+`eval:long` on the Pi path before the switch. This revision is source and
 documentation review, not runtime proof. For implementation use focused
 code/SQL review, lint, type checking and builds that do not execute tests.
 
@@ -723,20 +760,19 @@ lost workspace; tool-list stability across grant changes; compaction trigger and
 usage; stop and lease loss; stale workspace processes; ambient messages; event
 expiry; every run producer; cold restore with no local native files.
 
-Deploy additive schema before compatible workers/API/realtime, with enrollment
-off while versions are mixed. `db:push` is a mutation, not validation; prepare
-and review the schema diff first. Do not run it as part of this documentation task.
+Deploy the additive schema, then workers/API/realtime together. There is no
+enrollment flag; on a regression, fix forward or revert the deploy. `db:push` is
+a mutation, not validation; Jacob reviews the schema diff and runs it.
 
 Observe internal use for stuck runs/approvals, missing usage, save failures,
-lost-workspace notices and quota failures. Disable new enrollment on regression.
-Preserve native data and a compatible reader/build. No automatic fallback to
-fresh history.
+lost-workspace notices and quota failures. Preserve native data and a compatible
+reader/build. No automatic fallback to fresh history.
 
 | Record | Status |
 |---|---|
 | Adapter, Pi Durable, cross-harness and repository review | Completed by source/documentation review, 2026-10-19/20. |
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
-| Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade | Decided with Jacob 2026-10-20. |
+| Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Computer tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
 | Implementation slices 1.1–1.6 | Not started. |
 | Upstream changes / SDK publication | None submitted. Candidates for `@ai-sdk/harness-pi` PRs: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |

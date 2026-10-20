@@ -35,7 +35,7 @@ the main Lor loop does not. Merely replacing `runPi` would not achieve this plan
 | [`packages/lor/src/index.ts`](../../packages/lor/src/index.ts), `respond()` | Context construction, scoped tools, output/event contract | Replace `streamText`, `prepareStep`, `stopWhen` orchestration with a Pi adapter and explicit coordinator gates |
 | [`packages/lor/src/run.ts`](../../packages/lor/src/run.ts) | Run identity, counters, callbacks, stop/steering contract | Add versioned native recovery state; stop assuming every engine resumes from `ModelMessage[]` |
 | [`apps/worker/src/lib/agent-run.ts`](../../apps/worker/src/lib/agent-run.ts) | Queue ownership, leases, usage accounting, durable publication | Persist native progress and gate further execution on persistence; extend ownership to workspace writers |
-| [`apps/worker/src/lib/run-continuation.ts`](../../apps/worker/src/lib/run-continuation.ts) | Existing run history and legacy continuation | Keep legacy replay readable; new Pi continuations resume native state, with explicit import at migration boundaries |
+| [`apps/worker/src/lib/run-continuation.ts`](../../apps/worker/src/lib/run-continuation.ts) | Existing run history and legacy continuation | Delete the legacy replay with the legacy engine (no users yet, 2026-10-20). Pi continuations resume native state; old sessions start from their visible history, with no import |
 | [`packages/lor/src/tool-guard.ts`](../../packages/lor/src/tool-guard.ts), [`approval-policy.ts`](../../packages/lor/src/approval-policy.ts) | Output limits, tool grants, approval records, retry receipts | Adapt Lor tools into Pi; bind approval continuations to native tool IDs and validate grants again on resume |
 | [`packages/lor/src/brain.ts`](../../packages/lor/src/brain.ts), [`compaction.ts`](../../packages/lor/src/compaction.ts) | Scoped memory service, working notes, plan-aware context policy | Expose memory tools with unambiguous names; translate compaction into Pi's supported context/session hooks |
 | [`packages/db/src/schemas/agent-sessions.ts`](../../packages/db/src/schemas/agent-sessions.ts) | Existing `agent_session`, channel/thread anchor, origins | Extend with runtime/branch/workspace bindings; do not introduce an unrelated top-level `code_session` |
@@ -134,9 +134,10 @@ Git repository merely to support conversation forks and rewind.
 The database must preserve Pi's native context, including tool results, compaction
 and branch state, not only user/assistant display messages. Keep a versioned
 persistence interface so SDK changes do not leak into every product reader.
-Do not create a second full raw `ModelMessage[]` archive for new Pi runs; preserve
-existing legacy rows for their existing readers. Local native files are runtime
-copies, not a competing authority for the shared branch.
+Do not create a second full raw `ModelMessage[]` archive for Pi runs. Existing
+legacy rows stay in place, but nothing reads them after the legacy engine is
+deleted. Local native files are runtime copies, not a competing authority for
+the shared branch.
 
 Some text will exist in both native entries and UI/search projections. This is
 intentional and does not require another complete transcript in Git. Keep private
@@ -329,10 +330,10 @@ state and matching files can carry the stronger restore guarantee.
 
 Execution detail: [Pi foundation migration runbook](pi-harness-runbook.md).
 Its steps 1.1–1.6 are slices of this phase only, with adapter selection, storage
-contracts, lifecycle gates, approval/recovery mapping and staged enrollment.
+contracts, lifecycle gates, approval/recovery mapping and legacy-engine deletion.
 They do not bring the later Git, official-provider or fork/rewind work into phase 1.
 
-- [ ] Introduce runtime kind/version and native-state references on the existing session/run model, plus explicit legacy vs Pi recovery dispatch. Define capabilities for commands, skills, native forks, approvals and persistence now.
+- [ ] Introduce runtime kind/version and native-state references on the existing session/run model. Define capabilities for native forks, approvals and persistence now.
 - [x] Choose the runtime (2026-10-20): `HarnessAgent` + `@ai-sdk/harness-pi`.
 - [ ] Pin exact Vercel adapter/Pi/AI SDK versions and apply the runbook's adapter overrides (stable tool list, explicit auth, no host context files, no workspace-controlled settings). Prefer supported extensions or focused upstream changes; record the blocker before choosing direct SDK integration. Preserve the current event/UI contract.
 - [ ] Retain scoped tools, memory, context, plans, steering, stop and usage/budget enforcement. Reuse upstream approval continuation, native compaction/retries, provider transport and remote file/shell tools where they meet the contract. Do not bypass grants or expose worker files through native tools.
@@ -346,9 +347,8 @@ They do not bring the later Git, official-provider or fork/rewind work into phas
 Exit conditions: ordinary chat/cowork and code-capable sessions use the same Pi
 runtime path; existing Lor tools/memory/approval/plan/budget controls are preserved;
 native state survives runtime replacement; unsupported provider capabilities are
-explicit. Temporary legacy draining is migration compatibility, not a permanent
-second product architecture. The Git vendor and complete fork UI need not block
-this phase.
+explicit; the legacy engine is gone. The Git vendor and complete fork UI need not
+block this phase.
 
 ### Phase 2 — Durable workspace checkpoints and official harness adapters
 
@@ -384,11 +384,12 @@ durable file checkpoints, and validate provider restore/auth before enabling eac
 official harness. Routine choices stay within this plan; a finding that changes
 the agreed behavior should be brought back as a concrete tradeoff.
 
-- Exact compatible dependency set and the remaining runbook gates G1–G7: image mapping, per-turn save and restore check, approvals, the overflow check on a fallback model, Gateway routing, adapter overrides and Bun verification. The runtime (G0), per-turn saving, spend-only run limits, Pi's compaction trigger, sandboxes for every run kind (one per voice call), unlimited sandbox capacity, Bun and the repo-wide `ai` upgrade are decided.
+- Exact compatible dependency set and the remaining runbook gates G1–G7: image mapping, per-turn save and restore check, approvals, the overflow check on a fallback model, Gateway routing, adapter overrides and Bun verification. The runtime (G0), per-turn saving, spend-only run limits, Pi's compaction trigger, sandboxes for every run kind (one per voice call), unlimited sandbox capacity, Bun, the repo-wide `ai` upgrade, Lor's own system prompt, the Computer tool group, legacy deletion and `eval:long` before the switch are decided.
 - Private Git vendor, official-harness opaque payload storage, retention, and how transcript deletion affects forks/backups. Postgres ownership of native Pi state is decided.
 - CLI transport/version compatibility and local/cloud ownership-transfer UX; precise commands are not yet specified.
 - Full filesystem snapshot allowlist, large artifacts, child-session persistence and runtime-specific restore path handling.
 - How much historical context a cross-harness handoff imports, with clear user-visible limits.
+- **Model selection (product decision, open; Jacob's direction 2026-10-20).** No per-chat model picker in ordinary chat and cowork sessions: most people should not have to choose a model. Instead, a workspace admin setting picks the default main and small model for the built-in Lor harness, from open-weight and proprietary models, with each model's charges shown. A picker in the composer may make sense only in code channels, where people know which model they want for which task. Today one global main/small model comes from env (`packages/lor/src/models.ts`), and no picker exists. This changes the earlier plans: `workspace-model.md` decision 6 mentions a model picker in the composer's Lor state, and `workspace-model-runbook.md` lists "a real per-session picker" as later work.
 - Provider-specific hosted authentication eligibility. The Vercel adapters' subscription modes read the host user's own credential files (single developer). Anthropic's Agent SDK docs state that third parties may not offer claude.ai login or rate limits without prior approval, and OpenAI requires an interest form for remotely hosted apps; confirm with both vendors before planning phase 2 around personal subscriptions. Direct subscription inference remains deferred, irrespective of that eligibility.
 
 ## Sources and scope

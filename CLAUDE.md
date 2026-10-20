@@ -143,7 +143,9 @@ limit (no step/tool/token ceilings; workspace balance with auto top-up is the ta
 Every Lor agent run, including voice, Loop and Act runs, gets its session's
 isolated sandbox on the first run, reused across turns with standby; until
 phase 2 checkpoints, a lost sandbox continues empty with a notice. Build as if
-sandboxes are unlimited; cost optimization is deferred. Keep its
+sandboxes are unlimited; cost optimization is deferred. The legacy
+`streamText` engine is deleted in phase 1 (no users yet), with no flag or
+import. Keep its
 internal session core separate from Lor policy/UI; SDK publication is deferred.
 It covers only the main Lor loop's Pi conversion and shared foundation;
 implementation has not started. Update its slices and gates as
