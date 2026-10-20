@@ -13,14 +13,14 @@
 - Inspect a completed turn's prompt, actions and diff; mention a teammate there.
 - Share, fork and rewind conversation plus workspace together without overwriting another person's work.
 - Clone code locally and publish finished work to GitHub as a PR.
-- Use the same Lor session model for chat, cowork and code work.
+- Use the same Lor session model for chat, cowork and code work; every agent chat gets an isolated sandbox from its first run, reused across turns with standby between runs.
 
 ## 2. Concepts
 
 | Term | Meaning |
 |---|---|
 | Code channel | A channel bound to a repository; channel membership controls session access. |
-| Session | Existing `agent_session` with a selected harness and logical workspace, optionally bound to a repository. |
+| Session | Existing `agent_session` with a selected harness and isolated sandbox-backed workspace, optionally bound to a repository. |
 | Recovery step | An internal model/tool iteration or equivalent native progress boundary. Current `agent_run_step` uses this meaning. |
 | Product checkpoint | State after a completed user turn, potentially many recovery steps, or a committed human workspace change. |
 | Checkpoint state | Visible history boundary + native harness state + workspace revision + resource versions + external-effect references. |
@@ -88,7 +88,7 @@ at the chosen checkpoint, including the compaction baseline used there.
 
 1. Create/use the ordinary Lor session and resolve runtime, driver and billing identity.
 2. For repository work, mirror/import the authorized base revision and create an isolated workspace branch.
-3. Start/resume sandbox execution when needed, restoring the durable workspace and native state. A new request does not imply a fresh workspace.
+3. Provision the session sandbox on its first agent run; later runs reconnect to that workspace and restore committed native state. This applies to every agent chat and harness. A new request does not imply a fresh workspace; standby between runs is allowed.
 4. Run through the same scoped Lor services and coordinator as any chat/cowork session.
 
 ### Complete a turn
@@ -290,11 +290,13 @@ Implementation gotchas noted from the docs:
 - First sync of a new repo returns `409` until done (retry); later reads may be briefly stale until `repo.sync.succeeded`.
 - Webhooks: `push` (ref, before, after) and `repo.sync.started|succeeded|failed`, HMAC-signed (`X-Pierre-Signature`, SDK `validateWebhook`). Verify `push` fires for ephemeral refs — needed to turn local pushes into steps.
 
-## 11. Code index (answer code questions without a sandbox)
+## 11. Code index (read code through indexed services)
 
 Cursor-style semantic index of each connected repo, refreshed on every push, plus
-direct read tools — so most "where / how does X work" questions never boot a sandbox.
-Assumes Code Storage GitHub Sync (§10); does not depend on code channels.
+direct read tools — so most "where / how does X work" questions do not require a
+repository clone or shell command. Every agent chat still has its session sandbox;
+the index and read services operate independently of it. Assumes Code Storage
+GitHub Sync (§10); does not depend on code channels.
 
 **Pipeline (default branch only):**
 
@@ -315,7 +317,7 @@ chunks.
 HNSW, `tsvector` full-text for hybrid search, and the reranker from
 `reference/attachment-search.md`. New work is tree-sitter chunking and the push worker.
 
-**Tools for Lor (no sandbox):**
+**Tools for Lor (backed by search/storage services):**
 
 | Tool | Backed by | For |
 |---|---|---|
@@ -324,7 +326,8 @@ HNSW, `tsvector` full-text for hybrid search, and the reranker from
 | `read_file` | Code Storage `getFileStream` with line ranges | reading what search found |
 | `blame` / `history` | Code Storage `blame`, `listCommits` with `path` | who changed it, when, why |
 
-The shared session sandbox stays for work that must execute commands or edit files.
+The shared session sandbox is available in every agent chat for work that executes
+commands or edits files; these read tools do not require using it.
 A coding child such as `investigate_code` is optional delegation, not a separate
 required runtime. This repository's no-tests policy still applies.
 

@@ -133,8 +133,20 @@ activity history for every harness; private Git holds
 workspace revisions joined by immutable checkpoint references. Official harnesses
 retain their supported native payloads. Code workspace collaboration,
 fork/handoff/rewind, deferred Lor CLI local/cloud handoff, Yjs and the independent code index live in
-`reference/planned/code-channels.md`. Both are design only, not built. Convert the
-main Lor loop to Pi first; harness capabilities belong to the foundation.
+`reference/planned/code-channels.md`. These are design only, not built. The
+phase-1 implementation runbook is `reference/planned/pi-harness-runbook.md`,
+revised to prefer Vercel's Pi adapter, native compaction and existing remote tools,
+with concrete durability/image/control gates before implementation. Runtime
+selection is provisional pending comparison with Pi Durable (G0), omitted from
+the initial review; reject it if it complicates Claude Code/Codex adoption or
+requires separate product/recovery code. Do not build duplicate durability
+machinery first. Every Lor agent chat gets an isolated sandbox on its first run, reused across turns with
+safe standby/recovery; further allocation cost optimization is deferred. Keep its
+internal session core separate from Lor policy/UI; SDK publication is deferred.
+It covers only the main Lor loop's Pi conversion and shared foundation;
+implementation has not started. Update its slices and gates as
+they land. Official provider adapters, Git checkpoints and fork/rewind remain
+in later phases.
 
 ### Attachment search + reranking
 
