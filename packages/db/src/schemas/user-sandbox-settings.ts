@@ -45,3 +45,5 @@ export const userSandboxSettingsRelations = relations(
 )
 
 export type SandboxMode = (typeof sandboxModeEnum.enumValues)[number]
+// A person's sandbox mode, or autonomous for Loop and Act runs (no one to ask).
+export type TurnSandboxMode = SandboxMode | "autonomous"

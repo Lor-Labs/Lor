@@ -22,17 +22,7 @@ import {
 // Flagged calls go to the classifier in 1.3f-3. "ask" pauses the turn like
 // any approval gate. Read-only tools never ask.
 
-export type SandboxOutcome = "allow" | "ask" | "deny"
-
-export type SandboxDecisionRecord = {
-  toolCallId: string
-  toolName: string
-  // The command or path judged.
-  subject: string
-  check: SandboxCheck["kind"]
-  outcome: SandboxOutcome
-  reason: string | null
-}
+type SandboxOutcome = "allow" | "ask" | "deny"
 
 export type SandboxApproval = {
   decide: PiBuiltinToolApproval
@@ -76,7 +66,6 @@ function stringArg(input: unknown, key: string): string {
 export function sandboxToolApproval(input: {
   mode: TurnSandboxMode
   policy: PolicyContext
-  onDecision?: (record: SandboxDecisionRecord) => void
 }): SandboxApproval {
   const askReasons = new Map<string, string>()
   let consecutiveDenials = 0
@@ -94,14 +83,6 @@ export function sandboxToolApproval(input: {
         : checkFileWrite(subject, input.policy)
     const outcome = outcomeFor(input.mode, check)
     const reason = "reason" in check ? check.reason : null
-    input.onDecision?.({
-      toolCallId: call.toolCallId,
-      toolName: call.toolName,
-      subject,
-      check: check.kind,
-      outcome,
-      reason,
-    })
     if (outcome !== "deny") consecutiveDenials = 0
     if (outcome === "allow") return "allow" as const
     if (outcome === "ask") {

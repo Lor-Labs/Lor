@@ -310,7 +310,6 @@ const INPUT_CHANGED_REASON =
   "The approved input does not match this call, so it was not run."
 const NO_DECISION_REASON =
   "No decision was recorded for this action, so it was not run."
-const MAX_DECISION_SUBJECT_CHARS = 2_000
 // A dropped paused turn: Pi reads its calls as "No result provided", so the
 // model is told they never ran and why.
 function droppedTurnNote(drop: PausedTurnDrop): string {
@@ -2931,25 +2930,10 @@ export async function respond(
           )
 
       const conversationId = conversationIdOf(harness.owner)
-      // `bash`, `write` and `edit` under the turn's sandbox mode; every
-      // decision is recorded for tuning and the classifier eval.
+      // `bash`, `write` and `edit` under the turn's sandbox mode.
       const sandboxApproval = sandboxToolApproval({
         mode: harness.sandboxMode,
         policy: { workDir: piWorkDir(SESSION_WORK_DIR, conversationId) },
-        onDecision: (record) => {
-          void db
-            .insert(schema.sandboxDecision)
-            .values({
-              ...record,
-              subject: record.subject.slice(0, MAX_DECISION_SUBJECT_CHARS),
-              workspaceId: ctx.workspaceId,
-              runId: run.runId,
-              mode: harness.sandboxMode,
-            })
-            .catch((err) =>
-              logger.warn({ err }, "Sandbox decision record failed")
-            )
-        },
       })
       const deadline = AbortSignal.timeout(
         Math.max(30_000, budgets.deadlineAt.getTime() - Date.now())

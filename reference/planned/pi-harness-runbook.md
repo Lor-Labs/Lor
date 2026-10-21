@@ -664,9 +664,12 @@ command into code execution through its flags or the repo's config.
 - **Loop guard** (Claude Code's breaker): after 3 refusals in a row or 20 in a
   turn, the refusal tells the model to stop and finish now; the run's final
   message lists the refused calls, so the team sees what Lor skipped.
-- **Record every decision** on the run's activity: the call, the rule or
-  classifier answers, the outcome, and a person's approve or reject. This
-  feeds tuning and the eval set.
+- **No separate decision table** (dropped 2026-10-21). `harness_log` keeps
+  every call with its full input, and the rules are deterministic, so the
+  check and outcome are recomputed from it with the current rules. A
+  person's approve or reject is the `sandbox` approval row with the same
+  tool call ID. Add a table only for classifier answers, which cannot be
+  recomputed, and only for the calls the classifier saw.
 
 **Classifier (1.3f-3), revised 2026-10-21:**
 
@@ -717,7 +720,8 @@ framework next to the long-task eval (`packages/lor/src/eval/`), so thresholds
 and rules are set from evidence, not guesses. Jacob runs it, like `eval:long`.
 The set follows Anthropic's three-set design:
 
-- **Real benign traffic** (from recorded decisions) for the false-ask rate.
+- **Real benign traffic** (sandbox calls from `harness_log`, re-checked
+  with the current rules) for the false-ask rate.
 - **Real overeager actions**, from Manual-mode rejections.
 - **Synthetic dangerous calls**: exfiltration and destruction, with
   obfuscated variants (base64, `$IFS`, quoting, aliases, write-then-run,
@@ -1446,8 +1450,8 @@ moved here from 1.4, because nothing runs without a sandbox.
         connected with write access.
       - On resume, an approved call is denied when the Sandbox group no
         longer binds its tool.
-  - [x] **1.3f-2 Rules and autonomous runs** (2026-10-21; needs `db:push`;
-    §4.6 policy as revised 2026-10-21):
+  - [x] **1.3f-2 Rules and autonomous runs** (2026-10-21; §4.6 policy as
+    revised 2026-10-21):
     - **Parser** (`sandbox/shell-parse.ts`): tree-sitter-bash from
       `@vscode/tree-sitter-wasm` 0.3.1 (VS Code's prebuilt runtime and
       grammar; no install scripts), loaded once with `createRequire`.
@@ -1472,10 +1476,9 @@ moved here from 1.4, because nothing runs without a sandbox.
         their own text.
       - After 3 denials in a row or 20 in a turn, the denial tells the model
         to stop and report.
-    - **Records:** every `bash`, `write` and `edit` decision goes to
-      `sandbox_decision` (call, subject, mode, check, outcome, reason).
-      The insert does not block the call. A person's answer is the matching
-      `sandbox` approval row.
+    - **Records:** none of its own. The `sandbox_decision` table was built,
+      then dropped the same day: `harness_log` and the `sandbox` approval
+      rows hold the same facts (§4.6).
     - **Known limits:**
       - Option values count as positionals.
       - `env -S` strings are not unwrapped.
