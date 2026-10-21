@@ -33,7 +33,7 @@ const SANDBOX_MODE_OPTIONS = [
   },
 ] as const
 
-export default function LorSettingsScreen() {
+export default function SandboxSettingsScreen() {
   const foreground = useThemeColor("foreground")
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -41,7 +41,7 @@ export default function LorSettingsScreen() {
     queryKey: SANDBOX_SETTINGS_KEY,
     queryFn: async () => {
       const response = await api.v1["sandbox-settings"].$get()
-      if (!response.ok) throw new Error("Could not load Lor settings")
+      if (!response.ok) throw new Error("Could not load sandbox settings")
       return response.json()
     },
   })
@@ -95,7 +95,7 @@ export default function LorSettingsScreen() {
           />
         </IconButton>
         <Text className="flex-1 text-[17px] font-bold text-foreground">
-          Lor
+          Sandbox
         </Text>
       </View>
 
@@ -118,12 +118,12 @@ export default function LorSettingsScreen() {
           <View className="gap-two">
             <View className="gap-px px-one">
               <Text className="text-xs font-semibold uppercase tracking-[0.8px] text-muted">
-                Sandbox Commands
+                Approval Mode
               </Text>
               <Text className="text-xs text-muted">
-                When Lor asks before it runs a command or changes a file in
-                turns you start. Anyone in the session can answer. Reading files
-                never asks.
+                Each session has its own sandbox, where Lor runs commands and
+                changes files. Choose when Lor asks first in turns you start.
+                Anyone in the session can answer. Reading files never asks.
               </Text>
             </View>
             <RadioGroup

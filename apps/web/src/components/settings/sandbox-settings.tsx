@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { apiClient } from "@/lib/api-client"
 
 type SandboxMode = "manual" | "auto" | "bypass"
-type SandboxSettings = { sandboxMode: SandboxMode }
+type SandboxSettingsValue = { sandboxMode: SandboxMode }
 
 const SANDBOX_SETTINGS_KEY = ["sandbox-settings"] as const
 
@@ -35,31 +35,34 @@ const SANDBOX_MODE_OPTIONS = [
   },
 ] as const
 
-export function LorSettings() {
+export function SandboxSettings() {
   const queryClient = useQueryClient()
   const { data: settings, isPending } = useQuery({
     queryKey: SANDBOX_SETTINGS_KEY,
     queryFn: async () => {
       const res = await apiClient.v1["sandbox-settings"].$get()
       if (!res.ok) throw new Error("Failed to fetch sandbox settings")
-      return res.json() as Promise<SandboxSettings>
+      return res.json() as Promise<SandboxSettingsValue>
     },
   })
 
   // The select shows the new value at once; a failure puts the old one back.
   const { mutate: updateSettings } = useMutation({
-    mutationFn: async (update: SandboxSettings) => {
+    mutationFn: async (update: SandboxSettingsValue) => {
       const res = await apiClient.v1["sandbox-settings"].$patch({
         json: update,
       })
       if (!res.ok) throw new Error("Failed to update sandbox settings")
-      return res.json() as Promise<SandboxSettings>
+      return res.json() as Promise<SandboxSettingsValue>
     },
     onMutate: async (update) => {
       await queryClient.cancelQueries({ queryKey: SANDBOX_SETTINGS_KEY })
       const previous =
-        queryClient.getQueryData<SandboxSettings>(SANDBOX_SETTINGS_KEY)
-      queryClient.setQueryData<SandboxSettings>(SANDBOX_SETTINGS_KEY, update)
+        queryClient.getQueryData<SandboxSettingsValue>(SANDBOX_SETTINGS_KEY)
+      queryClient.setQueryData<SandboxSettingsValue>(
+        SANDBOX_SETTINGS_KEY,
+        update
+      )
       return { previous }
     },
     onSuccess: (data) => {
@@ -85,19 +88,20 @@ export function LorSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold">Lor</h3>
+        <h3 className="text-lg font-semibold">Sandbox</h3>
         <p className="text-sm text-muted-foreground">
-          How Lor works in turns you start.
+          Each session has its own sandbox, where Lor runs commands and changes
+          files.
         </p>
       </div>
 
       <Separator />
 
       <div className="space-y-2">
-        <Label htmlFor="sandbox-mode">Sandbox commands</Label>
+        <Label htmlFor="sandbox-mode">Approval mode</Label>
         <p className="text-xs text-muted-foreground">
-          When Lor asks before it runs a command or changes a file in its
-          sandbox. Anyone in the session can answer. Reading files never asks.
+          When Lor asks before it runs a command or changes a file in turns you
+          start. Anyone in the session can answer. Reading files never asks.
         </p>
         <Select
           items={SANDBOX_MODE_OPTIONS}

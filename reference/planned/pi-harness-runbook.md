@@ -1347,8 +1347,8 @@ moved here from 1.4, because nothing runs without a sandbox.
   - [x] **1.3f-1 Modes and asking** (2026-10-21; needs `db:push`):
     - **Setting:** `user_sandbox_settings` (one row per user; `manual` /
       `auto` / `bypass`, default `auto`). The API is
-      `GET`/`PATCH /v1/sandbox-settings`. Web shows it in a "Lor" settings
-      tab; mobile shows it on You → Lor.
+      `GET`/`PATCH /v1/sandbox-settings`. Web shows it in a "Sandbox"
+      settings tab; mobile shows it on You → Sandbox.
     - **Frozen mode** (`turnSandboxMode`, worker): the turn's mode is saved
       as `sandboxMode` on the run's request, so a retry keeps it.
       - A resume keeps the paused turn's mode.
