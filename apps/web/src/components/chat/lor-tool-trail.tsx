@@ -84,17 +84,21 @@ export function toolIcon(toolName: string): TrailIcon {
     case "export_tool_result":
       return DownloadGlyph
     case "ls":
-    case "tree":
     case "read":
+    case "memory_ls":
+    case "memory_tree":
+    case "memory_read":
       return ReadGlyph
     case "bash":
       return TerminalGlyph
     case "write":
     case "edit":
     case "create_artifacts":
-    case "mkdir":
-    case "move":
-    case "link":
+    case "memory_write":
+    case "memory_edit":
+    case "memory_mkdir":
+    case "memory_move":
+    case "memory_link":
       return WriteGlyph
     default:
       return WrenchGlyph

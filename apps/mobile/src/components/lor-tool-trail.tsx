@@ -43,17 +43,21 @@ function builtinToolIcon(toolName: string): IconSvgElement {
     case "export_tool_result":
       return Download01Icon
     case "ls":
-    case "tree":
     case "read":
+    case "memory_ls":
+    case "memory_tree":
+    case "memory_read":
       return BookOpen01Icon
     case "bash":
       return TerminalIcon
     case "write":
     case "edit":
     case "create_artifacts":
-    case "mkdir":
-    case "move":
-    case "link":
+    case "memory_write":
+    case "memory_edit":
+    case "memory_mkdir":
+    case "memory_move":
+    case "memory_link":
       return PencilEdit02Icon
     default:
       return Wrench01Icon

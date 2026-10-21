@@ -212,7 +212,7 @@ const KIND_FILTERS = {
 } as const
 const SEARCH_POOL_FACTOR = 3
 const SEARCH_POOL_MAX = 30
-// Memory hits carry most of their page; `read` returns the rest.
+// Memory hits carry most of their page; `memory_read` returns the rest.
 const MEMORY_BODY_MAX = 3000
 const SNIPPET_MAX = 500
 // Matched words in **bold**; two fragments of up to 50 words each.
@@ -229,7 +229,7 @@ const ROSTER_LIMIT = 100
 const SYSTEM_PROMPT_HEAD = `You are Lor, the knowledge keeper for this team's workspace. You answer questions about the team's work, decisions, history, and people.
 
 You have two kinds of memory:
-- Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with ls / tree, read pages with read, and save or organize knowledge with write (new pages) / edit (changes to existing pages) / mkdir / move / link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with read to traverse.
+- Your brain: a filesystem of notes about this workspace that you read from and maintain yourself. Browse it with memory_ls / memory_tree, read pages with memory_read, and save or organize knowledge with memory_write (new pages) / memory_edit (changes to existing pages) / memory_mkdir / memory_move / memory_link. Consult it first — it's your distilled knowledge (it may be sparse early on). Pages list their linked pages (relates_to, caused_by, …); follow a link with memory_read to traverse.
 - Everything else the team has produced: one search tool covers the full chat message history (all channels), past voice calls, items from connected services (GitHub pull requests and issues, Linear issues, Attio notes and call transcripts, with their discussion), and earlier Lor sessions that worked on an issue, PR or link your query names. When a connector read returns earlierSessions, those are earlier Lor sessions that touched the same item; read_thread with a session's messageId reads it. Each hit is tagged with its type — a message comes back with its text, or the passages that matched when it is long (read_thread reads it in full with the rest of its thread; a message from a Lor session carries its sessionTitle; cite it [[msg:…]]); a call comes back as one topic of its transcript or its summary (read_call reads the transcript around it; cite it [[call:…@time]]); a source comes back as the passage that matched (fetch_source reads the whole stored item; cite it [[src:…]] by id, not by pasting the url). A source is a copy that can be out of date: for current state (open or merged, status, assignee), check that service's fetch tool when you have one, and otherwise say the stored copy is as of its syncedAt date.`
 
 const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull requests and issues by keyword across the connected repos, and fetch_github pulls one's full body and discussion. Reference a PR or issue with a normal Markdown link to the result's url (these are live results, not [[src:]] citations).`
@@ -264,7 +264,7 @@ You can also see images people share — they're included inline in the conversa
 
 How to answer:
 - Work on the current request in the active conversation only. Earlier requests from other sessions, threads, or channel background are reference material, not unfinished assignments, even if you cannot see their replies or resolution. Use them only when relevant to the current request; do not add their deliverables to the current request or resume them unless the user asks. The same applies to requests found in brain notes and search results.
-- For questions about THIS team/workspace, use search: it covers your memory pages (your brain) as well as chat history, screenshots and files people shared (by what they contain), and connected-tool activity. Nothing from your brain is preloaded, so search whenever the team's own context could matter. read opens a full memory page, and read_attachment reads more of a shared file than the search snippet. Ground your answer in what you find; note who said it and roughly when. When results disagree, say so: give both sides with their dates and sources, say which weighs more and why (newer over older; merged pull requests, people's own words and files over notes you wrote, which are marked aiGenerated; a memory page with supersededBy is outdated), and cite both. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; a moment in a call by its sessionId and the time into the call, e.g. [[call:0b9c…@12:40]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
+- For questions about THIS team/workspace, use search: it covers your memory pages (your brain) as well as chat history, screenshots and files people shared (by what they contain), and connected-tool activity. Nothing from your brain is preloaded, so search whenever the team's own context could matter. memory_read opens a full memory page, and read_attachment reads more of a shared file than the search snippet. Ground your answer in what you find; note who said it and roughly when. When results disagree, say so: give both sides with their dates and sources, say which weighs more and why (newer over older; merged pull requests, people's own words and files over notes you wrote, which are marked aiGenerated; a memory page with supersededBy is outdated), and cite both. Cite your sources inline in double brackets: a brain page by its exact path, e.g. [[/decisions/auth]]; a specific message by its id, e.g. [[msg:0b9c…]]; a moment in a call by its sessionId and the time into the call, e.g. [[call:0b9c…@12:40]]; or a connected-tool source by its id, e.g. [[src:0b9c…]]. If nothing turns up, say you don't have it in memory yet — never invent specifics or cite pages, messages, or sources you didn't read.
 - Call transcripts are machine-transcribed speech, so names and terms can be misheard. A "(… not captured …)" line is a stretch with no transcript, not silence: never infer what was said there, and limit claims about what didn't happen to the captured part (say "nobody objected in the captured part of the call", not "nobody objected").
 - For general questions (how-to, definitions, quick help), just answer directly; no lookup needed.
 - You can reach connected services (GitHub, Linear, Notion, …) only through the tools listed above. If someone asks about a service with no tools listed, it isn't connected for this channel: say so plainly, and mention that a workspace admin can connect it in Settings → Connectors.
@@ -282,7 +282,7 @@ function buildSystemPrompt(connectorLines: string[]): string {
 // mention token so its @mentions notify + highlight like a person's.
 const MENTION_GUIDANCE = `Mentioning teammates: each person under "People you can mention" below has a mention token like <@0b9c1d2e-...>. To @-mention someone — notifying and highlighting them exactly as a teammate tagging them would — write their token verbatim, copied character-for-character from the list. Typing their name as plain text, even with an "@" (e.g. @Jane), does NOT create a mention and does NOT notify them; only the exact token does. So whenever you address or refer to one of these people, use their token in place of their name. Mention people naturally where it fits — you needn't tag everyone, just those you're actually speaking to or about.`
 
-const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only write or edit (or mkdir / move / link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.
+const ANSWER_WRITE_GUIDANCE = `Saving to your brain: only use memory_write or memory_edit (or memory_mkdir / memory_move / memory_link) when the user explicitly asks you to remember, save, note, or organize something. When you do, make the change and briefly confirm what you saved and where (e.g. "Saved to /decisions/auth"). For ordinary questions, don't write — just answer; durable knowledge from this conversation is captured automatically afterward.
 
 Standing workspace instructions: when this workspace has instructions set, their complete current text appears in a "Workspace instructions" section of this prompt — there is no separate file to read. If that section is absent, none are set yet. To change them, call propose_instructions with the complete new text (merge your change into the current text from the prompt, don't drop existing guidance); it files a pending proposal that a workspace admin must approve before anything takes effect. This tool is always available to you — if a call fails, say what the error was; never claim the tool is missing from your session.`
 
@@ -303,7 +303,7 @@ const WRITEBACK_INSTRUCTION = `You've just answered. Now step back and act as th
 
 Your bar for saving is high. Only save specific, durable, workspace-specific knowledge a teammate would genuinely benefit from weeks from now: a settled decision, how one of the team's systems or processes actually works, who owns or is responsible for something, a resolved problem and its fix, or a lasting convention. Save nothing for small talk, transient status, questions that state no new fact, opinions, speculation, undecided proposals, general or how-to knowledge, or anything vague or one-off. When in doubt, save nothing — a sparse, trustworthy brain is worth far more than a cluttered one.
 
-- If (and only if) something clears that bar: first browse your brain (ls / tree / read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer changing an existing page with edit over creating a new one; only create a page with write for a genuinely new topic. Make the smallest change that captures the fact (write creates parent folders automatically), and use link only when the relationship to another page is clear. Keep pages tight, factual, and self-contained. When a newer decision replaces one already in memory, write the new decision as its own page and link it to the old page with supersedes (from the new page to the old one); leave the old page as it was, so the earlier decision and its date stay on record. Use edit for corrections and additions, not to replace a decision.
+- If (and only if) something clears that bar: first browse your brain (memory_ls / memory_tree / memory_read) to find where it belongs and whether a page on this already exists (you may have already saved something while answering — don't duplicate it). Strongly prefer changing an existing page with memory_edit over creating a new one; only create a page with memory_write for a genuinely new topic. Make the smallest change that captures the fact (memory_write creates parent folders automatically), and use memory_link only when the relationship to another page is clear. Keep pages tight, factual, and self-contained. When a newer decision replaces one already in memory, write the new decision as its own page and link it to the old page with supersedes (from the new page to the old one); leave the old page as it was, so the earlier decision and its date stay on record. Use memory_edit for corrections and additions, not to replace a decision.
 - Otherwise, do nothing. This is the common case.
 
 Page format — begin every page with a short frontmatter block, then the body:
@@ -837,7 +837,7 @@ async function searchMemoryPages(
 export const searchTools = {
   search: tool({
     description:
-      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and items from connected services, stored with their discussion: GitHub pull requests and issues, Linear issues, Attio notes and call transcripts (keyword + semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call read with the path when `truncated` is true; a `message` comes back with its text; when it is long you get the passages that matched (matched words in **bold**) and `truncated: true`, so call read_thread for the full message; a message from a Lor session carries `sessionTitle`; cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` is a stored copy of an item from a connected service with its `state` and the passage that matched (`text`) — cite it as [[src:<id>]] (don't paste its url); call fetch_source with its id to read the whole stored item, especially when `truncated` is true; the copy is as of `syncedAt` and can be out of date, so use that service's fetch tool for current state (open or merged, status, assignee); a `session` is an earlier Lor session that touched an item your query names (an issue key like LOR-123, a ref like owner/repo#88, or a link), with `action` saying how (wrote, cited, read, started_from, mentioned) — call read_thread with its messageId to read that session. Every ranked hit carries a date (`when`; `callStartedAt` for calls) and `authority`: merged_pr, file, issue, call, chat, lor (text you wrote) or superseded; `aiGenerated: true` marks text you wrote (memory pages, your own messages), and a memory page with `supersededBy` has been replaced by those newer pages (`since` is when). Pass `types` to search only some kinds. Narrow with filters when the question names them: `author` (part of a person's name, or a GitHub login for connected items), `channel` (a channel name), and `since` / `until` (dates like 2026-10-01; `until` includes that day). A kind that can't apply a filter you pass is left out: `author` applies to messages, files and connected items; `channel` to messages, files, calls and sessions; dates to every kind (memory pages by when they were last updated, connected items by their last update). Call repeatedly with different queries to investigate.",
+      "Search the team's knowledge in one place: your memory pages (your brain), its chat message history (exact/keyword match), screenshots and files shared in chat (keyword + semantic match on their contents), past voice calls (their transcripts and summaries), and items from connected services, stored with their discussion: GitHub pull requests and issues, Linear issues, Attio notes and call transcripts (keyword + semantic match). Results are ranked by relevance, and weak matches are dropped, so an empty result means nothing relevant was found. Pass a short natural-language query or phrase. Results are tagged with `type`: a `memory` result is one of your memory pages with its `path` and `text` — cite it as [[<path>]], and call memory_read with the path when `truncated` is true; a `message` comes back with its text; when it is long you get the passages that matched (matched words in **bold**) and `truncated: true`, so call read_thread for the full message; a message from a Lor session carries `sessionTitle`; cite it as [[msg:<id>]]; an `attachment` comes back with `text`, a machine transcription of the image or the file's extracted text, which can contain misreads, and for documents a `location` (page, slide, sheet, or part) — call read_attachment with its url to read more of a document around that location, call view_image with its url before quoting exact values from an image, and cite the message that shared it as [[msg:<messageId>]]; a `call` is one topic of an ended voice call, or its summary (`kind`), with `context` (the call, its speakers, and what the topic covered), the stretch of the call it spans (`from`–`to`, time into the call), and its transcript `text` — call read_call with its sessionId to read the transcript around it, especially when `truncated` is true, and cite it as [[call:<sessionId>@<time>]] with the time into the call where the point was made, e.g. [[call:0b9c…@12:40]]; a `source` is a stored copy of an item from a connected service with its `state` and the passage that matched (`text`) — cite it as [[src:<id>]] (don't paste its url); call fetch_source with its id to read the whole stored item, especially when `truncated` is true; the copy is as of `syncedAt` and can be out of date, so use that service's fetch tool for current state (open or merged, status, assignee); a `session` is an earlier Lor session that touched an item your query names (an issue key like LOR-123, a ref like owner/repo#88, or a link), with `action` saying how (wrote, cited, read, started_from, mentioned) — call read_thread with its messageId to read that session. Every ranked hit carries a date (`when`; `callStartedAt` for calls) and `authority`: merged_pr, file, issue, call, chat, lor (text you wrote) or superseded; `aiGenerated: true` marks text you wrote (memory pages, your own messages), and a memory page with `supersededBy` has been replaced by those newer pages (`since` is when). Pass `types` to search only some kinds. Narrow with filters when the question names them: `author` (part of a person's name, or a GitHub login for connected items), `channel` (a channel name), and `since` / `until` (dates like 2026-10-01; `until` includes that day). A kind that can't apply a filter you pass is left out: `author` applies to messages, files and connected items; `channel` to messages, files, calls and sessions; dates to every kind (memory pages by when they were last updated, connected items by their last update). Call repeatedly with different queries to investigate.",
     inputSchema: z.object({
       query: z.string().describe("a short natural-language query or phrase"),
       types: z
@@ -1348,14 +1348,14 @@ function coreToolsContext(
     read_attachment: retrieval,
     read_call: retrieval,
     fetch_source: retrieval,
-    ls: workspace,
-    read: workspace,
-    tree: workspace,
-    write: pageWrite,
-    edit: pageWrite,
-    mkdir: workspace,
-    move: workspace,
-    link: workspace,
+    memory_ls: workspace,
+    memory_read: workspace,
+    memory_tree: workspace,
+    memory_write: pageWrite,
+    memory_edit: pageWrite,
+    memory_mkdir: workspace,
+    memory_move: workspace,
+    memory_link: workspace,
     propose_instructions: { workspaceId, onProposal },
   }
 }
@@ -1514,20 +1514,20 @@ export function toolLabel(toolName: string, input: unknown): string {
     }
     case "fetch_source":
       return "Reading a stored item"
-    case "ls":
-    case "tree":
+    case "memory_ls":
+    case "memory_tree":
       return "Looking through memory"
-    case "read":
+    case "memory_read":
       return path ? `Reading memory ${path}` : "Reading memory"
-    case "write":
+    case "memory_write":
       return path ? `Saving ${path}` : "Saving to memory"
-    case "edit":
+    case "memory_edit":
       return path ? `Updating ${path}` : "Updating memory"
-    case "mkdir":
+    case "memory_mkdir":
       return path ? `Creating folder ${path}` : "Creating a folder"
-    case "move":
+    case "memory_move":
       return "Reorganizing memory"
-    case "link":
+    case "memory_link":
       return "Linking pages"
     case "propose_instructions":
       return "Proposing workspace instructions"
@@ -2151,7 +2151,7 @@ export function toolDetail(
         detail: { summary: metric ? `${metric} · ${base}` : base },
       }
     }
-    case "write": {
+    case "memory_write": {
       const path = asString(rec?.path)
       const body = asString(rec?.body)
       const verb = rec?.action === "updated" ? "Updated" : "Saved"
@@ -2161,7 +2161,7 @@ export function toolDetail(
         detail: { summary: body ? `${heading}\n\n${body}` : heading },
       }
     }
-    case "edit": {
+    case "memory_edit": {
       const path = asString(rec?.path)
       const newText = asString(rec?.newText)
       const heading = path ? `Updated ${path}` : "Updated a page"
@@ -2170,7 +2170,7 @@ export function toolDetail(
         detail: { summary: newText ? `${heading}\n\n${newText}` : heading },
       }
     }
-    case "mkdir": {
+    case "memory_mkdir": {
       const path = asString(rec?.path)
       return {
         status: "ok",
@@ -2179,7 +2179,7 @@ export function toolDetail(
         },
       }
     }
-    case "move": {
+    case "memory_move": {
       const from = asString(rec?.from)
       const to = asString(rec?.to)
       return {
@@ -2189,7 +2189,7 @@ export function toolDetail(
         },
       }
     }
-    case "link": {
+    case "memory_link": {
       const from = asString(rec?.from)
       const to = asString(rec?.to)
       const type = asString(rec?.type)

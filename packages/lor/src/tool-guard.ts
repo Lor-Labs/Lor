@@ -10,11 +10,11 @@ import type { RunToolResultStore } from "./run"
 // account of "what did that run actually do" for the Act handoff briefing
 // (reference/automation-primitives.md §5).
 export const SIDE_EFFECT_TOOLS = new Set([
-  "write",
-  "edit",
-  "mkdir",
-  "move",
-  "link",
+  "memory_write",
+  "memory_edit",
+  "memory_mkdir",
+  "memory_move",
+  "memory_link",
   "create_linear_issue",
   "update_linear_issue",
   "comment_linear",

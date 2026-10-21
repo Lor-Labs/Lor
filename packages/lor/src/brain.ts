@@ -191,7 +191,7 @@ async function listedFolders(
   const folders = matches.filter((m) => m.kind === "folder").map((m) => m.id)
   if (folders.length > 0) return folders
   return matches.length > 0
-    ? `${path} is a page — use read`
+    ? `${path} is a page — use memory_read`
     : `no such path: ${path}`
 }
 
@@ -309,7 +309,7 @@ export async function readPage(
   )
   if (resolved === null) return { error: `no such path: ${path}` }
   if (resolved === "root" || resolved.kind === "folder") {
-    return { error: `${path} is a folder — use ls` }
+    return { error: `${path} is a folder — use memory_ls` }
   }
   const page = await db
     .select({
@@ -616,7 +616,7 @@ function scopedSegments(path: string, scope: BrainWriteScope | null) {
 }
 
 const alreadyExists = (path: string) =>
-  `${path} already exists. Read it, then use edit to change it.`
+  `${path} already exists. Read it with memory_read, then use memory_edit to change it.`
 
 // Create only: changing an existing page goes through editPage, so a rewrite
 // can never silently drop facts (session-memory.md decision 10).
@@ -956,8 +956,10 @@ function writeScopeOf(context: {
     : null
 }
 
+// Named memory_* because Pi's sandbox file tools own ls/read/write/edit
+// (reference/planned/pi-harness-runbook.md §4.6).
 export const brainReadTools = {
-  ls: tool({
+  memory_ls: tool({
     description:
       "List the immediate children (folders and pages) of a brain folder. Path '/' is the root.",
     inputSchema: z.object({
@@ -968,7 +970,7 @@ export const brainReadTools = {
       wrap(() => ls(context.workspaceId, path, context.scopeChannelId ?? null)),
     strict: true,
   }),
-  read: tool({
+  memory_read: tool({
     description: "Read a brain page's contents and its linked pages, by path.",
     inputSchema: z.object({
       path: z.string().describe("page path, e.g. /people/alice"),
@@ -980,7 +982,7 @@ export const brainReadTools = {
       ),
     strict: true,
   }),
-  tree: tool({
+  memory_tree: tool({
     description:
       "Show the brain's folder/page structure under a path, nested to a depth (default 2).",
     inputSchema: z.object({
@@ -1002,9 +1004,9 @@ export const brainReadTools = {
 }
 
 export const brainWriteTools = {
-  write: tool({
+  memory_write: tool({
     description:
-      "Create a new brain page at a path (parent folders are created automatically). Fails if the page already exists; change an existing page with edit.",
+      "Create a new brain page at a path (parent folders are created automatically). Fails if the page already exists; change an existing page with memory_edit.",
     inputSchema: z.object({
       path: z.string().describe("page path, e.g. /decisions/auth"),
       body: z.string().describe("the page contents (Markdown)"),
@@ -1029,7 +1031,7 @@ export const brainWriteTools = {
     },
     strict: true,
   }),
-  edit: tool({
+  memory_edit: tool({
     description:
       "Change part of an existing brain page: replace oldText, which must appear exactly once in the page, with newText. The rest of the page stays as it is. Read the page first and copy oldText exactly.",
     inputSchema: z.object({
@@ -1062,7 +1064,7 @@ export const brainWriteTools = {
     },
     strict: true,
   }),
-  mkdir: tool({
+  memory_mkdir: tool({
     description: "Create a brain folder (and any missing parent folders).",
     inputSchema: z.object({
       path: z.string().describe("folder path"),
@@ -1074,7 +1076,7 @@ export const brainWriteTools = {
       ),
     strict: true,
   }),
-  move: tool({
+  memory_move: tool({
     description: "Move or rename a brain node (folder or page).",
     inputSchema: z.object({
       from: z.string().describe("current path"),
@@ -1087,7 +1089,7 @@ export const brainWriteTools = {
       ),
     strict: true,
   }),
-  link: tool({
+  memory_link: tool({
     description:
       "Create a typed link between two brain pages from the fixed set of edge types. For supersedes, link from the newer page to the page it replaces; the old page then shows as outdated in search.",
     inputSchema: z.object({

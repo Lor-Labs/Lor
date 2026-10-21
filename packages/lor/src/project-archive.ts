@@ -43,7 +43,7 @@ Write brain pages under the folder path you are given:
 - Capture what the project set out to do, the key decisions AND their rationale, the outcome, and any follow-ups or loose ends.
 - A few focused pages beat many shallow ones; one page is fine for a small project.
 - Write conclusions the team should remember, not a play-by-play. Leave out sensitive interpersonal details.
-- Use the link tool (supersedes / part_of / relates_to) when a page supersedes or extends existing workspace memory. A decision that replaces an earlier one goes on its own page, linked supersedes from the new page to the old one; never rewrite the old decision.
+- Use the memory_link tool (supersedes / part_of / relates_to) when a page supersedes or extends existing workspace memory. A decision that replaces an earlier one goes on its own page, linked supersedes from the new page to the old one; never rewrite the old decision.
 
 Then reply with your final message: a concise closing summary to post in the project's channel — the outcome, the key decisions, and any follow-ups. A few short paragraphs or bullets, plain markdown, no heading. Do not mention memory tools or file paths.`
 
@@ -260,14 +260,17 @@ export async function synthesizeProjectArchive(
       read_attachment: retrieval,
       read_call: retrieval,
       fetch_source: retrieval,
-      ls: readContext,
-      read: readContext,
-      tree: readContext,
-      write: { workspaceId: args.workspaceId, onWrite: onMemoryWritten },
-      edit: { workspaceId: args.workspaceId, onWrite: onMemoryWritten },
-      mkdir: { workspaceId: args.workspaceId },
-      move: { workspaceId: args.workspaceId },
-      link: { workspaceId: args.workspaceId },
+      memory_ls: readContext,
+      memory_read: readContext,
+      memory_tree: readContext,
+      memory_write: {
+        workspaceId: args.workspaceId,
+        onWrite: onMemoryWritten,
+      },
+      memory_edit: { workspaceId: args.workspaceId, onWrite: onMemoryWritten },
+      memory_mkdir: { workspaceId: args.workspaceId },
+      memory_move: { workspaceId: args.workspaceId },
+      memory_link: { workspaceId: args.workspaceId },
       ...(github
         ? {
             search_github: {

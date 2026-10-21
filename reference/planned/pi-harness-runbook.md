@@ -1097,12 +1097,25 @@ moved here from 1.4, because nothing runs without a sandbox.
     replace after a format conversion) plus the new head. Session affinity also
     rides `x-session-id`. `pi-ai` is now a direct dependency; the sandbox bridge
     defaults commands to `/workspace`.
-  - [ ] **1.3c-2:** replace the `streamText` loop in `respond` with
+  - [x] **1.3c-2a Memory tool rename** (2026-10-21, pulled forward from 1.3d):
+    the adapter registers Pi's built-ins and host tools in one list, so Lor's
+    `ls`/`read`/`write`/`edit` would collide and a Pi turn could not start. The
+    brain tools are now `memory_ls`, `memory_read`, `memory_tree`,
+    `memory_write`, `memory_edit`, `memory_mkdir`, `memory_move` and
+    `memory_link` ("memory" is the UI's word). Updated: tool keys and their
+    execute contexts (`respond`, project archive), prompts and tool error
+    texts, `toolLabel`/`toolDetail`, `SIDE_EFFECT_TOOLS` (so the export deny
+    list), touches, the web and mobile trail icons, and the custom-tool
+    reserved names, which now also hold `bash`, `read`, `write`, `edit`,
+    `grep`, `find`, `glob` and `ls`. Brain tools are not approval targets, so no
+    stored policy changes. Old messages keep their old tool names and show the
+    generic icon.
+  - [ ] **1.3c-2b:** replace the `streamText` loop in `respond` with
     `runPiTurn`; open the session sandbox; build the turn prompt (the initial
     context text-first with labeled images, or the delta since the last saved
     turn); save inside the worker's settle transaction; the lost-files notice
     and the capacity error. Keep context building.
-- [ ] **1.3d Tools:** the stable tool list, renamed brain tools, exact execute
+- [ ] **1.3d Tools:** the stable tool list, exact execute
   context, output limits, the Sandbox tool group, current event consumers.
 - [ ] **1.3e Approvals:** schema moved from 1.2 (§4.2: drop the one-pending
   indexes, add `(run_id, tool_call_id)`, `harness_approval_id`, `kind`, input

@@ -210,9 +210,9 @@ const CORE_SPECS: Record<
   read_thread: (input) => [touchOf("message", str(input, "messageId"), "read")],
   read_call: (input) => [touchOf("call", str(input, "sessionId"), "read")],
   fetch_source: (input) => [touchOf("source", str(input, "id"), "read")],
-  read: (input) => [brainPathOf(str(input, "path"), "read")],
-  write: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
-  edit: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
+  memory_read: (input) => [brainPathOf(str(input, "path"), "read")],
+  memory_write: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
+  memory_edit: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
 }
 
 function touchOf(
