@@ -96,7 +96,7 @@ is needed instead, retain the same control contract over RPC.
 | Steering/stop | Preserve ordered input and exactly-once consumption of durable steering rows. Stop/lease loss must prevent the next request/tool dispatch; handle already-running tools explicitly. |
 | Recovery | Phase 1 saves native state per completed turn and at approval/stop boundaries; a failed save fails the run. A worker crash mid-turn re-runs that turn from the last save. An event listener that reports/swallows errors is not a durability gate. Mid-turn native recovery is deferred. |
 | Skills/commands | One scoped resource catalogue and version manifest. Lor owns product commands such as fork/rewind/share; runtime-native commands are capability advertised. Terminal-only commands need not exist in the web UI. |
-| Identity | Each run resolves driver, runtime and paying credential owner. Fork/takeover never copies credentials. Managed Loops use an authorized workspace billing mode; personal subscription use remains personal. |
+| Identity | Each turn resolves its starter, runtime and paying credential owner. Anyone in the session can start a turn; there is no single driver. Forks never copy credentials. Managed Loops use an authorized workspace billing mode; personal subscription use remains personal. |
 
 The current tool-result cache reduces duplicate side effects but has best-effort
 writes. Do not describe it as exactly-once execution, and do not automatically
@@ -258,8 +258,8 @@ Preserve decisions, goals, relevant tool results, plan, referenced artifacts and
 working notes; mark their source and boundary. Use a supported import path or an
 explicit bootstrap input. Passing an old message array to `HarnessAgent` does not
 import it. Do not transfer hidden reasoning, credentials, pending tool calls or
-approval grants. Resolve/stop active work first. A new driver uses their own
-authorized tools; inherited visibility must not exceed the parent's scope.
+approval grants. Resolve/stop active work first. The person who forks uses their
+own authorized tools; inherited visibility must not exceed the parent's scope.
 
 ### Strict rewind and memory
 
@@ -358,7 +358,7 @@ block this phase.
 - [ ] Implement the manifest, workspace writer generation, consistent finalization, conditional publication and sandbox rebuild at a completed-turn boundary.
 - [ ] Add official Claude Code/Codex adapters to the phase-1 contract. Validate their native persistence/fork boundaries and resource paths individually; no generic JSONL rewriting.
 - [ ] Persist their available message/tool/file activity into the same Postgres view, reconcile missing stream items where supported, and retain native recovery payloads separately from that view.
-- [ ] Expose eligible personal authentication using each provider's supported flow and current commercial terms. Keep credentials out of snapshots; never share one person's subscription between drivers. Subscription access is not a prerequisite for shipping managed Pi.
+- [ ] Expose eligible personal authentication using each provider's supported flow and current commercial terms. Keep credentials out of snapshots; never share one person's subscription with other people in the session. Subscription access is not a prerequisite for shipping managed Pi.
 
 ### Phase 3 — Fork, handoff and strict rewind
 
@@ -391,7 +391,7 @@ the agreed behavior should be brought back as a concrete tradeoff.
 - CLI transport/version compatibility and local/cloud ownership-transfer UX; precise commands are not yet specified.
 - Full filesystem snapshot allowlist, large artifacts, child-session persistence and runtime-specific restore path handling.
 - How much historical context a cross-harness handoff imports, with clear user-visible limits.
-- **Model selection (product decision, open; Jacob's direction 2026-10-20).** No per-chat model picker in ordinary chat and cowork sessions: most people should not have to choose a model. Instead, a workspace admin setting picks the default main and small model for the built-in Lor harness, from open-weight and proprietary models, with each model's charges shown. A picker in the composer may make sense only in code channels, where people know which model they want for which task. Today one global main/small model comes from env (`packages/lor/src/models.ts`), and no picker exists. This changes the earlier plans: `workspace-model.md` decision 6 mentions a model picker in the composer's Lor state, and `workspace-model-runbook.md` lists "a real per-session picker" as later work.
+- **Model selection (shape decided 2026-10-21; admin setting details open).** No model picker in ordinary chat and cowork sessions: most people should not have to choose a model. A workspace admin setting picks the default main and small model for the built-in Lor harness, from open-weight and proprietary models, with each model's charges shown. Code sessions show harness and model pickers. People who connected a personal subscription (Claude, ChatGPT) also see a harness picker in chat sessions, so their own plan pays for ordinary chat. The harness is fixed per session and the credential is resolved per turn ([code-channels.md](code-channels.md) §2 "Modes and repos"). Today one global main/small model comes from env (`packages/lor/src/models.ts`), and no picker exists. This changes the earlier plans: `workspace-model.md` decision 6 (amended) and the "real per-session picker" later-work item in `workspace-model-runbook.md`.
 - Provider-specific hosted authentication eligibility. The Vercel adapters' subscription modes read the host user's own credential files (single developer). Anthropic's Agent SDK docs state that third parties may not offer claude.ai login or rate limits without prior approval, and OpenAI requires an interest form for remotely hosted apps; confirm with both vendors before planning phase 2 around personal subscriptions. Direct subscription inference remains deferred, irrespective of that eligibility.
 
 ## Sources and scope

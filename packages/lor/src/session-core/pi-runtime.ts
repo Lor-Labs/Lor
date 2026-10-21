@@ -290,7 +290,8 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
       ? { toolsContext: input.toolsContext as never }
       : {}),
     headers: { "x-session-id": input.sessionKey },
-    sandboxConfig: { workDir: "." },
+    // No fixed workDir: the adapter's fs redirect is process-wide and keyed by
+    // sandbox path, so each session keeps its own `/workspace/pi-<sessionId>`.
   })
 
   const session = await agent.createSession({

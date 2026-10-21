@@ -52,7 +52,10 @@ places.
    history, so Lor reads them as context on its next turn.
 6. **The composer shows where a message goes before it is sent.** It changes
    to a Lor state (for example, it shows the model picker) when the message
-   goes to Lor, and animates between states.
+   goes to Lor, and animates between states. Planned change (2026-10-21,
+   `planned/code-channels.md` §2): chat sessions show no model picker and use
+   the workspace default; people with a connected personal subscription see a
+   harness picker; code sessions show harness and model pickers.
 7. **`@Lor` in channel chat starts a new session.** Nothing posts in the
    chat. The user stays on the channel after sending, and the session appears
    under the channel in the sidebar. Users can send many in a row, so sessions
@@ -113,7 +116,9 @@ places.
       behavior). New users land in `#general`.
     - "New session" (a sidebar button and ⌘N) opens an empty session in the
       main area: a centered prompt box with the current channel selected,
-      changeable before sending.
+      changeable before sending. Planned (2026-10-21): a `Chat | Code` switch
+      in that box, with a repository picker in Code mode
+      (`planned/code-channels.md` §2).
     - The channel page is the chat. A "Sessions" button in the channel header
       opens the channel's full session list as a new right-panel view type,
       with active and archived filters.
@@ -168,7 +173,8 @@ Features that put Lor or machine content in channel chat today.
    each run, and post an auto-pause note.
    - Locked: a loop is one recurring session, so Lor sees past runs as
      context. Each fire adds a turn. Loop runs already share one scope
-     (`scopeKey = loop.id`).
+     (`scopeKey = loop.id`). Planned exception (2026-10-21): code Loops start
+     a new code session per fire, for review (`planned/code-channels.md` §2).
    - Locked: each connector-trigger event starts a new session. Act effects
      run in a session.
    - Locked: `post_channel_message` goes away, with no exception for loops.
@@ -232,4 +238,4 @@ The pass over existing features is complete as of 2026-10-08.
 | A separate inbox view for sessions | The sidebar already groups sessions under channels; revisit only if it gets too long to scan |
 | A decision model (Jev, Clef) routes each session message | Brings back the placement-router problem; the composer would flip while typing; wrong calls cost trust. A model may suggest a mention, never reroute |
 | Call Lor's work "threads" (2026-10-08) | Collides with human reply threads, which stay. Only works if human threads are dropped for quoted replies; Jacob kept both |
-| One driver per session, or only the starter types | Less multiplayer. May come back for code sessions, where two people steering one working copy is a real conflict |
+| One driver per session, or only the starter types | Less multiplayer. Jacob confirmed on 2026-10-21 that code sessions also let everyone type; one Lor turn runs at a time |

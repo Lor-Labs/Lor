@@ -1086,7 +1086,9 @@ moved here from 1.4, because nothing runs without a sandbox.
     `HarnessAgent` with every §4.9 override (explicit Gateway `auth` record via
     `piGatewayAuth()` in `models.ts`, `reattachInProcess: false`,
     `contextFiles: false`, `skills: false`, Lor's `systemPrompt`, the adapter's
-    state folder in `deniedRoots`, `workDir: "."` on `/workspace`), the window
+    state folder in `deniedRoots`, the default per-session work folder
+    `/workspace/pi-<sessionId>` on the persistent disk — never a shared fixed
+    folder, see §4.9, and tool caches stay outside it), the window
     override (Lor's gateway models from Pi's catalog, each capped at
     `LOR_CONTEXT_WINDOW`), and a trusted extension that adds `models`, `order`
     and the Lor session id to every agent-loop request and runs the load check

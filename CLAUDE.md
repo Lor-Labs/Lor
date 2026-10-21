@@ -131,7 +131,9 @@ Lor-owned memory/permissions/approvals/budgets, native runtime persistence and
 completed-turn checkpoints. Postgres owns native Pi state and common durable
 activity history for every harness; private Git holds
 workspace revisions joined by immutable checkpoint references. Official harnesses
-retain their supported native payloads. Code workspace collaboration,
+retain their supported native payloads. Code sessions are a mode of the same
+session (`Chat | Code` at the start, one repo each), not a separate channel
+type. Code workspace collaboration,
 fork/handoff/rewind, deferred Lor CLI local/cloud handoff, Yjs and the independent code index live in
 `reference/planned/code-channels.md`. These are design only, not built. The
 phase-1 implementation runbook is `reference/planned/pi-harness-runbook.md`.

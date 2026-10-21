@@ -18,8 +18,9 @@ Build voice channels and conversation memory first; add live voice interaction
 with Lor afterward. The guiding scope, phases, and open decisions live in
 [`voice-channels.md`](./voice-channels.md).
 
-Code channels remain a future direction with an unresolved interaction design;
-their target architecture is recorded in [`code-channels.md`](./planned/code-channels.md).
+Code sessions remain a future direction. Their product shape (a Code mode for
+sessions in any channel, decided 2026-10-21) and target architecture are
+recorded in [`code-channels.md`](./planned/code-channels.md).
 Direct multiplayer document editing, including shared cursors and comments,
 also remains part of the broader vision but is not a prerequisite for this phase.
 These priorities do not set a public launch date or imply native voice is built.
