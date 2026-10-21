@@ -2,6 +2,7 @@ import { memo, useMemo } from "react"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { LorActivity, LorActivityGroup } from "@/components/chat/lor-activity"
 import { LorCompactionDivider } from "@/components/chat/lor-compaction-divider"
+import { LorFailureNotice } from "@/components/chat/lor-failure-notice"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
 import { LorToolTrail } from "@/components/chat/lor-tool-trail"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
@@ -309,17 +310,22 @@ export const LorMessageBody = memo(function LorMessageBody({
           })}
         </LorActivity>
       )}
-      {answer?.kind === "text" && (
+      {answer?.kind === "text" && !failed && (
         <MessageMarkdown
           content={answer.text}
           mentions={mentions}
           onCitationJump={onCitationJump}
         />
       )}
-      {failed && !answer && (
-        <p className="text-sm text-muted-foreground italic">
-          Lor couldn't finish this response.
-        </p>
+      {/* A failed run's text is the worker's failure message, not an answer. */}
+      {failed && (
+        <LorFailureNotice
+          text={
+            answer?.kind === "text"
+              ? answer.text
+              : "Lor couldn't finish this response."
+          }
+        />
       )}
       {deliverables.length > 0 && (
         <div className="mt-2 flex flex-col gap-1.5">

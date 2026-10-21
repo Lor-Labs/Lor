@@ -31,9 +31,17 @@ const WAIT_MAX_MS = 1000
 
 export const SESSION_WORK_DIR = WORKSPACE_MOUNT
 
+// Blaxel's QUOTA_EXCEEDED means the account's tier memory limit is reached,
+// not a sandbox count; its own message names the limit, so it is kept.
 export class SandboxCapacityError extends Error {
-  constructor() {
-    super("Sandbox capacity is full (quota exceeded)")
+  constructor(cause: unknown) {
+    const detail =
+      cause instanceof Error
+        ? cause.message
+        : typeof cause === "object" && cause !== null
+          ? JSON.stringify(cause).slice(0, 500)
+          : String(cause)
+    super(`Sandbox capacity is full (quota exceeded): ${detail}`, { cause })
     this.name = "SandboxCapacityError"
   }
 }
@@ -67,7 +75,7 @@ async function createSessionSandbox(name: string): Promise<SandboxInstance> {
   const sandbox = await SandboxInstance.createIfNotExists(
     baseConfig(name)
   ).catch((err: unknown) => {
-    if (hasCode(err, ["QUOTA_EXCEEDED"])) throw new SandboxCapacityError()
+    if (hasCode(err, ["QUOTA_EXCEEDED"])) throw new SandboxCapacityError(err)
     throw err
   })
   const health = await probeSandbox(sandbox).catch((err: unknown) => {

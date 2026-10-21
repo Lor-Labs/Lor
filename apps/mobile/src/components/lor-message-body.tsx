@@ -1,7 +1,8 @@
 import { useMemo } from "react"
-import { Text, View } from "react-native"
+import { View } from "react-native"
 import { FileChip } from "@/components/file-chip"
 import { LorActivity } from "@/components/lor-activity"
+import { LorFailureNotice } from "@/components/lor-failure-notice"
 import { LorReasoning } from "@/components/lor-reasoning"
 import { LorToolTrail } from "@/components/lor-tool-trail"
 import { MessageContent } from "@/components/message-content"
@@ -126,7 +127,7 @@ export function LorMessageBody({
           {activitySegments.map(renderSegment)}
         </LorActivity>
       ) : null}
-      {answer?.kind === "text" ? (
+      {answer?.kind === "text" && !failed ? (
         <MessageContent
           content={answer.text}
           mentions={message.mentions}
@@ -134,10 +135,15 @@ export function LorMessageBody({
           streaming={streaming && answerIndex === segments.length - 1}
         />
       ) : null}
-      {failed && !answer ? (
-        <Text className="text-sm italic text-muted">
-          Lor couldn't finish this response.
-        </Text>
+      {/* A failed run's text is the worker's failure message, not an answer. */}
+      {failed ? (
+        <LorFailureNotice
+          text={
+            answer?.kind === "text"
+              ? answer.text
+              : "Lor couldn't finish this response."
+          }
+        />
       ) : null}
       {deliverables.length > 0 ? (
         <View className="mt-one max-w-[420px] gap-one">
