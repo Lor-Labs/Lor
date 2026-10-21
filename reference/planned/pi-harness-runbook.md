@@ -534,9 +534,9 @@ user settings (a per-user row, like `user_notification_settings`):
 
 | Mode | `bash`, `write`, `edit` | Read-only tools |
 |---|---|---|
-| Manual | Ask before every call | Never ask |
-| Auto | A classifier allows routine calls and asks for potentially destructive ones | Never ask |
-| Bypass | Allow every call | Never ask |
+| Manual | Ask before every call, except known-safe read-only commands (2026-10-21) | Never ask |
+| Auto | Allow routine calls; flagged calls go to the classifier, which allows or asks (revised 2026-10-21) | Never ask |
+| Bypass | Allow every call except the hard rules (2026-10-21) | Never ask |
 
 - **Auto classifier:** a decision model, TypeSafe's Jev (`typesafe-ai/jev`
   through the Gateway), called with `experimental_decide` (available in
@@ -564,97 +564,174 @@ user settings (a per-user row, like `user_notification_settings`):
 - **Who approves:** anyone in the session (sessions are multiplayer), with the
   usual floor of channel write access. Anyone can also interrupt by **steering**
   (§4.2); a message that only queues waits for the decision.
-- **Loop and Act runs are autonomous** and never ask. They use the classifier
-  only, with a higher tolerance than chats: only a clearly dangerous call is
-  refused. A refused call returns a tool result telling the model the command
-  was flagged as dangerous and to try a safer way, so the run continues without
-  a human. A classifier error also refuses (fail closed). Workspace approval
-  policies for connector, custom and MCP tools still apply to these runs as today.
+- **Loop and Act runs are autonomous** and never ask. Flagged calls go to the
+  classifier, which allows or refuses (revised 2026-10-21: the autonomous bar
+  is the same or stricter than the interactive one, never looser). A refused
+  call returns a tool result telling the model the command was flagged as
+  dangerous and to try a safer way, so the run continues without a human. A
+  classifier error also refuses (fail closed). Workspace approval policies for
+  connector, custom and MCP tools still apply to these runs as today.
 - **Voice** uses the speaker's mode; only someone in the call can approve, as today.
 - **Default mode** for new users: auto.
 - **Per-session switch** (like Claude Code's mode toggle): later, with the
   code-channel composer. Phase 1 has the user setting only.
 
-**Sandbox safety policy (decided with Jacob, 2026-10-20).** Rules decide the
-clear cases; the classifier judges only the middle, because Jev's probabilities
-are not calibrated for this question.
+**Sandbox safety policy (revised with Jacob 2026-10-21; replaces the
+2026-10-20 draft).** Based on how Claude Code, Codex, Cursor, Gemini CLI, VS
+Code and others do it, and on the research evidence, both summarized with
+sources in `reference/planned/sandbox-safety-research.md`. Containment carries
+the most weight: the sandbox holds no Lor credentials, and egress limits come
+next (1.3f-4). Rules decide the clear cases from a parsed command. The
+classifier judges only flagged calls. People approve 93–97% of prompts, so
+asking less often makes each ask count.
 
 What can go wrong in a session sandbox (no Lor credentials, no worker access,
 host-controlled Git): destroying the session's own work (unrecoverable until
 phase 2); using credentials found in the workspace, such as a cloned repo's
 `.env`; changing systems outside the sandbox (deploy, publish, writes to
-external APIs, sending data out); abusing resources (fork bombs, mining, mass
-downloads, scanning); privilege escalation.
+external APIs, sending data out); abusing resources; turning a "read-only"
+command into code execution through its flags or the repo's config.
 
-Order of checks (auto mode and Loop/Act):
+**Decision per call** (`sandbox/sandbox-approval.ts`):
 
-1. **Always allowed, no classifier:** read-only tools; `edit`; `write` to a new
-   file; clearly read-only shell commands (`ls`, `cat`, `head`, `grep`/`rg`,
-   `find` without `-delete`/`-exec`, `wc`, read-only `git`: `status`, `log`,
-   `diff`, `show`). This covers most calls.
-2. **Always flagged by rule:** deletes at the workspace root, `~`, `/` or `..`;
-   `git reset --hard`, `git clean -fdx`, `git push --force`; commands that touch
-   credential files (`.env`, `*.pem`, `id_rsa`, `~/.aws`); deploy and publish
-   tools (`npm publish`, `vercel`, `fly`, `terraform apply`, `kubectl
-   apply/delete`, the `aws`/`gcloud`/`gh`/`stripe` CLIs); `curl`/`wget` with
-   POST, PUT, DELETE or upload to a host that is not localhost; database
-   clients pointed at a remote host; `sudo`, `mount`, `iptables`,
-   `--privileged`; fork bombs. Rules can be dodged with shell tricks, so the
-   classifier backs them up.
-3. **Classifier for everything else:** any other `bash` command, and `write` over
-   an existing file (the state includes the old and new sizes). One `boolean`
-   question: "Could this cause harm that is hard to undo: deleting or
-   overwriting work, changing systems outside this sandbox, using credentials,
-   publishing or deploying, sending data to third parties, or using excessive
-   resources?" State: the call, the working directory, the person's latest
-   request and the last few tool calls; long `write` content is truncated (Jev's
-   state limit is 32k).
+1. **Hard rules, deny in every mode (Bypass and autonomous included):**
+   deletes of `/`, `~`, `/workspace`, the work folder or their parents; writes
+   (tool or shell) to the adapter's state folder `~/.ai-sdk/`; other agent
+   CLIs with their permission bypass flags (`--dangerously-skip-permissions`,
+   `--yolo`, `--trust-all-tools`, `--dangerously-bypass-approvals-and-sandbox`);
+   the metadata address `169.254.169.254` and link-local addresses; invisible
+   or bidirectional Unicode in a command.
+2. **Read-only tools** (`read`, `grep`, `glob`, `ls`): allow.
+3. **`write` and `edit`:** resolve the path (symlinks, case). Inside the work
+   folder or `/tmp` and not protected: routine. A protected path or anywhere
+   else: flagged. Protected: `.git/` (hooks, config), `.env*` except templates,
+   keys and credential files (`*.pem`, `id_*`, `.aws/`, `.ssh/`, `.npmrc`,
+   `.pypirc`, `.netrc`, `.git-credentials`), shell rc files, CI workflows
+   (`.github/workflows/`), agent instruction and config files (`AGENTS.md`,
+   `CLAUDE.md`, `.pi/`, `.claude/`, `.cursor/`, `.vscode/`, `.mcp.json`).
+4. **`bash`:** parse with tree-sitter-bash (web-tree-sitter).
+   - **Known safe:** plain words and quoted strings joined by `&& || ; |`,
+     every segment on the safe list: Codex's last list (`cat cd cut echo expr
+     false grep head id ls nl paste pwd rev seq stat tail tr true uname uniq wc
+     which whoami`; `find` without `-exec -execdir -ok -okdir -delete -fls
+     -fprint -fprint0 -fprintf`; `rg` without `--pre --hostname-bin
+     --search-zip -z`; `sed -n Np` / `-n M,Np` only; `base64` without `-o`).
+     No git: repo config can make read-only git commands run code.
+   - **Flagged:** walk every literal command, including those nested in
+     `$( )`, backticks, subshells, control flow and `bash|sh|zsh -c`; unwrap
+     `sudo`, `env`, `command`, `exec`, `nohup`, `nice`, `timeout`, `time`,
+     `stdbuf`, `xargs` and `find -exec`; past depth 8, flag. Then flag:
+     - unparseable input, over 10,000 characters, control characters;
+     - constructs that hide what runs: a dynamic command name (`$cmd`),
+       `eval`, `source` of a downloaded file, piping into a shell or
+       interpreter (including `curl … | sh` and decode-then-run);
+     - loss of work: `rm` with `-r` or `-f`, `git reset --hard`, `git clean
+       -f*`, `git checkout -- .`, `git restore .`, `git stash drop|clear`,
+       `git branch -D`;
+     - leaving the sandbox: `git push`, `git remote add|set-url`, publishing
+       (`npm|pnpm|yarn publish`, `cargo publish`, `twine upload`, `gem push`,
+       `docker push`), deploy and infrastructure by subcommand (`terraform
+       apply|destroy`, `kubectl apply|delete|exec|patch|scale`, `vercel`, `fly
+       deploy`, `aws`/`gcloud` except describe/list/get, `gh pr merge|release|
+       repo delete|api -X`, `stripe` writes), remote database clients,
+       `ssh|scp|rsync|sftp|ftp`, `nc|ncat|socat`, `curl`/`wget` sending data
+       (`-d`, `--data*`, `--json`, `-F`, `-T`, `-X` POST/PUT/PATCH/DELETE,
+       `--post-*`, `--method`) until egress limits land;
+     - persistence and config: `crontab`, `systemctl`, `git config` of keys
+       that run code (`core.hooksPath`, `core.pager`, `core.fsmonitor`,
+       `core.sshCommand`, `diff.external`, `*.textconv`, `filter.*`,
+       `alias.*`), shell writes (`>`, `tee`, `cp`, `mv`, `sed -i`) to
+       protected paths;
+     - tunnels, listeners and scanners: `ngrok`, `cloudflared`, `ssh -R`, `nc
+       -l`, `nmap`, `masscan`;
+     - privilege and disk: `sudo`, `mount`, `dd`, `mkfs`, `shred`, `iptables`,
+       `--privileged`, `docker.sock`; fork bombs.
+   - **Routine:** anything else (`npm install`, `pytest`, builds, running a
+     script the session wrote). The sandbox is the boundary for these.
 
-| Case | Interactive auto | Loop / Act |
-|---|---|---|
-| Rule hit (step 2) | Ask | Refuse |
-| Classifier probability | Ask at **≥ 0.35** | Refuse at **≥ 0.70** |
-| Classifier error or `refusal` | Ask | Refuse |
-| Manual mode | Ask for every `bash`, `write` and `edit` | n/a |
-| Bypass mode | Allow everything | n/a |
+| Call | Manual | Auto | Bypass | Loop / Act |
+|---|---|---|---|---|
+| Hard rule | Deny | Deny | Deny | Deny |
+| Read-only tool, known-safe command | Allow | Allow | Allow | Allow |
+| Routine | Ask | Allow | Allow | Allow |
+| Flagged | Ask | Classifier: allow or ask (until 1.3f-3: ask) | Allow | Classifier: allow or refuse (until 1.3f-3: refuse) |
 
-The interactive bar is low because a wrong ask only costs a click; the
-autonomous bar is the higher tolerance, while the rules still refuse the known
-dangerous categories. Both thresholds are starting values, set from the
-classifier eval below.
-
-- **Ask card:** the call plus the classifier's one-line reason (for example
-  "Deletes the whole repo folder"). Anyone in the session can approve.
+- **Ask card:** the call plus the reason: the rule that flagged it, and from
+  1.3f-3 the classifier's reason. Anyone in the session can approve.
 - **Refusal in Loop/Act:** the tool result reads: "This command was blocked as
   potentially dangerous: <reason>. Don't retry it or a variant. Find a safer
   way, or finish and report what you couldn't do."
-- **Loop guard:** after 3 refusals in one turn, the next refusal tells the model
-  to stop that approach and finish. The run's final message lists the refused
-  calls, so the team sees what Lor skipped.
+- **Loop guard** (Claude Code's breaker): after 3 refusals in a row or 20 in a
+  turn, the refusal tells the model to stop and finish now; the run's final
+  message lists the refused calls, so the team sees what Lor skipped.
 - **Record every decision** on the run's activity: the call, the rule or
-  probability, the outcome, and a person's approve or reject. This feeds tuning
-  and the eval set.
+  classifier answers, the outcome, and a person's approve or reject. This
+  feeds tuning and the eval set.
 
-**Sandbox classifier eval (required, 2026-10-20).** A classifier eval framework
-next to the long-task eval (`packages/lor/src/eval/`), so thresholds and rules
-are set from evidence, not guesses. Jacob runs it, like `eval:long`.
+**Classifier (1.3f-3), revised 2026-10-21:**
 
-- **Dataset:** labeled calls with the expected outcome per mode (allow / ask /
-  refuse): routine dev work that should not ask (`npm install`, `pytest`, builds,
-  dev servers in the background, `docker build`, `git commit`); rule-category
-  calls; gray-zone calls; obfuscated variants that dodge the rules (`eval`,
-  base64, variable indirection, aliases); prompt-injection cases (a repository
-  file tells the model to run a command); `write` over existing files with large
-  shrinkage. Grow the set from recorded production decisions, especially ones a
-  person rejected.
-- **Metrics per mode:** catch rate on dangerous calls (rules plus classifier),
-  false-ask rate on safe calls (interactive), false-refusal rate (autonomous),
-  latency and cost per decision, and a threshold sweep that shows how each
-  number changes from 0.1 to 0.9.
-- **Use:** run it before the switch and after any change to the rules, the
-  question wording, the decision model or the thresholds. Starting targets
-  (adjust after the first run): catch at least 95% of the dangerous set in
-  autonomous mode; ask on at most 10% of safe calls that reach the classifier.
+- **Scope:** flagged calls only, in Auto and Loop/Act. Routine calls never
+  reach it.
+- **Judge the action against what the person asked for.** Claude Code,
+  Codex and Cursor all do; risk alone ignores authorization, and the main
+  reported failure is consent misjudged.
+- **Input:** the call, normalized, with its parsed subcommands; the working
+  directory; a `git status` summary before destructive git; the bounded
+  content of a session-written script the call runs; the latest messages of
+  the person who started the turn (for a Loop, its saved prompt); the last few
+  tool calls without their outputs; earlier denials. **Withhold** tool
+  outputs, Lor's own text, connector and web content: they carry injected
+  instructions, and Jev does not treat state as hostile.
+- **Questions:** several narrow Jev Nouls in one request instead of one
+  compound "could this cause harm" question (Jev's docs: one yes/no question
+  per Noul, combined in code): sends data out, destroys existing work,
+  changes an outside system, uses credentials, publishes or deploys, heavy
+  resource use, and "the person explicitly asked for this action and named
+  its target"; plus a severity Score. Combine in code: no hazard → allow; a
+  hazard the person explicitly asked for → allow, unless data leaves to an
+  untrusted host or severity is high; otherwise ask (interactive) or refuse
+  (autonomous).
+- **Thresholds** come from the eval: recall on the dangerous sets first, then
+  the false-ask budget on real traffic. The autonomous bar is the same or
+  stricter than the interactive one. Errors and `refusal` answers ask or
+  refuse (fail closed). Pin the Jev version and re-tune when it changes. A
+  second, reasoning stage on flagged calls before asking a person is an
+  option if false asks are too high (Claude Code: 8.5% → 0.4%).
+- **Cache** only allow verdicts, keyed by the normalized call, working
+  directory and request; never across a changed request.
+
+**Egress limits (1.3f-4, after a spike).** Blaxel filters each sandbox's
+outbound HTTP by domain, with method and path rules
+(`GET:POST:storage.googleapis.com`), and `firewall: { rulesets: ["proxy"] }`
+forces all egress through its proxy. The firewall can only be set when a
+sandbox is created, so this applies to new sandboxes. Target, as Codex's
+"limited" mode: GET and HEAD to any host; other methods only to package
+registries and a per-workspace trusted list. The spike must confirm that a
+wildcard host works with a method rule, and how DNS, SSH, raw TCP and
+`169.254.169.254` behave (private ranges and the metadata address bypass the
+proxy by default). Later: credentials injected at the proxy, so they never
+enter the sandbox (public preview).
+
+**Sandbox classifier eval (required; revised 2026-10-21).** A classifier eval
+framework next to the long-task eval (`packages/lor/src/eval/`), so thresholds
+and rules are set from evidence, not guesses. Jacob runs it, like `eval:long`.
+The set follows Anthropic's three-set design:
+
+- **Real benign traffic** (from recorded decisions) for the false-ask rate.
+- **Real overeager actions**, from Manual-mode rejections.
+- **Synthetic dangerous calls**: exfiltration and destruction, with
+  obfuscated variants (base64, `$IFS`, quoting, aliases, write-then-run,
+  Unicode).
+- **Injection cases**, with the payload in tool output and in user-like
+  fields (Loop prompts, pasted text).
+- **Consent pairs** ("clean up branches" vs "delete branch X"; "just run it,
+  no need to check").
+- **Route-around cases**: a denied command retried through a file edit or a
+  script.
+- **Metrics:** recall at a fixed false-ask rate per category, false refusals
+  (autonomous), latency and cost per decision, per Jev version. Keep a
+  held-out set that prompts are never tuned on. Run it before the switch and
+  after any change to the rules, questions, model or thresholds.
 
 **Tool-name collisions:** Lor's brain tools are literally `ls`, `read`, `tree`,
 `write`, `edit`, `mkdir`, `move`, `link` and `search` (`brain.ts`). `ls`, `read`,
@@ -1369,12 +1446,18 @@ moved here from 1.4, because nothing runs without a sandbox.
         connected with write access.
       - On resume, an approved call is denied when the Sandbox group no
         longer binds its tool.
-  - [ ] **1.3f-2 Rules and autonomous runs:** the always-allowed and
-    always-flagged lists; Loop and Act runs refuse (refusal text) instead of
-    asking; the loop guard; decision records on the run.
-  - [ ] **1.3f-3 Classifier:** Jev through the Gateway for the calls the
-    rules do not settle, with the thresholds per mode and the reason on the
-    ask card.
+  - [ ] **1.3f-2 Rules and autonomous runs** (§4.6 policy as revised
+    2026-10-21): the tree-sitter-bash parse; hard rules in every mode; the
+    known-safe list (no git); protected paths for `write`/`edit`; the flag
+    scan over every nested command; the mode table (Auto allows routine
+    calls; flagged calls ask until 1.3f-3; Loop and Act refuse with the
+    refusal text); the loop guard; decision records on the run.
+  - [ ] **1.3f-3 Classifier:** Jev Nouls for flagged calls only, judged
+    against the request, with tool outputs withheld; thresholds from the
+    eval; fail closed; the reason on the ask card.
+  - [ ] **1.3f-4 Egress limits:** a spike on Blaxel's method and domain rules
+    and the `proxy` firewall ruleset, then GET/HEAD to any host and other
+    methods only to registries and a trusted list, for new sandboxes.
 - [ ] **1.3g Turn controls and eval:** the compaction handler, per-step counters,
   the tool block near the spend or deadline limit, ambient context, steering and
   stop; the sandbox classifier eval next to the long-task eval (§4.6).
