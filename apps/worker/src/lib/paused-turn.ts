@@ -2,21 +2,26 @@ import { canResolveApproval } from "@repo/auth/permissions"
 import { and, db, eq, isNotNull, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type { Approval } from "@repo/db/schema"
-import type { ApprovalDecision } from "@repo/lor"
+import type { ApprovalDecision, PausedTurnDrop } from "@repo/lor"
 import { loadResolverSpec } from "@/lib/approval-notify"
 
 // A Pi turn paused on an approval set finishes with one decision per row
 // (reference/planned/pi-harness-runbook.md §4.2). The last decision starts a
 // resume run; any other run in the session finishes the turn first, after
 // it rejects what is still pending (writing instead of deciding is a "no").
-// A turn someone stopped is dropped instead, so Lor never replies to it.
+// A turn someone stopped, or one saved by another adapter version, is
+// dropped instead, so Lor never replies to it.
 
 function decisionReason(
   status: Approval["status"],
   resolverName: string | null
 ): string {
   if (status === "rejected") {
-    return `${resolverName ?? "A person"} rejected this, so it was not run. Do not take this action.`
+    // No resolver: the call's watcher rejected it when nobody who could
+    // approve was left.
+    return resolverName
+      ? `${resolverName} rejected this, so it was not run. Do not take this action.`
+      : "Nobody who could approve this was available, so it was not run."
   }
   if (status === "expired") return "Nobody decided in time, so it was not run."
   return "No decision was recorded for this action, so it was not run."
@@ -25,12 +30,14 @@ function decisionReason(
 export async function loadPausedDecisions(
   pausedRunId: string,
   // Set for a run that is not the set's resume: who wrote instead.
-  steer: { userId: string | null; name: string } | null
+  steer: { userId: string | null; name: string } | null,
+  // Another adapter version saved the paused turn (pausedTurnExpired).
+  upgraded: boolean
 ): Promise<{
   decisions: ApprovalDecision[]
-  steered: Approval[]
-  // Someone pressed Stop while it waited: the turn is dropped, not finished.
-  stoppedBy: string | null
+  // Rows this run closed, for the approval:updated broadcast.
+  closed: Approval[]
+  dropped: PausedTurnDrop | null
 }> {
   const [pausedRun] = await db
     .select({
@@ -43,9 +50,22 @@ export async function loadPausedDecisions(
   if (pausedRun?.stoppedAt) {
     return {
       decisions: [],
-      steered: [],
-      stoppedBy: pausedRun.stopperName ?? "Someone",
+      closed: [],
+      dropped: { reason: "stopped", by: pausedRun.stopperName ?? "Someone" },
     }
+  }
+  if (upgraded) {
+    const closed = await db
+      .update(schema.approval)
+      .set({ status: "expired", resolvedAt: new Date() })
+      .where(
+        and(
+          eq(schema.approval.runId, pausedRunId),
+          eq(schema.approval.status, "pending")
+        )
+      )
+      .returning()
+    return { decisions: [], closed, dropped: { reason: "upgraded" } }
   }
   const steered = steer
     ? await db
@@ -107,8 +127,8 @@ export async function loadPausedDecisions(
   )
   return {
     decisions: decisions.filter((d): d is ApprovalDecision => d !== null),
-    steered,
-    stoppedBy: null,
+    closed: steered,
+    dropped: null,
   }
 }
 

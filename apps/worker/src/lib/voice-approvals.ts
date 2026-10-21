@@ -128,11 +128,24 @@ export async function enqueueApprovalResume(
   )
 }
 
+// The call ended while a set waited: nobody can decide any of it.
+export async function expireApprovalSet(runId: string) {
+  await db
+    .update(schema.approval)
+    .set({ status: "expired", resolvedAt: new Date() })
+    .where(
+      and(
+        eq(schema.approval.runId, runId),
+        eq(schema.approval.status, "pending")
+      )
+    )
+}
+
 // Settles a still-pending approval without a person: rejected when the
-// approvers left the call (Lor is told), expired when the call ended.
+// approvers left the call (Lor is told).
 export async function settleApprovalUnresolved(
   approvalId: string,
-  status: "rejected" | "expired"
+  status: "rejected"
 ) {
   const [row] = await db
     .update(schema.approval)

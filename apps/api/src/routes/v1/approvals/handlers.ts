@@ -309,18 +309,17 @@ async function resolveApproval(
       )
       .catch(() => {})
 
-  // Nothing posts to the call chat: the paused request resumes in Lor's
-  // window once its set is decided. Without the resume job the request would
-  // wait forever, so a failed enqueue undoes the resolution for a retry.
+  // Nothing posts to the call chat. Lor's window shows a set one approval at
+  // a time: the job shows the next one, or resumes the request once the set
+  // is decided. Without the job the request would wait forever, so a failed
+  // enqueue undoes the resolution for a retry.
   if (voice) {
-    if (decided.complete) {
-      const queued = await enqueueVoiceRequest(voice.id, resolved.id)
-        .then(() => true)
-        .catch(() => false)
-      if (!queued) {
-        await undoResolution()
-        return { kind: "post_failed" }
-      }
+    const queued = await enqueueVoiceRequest(voice.id, resolved.id)
+      .then(() => true)
+      .catch(() => false)
+    if (!queued) {
+      await undoResolution()
+      return { kind: "post_failed" }
     }
     notifyWorkspaceActivity(resolved.workspaceId)
     return { kind: "resolved", approval: resolved }

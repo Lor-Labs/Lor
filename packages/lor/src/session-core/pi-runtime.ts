@@ -174,6 +174,15 @@ function missingToolStubs(
   )
 }
 
+// A paused turn saved by another adapter version cannot continue: its
+// approvals expire and the turn is dropped (pi-harness-runbook.md §4.3).
+export function pausedTurnExpired(saved: SavedHarnessState): boolean {
+  return (
+    saved.continuation !== null &&
+    checkCompatibility(saved, PI_BINDING).continuation === "expire"
+  )
+}
+
 // The approvals a saved paused turn waits on.
 export function pausedApprovals(
   saved: SavedHarnessState | null
@@ -329,9 +338,10 @@ export type PiTurnInput = {
   // A paused turn in `saved` continues first, with one decision per pending
   // approval. Then `prompt`, when given, starts a new turn in the same session.
   decisions?: ToolApprovalResponse[]
-  // Drop the paused turn instead (someone stopped it): resume from the saved
-  // log, where its unanswered calls read as "No result provided" (pi-ai
-  // transformMessages), and clear the continuation on save.
+  // Drop the paused turn instead (someone stopped it, or another adapter
+  // version saved it): resume from the saved log, where its unanswered calls
+  // read as "No result provided" (pi-ai transformMessages), and clear the
+  // continuation on save.
   dropPaused?: boolean
   // Text first, then images (the adapter rejects text after an image).
   prompt?: UserModelMessage

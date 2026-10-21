@@ -1,8 +1,13 @@
 import { setTimeout as sleep } from "node:timers/promises"
 import { checkCredits, recordUsage } from "@repo/billing"
-import { and, db, desc, eq, isUniqueViolation, schema } from "@repo/db"
+import { and, asc, db, desc, eq, isUniqueViolation, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { type ConversationTurn, respond, voiceBlocksText } from "@repo/lor"
+import {
+  type ConversationTurn,
+  pausedTurnExpired,
+  respond,
+  voiceBlocksText,
+} from "@repo/lor"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import {
   VOICE_APPROVAL_WATCH_JOB,
@@ -40,6 +45,7 @@ import { cancelPendingRun } from "@/lib/unattended-run"
 import {
   APPROVER_GRACE_MS,
   enqueueApprovalResume,
+  expireApprovalSet,
   listCallApprovers,
   loadApproval,
   scheduleApprovalWatch,
@@ -227,7 +233,10 @@ async function runVoiceRequest(
       execution.resume && harnessState?.lastRunId === runId
         ? await savedTurnText(runId)
         : null
-    const continueOnly = resume && Boolean(harnessState?.continuation)
+    // Another adapter version saved the paused turn: it is dropped.
+    const upgraded = harnessState ? pausedTurnExpired(harnessState) : false
+    const continueOnly =
+      resume && Boolean(harnessState?.continuation) && !upgraded
     // After the call's first turn, the prompt is only what was said since.
     const delta =
       execution.resume || continueOnly || !harnessState
@@ -239,7 +248,8 @@ async function runVoiceRequest(
     if (delta && harnessState?.lastRunId) {
       await execution.markContinuedFrom(harnessState.lastRunId)
     }
-    // A paused turn finishes first; a new request rejects what is pending.
+    // A paused turn finishes first, or is dropped; a new request rejects
+    // what is pending.
     const paused =
       savedAnswer === null &&
       harnessState?.continuation &&
@@ -248,11 +258,12 @@ async function runVoiceRequest(
             harnessState.lastRunId,
             continueOnly
               ? null
-              : { userId: request.userId, name: request.speakerName }
+              : { userId: request.userId, name: request.speakerName },
+            upgraded
           )
         : null
-    // The request that waited on them ends; this run finishes its turn.
-    if (paused?.steered.length && harnessState?.lastRunId) {
+    // The request that waited on them ends; this run takes over the turn.
+    if (paused?.closed.length && harnessState?.lastRunId) {
       const waiting = await findRunVoiceRequest(harnessState.lastRunId)
       if (waiting?.status === "awaiting_approval") {
         publish(
@@ -332,9 +343,8 @@ async function runVoiceRequest(
           owner,
           saved: harnessState,
           savedAnswer,
-          pausedDecisions:
-            paused && !paused.stoppedBy ? paused.decisions : null,
-          pausedStoppedBy: paused?.stoppedBy ?? null,
+          pausedDecisions: paused && !paused.dropped ? paused.decisions : null,
+          pausedDropped: paused?.dropped ?? null,
           continueOnly,
           saveTurn: (record) => execution.saveTurn(owner, record),
         },
@@ -401,10 +411,9 @@ async function runVoiceRequest(
   }
 }
 
-// The run paused on an approval gate (only ever one someone in the call can
-// resolve: canApprove refuses the rest). Its request waits in Lor's window
-// and a watcher keeps the approvers current.
-async function parkRun(request: LoadedRequest, runId: string) {
+// The paused set's next pending approval, in set order, as Lor's window
+// shows it. Null when none is left (or the row has no gate target).
+async function nextVoiceApproval(request: LoadedRequest, runId: string) {
   const [approval] = await db
     .select({
       id: schema.approval.id,
@@ -419,31 +428,58 @@ async function parkRun(request: LoadedRequest, runId: string) {
         eq(schema.approval.status, "pending")
       )
     )
+    .orderBy(asc(schema.approval.createdAt), asc(schema.approval.id))
     .limit(1)
-  if (!approval?.target) {
-    await failRun(request, runId)
-    return
-  }
-  const parked = await parkRunVoiceRequests(runId, {
+  if (!approval?.target) return null
+  return {
     approvalId: approval.id,
     label: approval.description,
     toolName: approval.toolName ?? "",
     approvers: await listCallApprovers(request, approval.target),
-  })
+  }
+}
+
+// The run paused on approvals (only ones someone in the call can resolve:
+// canApprove refuses the rest). Its request waits in Lor's window on one
+// approval of the set at a time, and a watcher keeps the approvers current.
+async function parkRun(request: LoadedRequest, runId: string) {
+  const approval = await nextVoiceApproval(request, runId)
+  if (!approval) {
+    await failRun(request, runId)
+    return
+  }
+  const parked = await parkRunVoiceRequests(runId, approval)
   for (const state of parked) publish(request, state)
   const waiting = parked.find((state) => state.status === "awaiting_approval")
   if (waiting) {
     await scheduleApprovalWatch({
       requestId: waiting.id,
-      approvalId: approval.id,
+      approvalId: approval.approvalId,
       missingSince: null,
     })
   }
 }
 
+// A decision left more of the set pending: Lor's window shows the next one.
+async function showNextApproval(
+  request: LoadedRequest,
+  runId: string
+): Promise<boolean> {
+  const approval = await nextVoiceApproval(request, runId)
+  if (!approval) return false
+  publish(request, await setVoiceRequestApprovers(request.id, approval))
+  await scheduleApprovalWatch({
+    requestId: request.id,
+    approvalId: approval.approvalId,
+    missingSince: null,
+  })
+  return true
+}
+
 // Keeps a paused request's approvers current. When none is left in the call
-// for the grace period the approval is rejected and the request resumes, so
-// Lor says so; when the call ended it expires and the request fails.
+// for the grace period the approval is rejected and the request moves on
+// (the next approval, or Lor says so); when the call ended the whole set
+// expires and the request fails.
 async function watchApproval(data: VoiceApprovalWatchJobData) {
   const request = await loadVoiceRequest(data.requestId)
   if (
@@ -455,7 +491,7 @@ async function watchApproval(data: VoiceApprovalWatchJobData) {
   const approval = await loadApproval(data.approvalId)
   if (approval?.status !== "pending" || !approval.target) return
   if (request.sessionEndedAt) {
-    await settleApprovalUnresolved(data.approvalId, "expired")
+    if (request.runId) await expireApprovalSet(request.runId)
     publish(request, await finishVoiceRequest(request.id, { status: "failed" }))
     return
   }
@@ -483,10 +519,14 @@ async function watchApproval(data: VoiceApprovalWatchJobData) {
   await scheduleApprovalWatch({ ...data, missingSince })
 }
 
-// Continues a request paused on approvals that are now all decided: a new
-// run finishes the paused turn (pi-harness-runbook.md §4.2).
+// After a decision on a paused request: the set's next approval, or, once
+// all are decided, a new run finishes the paused turn
+// (pi-harness-runbook.md §4.2).
 async function resumeRequest(request: LoadedRequest) {
   if (request.status !== "awaiting_approval") return
+  if (request.runId && (await showNextApproval(request, request.runId))) {
+    return
+  }
   const created = await createVoiceRun(request)
   if (created === "timeout") {
     publish(request, await finishVoiceRequest(request.id, { status: "failed" }))

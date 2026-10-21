@@ -1250,7 +1250,7 @@ moved here from 1.4, because nothing runs without a sandbox.
     - Web and mobile render Pi's tools as flat `SubStepRow`s (file chip when the
       file was shared, diff counts, one expansion); `glob` gets the search icon.
     - Needs a visual check.
-- [ ] **1.3e Approvals**, in review chunks:
+- [x] **1.3e Approvals**, in review chunks:
   - [x] **1.3e-1 Pause and continue** (2026-10-21; needs `db:push`):
     - **Schema:** the two one-pending indexes are gone. New: unique
       `(run_id, tool_call_id)`, `kind` (`policy` | `request`),
@@ -1325,10 +1325,23 @@ moved here from 1.4, because nothing runs without a sandbox.
         way; Stop on that run's reply stops it as usual.
     - **Plan header:** no change. The plan's `pendingApproval` is never
       rendered; only an optimistic cache patch reads it.
-  - [ ] **1.3e-3 Voice sets and upgrades:** Lor's window shows the whole
-    set (today it shows the first row). A continuation from another adapter
-    version expires its approvals and continues from the saved log
-    (today the run fails with `incompatible_state`).
+  - [x] **1.3e-3 Voice sets and upgrades** (2026-10-21):
+    - **Voice sets:** Lor's window shows the set one approval at a time, in
+      set order. The overlay UI is unchanged.
+      - Every decision in a call queues the voice job. That job shows the
+        next pending approval with its approvers and a new watcher, or
+        resumes the request once the set is decided.
+      - When nobody who can approve is in the call for the grace period, the
+        watcher rejects the approval shown, and the next one takes its place.
+        The model reads "Nobody who could approve this was available".
+      - When the call ends, the whole set expires (`expireApprovalSet`).
+    - **Adapter upgrades:** `pausedTurnExpired` detects a paused turn saved
+      by another adapter version. The next run expires its pending rows and
+      drops the turn, as Stop does (`pausedDropped: { reason: "upgraded" }`).
+      Its prompt says Lor was updated and the actions did not run.
+      - A resume run for such a turn runs as a normal turn with that note.
+      - `runPiTurn` still throws `incompatible_state` if a caller tries to
+        continue it.
 - [ ] **1.3f Sandbox safety:** the per-user sandbox-mode row with the mode frozen
   on the run; the allow list, rule list, classifier, thresholds per mode, ask
   cards, refusal text, loop guard and decision records (§4.6), through the

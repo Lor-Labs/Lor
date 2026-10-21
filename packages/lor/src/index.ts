@@ -149,6 +149,7 @@ import {
 } from "./retrieval"
 import {
   defaultRunBudgets,
+  type PausedTurnDrop,
   type PendingApproval,
   type RunHandle,
   type RunStopCause,
@@ -305,10 +306,13 @@ const INPUT_CHANGED_REASON =
   "The approved input does not match this call, so it was not run."
 const NO_DECISION_REASON =
   "No decision was recorded for this action, so it was not run."
-// A stopped paused turn is dropped: Pi reads its calls as "No result
-// provided", so the model is told they never ran and why.
-const stoppedTurnNote = (name: string) =>
-  `${name} pressed Stop while your last turn waited for approval. The actions waiting for approval did not run, and that turn ended. Do not retry them unless someone asks again.`
+// A dropped paused turn: Pi reads its calls as "No result provided", so the
+// model is told they never ran and why.
+function droppedTurnNote(drop: PausedTurnDrop): string {
+  return drop.reason === "stopped"
+    ? `${drop.by} pressed Stop while your last turn waited for approval. The actions waiting for approval did not run, and that turn ended. Do not retry them unless someone asks again.`
+    : "Lor was updated while your last turn waited for approval, so that turn ended. The actions waiting for approval did not run. If they are still needed, say so and ask again."
+}
 
 const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
 
@@ -488,6 +492,7 @@ export {
   defaultRunBudgets,
   type ModelMessage,
   mergeRunContextCoverage,
+  type PausedTurnDrop,
   type RunBudgets,
   type RunCounters,
   type RunHandle,
@@ -502,6 +507,7 @@ export {
   deleteSessionSandbox,
   SandboxCapacityError,
 } from "./sandbox/session-sandbox"
+export { pausedTurnExpired } from "./session-core/pi-runtime"
 export { generateSessionTitle } from "./session-title"
 export { formatSpeakerLine } from "./transcript"
 export type {
@@ -2896,8 +2902,8 @@ export async function respond(
     const sandbox = await openSessionSandbox(harness.owner)
     try {
       const notes = run.resume ? [RETRY_NOTE] : []
-      if (harness.pausedStoppedBy) {
-        notes.push(stoppedTurnNote(harness.pausedStoppedBy))
+      if (harness.pausedDropped) {
+        notes.push(droppedTurnNote(harness.pausedDropped))
       }
       if (sandbox.fresh && harness.saved) {
         notes.push(LOST_FILES_NOTE)
@@ -2942,7 +2948,7 @@ export async function respond(
         sandbox: sandbox.session,
         systemPrompt: instructions,
         ...(decisions ? { decisions } : {}),
-        ...(harness.pausedStoppedBy ? { dropPaused: true } : {}),
+        ...(harness.pausedDropped ? { dropPaused: true } : {}),
         ...(prompt ? { prompt } : {}),
         tools: guarded.tools,
         toolsContext,

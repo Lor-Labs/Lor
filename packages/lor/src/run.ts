@@ -100,6 +100,10 @@ export type ApprovalDecision = {
   inputSha256: string | null
 }
 
+export type PausedTurnDrop =
+  | { reason: "stopped"; by: string }
+  | { reason: "upgraded" }
+
 // One finished or paused Pi turn, ready to save: the new Pi log (null when
 // nothing changed), the turn's totals for the run counters, and the approvals
 // it paused on.
@@ -127,9 +131,10 @@ export type RunHarness = {
   // Set when the saved turn paused on approvals: one decision per row of the
   // set. respond() finishes that turn first, then sends its own prompt.
   pausedDecisions: ApprovalDecision[] | null
-  // Who pressed Stop while the saved turn waited on approvals. respond()
-  // drops that turn (its calls read as not run) and tells the model why.
-  pausedStoppedBy: string | null
+  // Set when the saved paused turn is dropped instead of finished: a person
+  // pressed Stop, or another adapter version saved it. Its calls read as not
+  // run, and respond() tells the model why.
+  pausedDropped: PausedTurnDrop | null
   // The run only finishes the paused turn (the last approval was decided):
   // no new prompt.
   continueOnly: boolean

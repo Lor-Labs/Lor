@@ -24,6 +24,7 @@ import { withContext } from "@repo/logger"
 import {
   formatSpeakerLine,
   groundCitations,
+  pausedTurnExpired,
   respond,
   SandboxCapacityError,
   writeBack,
@@ -551,10 +552,16 @@ export function createLorRespondProcessor(
               execution.resume && harnessState?.lastRunId === execution.runId
                 ? await savedTurnText(execution.runId)
                 : null
+            // Another adapter version saved the paused turn: it is dropped.
+            const upgraded = harnessState
+              ? pausedTurnExpired(harnessState)
+              : false
             // The last decision on a paused turn's approval set: this run only
             // finishes that turn, with no prompt of its own.
             const continueOnly = Boolean(
-              job.data.resumeApprovalId && harnessState?.continuation
+              job.data.resumeApprovalId &&
+                harnessState?.continuation &&
+                !upgraded
             )
             // After the session's first turn, Pi's saved state holds the
             // conversation, so the prompt is only what was said since.
@@ -720,9 +727,10 @@ export function createLorRespondProcessor(
               userId: triggerUserId,
             }
 
-            // A paused turn finishes first, or is dropped if someone stopped
-            // it. Unless this run is its resume, its pending approvals are
-            // rejected: the trigger's author wrote instead of deciding.
+            // A paused turn finishes first, or is dropped (stopped, or saved
+            // by another adapter version). Unless this run is its resume, its
+            // pending approvals are rejected: the trigger's author wrote
+            // instead of deciding.
             const paused =
               savedAnswer === null &&
               harnessState?.continuation &&
@@ -737,10 +745,11 @@ export function createLorRespondProcessor(
                             streamMentionRoster.find(
                               (m) => m.id === triggerUserId
                             )?.name ?? "Someone",
-                        }
+                        },
+                    upgraded
                   )
                 : null
-            for (const row of paused?.steered ?? []) {
+            for (const row of paused?.closed ?? []) {
               emitter.to(channelRoom(channelId)).emit("approval:updated", {
                 approvalId: row.id,
                 channelId,
@@ -750,7 +759,7 @@ export function createLorRespondProcessor(
                 resolvedAt: row.resolvedAt?.toISOString() ?? null,
               })
             }
-            if (paused?.steered.length) notifyWorkspaceActivity(workspaceId)
+            if (paused?.closed.length) notifyWorkspaceActivity(workspaceId)
 
             // start_plan: adopt this run's thread as a new plan, anchored to
             // the thread root and assigned to this run so settlePlan owns it.
@@ -998,8 +1007,8 @@ export function createLorRespondProcessor(
                   saved: harnessState,
                   savedAnswer,
                   pausedDecisions:
-                    paused && !paused.stoppedBy ? paused.decisions : null,
-                  pausedStoppedBy: paused?.stoppedBy ?? null,
+                    paused && !paused.dropped ? paused.decisions : null,
+                  pausedDropped: paused?.dropped ?? null,
                   continueOnly,
                   saveTurn: (turn) => execution.saveTurn(owner, turn),
                 },
