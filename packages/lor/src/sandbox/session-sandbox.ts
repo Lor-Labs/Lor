@@ -24,6 +24,10 @@ import {
 // Runaway guard per command; the adapter does not pass the model's timeout.
 const RUN_TIMEOUT_SEC = 1800
 const LOG_POLL_MS = 500
+// Completion polling starts fast so the adapter's many short path checks stay
+// quick, then backs off for long commands.
+const WAIT_START_MS = 50
+const WAIT_MAX_MS = 1000
 
 export const SESSION_WORK_DIR = WORKSPACE_MOUNT
 
@@ -175,14 +179,32 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
     }
   }
 
-  // writeBinary must get bytes: a string is read as a LOCAL file path.
+  // writeBinary must get bytes: a string is read as a LOCAL file path. Blaxel
+  // does not document whether writes create parent folders, so a failed write
+  // retries once after mkdir -p.
   const writeBytes = async (path: string, bytes: Uint8Array): Promise<void> => {
     try {
       await sandbox.fs.writeBinary(path, bytes)
-    } catch (err) {
-      if (!isNotFound(err)) throw err
+    } catch {
       await run({ command: `mkdir -p ${shellQuote(posix.dirname(path))}` })
       await sandbox.fs.writeBinary(path, bytes)
+    }
+  }
+
+  // Blaxel limits waitForCompletion to 60 seconds and documents a named
+  // process plus a wait for longer work; the SDK's wait() always sleeps one
+  // full interval, so this polls with backoff instead.
+  const waitForProcess = async (name: string) => {
+    const deadline = Date.now() + (RUN_TIMEOUT_SEC + 60) * 1000
+    let delay = WAIT_START_MS
+    for (;;) {
+      const proc = await sandbox.process.get(name)
+      if (proc.status !== "running") return proc
+      if (Date.now() > deadline) {
+        throw new Error(`Sandbox process ${name} did not finish in time`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      delay = Math.min(delay * 2, WAIT_MAX_MS)
     }
   }
 
@@ -199,25 +221,17 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
     }
     abortSignal?.addEventListener("abort", onAbort, { once: true })
     try {
-      const result = await sandbox.process
-        .exec({
-          name,
-          command: inShell(command),
-          ...(workingDirectory ? { workingDir: workingDirectory } : {}),
-          env: { ...SANDBOX_PROCESS_ENV, ...env },
-          keepAlive: true,
-          timeout: RUN_TIMEOUT_SEC,
-          waitForCompletion: true,
-        })
-        .catch(async (err: unknown) => {
-          // The request can end before a long command does; the named process
-          // keeps running, so wait on it instead of losing the result.
-          const done = await sandbox.process
-            .wait(name, { maxWait: RUN_TIMEOUT_SEC * 1000, interval: 1000 })
-            .catch(() => null)
-          if (!done || done.status === "running") throw err
-          return done
-        })
+      await sandbox.process.exec({
+        name,
+        command: inShell(command),
+        ...(workingDirectory ? { workingDir: workingDirectory } : {}),
+        env: { ...SANDBOX_PROCESS_ENV, ...env },
+        keepAlive: true,
+        timeout: RUN_TIMEOUT_SEC,
+      })
+      // An abort during exec fired before the process existed.
+      if (abortSignal?.aborted) onAbort()
+      const result = await waitForProcess(name)
       abortSignal?.throwIfAborted()
       return {
         exitCode: result.exitCode ?? -1,

@@ -1069,12 +1069,15 @@ moved here from 1.4, because nothing runs without a sandbox.
   instead of deleting files. Quota exhaustion throws `SandboxCapacityError`.
   `close()` ends the connection so Blaxel can enter standby. The
   `SandboxSession` implementation: `run` wraps the command in `bash -c` (the
-  adapter expects it), uses Blaxel's server-side wait (`waitForCompletion`),
-  falls back to waiting on the named process when the request ends first, and
-  kills on abort, with a 30-minute runaway guard per command; reads return
-  `null` on 404; writes create parent folders on demand and always pass bytes
-  (Blaxel reads a string as a local path); `spawn` polls process logs, because
-  Blaxel's push log stream drops lines. The session sandbox gets no Gateway
+  adapter expects it; Blaxel does not document its shell), starts a named
+  process with `keepAlive` and a 30-minute runaway timeout, and polls
+  `process.get` with backoff from 50 ms to 1 s. This follows Blaxel's
+  documented pattern for long work: its docs cap `waitForCompletion` at 60
+  seconds, and the SDK's `wait()` always sleeps one full interval. Abort kills
+  the process. Reads return `null` on 404; writes always pass bytes (Blaxel
+  reads a string as a local path) and retry once after `mkdir -p`, since parent
+  folder creation is undocumented; `spawn` polls process logs, because Blaxel's
+  push log stream drops lines. The session sandbox gets no Gateway
   key. Showing the lost-files notice and the capacity error to people is 1.3c.
 - [ ] **1.3c Core turn:** replace the `streamText` loop in `respond` with the Pi
   adapter; Lor's system prompt through the patched `systemPrompt`; the §4.9
