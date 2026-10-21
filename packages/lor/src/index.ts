@@ -2819,6 +2819,14 @@ export async function respond(
       let text = ""
       let steps = 0
       let toolCallCount = 0
+      // Summed per step so a stopped or timed-out turn still bills what it
+      // used: the turn total rejects on abort.
+      const stepTotals = {
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+      }
       const turn = await runPiTurn({
         sessionId: conversationId,
         sessionKey: conversationId,
@@ -2856,7 +2864,16 @@ export async function respond(
           } else if (part.type === "reasoning-delta") {
             await onReasoning?.(part.text, text.length)
           } else if (part.type === "finish-step") {
-            steps++
+            // The adapter also sends an early copy of a step, with the same
+            // usage, while Pi waits on a Lor tool result: count it once.
+            if (part.rawFinishReason !== "host-input") {
+              steps++
+              const usage = usageTokens(part.usage)
+              stepTotals.inputTokens += usage.inputTokens ?? 0
+              stepTotals.cachedInputTokens += usage.cachedInputTokens ?? 0
+              stepTotals.outputTokens += usage.outputTokens ?? 0
+              stepTotals.reasoningTokens += usage.reasoningTokens ?? 0
+            }
           } else if (part.type === "tool-call") {
             toolCallCount++
             onToolEvent?.({
@@ -2896,14 +2913,16 @@ export async function respond(
       // Any other abort is a lost lease: another attempt owns the run.
       if (turn.aborted && !stoppedFor) throw new Error("Lor run aborted")
 
+      // The turn total when the turn finished, else the steps that did.
+      const totals = turn.usage ? usageTokens(turn.usage) : stepTotals
       // Billed per attempt, before the save: the tokens are spent either way.
-      if (turn.usage) {
+      if (turn.usage || steps > 0) {
         onUsage?.({
           workspaceId: ctx.workspaceId,
           tool: "lor.respond",
           model: turn.modelId ?? LOR_MODEL,
           requestedModel: LOR_MODEL,
-          ...usageTokens(turn.usage),
+          ...totals,
           wallMs: Math.round(performance.now() - streamStart),
           toolCalls: toolCallCount,
         })
@@ -2912,9 +2931,9 @@ export async function respond(
         save: turn.save,
         steps,
         model: turn.modelId,
-        inputTokens: turn.usage?.inputTokens ?? 0,
-        cachedInputTokens: turn.usage?.inputTokenDetails.cacheReadTokens ?? 0,
-        outputTokens: turn.usage?.outputTokens ?? 0,
+        inputTokens: totals.inputTokens ?? 0,
+        cachedInputTokens: totals.cachedInputTokens ?? 0,
+        outputTokens: totals.outputTokens ?? 0,
         toolCalls: toolCallCount,
         toolOutputBytes: guarded.guard.takeStepBytes(),
       })

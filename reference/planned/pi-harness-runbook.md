@@ -1142,8 +1142,17 @@ moved here from 1.4, because nothing runs without a sandbox.
     - No mid-turn steering or ambient messages: a steered message reaches the
       next turn's delta (1.3g).
     - Pi's default compaction, without Lor's instructions (1.3g).
-    - Counters and spend are totalled per turn; the wall clock and Stop
-      abort the turn (1.3g).
+    - Usage is summed per step from `finish-step` parts, and the turn total
+      is used when the turn finishes. So a stopped or timed-out turn still
+      bills and counts its finished steps, because the total rejects on abort.
+      The adapter also sends an early copy of a step while Pi waits on a Lor
+      tool result (`rawFinishReason: "host-input"`, same usage), so those
+      copies are skipped. There are no spend checks inside a turn; the wall
+      clock and Stop abort the turn (1.3g).
+    - Billing uses the requested model's rate: the harness fills
+      `response.modelId` with the requested id, not the fallback that
+      answered. Pi's assistant entries carry the real `model`; read it there
+      (1.3g, with the per-step counters).
     - Delta images stay `[file:]` lines, as continuations were before.
     - No touches or context-meter data, because they read `agent_run_step`
       (1.5).
