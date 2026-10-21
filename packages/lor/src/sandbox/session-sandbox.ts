@@ -224,7 +224,9 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
       await sandbox.process.exec({
         name,
         command: inShell(command),
-        ...(workingDirectory ? { workingDir: workingDirectory } : {}),
+        // Default to the persistent volume: the harness resolves its working
+        // directory with `pwd`, so the conversation's files land on it.
+        workingDir: workingDirectory ?? WORKSPACE_MOUNT,
         env: { ...SANDBOX_PROCESS_ENV, ...env },
         keepAlive: true,
         timeout: RUN_TIMEOUT_SEC,
@@ -258,7 +260,7 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
     await sandbox.process.exec({
       name,
       command: inShell(command),
-      ...(workingDirectory ? { workingDir: workingDirectory } : {}),
+      workingDir: workingDirectory ?? WORKSPACE_MOUNT,
       env: { ...SANDBOX_PROCESS_ENV, ...env },
       keepAlive: true,
       timeout: RUN_TIMEOUT_SEC,

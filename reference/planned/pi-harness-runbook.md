@@ -1079,10 +1079,27 @@ moved here from 1.4, because nothing runs without a sandbox.
   folder creation is undocumented; `spawn` polls process logs, because Blaxel's
   push log stream drops lines. The session sandbox gets no Gateway
   key. Showing the lost-files notice and the capacity error to people is 1.3c.
-- [ ] **1.3c Core turn:** replace the `streamText` loop in `respond` with the Pi
-  adapter; Lor's system prompt through the patched `systemPrompt`; the §4.9
-  overrides; the window override and Gateway hook; restore, load check and save
-  (§4.3); text-first prompt with images. Keep context building.
+- [ ] **1.3c Core turn**, in two review chunks:
+  - [x] **1.3c-1** (2026-10-20, `packages/lor/src/session-core/pi-runtime.ts`):
+    `runPiTurn()` restores the saved log into the sandbox (skipped when the
+    sandbox copy's sha256 matches), clears any stale worker copy, builds the
+    `HarnessAgent` with every §4.9 override (explicit Gateway `auth` record via
+    `piGatewayAuth()` in `models.ts`, `reattachInProcess: false`,
+    `contextFiles: false`, `skills: false`, Lor's `systemPrompt`, the adapter's
+    state folder in `deniedRoots`, `workDir: "."` on `/workspace`), the window
+    override (Lor's gateway models from Pi's catalog, each capped at
+    `LOR_CONTEXT_WINDOW`), and a trusted extension that adds `models`, `order`
+    and the Lor session id to every agent-loop request and runs the load check
+    at `agent_start` (abort on mismatch). It streams parts to the caller, then
+    reads the worker log before `destroy()` and returns the append (or the
+    replace after a format conversion) plus the new head. Session affinity also
+    rides `x-session-id`. `pi-ai` is now a direct dependency; the sandbox bridge
+    defaults commands to `/workspace`.
+  - [ ] **1.3c-2:** replace the `streamText` loop in `respond` with
+    `runPiTurn`; open the session sandbox; build the turn prompt (the initial
+    context text-first with labeled images, or the delta since the last saved
+    turn); save inside the worker's settle transaction; the lost-files notice
+    and the capacity error. Keep context building.
 - [ ] **1.3d Tools:** the stable tool list, renamed brain tools, exact execute
   context, output limits, the Sandbox tool group, current event consumers.
 - [ ] **1.3e Approvals:** schema moved from 1.2 (§4.2: drop the one-pending

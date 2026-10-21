@@ -84,3 +84,14 @@ export const mainGatewayOptions = {
 export const smallGatewayOptions = {
   models: LOR_SMALL_FALLBACK_MODELS,
 }
+
+// Explicit credentials for the Pi harness. Without a record, Pi reads every
+// *_API_KEY in the worker environment (reference/planned/pi-harness-runbook.md §4.9).
+export function piGatewayAuth(): Record<string, string> {
+  return {
+    AI_GATEWAY_API_KEY: modelConfig.gateway.apiKey,
+    ...(modelConfig.gateway.baseURL
+      ? { AI_GATEWAY_BASE_URL: modelConfig.gateway.baseURL }
+      : {}),
+  }
+}
