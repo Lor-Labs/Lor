@@ -19,8 +19,8 @@ import { loop } from "./loops"
 import type { LorToolCall } from "./messages"
 import { message } from "./messages"
 import type { PlanStatus, PlanStep } from "./plans"
+import type { TurnSandboxMode } from "./sandbox-decisions"
 import { triggerDelivery } from "./trigger-deliveries"
-import type { SandboxMode } from "./user-sandbox-settings"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -466,9 +466,6 @@ export type AgentRunContext = {
   // changed setting never runs a call under a looser mode.
   sandboxMode?: TurnSandboxMode
 }
-
-// A person's sandbox mode, or autonomous for Loop and Act runs (no one to ask).
-export type TurnSandboxMode = SandboxMode | "autonomous"
 
 // Written by @repo/lor at compaction time (see compaction.ts). summary is
 // the rolling working notes — the next run in this scope seeds its compactor

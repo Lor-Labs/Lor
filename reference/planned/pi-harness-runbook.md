@@ -1446,12 +1446,41 @@ moved here from 1.4, because nothing runs without a sandbox.
         connected with write access.
       - On resume, an approved call is denied when the Sandbox group no
         longer binds its tool.
-  - [ ] **1.3f-2 Rules and autonomous runs** (§4.6 policy as revised
-    2026-10-21): the tree-sitter-bash parse; hard rules in every mode; the
-    known-safe list (no git); protected paths for `write`/`edit`; the flag
-    scan over every nested command; the mode table (Auto allows routine
-    calls; flagged calls ask until 1.3f-3; Loop and Act refuse with the
-    refusal text); the loop guard; decision records on the run.
+  - [x] **1.3f-2 Rules and autonomous runs** (2026-10-21; needs `db:push`;
+    §4.6 policy as revised 2026-10-21):
+    - **Parser** (`sandbox/shell-parse.ts`): tree-sitter-bash from
+      `@vscode/tree-sitter-wasm` 0.3.1 (VS Code's prebuilt runtime and
+      grammar; no install scripts), loaded once with `createRequire`.
+      - It collects every command, including nested ones and `bash -c`
+        scripts (re-parsed).
+      - It unwraps `sudo`, `env`, `xargs`, `timeout`, `nice`, `find -exec`
+        and others, up to depth 8.
+      - It records write redirects.
+      - It marks a script `plain` (Codex's grammar), or `hidden` when it
+        hides what runs: a computed command name, `eval`, piping into a shell
+        or interpreter, a computed script.
+    - **Rules** (`sandbox/command-policy.ts`): `checkCommand` and
+      `checkFileWrite` return hard, flagged, safe or routine with a reason.
+      They cover the hard rules, Codex's last safe list without git, the
+      flag categories, and protected paths for tool and shell writes.
+      Paths are resolved lexically; `ln` is checked at both ends, so a
+      symlink into a protected folder is flagged.
+    - **Modes** (`sandbox/sandbox-approval.ts`): the §4.6 table.
+      - A flagged call asks with its reason on the card ("Run a command: git
+        push (pushes to a remote)").
+      - Loop and Act refuse with the refusal text. Hard rules are denied with
+        their own text.
+      - After 3 denials in a row or 20 in a turn, the denial tells the model
+        to stop and report.
+    - **Records:** every `bash`, `write` and `edit` decision goes to
+      `sandbox_decision` (call, subject, mode, check, outcome, reason).
+      The insert does not block the call. A person's answer is the matching
+      `sandbox` approval row.
+    - **Known limits:**
+      - Option values count as positionals.
+      - `env -S` strings are not unwrapped.
+      - `rm -rf` of a build folder asks in Auto until the classifier lands.
+      - Not run yet: the WASM load on Node and Bun is unverified.
   - [ ] **1.3f-3 Classifier:** Jev Nouls for flagged calls only, judged
     against the request, with tool outputs withheld; thresholds from the
     eval; fail closed; the reason on the ask card.
