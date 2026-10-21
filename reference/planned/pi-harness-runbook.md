@@ -835,49 +835,22 @@ Code lives in `packages/lor/src/session-core/`. The core imports
 `@repo/db`, channel or role logic, the brain, Loop policy or UI types. Lor
 implements the ports in its integration layer (worker and `packages/lor`).
 
+The harness state types are built (1.2): `HarnessBinding`, `HarnessHead`,
+`SavedHarnessState`, `SaveHarnessStateInput`, the `HarnessStateStore` port,
+`SessionCoreError` and `checkCompatibility`, in
+`packages/lor/src/session-core/harness-state.ts`. The rest of the contract:
+
 ```ts
-// Versioned binding; a mismatch fails the run, it never converts silently.
-type RuntimeBinding = {
-  kind: "pi"                 // "claude-code" | "codex" in phase 2
-  adapterVersion: string     // e.g. "@ai-sdk/harness-pi@1.0.160"
-  nativeFormat: string       // e.g. "pi-session-jsonl@3"
-}
-
-type NativeHead = {
-  nativeSessionId: string    // Pi header id
-  sessionFileName: string
-  entryCount: number
-  headEntryId: string
-  byteLength: number
-  sha256: string
-}
-
-type SavedNativeState = {
-  binding: RuntimeBinding
-  journal: Uint8Array        // full bytes, loaded from Postgres
-  head: NativeHead
-  continuation: unknown | null  // verbatim harness continue-turn state, or null
-}
-
 type TurnOutcome =
   | { kind: "completed"; text: string }
   | { kind: "awaiting_approval"; pending: PendingApproval[] }
   | { kind: "stopped"; reason: "user" | "spend" | "deadline" | "lease" }
   | { kind: "failed"; error: SessionCoreError }
 
-// Ports Lor injects.
-interface NativeStateStore {
-  load(sessionId: string): Promise<SavedNativeState | null>
-  // One transaction; throws on a lease-generation or expected-head conflict.
-  save(input: {
-    sessionId: string; claimGeneration: number; expectedHead: NativeHead | null
-    appendBytes: Uint8Array; head: NativeHead; continuation: unknown | null
-    outcome: TurnOutcome
-  }): Promise<void>
-}
+// Ports Lor injects (HarnessStateStore is built).
 interface WorkspacePort {     // Blaxel bridge
-  sandboxSession(sessionId: string): Promise<SandboxSession>
-  syncNativeFile(path: string, bytes: Uint8Array, sha256: string): Promise<void>
+  sandboxSession(owner: HarnessOwner): Promise<SandboxSession>
+  syncLogFile(path: string, text: string, sha256: string): Promise<void>
 }
 interface RunPolicy {         // stable tool list, grants, gates, spend/deadline
   tools(): ToolSet            // fixed per session
@@ -1034,13 +1007,40 @@ works (decision 2026-10-20; no one uses the app yet).
 Exit: every gate in §5 has a recorded seam; the focused upstream changes are
 listed; no claim that unmodified stock APIs meet Lor's guarantees.
 
-### 1.2 — Add native state and explicit dispatch
+### 1.2 — Add harness state and explicit dispatch
 
-- [ ] Add only the schema and references from §6.
-- [ ] Implement expected-head/claim-generation saves, source deduplication,
-  native/continuation storage and operation/accounting identity.
-- [ ] Record the runtime kind and version per session (Pi now; Claude Code and
-  Codex in phase 2). Missing native data fails explicitly.
+- [x] Harness state schema (2026-10-20, `packages/db/src/schemas/harness-states.ts`;
+  named with Jacob to avoid another meaning of "session"): `harness_state`,
+  one row per conversation owner (an `agent_session` or a voice call's
+  `voice_session`, exactly one, cascade on delete) with the harness `kind`,
+  `adapterVersion`, `formatVersion` (Pi's `CURRENT_SESSION_VERSION`), the saved
+  head, the verbatim `continuation` and `lastRunId`; `harness_log`, Pi's session
+  file as append-only UTF-8 chunks, one per save. It replaces `agent_run_step`
+  for Pi runs; workspace files are never stored here. Additive only; `db:push`
+  owed (Jacob).
+- [x] Guarded saves and checked loads (`apps/worker/src/lib/harness-state.ts`):
+  `writeHarnessState(tx, …)` runs inside the caller's transaction so the turn's
+  counters and stop reason commit with it; it checks the claiming run's lease
+  at the same attempt (`FOR UPDATE`), compares-and-swaps the head on sha256 and
+  length, and appends one chunk, or replaces the whole log after Pi converted an
+  older format. `loadHarnessState` rebuilds the log and throws on a gap,
+  reorder, length or hash mismatch. `WORKER_ID` moved to `worker-id.ts`.
+- [x] Session-core types and upgrade rules
+  (`packages/lor/src/session-core/harness-state.ts`, exported as
+  `@repo/lor/session-core`): `HarnessBinding`, `HarnessHead`, the
+  `HarnessStateStore` port, `SessionCoreError`, and `checkCompatibility`.
+  Upgrades keep working: an older Pi format is converted by Pi (next save
+  replaces the log); a pending continuation from another adapter version
+  expires its approvals with a notice instead of failing. Only a different
+  harness or a newer format (a downgrade) is refused. No Pi import yet; the
+  binding values come from harness-pi `VERSION` and Pi
+  `CURRENT_SESSION_VERSION` in 1.3.
+- Moved to 1.3, next to the code that uses them: the approval-table changes
+  (§4.2) and the per-user sandbox-mode row (§4.6). The legacy engine relies on
+  the one-pending-per-run indexes until 1.6 deletes it.
+- Source deduplication is the prefix check at save (§4.3 item 2); semantic
+  activity deduplication lands with the projection in 1.5. Tool receipts keep
+  `agent_run_tool_result` (same run across attempts).
 
 Exit: storage review covers owner isolation, atomic save, retained payloads and
 version rejection. No destructive history rewrite.
@@ -1054,6 +1054,10 @@ version rejection. No destructive history rewrite.
   output limits, images, Gateway options and current event consumers.
 - [ ] Add the Sandbox tool group, the per-user sandbox permission mode, the
   auto classifier and the per-call built-in approval patch (§4.6).
+- [ ] Schema moved from 1.2: the approval-table changes (§4.2: drop the
+  one-pending indexes, add `(run_id, tool_call_id)`, `harness_approval_id`,
+  `kind`, input sha256) and the per-user sandbox-mode row with the mode frozen
+  on the run (§4.6).
 - [ ] Implement the sandbox safety policy: allow list, rule list, classifier,
   thresholds per mode, ask cards, refusal text, the loop guard and decision
   records (§4.6).
@@ -1135,7 +1139,7 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2–1.6 not started. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3–1.6 not started. |
 | Upstream changes / SDK publication | None submitted. Candidates for `@ai-sdk/harness-pi` PRs (each starts as a `pnpm patch` where Lor needs it): a `systemPrompt` option passing Pi's `systemPromptOverride` (needed, §4.8); a per-call built-in approval callback that checks the delivered decision before asking (needed for the sandbox permission modes, §4.6); keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |
 
 ## Sources

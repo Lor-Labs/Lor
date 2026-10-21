@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto"
-import { hostname } from "node:os"
 import { computeCredits, getRate } from "@repo/billing"
 import {
   and,
@@ -42,6 +40,7 @@ import {
 import { logger } from "@/lib/logger"
 import { replayContinuedPrefix } from "@/lib/run-continuation"
 import { createRunEventWriter, type RunEventWriter } from "@/lib/run-events"
+import { WORKER_ID } from "@/lib/worker-id"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 const LEASE_TTL_MS = 60_000
@@ -49,8 +48,6 @@ const HEARTBEAT_MS = 20_000
 // Sequence gap left when taking over a crashed attempt, so recovered frames
 // can never collide with the dead worker's un-flushed live tail.
 const TAKEOVER_SEQ_GAP = 10_000
-
-const WORKER_ID = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
 
 // Attachment-only messages have null content; render their files as the same
 // [file: …] lines the initial context uses so mid-run injections carry them.
