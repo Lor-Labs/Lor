@@ -1,7 +1,7 @@
 import { canResolveApproval } from "@repo/auth/permissions"
 import { and, db, eq, isNotNull, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
-import type { Approval } from "@repo/db/schema"
+import type { Approval, TurnSandboxMode } from "@repo/db/schema"
 import type { ApprovalDecision, PausedTurnDrop } from "@repo/lor"
 import { loadResolverSpec } from "@/lib/approval-notify"
 
@@ -38,20 +38,25 @@ export async function loadPausedDecisions(
   // Rows this run closed, for the approval:updated broadcast.
   closed: Approval[]
   dropped: PausedTurnDrop | null
+  // The paused turn's frozen sandbox mode; a resume keeps it.
+  sandboxMode: TurnSandboxMode | undefined
 }> {
   const [pausedRun] = await db
     .select({
       stoppedAt: schema.agentRun.stopRequestedAt,
       stopperName: schema.user.name,
+      context: schema.agentRun.context,
     })
     .from(schema.agentRun)
     .leftJoin(schema.user, eq(schema.user.id, schema.agentRun.stopRequestedBy))
     .where(eq(schema.agentRun.id, pausedRunId))
+  const sandboxMode = pausedRun?.context?.sandboxMode
   if (pausedRun?.stoppedAt) {
     return {
       decisions: [],
       closed: [],
       dropped: { reason: "stopped", by: pausedRun.stopperName ?? "Someone" },
+      sandboxMode,
     }
   }
   if (upgraded) {
@@ -65,7 +70,12 @@ export async function loadPausedDecisions(
         )
       )
       .returning()
-    return { decisions: [], closed, dropped: { reason: "upgraded" } }
+    return {
+      decisions: [],
+      closed,
+      dropped: { reason: "upgraded" },
+      sandboxMode,
+    }
   }
   const steered = steer
     ? await db
@@ -129,6 +139,7 @@ export async function loadPausedDecisions(
     decisions: decisions.filter((d): d is ApprovalDecision => d !== null),
     closed: steered,
     dropped: null,
+    sandboxMode,
   }
 }
 
@@ -144,7 +155,8 @@ async function resolverStillAllowed(input: {
 }): Promise<boolean> {
   const access = await resolveChannelAccess(input.userId, input.channelId)
   if (!access.ok || !access.access.canWrite) return false
-  if (input.kind === "request") return true
+  // Request and sandbox rows: anyone who can write in the session approves.
+  if (input.kind !== "policy") return true
   const [member] = await db
     .select({
       role: schema.workspaceMember.role,

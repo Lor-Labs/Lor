@@ -22,8 +22,13 @@ export const approvalStatusEnum = pgEnum("approval_status", [
 ])
 
 // policy: a workspace approval gate on a tool. request: Lor asked itself
-// (request_approval).
-export const approvalKindEnum = pgEnum("approval_kind", ["policy", "request"])
+// (request_approval). sandbox: a `bash`, `write` or `edit` call the turn's
+// sandbox mode asks about (user_sandbox_settings).
+export const approvalKindEnum = pgEnum("approval_kind", [
+  "policy",
+  "request",
+  "sandbox",
+])
 
 // A consequential action an agent wants a human to authorize. A Pi turn
 // pauses on every gated call of its last step, so one run files a set (one

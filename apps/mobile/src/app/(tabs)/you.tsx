@@ -185,6 +185,13 @@ export default function YouScreen() {
             label="Notifications"
             onPress={() => router.push("/settings/notifications" as never)}
           />
+          <RowSeparator />
+          <SettingsRow
+            detail="When Lor asks before it acts"
+            icon={{ ios: "terminal", android: "terminal", web: "terminal" }}
+            label="Lor"
+            onPress={() => router.push("/settings/lor" as never)}
+          />
         </SettingsCard>
 
         <SettingsCard>

@@ -11,6 +11,7 @@ import { shellQuote } from "@ai-sdk/harness/utils"
 import {
   createPi,
   VERSION as PI_ADAPTER_VERSION,
+  type PiBuiltinToolApproval,
   type PiHarnessExtensionFactory,
 } from "@ai-sdk/harness-pi"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
@@ -351,6 +352,9 @@ export type PiTurnInput = {
   toolApproval?: Record<string, ToolApprovalStatus>
   // Pi's built-in tools to leave out of this turn (public names, e.g. bash).
   inactiveBuiltinTools?: string[]
+  // Per-call approval for the built-ins that stay (patched adapter option).
+  // Without it every call is allowed.
+  builtinToolApproval?: PiBuiltinToolApproval
   model: { id: string; fallbacks: string[]; contextWindow: number }
   gatewayAuth: Record<string, string>
   gatewayOptions: Record<string, unknown>
@@ -428,6 +432,9 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
       contextFiles: false,
       skills: false,
       fileToolPathPolicy: { deniedRoots: [sandboxStateRoot(home)] },
+      ...(input.builtinToolApproval
+        ? { builtinToolApproval: input.builtinToolApproval }
+        : {}),
       extensionFactories: [
         lorPiExtension({
           gateway: { ...input.gatewayOptions, sessionId: input.sessionKey },

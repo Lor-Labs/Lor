@@ -50,6 +50,10 @@ export type NotificationSettings = InferResponseType<
   Client["v1"]["notification-settings"]["$get"],
   200
 >
+export type SandboxSettings = InferResponseType<
+  Client["v1"]["sandbox-settings"]["$get"],
+  200
+>
 export type UserProfile = InferResponseType<
   Client["v1"]["users"][":userId"]["$get"],
   200

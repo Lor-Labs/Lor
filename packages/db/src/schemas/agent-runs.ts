@@ -20,6 +20,7 @@ import type { LorToolCall } from "./messages"
 import { message } from "./messages"
 import type { PlanStatus, PlanStep } from "./plans"
 import { triggerDelivery } from "./trigger-deliveries"
+import type { SandboxMode } from "./user-sandbox-settings"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -461,7 +462,13 @@ export type AgentRunContext = {
   // Message IDs injected at step boundaries and committed with the checkpoint
   // that first exposed them to the model. Optional for pre-existing snapshots.
   coveredMessageIds?: string[]
+  // The sandbox mode the turn runs under, frozen at its start so a retry or a
+  // changed setting never runs a call under a looser mode.
+  sandboxMode?: TurnSandboxMode
 }
+
+// A person's sandbox mode, or autonomous for Loop and Act runs (no one to ask).
+export type TurnSandboxMode = SandboxMode | "autonomous"
 
 // Written by @repo/lor at compaction time (see compaction.ts). summary is
 // the rolling working notes — the next run in this scope seeds its compactor

@@ -1,4 +1,5 @@
 import {
+  ComputerTerminal01Icon,
   GlobeIcon,
   KeyboardIcon,
   Message01Icon,
@@ -37,6 +38,7 @@ import {
 import { listen } from "@tauri-apps/api/event"
 import { useEffect, useMemo, useState } from "react"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
+import { LorSettings } from "@/components/settings/lor-settings"
 import { MyAccountSettings } from "@/components/settings/my-account-settings"
 import { NotificationSettings } from "@/components/settings/notification-settings"
 import { useAppVersion } from "@/hooks/use-app-version"
@@ -54,6 +56,7 @@ const settingsNav = [
   { id: "account", name: "My Account", icon: UserIcon },
   { id: "appearance", name: "Appearance", icon: PaintBrush01Icon },
   { id: "notifications", name: "Notifications", icon: Notification01Icon },
+  { id: "lor", name: "Lor", icon: ComputerTerminal01Icon },
   { id: "messages", name: "Messages & Media", icon: Message01Icon },
   { id: "language", name: "Language & Region", icon: GlobeIcon },
   { id: "accessibility", name: "Accessibility", icon: KeyboardIcon },
@@ -176,6 +179,8 @@ export function SettingsDialog() {
                 <AppearanceSettings />
               ) : activeItem.id === "notifications" ? (
                 <NotificationSettings />
+              ) : activeItem.id === "lor" ? (
+                <LorSettings />
               ) : (
                 <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                   {activeItem.name} settings coming soon.

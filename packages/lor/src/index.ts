@@ -162,6 +162,10 @@ import {
   piToolLabel,
   sandboxToolDetail,
 } from "./sandbox/pi-events"
+import {
+  sandboxAskDescription,
+  sandboxToolApproval,
+} from "./sandbox/sandbox-approval"
 import { openSessionSandbox, SESSION_WORK_DIR } from "./sandbox/session-sandbox"
 import type { HarnessOwner } from "./session-core"
 import {
@@ -2820,6 +2824,7 @@ export async function respond(
       request = {
         ...context,
         toolSchemaBytes,
+        sandboxMode: harness.sandboxMode,
         ...(ctx.delta
           ? {
               continuationDelta: ctx.delta.text,
@@ -2865,13 +2870,13 @@ export async function respond(
           })
           if (!decision) return deny(NO_DECISION_REASON)
           if (!decision.approved) return deny(decision.reason)
-          if (
-            !Object.hasOwn(tools, pending.toolName) ||
-            (decision.kind === "policy" &&
-              toolTargets.targetFor(pending.toolName) !== decision.target)
-          ) {
-            return deny(TOOL_GONE_REASON)
-          }
+          const stillBound =
+            decision.kind === "sandbox"
+              ? sandboxBuiltins.some((name) => name === pending.toolName)
+              : Object.hasOwn(tools, pending.toolName) &&
+                (decision.kind !== "policy" ||
+                  toolTargets.targetFor(pending.toolName) === decision.target)
+          if (!stillBound) return deny(TOOL_GONE_REASON)
           if (decision.inputSha256 !== sha256(pending.input)) {
             return deny(INPUT_CHANGED_REASON)
           }
@@ -2956,6 +2961,7 @@ export async function respond(
         inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
           (name) => !selectedBuiltinTools.has(name)
         ),
+        builtinToolApproval: sandboxToolApproval(harness.sandboxMode),
         model: {
           id: LOR_MODEL,
           fallbacks: LOR_FALLBACK_MODELS,
@@ -3068,6 +3074,20 @@ export async function respond(
       const approvals = turn.pendingApprovals.map(
         (pending): PendingApproval => {
           const payload = parseToolInput(pending.input)
+          // A Pi sandbox tool the turn's sandbox mode asked about.
+          if (pending.kind === "builtin") {
+            return {
+              harnessApprovalId: pending.approvalId,
+              toolCallId: pending.toolCallId,
+              toolName: pending.toolName,
+              kind: "sandbox",
+              target: null,
+              action: pending.toolName,
+              description: sandboxAskDescription(pending.toolName, payload),
+              payload,
+              inputSha256: sha256(pending.input),
+            }
+          }
           const asked =
             pending.toolName === "request_approval"
               ? (payload as { action?: unknown; description?: unknown })

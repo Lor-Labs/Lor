@@ -41,6 +41,7 @@ import { loadHarnessState, savedTurnText } from "@/lib/harness-state"
 import { logger } from "@/lib/logger"
 import type { LorMessageDeps } from "@/lib/lor-messages"
 import { loadPausedDecisions } from "@/lib/paused-turn"
+import { turnSandboxMode } from "@/lib/sandbox-mode"
 import { cancelPendingRun } from "@/lib/unattended-run"
 import {
   APPROVER_GRACE_MS,
@@ -272,6 +273,13 @@ async function runVoiceRequest(
         )
       }
     }
+    // The speaker's mode (pi-harness-runbook.md §4.6).
+    const sandboxMode = await turnSandboxMode({
+      saved: execution.resume?.context.sandboxMode,
+      paused: continueOnly ? paused?.sandboxMode : undefined,
+      automated: false,
+      userId: request.userId,
+    })
 
     const answer = await respond(
       {
@@ -346,6 +354,7 @@ async function runVoiceRequest(
           pausedDecisions: paused && !paused.dropped ? paused.decisions : null,
           pausedDropped: paused?.dropped ?? null,
           continueOnly,
+          sandboxMode,
           saveTurn: (record) => execution.saveTurn(owner, record),
         },
         // Steering: requests made in the call since the last step.
@@ -412,7 +421,7 @@ async function runVoiceRequest(
 }
 
 // The paused set's next pending approval, in set order, as Lor's window
-// shows it. Null when none is left (or the row has no gate target).
+// shows it. Null when none is left.
 async function nextVoiceApproval(request: LoadedRequest, runId: string) {
   const [approval] = await db
     .select({
@@ -430,7 +439,7 @@ async function nextVoiceApproval(request: LoadedRequest, runId: string) {
     )
     .orderBy(asc(schema.approval.createdAt), asc(schema.approval.id))
     .limit(1)
-  if (!approval?.target) return null
+  if (!approval) return null
   return {
     approvalId: approval.id,
     label: approval.description,
@@ -489,7 +498,7 @@ async function watchApproval(data: VoiceApprovalWatchJobData) {
     return
   }
   const approval = await loadApproval(data.approvalId)
-  if (approval?.status !== "pending" || !approval.target) return
+  if (approval?.status !== "pending") return
   if (request.sessionEndedAt) {
     if (request.runId) await expireApprovalSet(request.runId)
     publish(request, await finishVoiceRequest(request.id, { status: "failed" }))

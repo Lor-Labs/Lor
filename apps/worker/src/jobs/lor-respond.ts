@@ -76,6 +76,7 @@ import { loadPausedDecisions } from "@/lib/paused-turn"
 import { buildTurnDelta } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
+import { turnSandboxMode } from "@/lib/sandbox-mode"
 import { titleSessionAfterFirstReply } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
 import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
@@ -760,6 +761,12 @@ export function createLorRespondProcessor(
               })
             }
             if (paused?.closed.length) notifyWorkspaceActivity(workspaceId)
+            const sandboxMode = await turnSandboxMode({
+              saved: execution.resume?.context.sandboxMode,
+              paused: continueOnly ? paused?.sandboxMode : undefined,
+              automated: Boolean(automated),
+              userId: triggerUserId,
+            })
 
             // start_plan: adopt this run's thread as a new plan, anchored to
             // the thread root and assigned to this run so settlePlan owns it.
@@ -1010,6 +1017,7 @@ export function createLorRespondProcessor(
                     paused && !paused.dropped ? paused.decisions : null,
                   pausedDropped: paused?.dropped ?? null,
                   continueOnly,
+                  sandboxMode,
                   saveTurn: (turn) => execution.saveTurn(owner, turn),
                 },
               }

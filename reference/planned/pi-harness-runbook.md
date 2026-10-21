@@ -1342,10 +1342,39 @@ moved here from 1.4, because nothing runs without a sandbox.
       - A resume run for such a turn runs as a normal turn with that note.
       - `runPiTurn` still throws `incompatible_state` if a caller tries to
         continue it.
-- [ ] **1.3f Sandbox safety:** the per-user sandbox-mode row with the mode frozen
-  on the run; the allow list, rule list, classifier, thresholds per mode, ask
-  cards, refusal text, loop guard and decision records (§4.6), through the
-  patched `builtinToolApproval`.
+- [ ] **1.3f Sandbox safety** (§4.6), in three chunks agreed with Jacob
+  2026-10-21:
+  - [x] **1.3f-1 Modes and asking** (2026-10-21; needs `db:push`):
+    - **Setting:** `user_sandbox_settings` (one row per user; `manual` /
+      `auto` / `bypass`, default `auto`). The API is
+      `GET`/`PATCH /v1/sandbox-settings`. Web shows it in a "Lor" settings
+      tab; mobile shows it on You → Lor.
+    - **Frozen mode** (`turnSandboxMode`, worker): the turn's mode is saved
+      as `sandboxMode` on the run's request, so a retry keeps it.
+      - A resume keeps the paused turn's mode.
+      - Loop and Act runs are `autonomous`.
+      - Voice uses the speaker's mode.
+      - Anything else uses the mode of the person whose message started it.
+    - **Asking** (`sandboxToolApproval`, through the patched
+      `builtinToolApproval`):
+      - Read-only tools never ask.
+      - `bypass` and `autonomous` allow every call.
+      - `manual` asks for every `bash`, `write` and `edit`. Until 1.3f-2,
+        so does `auto`; its settings text already describes the final
+        behavior.
+      - An ask pauses the turn like any approval. It is filed as a `sandbox`
+        approval row with no gate target; the card reads "Run a command: …"
+        or "Write/Edit <path>".
+      - Anyone who can write in the session approves; in a call, anyone
+        connected with write access.
+      - On resume, an approved call is denied when the Sandbox group no
+        longer binds its tool.
+  - [ ] **1.3f-2 Rules and autonomous runs:** the always-allowed and
+    always-flagged lists; Loop and Act runs refuse (refusal text) instead of
+    asking; the loop guard; decision records on the run.
+  - [ ] **1.3f-3 Classifier:** Jev through the Gateway for the calls the
+    rules do not settle, with the thresholds per mode and the reason on the
+    ask card.
 - [ ] **1.3g Turn controls and eval:** the compaction handler, per-step counters,
   the tool block near the spend or deadline limit, ambient context, steering and
   stop; the sandbox classifier eval next to the long-task eval (§4.6).

@@ -29,6 +29,7 @@ import projectsRouter from "@/routes/v1/projects/index"
 import proposalsRouter from "@/routes/v1/proposals/index"
 import pushTokensRouter from "@/routes/v1/push-tokens/index"
 import runsRouter from "@/routes/v1/runs/index"
+import sandboxSettingsRouter from "@/routes/v1/sandbox-settings/index"
 import sessionsRouter from "@/routes/v1/sessions/index"
 import threadSubscriptionsRouter from "@/routes/v1/thread-subscriptions/index"
 import uploadsRouter from "@/routes/v1/uploads/index"
@@ -81,6 +82,7 @@ const routes = app
   .route("/v1", onboardingRouter)
   .route("/v1", invitesRouter)
   .route("/v1", notificationSettingsRouter)
+  .route("/v1", sandboxSettingsRouter)
   .route("/v1", pushTokensRouter)
   .route("/v1", channelMutesRouter)
   .route("/v1", hintsRouter)

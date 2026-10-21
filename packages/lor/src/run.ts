@@ -1,4 +1,8 @@
-import type { AgentRunContext } from "@repo/db/schema"
+import type {
+  AgentRunContext,
+  ApprovalKind,
+  TurnSandboxMode,
+} from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import type { HarnessOwner, SavedHarnessState } from "./session-core"
 import type { PiTurnSave } from "./session-core/pi-runtime"
@@ -80,7 +84,7 @@ export type PendingApproval = {
   harnessApprovalId: string
   toolCallId: string
   toolName: string
-  kind: "policy" | "request"
+  kind: ApprovalKind
   target: string | null
   action: string
   description: string
@@ -95,7 +99,7 @@ export type ApprovalDecision = {
   approved: boolean
   reason: string
   toolName: string
-  kind: "policy" | "request"
+  kind: ApprovalKind
   target: string | null
   inputSha256: string | null
 }
@@ -138,6 +142,9 @@ export type RunHarness = {
   // The run only finishes the paused turn (the last approval was decided):
   // no new prompt.
   continueOnly: boolean
+  // How the turn's `bash`, `write` and `edit` calls are approved, frozen at
+  // its start (the worker resolves it; respond() saves it with the request).
+  sandboxMode: TurnSandboxMode
   // One transaction under the run's lease: the Pi log, the new head and the
   // counters. Throws when the lease or the saved head moved.
   saveTurn: (turn: RunTurnRecord) => Promise<RunCounters>
