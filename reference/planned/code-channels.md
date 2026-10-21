@@ -98,10 +98,11 @@ Both support forks and multiplayer the same way.
     the work is ready. They review it, talk to Lor, and push or open the PR
     from the session.
   - Each fire gets a short brief of recent fires (session links, outcomes,
-    review state), so it does not redo unreviewed work.
+    review state), so it does not redo unreviewed work. A fire runs even when
+    earlier fires still wait for review.
   - Fires are autonomous: classifier-only sandbox mode and workspace billing.
-  - Recommended, not decided: an unattended fire never pushes to the
-    repository's default branch.
+  - An unattended fire never pushes straight to the repository's default
+    branch. A setup that targets it opens a PR into it instead.
 - **Mobile matches web** for code sessions: conversation, diffs, preview,
   approvals and PRs. Only the opt-in live editor (§6) may stay web-only.
 - **Repository instruction files.** At the start of a turn, Lor reads the
@@ -281,7 +282,6 @@ The code index (§11) is independent. Harness support is no longer a phase-8 add
 ## 10. Open questions and historical vendor research
 
 - Code-session layout details; the shape is in §2.
-- Code Loops (§2): what a fire does while the previous fire's session is still unreviewed (run anyway or skip), and whether unattended fires may push to the default branch.
 - Retention/deletion of branches and inherited history, including private native data.
 - Non-GitHub projects, runtime/storage budgets and historical views of human pushes.
 - Official-harness payload storage, safe code-only clone/export boundary and CLI transfer protocol; native Pi state stays in Postgres.
