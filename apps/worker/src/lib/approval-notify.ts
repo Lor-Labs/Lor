@@ -3,7 +3,7 @@ import {
   formatWorkspaceRole,
   isWorkspaceRole,
 } from "@repo/auth/permissions"
-import { and, db, eq, LOR_USER_ID, schema } from "@repo/db"
+import { and, asc, db, eq, LOR_USER_ID, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { sendApprovalPush } from "@repo/messaging"
 import type {
@@ -24,6 +24,8 @@ import { logger } from "@/lib/logger"
 //   case (R approves their own gate in seconds) pages nobody else.
 // - When R can't act (or there is no R — loops, triggered runs), the eligible
 //   set is paged immediately: nobody present can unblock it.
+// A paused turn files one row per gated call; these rules apply per row, and
+// each person gets one ping per set about the rows they can act on.
 // Each ping is one surface per person: socket event for connected clients (the
 // web/desktop OS notification), mobile push for the offline complement.
 
@@ -92,10 +94,18 @@ type ParkedApprovalRow = {
   triggerMessageId: string | null
 }
 
-async function loadParkedApproval(
+// The still-pending rows of the set this approval belongs to (a paused turn
+// files one row per gated call).
+async function loadPendingSet(
   approvalId: string
-): Promise<ParkedApprovalRow | null> {
-  const row = await db
+): Promise<ParkedApprovalRow[]> {
+  const runId = await db
+    .select({ runId: schema.approval.runId })
+    .from(schema.approval)
+    .where(eq(schema.approval.id, approvalId))
+    .then((rows) => rows[0]?.runId ?? null)
+  if (!runId) return []
+  return db
     .select({
       approvalId: schema.approval.id,
       workspaceId: schema.approval.workspaceId,
@@ -110,17 +120,20 @@ async function loadParkedApproval(
     })
     .from(schema.approval)
     .innerJoin(schema.agentRun, eq(schema.approval.runId, schema.agentRun.id))
-    .where(eq(schema.approval.id, approvalId))
-    .limit(1)
-    .then((rows) => rows[0])
-  return row ?? null
+    .where(
+      and(
+        eq(schema.approval.runId, runId),
+        eq(schema.approval.status, "pending")
+      )
+    )
+    .orderBy(asc(schema.approval.createdAt), asc(schema.approval.id))
 }
 
 // The policy row's resolver spec for this approval's target; null when the
 // named resolver dangles (deleted role/user) — owner-only, matching the
 // resolve endpoint. No policy row (gate turned off while parked) falls back
 // to any_member, also matching the endpoint.
-async function loadResolverSpec(
+export async function loadResolverSpec(
   workspaceId: string,
   target: string | null
 ): Promise<ApprovalResolverSpec | null> {
@@ -243,6 +256,7 @@ async function requesterOf(row: ParkedApprovalRow): Promise<string | null> {
 
 async function buildNotification(
   row: ParkedApprovalRow,
+  count: number,
   flavor: ApprovalNotification["flavor"],
   resolverLabel: string
 ): Promise<ApprovalNotification> {
@@ -269,8 +283,75 @@ async function buildNotification(
     channelName: channel?.name ?? null,
     threadRootId: row.threadRootId,
     messageId: row.messageId,
-    description: row.description,
+    description:
+      count > 1
+        ? `${row.description} (and ${count - 1} more)`
+        : row.description,
     resolverLabel,
+  }
+}
+
+type Audience = { userIds: string[]; label: string }
+
+async function audiencesOf(
+  rows: ParkedApprovalRow[],
+  requesterId: string | null
+): Promise<Map<string, Audience>> {
+  return new Map(
+    await Promise.all(
+      rows.map(
+        async (row) =>
+          [
+            row.approvalId,
+            await resolverAudience(
+              row.workspaceId,
+              await loadResolverSpec(row.workspaceId, row.target),
+              requesterId
+            ),
+          ] as const
+      )
+    )
+  )
+}
+
+// Who gets pinged, and about which rows of the set.
+type PingPlan = Map<string, ParkedApprovalRow[]>
+
+function addPing(plan: PingPlan, userId: string, row: ParkedApprovalRow) {
+  plan.set(userId, [...(plan.get(userId) ?? []), row])
+}
+
+// One ping per person per set, about the rows they can act on; people with
+// the same rows share one send.
+async function sendPings(
+  deps: NotifyDeps,
+  plan: PingPlan,
+  flavor: ApprovalNotification["flavor"],
+  audiences: Map<string, Audience>
+) {
+  const groups = new Map<
+    string,
+    { userIds: string[]; rows: ParkedApprovalRow[] }
+  >()
+  for (const [userId, rows] of plan) {
+    const key = rows.map((row) => row.approvalId).join()
+    const group = groups.get(key) ?? { userIds: [], rows }
+    group.userIds.push(userId)
+    groups.set(key, group)
+  }
+  for (const { userIds, rows } of groups.values()) {
+    const [first] = rows
+    if (!first) continue
+    await notifyUsers(
+      deps,
+      userIds,
+      await buildNotification(
+        first,
+        rows.length,
+        flavor,
+        audiences.get(first.approvalId)?.label ?? "a teammate"
+      )
+    )
   }
 }
 
@@ -297,69 +378,60 @@ async function notifyUsers(
   )
 }
 
-// Immediate phase, called right after the parked run goes terminal. Returns
-// whether the escalation job should be scheduled.
+// Immediate phase, called right after the paused run goes terminal, with any
+// row of its set. Returns whether the escalation job should be scheduled.
 export async function notifyApprovalParked(
   deps: NotifyDeps,
   approvalId: string
 ): Promise<{ scheduleEscalation: boolean }> {
-  const row = await loadParkedApproval(approvalId)
-  if (!row || row.status !== "pending") return { scheduleEscalation: false }
+  const rows = await loadPendingSet(approvalId)
+  const [first] = rows
+  if (!first) return { scheduleEscalation: false }
+  const requesterId = await requesterOf(first)
+  const audiences = await audiencesOf(rows, requesterId)
 
-  const spec = await loadResolverSpec(row.workspaceId, row.target)
-  const requesterId = await requesterOf(row)
-  const { userIds, label } = await resolverAudience(
-    row.workspaceId,
-    spec,
-    requesterId
-  )
-
-  if (requesterId && userIds.includes(requesterId)) {
-    // The requester can self-approve: page only them now; everyone else waits
-    // for the escalation (skipped when they were the whole audience anyway).
-    await notifyUsers(
-      deps,
-      [requesterId],
-      await buildNotification(row, "actionable", label)
-    )
-    return { scheduleEscalation: userIds.length > 1 }
+  const now: PingPlan = new Map()
+  const waiting: PingPlan = new Map()
+  let scheduleEscalation = false
+  for (const row of rows) {
+    const userIds = audiences.get(row.approvalId)?.userIds ?? []
+    if (requesterId && userIds.includes(requesterId)) {
+      // The requester can decide this row: page only them now; the rest of
+      // its audience waits for the escalation.
+      addPing(now, requesterId, row)
+      if (userIds.length > 1) scheduleEscalation = true
+    } else {
+      for (const userId of userIds) addPing(now, userId, row)
+      if (requesterId) addPing(waiting, requesterId, row)
+    }
   }
-
-  await notifyUsers(
-    deps,
-    userIds,
-    await buildNotification(row, "actionable", label)
-  )
-  if (requesterId) {
-    await notifyUsers(
-      deps,
-      [requesterId],
-      await buildNotification(row, "waiting", label)
-    )
-  }
-  return { scheduleEscalation: false }
+  // An actionable ping already brings the requester to the set.
+  if (requesterId && now.has(requesterId)) waiting.delete(requesterId)
+  await sendPings(deps, now, "actionable", audiences)
+  await sendPings(deps, waiting, "waiting", audiences)
+  return { scheduleEscalation }
 }
 
-// Delayed phase: the requester was paged first but the gate is still pending —
-// bring in the rest of the eligible set.
+// Delayed phase: the requester was paged first but rows they could decide are
+// still pending — bring in the rest of those rows' audiences.
 export async function escalateApproval(
   deps: NotifyDeps,
   approvalId: string
 ): Promise<void> {
-  const row = await loadParkedApproval(approvalId)
-  if (!row || row.status !== "pending") return
+  const rows = await loadPendingSet(approvalId)
+  const [first] = rows
+  if (!first) return
+  const requesterId = await requesterOf(first)
+  if (!requesterId) return
+  const audiences = await audiencesOf(rows, requesterId)
 
-  const spec = await loadResolverSpec(row.workspaceId, row.target)
-  const requesterId = await requesterOf(row)
-  const { userIds, label } = await resolverAudience(
-    row.workspaceId,
-    spec,
-    requesterId
-  )
-  const rest = userIds.filter((id) => id !== requesterId)
-  await notifyUsers(
-    deps,
-    rest,
-    await buildNotification(row, "actionable", label)
-  )
+  const later: PingPlan = new Map()
+  for (const row of rows) {
+    const userIds = audiences.get(row.approvalId)?.userIds ?? []
+    if (!userIds.includes(requesterId)) continue
+    for (const userId of userIds) {
+      if (userId !== requesterId) addPing(later, userId, row)
+    }
+  }
+  await sendPings(deps, later, "actionable", audiences)
 }

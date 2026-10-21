@@ -15,6 +15,7 @@ import { env } from "@repo/env/server"
 import { settleAbandonedRunPlan } from "@repo/lor/plans"
 import { AGENT_RUN_STOP_CHANNEL } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
+import { stopPausedTurn } from "@/lib/approvals"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -455,13 +456,50 @@ export const stopRun: AppRouteHandler<StopRunRoute> = async (c) => {
 
   // Found by messageId, so the param is this run's message id.
   const outcome = await requestRunStop({ ...run, messageId }, currentUser.id)
-  if (!outcome) {
+  if (outcome) return c.json(outcome, HttpStatusCodes.OK)
+
+  // A turn paused on approvals: Stop ends it with no reply. Its pending
+  // approvals close as rejected (pi-harness-runbook.md §4.2).
+  const closed = await stopPausedTurn(run.id, currentUser.id, "rejected")
+  if (closed.length === 0) {
     return c.json(
       { success: false, message: "Run already finished" },
       HttpStatusCodes.CONFLICT
     )
   }
-  return c.json(outcome, HttpStatusCodes.OK)
+  notifyWorkspaceActivity(run.workspaceId)
+  // Durable already: a failed broadcast or plan move must not fail the stop.
+  try {
+    const emitter = await getEmitter()
+    for (const approval of closed) {
+      emitter.to(channelRoom(run.channelId)).emit("approval:updated", {
+        approvalId: approval.id,
+        channelId: run.channelId,
+        planId: approval.planId,
+        status: approval.status,
+        resolvedBy: approval.resolvedBy,
+        resolvedAt: approval.resolvedAt?.toISOString() ?? null,
+      })
+    }
+    const planId = closed.find((approval) => approval.planId)?.planId
+    const plan = planId
+      ? await db
+          .update(schema.plan)
+          .set({ status: "stopped" })
+          .where(
+            and(
+              eq(schema.plan.id, planId),
+              eq(schema.plan.status, "waiting_for_approval")
+            )
+          )
+          .returning()
+          .then((rows) => rows[0])
+      : undefined
+    if (plan) await emitPlanUpdated(plan, { statusChanged: true })
+  } catch (err) {
+    logger.warn({ err, runId: run.id }, "Paused turn stop broadcast failed")
+  }
+  return c.json({ state: run.state, stopped: true }, HttpStatusCodes.OK)
 }
 
 // "Steer" on a queued message: stop the scope's active run immediately; the

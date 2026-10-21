@@ -2,7 +2,7 @@ import {
   type ApprovalResolverSpec,
   approvalPolicyResolverSpec,
 } from "@repo/auth/permissions"
-import { and, db, eq, inArray, schema } from "@repo/db"
+import { and, db, eq, inArray, schema, sql } from "@repo/db"
 import type { Approval } from "@repo/db/schema"
 
 export function serializeApproval(row: Approval) {
@@ -18,6 +18,45 @@ export function serializeApproval(row: Approval) {
     resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   }
+}
+
+// Stop on a turn paused on approvals (chat Stop, or cancel in a call): the turn
+// just ends, with no reply. Its pending rows close and the paused run is
+// marked stopped, so the session's next run drops the turn instead of
+// finishing it. Empty when nothing was pending: a decided set already resumes.
+export async function stopPausedTurn(
+  runId: string,
+  userId: string,
+  status: "rejected" | "expired"
+): Promise<Approval[]> {
+  return db.transaction(async (tx) => {
+    // Serializes with resolutions of the same set (the resolve endpoint).
+    await tx
+      .select({ id: schema.agentRun.id })
+      .from(schema.agentRun)
+      .where(eq(schema.agentRun.id, runId))
+      .for("update")
+    const closed = await tx
+      .update(schema.approval)
+      .set({ status, resolvedBy: userId, resolvedAt: new Date() })
+      .where(
+        and(
+          eq(schema.approval.runId, runId),
+          eq(schema.approval.status, "pending")
+        )
+      )
+      .returning()
+    if (closed.length > 0) {
+      await tx
+        .update(schema.agentRun)
+        .set({
+          stopRequestedAt: sql`coalesce(${schema.agentRun.stopRequestedAt}, now())`,
+          stopRequestedBy: userId,
+        })
+        .where(eq(schema.agentRun.id, runId))
+    }
+    return closed
+  })
 }
 
 // Resolver specs for a batch of approvals, keyed by approval id — one policy

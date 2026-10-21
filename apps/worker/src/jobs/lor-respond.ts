@@ -720,9 +720,9 @@ export function createLorRespondProcessor(
               userId: triggerUserId,
             }
 
-            // A paused turn finishes first. Unless this run is its resume,
-            // its pending approvals are rejected: the trigger's author wrote
-            // instead of deciding.
+            // A paused turn finishes first, or is dropped if someone stopped
+            // it. Unless this run is its resume, its pending approvals are
+            // rejected: the trigger's author wrote instead of deciding.
             const paused =
               savedAnswer === null &&
               harnessState?.continuation &&
@@ -997,7 +997,9 @@ export function createLorRespondProcessor(
                   owner,
                   saved: harnessState,
                   savedAnswer,
-                  pausedDecisions: paused?.decisions ?? null,
+                  pausedDecisions:
+                    paused && !paused.stoppedBy ? paused.decisions : null,
+                  pausedStoppedBy: paused?.stoppedBy ?? null,
                   continueOnly,
                   saveTurn: (turn) => execution.saveTurn(owner, turn),
                 },
@@ -1303,9 +1305,9 @@ export function createLorRespondProcessor(
               logger.warn({ err, threadRootId }, "Recording touches failed")
             )
           }
-          // Announce the gate only after the run is terminal — the resolve
-          // endpoint refuses to resume a run that hasn't finished parking.
-          // Ids only; cards read the durable row via the approvals query.
+          // Announce the set once the run is terminal: a decision made sooner
+          // queues its resume behind this run. Ids only; cards refetch the
+          // whole set, and each person gets one notice for it.
           if (awaitingApproval && job.data.runId) {
             const parkedApproval = await db
               .select({

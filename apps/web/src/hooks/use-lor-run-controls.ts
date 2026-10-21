@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
+import { usePausedLorMessageId } from "@/hooks/use-approvals"
 import { useLorRunReplay } from "@/hooks/use-lor-stream"
 import { useQueuedMessageSteering } from "@/hooks/use-queued-message-steering"
 import { useRunQueue } from "@/hooks/use-run-queue"
@@ -61,12 +62,16 @@ export function useLorRunControls({
       setStopOnStart(false)
     }
   }, [stopOnStart, pendingLorMessage, serverPendingLorId, stopLorRun])
+  // A turn paused on approvals is stoppable too: Stop rejects them all.
+  const pausedLorMessageId = usePausedLorMessageId(channelId, threadRootId)
   const onStop = pendingLorMessage
     ? () =>
         serverPendingLorId
           ? stopLorRun(pendingLorMessage)
           : setStopOnStart(true)
-    : undefined
+    : pausedLorMessageId
+      ? () => stopLorRun({ id: pausedLorMessageId, channelId, threadRootId })
+      : undefined
   const isStopping =
     stopLor.isPending ||
     stopOnStart ||

@@ -127,6 +127,9 @@ export type RunHarness = {
   // Set when the saved turn paused on approvals: one decision per row of the
   // set. respond() finishes that turn first, then sends its own prompt.
   pausedDecisions: ApprovalDecision[] | null
+  // Who pressed Stop while the saved turn waited on approvals. respond()
+  // drops that turn (its calls read as not run) and tells the model why.
+  pausedStoppedBy: string | null
   // The run only finishes the paused turn (the last approval was decided):
   // no new prompt.
   continueOnly: boolean

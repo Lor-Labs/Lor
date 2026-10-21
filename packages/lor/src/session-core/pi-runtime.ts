@@ -329,6 +329,10 @@ export type PiTurnInput = {
   // A paused turn in `saved` continues first, with one decision per pending
   // approval. Then `prompt`, when given, starts a new turn in the same session.
   decisions?: ToolApprovalResponse[]
+  // Drop the paused turn instead (someone stopped it): resume from the saved
+  // log, where its unanswered calls read as "No result provided" (pi-ai
+  // transformMessages), and clear the continuation on save.
+  dropPaused?: boolean
   // Text first, then images (the adapter rejects text after an image).
   prompt?: UserModelMessage
   tools: ToolSet
@@ -380,14 +384,14 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
     ? checkCompatibility(input.saved, PI_BINDING)
     : null
   const convertsFormat = compatibility?.convertsFormat ?? false
-  if (compatibility?.continuation === "expire") {
+  if (compatibility?.continuation === "expire" && !input.dropPaused) {
     throw new SessionCoreError(
       "incompatible_state",
       "The paused turn was saved by another adapter version"
     )
   }
   const paused =
-    compatibility?.continuation === "resume"
+    compatibility?.continuation === "resume" && !input.dropPaused
       ? (input.saved?.continuation as HarnessAgentContinueTurnState)
       : null
 

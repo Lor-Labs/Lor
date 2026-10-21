@@ -76,7 +76,7 @@ export const stopRun = createRoute({
   method: "post",
   summary: "Stop an in-flight agent run",
   description:
-    "Requests a user stop of the agent run streaming into the given message. A never-claimed run settles immediately; a working run is stopped by its lease holder at the next safe step boundary, keeping whatever answer already streamed. Restarting is a separate explicit action (a new mention).",
+    "Requests a user stop of the agent run streaming into the given message. A never-claimed run settles immediately; a working run is stopped by its lease holder at the next safe step boundary, keeping whatever answer already streamed. A run paused on approvals has every pending approval rejected, and its turn ends with no reply. Restarting is a separate explicit action (a new mention).",
   tags: ["Runs"],
   middleware: [sessionAuthMiddleware] as const,
   request: {

@@ -1293,10 +1293,38 @@ moved here from 1.4, because nothing runs without a sandbox.
       prompt goes out, that prompt is not sent. Its message is already
       covered by the run, so it does not reach a later delta either. This is
       rare, because the model has just been told to stop.
-  - [ ] **1.3e-2 Resolver and notices:** re-check the resolver's access
-    before resume. Notify once per run, not per row. The plan header shows
-    the whole set. Stop while approvals are pending rejects them all and
-    finishes the turn.
+  - [x] **1.3e-2 Resolver, notices and Stop** (2026-10-21):
+    - **Resolver check before resume** (`loadPausedDecisions`): an approval
+      stands only while its approver could still give it. The check is the
+      same rule the resolve endpoint applies: write access to the channel,
+      plus the gate's resolver rule for policy rows. Otherwise the call is
+      not run, and the model reads that the approver can no longer approve
+      it.
+    - **One notice per set** (`approval-notify.ts`): the requester and
+      escalation rules still apply per row. Each person gets one notice per
+      set, about the rows they can decide ("… (and N more)"). The
+      escalation job covers the whole set.
+    - **Stop while approvals are pending** (changed with Jacob 2026-10-21:
+      Stop just ends the turn, with no reply, as it does for a running turn):
+      - **Web and mobile:** Stop shows while the session's newest paused
+        reply has pending approvals.
+      - **Stop endpoint** (`stopPausedTurn`): closes every pending row of the
+        set as rejected and sets `stopRequestedAt` on the paused run. Anyone
+        who can write in the conversation may do this, as with a running
+        turn. Nothing resumes.
+      - **Voice:** cancelling a waiting request does the same, with the
+        rows expired. This replaces `expireRunApproval`.
+      - **The session's next run drops the stopped turn** (`dropPaused`). It
+        resumes from the saved log instead of the continuation, so the
+        unanswered calls read as "No result provided" (pi-ai
+        `transformMessages`). Its prompt says who stopped the turn and that
+        those actions did not run.
+      - **Effect on approved calls:** approved calls in a partly decided set
+        do not run either. A sibling call that already ran keeps its effects.
+      - **A set that was already complete:** its resume is already under
+        way; Stop on that run's reply stops it as usual.
+    - **Plan header:** no change. The plan's `pendingApproval` is never
+      rendered; only an optimistic cache patch reads it.
   - [ ] **1.3e-3 Voice sets and upgrades:** Lor's window shows the whole
     set (today it shows the first row). A continuation from another adapter
     version expires its approvals and continues from the saved log

@@ -94,6 +94,20 @@ export function useMessageApprovals(
   return data ?? []
 }
 
+// The Lor message whose turn is paused on pending approvals, if any: Stop
+// rejects them all.
+export function usePausedLorMessageId(
+  channelId: string,
+  threadRootId: string | null
+): string | null {
+  const { data } = useQuery({
+    ...channelApprovalsQueryOptions(channelId, threadRootId),
+    select: (approvals: ChannelApproval[]) =>
+      approvals.find((a) => a.status === "pending")?.messageId ?? null,
+  })
+  return data ?? null
+}
+
 // Client-side mirror of the server's resolver check, for showing/hiding the
 // buttons only — the resolve endpoint re-checks with real authority.
 export function useCanResolveApproval(

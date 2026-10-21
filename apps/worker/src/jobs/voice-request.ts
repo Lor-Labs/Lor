@@ -332,7 +332,9 @@ async function runVoiceRequest(
           owner,
           saved: harnessState,
           savedAnswer,
-          pausedDecisions: paused?.decisions ?? null,
+          pausedDecisions:
+            paused && !paused.stoppedBy ? paused.decisions : null,
+          pausedStoppedBy: paused?.stoppedBy ?? null,
           continueOnly,
           saveTurn: (record) => execution.saveTurn(owner, record),
         },
