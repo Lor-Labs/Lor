@@ -25,6 +25,7 @@ import {
   formatSpeakerLine,
   groundCitations,
   respond,
+  SandboxCapacityError,
   writeBack,
 } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
@@ -60,6 +61,7 @@ import {
   scheduleApprovalEscalation,
 } from "@/lib/approval-notify"
 import { createProposalCard } from "@/lib/change-proposal"
+import { loadHarnessState, savedTurnText } from "@/lib/harness-state"
 import { logger } from "@/lib/logger"
 import {
   loadLoopRun,
@@ -69,11 +71,7 @@ import {
 } from "@/lib/loop-session"
 import { loadConversation } from "@/lib/lor-conversation"
 import { createLoopCard } from "@/lib/lor-loop"
-import {
-  approvalDecisionTurn,
-  buildApprovalContinuation,
-  buildContinuation,
-} from "@/lib/run-continuation"
+import { approvalDecisionTurn, buildTurnDelta } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { titleSessionAfterFirstReply } from "@/lib/session-title"
@@ -96,6 +94,9 @@ const LOR_ERROR_FALLBACK =
 
 const OUT_OF_CREDITS_MESSAGE =
   "This workspace is out of Lor credits. An admin can top up in Settings → Billing."
+
+const SANDBOX_CAPACITY_MESSAGE =
+  "Lor's sandboxes are at capacity right now. Please try again in a few minutes."
 
 export function createLorRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
@@ -430,11 +431,9 @@ export function createLorRespondProcessor(
             return
           }
 
-          // Recovered attempt: reset clients to the durable answer prefix — the
-          // dead attempt's un-checkpointed tail is discarded by design.
-          if (execution?.resume) {
-            emit(execution.resume.answerTextSoFar, false, undefined, true)
-          }
+          // Retried attempt: the lost attempt's streamed text is discarded, so
+          // reset clients before the turn runs again.
+          if (execution?.resume) emit("", false, undefined, true)
 
           // Reasoning is kept both as a legacy aggregate and ordered segments that
           // can be interleaved with tool calls at the same answer-text offset.
@@ -530,47 +529,56 @@ export function createLorRespondProcessor(
             )
           }
           try {
-            // Continuation: a follow-up run in a thread/plan scope inherits the
-            // previous run's transcript (its tool results and reasoning) rather
-            // than rebuilding context from chat text alone, so it resumes the
-            // work instead of rediscovering it. Channel scope always builds
-            // fresh, and a recovered attempt already has its own transcript.
-            // An approval resume is explicit rather than scope-inferred: it
-            // replays the parked run named by the approval row, so it also
-            // works in a plain channel scope where no delta path exists.
+            // Every Lor turn runs in its session's Pi conversation.
+            if (!execution) throw new Error("A Lor turn needs a durable run")
+            const session = threadRootId
+              ? await db
+                  .select({ id: schema.agentSession.id })
+                  .from(schema.agentSession)
+                  .where(eq(schema.agentSession.threadRootId, threadRootId))
+                  .then((rows) => rows[0])
+              : undefined
+            if (!session) throw new Error("This Lor run has no session")
+            const owner = { sessionId: session.id }
+            const harnessState = await loadHarnessState(
+              owner,
+              execution.workspaceId
+            )
+            // The lost attempt saved its turn before it died: deliver that
+            // answer instead of running the turn twice.
+            const savedAnswer =
+              execution.resume && harnessState?.lastRunId === execution.runId
+                ? await savedTurnText(execution.runId)
+                : null
             // request_approval parks no tool call: its decision rides the
-            // delta as a line instead.
+            // delta as a line.
             const decisionTurn =
-              !execution?.resume && job.data.resumeApprovalId
+              !execution.resume && job.data.resumeApprovalId
                 ? await approvalDecisionTurn(job.data.resumeApprovalId).catch(
                     () => null
                   )
                 : null
-            const continuation = execution?.resume
-              ? null
-              : job.data.resumeApprovalId && !decisionTurn
-                ? await buildApprovalContinuation({
-                    approvalId: job.data.resumeApprovalId,
+            // After the session's first turn, Pi's saved state holds the
+            // conversation, so the prompt is only what was said since.
+            const delta =
+              execution.resume || !harnessState || !contextThreadRootId
+                ? null
+                : await buildTurnDelta({
+                    predecessorRunId: harnessState.lastRunId,
+                    scopeKey: contextThreadRootId,
+                    channelId,
+                    lorMessageId,
+                    ...(decisionTurn ? { extraTurns: [decisionTurn] } : {}),
                   })
-                : contextThreadRootId
-                  ? await buildContinuation({
-                      scopeKey: contextThreadRootId,
-                      channelId,
-                      lorMessageId,
-                      runId: job.data.runId,
-                      ...(decisionTurn ? { extraTurns: [decisionTurn] } : {}),
-                    })
-                  : null
-            if (continuation && execution) {
-              await execution.markContinuedFrom(continuation.predecessorRunId)
+            if (delta && harnessState?.lastRunId) {
+              await execution.markContinuedFrom(harnessState.lastRunId)
             }
-            // On recovery the persisted step-0 snapshot is the conversation —
-            // reloading would drift (new messages may have landed since). A
-            // continued run's snapshot is the delta it was started with.
-            const snapshot = execution?.resume
+            // On a retry the saved request is the conversation — reloading
+            // would drift (new messages may have landed since).
+            const snapshot = execution.resume
               ? execution.resume
-              : continuation
-                ? { conversation: continuation.conversation }
+              : delta
+                ? { conversation: delta.turns }
                 : await loadConversation({
                     channelId,
                     threadRootId: contextThreadRootId,
@@ -580,8 +588,8 @@ export function createLorRespondProcessor(
             const conversation =
               triggerRun?.isEvent &&
               job.data.runId &&
-              !execution?.resume &&
-              !continuation &&
+              !execution.resume &&
+              !delta &&
               "backgroundConversation" in snapshot
                 ? await briefActEvent(snapshot.conversation, {
                     triggerId: triggerRun.triggerId,
@@ -595,10 +603,9 @@ export function createLorRespondProcessor(
                 ? snapshot.backgroundConversation
                 : undefined
             // A fresh snapshot covers every pending steer row, so consume them
-            // before the first boundary. A continuation delta is bounded and may
-            // omit older steers; leave those rows pending rather than sweeping
-            // them all as loaded.
-            if (execution && !execution.resume && !continuation) {
+            // before the first boundary. A delta is bounded and may omit older
+            // steers; leave those rows pending rather than sweeping them all.
+            if (!execution.resume && !delta) {
               await execution.markConversationLoaded()
             }
 
@@ -794,17 +801,11 @@ export function createLorRespondProcessor(
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
-                ...(continuation
+                ...(delta
                   ? {
-                      continuation: {
-                        messages: continuation.messages,
-                        coveredMessageIds: continuation.coveredMessageIds,
-                        deltaText: continuation.deltaText,
-                        ...(continuation.approvalResume
-                          ? { approvalResume: continuation.approvalResume }
-                          : {}),
-                        lastInputTokens: continuation.lastInputTokens,
-                        compaction: continuation.compaction,
+                      delta: {
+                        text: delta.text,
+                        coveredMessageIds: delta.coveredMessageIds,
                       },
                     }
                   : {}),
@@ -906,7 +907,10 @@ export function createLorRespondProcessor(
                   const base =
                     existing ??
                     (toolCall.toolName && toolCall.label
-                      ? { toolName: toolCall.toolName, label: toolCall.label }
+                      ? {
+                          toolName: toolCall.toolName,
+                          label: toolCall.label,
+                        }
                       : undefined)
                   if (!base) return
                   if (!existing && !toolCall.parentToolCallId) {
@@ -954,7 +958,15 @@ export function createLorRespondProcessor(
                 },
                 onInstructionsProposal: notifyInstructionsProposal,
               },
-              execution?.handle
+              {
+                ...execution.handle,
+                harness: {
+                  owner,
+                  saved: harnessState,
+                  savedAnswer,
+                  saveTurn: (turn) => execution.saveTurn(owner, turn),
+                },
+              }
             )
             flushPendingText()
             closeReasoningSegment()
@@ -983,14 +995,18 @@ export function createLorRespondProcessor(
               return
             }
             logger.error({ err, lorMessageId }, "Lor response failed")
+            const failureText =
+              err instanceof SandboxCapacityError
+                ? SANDBOX_CAPACITY_MESSAGE
+                : LOR_ERROR_FALLBACK
             await db
               .update(schema.message)
-              .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
+              .set({ content: failureText, status: "failed" })
               .where(eq(schema.message.id, lorMessageId))
               .catch(() => {})
             // Replace (not append) so a partial answer streamed before the error
             // is dropped in favor of the fallback, matching the persisted row.
-            emit(LOR_ERROR_FALLBACK, true, "failed", true)
+            emit(failureText, true, "failed", true)
             await runWriter.transition("failed", {
               stopReason:
                 execution &&

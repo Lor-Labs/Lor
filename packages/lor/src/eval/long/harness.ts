@@ -205,18 +205,9 @@ async function runAttempt(task: LongTask, attempt: number): Promise<Attempt> {
                 loops.push(input)
                 return { loopId: randomUUID() }
               },
-              ...(messages && delta
+              ...(delta
                 ? {
-                    continuation: {
-                      messages: [
-                        ...messages,
-                        { role: "user" as const, content: delta },
-                      ],
-                      coveredMessageIds: [turn.messageId],
-                      deltaText: delta,
-                      lastInputTokens: 0,
-                      compaction: null,
-                    },
+                    delta: { text: delta, coveredMessageIds: [turn.messageId] },
                   }
                 : {}),
             },

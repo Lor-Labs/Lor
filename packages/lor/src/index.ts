@@ -3,7 +3,6 @@ import {
   builtinApprovalTool,
   CONNECTOR_TOOL_NAMES,
   CONNECTOR_TOOLS,
-  parseApprovalTargetKey,
 } from "@repo/connectors"
 import {
   and,
@@ -25,7 +24,6 @@ import {
 } from "@repo/db/queries/channel-access"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
-  AgentRunApprovalResume,
   AgentRunContext,
   LorToolCall,
   LorToolCallUpdate,
@@ -37,18 +35,12 @@ import {
   isStepCount,
   type LanguageModelUsage,
   type ModelMessage,
-  streamText,
   type ToolSet,
   tool,
+  type UserModelMessage,
 } from "ai"
 import { z } from "zod"
-import {
-  buildToolApproval,
-  fileParkedApproval,
-  loadApprovalGates,
-  type ParkedApproval,
-  ToolTargetMap,
-} from "./approval-policy"
+import { loadApprovalGates, ToolTargetMap } from "./approval-policy"
 import {
   createExportToolResultTool,
   EXPORT_TOOL_NAME,
@@ -92,13 +84,7 @@ import {
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { codeTools } from "./code"
 import { codeActionTools } from "./code-actions"
-import {
-  type CompactionState,
-  compact,
-  estimateMessagesTokens,
-  fitMessagesToBudget,
-  newCompactionState,
-} from "./compaction"
+import { fitMessagesToBudget } from "./compaction"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage } from "./embeddings"
@@ -120,7 +106,13 @@ import { logger } from "./logger"
 import { type ProposeLoopExecutor, proposeLoopTool } from "./loops"
 import { channelMcpServers, mcpServersPromptLine } from "./mcp-servers"
 import { messageActionTools, type OnMessageReaction } from "./message-actions"
-import { LOR_MODEL, lorModel, mainGatewayOptions } from "./models"
+import {
+  LOR_FALLBACK_MODELS,
+  LOR_MODEL,
+  lorModel,
+  mainGatewayOptions,
+  piGatewayAuth,
+} from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
 import { notionWriteTools } from "./notion-write"
 import {
@@ -152,24 +144,21 @@ import {
   userDisplayName,
 } from "./retrieval"
 import {
-  addStepToCounters,
-  budgetViolation,
-  type ConversationUpdate,
-  conversationUpdateMessageIds,
   defaultRunBudgets,
-  type RunCounters,
   type RunHandle,
-  type RunStepRecord,
   type RunStopCause,
   ZERO_RUN_COUNTERS,
 } from "./run"
 import { blaxelConfigured } from "./sandbox/blaxel"
+import { piToolLabel } from "./sandbox/pi-events"
+import { openSessionSandbox } from "./sandbox/session-sandbox"
+import { runPiTurn } from "./session-core/pi-runtime"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import { chooseThreadWindow } from "./thread-window"
 import { guardTools } from "./tool-guard"
 import { itemsInText, sessionsTouching, withTouchHints } from "./touches"
-import { formatSpeakerLine, sanitizeRosterLabel } from "./transcript"
+import { sanitizeRosterLabel } from "./transcript"
 import {
   completeLoopTool,
   loopSessionPromptSection,
@@ -191,8 +180,6 @@ for (const name of Object.keys({ ...webTools, ...artifactTools })) {
 // Step cap for the background write-back pass only; the answer loop's
 // ceilings come from the run budgets (reference/agent-harness.md, budgets).
 const WRITEBACK_MAX_STEPS = 30
-// Per-request input size that triggers compaction (compaction.ts).
-const COMPACT_INPUT_TOKENS = env.LOR_COMPACT_INPUT_TOKENS
 const WRITEBACK_TIMEOUT_MS = 5 * 60_000
 // Transcript budget for the write-back pass (estimated tokens).
 const WRITEBACK_INPUT_TOKENS = 120_000
@@ -258,6 +245,15 @@ const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a cod
 
 const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
 
+const SANDBOX_PROMPT_LINE = `- Your sandbox: a private Linux computer for this session, with Python and Node. bash runs commands; read, write and edit work on files; grep, glob and ls find them. Files in your working folder stay between turns of this session. Use it to run code, work with data and make files. It holds no credentials for the team's services: reach those only through your other tools.`
+
+const RETRY_NOTE =
+  "An earlier attempt at this turn was interrupted. It may already have changed files in your sandbox or data in connected services, so check before you repeat an action."
+const LOST_FILES_NOTE =
+  "Your sandbox was replaced, so files from earlier turns of this session are gone. Recreate what you still need."
+const GATED_TOOL_REASON =
+  "This tool needs a person's approval, which is not available yet. Tell the people in this session that you could not run it."
+
 const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
 
 You can also see images people share — they're included inline in the conversation below.
@@ -275,6 +271,22 @@ Use your tools silently — don't narrate that you're searching. Gather what you
 
 function buildSystemPrompt(connectorLines: string[]): string {
   return `${[SYSTEM_PROMPT_HEAD, ...connectorLines].join("\n")}\n\n${SYSTEM_PROMPT_TAIL}`
+}
+
+// Notes go first: Pi takes text after an image as an error, and a turn prompt
+// must never begin with user text (a leading "/" reads as a Pi command).
+function withNotes(
+  prompt: UserModelMessage,
+  notes: string[]
+): UserModelMessage {
+  if (notes.length === 0) return prompt
+  const head = `${notes.map((note) => `[${note}]`).join("\n")}\n\n`
+  return typeof prompt.content === "string"
+    ? { role: "user", content: `${head}${prompt.content}` }
+    : {
+        role: "user",
+        content: [{ type: "text", text: head }, ...prompt.content],
+      }
 }
 
 // Answer phase only; background write-back handles routine note-keeping.
@@ -314,62 +326,6 @@ aliases: [terms or synonyms someone might search for this by]
 (the markdown body)
 
 Decide for yourself. Don't reply to the user; just maintain memory. End with one short line of what you saved, or "nothing to save".`
-
-// Mid-run conversation updates, injected at a step boundary as a single user
-// message. Steered messages are directives aimed at the run; ambient ones are
-// context the model should act on only if they're addressed to it.
-const STEERING_UPDATE_HEADER =
-  "New directions arrived while you were working — treat them as part of the request and adjust what you're doing:"
-
-function formatConversationUpdate(update: ConversationUpdate): string | null {
-  const parts: string[] = []
-  if (update.steered.length > 0) {
-    parts.push(
-      `${STEERING_UPDATE_HEADER}\n${update.steered
-        .map((m) => formatSpeakerLine(m.authorName, m.content))
-        .join("\n")}`
-    )
-  }
-  if (update.ambient.length > 0) {
-    parts.push(
-      `The conversation continued while you were working. This is context, not a request — act on it only if it's addressed to you or changes your answer:\n${update.ambient
-        .map((m) => formatSpeakerLine(m.authorName, m.content))
-        .join("\n")}`
-    )
-  }
-  return parts.length > 0 ? parts.join("\n\n") : null
-}
-
-function formatBoundedSteeringUpdate(
-  update: ConversationUpdate,
-  maxTokens: number
-): string {
-  const fits = (content: string) =>
-    estimateMessagesTokens([{ role: "user", content }]) <= maxTokens
-  const full = formatConversationUpdate(update) ?? ""
-  if (fits(full)) return full
-
-  // Drop ambient context before shortening any active directions. The generic
-  // history fallback labels excerpts as reference material, which is wrong here.
-  const directions = update.steered
-    .map((message) => formatSpeakerLine(message.authorName, message.content))
-    .join("\n")
-  const ambientNotice = update.ambient.length
-    ? "\n\n[Ambient context omitted to preserve the new directions.]"
-    : ""
-  const directed = `${STEERING_UPDATE_HEADER}\n${directions}${ambientNotice}`
-  if (fits(directed)) return directed
-
-  let chars = directions.length
-  while (chars > 0) {
-    chars = Math.floor(chars / 2)
-    const head = Math.ceil(chars / 2)
-    const tail = Math.floor(chars / 2)
-    const shortened = `${STEERING_UPDATE_HEADER}\n${directions.slice(0, head)}\n  [...new directions shortened; use read_thread to retrieve missing details before acting on them...]\n  ${tail > 0 ? directions.slice(-tail) : ""}${ambientNotice}`
-    if (fits(shortened)) return shortened
-  }
-  throw new Error("Lor context budget is too small for steering directions")
-}
 
 export type ConversationImage = {
   url: string
@@ -425,28 +381,15 @@ export type RespondContext = {
   // Files a workspace change-proposal card (pillar 3). Conversational runs
   // only, same rationale as proposeLoop.
   proposeChange?: ProposeChangeExecutor
-  // Set when this run continues an earlier run in the same scope instead of
-  // building a fresh conversation snapshot: the assembled transcript (prior
-  // runs' work + what has been said since) that replaces the initial user
-  // message. Instructions are still built fresh — the model's rules should
-  // reflect the current world even though its history does not.
-  // See reference/context-continuation.md.
-  continuation?: RunContinuation
+  // Set on every turn after the conversation's first: what was said since the
+  // last saved turn. Pi's saved state holds everything before it.
+  delta?: RunDelta
 }
 
-export type RunContinuation = {
-  messages: ModelMessage[]
+export type RunDelta = {
+  text: string
+  // Messages the text renders, so the next turn's delta skips them.
   coveredMessageIds: string[]
-  // The delta message, persisted so a recovered attempt replays it verbatim.
-  // Null on an approval resume, whose transcript ends in a tool message.
-  deltaText: string | null
-  // Set instead of deltaText when this run resumes a parked approval (LOR-81).
-  // Persisted so replay reproduces the tool-approval-response exactly.
-  approvalResume?: AgentRunApprovalResume
-  lastInputTokens: number
-  // Working notes inherited from the newest compacted run in the chain, so
-  // this run's compactor merges forward instead of rebuilding from scratch.
-  compaction: CompactionState | null
 }
 
 export type ToolEvent = LorToolCallUpdate
@@ -487,12 +430,14 @@ export {
   type RunBudgets,
   type RunCounters,
   type RunHandle,
+  type RunHarness,
   type RunResume,
-  type RunStepRecord,
   type RunStopCause,
   type RunToolResultStore,
+  type RunTurnRecord,
   type SteeredMessage,
 } from "./run"
+export { SandboxCapacityError } from "./sandbox/session-sandbox"
 export { generateSessionTitle } from "./session-title"
 export { formatSpeakerLine } from "./transcript"
 export type {
@@ -1523,6 +1468,16 @@ export function toolLabel(toolName: string, input: unknown): string {
       return "Linking pages"
     case "propose_instructions":
       return "Proposing workspace instructions"
+    // Pi's sandbox tools; the adapter exposes find as glob.
+    case "bash":
+    case "read":
+    case "write":
+    case "edit":
+    case "grep":
+    case "ls":
+      return piToolLabel(toolName, input)
+    case "glob":
+      return piToolLabel("find", input)
     default:
       return `Working (${toolName})`
   }
@@ -2311,10 +2266,12 @@ export async function respond(
   run?: RunHandle
 ): Promise<RespondResult> {
   const respondStart = performance.now()
+  const savedAnswer = run?.harness?.savedAnswer
+  if (savedAnswer != null) {
+    await onDelta(savedAnswer)
+    return { text: savedAnswer, messages: [] }
+  }
   const budgets = run?.budgets ?? defaultRunBudgets()
-  // Set by request_approval: prepareStep then forces a final text step so the
-  // run ends cleanly while the plan parks in waiting_for_approval.
-  let approvalRequested = false
   // Live plan pointer: seeded from ctx, written when start_plan adopts the
   // thread mid-run, refreshed on every plan update. Tool contexts resolve
   // eagerly, so anything plan-dependent must read through this ref.
@@ -2623,9 +2580,8 @@ export async function respond(
               workspaceId: ctx.workspaceId,
               runId: ctx.runId ?? null,
               onPlanUpdated: notifyPlanUpdated,
-              onApprovalRequested: () => {
-                approvalRequested = true
-              },
+              // request_approval pauses the turn as a gate in 1.3e.
+              onApprovalRequested: () => {},
             }
             return {
               start_plan: {
@@ -2737,6 +2693,7 @@ export async function respond(
 
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
+      SANDBOX_PROMPT_LINE,
       hasToolGroup(webTools) ? WEB_PROMPT_LINE : null,
       hasToolGroup(githubTools) ? GITHUB_PROMPT_LINE : null,
       hasToolGroup(linearTools) ? LINEAR_PROMPT_LINE : null,
@@ -2768,115 +2725,51 @@ export async function respond(
         : null,
     ].filter((line): line is string => line !== null)
 
-    let messages: ModelMessage[]
-    let instructions: string
-    let text: string
-    let counters: RunCounters
-    let resumeLastInputTokens = 0
-    // Rolling working notes replacing compacted-away tool calls. Seeded from
-    // the persisted state of the attempt/predecessor this run picks up from
-    // (agent_run.compaction), so notes merge forward across recoveries and
-    // continuations; cloned because compact() mutates it.
-    const compaction: CompactionState = {
-      ...(run?.resume?.compaction ??
-        ctx.continuation?.compaction ??
-        newCompactionState()),
+    const harness = run?.harness
+    if (!run || !harness) {
+      throw new Error("respond() needs a run bound to a session harness")
     }
-
-    // Reserve room for instructions, tool schemas, output, and messages that
-    // arrive mid-step. Compaction must run even on a forced final answer.
     const toolSchemaBytes = measureToolSchemaBytes(tools)
-    const getMessageBudget = (instructions: string) => {
-      const fixedInputTokens =
-        estimateMessagesTokens([{ role: "system", content: instructions }]) +
-        Math.ceil(toolSchemaBytes / 3)
-      const messageBudget =
-        Math.min(
-          COMPACT_INPUT_TOKENS,
-          Math.floor(env.LOR_CONTEXT_WINDOW * 0.8)
-        ) - fixedInputTokens
-      if (messageBudget < 8_000) {
-        throw new Error(
-          "Lor instructions and tools leave insufficient context for messages"
-        )
-      }
-      return messageBudget
-    }
-    let messageBudget: number
+    const workspaceInstructions = await loadWorkspaceInstructions(
+      ctx.workspaceId
+    )
+    // Per-session inputs only, so the prompt stays byte-stable across turns
+    // (reference/planned/pi-harness-runbook.md §4.8).
+    const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
 
-    if (run?.resume) {
-      // Recovery: continue from the durable transcript with the exact same
-      // instructions — never rebuild context (drift) or re-bill the prefetch.
-      messages = run.resume.messages
-      instructions = run.resume.instructions
-      messageBudget = getMessageBudget(instructions)
-      counters = { ...run.resume.counters }
-      text = run.resume.answerTextSoFar
-      resumeLastInputTokens = run.resume.lastInputTokens
+    // The turn's request. A retried attempt sends the saved one again.
+    let request: AgentRunContext
+    if (run.resume) {
+      request = run.resume.context
     } else {
-      const [context, workspaceInstructions] = await Promise.all([
-        buildRunContext(ctx),
-        loadWorkspaceInstructions(ctx.workspaceId),
-      ])
-      instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${context.rosterText ? `\n\n${MENTION_GUIDANCE}` : ""}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
-      messageBudget = getMessageBudget(instructions)
-      // A continued run inherits its predecessors' transcript in place of a
-      // fresh initial message; the snapshot records the delta it was started
-      // with so a crashed attempt replays the identical request.
-      const continuation = ctx.continuation
-      messages = continuation
-        ? continuation.messages
-        : [await buildInitialUserMessage(context)]
-      resumeLastInputTokens = continuation?.lastInputTokens ?? 0
-      counters = { ...ZERO_RUN_COUNTERS }
-      text = ""
-      // Durable before the first model call — recovery depends on it.
-      await run?.saveContext({
-        context: {
-          ...context,
-          toolSchemaBytes,
-          initialMessagesTokens: estimateMessagesTokens(messages),
-          ...(continuation
-            ? {
-                ...(continuation.deltaText !== null
-                  ? { continuationDelta: continuation.deltaText }
-                  : {}),
-                ...(continuation.approvalResume
-                  ? { approvalResume: continuation.approvalResume }
-                  : {}),
-                coveredMessageIds: continuation.coveredMessageIds,
-              }
-            : {}),
-        },
-        instructions,
+      const context = await buildRunContext(ctx)
+      request = {
+        ...context,
+        toolSchemaBytes,
+        ...(ctx.delta
+          ? {
+              continuationDelta: ctx.delta.text,
+              coveredMessageIds: ctx.delta.coveredMessageIds,
+            }
+          : {
+              coveredMessageIds: ctx.conversation.flatMap((turn) =>
+                turn.messageId ? [turn.messageId] : []
+              ),
+            }),
+      }
+      await run.saveContext({ context: request, instructions })
+    }
+    const counters = run.resume?.counters ?? ZERO_RUN_COUNTERS
+
+    // Approvals return in 1.3e; until then a gated call is refused.
+    const toolApproval = Object.fromEntries(
+      Object.keys(tools).flatMap((name) => {
+        const target = toolTargets.targetFor(name)
+        return target !== null && approvalGates.has(target)
+          ? [[name, { type: "denied" as const, reason: GATED_TOOL_REASON }]]
+          : []
       })
-    }
-
-    const compactMessageBudget = Math.floor(messageBudget * 0.75)
-    const updateMessageBudget = Math.floor(messageBudget * 0.25)
-
-    const approvedResume =
-      run?.resume?.approvalResume ?? ctx.continuation?.approvalResume
-    if (
-      approvedResume?.approved &&
-      (!run?.resume || run.resume.counters.steps === 0) &&
-      toolTargets.targetFor(approvedResume.toolName) !== approvedResume.target
-    ) {
-      // Still granted but its server didn't connect: a failed handshake, not a
-      // changed tool.
-      const parked = parseApprovalTargetKey(approvedResume.target)
-      const unreachable =
-        parked?.kind === "mcpTool" &&
-        (grants.mcpTools[parked.mcpServerId] ?? []).includes(parked.toolName) &&
-        !mcpServerSession?.servers.some(
-          (server) => server.id === parked.mcpServerId
-        )
-      throw new Error(
-        unreachable
-          ? "Couldn't connect to the MCP server to run the approved tool. Ask Lor to try again."
-          : "The approved tool is unavailable or its source changed. Request approval for the current tool."
-      )
-    }
+    )
 
     const hinted = withTouchHints(tools, {
       workspaceId: ctx.workspaceId,
@@ -2886,360 +2779,154 @@ export async function respond(
     const guarded = guardTools(hinted, {
       priorBytes: counters.toolOutputBytes,
       totalBudgetBytes: budgets.toolOutputBytes,
-      store: run?.toolResults ?? null,
+      store: run.toolResults,
     })
-
-    const approvalToolGate = buildToolApproval(
-      approvalGates,
-      toolTargets,
-      ctx.voice?.canApprove
-    )
-    // Set when a policy gate parks a call. The SDK ends the loop on its own
-    // (the step's tool calls never all resolve), so there is no ceiling flag
-    // to trip and no further model call.
-    let parked: ParkedApproval | null = null
-
-    const baseStep = counters.steps
-    let checkpointedLocal = 0
-    let stoppedFor: RunStopCause | undefined
-    const trip = (reason: RunStopCause) => {
-      if (!stoppedFor) stoppedFor = reason
-    }
-
-    // Conversation updates injected by prepareStep ride the next step's
-    // checkpoint record, so the resumed transcript (flat concat of step rows)
-    // reproduces the runtime message order exactly.
-    const pendingInjected: ModelMessage[] = []
-    const pendingCoveredMessageIds: string[] = []
-
-    type CompletedStep = {
-      response: { messages: ReadonlyArray<ModelMessage>; modelId: string }
-      usage: LanguageModelUsage
-      toolCalls: ReadonlyArray<unknown>
-    }
-    // Fold a completed step into the durable run. stopWhen awaits this before
-    // the loop may continue, so execution never advances past an uncommitted
-    // step — the durability boundary recovery resumes from.
-    const checkpointStep = async (step: CompletedStep, localIndex: number) => {
-      if (localIndex <= checkpointedLocal) return
-      checkpointedLocal = localIndex
-      const coveredMessageIds = pendingCoveredMessageIds.splice(0)
-      const record: RunStepRecord = {
-        step: baseStep + localIndex,
-        messages: [...pendingInjected.splice(0), ...step.response.messages],
-        ...(coveredMessageIds.length > 0 ? { coveredMessageIds } : {}),
-        model: step.response.modelId,
-        inputTokens: step.usage.inputTokens,
-        cachedInputTokens: step.usage.inputTokenDetails.cacheReadTokens,
-        outputTokens: step.usage.outputTokens,
-        reasoningTokens: step.usage.outputTokenDetails.reasoningTokens,
-        toolCalls: step.toolCalls.length,
-        toolOutputBytes: guarded.guard.takeStepBytes(),
-      }
-      counters = run
-        ? await run.checkpoint(record)
-        : addStepToCounters(counters, record)
-    }
 
     logger.info(
       { ms: Math.round(performance.now() - respondStart) },
       "Lor pre-stream setup timing"
     )
 
-    const streamStart = performance.now()
-    let firstPartLogged = false
-    const result = streamText({
-      model: lorModel,
-      reasoning: "high",
-      instructions,
-      messages,
-      tools: guarded.tools,
-      toolsContext,
-      // Policy gate runs before the tool-guard wrapper: a parked call never
-      // reaches execute, so nothing is spent or written.
-      ...(approvalToolGate ? { toolApproval: approvalToolGate } : {}),
-      ...(env.LOR_TOOL_APPROVAL_SECRET
-        ? { experimental_toolApprovalSecret: env.LOR_TOOL_APPROVAL_SECRET }
-        : {}),
-      maxRetries: env.AGENT_RUN_MAX_PROVIDER_RETRIES,
-      ...(run?.abortSignal ? { abortSignal: run.abortSignal } : {}),
-      // Backstop: checkpoint the finished step, then stop hard if a ceiling is
-      // already crossed. prepareStep below normally ends the run gracefully
-      // (forced text answer) before this trips.
-      stopWhen: async ({ steps }) => {
-        const last = steps.at(-1)
-        if (last) await checkpointStep(last, steps.length)
-        // Explicit user stop: end at this boundary with whatever streamed —
-        // the worker settles the run (and the partial answer) as stopped.
-        if (run?.stopRequested?.()) {
-          trip("stopped_by_user")
-          return true
-        }
-        const violation = budgetViolation(counters, budgets)
-        if (violation) {
-          trip(violation)
-          return true
-        }
-        return false
-      },
-      timeout: {
-        totalMs: Math.max(30_000, budgets.deadlineAt.getTime() - Date.now()),
-      },
-      prepareStep: async ({
-        steps,
-        messages: stepMessages,
-        responseMessages,
-      }) => {
-        // An approval resume executes the approved tool BEFORE the first step,
-        // and the SDK keeps that result outside every step's response. Fold it
-        // into this step's checkpoint or the durable transcript would hold a
-        // tool call with no result, which no provider accepts on replay.
-        // (A crash before this first checkpoint re-executes the tool — the
-        // same at-least-once window every mid-step tool call already has.)
-        if (steps.length === 0 && responseMessages.length > 0) {
-          pendingInjected.push(...responseMessages)
-        }
-        // Ceilings can land on tool use; when the next step is the last the
-        // budgets allow, disable tools so the loop ends with a text answer.
-        const next = budgetViolation(
-          { ...counters, steps: counters.steps + 1 },
-          budgets
-        )
-        if (next) trip(next)
-        const toolChoice =
-          next || approvalRequested ? ("none" as const) : undefined
-        // Reduce what gets SENT once the context grows heavy: old tool calls
-        // become rolling working notes, a recent tail stays verbatim, and the
-        // plan's live state is restored from the database. The durable
-        // transcript (agent_run_step) is untouched. Use both the prior
-        // provider-reported input and the current message estimate: a large
-        // tool result can push the next request over the threshold before the
-        // provider has reported usage for it.
-        const lastInput =
-          steps.at(-1)?.usage.inputTokens ?? resumeLastInputTokens
-        const estimatedInput = estimateMessagesTokens(stepMessages)
-        let nextMessages = stepMessages
-        if (Math.max(lastInput, estimatedInput) > compactMessageBudget) {
-          // Surfaced in the run trail like a tool call (start frame renders a
-          // spinner, the ok frame settles into a divider). Keyed by step so a
-          // recovered attempt re-compacting at the same boundary upserts the
-          // same row instead of stacking dividers.
-          const compactionCallId = `compaction-${counters.steps}`
-          onToolEvent?.({
-            toolCallId: compactionCallId,
-            toolName: "compact_context",
-            label: "Compacting context",
-            at: text.length,
-          })
-          nextMessages = await compact({
-            messages: stepMessages,
-            state: compaction,
-            maxMessageTokens: compactMessageBudget,
-            workspaceId: ctx.workspaceId,
-            ...(planRef.current
-              ? { plan: planContextSnapshot(planRef.current) }
-              : {}),
-            ...(onUsage ? { onUsage } : {}),
-          })
-          onToolEvent?.({
-            toolCallId: compactionCallId,
-            toolName: "compact_context",
-            label: "Compacted context",
-            at: text.length,
-            status: "ok",
-          })
-          // Durable projection: recovery and successors replay this baseline +
-          // steps after it instead of the raw transcript. Saved before steer
-          // injection below — injected messages ride the NEXT checkpoint, so
-          // including them here would double them on replay.
-          await run
-            ?.saveCompaction?.({
-              summary: compaction.summary,
-              summaryFailures: compaction.summaryFailures,
-              baselineMessages: nextMessages,
-              messageTokens: estimateMessagesTokens(nextMessages),
-              atStep: counters.steps,
-            })
-            .then(() => {
-              // Approval-resume results were already included in the saved
-              // baseline. Checkpointing them again could orphan tool results.
-              pendingInjected.length = 0
-            })
-            .catch((err) => {
-              logger.warn({ err }, "Compaction state save failed")
-            })
-        }
-        // Steering: fold in messages that landed since the last boundary.
-        // Injected after pruning so an update can never be compacted away in
-        // the same breath, and buffered for the next checkpoint so recovery
-        // replays it at the same position.
-        if (run?.drainConversation) {
-          const update = await run.drainConversation().catch((err) => {
-            logger.warn({ err }, "Lor conversation drain failed")
-            return null
-          })
-          const updateText =
-            update &&
-            (update.steered.length > 0
-              ? formatBoundedSteeringUpdate(update, updateMessageBudget)
-              : formatConversationUpdate(update))
-          if (updateText) {
-            const updateMessages: ModelMessage[] = [
-              { role: "user", content: updateText },
-            ]
-            const injected =
-              update.steered.length > 0
-                ? updateMessages
-                : fitMessagesToBudget(updateMessages, updateMessageBudget)
-            pendingInjected.push(...injected)
-            pendingCoveredMessageIds.push(
-              ...conversationUpdateMessageIds(update)
-            )
-            nextMessages =
-              nextMessages === stepMessages
-                ? [...stepMessages, ...injected]
-                : [...nextMessages, ...injected]
-          }
-        }
-        return {
-          ...(toolChoice ? { toolChoice } : {}),
-          ...(nextMessages === stepMessages ? {} : { messages: nextMessages }),
-        }
-      },
-      // Reasoning is provider-neutral in AI SDK v7. The gateway handles
-      // provider routing and same-model retries; explicit model fallbacks stay
-      // within the open-weight stack.
-      providerOptions: {
-        gateway: mainGatewayOptions,
-      },
-    })
-
-    // stream exposes tool call/status + reasoning events; textStream does not.
-    let toolCallCount = 0
-    for await (const part of result.stream) {
-      if (!firstPartLogged) {
-        firstPartLogged = true
-        logger.info(
-          {
-            ms: Math.round(performance.now() - streamStart),
-            partType: part.type,
-          },
-          "Lor time to first stream part"
-        )
-      }
-      if (part.type === "text-delta") {
-        text += part.text
-        await onDelta(part.text)
-      } else if (part.type === "reasoning-delta") {
-        await onReasoning?.(part.text, text.length)
-      } else if (part.type === "tool-call") {
-        toolCallCount++
-        onToolEvent?.({
-          toolCallId: part.toolCallId,
-          toolName: part.toolName,
-          label: toolLabel(part.toolName, part.input),
-          at: text.length,
-        })
-      } else if (part.type === "tool-result") {
-        const resolved = toolDetail(part.toolName, part.output)
-        if (resolved.status === "error") {
-          logger.warn(
-            { tool: part.toolName, error: resolved.detail?.summary },
-            "Lor tool returned an error"
-          )
-        }
-        onToolEvent?.({
-          toolCallId: part.toolCallId,
-          toolName: part.toolName,
-          label: toolLabel(part.toolName, part.input),
-          at: text.length,
-          ...resolved,
-        })
-      } else if (part.type === "tool-approval-request") {
-        // isAutomatic marks the SDK's own approved/denied bookkeeping parts;
-        // only a real user-approval parks the run.
-        if (part.isAutomatic !== true) {
-          parked = {
-            approvalId: part.approvalId,
-            toolCallId: part.toolCall.toolCallId,
-            toolName: part.toolCall.toolName,
-            target: toolTargets.targetFor(part.toolCall.toolName) ?? "",
-            input: part.toolCall.input,
-          }
-        }
-      } else if (part.type === "abort") {
-        // The in-flight request was killed. User stop keeps the partial text
-        // and settles gracefully; any other abort (lost lease) surfaces below
-        // when the result promises reject or the checkpoint CAS fails.
-        if (run?.stopRequested?.()) trip("stopped_by_user")
-      } else if (part.type === "error") {
-        throw part.error
-      }
-    }
-
-    const stoppedByUser = () => stoppedFor === "stopped_by_user"
-
-    // A final text-only step ends the loop without consulting stopWhen —
-    // sweep any steps not yet folded so the transcript is complete. An abort
-    // with zero completed steps rejects these promises; for a user stop that
-    // just means there's nothing to checkpoint.
-    const allSteps = await Promise.resolve(result.steps).catch(
-      (err: unknown) => {
-        if (stoppedByUser()) return []
-        throw err
-      }
-    )
-    for (let i = checkpointedLocal; i < allSteps.length; i++) {
-      const step = allSteps[i]
-      if (step) await checkpointStep(step, i + 1)
-    }
-
-    // Filed only after the parked step is durable: the approval authorizes a
-    // tool call the continuation replays, so the transcript must already hold
-    // it. Plan runs park the plan too, exactly like request_approval.
-    if (parked && run) {
-      const filed = await fileParkedApproval({
-        workspaceId: ctx.workspaceId,
-        runId: run.runId,
-        planId: planRef.current?.id ?? null,
-        parked,
-        label: toolLabel(parked.toolName, parked.input),
-        onPlanUpdated: notifyPlanUpdated,
-        notifyWorkspaceActivity,
-      })
-      // Only claim the park when a row exists to resolve — otherwise the run
-      // would advertise a gate nobody can clear.
-      if (filed) trip("awaiting_approval")
-    }
-
-    const responseMessages = await Promise.resolve(
-      result.responseMessages
-    ).catch((err: unknown) => {
-      if (stoppedByUser()) return []
-      throw err
-    })
-
+    const sandbox = await openSessionSandbox(harness.owner)
     try {
-      const [usage, response] = await Promise.all([
-        result.totalUsage,
-        result.response,
-      ])
-      // Billed per attempt: a crashed attempt's tokens live in the run
-      // counters (for ceilings) but are deliberately never re-billed.
-      onUsage?.({
-        workspaceId: ctx.workspaceId,
-        tool: "lor.respond",
-        model: response.modelId,
-        requestedModel: LOR_MODEL,
-        ...usageTokens(usage),
-        wallMs: Math.round(performance.now() - streamStart),
-        toolCalls: toolCallCount,
-      })
-    } catch (err) {
-      logger.warn({ err }, "Lor respond usage capture failed")
-    }
+      const notes = run.resume ? [RETRY_NOTE] : []
+      if (sandbox.fresh && harness.saved) {
+        notes.push(LOST_FILES_NOTE)
+        onToolEvent?.({
+          toolCallId: `sandbox-reset-${run.runId}`,
+          toolName: "sandbox_reset",
+          label: "Started a new sandbox; files from earlier turns are gone",
+          at: 0,
+          status: "ok",
+        })
+      }
+      const prompt = withNotes(
+        request.continuationDelta !== undefined
+          ? { role: "user", content: request.continuationDelta }
+          : await buildInitialUserMessage(request),
+        notes
+      )
 
-    return { text, messages: [...messages, ...responseMessages], stoppedFor }
+      const conversationId =
+        "sessionId" in harness.owner
+          ? harness.owner.sessionId
+          : harness.owner.voiceSessionId
+      const deadline = AbortSignal.timeout(
+        Math.max(30_000, budgets.deadlineAt.getTime() - Date.now())
+      )
+      const streamStart = performance.now()
+      let firstPartLogged = false
+      let text = ""
+      let steps = 0
+      let toolCallCount = 0
+      const turn = await runPiTurn({
+        sessionId: conversationId,
+        sessionKey: conversationId,
+        saved: harness.saved,
+        sandbox: sandbox.session,
+        systemPrompt: instructions,
+        prompt,
+        tools: guarded.tools,
+        toolsContext,
+        toolApproval,
+        model: {
+          id: LOR_MODEL,
+          fallbacks: LOR_FALLBACK_MODELS,
+          contextWindow: env.LOR_CONTEXT_WINDOW,
+        },
+        gatewayAuth: piGatewayAuth(),
+        gatewayOptions: mainGatewayOptions,
+        abortSignal: run.abortSignal
+          ? AbortSignal.any([run.abortSignal, deadline])
+          : deadline,
+        onPart: async (part) => {
+          if (!firstPartLogged) {
+            firstPartLogged = true
+            logger.info(
+              {
+                ms: Math.round(performance.now() - streamStart),
+                partType: part.type,
+              },
+              "Lor time to first stream part"
+            )
+          }
+          if (part.type === "text-delta") {
+            text += part.text
+            await onDelta(part.text)
+          } else if (part.type === "reasoning-delta") {
+            await onReasoning?.(part.text, text.length)
+          } else if (part.type === "finish-step") {
+            steps++
+          } else if (part.type === "tool-call") {
+            toolCallCount++
+            onToolEvent?.({
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              label: toolLabel(part.toolName, part.input),
+              at: text.length,
+            })
+          } else if (part.type === "tool-result") {
+            const resolved = toolDetail(part.toolName, part.output)
+            if (resolved.status === "error") {
+              logger.warn(
+                { tool: part.toolName, error: resolved.detail?.summary },
+                "Lor tool returned an error"
+              )
+            }
+            onToolEvent?.({
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              label: toolLabel(part.toolName, part.input),
+              at: text.length,
+              ...resolved,
+            })
+          } else if (part.type === "error") {
+            throw part.error
+          }
+        },
+      })
+
+      const stoppedFor: RunStopCause | undefined = !turn.aborted
+        ? undefined
+        : run.stopRequested?.()
+          ? "stopped_by_user"
+          : deadline.aborted
+            ? "budget_wall_clock"
+            : undefined
+      // Any other abort is a lost lease: another attempt owns the run.
+      if (turn.aborted && !stoppedFor) throw new Error("Lor run aborted")
+
+      // Billed per attempt, before the save: the tokens are spent either way.
+      if (turn.usage) {
+        onUsage?.({
+          workspaceId: ctx.workspaceId,
+          tool: "lor.respond",
+          model: turn.modelId ?? LOR_MODEL,
+          requestedModel: LOR_MODEL,
+          ...usageTokens(turn.usage),
+          wallMs: Math.round(performance.now() - streamStart),
+          toolCalls: toolCallCount,
+        })
+      }
+      await harness.saveTurn({
+        save: turn.save,
+        steps,
+        model: turn.modelId,
+        inputTokens: turn.usage?.inputTokens ?? 0,
+        cachedInputTokens: turn.usage?.inputTokenDetails.cacheReadTokens ?? 0,
+        outputTokens: turn.usage?.outputTokens ?? 0,
+        toolCalls: toolCallCount,
+        toolOutputBytes: guarded.guard.takeStepBytes(),
+      })
+
+      return {
+        text,
+        messages: [prompt, ...turn.responseMessages],
+        ...(stoppedFor ? { stoppedFor } : {}),
+      }
+    } finally {
+      sandbox.close()
+    }
   } finally {
     // Independent: one session's close must not skip the other's, nor replace
     // the response error with a teardown rejection. Closing via the promise

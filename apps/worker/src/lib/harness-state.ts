@@ -33,7 +33,7 @@ function ownerColumns(owner: HarnessOwner) {
 export async function loadHarnessState(
   owner: HarnessOwner,
   workspaceId: string
-): Promise<SavedHarnessState | null> {
+): Promise<(SavedHarnessState & { lastRunId: string | null }) | null> {
   const row = await db
     .select()
     .from(schema.harnessState)
@@ -92,7 +92,43 @@ export async function loadHarnessState(
     },
     log,
     continuation: row.continuation ?? null,
+    lastRunId: row.lastRunId,
   }
+}
+
+// The answer of a turn this run already saved, for an attempt retried after
+// the save committed: the assistant text after the run's last user prompt in
+// its own log chunks. Null when the run saved nothing.
+export async function savedTurnText(runId: string): Promise<string | null> {
+  const chunks = await db
+    .select({ content: schema.harnessLog.content })
+    .from(schema.harnessLog)
+    .where(eq(schema.harnessLog.runId, runId))
+    .orderBy(asc(schema.harnessLog.seq))
+  if (chunks.length === 0) return null
+  let text = ""
+  for (const line of chunks
+    .map((c) => c.content)
+    .join("")
+    .split("\n")) {
+    if (!line.trim()) continue
+    const entry = JSON.parse(line) as {
+      type?: unknown
+      message?: { role?: unknown; content?: unknown }
+    }
+    if (entry.type !== "message") continue
+    if (entry.message?.role === "user") text = ""
+    if (entry.message?.role !== "assistant") continue
+    const parts = Array.isArray(entry.message.content)
+      ? entry.message.content
+      : []
+    for (const part of parts as { type?: unknown; text?: unknown }[]) {
+      if (part.type === "text" && typeof part.text === "string") {
+        text += part.text
+      }
+    }
+  }
+  return text
 }
 
 // Writes one save inside the caller's transaction, so the turn's counters and

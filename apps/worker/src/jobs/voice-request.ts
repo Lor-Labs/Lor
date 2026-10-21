@@ -31,12 +31,9 @@ import {
 import type { Job } from "bullmq"
 import { processCallMemory } from "@/jobs/voice-session-memory"
 import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
+import { loadHarnessState, savedTurnText } from "@/lib/harness-state"
 import { logger } from "@/lib/logger"
 import type { LorMessageDeps } from "@/lib/lor-messages"
-import {
-  buildApprovalContinuation,
-  type Continuation,
-} from "@/lib/run-continuation"
 import { cancelPendingRun } from "@/lib/unattended-run"
 import {
   APPROVER_GRACE_MS,
@@ -46,7 +43,7 @@ import {
   scheduleApprovalWatch,
   settleApprovalUnresolved,
 } from "@/lib/voice-approvals"
-import { buildVoiceContinuation } from "@/lib/voice-continuation"
+import { buildVoiceDelta } from "@/lib/voice-continuation"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // A request in a call is bounded to the call, not the 2h default.
@@ -187,13 +184,7 @@ async function failRun(request: LoadedRequest, runId: string) {
   }
 }
 
-// `approvalResume`: the paused run's transcript plus the approval's answer,
-// which this run continues instead of the call's last run.
-async function runVoiceRequest(
-  request: LoadedRequest,
-  runId: string,
-  approvalResume: Continuation | null = null
-) {
+async function runVoiceRequest(request: LoadedRequest, runId: string) {
   const claim = await claimAgentRun(runId)
   if (claim.kind === "terminal") return
   if (claim.kind !== "claimed") {
@@ -220,39 +211,36 @@ async function runVoiceRequest(
       authorName: request.speakerName,
       content: requestText(request.gate, request.heardText),
     }
-    // A recovered attempt replays its own transcript instead.
-    const continuation = execution.resume
-      ? null
-      : (approvalResume ??
-        (await buildVoiceContinuation(
-          { ...request, speakerName: turn.authorName, content: turn.content },
-          runId
-        )))
-    if (continuation) {
-      await execution.markContinuedFrom(continuation.predecessorRunId)
+    // One Pi conversation per call (pi-harness-runbook.md §4.10).
+    const owner = { voiceSessionId: request.sessionId }
+    const harnessState = await loadHarnessState(owner, execution.workspaceId)
+    // The lost attempt saved its turn before it died: deliver that answer.
+    const savedAnswer =
+      execution.resume && harnessState?.lastRunId === runId
+        ? await savedTurnText(runId)
+        : null
+    // After the call's first turn, the prompt is only what was said since.
+    const delta =
+      execution.resume || !harnessState
+        ? null
+        : await buildVoiceDelta(
+            { ...request, speakerName: turn.authorName, content: turn.content },
+            harnessState.lastRunId
+          )
+    if (delta && harnessState?.lastRunId) {
+      await execution.markContinuedFrom(harnessState.lastRunId)
     }
 
     const answer = await respond(
       {
         workspaceId: execution.workspaceId,
         conversation: execution.resume ? execution.resume.conversation : [turn],
-        ...(execution.resume || continuation
+        ...(execution.resume || delta
           ? {}
-          : { backgroundConversation: await loadCallBackground(request) }),
-        ...(continuation
-          ? {
-              continuation: {
-                messages: continuation.messages,
-                coveredMessageIds: continuation.coveredMessageIds,
-                deltaText: continuation.deltaText,
-                ...(continuation.approvalResume
-                  ? { approvalResume: continuation.approvalResume }
-                  : {}),
-                lastInputTokens: continuation.lastInputTokens,
-                compaction: continuation.compaction,
-              },
-            }
-          : {}),
+          : {
+              backgroundConversation: await loadCallBackground(request),
+            }),
+        ...(delta ? { delta: { text: delta, coveredMessageIds: [] } } : {}),
         channelId: request.channelId,
         runId,
         voice: {
@@ -306,6 +294,12 @@ async function runVoiceRequest(
       },
       {
         ...execution.handle,
+        harness: {
+          owner,
+          saved: harnessState,
+          savedAnswer,
+          saveTurn: (record) => execution.saveTurn(owner, record),
+        },
         // Steering: requests made in the call since the last step.
         drainConversation: async () => {
           const claimed = await claimQueuedVoiceRequests(
@@ -451,10 +445,11 @@ async function watchApproval(data: VoiceApprovalWatchJobData) {
   await scheduleApprovalWatch({ ...data, missingSince })
 }
 
-// Continues a request paused on an approval that's now resolved: a new run
-// replays the paused transcript with the approval's answer, so an approved
-// tool runs as it was asked and a rejection reaches Lor.
-async function resumeRequest(request: LoadedRequest, approvalId: string) {
+// Continues a request paused on an approval that's now resolved, as a new
+// turn of the call. Pi approval continuations return in 1.3e
+// (pi-harness-runbook.md §4.2); until then gated tools are refused, so no
+// new run pauses.
+async function resumeRequest(request: LoadedRequest) {
   if (request.status !== "awaiting_approval") return
   const created = await createVoiceRun(request)
   if (created === "timeout") {
@@ -462,14 +457,13 @@ async function resumeRequest(request: LoadedRequest, approvalId: string) {
     return
   }
   if (typeof created === "string") return
-  const continuation = await buildApprovalContinuation({ approvalId })
   const resumed = await resumeVoiceRequest(request.id, created.runId)
   if (!resumed) {
     await cancelPendingRun(created.runId)
     return
   }
   publish(request, resumed)
-  await runVoiceRequest(request, created.runId, continuation)
+  await runVoiceRequest(request, created.runId)
 }
 
 // Runs a request someone spoke to Lor in a call. A retried job (worker crash)
@@ -498,7 +492,7 @@ export function createVoiceRequestProcessor(deps: LorMessageDeps) {
     const request = await loadVoiceRequest(data.requestId)
     if (!request) return
     if (data.resumeApprovalId) {
-      await resumeRequest(request, data.resumeApprovalId)
+      await resumeRequest(request)
       return
     }
     if (request.status === "working" && request.runId) {

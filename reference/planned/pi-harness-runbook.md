@@ -1079,7 +1079,7 @@ moved here from 1.4, because nothing runs without a sandbox.
   folder creation is undocumented; `spawn` polls process logs, because Blaxel's
   push log stream drops lines. The session sandbox gets no Gateway
   key. Showing the lost-files notice and the capacity error to people is 1.3c.
-- [ ] **1.3c Core turn**, in two review chunks:
+- [x] **1.3c Core turn**, in review chunks:
   - [x] **1.3c-1** (2026-10-20, `packages/lor/src/session-core/pi-runtime.ts`):
     `runPiTurn()` restores the saved log into the sandbox (skipped when the
     sandbox copy's sha256 matches), clears any stale worker copy, builds the
@@ -1112,11 +1112,42 @@ moved here from 1.4, because nothing runs without a sandbox.
     `grep`, `find`, `glob` and `ls`. Brain tools are not approval targets, so no
     stored policy changes. Old messages keep their old tool names and show the
     generic icon.
-  - [ ] **1.3c-2b:** replace the `streamText` loop in `respond` with
-    `runPiTurn`; open the session sandbox; build the turn prompt (the initial
-    context text-first with labeled images, or the delta since the last saved
-    turn); save inside the worker's settle transaction; the lost-files notice
-    and the capacity error. Keep context building.
+  - [x] **1.3c-2b Pi turn wired in** (2026-10-21). `respond()` now runs one
+    Pi turn and the `streamText` loop is gone. What it does:
+    - Context building, grants, tools and Lor's system prompt stay; a sandbox
+      line is added to the prompt.
+    - The request is saved on the run before the turn, so a retried attempt
+      sends the same request with a note that the earlier attempt may have
+      changed files or connected services.
+    - The first turn of a conversation sends the full initial message, now
+      text-first with numbered images last (`initial-message.ts`).
+    - Later turns send the delta since the run that last saved the
+      conversation (`harness_state.lastRunId`; `buildTurnDelta`, and
+      `buildVoiceDelta` for calls). The worker resolves the owner (the
+      `agent_session` of the thread, or the call), loads the saved state and
+      binds `RunHarness`.
+    - `saveTurn` writes the Pi log and the run counters in one transaction
+      under the lease. A lost lease exits silently.
+    - If a retried attempt finds its own turn already saved, it delivers that
+      answer (`savedTurnText`) instead of running the turn again.
+    - A replaced sandbox adds a notice for the model and a trail row; a full
+      sandbox quota shows a capacity message.
+    - Deleted with the loop: the transcript replay (`replayChain`, approval
+      replay, step checkpoints, compaction saves) and their tests; only the
+      `formatDelta` tests remain.
+
+    **Temporary until later slices:**
+    - Approval-gated tools are refused with a reason (1.3e).
+    - Sandbox tools run as "bypass" (1.3f).
+    - No mid-turn steering or ambient messages: a steered message reaches the
+      next turn's delta (1.3g).
+    - Pi's default compaction, without Lor's instructions (1.3g).
+    - Counters and spend are totalled per turn; the wall clock and Stop
+      abort the turn (1.3g).
+    - Delta images stay `[file:]` lines, as continuations were before.
+    - No touches or context-meter data, because they read `agent_run_step`
+      (1.5).
+    - `eval:long` throws until 1.6 gives it a harness.
 - [ ] **1.3d Tools:** the stable tool list, exact execute
   context, output limits, the Sandbox tool group, current event consumers.
 - [ ] **1.3e Approvals:** schema moved from 1.2 (§4.2: drop the one-pending
@@ -1161,8 +1192,10 @@ disappear when transient stream rows expire.
 
 ### 1.6 — Delete the legacy engine, check quality and document
 
-- [ ] Delete the legacy engine: the `streamText` loop, `compaction.ts`, legacy
-  continuation replay and their callers. Legacy tables keep their rows; nothing
+- [ ] Delete the legacy engine. The `streamText` loop, transcript replay and
+  step checkpoints went in 1.3c-2b; left: `compaction.ts` (write-back still
+  uses `fitMessagesToBudget`), the `agent_run_step` readers (touches, context
+  meter) and `LOR_TOOL_APPROVAL_SECRET`. Legacy tables keep their rows; nothing
   writes or reads them. Old sessions start from their visible history on their
   first Pi run. Passing a full messages array to `HarnessAgent` does not import
   history, so no import path is built.

@@ -13,8 +13,10 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
 import { CURRENT_SESSION_VERSION } from "@earendil-works/pi-coding-agent"
 import type {
   LanguageModelUsage,
+  ModelMessage,
   Experimental_SandboxSession as SandboxSession,
   TextStreamPart,
+  ToolApprovalStatus,
   ToolSet,
   UserModelMessage,
 } from "ai"
@@ -228,6 +230,8 @@ export type PiTurnInput = {
   prompt: UserModelMessage
   tools: ToolSet
   toolsContext?: Record<string, unknown>
+  // Fixed per turn; tools absent from the map run without approval.
+  toolApproval?: Record<string, ToolApprovalStatus>
   model: { id: string; fallbacks: string[]; contextWindow: number }
   gatewayAuth: Record<string, string>
   gatewayOptions: Record<string, unknown>
@@ -239,6 +243,8 @@ export type PiTurnResult = {
   aborted: boolean
   usage: LanguageModelUsage | null
   modelId: string | null
+  // The turn's assistant and tool messages, for write-back.
+  responseMessages: ModelMessage[]
   // Null when the turn wrote nothing new.
   save: PiTurnSave | null
 }
@@ -289,6 +295,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
     ...(input.toolsContext
       ? { toolsContext: input.toolsContext as never }
       : {}),
+    ...(input.toolApproval ? { toolApproval: input.toolApproval } : {}),
     headers: { "x-session-id": input.sessionKey },
     // No fixed workDir: the adapter's fs redirect is process-wide and keyed by
     // sandbox path, so each session keeps its own `/workspace/pi-<sessionId>`.
@@ -327,14 +334,16 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         "Pi did not load the saved conversation"
       )
     }
-    const [usage, response] = await Promise.all([
+    const [usage, response, responseMessages] = await Promise.all([
       Promise.resolve(result.totalUsage).catch(() => null),
       Promise.resolve(result.response).catch(() => null),
+      Promise.resolve(result.responseMessages).catch(() => []),
     ])
     return {
       aborted,
       usage,
       modelId: response?.modelId ?? null,
+      responseMessages,
       save: await readSave(probe, input.saved, convertsFormat),
     }
   } finally {
