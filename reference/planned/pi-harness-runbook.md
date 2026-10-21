@@ -1060,9 +1060,22 @@ moved here from 1.4, because nothing runs without a sandbox.
   | {type: "deny", reason}` that receives the tool's arguments. A decision
   delivered on resume is now checked before any policy. Without a callback the
   adapter keeps its `permissionMode` behavior. Upstream PR candidate.
-- [ ] **1.3b Blaxel sandbox bridge** (from 1.4): a `SandboxSession` over Blaxel,
-  one sandbox per owner, provisioned on the first run and reconnected later;
-  lost-sandbox notice; visible quota error.
+- [x] **1.3b Blaxel sandbox bridge** (2026-10-20,
+  `packages/lor/src/sandbox/session-sandbox.ts`): `openSessionSandbox(owner)`
+  gets or creates `ses-{sessionId}` / `call-{voiceSessionId}` with no
+  expiration policy, probes health, and returns `{ session, fresh, close }`.
+  `fresh` is true on the first run and when the old sandbox was missing or
+  answered unhealthy (replaced, logged); a probe that errors fails the run
+  instead of deleting files. Quota exhaustion throws `SandboxCapacityError`.
+  `close()` ends the connection so Blaxel can enter standby. The
+  `SandboxSession` implementation: `run` wraps the command in `bash -c` (the
+  adapter expects it), uses Blaxel's server-side wait (`waitForCompletion`),
+  falls back to waiting on the named process when the request ends first, and
+  kills on abort, with a 30-minute runaway guard per command; reads return
+  `null` on 404; writes create parent folders on demand and always pass bytes
+  (Blaxel reads a string as a local path); `spawn` polls process logs, because
+  Blaxel's push log stream drops lines. The session sandbox gets no Gateway
+  key. Showing the lost-files notice and the capacity error to people is 1.3c.
 - [ ] **1.3c Core turn:** replace the `streamText` loop in `respond` with the Pi
   adapter; Lor's system prompt through the patched `systemPrompt`; the §4.9
   overrides; the window override and Gateway hook; restore, load check and save
@@ -1152,7 +1165,7 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a built 2026-10-20; 1.3b–1.6 not started. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.6 not started. |
 | Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |
 
 ## Sources

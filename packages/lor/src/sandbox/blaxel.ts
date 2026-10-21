@@ -17,8 +17,8 @@ export function blaxelConfigured(): boolean {
 
 export type BlaxelSandbox = SandboxInstance
 
-const WORKSPACE_MOUNT = "/workspace"
-const SANDBOX_PROCESS_ENV = {
+export const WORKSPACE_MOUNT = "/workspace"
+export const SANDBOX_PROCESS_ENV = {
   BUN_INSTALL_CACHE_DIR: `${WORKSPACE_MOUNT}/.cache/bun`,
   COREPACK_HOME: `${WORKSPACE_MOUNT}/.cache/corepack`,
   npm_config_cache: `${WORKSPACE_MOUNT}/.cache/npm`,
@@ -32,7 +32,7 @@ const SANDBOX_PROCESS_ENV = {
   YARN_CACHE_FOLDER: `${WORKSPACE_MOUNT}/.cache/yarn`,
 }
 
-function baseConfig(name: string, diskMb = env.LOR_WORKBENCH_DISK_MB) {
+export function baseConfig(name: string, diskMb = env.LOR_WORKBENCH_DISK_MB) {
   return {
     name,
     image: env.LOR_WORKBENCH_IMAGE,
@@ -82,7 +82,7 @@ function persistentConfig(name: string, idleTtl: string) {
   }
 }
 
-function hasWorkspaceDisk(sandbox: SandboxInstance): boolean {
+export function hasWorkspaceDisk(sandbox: SandboxInstance): boolean {
   return Boolean(
     sandbox.spec.volumes?.some(
       (volume) =>
@@ -111,7 +111,9 @@ type SandboxHealth = {
   exitCode: number
 }
 
-async function probeSandbox(sandbox: SandboxInstance): Promise<SandboxHealth> {
+export async function probeSandbox(
+  sandbox: SandboxInstance
+): Promise<SandboxHealth> {
   const result = await sandbox.process.exec({
     name: `health-${randomUUID().slice(0, 8)}`,
     command: "true",
@@ -204,7 +206,7 @@ async function healthyPersistentSandbox(
 
 // Close our HTTP/2 session so the sandbox's "active connection" ends now —
 // otherwise it idles in active (billed) mode for up to 15 minutes.
-function closeConnection(sandbox: SandboxInstance): void {
+export function closeConnection(sandbox: SandboxInstance): void {
   try {
     sandbox.h2Session?.close()
   } catch {}
