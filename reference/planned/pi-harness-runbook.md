@@ -4,7 +4,7 @@
 > packages, the repository and vendor docs. **Documentation only;
 > implementation not started.** Implements phase 1 of
 > [Shared harness sessions](harness-sessions.md). Repository baseline: `dev`
-> at `7d663fdf`; planning branch: `codex/pi-harness-sessions`.
+> at `7d663fdf`; branch: `pi-harness-sessions`.
 >
 > **Runtime decided (G0 closed 2026-10-20):** Vercel `HarnessAgent` +
 > `@ai-sdk/harness-pi`. Pi Durable is rejected for phase 1. Vercel's
@@ -691,12 +691,12 @@ only a coding assistant.
 path only, not on the approval-replay path (`agent.continue()`), so a resumed
 approval turn would fall back to Pi's prompt. Pi's `DefaultResourceLoader`
 accepts `systemPromptOverride`, which applies when the session is built, so it
-covers both paths; the adapter passes only `appendSystemPromptOverride`. Add a
-`systemPrompt` option to the adapter with a `pnpm patch` that passes
-`systemPromptOverride`, and send it upstream. With an override Pi drops its own
-tool and rule sections, so Lor's prompt includes the tool guidance. Fallback
-without a patch: `before_agent_start` plus rewriting `system` in
-`before_provider_request`, which runs on every agent-loop request.
+covers both paths; the adapter passed only `appendSystemPromptOverride`. The
+1.3a patch adds a `systemPrompt` getter that passes `systemPromptOverride`. With
+an override Pi drops its preamble, tool list, rules and docs sections, so Lor's
+prompt includes the tool guidance. Pi still appends the working-directory
+section (stable), and context-file and skills sections unless the patched
+`contextFiles: false` and `skills: false` are set; Lor sets both.
 
 **Cache rules:** build the prompt from per-session inputs only, so it is
 byte-identical across turns until LOR.md, connectors or rules actually change.
@@ -715,7 +715,7 @@ Each item is verified in P/C source unless marked.
 | Host-tool name set change rebuilds the session with an empty journal | Silent loss of conversation | Stable tool list per session (§4.3) |
 | Missing restored journal creates a fresh session | Silent loss of conversation | Postgres restore + load check (§4.3) |
 | Without an `auth` record, Pi reads every `*_API_KEY`, `*_BASE_URL` and `VERCEL_OIDC_TOKEN` in the worker env and `~/.pi/agent/auth.json` | Worker credentials reach the runtime | Always pass an explicit request-scoped `auth` record |
-| Context files: `noContextFiles` is not set, so AGENTS.md/CLAUDE.md are read from the working directory upward | Host files above the workspace mount reach the prompt | Disable for phase 1; repository instruction files are never workspace instructions (`agent-harness.md`) |
+| Context files: `noContextFiles` is not set, so AGENTS.md/CLAUDE.md are read from the working directory upward | Host files above the workspace mount reach the prompt | Disabled with the patched `contextFiles: false` (1.3a); repository instruction files are never workspace instructions (`agent-harness.md`) |
 | No settings record: P uses `SettingsManager.inMemory()`; passing `agentDir` loads global settings **and** `<workspace>/.pi/settings.json` | A settings folder would let the model change Pi's settings by writing a workspace file | Phase 1 changes no settings, so never pass `agentDir`. If a setting must change later: `pnpm patch` the adapter to pass a settings record (`SettingsManager.inMemory(settings)` already accepts one) and send the same change upstream |
 | `cacheWarming: "streaming"` default | Background requests (1-token replays near the cache expiry) | Keep the default. Evaluated 2026-10-20: C `CacheWarmer` warms only when the model has a cache lifetime (`promptCache`) and the expected saving is at least $0.05, and stops when the run settles. No Gateway model in pi-ai 1.3.0 has `promptCache`, so it stays inactive for Lor's models. Count `cache_warm` usage if it ever appears |
 | Pi's system prompt opens as a coding assistant and lists the worker's Pi doc paths | Wrong role for team chat; worker paths in every prompt | Replace it with Lor's prompt through a patched `systemPromptOverride` option (§4.8) |
@@ -1047,35 +1047,48 @@ version rejection. No destructive history rewrite.
 
 ### 1.3 — Integrate the adapter and Lor services
 
-- [ ] Replace the `streamText` loop in `respond` with the Pi adapter; keep
-  context building and scoped tools.
-- [ ] Build Lor's system prompt for `before_agent_start` (§4.8).
-- [ ] Wire the stable tool list, renamed brain tools, exact execute context,
-  output limits, images, Gateway options and current event consumers.
-- [ ] Add the Sandbox tool group, the per-user sandbox permission mode, the
-  auto classifier and the per-call built-in approval patch (§4.6).
-- [ ] Schema moved from 1.2: the approval-table changes (§4.2: drop the
-  one-pending indexes, add `(run_id, tool_call_id)`, `harness_approval_id`,
-  `kind`, input sha256) and the per-user sandbox-mode row with the mode frozen
-  on the run (§4.6).
-- [ ] Implement the sandbox safety policy: allow list, rule list, classifier,
-  thresholds per mode, ask cards, refusal text, the loop guard and decision
-  records (§4.6).
-- [ ] Build the sandbox classifier eval next to the long-task eval (§4.6).
-- [ ] Apply every override in §4.9.
-- [ ] Reuse harness approval/continuation APIs with Lor policy and durable decisions.
-- [ ] Add the compaction handler, per-step counters, tool block near ceilings,
-  ambient context, steering and stop.
+Built in reviewable chunks (agreed with Jacob 2026-10-20). The Blaxel bridge
+moved here from 1.4, because nothing runs without a sandbox.
+
+- [x] **1.3a Adapter patch** (2026-10-20,
+  `patches/@ai-sdk__harness-pi@1.0.160.patch`, registered in the root
+  `package.json`; every app Dockerfile copies `patches/`). New `createPi`
+  options: `systemPrompt` (a getter passed as Pi's `systemPromptOverride`, so it
+  applies to new prompts and resumed approval turns alike); `contextFiles:
+  false` (Pi's `noContextFiles`); `skills: false` (no workspace or harness
+  skills); `builtinToolApproval`, a per-call callback `(call) => "allow" | "ask"
+  | {type: "deny", reason}` that receives the tool's arguments. A decision
+  delivered on resume is now checked before any policy. Without a callback the
+  adapter keeps its `permissionMode` behavior. Upstream PR candidate.
+- [ ] **1.3b Blaxel sandbox bridge** (from 1.4): a `SandboxSession` over Blaxel,
+  one sandbox per owner, provisioned on the first run and reconnected later;
+  lost-sandbox notice; visible quota error.
+- [ ] **1.3c Core turn:** replace the `streamText` loop in `respond` with the Pi
+  adapter; Lor's system prompt through the patched `systemPrompt`; the §4.9
+  overrides; the window override and Gateway hook; restore, load check and save
+  (§4.3); text-first prompt with images. Keep context building.
+- [ ] **1.3d Tools:** the stable tool list, renamed brain tools, exact execute
+  context, output limits, the Sandbox tool group, current event consumers.
+- [ ] **1.3e Approvals:** schema moved from 1.2 (§4.2: drop the one-pending
+  indexes, add `(run_id, tool_call_id)`, `harness_approval_id`, `kind`, input
+  sha256); the pending set; harness approval/continuation APIs with Lor policy
+  and durable decisions; `request_approval` as a gate; steering and Stop while
+  pending.
+- [ ] **1.3f Sandbox safety:** the per-user sandbox-mode row with the mode frozen
+  on the run; the allow list, rule list, classifier, thresholds per mode, ask
+  cards, refusal text, loop guard and decision records (§4.6), through the
+  patched `builtinToolApproval`.
+- [ ] **1.3g Turn controls and eval:** the compaction handler, per-step counters,
+  the tool block near the spend or deadline limit, ambient context, steering and
+  stop; the sandbox classifier eval next to the long-task eval (§4.6).
 
 Exit: source review follows every request, tool and summary through permission,
 accounting and save points, including cold approval resume and a crashed turn.
 
 ### 1.4 — Attach session sandboxes and scoped resources
 
-- [ ] Implement the thin Blaxel bridge; provision on a session's first run and
-  reconnect later, for every run kind.
-- [ ] Keep workspace identity, artifacts, checkout/publish policy and process
-  fencing. Add the lost-workspace notice and the visible quota failure.
+- [ ] The Blaxel bridge itself moved to 1.3b. Here: keep workspace identity,
+  artifacts, checkout/publish policy and process fencing across every run kind.
 - [ ] Replace mandatory child dispatch only after primary capability coverage.
 
 Skills and slash commands are out of phase 1 (moved to the self-configuration
@@ -1139,8 +1152,8 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3–1.6 not started. |
-| Upstream changes / SDK publication | None submitted. Candidates for `@ai-sdk/harness-pi` PRs (each starts as a `pnpm patch` where Lor needs it): a `systemPrompt` option passing Pi's `systemPromptOverride` (needed, §4.8); a per-call built-in approval callback that checks the delivered decision before asking (needed for the sandbox permission modes, §4.6); keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a built 2026-10-20; 1.3b–1.6 not started. |
+| Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |
 
 ## Sources
 
