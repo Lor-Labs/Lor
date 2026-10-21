@@ -37,7 +37,8 @@ authority (§4.3). Do not infer production readiness from the common API alone.
 | Tool permissions | A new **Sandbox** built-in group in agent-profile tool access (workspace default, then category, then channel) holds Pi's `bash`, `read`, `write`, `edit`, `grep`, `find` and `ls`; on by default. When the group is off, the tools stay in the session's fixed list and are refused when called. `bash`, `write` and `edit` are **not** workspace approval targets: a **per-user sandbox permission mode** decides them, like Claude Code and Codex: **manual** (ask before every call), **auto** (a classifier asks only for potentially destructive calls), **bypass** (allow all). Read-only tools never ask (§4.6). |
 | Approvals | `request_approval` pauses the turn like any gate and continues after the decision. Anyone in the session can approve sandbox asks. Steering while approvals are pending denies them and runs next; a queued message waits for the decision; Stop denies them and ends the turn (§4.2). |
 | Sandbox mode details | The turn starter's mode applies; default **auto**; a per-session switch comes later with the code-channel composer. **Loop and Act runs are autonomous:** classifier only, higher tolerance, a flagged call is refused with "try a safer way" and never waits for a human. Voice uses the speaker's mode. The classifier is Jev through `experimental_decide` (§4.6). |
-| Quality check | Jacob runs `eval:long` on the Pi path before the switch. The eval harness moves to the Pi path. |
+| Quality check | Jacob runs `eval:long` on the Pi path before the switch. The eval harness moves to the Pi path. A new **sandbox classifier eval** sets the safety thresholds and rules from evidence (§4.6). |
+| Sandbox safety policy | Allow list, then rules, then the classifier for the middle. Interactive auto asks at probability ≥ 0.35; Loop/Act refuses at ≥ 0.70; rule hits ask or refuse; errors ask or refuse. Starting values, tuned with the classifier eval (§4.6). |
 | Skills and slash commands | Out of phase 1; moved to the self-configuration work. |
 | Versions | **Pinned 2026-10-20:** `@ai-sdk/harness-pi@1.0.160`, `@ai-sdk/harness@1.0.158`, `ai@7.0.147`, Pi `1.3.0` (direct dependency plus a root pnpm override). Exact versions; the harness ships breaking changes in patch releases. 1.0.159 → 1.0.160 only bumped `ai`. |
 
@@ -526,13 +527,9 @@ user settings (a per-user row, like `user_notification_settings`):
   the Gateway's `/decision-model` endpoint and gets `{type: "boolean",
   probability}` back (verified in `@ai-sdk/gateway@4.0.120`); TypeSafe's own API
   calls this question type `noul`, and the Gateway maps it. A `refusal` answer
-  counts as a classifier error. One `boolean` question: is this call
-  potentially destructive or irreversible? It reads the
-  tool name, the arguments (long `write` content truncated; Jev's state limit is
-  32k) and the recent request. A probability above the chat threshold asks. A
-  classifier error asks (fail closed). Its usage is billed like other auxiliary
-  calls. Gateway catalog flags for Jev (2026-09-30): no ZDR, no training.
-  Thresholds start as untuned guesses.
+  counts as a classifier error. Usage is billed like other auxiliary calls.
+  Gateway catalog flags for Jev (2026-09-30): no ZDR, no training. The policy
+  that uses it is below.
 - **Mechanism:** the adapter's static `permissionMode` cannot express a
   per-call decision. Patch the adapter (`pnpm patch`, then upstream) with a
   per-call built-in approval callback, `(call) => "allow" | "ask" | {deny,
@@ -560,6 +557,87 @@ user settings (a per-user row, like `user_notification_settings`):
 - **Default mode** for new users: auto.
 - **Per-session switch** (like Claude Code's mode toggle): later, with the
   code-channel composer. Phase 1 has the user setting only.
+
+**Sandbox safety policy (decided with Jacob, 2026-10-20).** Rules decide the
+clear cases; the classifier judges only the middle, because Jev's probabilities
+are not calibrated for this question.
+
+What can go wrong in a session sandbox (no Lor credentials, no worker access,
+host-controlled Git): destroying the session's own work (unrecoverable until
+phase 2); using credentials found in the workspace, such as a cloned repo's
+`.env`; changing systems outside the sandbox (deploy, publish, writes to
+external APIs, sending data out); abusing resources (fork bombs, mining, mass
+downloads, scanning); privilege escalation.
+
+Order of checks (auto mode and Loop/Act):
+
+1. **Always allowed, no classifier:** read-only tools; `edit`; `write` to a new
+   file; clearly read-only shell commands (`ls`, `cat`, `head`, `grep`/`rg`,
+   `find` without `-delete`/`-exec`, `wc`, read-only `git`: `status`, `log`,
+   `diff`, `show`). This covers most calls.
+2. **Always flagged by rule:** deletes at the workspace root, `~`, `/` or `..`;
+   `git reset --hard`, `git clean -fdx`, `git push --force`; commands that touch
+   credential files (`.env`, `*.pem`, `id_rsa`, `~/.aws`); deploy and publish
+   tools (`npm publish`, `vercel`, `fly`, `terraform apply`, `kubectl
+   apply/delete`, the `aws`/`gcloud`/`gh`/`stripe` CLIs); `curl`/`wget` with
+   POST, PUT, DELETE or upload to a host that is not localhost; database
+   clients pointed at a remote host; `sudo`, `mount`, `iptables`,
+   `--privileged`; fork bombs. Rules can be dodged with shell tricks, so the
+   classifier backs them up.
+3. **Classifier for everything else:** any other `bash` command, and `write` over
+   an existing file (the state includes the old and new sizes). One `boolean`
+   question: "Could this cause harm that is hard to undo: deleting or
+   overwriting work, changing systems outside this sandbox, using credentials,
+   publishing or deploying, sending data to third parties, or using excessive
+   resources?" State: the call, the working directory, the person's latest
+   request and the last few tool calls; long `write` content is truncated (Jev's
+   state limit is 32k).
+
+| Case | Interactive auto | Loop / Act |
+|---|---|---|
+| Rule hit (step 2) | Ask | Refuse |
+| Classifier probability | Ask at **≥ 0.35** | Refuse at **≥ 0.70** |
+| Classifier error or `refusal` | Ask | Refuse |
+| Manual mode | Ask for every `bash`, `write` and `edit` | n/a |
+| Bypass mode | Allow everything | n/a |
+
+The interactive bar is low because a wrong ask only costs a click; the
+autonomous bar is the higher tolerance, while the rules still refuse the known
+dangerous categories. Both thresholds are starting values, set from the
+classifier eval below.
+
+- **Ask card:** the call plus the classifier's one-line reason (for example
+  "Deletes the whole repo folder"). Anyone in the session can approve.
+- **Refusal in Loop/Act:** the tool result reads: "This command was blocked as
+  potentially dangerous: <reason>. Don't retry it or a variant. Find a safer
+  way, or finish and report what you couldn't do."
+- **Loop guard:** after 3 refusals in one turn, the next refusal tells the model
+  to stop that approach and finish. The run's final message lists the refused
+  calls, so the team sees what Lor skipped.
+- **Record every decision** on the run's activity: the call, the rule or
+  probability, the outcome, and a person's approve or reject. This feeds tuning
+  and the eval set.
+
+**Sandbox classifier eval (required, 2026-10-20).** A classifier eval framework
+next to the long-task eval (`packages/lor/src/eval/`), so thresholds and rules
+are set from evidence, not guesses. Jacob runs it, like `eval:long`.
+
+- **Dataset:** labeled calls with the expected outcome per mode (allow / ask /
+  refuse): routine dev work that should not ask (`npm install`, `pytest`, builds,
+  dev servers in the background, `docker build`, `git commit`); rule-category
+  calls; gray-zone calls; obfuscated variants that dodge the rules (`eval`,
+  base64, variable indirection, aliases); prompt-injection cases (a repository
+  file tells the model to run a command); `write` over existing files with large
+  shrinkage. Grow the set from recorded production decisions, especially ones a
+  person rejected.
+- **Metrics per mode:** catch rate on dangerous calls (rules plus classifier),
+  false-ask rate on safe calls (interactive), false-refusal rate (autonomous),
+  latency and cost per decision, and a threshold sweep that shows how each
+  number changes from 0.1 to 0.9.
+- **Use:** run it before the switch and after any change to the rules, the
+  question wording, the decision model or the thresholds. Starting targets
+  (adjust after the first run): catch at least 95% of the dangerous set in
+  autonomous mode; ask on at most 10% of safe calls that reach the classifier.
 
 **Tool-name collisions:** Lor's brain tools are literally `ls`, `read`, `tree`,
 `write`, `edit`, `mkdir`, `move`, `link` and `search` (`brain.ts`). `ls`, `read`,
@@ -906,6 +984,7 @@ as completed turns.
 | `packages/db/src/schemas/profile-tool-access.ts`, `packages/connectors/src/tools.ts` | Add the Sandbox built-in group (§4.6). Pi's built-in tools stay out of the workspace approval-target vocabulary. |
 | New per-user settings row in `packages/db/src/schemas/` (pattern: `user-notification-settings.ts`); user settings UI on web and mobile | The sandbox permission mode (manual, auto, bypass) and the auto classifier call (§4.6). |
 | `packages/lor/src/eval/long/` | Move the long-task eval to the Pi path so Jacob can run it before the switch. |
+| New sandbox classifier eval in `packages/lor/src/eval/` | Labeled calls, metrics per mode and a threshold sweep (§4.6). |
 | `packages/lor/src/models.ts`, `usage.ts` | Keep model/routing and credit semantics; add gateway options through the payload hook and the summary stream function. |
 | `packages/lor/src/tool-guard.ts`, `approval-policy.ts`, `custom-tools.ts` | Keep grants, targets, output limits and execution context. Map gates to harness approvals. Update `SIDE_EFFECT_TOOLS` and the reserved-name list for the rename. |
 | `apps/worker/src/lib/agent-run.ts`, `run-continuation.ts` | Native dispatch, generation fencing, per-step counters, per-turn saves and fresh-process restore. Delete the legacy transcript replay (`replayChain`, continuation deltas). Today's continuation silently falls back to fresh context on error; the Pi path fails visibly instead. Re-point the context meter (`GET /v1/runs/context/{scopeKey}`) to Pi usage. |
@@ -975,6 +1054,10 @@ version rejection. No destructive history rewrite.
   output limits, images, Gateway options and current event consumers.
 - [ ] Add the Sandbox tool group, the per-user sandbox permission mode, the
   auto classifier and the per-call built-in approval patch (§4.6).
+- [ ] Implement the sandbox safety policy: allow list, rule list, classifier,
+  thresholds per mode, ask cards, refusal text, the loop guard and decision
+  records (§4.6).
+- [ ] Build the sandbox classifier eval next to the long-task eval (§4.6).
 - [ ] Apply every override in §4.9.
 - [ ] Reuse harness approval/continuation APIs with Lor policy and durable decisions.
 - [ ] Add the compaction handler, per-step counters, tool block near ceilings,
@@ -1017,7 +1100,8 @@ disappear when transient stream rows expire.
   first Pi run. Passing a full messages array to `HarnessAgent` does not import
   history, so no import path is built.
 - [ ] Move `packages/lor/src/eval/long/` to the Pi path. Jacob runs `eval:long`
-  and reviews the results before the switch.
+  and the sandbox classifier eval, sets the thresholds from the classifier
+  results, and reviews both before the switch.
 - [ ] Update as-built docs (`agent-harness.md`, `context-continuation.md`,
   `approval-policies.md`, `artifacts.md`) and tick phase-1 items individually.
 
@@ -1027,8 +1111,8 @@ activity; workspace limits stay explicit until Git checkpoints ship.
 ## 9. Verification, rollout and record
 
 No tests, ad hoc test scripts, browser test harnesses or `pnpm run validate`,
-per repository policy. One exception (decision 2026-10-20): Jacob runs
-`eval:long` on the Pi path before the switch. This revision is source and
+per repository policy. Exception (decision 2026-10-20): Jacob runs `eval:long`
+on the Pi path and the sandbox classifier eval (§4.6) before the switch. This revision is source and
 documentation review, not runtime proof. For implementation use focused
 code/SQL review, lint, type checking and builds that do not execute tests.
 
