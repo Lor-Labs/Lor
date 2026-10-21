@@ -101,6 +101,34 @@ function gatewayModels(ids: string[], contextWindow: number) {
   })
 }
 
+// HarnessAgent passes a tool's description through unresolved, and the Pi
+// adapter cannot clone an AI SDK v7 dynamic description (a function of the
+// tool's context). Resolve it the way streamText does.
+function resolveToolDescriptions(
+  tools: ToolSet,
+  toolsContext: Record<string, unknown> | undefined,
+  sandbox: SandboxSession
+): ToolSet {
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, tool]) => {
+      const description: unknown = tool.description
+      if (typeof description !== "function") return [name, tool]
+      return [
+        name,
+        {
+          ...tool,
+          description: String(
+            description({
+              context: toolsContext?.[name],
+              experimental_sandbox: sandbox,
+            })
+          ),
+        },
+      ]
+    })
+  )
+}
+
 function withGatewayOptions(
   payload: unknown,
   gateway: Record<string, unknown>
@@ -289,7 +317,11 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
       thinkingLevel: "high",
     }),
     model: input.model.id,
-    tools: input.tools,
+    tools: resolveToolDescriptions(
+      input.tools,
+      input.toolsContext,
+      input.sandbox
+    ),
     // The core takes a generic ToolSet; respond() builds the per-tool context
     // that matches it, so the inferred context type is bridged here.
     ...(input.toolsContext

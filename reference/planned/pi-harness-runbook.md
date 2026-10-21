@@ -1136,6 +1136,17 @@ moved here from 1.4, because nothing runs without a sandbox.
       replay, step checkpoints, compaction saves) and their tests; only the
       `formatDelta` tests remain.
 
+    **First dev run (2026-10-21, worker on Node via `tsx watch`):**
+    - A loop fire ran end to end: the sandbox was created, the turn streamed,
+      2 tool calls ran, usage was billed and write-back ran. Gateway routing
+      was not rejected.
+    - A workspace with GitHub failed: `HarnessAgent` passes dynamic tool
+      descriptions (`search_github`, `investigate_code`, `propose_code_change`)
+      through as functions, and Pi cannot clone them. Fixed by resolving them
+      in `runPiTurn`.
+    - Still unverified: Bun (`pnpm dev` runs the worker on Node; `start` uses
+      Bun), the second-turn load check, and Stop.
+
     **Temporary until later slices:**
     - Approval-gated tools are refused with a reason (1.3e).
     - Sandbox tools run as "bypass" (1.3f).
@@ -1245,7 +1256,7 @@ reader/build. No automatic fallback to fresh history.
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
 | Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.6 not started. |
-| Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |
+| Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store; `@ai-sdk/harness` `HarnessAgent._toToolSpecs` should resolve AI SDK v7 dynamic tool descriptions as `streamText` does (`resolveToolDescription`), instead of passing the function through, which Pi then cannot clone (worked around in `runPiTurn`, 2026-10-21). |
 
 ## Sources
 
