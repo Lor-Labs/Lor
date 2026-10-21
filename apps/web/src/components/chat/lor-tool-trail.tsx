@@ -86,7 +86,6 @@ export function toolIcon(toolName: string): TrailIcon {
     case "ls":
     case "read":
     case "memory_ls":
-    case "memory_tree":
     case "memory_read":
       return ReadGlyph
     case "bash":
@@ -96,8 +95,6 @@ export function toolIcon(toolName: string): TrailIcon {
     case "create_artifacts":
     case "memory_write":
     case "memory_edit":
-    case "memory_mkdir":
-    case "memory_move":
     case "memory_link":
       return WriteGlyph
     default:

@@ -1100,9 +1100,11 @@ moved here from 1.4, because nothing runs without a sandbox.
   - [x] **1.3c-2a Memory tool rename** (2026-10-21, pulled forward from 1.3d):
     the adapter registers Pi's built-ins and host tools in one list, so Lor's
     `ls`/`read`/`write`/`edit` would collide and a Pi turn could not start. The
-    brain tools are now `memory_ls`, `memory_read`, `memory_tree`,
-    `memory_write`, `memory_edit`, `memory_mkdir`, `memory_move` and
-    `memory_link` ("memory" is the UI's word). Updated: tool keys and their
+    brain tools are now `memory_ls`, `memory_read`, `memory_write`,
+    `memory_edit` and `memory_link` ("memory" is the UI's word). With Jacob
+    (2026-10-21): `tree` folded into `memory_ls` as an optional `depth`;
+    `mkdir` and `move` removed (writes create folders; a move broke stored
+    `[[/path]]` citations; fewer tools beside Pi's seven). Updated: tool keys and their
     execute contexts (`respond`, project archive), prompts and tool error
     texts, `toolLabel`/`toolDetail`, `SIDE_EFFECT_TOOLS` (so the export deny
     list), touches, the web and mobile trail icons, and the custom-tool

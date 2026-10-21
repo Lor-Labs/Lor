@@ -27,12 +27,9 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "fetch_source",
   "search_sources",
   "memory_ls",
-  "memory_tree",
   "memory_read",
   "memory_write",
   "memory_edit",
-  "memory_mkdir",
-  "memory_move",
   "memory_link",
   // Pi's sandbox tools (find is exposed as glob).
   "bash",

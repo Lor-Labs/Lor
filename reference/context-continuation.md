@@ -66,8 +66,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
   - Deny-list: `create_artifacts`, `propose_code_change`, `request_approval`,
     `set_plan`, `complete_task`, `propose_loop`, `propose_instructions`,
     `create_linear_issue`, `update_linear_issue`, `comment_linear`, brain
-    write tools (`memory_write`, `memory_mkdir`, `memory_move`,
-    `memory_link`), and itself.
+    write tools (`memory_write`, `memory_edit`, `memory_link`), and itself.
   - Serialization: uniform array-of-flat-objects (or `{rows: [...]}`) → CSV
     (small local encoder, RFC 4180 quoting); anything else → pretty JSON.
     Handles the Neon MCP `run_sql` result shape explicitly.

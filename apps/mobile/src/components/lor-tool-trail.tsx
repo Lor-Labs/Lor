@@ -45,7 +45,6 @@ function builtinToolIcon(toolName: string): IconSvgElement {
     case "ls":
     case "read":
     case "memory_ls":
-    case "memory_tree":
     case "memory_read":
       return BookOpen01Icon
     case "bash":
@@ -55,8 +54,6 @@ function builtinToolIcon(toolName: string): IconSvgElement {
     case "create_artifacts":
     case "memory_write":
     case "memory_edit":
-    case "memory_mkdir":
-    case "memory_move":
     case "memory_link":
       return PencilEdit02Icon
     default:

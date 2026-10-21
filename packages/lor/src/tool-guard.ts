@@ -12,8 +12,6 @@ import type { RunToolResultStore } from "./run"
 export const SIDE_EFFECT_TOOLS = new Set([
   "memory_write",
   "memory_edit",
-  "memory_mkdir",
-  "memory_move",
   "memory_link",
   "create_linear_issue",
   "update_linear_issue",

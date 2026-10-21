@@ -262,14 +262,11 @@ export async function synthesizeProjectArchive(
       fetch_source: retrieval,
       memory_ls: readContext,
       memory_read: readContext,
-      memory_tree: readContext,
       memory_write: {
         workspaceId: args.workspaceId,
         onWrite: onMemoryWritten,
       },
       memory_edit: { workspaceId: args.workspaceId, onWrite: onMemoryWritten },
-      memory_mkdir: { workspaceId: args.workspaceId },
-      memory_move: { workspaceId: args.workspaceId },
       memory_link: { workspaceId: args.workspaceId },
       ...(github
         ? {
