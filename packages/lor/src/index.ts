@@ -150,7 +150,7 @@ import {
   ZERO_RUN_COUNTERS,
 } from "./run"
 import { blaxelConfigured } from "./sandbox/blaxel"
-import { piToolLabel } from "./sandbox/pi-events"
+import { piToolLabel, sandboxToolDetail } from "./sandbox/pi-events"
 import { openSessionSandbox, SESSION_WORK_DIR } from "./sandbox/session-sandbox"
 import type { HarnessOwner } from "./session-core"
 import { piWorkDir, runPiTurn } from "./session-core/pi-runtime"
@@ -255,6 +255,7 @@ const SANDBOX_BUILTIN_TOOLS = [
   "glob",
   "ls",
 ] as const
+const SANDBOX_TOOL_NAMES: ReadonlySet<string> = new Set(SANDBOX_BUILTIN_TOOLS)
 
 // Names only the sandbox tools this run has, so the model never reaches for
 // one that is switched off.
@@ -2917,7 +2918,9 @@ export async function respond(
               at: text.length,
             })
           } else if (part.type === "tool-result") {
-            const resolved = toolDetail(part.toolName, part.output)
+            const resolved = SANDBOX_TOOL_NAMES.has(part.toolName)
+              ? sandboxToolDetail(part.toolName, part.input, part.output)
+              : toolDetail(part.toolName, part.output)
             if (resolved.status === "error") {
               logger.warn(
                 { tool: part.toolName, error: resolved.detail?.summary },
@@ -2930,6 +2933,20 @@ export async function respond(
               label: toolLabel(part.toolName, part.input),
               at: text.length,
               ...resolved,
+            })
+          } else if (part.type === "tool-error") {
+            // Pi's sandbox tools report failures here, not as a result.
+            const error =
+              part.error instanceof Error
+                ? part.error.message
+                : String(part.error)
+            onToolEvent?.({
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              label: toolLabel(part.toolName, part.input),
+              at: text.length,
+              status: "error",
+              detail: { summary: error.slice(0, 4_000) },
             })
           } else if (part.type === "error") {
             throw part.error

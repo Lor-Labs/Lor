@@ -76,6 +76,7 @@ export function toolIcon(toolName: string): TrailIcon {
     case "search_messages":
     case "grep":
     case "find":
+    case "glob":
       return SearchGlyph
     case "search_web":
     case "fetch_web":
@@ -200,6 +201,16 @@ type DeliveredFile = NonNullable<LorToolCallView["files"]>[number]
 // Pi labels read "<Verb> <target>" (piToolLabel); the target shows in mono
 // so the verb scans.
 const TARGET_TOOLS = new Set(["read", "write", "edit", "ls", "bash"])
+// Pi's sandbox tools as Lor calls them directly (find is exposed as glob).
+const SANDBOX_TOOLS = new Set([
+  "bash",
+  "read",
+  "write",
+  "edit",
+  "grep",
+  "glob",
+  "ls",
+])
 function splitLabel(toolCall: LorToolCallView) {
   const space = toolCall.label.indexOf(" ")
   if (!TARGET_TOOLS.has(toolCall.toolName) || space < 0) {
@@ -345,6 +356,8 @@ export function LorToolTrail({
 }) {
   const [open, setOpen] = useState(false)
   if (toolCalls.length === 0) return null
+  // Files Lor shared this turn; a sandbox row that wrote one shows its chip.
+  const shared = toolCalls.flatMap((t) => t.files ?? [])
 
   // Force open while streaming so live progress is visible; collapse to a
   // summary once the answer settles (the user can re-open).
@@ -358,6 +371,13 @@ export function LorToolTrail({
       {!embedded && <ChainOfThoughtTrigger>{summary}</ChainOfThoughtTrigger>}
       <ChainOfThoughtContent className="mt-1.5 space-y-1.5">
         {toolCalls.map((t) => {
+          // Lor's own sandbox work reads as flat rows, like a sandbox run's
+          // sub-steps (session-files-runbook.md decision 5).
+          if (SANDBOX_TOOLS.has(t.toolName)) {
+            return (
+              <SubStepRow key={t.toolCallId} toolCall={t} delivered={shared} />
+            )
+          }
           const Icon = toolIcon(t.toolName)
           const children = childrenByParent?.get(t.toolCallId) ?? []
           const isSandbox = children.length > 0

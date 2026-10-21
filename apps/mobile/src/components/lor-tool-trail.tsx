@@ -35,6 +35,7 @@ function builtinToolIcon(toolName: string): IconSvgElement {
     case "search_messages":
     case "grep":
     case "find":
+    case "glob":
       return Search01Icon
     case "search_web":
     case "fetch_web":
@@ -133,6 +134,16 @@ type FileDiff = NonNullable<LorToolCall["diff"]>
 // Pi labels read "<Verb> <target>" (piToolLabel); the target shows in mono
 // so the verb scans. Mirrors web.
 const TARGET_TOOLS = new Set(["read", "write", "edit", "ls", "bash"])
+// Pi's sandbox tools as Lor calls them directly (find is exposed as glob).
+const SANDBOX_TOOLS = new Set([
+  "bash",
+  "read",
+  "write",
+  "edit",
+  "grep",
+  "glob",
+  "ls",
+])
 function splitLabel(toolCall: LorToolCall) {
   const space = toolCall.label.indexOf(" ")
   if (!TARGET_TOOLS.has(toolCall.toolName) || space < 0) {
@@ -309,6 +320,8 @@ export function LorToolTrail({
   // keeps updating while the call streams in more detail.
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
   if (toolCalls.length === 0) return null
+  // Files Lor shared this turn; a sandbox row that wrote one shows its chip.
+  const shared = toolCalls.flatMap((toolCall) => toolCall.files ?? [])
 
   const selectedTool = selectedToolId
     ? (toolCalls.find((toolCall) => toolCall.toolCallId === selectedToolId) ??
@@ -342,6 +355,16 @@ export function LorToolTrail({
       {expanded ? (
         <View className="ml-one gap-one border-l border-border pl-three">
           {toolCalls.map((toolCall) => {
+            // Lor's own sandbox work reads as flat rows (mirrors web).
+            if (SANDBOX_TOOLS.has(toolCall.toolName)) {
+              return (
+                <SubStepRow
+                  delivered={shared}
+                  key={toolCall.toolCallId}
+                  toolCall={toolCall}
+                />
+              )
+            }
             const drillable = hasDetail(toolCall)
             const children = childrenByParent?.get(toolCall.toolCallId) ?? []
             return (

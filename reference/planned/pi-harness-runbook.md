@@ -1224,10 +1224,32 @@ moved here from 1.4, because nothing runs without a sandbox.
     the cache.
   - **Other:** a terminal icon for the group in the web and mobile settings;
     touches list every sandbox tool, and `share_file` touches the artifact.
-- [ ] **1.3d Tools, rest:** exact execute context, output limits, current
-  event consumers (trail rows for sandbox tools: Pi's `read`, `write` and
-  `edit` take `file_path`, not `path`, so today's labels show no target;
-  diffs for `edit`/`write`, output for `bash`).
+- [x] **1.3d-3 Trail rows and the tool contract** (2026-10-21):
+  - **Execute contract, checked in source:** `HarnessAgent` runs Lor's tools
+    through the AI SDK's `executeTool` with `context` from `toolsContext[name]`,
+    checked against each `contextSchema`, plus `abortSignal`, `toolCallId`,
+    `toModelOutput` and streamed (preliminary) output.
+  - **Differences:** `messages` is always empty, and no Lor tool reads it.
+    Tools also get `experimental_sandbox`. A thrown error returns
+    `{ error }` to the model.
+  - **Output limits:** Lor's guard wrappers (output limits, receipts, touch
+    hints) still wrap every Lor tool. Pi's own tools truncate their output
+    (read 2,000 lines or 50 KB; bash tail; grep, find and ls head) and do not
+    count toward `toolOutputBytes`.
+  - **Trail:**
+    - Labels read `file_path` (`piToolLabel`).
+    - `sandboxToolDetail` (`sandbox/pi-events.ts`) builds each row:
+      - `write` is an all-added diff and `edit` an old→new diff, both from the
+        call's arguments, because the adapter's results are plain text with
+        no patch;
+      - `bash` keeps the output tail and fails on a non-zero `(exit N)`;
+      - searches keep the head;
+      - a refused call shows "Not run: reason".
+    - `tool-error` parts, which is how Pi's tools report failures, now mark the
+      row failed.
+    - Web and mobile render Pi's tools as flat `SubStepRow`s (file chip when the
+      file was shared, diff counts, one expansion); `glob` gets the search icon.
+    - Needs a visual check.
 - [ ] **1.3e Approvals:** schema moved from 1.2 (§4.2: drop the one-pending
   indexes, add `(run_id, tool_call_id)`, `harness_approval_id`, `kind`, input
   sha256); the pending set; harness approval/continuation APIs with Lor policy
