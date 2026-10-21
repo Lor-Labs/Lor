@@ -172,13 +172,13 @@ describe("export_tool_result execute", () => {
   })
 
   it("refuses deny-listed tools", async () => {
-    expect(EXPORT_DENIED_TOOLS.has("create_artifacts")).toBe(true)
+    expect(EXPORT_DENIED_TOOLS.has("share_file")).toBe(true)
     const exportTool = createExportToolResultTool({
-      tools: { create_artifacts: { execute: async () => ({}) } },
+      tools: { share_file: { execute: async () => ({}) } },
       toolsContext: {},
     })
     const result = await call(exportTool, {
-      tool: "create_artifacts",
+      tool: "share_file",
       filename: "x",
     })
     expect(result.error).toMatch(/can't be exported/)

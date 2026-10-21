@@ -35,7 +35,6 @@ export const SIDE_EFFECT_TOOLS = new Set([
   // or file a duplicate.
   "propose_code_change",
   "propose_instructions",
-  "create_artifacts",
   "react_to_message",
   // Adopts the run's thread as a plan; replay must not create a duplicate.
   "start_plan",

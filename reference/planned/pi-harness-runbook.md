@@ -1168,6 +1168,29 @@ moved here from 1.4, because nothing runs without a sandbox.
     - No touches or context-meter data, because they read `agent_run_step`
       (1.5).
     - `eval:long` throws until 1.6 gives it a harness.
+- [x] **1.3d-1 `share_file` and the end of `create_artifacts`** (2026-10-21,
+  Jacob's call after the first dev run showed sandbox files stayed private):
+  - **`share_file({ path })`** (`artifacts/share-file.ts`): resolves the path
+    in the sandbox. A relative path starts at the conversation's work folder
+    (`piWorkDir`). `realpath` must stay under `/workspace`, and the file must
+    fit `LOR_WORKBENCH_MAX_FILE_BYTES`. The tool reads the bytes through the
+    session sandbox the adapter passes to host tools, then commits them with
+    `writeArtifactVersion`. The file appears in the Files panel and as a
+    trail file chip, and re-sharing a path makes a new version.
+  - It is not a side-effect tool, so a second share of an edited file is not
+    deduplicated into the old receipt. `export_tool_result` refuses it.
+  - It is bound on every channel run with a harness, with no profile group
+    yet; the 1.3d Sandbox group will gate it with the sandbox tools.
+  - **Removed:** `create_artifacts`, the workbench sandbox
+    (`sandbox/workbench.ts`), its smoke step, and its standalone tool entry.
+    The `artifacts` group key stays so saved profiles parse, and empty groups
+    are hidden in settings.
+  - **Prompts updated:** the sandbox line now covers sharing and downloading
+    shared files, and the plan rules, attachment hints and export text point
+    to the sandbox.
+  - **Also changed:** `export_tool_result` is now bound on every channel run;
+    it was tied to the `create_artifacts` grant. Unused env vars are gone
+    (`LOR_WORKBENCH_MAX_TOTAL_BYTES`, `LOR_WORKBENCH_MAX_FILES`).
 - [ ] **1.3d Tools:** the stable tool list, exact execute
   context, output limits, the Sandbox tool group, current event consumers.
 - [ ] **1.3e Approvals:** schema moved from 1.2 (§4.2: drop the one-pending

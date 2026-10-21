@@ -61,6 +61,12 @@ function hostStateRoot(sessionId: string): string {
   )
 }
 
+// The conversation's work folder: the harness default `<pwd>/pi-<sessionId>`
+// (sessionWorkDir in @ai-sdk/harness 1.0.158), never a shared fixed folder.
+export function piWorkDir(sandboxPwd: string, sessionId: string): string {
+  return `${sandboxPwd}/pi-${encodeURIComponent(sessionId)}`
+}
+
 async function sandboxHome(sandbox: SandboxSession): Promise<string> {
   const result = await sandbox.run({ command: 'printf %s "$HOME"' })
   const home = result.stdout.trim()

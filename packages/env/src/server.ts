@@ -105,25 +105,17 @@ const serverSchema = z.object({
   AGENT_RUN_MAX_WALL_MS: z.coerce.number().int().positive().default(7_200_000),
   AGENT_RUN_MAX_PROVIDER_RETRIES: z.coerce.number().int().min(0).default(3),
   AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(2_000),
-  // Workbench sandbox sessions (create_artifacts): a coding agent produces
-  // deliverable files. The timeout bounds one session; the byte/file caps
-  // bound what gets harvested out of the sandbox into artifact storage.
+  // The timeout bounds one propose_code_change coding session; the byte cap
+  // bounds one file share_file copies from a session sandbox into artifacts.
   LOR_WORKBENCH_TIMEOUT_SEC: z.coerce.number().int().positive().default(1200),
   LOR_WORKBENCH_MAX_FILE_BYTES: z.coerce
     .number()
     .int()
     .positive()
     .default(104_857_600),
-  LOR_WORKBENCH_MAX_TOTAL_BYTES: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(524_288_000),
-  LOR_WORKBENCH_MAX_FILES: z.coerce.number().int().positive().default(20),
-  // Blaxel sandbox provider — the only one. When both are set, the workbench
-  // runs on Blaxel (per-task persistent sandboxes with standby); when unset,
-  // sandbox tools (create_artifacts, investigate_code) are not bound. The BL_*
-  // names are fixed — @blaxel/core reads them from process.env directly.
+  // Blaxel sandbox provider — the only one. Session sandboxes and the coding
+  // tools (investigate_code, propose_code_change) run on it. The BL_* names
+  // are fixed — @blaxel/core reads them from process.env directly.
   BL_API_KEY: z.string().min(1).optional(),
   BL_WORKSPACE: z.string().min(1).optional(),
   // Custom sandbox image (pushed via `bl push` from packages/lor/sandbox-image).

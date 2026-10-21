@@ -92,7 +92,7 @@ export function toolIcon(toolName: string): TrailIcon {
       return TerminalGlyph
     case "write":
     case "edit":
-    case "create_artifacts":
+    case "share_file":
     case "memory_write":
     case "memory_edit":
     case "memory_link":

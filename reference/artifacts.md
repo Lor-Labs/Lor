@@ -1,5 +1,15 @@
 # Artifacts & the workbench (task file deliverables)
 
+> **Update 2026-10-21:** `create_artifacts` and the workbench sandbox
+> (`wbs-{threadRootId}`, `sandbox/workbench.ts`) are removed. Lor now makes
+> files in its own session sandbox and publishes one with `share_file`
+> (`packages/lor/src/artifacts/share-file.ts`), which commits it through
+> `writeArtifactVersion` with the session's `threadRootId`. Re-sharing a path
+> versions the same artifact. The data model, storage, viewer and
+> `export_tool_result` below are unchanged; the workbench, `/workspace/out`
+> harvest and reseed sections describe removed code. See
+> `planned/pi-harness-runbook.md` 1.3d.
+
 As-built reference for the artifact system shipped 2026-08-08 as part of **Tasks** (the multiplayer delegated-work feature). Artifacts are the file deliverables Lor produces: real files, made by a real coding agent in a real ephemeral sandbox, stored durably, rendered in the app. The task layer they usually belong to is documented in [`agent-harness.md`](./agent-harness.md) (Tasks section).
 
 ## The one principle

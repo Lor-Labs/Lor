@@ -54,7 +54,9 @@ export async function workspaceProfileToolGroups(
       .orderBy(asc(schema.customTool.name)),
   ])
   const builtins: ProfileToolGroup[] = BUILTIN_TOOL_GROUPS.filter(
-    (group) => group !== "web" || Boolean(env.EXA_API_KEY)
+    (group) =>
+      (group !== "web" || Boolean(env.EXA_API_KEY)) &&
+      STANDALONE_TOOLS.some((tool) => tool.group === group)
   ).map((group) => ({
     kind: "builtin",
     id: group,

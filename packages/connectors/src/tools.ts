@@ -469,13 +469,6 @@ export const STANDALONE_TOOLS = [
     description: "Read a public web page.",
     readOnlyHint: true,
   },
-  {
-    name: "create_artifacts",
-    group: "artifacts",
-    label: "Create artifacts",
-    description: "Create files in a sandbox workbench.",
-    readOnlyHint: false,
-  },
 ] as const satisfies readonly {
   name: string
   group: BuiltinToolGroup
@@ -491,6 +484,8 @@ export const BUILTIN_GROUPS: Record<
   { label: string; description: string }
 > = {
   web: { label: "Web", description: "Search the web and read public pages." },
+  // No tools since create_artifacts was removed (2026-10-21); the key stays
+  // so saved profiles keep parsing. Groups without tools are not listed.
   artifacts: {
     label: "Artifacts",
     description: "Create documents, data and code files in a sandbox.",

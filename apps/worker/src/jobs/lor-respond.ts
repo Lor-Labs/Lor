@@ -950,8 +950,7 @@ export function createLorRespondProcessor(
                   logger.info({ ...u }, "Lor usage")
                   if (
                     u.tool === "investigate_code" ||
-                    u.tool === "propose_code_change" ||
-                    u.tool === "create_artifacts"
+                    u.tool === "propose_code_change"
                   )
                     execution?.noteNestedUsage(u)
                   void recordUsage(u, usageRefs)

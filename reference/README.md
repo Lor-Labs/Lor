@@ -20,7 +20,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | Doc | Covers |
 |---|---|
 | `agent-harness.md` | Durable runs: Postgres-owned state, BullMQ scheduling, leases, budgets, steer/stop |
-| `artifacts.md` | Artifact + version model (Postgres/R2), workbench deliverables |
+| `artifacts.md` | Artifact + version model (Postgres/R2); `share_file` publishes from the session sandbox (workbench and `create_artifacts` removed 2026-10-21) |
 | `automation-primitives.md` | Triggers, effects, Act, custom tools, MCP servers |
 | `mcp-oauth.md` | Workspace-scoped OAuth for MCP servers (written as the plan; routes shipped) |
 | `lor-mvp-spec.md` | Lor MVP as built: brain, retrieval, write-back; overrides the archived architecture doc |

@@ -283,8 +283,7 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
         onUsage: (usage) => {
           if (
             usage.tool === "investigate_code" ||
-            usage.tool === "propose_code_change" ||
-            usage.tool === "create_artifacts"
+            usage.tool === "propose_code_change"
           ) {
             execution.noteNestedUsage(usage)
           }

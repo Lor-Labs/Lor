@@ -188,10 +188,6 @@ const CATALOG_SPECS: Record<
   fetch_web: (input, output) => [
     urlItem(str(output, "url") ?? str(input, "url") ?? ""),
   ],
-  create_artifacts: (_input, output) =>
-    Array.isArray(output.files)
-      ? output.files.map((f) => item("artifact", str(f, "artifactId")))
-      : [],
 }
 
 const READ_ONLY = new Map<string, boolean>([
@@ -213,6 +209,12 @@ const CORE_SPECS: Record<
   memory_read: (input) => [brainPathOf(str(input, "path"), "read")],
   memory_write: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
   memory_edit: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
+  share_file: (_input, output) =>
+    Array.isArray(output.files)
+      ? output.files.map((f) =>
+          touchOf("artifact", str(f, "artifactId"), "wrote")
+        )
+      : [],
 }
 
 function touchOf(

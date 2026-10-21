@@ -378,7 +378,7 @@ export type LorToolCall = {
     patch?: string
     truncated?: boolean
   }
-  // Artifact deliverables this call produced (create_artifacts) — presented
+  // Artifact deliverables this call produced (share_file) — presented
   // as file cards at the end of the message, opening the artifact viewer.
   files?: {
     artifactId: string

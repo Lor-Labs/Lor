@@ -434,10 +434,7 @@ export function toRunPlanContext(row: Plan): RunPlanContext {
 // title/goal/status/steps are volatile and ride the conversation snapshot
 // instead — see planStateSection. `active` picks the framing: working an
 // existing plan vs a thread that can start one via start_plan.
-export function planRulesSection(
-  artifactsEnabled: boolean,
-  active: boolean
-): string {
+export function planRulesSection(active: boolean): string {
   const framing = active
     ? [
         "## Active plan",
@@ -452,11 +449,7 @@ export function planRulesSection(
     "",
     "Plan rules:",
     "- Keep the steps current with update_plan: set them when you start, mark them done as you finish them. The team watches the card live.",
-    ...(artifactsEnabled
-      ? [
-          "- Produce real deliverables with create_artifacts; share their links.",
-        ]
-      : []),
+    "- Produce real deliverables in your sandbox and hand them over with share_file; share their links.",
     "- Before consequential external actions (writes to third-party tools), call request_approval and stop; act only after a human approves.",
     "- When the work is fully done, call complete_plan with a summary. If you need input from the team, ask and end your message — the plan waits for their reply.",
     "- complete_plan's summary is a one-sentence headline for the card — keep the detail for the message you write after it.",

@@ -46,7 +46,7 @@ import {
   EXPORT_TOOL_NAME,
   unwrapToolOutput,
 } from "./artifacts/export-tool"
-import { artifactTools } from "./artifacts/tool"
+import { shareFileTool } from "./artifacts/share-file"
 import { readAttachmentPieces } from "./attachments/read"
 import { searchAttachments } from "./attachments/search"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
@@ -151,8 +151,9 @@ import {
 } from "./run"
 import { blaxelConfigured } from "./sandbox/blaxel"
 import { piToolLabel } from "./sandbox/pi-events"
-import { openSessionSandbox } from "./sandbox/session-sandbox"
-import { runPiTurn } from "./session-core/pi-runtime"
+import { openSessionSandbox, SESSION_WORK_DIR } from "./sandbox/session-sandbox"
+import type { HarnessOwner } from "./session-core"
+import { piWorkDir, runPiTurn } from "./session-core/pi-runtime"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import { chooseThreadWindow } from "./thread-window"
@@ -172,7 +173,7 @@ import { webTools } from "./web"
 
 // Standalone tools are not filtered like connector tools, so one missing from
 // STANDALONE_TOOLS would bind with no approval target. Fail at boot instead.
-for (const name of Object.keys({ ...webTools, ...artifactTools })) {
+for (const name of Object.keys(webTools)) {
   if (!builtinApprovalTool(name))
     throw new Error(`Tool ${name} needs a STANDALONE_TOOLS entry`)
 }
@@ -237,15 +238,13 @@ const WEB_PROMPT_LINE = `- The public web: search_web searches the web for curre
 const NOTION_PROMPT_LINE = `- The team's selected Notion content: search_notion searches page and data-source titles (not page-body text); fetch_notion_page reads a known page as Markdown with properties and comments; query_notion_data_source retrieves a database schema and structured rows; list_notion_users resolves workspace people without email addresses. Meetings are ordinary selected pages or rows—do not attempt user-specific meeting search. Reference Notion pages with normal Markdown links to their url (live results, not [[src:]] citations).`
 const NOTION_WRITE_PROMPT_LINE = `- Selected Notion write tools can create pages, append Markdown, make targeted content edits, update named properties, or add comments. Use only the tools actually provided. Read current content and schema before edits when read tools are available; otherwise request the exact target and values. Preserve unrelated content and array values. Never automatically repeat a write with an unknown outcome: inspect the target or ask the user to verify it. Missing Notion permissions require an admin to enable the relevant content/comment permissions and reconnect.`
 
-const ARTIFACTS_PROMPT_LINE = `- File deliverables: create_artifacts runs a coding agent in a clean sandbox (Python with pandas, matplotlib, openpyxl) that produces real files — reports, cleaned or analyzed data, generated documents or code. Every file it delivers is stored and returned with a link; share those links in your answer. Use it when someone asks for a file, document, or dataset — never for ordinary answers (it's slow). Non-image files people share appear in the conversation as [file: name — type, size — url] lines; pass those URLs as inputFileUrls when the work needs them. Write complete, self-contained instructions including desired filenames and formats — the agent can't ask follow-ups.`
-
-const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one of your other tools and saves its complete result straight to a file, returning only a receipt (url, row and byte counts, a small preview) — the data itself never enters this conversation. Reach for it whenever a tool would return more data than you need to read: database queries (run_sql and friends), long list or search results, large JSON. Never page through big results by calling a tool repeatedly and copying rows into your reply — export once and use the file. The returned url is a workspace file: share it as the deliverable, and/or pass it to create_artifacts as inputFileUrls when the data needs further processing (merging, cleaning, charts). Only read tools without an approval gate can be exported; call approval-gated tools directly. Anything that takes an action is refused.`
+const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one of your other tools and saves its complete result straight to a file, returning only a receipt (url, row and byte counts, a small preview) — the data itself never enters this conversation. Reach for it whenever a tool would return more data than you need to read: database queries (run_sql and friends), long list or search results, large JSON. Never page through big results by calling a tool repeatedly and copying rows into your reply — export once and use the file. The returned url is a workspace file: share it as the deliverable, and/or download it into your sandbox when the data needs further processing (merging, cleaning, charts). Only read tools without an approval gate can be exported; call approval-gated tools directly. Anything that takes an action is refused.`
 
 const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Pull requests target each repository's configured base branch (its default branch unless the workspace overrides it); when someone asks to target a different existing branch, pass it as base. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
 
 const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
 
-const SANDBOX_PROMPT_LINE = `- Your sandbox: a private Linux computer for this session, with Python and Node. bash runs commands; read, write and edit work on files; grep, glob and ls find them. Files in your working folder stay between turns of this session. Use it to run code, work with data and make files. It holds no credentials for the team's services: reach those only through your other tools.`
+const SANDBOX_PROMPT_LINE = `- Your sandbox: a private Linux computer for this session, with Python (pandas, matplotlib, openpyxl) and Node. bash runs commands; read, write and edit work on files; grep, glob and ls find them. Files in your working folder stay between turns of this session. Use it to run code, work with data and make files: reports, cleaned or analyzed data, documents, charts. Nobody else can see its files until you call share_file with a file's path; the file then appears in the session's Files panel and you get its link to put in your answer. Files people share appear in the conversation as [file: name — type, size — url] lines; download a url into your sandbox when the work needs the file. The sandbox holds no credentials for the team's services: reach those only through your other tools.`
 
 const RETRY_NOTE =
   "An earlier attempt at this turn was interrupted. It may already have changed files in your sandbox or data in connected services, so check before you repeat an action."
@@ -271,6 +270,10 @@ Use your tools silently — don't narrate that you're searching. Gather what you
 
 function buildSystemPrompt(connectorLines: string[]): string {
   return `${[SYSTEM_PROMPT_HEAD, ...connectorLines].join("\n")}\n\n${SYSTEM_PROMPT_TAIL}`
+}
+
+function conversationIdOf(owner: HarnessOwner): string {
+  return "sessionId" in owner ? owner.sessionId : owner.voiceSessionId
 }
 
 // Notes go first: Pi takes text after an image as an error, and a turn prompt
@@ -1326,8 +1329,10 @@ export function toolLabel(toolName: string, input: unknown): string {
       return repo ? `Investigating ${repo}` : "Investigating the codebase"
     case "propose_code_change":
       return repo ? `Proposing a change to ${repo}` : "Proposing a code change"
-    case "create_artifacts":
-      return "Working on files"
+    case "share_file": {
+      const name = path?.split("/").at(-1)
+      return name ? `Sharing ${name}` : "Sharing a file"
+    }
     case "start_plan":
       return "Starting a plan"
     case "update_plan":
@@ -1738,9 +1743,8 @@ export function toolDetail(
         },
       }
     }
-    case "create_artifacts": {
+    case "share_file": {
       const files = Array.isArray(rec?.files) ? rec.files : []
-      const summary = asString(rec?.summary)?.slice(0, 16000)
       const deliverables = files.flatMap((it) => {
         const r = asRecord(it)
         const artifactId = asString(r?.artifactId)
@@ -1752,15 +1756,11 @@ export function toolDetail(
           ? [{ artifactId, path, contentType, size, url }]
           : []
       })
+      const shared = deliverables[0]
       return {
         status: "ok",
         ...(deliverables.length > 0 ? { files: deliverables } : {}),
-        detail: {
-          summary:
-            files.length === 0
-              ? (summary ?? "No files produced")
-              : `${plural(files.length, "file")} delivered${summary ? ` · ${summary}` : ""}`,
-        },
+        ...(shared ? { detail: { summary: `Shared ${shared.path}` } } : {}),
       }
     }
     case "search_linear": {
@@ -2363,11 +2363,10 @@ export async function respond(
   // The finally closes built-in and workspace MCP sessions
   // even if tool assembly, setup, step preparation, or streaming throws.
   try {
-    const artifactsEnabled = Boolean(
-      blaxelConfigured() &&
-        ctx.channelId &&
-        selectedBuiltinTools.has("create_artifacts")
-    )
+    // The conversation's sandbox work folder; share_file resolves paths there.
+    const sandboxWorkDir = run?.harness
+      ? piWorkDir(SESSION_WORK_DIR, conversationIdOf(run.harness.owner))
+      : null
     const codeActionsEnabled = Boolean(
       blaxelConfigured() &&
         github &&
@@ -2409,7 +2408,7 @@ export async function respond(
       ...(github ? githubTools : {}),
       ...(blaxelConfigured() && github ? codeTools : {}),
       ...(codeActionsEnabled ? codeActionTools : {}),
-      ...(artifactsEnabled ? artifactTools : {}),
+      ...(ctx.channelId && sandboxWorkDir ? shareFileTool : {}),
       ...(ctx.plan || ctx.threadRootId ? planTools : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.voice ? voiceTools : {}),
@@ -2546,22 +2545,16 @@ export async function respond(
             },
           }
         : {}),
-      ...(artifactsEnabled && ctx.channelId
+      ...(ctx.channelId && sandboxWorkDir
         ? {
-            create_artifacts: {
+            share_file: {
               workspaceId: ctx.workspaceId,
               channelId: ctx.channelId,
-              // Warm workbench continuity per conversation scope.
-              // Channel-scope one-shots stay ephemeral — no channelId
-              // fallback here, unlike code sessions.
-              sandboxKey: ctx.threadRootId ?? null,
               threadRootId: ctx.threadRootId ?? null,
               // Getter, not a value: the plan may start mid-run.
               getPlan: () =>
                 planRef.current ? { id: planRef.current.id } : null,
-              deadlineAt: budgets.deadlineAt,
-              onUsage,
-              onToolEvent,
+              workDir: sandboxWorkDir,
             },
           }
         : {}),
@@ -2672,7 +2665,7 @@ export async function respond(
 
     // Binds last: it dispatches into the finished tool map (including MCP
     // tools), so every read tool above is exportable to a file.
-    if (artifactsEnabled && ctx.channelId) {
+    if (ctx.channelId) {
       ;(tools as ToolSet)[EXPORT_TOOL_NAME] = createExportToolResultTool({
         tools,
         toolsContext,
@@ -2704,8 +2697,7 @@ export async function respond(
       hasToolGroup(attioWriteTools) ? ATTIO_WRITE_PROMPT_LINE : null,
       hasToolGroup(notionTools) ? NOTION_PROMPT_LINE : null,
       hasToolGroup(notionWriteTools) ? NOTION_WRITE_PROMPT_LINE : null,
-      artifactsEnabled ? ARTIFACTS_PROMPT_LINE : null,
-      artifactsEnabled && ctx.channelId ? EXPORT_PROMPT_LINE : null,
+      ctx.channelId ? EXPORT_PROMPT_LINE : null,
       hasToolGroup(codeActionTools) ? CODE_ACTIONS_PROMPT_LINE : null,
       ctx.proposeLoop && ctx.channelId ? LOOPS_PROMPT_LINE : null,
       ctx.proposeChange && ctx.channelId ? PROPOSALS_PROMPT_LINE : null,
@@ -2735,7 +2727,7 @@ export async function respond(
     )
     // Per-session inputs only, so the prompt stays byte-stable across turns
     // (reference/planned/pi-harness-runbook.md §4.8).
-    const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(artifactsEnabled, !!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
+    const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
 
     // The turn's request. A retried attempt sends the saved one again.
     let request: AgentRunContext
@@ -2807,10 +2799,7 @@ export async function respond(
         notes
       )
 
-      const conversationId =
-        "sessionId" in harness.owner
-          ? harness.owner.sessionId
-          : harness.owner.voiceSessionId
+      const conversationId = conversationIdOf(harness.owner)
       const deadline = AbortSignal.timeout(
         Math.max(30_000, budgets.deadlineAt.getTime() - Date.now())
       )
