@@ -77,7 +77,9 @@ async function sandboxHome(sandbox: SandboxSession): Promise<string> {
 }
 
 // Postgres is the authority: overwrite the sandbox copy unless it already
-// matches the saved head (standby usually keeps it).
+// matches the saved head. The adapter's destroy() never copies the file back,
+// so after a completed turn the copy is a turn behind and is rewritten
+// (reference/planned/pi-harness-runbook.md §4.3 item 5).
 async function restoreLog(
   sandbox: SandboxSession,
   home: string,
@@ -109,29 +111,33 @@ function gatewayModels(ids: string[], contextWindow: number) {
 
 // HarnessAgent passes a tool's description through unresolved, and the Pi
 // adapter cannot clone an AI SDK v7 dynamic description (a function of the
-// tool's context). Resolve it the way streamText does.
-function resolveToolDescriptions(
+// tool's context). Resolve it the way streamText does. Sorted by name: the
+// tool section heads the cached prompt, so an unchanged list must keep its
+// order (MCP and custom tools arrive in server and database order).
+function prepareTools(
   tools: ToolSet,
   toolsContext: Record<string, unknown> | undefined,
   sandbox: SandboxSession
 ): ToolSet {
   return Object.fromEntries(
-    Object.entries(tools).map(([name, tool]) => {
-      const description: unknown = tool.description
-      if (typeof description !== "function") return [name, tool]
-      return [
-        name,
-        {
-          ...tool,
-          description: String(
-            description({
-              context: toolsContext?.[name],
-              experimental_sandbox: sandbox,
-            })
-          ),
-        },
-      ]
-    })
+    Object.entries(tools)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([name, tool]) => {
+        const description: unknown = tool.description
+        if (typeof description !== "function") return [name, tool]
+        return [
+          name,
+          {
+            ...tool,
+            description: String(
+              description({
+                context: toolsContext?.[name],
+                experimental_sandbox: sandbox,
+              })
+            ),
+          },
+        ]
+      })
   )
 }
 
@@ -266,6 +272,8 @@ export type PiTurnInput = {
   toolsContext?: Record<string, unknown>
   // Fixed per turn; tools absent from the map run without approval.
   toolApproval?: Record<string, ToolApprovalStatus>
+  // Pi's built-in tools to leave out of this turn (public names, e.g. bash).
+  inactiveBuiltinTools?: string[]
   model: { id: string; fallbacks: string[]; contextWindow: number }
   gatewayAuth: Record<string, string>
   gatewayOptions: Record<string, unknown>
@@ -323,17 +331,17 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
       thinkingLevel: "high",
     }),
     model: input.model.id,
-    tools: resolveToolDescriptions(
-      input.tools,
-      input.toolsContext,
-      input.sandbox
-    ),
+    tools: prepareTools(input.tools, input.toolsContext, input.sandbox),
     // The core takes a generic ToolSet; respond() builds the per-tool context
     // that matches it, so the inferred context type is bridged here.
     ...(input.toolsContext
       ? { toolsContext: input.toolsContext as never }
       : {}),
     ...(input.toolApproval ? { toolApproval: input.toolApproval } : {}),
+    // Typed from the tool-set generics; the harness checks each name exists.
+    ...(input.inactiveBuiltinTools?.length
+      ? { inactiveTools: input.inactiveBuiltinTools as never }
+      : {}),
     headers: { "x-session-id": input.sessionKey },
     // No fixed workDir: the adapter's fs redirect is process-wide and keyed by
     // sandbox path, so each session keeps its own `/workspace/pi-<sessionId>`.

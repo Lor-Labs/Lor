@@ -244,7 +244,39 @@ const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a cod
 
 const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
 
-const SANDBOX_PROMPT_LINE = `- Your sandbox: a private Linux computer for this session, with Python (pandas, matplotlib, openpyxl) and Node. bash runs commands; read, write and edit work on files; grep, glob and ls find them. Files in your working folder stay between turns of this session. Use it to run code, work with data and make files: reports, cleaned or analyzed data, documents, charts. Nobody else can see its files until you call share_file with a file's path; the file then appears in the session's Files panel and you get its link to put in your answer. Files people share appear in the conversation as [file: name — type, size — url] lines; download a url into your sandbox when the work needs the file. The sandbox holds no credentials for the team's services: reach those only through your other tools.`
+// Pi's sandbox tools, by their public names; the Sandbox tool group in agent
+// profiles turns them (and share_file) on or off.
+const SANDBOX_BUILTIN_TOOLS = [
+  "bash",
+  "read",
+  "write",
+  "edit",
+  "grep",
+  "glob",
+  "ls",
+] as const
+
+// Names only the sandbox tools this run has, so the model never reaches for
+// one that is switched off.
+function sandboxPromptLine(
+  builtins: readonly string[],
+  canShare: boolean
+): string | null {
+  if (builtins.length === 0 && !canShare) return null
+  const tools =
+    builtins.length === SANDBOX_BUILTIN_TOOLS.length
+      ? "bash runs commands; read, write and edit work on files; grep, glob and ls find them. "
+      : builtins.length > 0
+        ? `Its tools here: ${builtins.join(", ")}. `
+        : ""
+  const share = canShare
+    ? "Nobody else can see its files until you call share_file with a file's path; the file then appears in the session's Files panel and you get its link to put in your answer. "
+    : "Its files stay private to the sandbox. "
+  const download = builtins.includes("bash")
+    ? "Files people share appear in the conversation as [file: name — type, size — url] lines; download a url into your sandbox when the work needs the file. "
+    : ""
+  return `- Your sandbox: a private Linux computer for this session, with Python (pandas, matplotlib, openpyxl) and Node. ${tools}Files in your working folder stay between turns of this session. Use it to run code, work with data and make files: reports, cleaned or analyzed data, documents, charts. ${share}${download}The sandbox holds no credentials for the team's services: reach those only through your other tools.`
+}
 
 const RETRY_NOTE =
   "An earlier attempt at this turn was interrupted. It may already have changed files in your sandbox or data in connected services, so check before you repeat an action."
@@ -2370,6 +2402,13 @@ export async function respond(
     const sandboxWorkDir = run?.harness
       ? piWorkDir(SESSION_WORK_DIR, conversationIdOf(run.harness.owner))
       : null
+    // The Sandbox tool group: switched-off tools are left out of the turn.
+    const sandboxBuiltins = SANDBOX_BUILTIN_TOOLS.filter((name) =>
+      selectedBuiltinTools.has(name)
+    )
+    const shareFileEnabled = Boolean(
+      ctx.channelId && sandboxWorkDir && selectedBuiltinTools.has("share_file")
+    )
     const codeActionsEnabled = Boolean(
       blaxelConfigured() &&
         github &&
@@ -2411,7 +2450,7 @@ export async function respond(
       ...(github ? githubTools : {}),
       ...(blaxelConfigured() && github ? codeTools : {}),
       ...(codeActionsEnabled ? codeActionTools : {}),
-      ...(ctx.channelId && sandboxWorkDir ? shareFileTool : {}),
+      ...(shareFileEnabled ? shareFileTool : {}),
       ...(ctx.plan || ctx.threadRootId ? planTools : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.voice ? voiceTools : {}),
@@ -2548,7 +2587,7 @@ export async function respond(
             },
           }
         : {}),
-      ...(ctx.channelId && sandboxWorkDir
+      ...(shareFileEnabled && ctx.channelId && sandboxWorkDir
         ? {
             share_file: {
               workspaceId: ctx.workspaceId,
@@ -2689,7 +2728,7 @@ export async function respond(
 
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
-      SANDBOX_PROMPT_LINE,
+      sandboxPromptLine(sandboxBuiltins, shareFileEnabled),
       hasToolGroup(webTools) ? WEB_PROMPT_LINE : null,
       hasToolGroup(githubTools) ? GITHUB_PROMPT_LINE : null,
       hasToolGroup(linearTools) ? LINEAR_PROMPT_LINE : null,
@@ -2829,6 +2868,9 @@ export async function respond(
         tools: guarded.tools,
         toolsContext,
         toolApproval,
+        inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
+          (name) => !selectedBuiltinTools.has(name)
+        ),
         model: {
           id: LOR_MODEL,
           fallbacks: LOR_FALLBACK_MODELS,

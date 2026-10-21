@@ -469,6 +469,65 @@ export const STANDALONE_TOOLS = [
     description: "Read a public web page.",
     readOnlyHint: true,
   },
+  // Pi's sandbox tools (public names; find is exposed as glob) and share_file.
+  // Not workspace approval targets: the sandbox permission mode governs them
+  // (reference/planned/pi-harness-runbook.md §4.6).
+  {
+    name: "bash",
+    group: "sandbox",
+    label: "Run commands",
+    description: "Run shell commands in the session's sandbox.",
+    readOnlyHint: false,
+  },
+  {
+    name: "read",
+    group: "sandbox",
+    label: "Read files",
+    description: "Read files in the sandbox.",
+    readOnlyHint: true,
+  },
+  {
+    name: "write",
+    group: "sandbox",
+    label: "Write files",
+    description: "Create or replace files in the sandbox.",
+    readOnlyHint: false,
+  },
+  {
+    name: "edit",
+    group: "sandbox",
+    label: "Edit files",
+    description: "Change part of a file in the sandbox.",
+    readOnlyHint: false,
+  },
+  {
+    name: "grep",
+    group: "sandbox",
+    label: "Search files",
+    description: "Search file contents in the sandbox.",
+    readOnlyHint: true,
+  },
+  {
+    name: "glob",
+    group: "sandbox",
+    label: "Find files",
+    description: "Find files by name in the sandbox.",
+    readOnlyHint: true,
+  },
+  {
+    name: "ls",
+    group: "sandbox",
+    label: "List folders",
+    description: "List folders in the sandbox.",
+    readOnlyHint: true,
+  },
+  {
+    name: "share_file",
+    group: "sandbox",
+    label: "Share files",
+    description: "Publish a sandbox file to the session's Files panel.",
+    readOnlyHint: false,
+  },
 ] as const satisfies readonly {
   name: string
   group: BuiltinToolGroup
@@ -490,6 +549,11 @@ export const BUILTIN_GROUPS: Record<
     label: "Artifacts",
     description: "Create documents, data and code files in a sandbox.",
   },
+  sandbox: {
+    label: "Sandbox",
+    description:
+      "A private computer for each session: run code, work with files and share them.",
+  },
 }
 
 type BuiltinTool = {
@@ -510,10 +574,9 @@ const BUILTIN_TOOLS_BY_NAME: ReadonlyMap<string, BuiltinTool> = new Map<
       { ...tool, provider: provider as IntegrationProvider },
     ])
   ),
-  ...STANDALONE_TOOLS.map((tool): [string, BuiltinTool] => [
-    tool.name,
-    { ...tool, provider: null },
-  ]),
+  ...STANDALONE_TOOLS.filter((tool) => tool.group !== "sandbox").map(
+    (tool): [string, BuiltinTool] => [tool.name, { ...tool, provider: null }]
+  ),
 ])
 
 // Every connector catalog tool name: profile selection filters these, and

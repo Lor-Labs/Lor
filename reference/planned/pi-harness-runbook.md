@@ -331,11 +331,27 @@ insertion of approval results.
 5. **Size.** Compaction appends and deletes nothing, replay leaves inactive
    branches, and images are stored inline, so the journal only grows. Resume
    reads the whole file. Watch the size; the later session-store option (item 8)
-   removes this.
-6. Keep **one stable host-tool list per session**. Bind every tool the session
-   may use and deny unavailable ones at execute time, so a grant or connector
-   change never changes the tool-name set. Do not call harness `compact()` on a
-   freshly resumed session.
+   removes this. **Two full transfers per turn** (found 2026-10-21; deferred
+   with Jacob): the adapter copies the file back to the sandbox only on
+   stop, detach or suspend, never on `destroy()`. So after every completed turn
+   the sandbox copy is a turn behind; the next restore uploads the whole file,
+   and `pullSessionFileFromSandbox` downloads it again. That is negligible for
+   short sessions and costs seconds for long ones with images and big tool
+   results. Appending each turn's new lines to the sandbox copy after the save
+   would remove the upload. Removing both needs the session store (item 8) or
+   a patch that lets the adapter open a worker-local file Lor writes.
+6. **Tool lists may change between turns** (decided with Jacob 2026-10-21;
+   this replaces "one stable host-tool list per session"). The empty-journal
+   rebuild only happens inside one live adapter session: `rebuildPiSession`
+   restores the saved file whenever `piSession` is null, and every Lor turn is
+   a fresh session (`reattachInProcess: false`). The load check would catch a
+   miss anyway. So each turn binds only the tools the run may use, and the
+   model never sees tools it would be refused. Costs accepted: a turn whose
+   list changed re-sends the whole prompt uncached. Keep the tool order
+   deterministic so an unchanged list never busts the cache. On an approval
+   resume whose tool is no longer bound, deny that approval with a reason
+   (1.3e) instead of letting the adapter throw. Do not call harness
+   `compact()` on a freshly resumed session.
 7. Worker crash mid-turn: the turn's native progress is lost. BullMQ's second
    attempt re-runs the turn from the last saved head with the same input and a
    note that an earlier attempt was interrupted and may have changed files or
@@ -506,9 +522,10 @@ others are adapter wrappers. All route through `SandboxSession`.
 **Permissions (decision 2026-10-20):** agent-profile tool access has two built-in
 groups today, `web` and `artifacts` (`BUILTIN_TOOL_GROUPS` in
 `profile-tool-access.ts`). Add a **Sandbox** group holding `bash`, `read`,
-`write`, `edit`, `grep`, `find` and `ls`, on by default. When a profile turns the
-group off, the tools stay in the session's fixed list (§4.3) and are refused
-when called. Agent profiles already resolve per channel (channel, then category,
+`write`, `edit`, `grep`, `find` and `ls`, plus `share_file`, on by default. When
+a profile turns the group off, the turn leaves them out: the adapter's
+built-in tool filter drops Pi's tools and `share_file` is not bound
+(2026-10-21, §4.3 item 6). Agent profiles already resolve per channel (channel, then category,
 then workspace default), so Sandbox on/off works at each level.
 
 **Sandbox permission mode (decision 2026-10-20).** `bash`, `write` and `edit`
@@ -702,7 +719,8 @@ section (stable), and context-file and skills sections unless the patched
 byte-identical across turns until LOR.md, connectors or rules actually change.
 Put volatile state (plan state, delta, elapsed time, ambient messages) at the
 end of the turn's user message or through the `context` hook at the end of the
-context. The stable tool list (§4.3) keeps the tool section stable. Send the
+context. A deterministic tool order keeps the tool section stable while the
+list is unchanged; a changed list costs one uncached turn (§4.3 item 6). Send the
 Lor session id to the Gateway (`providerOptions.gateway.sessionId` and
 `x-session-id`, §4.5).
 
@@ -712,7 +730,7 @@ Each item is verified in P/C source unless marked.
 
 | Default | Risk | Required handling |
 |---|---|---|
-| Host-tool name set change rebuilds the session with an empty journal | Silent loss of conversation | Stable tool list per session (§4.3) |
+| Host-tool name set change rebuilds the session with an empty journal | Silent loss of conversation, but only within one live adapter session | Not reachable: each turn is a fresh session, whose first build restores the saved file; the load check catches a miss (§4.3 item 6) |
 | Missing restored journal creates a fresh session | Silent loss of conversation | Postgres restore + load check (§4.3) |
 | Without an `auth` record, Pi reads every `*_API_KEY`, `*_BASE_URL` and `VERCEL_OIDC_TOKEN` in the worker env and `~/.pi/agent/auth.json` | Worker credentials reach the runtime | Always pass an explicit request-scoped `auth` record |
 | Context files: `noContextFiles` is not set, so AGENTS.md/CLAUDE.md are read from the working directory upward | Host files above the workspace mount reach the prompt | Disabled with the patched `contextFiles: false` (1.3a); repository instruction files are never workspace instructions (`agent-harness.md`) |
@@ -1193,8 +1211,23 @@ moved here from 1.4, because nothing runs without a sandbox.
   - **Also changed:** `export_tool_result` is now bound on every channel run;
     it was tied to the `create_artifacts` grant. Unused env vars are gone
     (`LOR_WORKBENCH_MAX_TOTAL_BYTES`, `LOR_WORKBENCH_MAX_FILES`).
-- [ ] **1.3d Tools:** the stable tool list, exact execute
-  context, output limits, the Sandbox tool group, current event consumers.
+- [x] **1.3d-2 Sandbox tool group and tool order** (2026-10-21):
+  - **The group:** `sandbox` is a third built-in group (`BUILTIN_TOOL_GROUPS`).
+    Its catalog entries are `bash`, `read`, `write`, `edit`, `grep`, `glob`,
+    `ls` and `share_file`; it is on by default (workspace mode) and switchable
+    per workspace, category and channel. They are not approval targets:
+    they are excluded from `builtinApprovalTool` and the approval-target list.
+  - **Switched-off tools:** they are left out of the turn. Pi's tools go
+    through `HarnessAgent` `inactiveTools`, and `share_file` is not bound.
+  - **Prompt:** the sandbox line names only the tools the run has.
+  - **Tool order:** `runPiTurn` sorts tools by name so an unchanged list keeps
+    the cache.
+  - **Other:** a terminal icon for the group in the web and mobile settings;
+    touches list every sandbox tool, and `share_file` touches the artifact.
+- [ ] **1.3d Tools, rest:** exact execute context, output limits, current
+  event consumers (trail rows for sandbox tools: Pi's `read`, `write` and
+  `edit` take `file_path`, not `path`, so today's labels show no target;
+  diffs for `edit`/`write`, output for `bash`).
 - [ ] **1.3e Approvals:** schema moved from 1.2 (§4.2: drop the one-pending
   indexes, add `(run_id, tool_call_id)`, `harness_approval_id`, `kind`, input
   sha256); the pending set; harness approval/continuation APIs with Lor policy
