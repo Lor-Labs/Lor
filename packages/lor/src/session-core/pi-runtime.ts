@@ -2,7 +2,11 @@ import { createHash } from "node:crypto"
 import { readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
-import { HarnessAgent } from "@ai-sdk/harness/agent"
+import {
+  HarnessAgent,
+  type HarnessAgentContinueTurnState,
+  type HarnessAgentPendingToolApproval,
+} from "@ai-sdk/harness/agent"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
   createPi,
@@ -11,14 +15,18 @@ import {
 } from "@ai-sdk/harness-pi"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
 import { CURRENT_SESSION_VERSION } from "@earendil-works/pi-coding-agent"
-import type {
-  LanguageModelUsage,
-  ModelMessage,
-  Experimental_SandboxSession as SandboxSession,
-  TextStreamPart,
-  ToolApprovalStatus,
-  ToolSet,
-  UserModelMessage,
+import {
+  type JSONSchema7,
+  jsonSchema,
+  type LanguageModelUsage,
+  type ModelMessage,
+  type Experimental_SandboxSession as SandboxSession,
+  type TextStreamPart,
+  type ToolApprovalResponse,
+  type ToolApprovalStatus,
+  type ToolSet,
+  tool,
+  type UserModelMessage,
 } from "ai"
 import {
   checkCompatibility,
@@ -141,6 +149,39 @@ function prepareTools(
   )
 }
 
+// A paused turn continues with the tool list it started with, and the harness
+// throws when one is missing. A tool Lor no longer binds (removed connector,
+// changed profile) answers as unavailable instead.
+function missingToolStubs(
+  paused: HarnessAgentContinueTurnState | null,
+  tools: ToolSet
+): ToolSet {
+  return Object.fromEntries(
+    (paused?.turnSettings?.tools ?? [])
+      .filter((spec) => !Object.hasOwn(tools, spec.name))
+      .map((spec) => [
+        spec.name,
+        tool({
+          description: spec.description ?? spec.name,
+          inputSchema: jsonSchema(
+            (spec.inputSchema ?? { type: "object" }) as JSONSchema7
+          ),
+          execute: async () => ({
+            error: "This tool is no longer available in this session.",
+          }),
+        }),
+      ])
+  )
+}
+
+// The approvals a saved paused turn waits on.
+export function pausedApprovals(
+  saved: SavedHarnessState | null
+): HarnessAgentPendingToolApproval[] {
+  const paused = saved?.continuation as HarnessAgentContinueTurnState | null
+  return [...(paused?.pendingToolApprovals ?? [])]
+}
+
 function withGatewayOptions(
   payload: unknown,
   gateway: Record<string, unknown>
@@ -215,13 +256,33 @@ export type PiTurnSave = Omit<
   "owner" | "workspaceId" | "claim"
 >
 
+// A turn that pauses, or finishes a paused turn, saves its continuation even
+// with no new log bytes.
+function withContinuation(
+  log: Omit<PiTurnSave, "continuation"> | null,
+  saved: SavedHarnessState | null,
+  continuation: HarnessAgentContinueTurnState | null
+): PiTurnSave | null {
+  if (log) return { ...log, continuation }
+  if (!saved || (saved.continuation === null && continuation === null)) {
+    return null
+  }
+  return {
+    binding: PI_BINDING,
+    expected: saved.head,
+    head: saved.head,
+    log: { kind: "append", text: "" },
+    continuation,
+  }
+}
+
 // Read the worker copy before any lifecycle call deletes it. The saved part
 // must be unchanged unless Pi converted an older format.
-async function readSave(
+async function readLog(
   probe: TurnProbe,
   saved: SavedHarnessState | null,
   convertsFormat: boolean
-): Promise<PiTurnSave | null> {
+): Promise<Omit<PiTurnSave, "continuation"> | null> {
   const text = probe.logFile
     ? await readFile(probe.logFile, "utf8").catch((err: unknown) => {
         if ((err as { code?: unknown }).code === "ENOENT") return null
@@ -254,7 +315,6 @@ async function readSave(
       saved && convertsFormat
         ? { kind: "replace", text }
         : { kind: "append", text: saved ? text.slice(saved.log.length) : text },
-    continuation: null,
   }
 }
 
@@ -266,8 +326,11 @@ export type PiTurnInput = {
   saved: SavedHarnessState | null
   sandbox: SandboxSession
   systemPrompt: string
+  // A paused turn in `saved` continues first, with one decision per pending
+  // approval. Then `prompt`, when given, starts a new turn in the same session.
+  decisions?: ToolApprovalResponse[]
   // Text first, then images (the adapter rejects text after an image).
-  prompt: UserModelMessage
+  prompt?: UserModelMessage
   tools: ToolSet
   toolsContext?: Record<string, unknown>
   // Fixed per turn; tools absent from the map run without approval.
@@ -281,14 +344,35 @@ export type PiTurnInput = {
   onPart: (part: TextStreamPart<ToolSet>) => void | Promise<void>
 }
 
+export type PiTurnUsage = {
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+}
+
 export type PiTurnResult = {
   aborted: boolean
-  usage: LanguageModelUsage | null
+  // The harness totals; null when a turn did not finish (they reject on abort).
+  usage: PiTurnUsage | null
   modelId: string | null
   // The turn's assistant and tool messages, for write-back.
   responseMessages: ModelMessage[]
   // Null when the turn wrote nothing new.
   save: PiTurnSave | null
+  // Set when the turn paused; the save carries its continuation.
+  pendingApprovals: HarnessAgentPendingToolApproval[]
+}
+
+function addUsage(total: PiTurnUsage, usage: LanguageModelUsage): PiTurnUsage {
+  return {
+    inputTokens: total.inputTokens + (usage.inputTokens ?? 0),
+    cachedInputTokens:
+      total.cachedInputTokens + (usage.inputTokenDetails.cacheReadTokens ?? 0),
+    outputTokens: total.outputTokens + (usage.outputTokens ?? 0),
+    reasoningTokens:
+      total.reasoningTokens + (usage.outputTokenDetails.reasoningTokens ?? 0),
+  }
 }
 
 export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
@@ -296,6 +380,16 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
     ? checkCompatibility(input.saved, PI_BINDING)
     : null
   const convertsFormat = compatibility?.convertsFormat ?? false
+  if (compatibility?.continuation === "expire") {
+    throw new SessionCoreError(
+      "incompatible_state",
+      "The paused turn was saved by another adapter version"
+    )
+  }
+  const paused =
+    compatibility?.continuation === "resume"
+      ? (input.saved?.continuation as HarnessAgentContinueTurnState)
+      : null
 
   await rm(hostStateRoot(input.sessionId), { recursive: true, force: true })
   const home = await sandboxHome(input.sandbox)
@@ -331,7 +425,11 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
       thinkingLevel: "high",
     }),
     model: input.model.id,
-    tools: prepareTools(input.tools, input.toolsContext, input.sandbox),
+    tools: prepareTools(
+      { ...missingToolStubs(paused, input.tools), ...input.tools },
+      input.toolsContext,
+      input.sandbox
+    ),
     // The core takes a generic ToolSet; respond() builds the per-tool context
     // that matches it, so the inferred context type is bridged here.
     ...(input.toolsContext
@@ -347,32 +445,49 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
     // sandbox path, so each session keeps its own `/workspace/pi-<sessionId>`.
   })
 
+  const abort = input.abortSignal ? { abortSignal: input.abortSignal } : {}
   const session = await agent.createSession({
     sessionId: input.sessionId,
     sandboxSession: input.sandbox,
-    ...(input.saved
-      ? {
-          resumeFrom: {
-            type: "resume-session",
-            harnessId: "pi",
-            specificationVersion: "harness-v1",
-            data: { sessionFileName: input.saved.head.logFileName },
-          },
-        }
-      : {}),
-    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    ...(paused
+      ? { continueFrom: paused }
+      : input.saved
+        ? {
+            resumeFrom: {
+              type: "resume-session",
+              harnessId: "pi",
+              specificationVersion: "harness-v1",
+              data: { sessionFileName: input.saved.head.logFileName },
+            },
+          }
+        : {}),
+    ...abort,
   })
 
   try {
-    const result = await agent.stream({
-      session,
-      messages: [input.prompt],
-      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-    })
     let aborted = false
-    for await (const part of result.stream) {
-      if (part.type === "abort") aborted = true
-      await input.onPart(part)
+    const results: Awaited<ReturnType<typeof agent.stream>>[] = []
+    const drain = async (result: Awaited<ReturnType<typeof agent.stream>>) => {
+      results.push(result)
+      for await (const part of result.stream) {
+        if (part.type === "abort") aborted = true
+        await input.onPart(part)
+      }
+    }
+    if (paused) {
+      await drain(
+        await agent.continueStream({
+          session,
+          toolApprovalContinuations: input.decisions ?? [],
+          ...abort,
+        })
+      )
+    }
+    // A continued turn that paused again leaves the prompt for a later turn.
+    if (input.prompt && !aborted && !session.hasUnfinishedTurn()) {
+      await drain(
+        await agent.stream({ session, messages: [input.prompt], ...abort })
+      )
     }
     if (probe.loadMismatch) {
       throw new SessionCoreError(
@@ -380,17 +495,38 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         "Pi did not load the saved conversation"
       )
     }
-    const [usage, response, responseMessages] = await Promise.all([
-      Promise.resolve(result.totalUsage).catch(() => null),
-      Promise.resolve(result.response).catch(() => null),
-      Promise.resolve(result.responseMessages).catch(() => []),
-    ])
+    const settled = await Promise.all(
+      results.map((result) =>
+        Promise.all([
+          Promise.resolve(result.totalUsage).catch(() => null),
+          Promise.resolve(result.response).catch(() => null),
+          Promise.resolve(result.responseMessages).catch(() => []),
+        ])
+      )
+    )
+    const usage = settled.every(([turnUsage]) => turnUsage)
+      ? settled.reduce(
+          (total, [turnUsage]) =>
+            turnUsage ? addUsage(total, turnUsage) : total,
+          {
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+          }
+        )
+      : null
+    const waiting = !aborted && session.hasUnfinishedTurn()
+    const log = await readLog(probe, input.saved, convertsFormat)
+    // suspendTurn deletes the worker copy, so the log is read first.
+    const continuation = waiting ? await session.suspendTurn() : null
     return {
       aborted,
       usage,
-      modelId: response?.modelId ?? null,
-      responseMessages,
-      save: await readSave(probe, input.saved, convertsFormat),
+      modelId: settled.at(-1)?.[1]?.modelId ?? null,
+      responseMessages: settled.flatMap(([, , messages]) => messages),
+      save: withContinuation(log, input.saved, continuation),
+      pendingApprovals: [...(continuation?.pendingToolApprovals ?? [])],
     }
   } finally {
     // Lor supplies the sandbox, so destroy leaves it alone.

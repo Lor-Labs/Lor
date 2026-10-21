@@ -28,7 +28,7 @@ const MAX_DELTA_MESSAGES = 1000
 // Below this the gap is conversational, not a resumption worth flagging.
 const ELAPSED_NOTE_MIN_MS = 30 * 60 * 1000
 
-// A turn with no new messages, e.g. one started by an approval decision.
+// A turn with no new messages.
 const NOTHING_NEW =
   "Nothing new was said since you last worked. Continue where you left off."
 
@@ -240,8 +240,6 @@ export async function buildTurnDelta(args: {
   scopeKey: string
   channelId: string
   lorMessageId: string
-  // Appended after the delta's messages (an approval decision).
-  extraTurns?: AgentRunContext["conversation"]
 }): Promise<TurnDelta> {
   const predecessor = await loadPredecessorRun(args.predecessorRunId)
   const since = predecessor.startedAt ?? predecessor.createdAt
@@ -253,47 +251,15 @@ export async function buildTurnDelta(args: {
     channelId: args.channelId,
     lorMessageId: args.lorMessageId,
   })
-  const turns = [...delta.turns, ...(args.extraTurns ?? [])]
   const finishedAt = predecessor.finishedAt ?? since
   return {
     text:
-      formatDelta(turns, Date.now() - finishedAt.getTime(), delta.omitted) ??
-      NOTHING_NEW,
-    turns,
+      formatDelta(
+        delta.turns,
+        Date.now() - finishedAt.getTime(),
+        delta.omitted
+      ) ?? NOTHING_NEW,
+    turns: delta.turns,
     coveredMessageIds: delta.coveredMessageIds,
-  }
-}
-
-export const APPROVAL_SPEAKER = "Approval"
-
-// request_approval parks no tool call, so its decision reaches the
-// continuation as a line in the delta; nothing posts in the chat. Null for
-// policy gates, which resume with the AI SDK approval response instead.
-export async function approvalDecisionTurn(
-  approvalId: string
-): Promise<AgentRunContext["conversation"][number] | null> {
-  const row = await db
-    .select({
-      status: schema.approval.status,
-      description: schema.approval.description,
-      toolCallId: schema.approval.toolCallId,
-      resolverName: schema.user.name,
-    })
-    .from(schema.approval)
-    .leftJoin(schema.user, eq(schema.user.id, schema.approval.resolvedBy))
-    .where(eq(schema.approval.id, approvalId))
-    .limit(1)
-    .then((rows) => rows[0])
-  if (!row || row.toolCallId) return null
-  if (row.status !== "approved" && row.status !== "rejected") return null
-  const who = row.resolverName ?? "Someone"
-  return {
-    authorName: APPROVAL_SPEAKER,
-    content:
-      row.status === "approved"
-        ? `${who} approved: ${row.description}`
-        : `${who} rejected: ${row.description}. Do not take this action.`,
-    images: [],
-    files: [],
   }
 }

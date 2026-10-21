@@ -1250,11 +1250,57 @@ moved here from 1.4, because nothing runs without a sandbox.
     - Web and mobile render Pi's tools as flat `SubStepRow`s (file chip when the
       file was shared, diff counts, one expansion); `glob` gets the search icon.
     - Needs a visual check.
-- [ ] **1.3e Approvals:** schema moved from 1.2 (§4.2: drop the one-pending
-  indexes, add `(run_id, tool_call_id)`, `harness_approval_id`, `kind`, input
-  sha256); the pending set; harness approval/continuation APIs with Lor policy
-  and durable decisions; `request_approval` as a gate; steering and Stop while
-  pending.
+- [ ] **1.3e Approvals**, in review chunks:
+  - [x] **1.3e-1 Pause and continue** (2026-10-21; needs `db:push`):
+    - **Schema:** the two one-pending indexes are gone. New: unique
+      `(run_id, tool_call_id)`, `kind` (`policy` | `request`),
+      `harness_approval_id` and `input_sha256`.
+    - **Pause** (`runPiTurn`): a turn that ends with an unfinished turn
+      reads the log, then calls `suspendTurn()`. The save stores the
+      continue-turn state verbatim, and the worker files one approval row per
+      pending call in the same transaction. A plan moves to
+      `waiting_for_approval` after the save.
+    - **Gates:** `toolApproval` is `user-approval` for gated tools and
+      always for `request_approval`. In a call where nobody can approve, the
+      call is refused, as before.
+    - **`request_approval`:** now a real gate: the tool runs only after a
+      person approves it, and a rejection reaches the model as not run. It
+      no longer needs a plan. When a plan exists, its approval rows reference
+      the plan.
+    - **Resume:** the API serializes decisions on the paused run's row
+      (`FOR UPDATE`), so exactly one decision sees the set complete. That
+      decision starts the resume run (`resumeApprovalId`, as before). The
+      resume run sends no prompt: `createSession({ continueFrom })`, then
+      `continueStream` with one decision per pending approval.
+    - **Checks before resume:** an approved call is denied with a reason
+      when its tool is gone, its gate target changed, or its input sha256
+      differs.
+    - **Missing tools:** tools the paused turn listed but this run no longer
+      binds get stubs that answer "no longer available". Without them, the
+      harness throws.
+    - **Writing instead of deciding:** any other run in the session first
+      rejects what is still pending, with a reason that names the author.
+      It finishes the paused turn in the same Pi session, then sends its
+      own prompt. On voice, the waiting request ends.
+    - **Queued resumes:** a resume queued behind a run that already
+      finished the turn is skipped at drain (`resumeStillPending`).
+    - **Cards:** web and mobile show one card per approval under the paused
+      message.
+    - **Trail:** calls that were not run show "Not run: reason".
+    - **Removed:** `buildToolApproval`, `fileParkedApproval`, the
+      `request_approval` decision line, and `LOR_TOOL_APPROVAL_SECRET`.
+    - **Known gap:** if a finished paused turn pauses again before the new
+      prompt goes out, that prompt is not sent. Its message is already
+      covered by the run, so it does not reach a later delta either. This is
+      rare, because the model has just been told to stop.
+  - [ ] **1.3e-2 Resolver and notices:** re-check the resolver's access
+    before resume. Notify once per run, not per row. The plan header shows
+    the whole set. Stop while approvals are pending rejects them all and
+    finishes the turn.
+  - [ ] **1.3e-3 Voice sets and upgrades:** Lor's window shows the whole
+    set (today it shows the first row). A continuation from another adapter
+    version expires its approvals and continues from the saved log
+    (today the run fails with `incompatible_state`).
 - [ ] **1.3f Sandbox safety:** the per-user sandbox-mode row with the mode frozen
   on the run; the allow list, rule list, classifier, thresholds per mode, ask
   cards, refusal text, loop guard and decision records (§4.6), through the

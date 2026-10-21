@@ -13,6 +13,7 @@ import {
 } from "@repo/realtime-types/queues"
 import {
   claimQueuedVoiceRequests,
+  findRunVoiceRequest,
   finishRunVoiceRequests,
   finishVoiceRequest,
   listCallLines,
@@ -34,6 +35,7 @@ import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
 import { loadHarnessState, savedTurnText } from "@/lib/harness-state"
 import { logger } from "@/lib/logger"
 import type { LorMessageDeps } from "@/lib/lor-messages"
+import { loadPausedDecisions } from "@/lib/paused-turn"
 import { cancelPendingRun } from "@/lib/unattended-run"
 import {
   APPROVER_GRACE_MS,
@@ -184,7 +186,13 @@ async function failRun(request: LoadedRequest, runId: string) {
   }
 }
 
-async function runVoiceRequest(request: LoadedRequest, runId: string) {
+// `resume`: the run finishes a turn paused on approvals whose set is now
+// decided.
+async function runVoiceRequest(
+  request: LoadedRequest,
+  runId: string,
+  resume = false
+) {
   const claim = await claimAgentRun(runId)
   if (claim.kind === "terminal") return
   if (claim.kind !== "claimed") {
@@ -219,9 +227,10 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
       execution.resume && harnessState?.lastRunId === runId
         ? await savedTurnText(runId)
         : null
+    const continueOnly = resume && Boolean(harnessState?.continuation)
     // After the call's first turn, the prompt is only what was said since.
     const delta =
-      execution.resume || !harnessState
+      execution.resume || continueOnly || !harnessState
         ? null
         : await buildVoiceDelta(
             { ...request, speakerName: turn.authorName, content: turn.content },
@@ -230,12 +239,38 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
     if (delta && harnessState?.lastRunId) {
       await execution.markContinuedFrom(harnessState.lastRunId)
     }
+    // A paused turn finishes first; a new request rejects what is pending.
+    const paused =
+      savedAnswer === null &&
+      harnessState?.continuation &&
+      harnessState.lastRunId
+        ? await loadPausedDecisions(
+            harnessState.lastRunId,
+            continueOnly
+              ? null
+              : { userId: request.userId, name: request.speakerName }
+          )
+        : null
+    // The request that waited on them ends; this run finishes its turn.
+    if (paused?.steered.length && harnessState?.lastRunId) {
+      const waiting = await findRunVoiceRequest(harnessState.lastRunId)
+      if (waiting?.status === "awaiting_approval") {
+        publish(
+          request,
+          await finishVoiceRequest(waiting.id, { status: "done" })
+        )
+      }
+    }
 
     const answer = await respond(
       {
         workspaceId: execution.workspaceId,
-        conversation: execution.resume ? execution.resume.conversation : [turn],
-        ...(execution.resume || delta
+        conversation: execution.resume
+          ? execution.resume.conversation
+          : continueOnly
+            ? []
+            : [turn],
+        ...(execution.resume || delta || continueOnly
           ? {}
           : {
               backgroundConversation: await loadCallBackground(request),
@@ -297,6 +332,8 @@ async function runVoiceRequest(request: LoadedRequest, runId: string) {
           owner,
           saved: harnessState,
           savedAnswer,
+          pausedDecisions: paused?.decisions ?? null,
+          continueOnly,
           saveTurn: (record) => execution.saveTurn(owner, record),
         },
         // Steering: requests made in the call since the last step.
@@ -444,10 +481,8 @@ async function watchApproval(data: VoiceApprovalWatchJobData) {
   await scheduleApprovalWatch({ ...data, missingSince })
 }
 
-// Continues a request paused on an approval that's now resolved, as a new
-// turn of the call. Pi approval continuations return in 1.3e
-// (pi-harness-runbook.md §4.2); until then gated tools are refused, so no
-// new run pauses.
+// Continues a request paused on approvals that are now all decided: a new
+// run finishes the paused turn (pi-harness-runbook.md §4.2).
 async function resumeRequest(request: LoadedRequest) {
   if (request.status !== "awaiting_approval") return
   const created = await createVoiceRun(request)
@@ -462,7 +497,7 @@ async function resumeRequest(request: LoadedRequest) {
     return
   }
   publish(request, resumed)
-  await runVoiceRequest(request, created.runId)
+  await runVoiceRequest(request, created.runId, true)
 }
 
 // Runs a request someone spoke to Lor in a call. A retried job (worker crash)

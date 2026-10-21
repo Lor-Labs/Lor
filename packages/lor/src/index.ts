@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import {
   BETTERSTACK_TOOLS,
   builtinApprovalTool,
@@ -35,6 +36,8 @@ import {
   isStepCount,
   type LanguageModelUsage,
   type ModelMessage,
+  type ToolApprovalResponse,
+  type ToolApprovalStatus,
   type ToolSet,
   tool,
   type UserModelMessage,
@@ -124,6 +127,7 @@ import {
   type RunPlanContext,
   type StartPlanInput,
   toRunPlanContext,
+  updatePlan,
 } from "./plans"
 import {
   PROPOSALS_PROMPT_LINE,
@@ -145,15 +149,25 @@ import {
 } from "./retrieval"
 import {
   defaultRunBudgets,
+  type PendingApproval,
   type RunHandle,
   type RunStopCause,
   ZERO_RUN_COUNTERS,
 } from "./run"
 import { blaxelConfigured } from "./sandbox/blaxel"
-import { piToolLabel, sandboxToolDetail } from "./sandbox/pi-events"
+import {
+  deniedReason,
+  notRunDetail,
+  piToolLabel,
+  sandboxToolDetail,
+} from "./sandbox/pi-events"
 import { openSessionSandbox, SESSION_WORK_DIR } from "./sandbox/session-sandbox"
 import type { HarnessOwner } from "./session-core"
-import { piWorkDir, runPiTurn } from "./session-core/pi-runtime"
+import {
+  pausedApprovals,
+  piWorkDir,
+  runPiTurn,
+} from "./session-core/pi-runtime"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import { chooseThreadWindow } from "./thread-window"
@@ -283,8 +297,14 @@ const RETRY_NOTE =
   "An earlier attempt at this turn was interrupted. It may already have changed files in your sandbox or data in connected services, so check before you repeat an action."
 const LOST_FILES_NOTE =
   "Your sandbox was replaced, so files from earlier turns of this session are gone. Recreate what you still need."
-const GATED_TOOL_REASON =
-  "This tool needs a person's approval, which is not available yet. Tell the people in this session that you could not run it."
+const NO_CALL_APPROVER_REASON =
+  "This action needs approval, and no one in this call can approve it. Say so in Lor's window; someone who can approve can join the call, or it can be done from chat."
+const TOOL_GONE_REASON =
+  "This tool is no longer available in this session, so it was not run."
+const INPUT_CHANGED_REASON =
+  "The approved input does not match this call, so it was not run."
+const NO_DECISION_REASON =
+  "No decision was recorded for this action, so it was not run."
 
 const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
 
@@ -457,6 +477,7 @@ export type { InstructionsProposalEvent } from "./instructions"
 export { LOR_MODEL } from "./models"
 export { userDisplayName } from "./retrieval"
 export {
+  type ApprovalDecision,
   type BudgetStopReason,
   type ConversationUpdate,
   conversationUpdateMessageIds,
@@ -2305,7 +2326,14 @@ export async function respond(
   const savedAnswer = run?.harness?.savedAnswer
   if (savedAnswer != null) {
     await onDelta(savedAnswer)
-    return { text: savedAnswer, messages: [] }
+    // The saved turn may have paused: its approval set is already filed.
+    return {
+      text: savedAnswer,
+      messages: [],
+      ...(run?.harness?.saved?.continuation
+        ? { stoppedFor: "awaiting_approval" as const }
+        : {}),
+    }
   }
   const budgets = run?.budgets ?? defaultRunBudgets()
   // Live plan pointer: seeded from ctx, written when start_plan adopts the
@@ -2616,8 +2644,6 @@ export async function respond(
               workspaceId: ctx.workspaceId,
               runId: ctx.runId ?? null,
               onPlanUpdated: notifyPlanUpdated,
-              // request_approval pauses the turn as a gate in 1.3e.
-              onApprovalRequested: () => {},
             }
             return {
               start_plan: {
@@ -2635,7 +2661,6 @@ export async function respond(
               },
               update_plan: planToolContext,
               complete_plan: planToolContext,
-              request_approval: planToolContext,
             }
           })()
         : {}),
@@ -2772,12 +2797,16 @@ export async function respond(
     // (reference/planned/pi-harness-runbook.md §4.8).
     const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
 
-    // The turn's request. A retried attempt sends the saved one again.
+    // The turn's request. A retried attempt sends the saved one again. A run
+    // that only finishes a paused turn sends none; its empty request still
+    // bounds the next turn's delta.
     let request: AgentRunContext
     if (run.resume) {
       request = run.resume.context
     } else {
-      const context = await buildRunContext(ctx)
+      const context = harness.continueOnly
+        ? { conversation: [], rosterText: "" }
+        : await buildRunContext(ctx)
       request = {
         ...context,
         toolSchemaBytes,
@@ -2796,15 +2825,53 @@ export async function respond(
     }
     const counters = run.resume?.counters ?? ZERO_RUN_COUNTERS
 
-    // Approvals return in 1.3e; until then a gated call is refused.
-    const toolApproval = Object.fromEntries(
-      Object.keys(tools).flatMap((name) => {
-        const target = toolTargets.targetFor(name)
-        return target !== null && approvalGates.has(target)
-          ? [[name, { type: "denied" as const, reason: GATED_TOOL_REASON }]]
-          : []
-      })
-    )
+    // A gated call pauses the turn for a person's decision; request_approval
+    // always does. In a call where nobody can approve, it is refused instead.
+    const toolApproval: Record<string, ToolApprovalStatus> = {}
+    for (const name of Object.keys(tools)) {
+      const target = toolTargets.targetFor(name)
+      if (target === null || !approvalGates.has(target)) continue
+      toolApproval[name] =
+        ctx.voice && !(await ctx.voice.canApprove(target))
+          ? { type: "denied", reason: NO_CALL_APPROVER_REASON }
+          : "user-approval"
+    }
+    if (Object.hasOwn(tools, "request_approval")) {
+      toolApproval.request_approval = "user-approval"
+    }
+
+    // A paused turn finishes first. An approved call runs only while its tool
+    // is still bound under the same gate and its input is the one approved.
+    const decisions = harness.pausedDecisions
+      ? pausedApprovals(harness.saved).map((pending): ToolApprovalResponse => {
+          const decision = harness.pausedDecisions?.find(
+            (d) => d.harnessApprovalId === pending.approvalId
+          )
+          const deny = (reason: string): ToolApprovalResponse => ({
+            type: "tool-approval-response",
+            approvalId: pending.approvalId,
+            approved: false,
+            reason,
+          })
+          if (!decision) return deny(NO_DECISION_REASON)
+          if (!decision.approved) return deny(decision.reason)
+          if (
+            !Object.hasOwn(tools, pending.toolName) ||
+            (decision.kind === "policy" &&
+              toolTargets.targetFor(pending.toolName) !== decision.target)
+          ) {
+            return deny(TOOL_GONE_REASON)
+          }
+          if (decision.inputSha256 !== sha256(pending.input)) {
+            return deny(INPUT_CHANGED_REASON)
+          }
+          return {
+            type: "tool-approval-response",
+            approvalId: pending.approvalId,
+            approved: true,
+          }
+        })
+      : undefined
 
     const hinted = withTouchHints(tools, {
       workspaceId: ctx.workspaceId,
@@ -2835,12 +2902,14 @@ export async function respond(
           status: "ok",
         })
       }
-      const prompt = withNotes(
-        request.continuationDelta !== undefined
-          ? { role: "user", content: request.continuationDelta }
-          : await buildInitialUserMessage(request),
-        notes
-      )
+      const prompt = harness.continueOnly
+        ? null
+        : withNotes(
+            request.continuationDelta !== undefined
+              ? { role: "user", content: request.continuationDelta }
+              : await buildInitialUserMessage(request),
+            notes
+          )
 
       const conversationId = conversationIdOf(harness.owner)
       const deadline = AbortSignal.timeout(
@@ -2865,7 +2934,8 @@ export async function respond(
         saved: harness.saved,
         sandbox: sandbox.session,
         systemPrompt: instructions,
-        prompt,
+        ...(decisions ? { decisions } : {}),
+        ...(prompt ? { prompt } : {}),
         tools: guarded.tools,
         toolsContext,
         toolApproval,
@@ -2917,10 +2987,23 @@ export async function respond(
               label: toolLabel(part.toolName, part.input),
               at: text.length,
             })
+          } else if (part.type === "tool-approval-response" && !part.approved) {
+            // A finished paused turn sends no result for a denied call.
+            onToolEvent?.({
+              toolCallId: part.toolCall.toolCallId,
+              toolName: part.toolCall.toolName,
+              label: toolLabel(part.toolCall.toolName, part.toolCall.input),
+              at: text.length,
+              ...notRunDetail(part.reason),
+            })
           } else if (part.type === "tool-result") {
-            const resolved = SANDBOX_TOOL_NAMES.has(part.toolName)
-              ? sandboxToolDetail(part.toolName, part.input, part.output)
-              : toolDetail(part.toolName, part.output)
+            const denied = deniedReason(part.output)
+            const resolved =
+              denied !== null
+                ? notRunDetail(denied)
+                : SANDBOX_TOOL_NAMES.has(part.toolName)
+                  ? sandboxToolDetail(part.toolName, part.input, part.output)
+                  : toolDetail(part.toolName, part.output)
             if (resolved.status === "error") {
               logger.warn(
                 { tool: part.toolName, error: resolved.detail?.summary },
@@ -2954,18 +3037,50 @@ export async function respond(
         },
       })
 
-      const stoppedFor: RunStopCause | undefined = !turn.aborted
-        ? undefined
-        : run.stopRequested?.()
-          ? "stopped_by_user"
-          : deadline.aborted
-            ? "budget_wall_clock"
-            : undefined
+      const stoppedFor: RunStopCause | undefined =
+        turn.pendingApprovals.length > 0
+          ? "awaiting_approval"
+          : !turn.aborted
+            ? undefined
+            : run.stopRequested?.()
+              ? "stopped_by_user"
+              : deadline.aborted
+                ? "budget_wall_clock"
+                : undefined
       // Any other abort is a lost lease: another attempt owns the run.
       if (turn.aborted && !stoppedFor) throw new Error("Lor run aborted")
 
+      // One approval row per call the turn paused on.
+      const approvals = turn.pendingApprovals.map(
+        (pending): PendingApproval => {
+          const payload = parseToolInput(pending.input)
+          const asked =
+            pending.toolName === "request_approval"
+              ? (payload as { action?: unknown; description?: unknown })
+              : null
+          const target = asked ? null : toolTargets.targetFor(pending.toolName)
+          return {
+            harnessApprovalId: pending.approvalId,
+            toolCallId: pending.toolCallId,
+            toolName: pending.toolName,
+            kind: asked ? "request" : "policy",
+            target,
+            action:
+              typeof asked?.action === "string"
+                ? asked.action
+                : (target ?? pending.toolName),
+            description:
+              typeof asked?.description === "string"
+                ? asked.description
+                : toolLabel(pending.toolName, payload),
+            payload,
+            inputSha256: sha256(pending.input),
+          }
+        }
+      )
+
       // The turn total when the turn finished, else the steps that did.
-      const totals = turn.usage ? usageTokens(turn.usage) : stepTotals
+      const totals = turn.usage ?? stepTotals
       // Billed per attempt, before the save: the tokens are spent either way.
       if (turn.usage || steps > 0) {
         onUsage?.({
@@ -2982,16 +3097,29 @@ export async function respond(
         save: turn.save,
         steps,
         model: turn.modelId,
-        inputTokens: totals.inputTokens ?? 0,
-        cachedInputTokens: totals.cachedInputTokens ?? 0,
-        outputTokens: totals.outputTokens ?? 0,
+        inputTokens: totals.inputTokens,
+        cachedInputTokens: totals.cachedInputTokens,
+        outputTokens: totals.outputTokens,
         toolCalls: toolCallCount,
         toolOutputBytes: guarded.guard.takeStepBytes(),
+        approvals,
+        planId: planRef.current?.id ?? null,
       })
+      if (approvals.length > 0) {
+        if (planRef.current) {
+          await updatePlan(
+            planRef.current.id,
+            { status: "waiting_for_approval" },
+            notifyPlanUpdated
+          )
+        } else {
+          notifyWorkspaceActivity?.(ctx.workspaceId)
+        }
+      }
 
       return {
         text,
-        messages: [prompt, ...turn.responseMessages],
+        messages: [...(prompt ? [prompt] : []), ...turn.responseMessages],
         ...(stoppedFor ? { stoppedFor } : {}),
       }
     } finally {
@@ -3062,6 +3190,19 @@ export async function writeBack(
     },
   })
   emitGenerateUsage(onUsage, ctx.workspaceId, "lor.writeback", body)
+}
+
+function sha256(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex")
+}
+
+// A pending approval's raw JSON input, parsed for the card and its label.
+function parseToolInput(raw: string): unknown {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
 }
 
 function usageTokens(usage: LanguageModelUsage) {

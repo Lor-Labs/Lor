@@ -406,8 +406,9 @@ export async function claimAgentRun(
   const pendingNested: UsageEvent[] = []
   let runContext = claimed.context
 
-  // One transaction: the Pi log under the lease and head checks, then the
-  // run counters, including nested usage noted during the turn.
+  // One transaction: the Pi log under the lease and head checks, the approval
+  // set a paused turn waits on, then the run counters, including nested
+  // usage noted during the turn.
   const saveTurn = async (
     owner: HarnessOwner,
     turn: RunTurnRecord
@@ -430,6 +431,16 @@ export async function claimAgentRun(
             workspaceId: claimed.workspaceId,
             claim: { runId, attempt: claimed.attempt },
           })
+        }
+        if (turn.approvals.length > 0) {
+          await tx.insert(schema.approval).values(
+            turn.approvals.map((approval) => ({
+              ...approval,
+              workspaceId: claimed.workspaceId,
+              runId,
+              planId: turn.planId,
+            }))
+          )
         }
         const updated = await tx
           .update(schema.agentRun)

@@ -70,13 +70,6 @@ const serverSchema = z.object({
   // bounds request preparation, with headroom reserved for instructions,
   // tools, and output even if the compaction threshold is higher.
   LOR_CONTEXT_WINDOW: z.coerce.number().int().positive().default(1_000_000),
-  // HMAC secret binding a tool approval to the exact call/input (AI SDK
-  // experimental_toolApprovalSecret). Must match across worker + API.
-  // Optional: approval gates enforce without it; setting it hardens resume.
-  LOR_TOOL_APPROVAL_SECRET: z.preprocess(
-    blankToUndefined,
-    z.string().min(32).optional()
-  ),
   // Agent-run hard ceilings (reference/agent-harness.md, budgets). Snapshotted
   // onto each agent_run row at creation, so changing these never alters an
   // in-flight run. Emergency rails, not normal stopping targets.

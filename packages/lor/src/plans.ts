@@ -69,11 +69,11 @@ export type CreatePlanForThread = (
 ) => Promise<Plan | null>
 
 // Plan id resolves through a getter, not a static value: a plan created by
-// start_plan mid-run must be visible to update_plan/complete_plan/
-// request_approval bound in the same respond() call (tool contexts are
-// resolved eagerly). The SDK runs a step's tool calls concurrently, so a
-// sibling batched with start_plan errors — the error text + prompt steer the
-// model to call start_plan alone and retry (observed to self-correct).
+// start_plan mid-run must be visible to update_plan/complete_plan bound in
+// the same respond() call (tool contexts are resolved eagerly). The SDK runs
+// a step's tool calls concurrently, so a sibling batched with start_plan
+// errors — the error text + prompt steer the model to call start_plan alone
+// and retry (observed to self-correct).
 const planContext = z.object({
   getPlanId: z.custom<() => string | null>(),
   // Grants ONE reopen per run, and only when the run began on an
@@ -83,8 +83,6 @@ const planContext = z.object({
   workspaceId: z.string(),
   runId: z.string().nullable(),
   onPlanUpdated: z.custom<OnPlanUpdated>().optional(),
-  // Lets respond() force a final text step once an approval is pending.
-  onApprovalRequested: z.custom<() => void>().optional(),
 })
 
 const NO_PLAN_ERROR =
@@ -346,9 +344,11 @@ export const planTools = {
     strict: true,
   }),
 
+  // Always approval-gated (respond() binds it as user-approval): the turn
+  // pauses on the call, and it only runs once a person approves.
   request_approval: tool({
     description:
-      "Ask the team to approve a consequential action before you take it (external writes: filing issues, posting to third-party tools, anything hard to undo). Describe exactly what will happen in plain language. After calling this, wrap up your current message — you'll be re-invoked when someone approves or rejects, and only then may you act.",
+      "Ask the team to approve a consequential action before you take it (external writes: filing issues, posting to third-party tools, anything hard to undo). Describe exactly what will happen in plain language. Your turn pauses until someone decides: if this returns approved, take the action; if it is not run, do not take it.",
     inputSchema: z.object({
       action: z
         .string()
@@ -361,49 +361,10 @@ export const planTools = {
         .max(2000)
         .describe("plain-language consequences, shown on the approval card"),
     }),
-    contextSchema: planContext,
-    execute: async ({ action, description }, { context }) => {
-      const planId = context.getPlanId()
-      if (!planId) return { error: NO_PLAN_ERROR }
-      try {
-        const inserted = await db
-          .insert(schema.approval)
-          .values({
-            workspaceId: context.workspaceId,
-            planId,
-            runId: context.runId,
-            action,
-            description,
-          })
-          .onConflictDoNothing()
-          .returning({ id: schema.approval.id })
-          .then((rows) => rows[0] ?? null)
-        if (!inserted) {
-          return {
-            error:
-              "an approval is already pending on this plan; wait for it to be resolved",
-          }
-        }
-        await updatePlan(
-          planId,
-          { status: "waiting_for_approval" },
-          context.onPlanUpdated
-        )
-        try {
-          context.onApprovalRequested?.()
-        } catch (err) {
-          logger.error({ err }, "onApprovalRequested listener failed")
-        }
-        return {
-          ok: true,
-          approvalId: inserted.id,
-          note: "approval requested — finish your message now; you'll be re-invoked on resolution",
-        }
-      } catch (err) {
-        logger.error({ err }, "request_approval failed")
-        return { error: "couldn't file the approval request" }
-      }
-    },
+    execute: async () => ({
+      approved: true,
+      note: "a person approved this — take the action now",
+    }),
     strict: true,
   }),
 }
@@ -450,7 +411,7 @@ export function planRulesSection(active: boolean): string {
     "Plan rules:",
     "- Keep the steps current with update_plan: set them when you start, mark them done as you finish them. The team watches the card live.",
     "- Produce real deliverables in your sandbox and hand them over with share_file; share their links.",
-    "- Before consequential external actions (writes to third-party tools), call request_approval and stop; act only after a human approves.",
+    "- Before consequential external actions (writes to third-party tools), call request_approval; act only if it comes back approved.",
     "- When the work is fully done, call complete_plan with a summary. If you need input from the team, ask and end your message — the plan waits for their reply.",
     "- complete_plan's summary is a one-sentence headline for the card — keep the detail for the message you write after it.",
     "- Anyone on the team may reply with new instructions while a plan is open; treat the newest instruction as authoritative.",

@@ -174,26 +174,41 @@ function sandboxCallDiff(
   return { path, ...countPatchLines(patch), ...boundPatch(patch) }
 }
 
-// Trail detail for one of Pi's sandbox tools, whose results arrive as text.
-// A refused call comes back as an execution-denied payload.
+// The reason a call was not run (refused, or denied by a person), from its
+// execution-denied output: an object for Lor's tools, JSON text for Pi's.
+// Null for a call that ran.
+export function deniedReason(output: unknown): string | null {
+  let value = output
+  if (typeof output === "string") {
+    if (!output.startsWith('{"type":"execution-denied"')) return null
+    try {
+      value = JSON.parse(output)
+    } catch {
+      return ""
+    }
+  }
+  const record = asRecord(value)
+  if (record?.type !== "execution-denied") return null
+  return asString(record.reason) ?? ""
+}
+
+export function notRunDetail(
+  reason: string | undefined
+): Pick<LorToolCall, "detail" | "status"> {
+  return {
+    status: "error",
+    detail: { summary: reason ? `Not run: ${reason}` : "Not run" },
+  }
+}
+
+// Trail detail for one of Pi's sandbox tools that ran, whose results arrive
+// as text.
 export function sandboxToolDetail(
   toolName: string,
   input: unknown,
   output: unknown
 ): Pick<LorToolCall, "detail" | "status" | "diff"> {
   const text = typeof output === "string" ? output : JSON.stringify(output)
-  if (text?.startsWith('{"type":"execution-denied"')) {
-    let reason: string | undefined
-    try {
-      reason = asString(asRecord(JSON.parse(text))?.reason)
-    } catch {
-      reason = undefined
-    }
-    return {
-      status: "error",
-      detail: { summary: reason ? `Not run: ${reason}` : "Not run" },
-    }
-  }
   if (toolName === "write" || toolName === "edit") {
     const diff = sandboxCallDiff(toolName, input)
     return { status: "ok", ...(diff ? { diff } : {}) }

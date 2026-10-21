@@ -71,7 +71,8 @@ import {
 } from "@/lib/loop-session"
 import { loadConversation } from "@/lib/lor-conversation"
 import { createLoopCard } from "@/lib/lor-loop"
-import { approvalDecisionTurn, buildTurnDelta } from "@/lib/run-continuation"
+import { loadPausedDecisions } from "@/lib/paused-turn"
+import { buildTurnDelta } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { titleSessionAfterFirstReply } from "@/lib/session-title"
@@ -550,25 +551,24 @@ export function createLorRespondProcessor(
               execution.resume && harnessState?.lastRunId === execution.runId
                 ? await savedTurnText(execution.runId)
                 : null
-            // request_approval parks no tool call: its decision rides the
-            // delta as a line.
-            const decisionTurn =
-              !execution.resume && job.data.resumeApprovalId
-                ? await approvalDecisionTurn(job.data.resumeApprovalId).catch(
-                    () => null
-                  )
-                : null
+            // The last decision on a paused turn's approval set: this run only
+            // finishes that turn, with no prompt of its own.
+            const continueOnly = Boolean(
+              job.data.resumeApprovalId && harnessState?.continuation
+            )
             // After the session's first turn, Pi's saved state holds the
             // conversation, so the prompt is only what was said since.
             const delta =
-              execution.resume || !harnessState || !contextThreadRootId
+              execution.resume ||
+              continueOnly ||
+              !harnessState ||
+              !contextThreadRootId
                 ? null
                 : await buildTurnDelta({
                     predecessorRunId: harnessState.lastRunId,
                     scopeKey: contextThreadRootId,
                     channelId,
                     lorMessageId,
-                    ...(decisionTurn ? { extraTurns: [decisionTurn] } : {}),
                   })
             if (delta && harnessState?.lastRunId) {
               await execution.markContinuedFrom(harnessState.lastRunId)
@@ -577,14 +577,16 @@ export function createLorRespondProcessor(
             // would drift (new messages may have landed since).
             const snapshot = execution.resume
               ? execution.resume
-              : delta
-                ? { conversation: delta.turns }
-                : await loadConversation({
-                    channelId,
-                    threadRootId: contextThreadRootId,
-                    lorMessageId,
-                    triggerMessageId,
-                  })
+              : continueOnly
+                ? { conversation: [] }
+                : delta
+                  ? { conversation: delta.turns }
+                  : await loadConversation({
+                      channelId,
+                      threadRootId: contextThreadRootId,
+                      lorMessageId,
+                      triggerMessageId,
+                    })
             const conversation =
               triggerRun?.isEvent &&
               job.data.runId &&
@@ -605,7 +607,7 @@ export function createLorRespondProcessor(
             // A fresh snapshot covers every pending steer row, so consume them
             // before the first boundary. A delta is bounded and may omit older
             // steers; leave those rows pending rather than sweeping them all.
-            if (!execution.resume && !delta) {
+            if (!execution.resume && !delta && !continueOnly) {
               await execution.markConversationLoaded()
             }
 
@@ -717,6 +719,38 @@ export function createLorRespondProcessor(
               channelId,
               userId: triggerUserId,
             }
+
+            // A paused turn finishes first. Unless this run is its resume,
+            // its pending approvals are rejected: the trigger's author wrote
+            // instead of deciding.
+            const paused =
+              savedAnswer === null &&
+              harnessState?.continuation &&
+              harnessState.lastRunId
+                ? await loadPausedDecisions(
+                    harnessState.lastRunId,
+                    continueOnly
+                      ? null
+                      : {
+                          userId: triggerUserId,
+                          name:
+                            streamMentionRoster.find(
+                              (m) => m.id === triggerUserId
+                            )?.name ?? "Someone",
+                        }
+                  )
+                : null
+            for (const row of paused?.steered ?? []) {
+              emitter.to(channelRoom(channelId)).emit("approval:updated", {
+                approvalId: row.id,
+                channelId,
+                planId: row.planId,
+                status: row.status,
+                resolvedBy: row.resolvedBy,
+                resolvedAt: row.resolvedAt?.toISOString() ?? null,
+              })
+            }
+            if (paused?.steered.length) notifyWorkspaceActivity(workspaceId)
 
             // start_plan: adopt this run's thread as a new plan, anchored to
             // the thread root and assigned to this run so settlePlan owns it.
@@ -963,6 +997,8 @@ export function createLorRespondProcessor(
                   owner,
                   saved: harnessState,
                   savedAnswer,
+                  pausedDecisions: paused?.decisions ?? null,
+                  continueOnly,
                   saveTurn: (turn) => execution.saveTurn(owner, turn),
                 },
               }
@@ -1023,9 +1059,8 @@ export function createLorRespondProcessor(
           // Explicit user stop: keep whatever partial answer streamed, settle
           // the run as stopped, and skip the write-back.
           const stoppedByUser = answer.stoppedFor === "stopped_by_user"
-          // Parked on an approval policy: the loop ends the moment the gate
-          // trips, so there may be no closing text — the approval card carries
-          // the explanation.
+          // Paused on approvals: the turn stops at the gated calls, so there
+          // may be no closing text — the approval cards carry the explanation.
           const awaitingApproval = answer.stoppedFor === "awaiting_approval"
 
           // Phase 2 — persist, then fan out. Persistence decides the terminal

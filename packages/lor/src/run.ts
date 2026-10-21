@@ -20,8 +20,7 @@ export type BudgetStopReason =
   | "budget_spend"
 
 // Why the answer loop ended early: a budget ceiling, an explicit user stop, or
-// a tool call parked on an approval policy (LOR-81) — the resolved approval
-// starts the continuation run.
+// a turn paused on approvals — the last decision starts the continuation run.
 export type RunStopCause =
   | BudgetStopReason
   | "stopped_by_user"
@@ -75,8 +74,35 @@ export type RunCounters = {
   creditsSpent: number
 }
 
-// One finished Pi turn, ready to save: the new Pi log (null when the turn
-// wrote nothing) and the turn's totals for the run counters.
+// One call a paused turn waits on. The worker files it as an approval row in
+// the same transaction as the save.
+export type PendingApproval = {
+  harnessApprovalId: string
+  toolCallId: string
+  toolName: string
+  kind: "policy" | "request"
+  target: string | null
+  action: string
+  description: string
+  payload: unknown
+  inputSha256: string
+}
+
+// The decision on one pending approval of the paused turn, from its row.
+// `reason` is what the model reads when the call is not run.
+export type ApprovalDecision = {
+  harnessApprovalId: string
+  approved: boolean
+  reason: string
+  toolName: string
+  kind: "policy" | "request"
+  target: string | null
+  inputSha256: string | null
+}
+
+// One finished or paused Pi turn, ready to save: the new Pi log (null when
+// nothing changed), the turn's totals for the run counters, and the approvals
+// it paused on.
 export type RunTurnRecord = {
   save: PiTurnSave | null
   steps: number
@@ -86,6 +112,8 @@ export type RunTurnRecord = {
   outputTokens: number
   toolCalls: number
   toolOutputBytes: number
+  approvals: PendingApproval[]
+  planId: string | null
 }
 
 // The conversation's saved Pi state and its save. The worker binds it, since
@@ -96,6 +124,12 @@ export type RunHarness = {
   // Set when a retried attempt finds this run's turn already saved: respond()
   // delivers it instead of running the turn twice.
   savedAnswer: string | null
+  // Set when the saved turn paused on approvals: one decision per row of the
+  // set. respond() finishes that turn first, then sends its own prompt.
+  pausedDecisions: ApprovalDecision[] | null
+  // The run only finishes the paused turn (the last approval was decided):
+  // no new prompt.
+  continueOnly: boolean
   // One transaction under the run's lease: the Pi log, the new head and the
   // counters. Throws when the lease or the saved head moved.
   saveTurn: (turn: RunTurnRecord) => Promise<RunCounters>

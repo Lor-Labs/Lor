@@ -261,11 +261,10 @@ export const agentRunQueue = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     state: agentRunQueueStateEnum("state").notNull().default("queued"),
-    // Set when this queued message is a resolved approval riding behind an
-    // active run (LOR-81): the drained follow-up replays the parked run named
-    // by the approval instead of building a delta. Lazy AnyPgColumn reference
-    // because approvals.ts imports this file; set-null degrades the drained
-    // follow-up to a fresh context, which buildApprovalContinuation handles.
+    // Set when this queued message is a decided approval set riding behind an
+    // active run: the drained follow-up finishes the paused turn instead of
+    // building a delta, unless another run finished it first. Lazy
+    // AnyPgColumn reference because approvals.ts imports this file.
     resumeApprovalId: uuid("resume_approval_id").references(
       (): AnyPgColumn => approval.id,
       { onDelete: "set null" }

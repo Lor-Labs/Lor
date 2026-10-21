@@ -13,7 +13,7 @@ import {
   type ApprovalResolverSpec,
   resolverLabel,
   useCanResolveApproval,
-  useMessageApproval,
+  useMessageApprovals,
   useResolveChannelApproval,
 } from "@/hooks/use-approvals"
 import { apiClient } from "@/lib/api-client"
@@ -30,10 +30,10 @@ export type ApprovalCardData = {
   resolvedBy: string | null
 }
 
-// The gate card under a parked run's own message. Renders nothing unless
-// this message's run parked on an approval. In a session it stays after the
-// decision as its record: nothing else posts (the decision reaches Lor as
-// the AI SDK approval response).
+// The gate cards under a paused run's own message, one per gated call.
+// Renders nothing unless this message's run paused on approvals. In a session
+// they stay after the decision as its record: nothing else posts (the
+// decision reaches Lor as the harness approval response).
 export function MessageApprovalCard({
   channelId,
   messageId,
@@ -43,15 +43,18 @@ export function MessageApprovalCard({
   messageId: string
   threadRootId: string | null
 }) {
-  const approval = useMessageApproval(channelId, messageId, threadRootId)
-  if (!approval) return null
+  const approvals = useMessageApprovals(channelId, messageId, threadRootId)
+  if (approvals.length === 0) return null
   return (
-    <div className="mt-2 max-w-xl">
-      <ApprovalGateCard
-        channelId={channelId}
-        threadRootId={threadRootId}
-        approval={approval}
-      />
+    <div className="mt-2 flex max-w-xl flex-col gap-2">
+      {approvals.map((approval) => (
+        <ApprovalGateCard
+          key={approval.id}
+          channelId={channelId}
+          threadRootId={threadRootId}
+          approval={approval}
+        />
+      ))}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { relations, sql } from "drizzle-orm"
+import { relations } from "drizzle-orm"
 import {
   index,
   jsonb,
@@ -21,12 +21,15 @@ export const approvalStatusEnum = pgEnum("approval_status", [
   "expired",
 ])
 
-// A consequential action an agent wants a human to authorize. Workflow-
-// agnostic: a plan is one anchor (planId set), future workflows attach
-// their own. Requesting one ends the run; resolution posts nothing and starts
-// a continuation run that answers the run's reply, carrying the decision as
-// the AI SDK approval response (policy gates) or a decision line
+// policy: a workspace approval gate on a tool. request: Lor asked itself
 // (request_approval).
+export const approvalKindEnum = pgEnum("approval_kind", ["policy", "request"])
+
+// A consequential action an agent wants a human to authorize. A Pi turn
+// pauses on every gated call of its last step, so one run files a set (one
+// row per call). Resolution posts nothing; when the last row of the set is
+// decided, a continuation run finishes the paused turn with the decisions
+// (reference/planned/pi-harness-runbook.md §4.2).
 export const approval = pgTable(
   "approval",
   {
@@ -41,18 +44,22 @@ export const approval = pgTable(
     runId: uuid("run_id").references(() => agentRun.id, {
       onDelete: "set null",
     }),
+    kind: approvalKindEnum("kind").notNull().default("policy"),
     // Tool approval-target key, or a discretionary action slug.
     action: text("action").notNull(),
     // Human-readable consequences, rendered on the approval card.
     description: text("description").notNull(),
-    // Per-action shape; the requesting tool owns it on both write and read.
-    // For policy-gated calls: the raw tool input the approval binds.
+    // The parsed tool input the approval binds, for display.
     payload: jsonb("payload").$type<unknown>(),
-    // Policy-gated calls (LOR-81): the parked tool call this row authorizes.
-    // All three null for discretionary request_approval rows.
+    // The paused tool call this row authorizes.
     toolCallId: text("tool_call_id"),
     toolName: text("tool_name"),
-    // Approval-target key that tripped the gate (@repo/connectors approval-targets).
+    // The harness's id for the pending approval, and a sha256 of the raw
+    // input it binds: the continuation runs only a matching call.
+    harnessApprovalId: text("harness_approval_id"),
+    inputSha256: text("input_sha256"),
+    // Approval-target key that tripped the gate (@repo/connectors
+    // approval-targets); null for request rows.
     target: text("target"),
     status: approvalStatusEnum("status").notNull().default("pending"),
     resolvedBy: uuid("resolved_by").references(() => user.id, {
@@ -66,14 +73,11 @@ export const approval = pgTable(
       table.workspaceId,
       table.status
     ),
-    // At most one open approval per plan — the model wraps up after asking.
-    uniqueIndex("approval_plan_pending_uidx")
-      .on(table.planId)
-      .where(sql`status = 'pending' and plan_id is not null`),
-    // A run parks at its first gate — never a second pending gate per run.
-    uniqueIndex("approval_run_pending_uidx")
-      .on(table.runId)
-      .where(sql`status = 'pending' and run_id is not null`),
+    // One row per paused call; also serves the per-run set lookups.
+    uniqueIndex("approval_runId_toolCallId_uidx").on(
+      table.runId,
+      table.toolCallId
+    ),
   ]
 )
 
@@ -91,3 +95,4 @@ export const approvalRelations = relations(approval, ({ one }) => ({
 export type Approval = typeof approval.$inferSelect
 export type NewApproval = typeof approval.$inferInsert
 export type ApprovalStatus = (typeof approvalStatusEnum.enumValues)[number]
+export type ApprovalKind = (typeof approvalKindEnum.enumValues)[number]
