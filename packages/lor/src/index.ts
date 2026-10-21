@@ -440,7 +440,10 @@ export {
   type RunTurnRecord,
   type SteeredMessage,
 } from "./run"
-export { SandboxCapacityError } from "./sandbox/session-sandbox"
+export {
+  deleteSessionSandbox,
+  SandboxCapacityError,
+} from "./sandbox/session-sandbox"
 export { generateSessionTitle } from "./session-title"
 export { formatSpeakerLine } from "./transcript"
 export type {

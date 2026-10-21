@@ -29,7 +29,7 @@ authority (§4.3). Do not infer production readiness from the common API alone.
 | Pi settings | None in phase 1: compaction, retries and cache warming keep Pi's defaults. If a setting must change later, patch the adapter with `pnpm patch` to pass a settings record and send the same change upstream as a PR. |
 | Sandboxes (G6) | Every agent run gets its session sandbox, **including voice, Loop and Act runs**. Each needs a session workspace owner before it provisions. |
 | Lost workspace (G6) | **Interim until phase 2.** If a session's sandbox no longer exists (crash or deletion), continue the session in a new empty sandbox and tell the model and the people in the session that earlier files are gone. Fail the run only when the native **conversation** state is missing or corrupt. Phase 2 Git checkpoints replace this: Lor rebuilds the sandbox from the last completed-turn commit. |
-| Capacity | Build as if sandboxes are unlimited. No idle TTL or reclamation for session sandboxes in phase 1; capacity planning is deferred. A quota error still fails the run visibly. |
+| Capacity | Changed 2026-10-21 after Tier 1's 40 GB ephemeral-volume quota allowed only 5 session sandboxes: session sandboxes get a 2 GB `/workspace` (`LOR_SESSION_DISK_MB`; code tools keep 8 GB), Blaxel deletes them after 7 days idle (`LOR_SESSION_SANDBOX_TTL`), and archiving a session deletes its sandbox after a 10-minute undo window (loop sessions excepted). Until phase 2 checkpoints, unshared sandbox files are lost then; the conversation and shared files are not. A quota error still fails the run visibly. |
 | Worker runtime | Run the Pi path on **Bun**, the worker's current runtime. Verify the adapter on Bun in 1.1; move the Pi path to Node only if a concrete Bun failure appears. |
 | AI SDK | Upgrade `ai` repo-wide to the version the harness requires (≥ `7.0.145`). Change the remaining AI SDK callers (write-back, placement, titles, classifiers, embeddings, rerank) where the upgrade needs it. |
 | Legacy engine | **Delete it** (2026-10-20). No one uses the app yet, so there is no flag, rollout, drain or import. Old sessions have no native state; their first Pi run starts from the visible session history, like any first run. Legacy run tables keep their rows but receive no new writes; dropping them is a separate later decision. |
@@ -767,8 +767,10 @@ is not published.
   tell the model and the session that earlier files are gone. Never recreate a
   sandbox silently, as `blaxel.ts` does today. Fail only for missing conversation
   state. Phase 2 checkpoints rebuild the sandbox from the last completed turn.
-- Capacity (decision 2026-10-20): build as if sandboxes are unlimited. No idle
-  TTL or reclamation for session sandboxes in phase 1. A quota error fails the
+- Capacity: changed 2026-10-21, see the decisions table. The archive
+  delete is a delayed `delete-session-sandbox` maintenance job queued by the
+  archive handler; it carries the archive time and does nothing if the
+  session was unarchived or archived again since. A quota error fails the
   run with a visible capacity state; it never falls back to worker-local tools.
 - Latency: measure first-run provisioning and per-turn setup, especially for
   voice's live 10-minute interaction.

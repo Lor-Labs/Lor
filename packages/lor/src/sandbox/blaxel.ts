@@ -63,7 +63,7 @@ export function sandboxFailureReason(err: unknown, fallback: string): string {
   return quotaExceeded ? SANDBOX_QUOTA_REASON : fallback
 }
 
-function persistentLifecycle(idleTtl: string) {
+export function persistentLifecycle(idleTtl: string) {
   return {
     expirationPolicies: [
       {
@@ -82,13 +82,16 @@ function persistentConfig(name: string, idleTtl: string) {
   }
 }
 
-export function hasWorkspaceDisk(sandbox: SandboxInstance): boolean {
+export function hasWorkspaceDisk(
+  sandbox: SandboxInstance,
+  minMb = env.LOR_WORKBENCH_DISK_MB
+): boolean {
   return Boolean(
     sandbox.spec.volumes?.some(
       (volume) =>
         volume.mountPath === WORKSPACE_MOUNT &&
         volume.type === "ephemeral" &&
-        (volume.sizeMb ?? 0) >= env.LOR_WORKBENCH_DISK_MB
+        (volume.sizeMb ?? 0) >= minMb
     )
   )
 }

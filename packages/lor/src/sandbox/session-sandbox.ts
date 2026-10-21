@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import { SandboxInstance } from "@blaxel/core"
+import { env } from "@repo/env/server"
 import type {
   Experimental_SandboxProcess as SandboxProcess,
   Experimental_SandboxSession as SandboxSession,
@@ -10,8 +11,10 @@ import { logger } from "../logger"
 import type { HarnessOwner } from "../session-core"
 import {
   baseConfig,
+  blaxelConfigured,
   closeConnection,
   hasWorkspaceDisk,
+  persistentLifecycle,
   probeSandbox,
   SANDBOX_PROCESS_ENV,
   WORKSPACE_MOUNT,
@@ -19,7 +22,8 @@ import {
 
 // Every agent run gets its conversation's sandbox: one per Lor session or
 // voice call, created on the first run and reused after, with standby in
-// between. No expiration policy (reference/planned/pi-harness-runbook.md §4.10).
+// between. Deleted after LOR_SESSION_SANDBOX_TTL idle, or 10 minutes after the
+// session is archived (reference/planned/pi-harness-runbook.md §4.10).
 
 // Runaway guard per command; the adapter does not pass the model's timeout.
 const RUN_TIMEOUT_SEC = 1800
@@ -72,9 +76,10 @@ export type SessionSandbox = {
 }
 
 async function createSessionSandbox(name: string): Promise<SandboxInstance> {
-  const sandbox = await SandboxInstance.createIfNotExists(
-    baseConfig(name)
-  ).catch((err: unknown) => {
+  const sandbox = await SandboxInstance.createIfNotExists({
+    ...baseConfig(name, env.LOR_SESSION_DISK_MB),
+    lifecycle: persistentLifecycle(env.LOR_SESSION_SANDBOX_TTL),
+  }).catch((err: unknown) => {
     if (hasCode(err, ["QUOTA_EXCEEDED"])) throw new SandboxCapacityError(err)
     throw err
   })
@@ -82,7 +87,7 @@ async function createSessionSandbox(name: string): Promise<SandboxInstance> {
     closeConnection(sandbox)
     throw err
   })
-  if (!health.healthy || !hasWorkspaceDisk(sandbox)) {
+  if (!health.healthy || !hasWorkspaceDisk(sandbox, env.LOR_SESSION_DISK_MB)) {
     closeConnection(sandbox)
     throw new Error(
       `New sandbox ${name} is unhealthy (${health.status}, exit ${health.exitCode})`
@@ -104,7 +109,7 @@ export async function openSessionSandbox(
   if (existing) {
     // A probe error does not prove the workspace is gone: fail the run rather
     // than delete files. Only a sandbox that answers unhealthy is replaced.
-    const health = hasWorkspaceDisk(existing)
+    const health = hasWorkspaceDisk(existing, env.LOR_SESSION_DISK_MB)
       ? await probeSandbox(existing).catch((err: unknown) => {
           closeConnection(existing)
           throw err
@@ -131,6 +136,17 @@ export async function openSessionSandbox(
     fresh: true,
     close: () => closeConnection(created),
   }
+}
+
+// The conversation's files go with it; Pi's saved state and shared files
+// live in Postgres and R2. A sandbox that is already gone counts as deleted.
+export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
+  if (!blaxelConfigured()) return
+  const name = sessionSandboxName(owner)
+  await SandboxInstance.delete(name).catch((err: unknown) => {
+    if (!isNotFound(err)) throw err
+  })
+  logger.info({ sandbox: name }, "Sandbox: session sandbox deleted")
 }
 
 function inShell(command: string): string {

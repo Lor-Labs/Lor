@@ -144,8 +144,10 @@ saves native Pi state to Postgres per completed turn; spend is the only run
 limit (no step/tool/token ceilings; workspace balance with auto top-up is the target).
 Every Lor agent run, including voice, Loop and Act runs, gets its session's
 isolated sandbox on the first run, reused across turns with standby; until
-phase 2 checkpoints, a lost sandbox continues empty with a notice. Build as if
-sandboxes are unlimited; cost optimization is deferred. The legacy
+phase 2 checkpoints, a lost sandbox continues empty with a notice. Session
+sandboxes get a 2 GB disk and are deleted after 7 days idle or 10 minutes
+after archive (Blaxel's ephemeral-volume quota); further cost optimization
+is deferred. The legacy
 `streamText` engine is deleted in phase 1 (no users yet), with no flag or
 import. Keep its
 internal session core separate from Lor policy/UI; SDK publication is deferred.

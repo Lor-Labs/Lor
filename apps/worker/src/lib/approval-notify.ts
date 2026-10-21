@@ -10,6 +10,7 @@ import type {
   ApprovalNotification,
   ServerToClientEvents,
 } from "@repo/realtime-types"
+import { MAINTENANCE_QUEUE } from "@repo/realtime-types/queues"
 import { userRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import { Queue } from "bullmq"
@@ -28,9 +29,8 @@ import { logger } from "@/lib/logger"
 
 export const APPROVAL_ESCALATION_DELAY_MS = 2 * 60 * 1000
 export const NOTIFY_APPROVAL_JOB = "notify-approval-escalation"
-// Same queue index.ts's maintenance worker consumes — imported there so the
-// name can't drift.
-export const MAINTENANCE_QUEUE = "maintenance"
+// Same queue index.ts's maintenance worker consumes; one shared name.
+export { MAINTENANCE_QUEUE }
 
 export function parseRedisUrl(url: string) {
   const parsed = new URL(url)

@@ -159,3 +159,34 @@ export function sourceIngestJob(data: SourceIngestJobData) {
     },
   }
 }
+
+// The worker's maintenance queue: sweeps, approval escalations, sandbox
+// cleanup.
+export const MAINTENANCE_QUEUE = "maintenance"
+
+// Deletes an archived session's sandbox after an undo window. The job holds
+// the archive time it was queued for and does nothing if the session was
+// unarchived or archived again since (reference/planned/pi-harness-runbook.md
+// §4.10).
+export const DELETE_SESSION_SANDBOX_JOB = "delete-session-sandbox"
+const SESSION_SANDBOX_UNDO_MS = 10 * 60_000
+
+export type DeleteSessionSandboxJobData = {
+  sessionId: string
+  archivedAt: string
+}
+
+export function deleteSessionSandboxJob(data: DeleteSessionSandboxJobData) {
+  return {
+    name: DELETE_SESSION_SANDBOX_JOB,
+    data,
+    opts: {
+      delay: SESSION_SANDBOX_UNDO_MS,
+      // BullMQ job ids cannot contain ":".
+      jobId: `sandbox-${data.sessionId}-${Date.parse(data.archivedAt)}`,
+      attempts: 3,
+      backoff: { type: "exponential", delay: 60_000 },
+      removeOnComplete: true,
+    },
+  }
+}

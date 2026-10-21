@@ -134,6 +134,15 @@ const serverSchema = z.object({
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
   // Disk-backed /workspace volume for clones, dependencies, caches, and outputs.
   LOR_WORKBENCH_DISK_MB: z.coerce.number().int().positive().default(8192),
+  // Session sandboxes (one per Lor session or call). Blaxel caps the account's
+  // total ephemeral volume size (40 GB on Tier 1), and idle sandboxes keep
+  // theirs, so chat sessions get a smaller disk than the code tools and are
+  // deleted after this long idle.
+  LOR_SESSION_DISK_MB: z.coerce.number().int().positive().default(2048),
+  LOR_SESSION_SANDBOX_TTL: z
+    .string()
+    .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")
+    .default("7d"),
   LOR_EMBED_MODEL: defaultedString("alibaba/qwen3-embedding-4b"),
   LOR_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(2560),
   // Reranks retrieval candidates; on by default, "false" turns it off.
