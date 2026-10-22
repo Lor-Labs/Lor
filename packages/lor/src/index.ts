@@ -124,6 +124,7 @@ import {
   type OnPlanUpdated,
   planContextSnapshot,
   planRulesSection,
+  planStateSection,
   planTools,
   type RunPlanContext,
   type StartPlanInput,
@@ -174,6 +175,7 @@ import {
 import { openSessionSandbox, SESSION_WORK_DIR } from "./sandbox/session-sandbox"
 import type { HarnessOwner } from "./session-core"
 import {
+  type PiCompaction,
   type PiTurnUsage,
   pausedApprovals,
   piWorkDir,
@@ -337,21 +339,28 @@ function billedModel(model: string): string {
   return known ?? LOR_MODEL
 }
 
-// Pi's turn total also holds compaction and cache warming, which no step
-// reports: the part beyond the steps, at the requested model.
+// Lor's focus for Pi's compaction summary, which becomes all the model keeps
+// of older messages (pi-harness-runbook.md §4.4).
+const COMPACTION_FOCUS =
+  'This is the working context of Lor, a team workspace agent. Copy exactly and in full: message IDs, citation markers such as [[...]], plan, approval and file IDs, URLs, file paths and filenames, branch, database, table and column names, and every other identifier it may need again. Keep exact queries, commands and search terms that worked (and the ones that failed, with why), concrete findings with their exact values ("2,553 policies", not "several thousand"), files shared and messages sent, open decisions, pending approvals and plan progress. Facts only.'
+const PLAN_AFTER_COMPACTION =
+  "[Earlier messages were summarized. The plan state below is current and overrides the summary.]"
+
+// Pi's turn total also holds cache warming, which neither the steps nor the
+// compaction summaries report: the part beyond them, at the requested model.
 function extraTurnUsage(
   total: PiTurnUsage,
-  steps: PiTurnUsage
+  recorded: PiTurnUsage
 ): RunStepRecord | null {
-  const inputTokens = Math.max(0, total.inputTokens - steps.inputTokens)
-  const outputTokens = Math.max(0, total.outputTokens - steps.outputTokens)
+  const inputTokens = Math.max(0, total.inputTokens - recorded.inputTokens)
+  const outputTokens = Math.max(0, total.outputTokens - recorded.outputTokens)
   if (inputTokens === 0 && outputTokens === 0) return null
   return {
     model: LOR_MODEL,
     inputTokens,
     cachedInputTokens: Math.min(
       inputTokens,
-      Math.max(0, total.cachedInputTokens - steps.cachedInputTokens)
+      Math.max(0, total.cachedInputTokens - recorded.cachedInputTokens)
     ),
     outputTokens,
   }
@@ -3058,9 +3067,10 @@ export async function respond(
       let text = ""
       let steps = 0
       let toolCallCount = 0
-      // Each step is billed and counted as it finishes, at the model that
-      // answered, so a stopped or timed-out turn keeps what it used.
-      const stepTotals: PiTurnUsage = {
+      // Each step and compaction summary is billed and counted as it
+      // finishes, at the model that answered, so a stopped or timed-out turn
+      // keeps what it used.
+      const recorded: PiTurnUsage = {
         inputTokens: 0,
         cachedInputTokens: 0,
         outputTokens: 0,
@@ -3069,6 +3079,20 @@ export async function respond(
       let stepModel = LOR_MODEL
       let stepStart = performance.now()
       let stepToolCalls = 0
+      let compactions = 0
+      const record = async (
+        usage: RunStepRecord,
+        kind: "step" | "compaction"
+      ) => {
+        recorded.inputTokens += usage.inputTokens
+        recorded.cachedInputTokens += usage.cachedInputTokens
+        recorded.outputTokens += usage.outputTokens
+        const { creditsSpent } = await harness.recordUsage(usage, kind)
+        if (creditsSpent >= budgets.credits) spendStop.abort()
+        else if (creditsSpent >= budgets.credits * SPEND_ANSWER_SHARE) {
+          nearSpendLimit = true
+        }
+      }
       const finishStep = async (usage: ReturnType<typeof usageTokens>) => {
         const step: RunStepRecord = {
           model: stepModel,
@@ -3076,10 +3100,7 @@ export async function respond(
           cachedInputTokens: usage.cachedInputTokens ?? 0,
           outputTokens: usage.outputTokens ?? 0,
         }
-        stepTotals.inputTokens += step.inputTokens
-        stepTotals.cachedInputTokens += step.cachedInputTokens
-        stepTotals.outputTokens += step.outputTokens
-        stepTotals.reasoningTokens += usage.reasoningTokens ?? 0
+        recorded.reasoningTokens += usage.reasoningTokens ?? 0
         if (step.inputTokens === 0 && step.outputTokens === 0) return
         onUsage?.({
           workspaceId: ctx.workspaceId,
@@ -3096,11 +3117,32 @@ export async function respond(
         steps++
         stepStart = performance.now()
         stepToolCalls = toolCallCount
-        const { creditsSpent } = await harness.recordStep(step)
-        if (creditsSpent >= budgets.credits) spendStop.abort()
-        else if (creditsSpent >= budgets.credits * SPEND_ANSWER_SHARE) {
-          nearSpendLimit = true
-        }
+        await record(step, "step")
+      }
+      const compaction: PiCompaction = {
+        focus: COMPACTION_FOCUS,
+        onUsage: async (usage, model) => {
+          const summary: RunStepRecord = {
+            model: billedModel(model),
+            inputTokens: usage.inputTokens,
+            cachedInputTokens: usage.cachedInputTokens,
+            outputTokens: usage.outputTokens,
+          }
+          onUsage?.({
+            workspaceId: ctx.workspaceId,
+            tool: "lor.respond",
+            ...summary,
+            requestedModel: LOR_MODEL,
+            reasoningTokens: usage.reasoningTokens,
+            billingKey: `${run.runId}:compaction-${compactions++}`,
+            metadata: { usage: "compaction" },
+          })
+          await record(summary, "compaction")
+        },
+        afterContext: () =>
+          planRef.current
+            ? `${PLAN_AFTER_COMPACTION}${planStateSection(planContextSnapshot(planRef.current))}`
+            : null,
       }
       const turn = await runPiTurn({
         sessionId: conversationId,
@@ -3135,6 +3177,7 @@ export async function respond(
           stepModel = billedModel(model)
         },
         toolBlock,
+        compaction,
         onPart: async (part) => {
           if (!firstPartLogged) {
             firstPartLogged = true
@@ -3284,7 +3327,7 @@ export async function respond(
       // Only a finished turn has a total; billed before the save, since the
       // tokens are spent either way.
       const extraUsage = turn.usage
-        ? extraTurnUsage(turn.usage, stepTotals)
+        ? extraTurnUsage(turn.usage, recorded)
         : null
       if (extraUsage) {
         onUsage?.({
@@ -3293,7 +3336,7 @@ export async function respond(
           ...extraUsage,
           requestedModel: LOR_MODEL,
           billingKey: `${run.runId}:turn`,
-          metadata: { usage: "compaction-and-cache" },
+          metadata: { usage: "cache-warming" },
         })
       }
       await harness.saveTurn({

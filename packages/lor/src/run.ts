@@ -123,7 +123,7 @@ export type RunStepRecord = {
 // approvals it paused on.
 export type RunTurnRecord = {
   save: PiTurnSave | null
-  // Usage in Pi's turn total beyond the recorded steps: compaction and
+  // Usage in Pi's turn total beyond the recorded steps and compactions:
   // cache warming.
   extraUsage: RunStepRecord | null
   toolCalls: number
@@ -157,9 +157,13 @@ export type RunHarness = {
   sandboxMode: TurnSandboxMode
   pausedSandboxContext?: AgentRunContext["sandboxContext"]
   pausedSandboxMode?: TurnSandboxMode
-  // Adds one step to the run counters under the run's lease, so spend is
-  // checked inside the turn. Throws when the lease moved.
-  recordStep: (step: RunStepRecord) => Promise<RunCounters>
+  // Adds one model call (a step, or a compaction summary that is not a step)
+  // to the run counters under the run's lease, so spend is checked inside
+  // the turn. Throws when the lease moved.
+  recordUsage: (
+    usage: RunStepRecord,
+    kind: "step" | "compaction"
+  ) => Promise<RunCounters>
   // One transaction under the run's lease: the Pi log, the new head and the
   // counters. Throws when the lease or the saved head moved.
   saveTurn: (turn: RunTurnRecord) => Promise<RunCounters>

@@ -103,8 +103,11 @@ export type RunExecution = {
   handle: RunHandle
   resume: ResumeState | null
   counters: () => RunCounters
-  // Adds one finished step to the counters (RunHarness.recordStep).
-  recordStep: (step: RunStepRecord) => Promise<RunCounters>
+  // Adds one model call to the counters (RunHarness.recordUsage).
+  recordUsage: (
+    usage: RunStepRecord,
+    kind: "step" | "compaction"
+  ) => Promise<RunCounters>
   // Saves a finished Pi turn for the conversation `owner` (RunHarness.saveTurn).
   saveTurn: (owner: HarnessOwner, turn: RunTurnRecord) => Promise<RunCounters>
   // Nested billable usage (investigate_code) folds into the turn's save.
@@ -433,13 +436,16 @@ export async function claimAgentRun(
     return credits
   }
 
-  // One finished step, so the spend limit is checked inside the turn
-  // (pi-harness-runbook.md §4.5).
-  const recordStep = async (step: RunStepRecord): Promise<RunCounters> => {
-    const credits = (await creditsFor(step)) + (await nestedCredits())
+  // One model call as it finishes, so the spend limit is checked inside the
+  // turn (pi-harness-runbook.md §4.5). A compaction summary is not a step.
+  const recordUsage = async (
+    usage: RunStepRecord,
+    kind: "step" | "compaction"
+  ): Promise<RunCounters> => {
+    const credits = (await creditsFor(usage)) + (await nestedCredits())
     const row = await db
       .update(schema.agentRun)
-      .set(usageIncrements(1, step, credits))
+      .set(usageIncrements(kind === "step" ? 1 : 0, usage, credits))
       .where(
         and(
           eq(schema.agentRun.id, runId),
@@ -714,7 +720,7 @@ export async function claimAgentRun(
       handle,
       resume,
       counters: () => counters,
-      recordStep,
+      recordUsage,
       saveTurn,
       noteNestedUsage: (u) => {
         pendingNested.push(u)

@@ -1257,7 +1257,7 @@ moved here from 1.4, because nothing runs without a sandbox.
     - Sandbox tools run as "bypass" (1.3f).
     - No mid-turn steering or ambient messages: a steered message reaches the
       next turn's delta (1.3g).
-    - Pi's default compaction, without Lor's instructions (1.3g).
+    - Pi's default compaction, without Lor's instructions (done in 1.3g-2).
     - Usage is summed per step from `finish-step` parts, and the turn total
       is used when the turn finishes. So a stopped or timed-out turn still
       bills and counts its finished steps, because the total rejects on abort.
@@ -1598,9 +1598,33 @@ moved here from 1.4, because nothing runs without a sandbox.
     - **Not changed:** Pi's built-in tool output is not added to
       `toolOutputBytes`, because the host tools' total cap reads that
       counter; step, tool-call and token ceilings stay unenforced.
-  - [ ] **1.3g-2 Compaction:** Lor's instructions through
-    `session_before_compact`, DeepSeek's window, the plan state, exact
-    compaction billing.
+  - [x] **1.3g-2 Compaction** (2026-10-21; not run yet):
+    - **Lor's focus:** the inline extension handles
+      `session_before_compact` by calling Pi's exported `compact()` with
+      `COMPACTION_FOCUS` (copy IDs, `[[...]]` citations, URLs, paths and
+      exact values; keep open decisions, approvals and plan progress). Pi
+      adds it to its structured prompt as "Additional focus"; Pi's trigger,
+      cut point and iterative summary are unchanged. The summary runs on the
+      session model with Pi's retry policy (3 tries, 2 s), through
+      `modelRegistry.streamSimple` with the gateway options added in
+      `onPayload` (summary requests skip `before_provider_request`). If the
+      handler throws, Pi falls back to its own summary.
+    - **Window:** already in place since 1.3c: `gatewayModels` caps every
+      model at `LOR_CONTEXT_WINDOW` (1,000,000).
+    - **Plan state:** after a compaction in a turn, the `context` hook
+      appends the current plan state (`planStateSection`) as the last
+      message of every later request in that turn. Later turns start with
+      it in their prompt.
+    - **Billing:** each summary is billed as `lor.respond` (debited, as the
+      Pi path has done since 1.3c through the turn total), at the model that
+      answered, with `billingKey` `<runId>:compaction-<n>`, and counted
+      toward spend (`recordUsage(..., "compaction")`, not a step). The
+      turn-total remainder now covers cache warming only. The legacy engine
+      recorded compaction as `lor.compact`, which is not debited: say if
+      compaction should be free to the workspace.
+    - **Not verified:** a live compaction (it starts near 984k tokens of
+      context), the Gateway's model name on the summary, and the hook order
+      on a resumed turn.
   - [ ] **1.3g-3 Steering and ambient messages** through the `context` hook.
   - [ ] **1.3g-4 Sandbox classifier eval:** runner, real-traffic loader and
     case format; Jacob supplies the dangerous sets.

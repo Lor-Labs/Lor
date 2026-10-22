@@ -14,8 +14,12 @@ import {
   type PiBuiltinToolApproval,
   type PiHarnessExtensionFactory,
 } from "@ai-sdk/harness-pi"
+import type { Usage } from "@earendil-works/pi-ai"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
-import { CURRENT_SESSION_VERSION } from "@earendil-works/pi-coding-agent"
+import {
+  CURRENT_SESSION_VERSION,
+  compact,
+} from "@earendil-works/pi-coding-agent"
 import {
   type JSONSchema7,
   jsonSchema,
@@ -213,22 +217,105 @@ function withGatewayOptions(
 
 type TurnProbe = { logFile?: string; loadMismatch?: boolean }
 
+// Pi's defaults; an undefined policy would turn summary retries off.
+const COMPACTION_RETRY = { enabled: true, maxRetries: 3, baseDelayMs: 2_000 }
+
+export type PiCompaction = {
+  // Added to Pi's summary prompt as "Additional focus".
+  focus: string
+  // Each summary's usage and the model that wrote it. A throw is ignored:
+  // a lost lease aborts the turn on its own.
+  onUsage: (usage: PiTurnUsage, model: string) => void | Promise<void>
+  // Appended to the context after a compaction in this turn, so state the
+  // summary may have dropped is current again (the plan).
+  afterContext?: () => string | null
+}
+
+function turnUsage(usage: Usage): PiTurnUsage {
+  return {
+    inputTokens: usage.input + usage.cacheRead + usage.cacheWrite,
+    cachedInputTokens: usage.cacheRead,
+    outputTokens: usage.output,
+    reasoningTokens: usage.reasoning ?? 0,
+  }
+}
+
 // Trusted inline extension: gateway routing on every agent-loop request, the
-// answering model of each message, the tool block near a limit, and the load
-// check. Handler errors are swallowed by Pi (except `tool_call`, which fails
-// closed), so a mismatch sets a flag and aborts instead of throwing.
+// answering model of each message, the tool block near a limit, Lor's
+// compaction, and the load check. Handler errors are swallowed by Pi (except
+// `tool_call`, which fails closed), so a mismatch sets a flag and aborts
+// instead of throwing.
 function lorPiExtension(input: {
   gateway: Record<string, unknown>
+  sessionKey: string
   expected: HarnessHead | null
   convertsFormat: boolean
   probe: TurnProbe
   onAssistantModel?: (model: string) => void
   toolBlock?: () => string | null
+  compaction?: PiCompaction
 }): PiHarnessExtensionFactory {
   return (pi) => {
     pi.on("before_provider_request", (event) =>
       withGatewayOptions(event.payload, input.gateway)
     )
+    // Pi's cut point and iterative summary with Lor's focus (§4.4). Summary
+    // requests skip before_provider_request, so they get the gateway options
+    // here. If this throws, Pi falls back to its own summary.
+    let compacted = false
+    pi.on("session_before_compact", async (event, ctx) => {
+      const { compaction: lor } = input
+      if (!lor || !ctx.model) return
+      let answeredBy = ctx.model.id
+      const compaction = await compact(
+        event.preparation,
+        ctx.model,
+        undefined,
+        undefined,
+        lor.focus,
+        event.signal,
+        ctx.thinkingLevel,
+        (model, context, options) => {
+          const stream = ctx.modelRegistry.streamSimple(model, context, {
+            ...options,
+            onPayload: async (payload, payloadModel) =>
+              withGatewayOptions(
+                (await options?.onPayload?.(payload, payloadModel)) ?? payload,
+                input.gateway
+              ),
+          })
+          void stream.result().then(
+            (message) => {
+              answeredBy = message.responseModel ?? message.model
+            },
+            () => {}
+          )
+          return stream
+        },
+        undefined,
+        COMPACTION_RETRY,
+        undefined,
+        input.sessionKey
+      )
+      compacted = true
+      if (compaction.usage) {
+        await Promise.resolve(
+          lor.onUsage(turnUsage(compaction.usage), answeredBy)
+        ).catch(() => {})
+      }
+      return { compaction }
+    })
+    pi.on("context", (event) => {
+      const text = compacted ? input.compaction?.afterContext?.() : null
+      return text
+        ? {
+            messages: [
+              ...event.messages,
+              { role: "user" as const, content: text, timestamp: Date.now() },
+            ],
+          }
+        : undefined
+    })
     pi.on("message_end", (event) => {
       const message = event.message
       if (message.role === "assistant") {
@@ -382,6 +469,7 @@ export type PiTurnInput = {
   // A reason to refuse every tool call so the model answers instead: the
   // turn is near its spend or time limit.
   toolBlock?: () => string | null
+  compaction?: PiCompaction
 }
 
 export type PiTurnUsage = {
@@ -460,11 +548,13 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
       extensionFactories: [
         lorPiExtension({
           gateway: { ...input.gatewayOptions, sessionId: input.sessionKey },
+          sessionKey: input.sessionKey,
           expected: input.saved?.head ?? null,
           convertsFormat,
           probe,
           onAssistantModel: input.onAssistantModel,
           toolBlock: input.toolBlock,
+          compaction: input.compaction,
         }),
       ],
       thinkingLevel: "high",
