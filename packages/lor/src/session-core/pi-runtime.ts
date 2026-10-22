@@ -254,8 +254,22 @@ function lorPiExtension(input: {
   onAssistantModel?: (model: string) => void
   toolBlock?: () => string | null
   compaction?: PiCompaction
+  onBoundary?: (final: boolean) => Promise<string | null>
 }): PiHarnessExtensionFactory {
   return (pi) => {
+    // Pi takes steering messages right after `turn_end`, saves them as
+    // custom messages (sent to the model as user text) and continues when
+    // the model would otherwise stop.
+    pi.on("turn_end", async (event) => {
+      if (!input.onBoundary || event.outcome !== "completed") return
+      const text = await input.onBoundary(event.toolResults.length === 0)
+      if (text) {
+        pi.sendMessage(
+          { customType: "lor-conversation", content: text, display: false },
+          { deliverAs: "steer" }
+        )
+      }
+    })
     pi.on("before_provider_request", (event) =>
       withGatewayOptions(event.payload, input.gateway)
     )
@@ -470,6 +484,11 @@ export type PiTurnInput = {
   // turn is near its spend or time limit.
   toolBlock?: () => string | null
   compaction?: PiCompaction
+  // Messages that arrived during the turn, taken at each step boundary and
+  // saved into the Pi log before the next model call (Pi steering). `final`
+  // when the model stopped calling tools: text returned then makes it answer
+  // again, so only messages that need an answer belong in it.
+  onBoundary?: (final: boolean) => Promise<string | null>
 }
 
 export type PiTurnUsage = {
@@ -555,6 +574,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
           onAssistantModel: input.onAssistantModel,
           toolBlock: input.toolBlock,
           compaction: input.compaction,
+          onBoundary: input.onBoundary,
         }),
       ],
       thinkingLevel: "high",

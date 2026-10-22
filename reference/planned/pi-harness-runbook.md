@@ -771,6 +771,16 @@ Pi `steer`. Pi follow-up messages are not exposed. Abort, `stop`,
 hook (appended at the end) rather than `steer`, and record coverage at the turn
 save. Map stop to abort plus a stop save (§4.3).
 
+**Revised in 1.3g-3 (2026-10-21):** a `context`-hook message is not saved in
+the Pi log, so after the turn the model would lose it, or see it twice if the
+next delta repeated it. Instead, a `turn_end` hook drains the conversation and
+sends the messages with the extension's `pi.sendMessage(..., { deliverAs:
+"steer" })`. Pi 1.3.0 takes steering messages only after the whole tool batch
+finishes (no calls are skipped), saves them as custom messages (sent to the
+model as user text) before the next model call, and continues when the model
+would otherwise stop. This is not the harness's text-only
+`experimental_steerTurn`. Coverage is still recorded at the turn save.
+
 ### 4.8 System prompt and prompt cache
 
 **Observed:** Pi's default prompt (C `buildSystemPromptSections`) opens with "You
@@ -1256,7 +1266,7 @@ moved here from 1.4, because nothing runs without a sandbox.
     - Approval-gated tools are refused with a reason (1.3e).
     - Sandbox tools run as "bypass" (1.3f).
     - No mid-turn steering or ambient messages: a steered message reaches the
-      next turn's delta (1.3g).
+      next turn's delta (done in 1.3g-3).
     - Pi's default compaction, without Lor's instructions (done in 1.3g-2).
     - Usage is summed per step from `finish-step` parts, and the turn total
       is used when the turn finishes. So a stopped or timed-out turn still
@@ -1625,7 +1635,29 @@ moved here from 1.4, because nothing runs without a sandbox.
     - **Not verified:** a live compaction (it starts near 984k tokens of
       context), the Gateway's model name on the summary, and the hook order
       on a resumed turn.
-  - [ ] **1.3g-3 Steering and ambient messages** through the `context` hook.
+  - [x] **1.3g-3 Steering and ambient messages** (2026-10-21; not run yet;
+    §4.7 as revised):
+    - **Boundary:** after each completed step, the extension's `turn_end`
+      hook calls `run.drainConversation()` (chat: consumed steer rows plus up
+      to 20 ambient messages; voice: requests claimed from the call) and
+      sends them as one `lor-conversation` custom message through Pi
+      steering. Steered messages are marked "for you"; ambient ones are
+      "context only: act on these only if they are addressed to you".
+    - **Final boundary:** when the model stopped calling tools, only steered
+      messages are sent (Pi then answers them in the same turn). Ambient
+      messages drained then are not covered, so the next turn's delta
+      carries them.
+    - **Coverage:** ambient messages saved into the Pi log are added to the
+      run's `coveredMessageIds` inside the `saveTurn` transaction, together
+      with `pausedSandbox` (now merged from the worker's copy of the run
+      context instead of a SQL jsonb merge). Consumed steer rows were
+      already skipped by the delta.
+    - **Session chat:** realtime still queues every session message as its
+      own run (`threadScope`), so chat steer rows stay rare; ambient
+      messages and voice requests are the main users.
+    - **Known gap:** a steer row or voice request drained by an attempt that
+      crashes before its turn save is consumed but not in the saved log, so
+      it is lost (no takeover requeue for Pi runs yet).
   - [ ] **1.3g-4 Sandbox classifier eval:** runner, real-traffic loader and
     case format; Jacob supplies the dangerous sets.
 

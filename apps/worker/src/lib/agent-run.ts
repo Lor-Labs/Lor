@@ -26,6 +26,7 @@ import type {
 } from "@repo/db/schema"
 import {
   type ConversationUpdate,
+  mergeRunContextCoverage,
   type RunCounters,
   type RunHandle,
   type RunResume,
@@ -473,6 +474,17 @@ export async function claimAgentRun(
     const credits =
       (turn.extraUsage ? await creditsFor(turn.extraUsage) : 0) +
       (await nestedCredits())
+    // The turn's coverage and its paused sandbox state ride the save, so a
+    // lost lease never records one without the other.
+    const context =
+      runContext && (turn.pausedSandbox || turn.coveredMessageIds.length > 0)
+        ? {
+            ...mergeRunContextCoverage(runContext, turn.coveredMessageIds),
+            ...(turn.pausedSandbox
+              ? { pausedSandbox: turn.pausedSandbox }
+              : {}),
+          }
+        : null
     const row = await db
       .transaction(async (tx) => {
         if (turn.save) {
@@ -499,11 +511,7 @@ export async function claimAgentRun(
             ...usageIncrements(0, turn.extraUsage, credits),
             toolCalls: sql`${schema.agentRun.toolCalls} + ${turn.toolCalls}`,
             toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${turn.toolOutputBytes}`,
-            ...(turn.pausedSandbox
-              ? {
-                  context: sql`coalesce(${schema.agentRun.context}, '{}'::jsonb) || ${JSON.stringify({ pausedSandbox: turn.pausedSandbox })}::jsonb`,
-                }
-              : {}),
+            ...(context ? { context } : {}),
           })
           .where(
             and(
@@ -527,6 +535,7 @@ export async function claimAgentRun(
         }
         throw err
       })
+    if (context) runContext = context
     counters = countersOf(row)
     return counters
   }

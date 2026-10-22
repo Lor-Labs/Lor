@@ -150,6 +150,7 @@ import {
   userDisplayName,
 } from "./retrieval"
 import {
+  type ConversationUpdate,
   defaultRunBudgets,
   type PausedTurnDrop,
   type PendingApproval,
@@ -186,7 +187,7 @@ import { generateSmallObject } from "./structured"
 import { chooseThreadWindow } from "./thread-window"
 import { guardTools } from "./tool-guard"
 import { itemsInText, sessionsTouching, withTouchHints } from "./touches"
-import { sanitizeRosterLabel } from "./transcript"
+import { formatSpeakerLine, sanitizeRosterLabel } from "./transcript"
 import {
   completeLoopTool,
   loopSessionPromptSection,
@@ -345,6 +346,27 @@ const COMPACTION_FOCUS =
   'This is the working context of Lor, a team workspace agent. Copy exactly and in full: message IDs, citation markers such as [[...]], plan, approval and file IDs, URLs, file paths and filenames, branch, database, table and column names, and every other identifier it may need again. Keep exact queries, commands and search terms that worked (and the ones that failed, with why), concrete findings with their exact values ("2,553 policies", not "several thousand"), files shared and messages sent, open decisions, pending approvals and plan progress. Facts only.'
 const PLAN_AFTER_COMPACTION =
   "[Earlier messages were summarized. The plan state below is current and overrides the summary.]"
+
+// Messages that landed while Lor worked, saved into the Pi log at a step
+// boundary (pi-harness-runbook.md §4.7). Steered ones were sent to Lor;
+// ambient ones are people talking in the conversation.
+function conversationUpdateText(update: ConversationUpdate): string | null {
+  const lines = (messages: ConversationUpdate["steered"]) =>
+    messages.map((m) => formatSpeakerLine(m.authorName, m.content)).join("\n")
+  const parts = [
+    ...(update.steered.length > 0
+      ? [
+          `[New messages for you while you were working. Take them into account now.]\n${lines(update.steered)}`,
+        ]
+      : []),
+    ...(update.ambient.length > 0
+      ? [
+          `[Meanwhile in this conversation. Context only: act on these only if they are addressed to you.]\n${lines(update.ambient)}`,
+        ]
+      : []),
+  ]
+  return parts.length > 0 ? parts.join("\n\n") : null
+}
 
 // Pi's turn total also holds cache warming, which neither the steps nor the
 // compaction summaries report: the part beyond them, at the requested model.
@@ -3119,6 +3141,19 @@ export async function respond(
         stepToolCalls = toolCallCount
         await record(step, "step")
       }
+      // Ambient messages saved into the Pi log this turn: the next turn's
+      // delta skips them. At the final boundary only steered messages are
+      // taken; ambient ones wait for that delta.
+      const coveredAmbient: string[] = []
+      const drain = run.drainConversation
+      const onBoundary = drain
+        ? async (final: boolean) => {
+            const update = await drain()
+            const ambient = final ? [] : update.ambient
+            coveredAmbient.push(...ambient.map((m) => m.messageId))
+            return conversationUpdateText({ steered: update.steered, ambient })
+          }
+        : undefined
       const compaction: PiCompaction = {
         focus: COMPACTION_FOCUS,
         onUsage: async (usage, model) => {
@@ -3178,6 +3213,7 @@ export async function respond(
         },
         toolBlock,
         compaction,
+        onBoundary,
         onPart: async (part) => {
           if (!firstPartLogged) {
             firstPartLogged = true
@@ -3350,6 +3386,7 @@ export async function respond(
           approvals.length > 0
             ? { mode: activeSandboxMode, context: sandboxApproval.snapshot() }
             : null,
+        coveredMessageIds: coveredAmbient,
       })
       if (approvals.length > 0) {
         if (planRef.current) {

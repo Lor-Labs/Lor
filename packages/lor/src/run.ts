@@ -132,6 +132,9 @@ export type RunTurnRecord = {
   planId: string | null
   // Set when the turn ended paused; saved with the approvals.
   pausedSandbox: AgentRunContext["pausedSandbox"] | null
+  // Ambient messages the turn saved into the Pi log, added to the run's
+  // coverage so the next turn's delta skips them.
+  coveredMessageIds: string[]
 }
 
 // The conversation's saved Pi state and its save. The worker binds it, since
