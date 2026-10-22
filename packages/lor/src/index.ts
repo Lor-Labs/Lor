@@ -296,7 +296,7 @@ function sandboxPromptLine(
     ? "Files people share appear in the conversation as [file: name — type, size — url] lines; download a url into your sandbox when the work needs the file. "
     : ""
   const network = builtins.includes("bash")
-    ? "Its internet access reads from any site (GET and HEAD) but sends nothing out: other requests get HTTP 403 with a Proxy-Error: firewall_blocked header, except git clone and fetch from GitHub, GitLab and Bitbucket. Do not retry a blocked request or work around it; say what could not be sent. "
+    ? "Its internet access reads from any site (GET and HEAD) but sends nothing out: other requests get HTTP 403 with a Proxy-Error: firewall_blocked header, except git clone and fetch from GitHub, GitLab and Bitbucket. The 403 message names the host, but only the method is blocked: reads from that host still work. Do not retry a blocked request or work around it; say what could not be sent. "
     : ""
   return `- Your sandbox: a private Linux computer for this session, with Python (pandas, matplotlib, openpyxl) and Node. ${tools}Files in your working folder stay between turns of this session. Use it to run code, work with data and make files: reports, cleaned or analyzed data, documents, charts. ${share}${download}${network}The sandbox holds no credentials for the team's services: reach those only through your other tools.`
 }
