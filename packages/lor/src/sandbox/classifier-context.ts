@@ -101,6 +101,9 @@ function scriptTarget(name: string, args: Argv): string | null | undefined {
   const rest = packageRunner && args[0] === "run" ? args.slice(1) : args
   for (const arg of rest) {
     if (arg == null) return undefined
+    // `-` reads the program from stdin: a literal heredoc is in the call,
+    // and any other source is flagged by the rules.
+    if (arg === "-") return null
     if (
       /^-[a-z]*c[a-z]*$/.test(arg) ||
       (!SHELLS.has(name) && ["-e", "--eval", "-p", "--print"].includes(arg)) ||
@@ -143,6 +146,10 @@ export async function classifierFacts(
     }
     if (name === "cd") {
       const dir = argv[1]
+      // Into the folder it is already in: a no-op wherever it appears.
+      if (dir && !dir.startsWith("~") && posix.resolve(cwd, dir) === cwd) {
+        continue
+      }
       if (
         index !== 0 ||
         !plain ||

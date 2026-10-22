@@ -3099,6 +3099,9 @@ export async function respond(
         reasoningTokens: 0,
       }
       let stepModel = LOR_MODEL
+      // Set by the first finish-step of an assistant message, cleared when
+      // the next message ends.
+      let stepBilled = false
       let stepStart = performance.now()
       let stepToolCalls = 0
       let compactions = 0
@@ -3210,6 +3213,7 @@ export async function respond(
         abortSignal,
         onAssistantModel: (model) => {
           stepModel = billedModel(model)
+          stepBilled = false
         },
         toolBlock,
         compaction,
@@ -3231,10 +3235,12 @@ export async function respond(
           } else if (part.type === "reasoning-delta") {
             await onReasoning?.(part.text, text.length)
           } else if (part.type === "finish-step") {
-            // The adapter also sends an early copy of a step, with the same
-            // usage, while Pi waits on a Lor tool result: count it once.
-            // A paused step is counted by the run that finishes it.
-            if (part.rawFinishReason !== "host-input") {
+            // Billed at its first finish-step. The adapter sends an early
+            // copy, with the same usage, while Pi waits on a Lor tool result
+            // or an approval; a paused turn never sends the regular one, and
+            // its replay on resume carries zero usage.
+            if (!stepBilled) {
+              stepBilled = true
               await finishStep(usageTokens(part.usage))
             }
           } else if (part.type === "tool-call") {

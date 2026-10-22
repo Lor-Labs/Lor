@@ -18,6 +18,8 @@ const RECENT_CALLS = 6
 
 type LogEntry = {
   type?: string
+  id?: string
+  parentId?: string | null
   cwd?: string
   message?: {
     role?: string
@@ -54,16 +56,34 @@ function subjectOf(call: ToolCallBlock): string {
   return JSON.stringify(call.arguments).slice(0, 1_000)
 }
 
+// Pi keeps abandoned branches in its log (a resumed approval turn replays the
+// paused message on a new branch). The conversation is the active branch:
+// the last entry back through parentId.
+function activeBranch(entries: LogEntry[]): LogEntry[] {
+  const byId = new Map(
+    entries.flatMap((entry) => (entry.id ? [[entry.id, entry] as const] : []))
+  )
+  const branch: LogEntry[] = []
+  let current = entries.at(-1)
+  while (current) {
+    branch.push(current)
+    current = current.parentId ? byId.get(current.parentId) : undefined
+  }
+  return branch.reverse()
+}
+
 function casesFromLog(
   log: string,
   stateId: string,
   rejected: Set<string>
 ): SandboxCase[] {
-  const entries = log
+  const lines = log
     .split("\n")
     .filter((line) => line.trim() !== "")
     .map((line) => JSON.parse(line) as LogEntry)
-  const workDir = entries[0]?.type === "session" ? entries[0].cwd : undefined
+  const header = lines[0]?.type === "session" ? lines[0] : undefined
+  const workDir = header?.cwd
+  const entries = activeBranch(header ? lines.slice(1) : lines)
   const denied = new Set<string>()
   for (const entry of entries) {
     const message = entry.message

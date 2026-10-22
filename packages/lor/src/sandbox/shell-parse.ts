@@ -4,7 +4,8 @@ import type * as TreeSitter from "@vscode/tree-sitter-wasm"
 
 // Parses a `bash` tool command with tree-sitter-bash, so the sandbox policy
 // judges every command it runs: nested in `$( )`, backticks, subshells,
-// control flow, `bash -c` scripts and wrapper arguments (`sudo`, `env`,
+// control flow, `bash -c` scripts, literal heredocs into a shell, and
+// wrapper arguments (`sudo`, `env`,
 // `xargs`, `find -exec`, …). Two jobs, kept apart as in Codex: `plain` proves
 // a script is only plain words joined by && || ; |, and `hidden` names a
 // construct that hides what runs. See reference/planned/sandbox-safety-research.md.
@@ -215,6 +216,50 @@ function readsProgramFromStdin(argv: Argv): boolean {
   )
 }
 
+const DYNAMIC_BODY = ["expansion", "simple_expansion", "command_substitution"]
+
+// The program an interpreter that reads stdin gets. A heredoc or here-string
+// with a literal body is in the call itself, like `-c`; a pipe, an input
+// file or a body with expansions hides what runs. Null when nothing feeds
+// stdin. A heredoc without a body node (another grammar version) is hidden.
+function stdinProgram(node: Node): string | "hidden" | null {
+  if (inPipelineAfterFirst(node)) return "hidden"
+  const redirects = [
+    ...node.childrenForFieldName("redirect"),
+    ...(node.parent?.type === "redirected_statement"
+      ? node.parent.childrenForFieldName("redirect")
+      : []),
+  ]
+  let program: string | null = null
+  for (const redirect of redirects) {
+    if (!redirect) continue
+    if (redirect.type === "heredoc_redirect") {
+      const body = redirect.namedChildren.find(
+        (child) => child?.type === "heredoc_body"
+      )
+      if (
+        !body ||
+        DYNAMIC_BODY.some((type) => body.descendantsOfType(type).length > 0)
+      ) {
+        return "hidden"
+      }
+      program = body.text
+    } else if (redirect.type === "herestring_redirect") {
+      const value = staticValue(
+        redirect.namedChildren.find(
+          (child) => child?.type !== "file_descriptor"
+        ) ?? null
+      )
+      if (value === null) return "hidden"
+      program = value
+    } else if (redirect.type === "file_redirect") {
+      const op = redirect.children.find((c) => c && !c.isNamed)?.type ?? ""
+      if (op.startsWith("<")) return "hidden"
+    }
+  }
+  return program
+}
+
 function inPipelineAfterFirst(node: Node): boolean {
   let child = node
   let parent = node.parent
@@ -285,13 +330,15 @@ function collect(
       const script = shellScript(argv)
       if (script === null) out.hidden ??= "runs a computed shell script"
       else if (script !== undefined) nested.push({ script, depth: level + 1 })
-      else if (
-        readsProgramFromStdin(argv) &&
-        (inPipelineAfterFirst(node) ||
-          node.childrenForFieldName("redirect").length > 0 ||
-          node.parent?.type === "redirected_statement")
-      ) {
-        out.hidden ??= "pipes into a shell or interpreter"
+      else if (readsProgramFromStdin(argv)) {
+        // A literal heredoc into a shell is a script to check like `-c`;
+        // into another interpreter it is inline code, like `python3 -c`.
+        const program = stdinProgram(node)
+        if (program === "hidden") {
+          out.hidden ??= "pipes into a shell or interpreter"
+        } else if (program !== null && SHELLS.has(name ?? "")) {
+          nested.push({ script: program, depth: level + 1 })
+        }
       }
       if (
         (SHELLS.has(name ?? "") ||
