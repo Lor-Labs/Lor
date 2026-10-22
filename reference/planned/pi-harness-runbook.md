@@ -1902,8 +1902,8 @@ reach worker files or bypass Lor policy.
     - single model calls: titles, structured output, meeting insights,
       voice memory, transcription.
 
-    Open for Jacob: whether the project-archive summary becomes a session
-    run.
+    Decided (Jacob, 2026-10-22): the project-archive summary stays a
+    background job for now. Projects are not shipping yet; redo it later.
   - **Left as is:** the `threadRootId ?? channelId` scope fallbacks in
     realtime and `startScopeContinuationRun`. Every caller passes a session
     thread now.
