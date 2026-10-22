@@ -135,6 +135,8 @@ export type RunTurnRecord = {
   // Ambient messages the turn saved into the Pi log, added to the run's
   // coverage so the next turn's delta skips them.
   coveredMessageIds: string[]
+  // Pi's context count after the turn, for the context meter.
+  contextUsage: AgentRunContext["contextUsage"] | null
 }
 
 // The conversation's saved Pi state and its save. The worker binds it, since

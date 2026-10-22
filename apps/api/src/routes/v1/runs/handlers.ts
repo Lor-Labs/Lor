@@ -8,9 +8,11 @@ import {
   inArray,
   isNotNull,
   isNull,
+  or,
   schema,
   sql,
 } from "@repo/db"
+import type { AgentRunContextUsage } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { settleAbandonedRunPlan } from "@repo/lor/plans"
 import { AGENT_RUN_STOP_CHANNEL } from "@repo/realtime-types/queues"
@@ -135,8 +137,8 @@ export const getRunEvents: AppRouteHandler<GetRunEventsRoute> = async (c) => {
   )
 }
 
-// Same conservative heuristic as packages/lor/src/compaction.ts — UTF-8
-// bytes over 3. Estimates fill the gap before a provider checkpoint exists.
+// UTF-8 bytes over 3, a conservative estimate for the prompt and tool
+// segments and the uncompacted history; Pi gives the total.
 const BYTES_PER_TOKEN = 3
 const EMPTY_CONTEXT = {
   available: false as const,
@@ -157,12 +159,10 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
   const currentUser = c.var.user
   const { scopeKey } = c.req.valid("param")
 
-  // Newest run in the scope that has actually built its context: its last
-  // checkpointed step is what the model most recently received, so it's the
-  // only number here that isn't an estimate. Runs are inserted with a null
-  // context and only fill it in once a worker claims them, so without the
-  // isNotNull guard a just-queued run would blank the meter to 0% for the
-  // seconds between sending a message and the run starting.
+  // Newest run in the scope whose turn saved Pi's context count. A run still
+  // working shows the count its predecessor left, which is what this turn
+  // started from.
+  const contextUsage = sql<AgentRunContextUsage | null>`${schema.agentRun.context} -> 'contextUsage'`
   const run = await db
     .select({
       id: schema.agentRun.id,
@@ -170,23 +170,14 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
       workspaceId: schema.agentRun.workspaceId,
       channelWorkspaceId: schema.channel.workspaceId,
       state: schema.agentRun.state,
-      compaction: schema.agentRun.compaction,
+      contextUsage,
       instructionsBytes: sql<number>`coalesce(octet_length(${schema.agentRun.instructions}), 0)`,
-      initialMessagesTokens: sql<
-        number | null
-      >`(${schema.agentRun.context} ->> 'initialMessagesTokens')::int`,
-      contextBytes: sql<number>`coalesce(octet_length(${schema.agentRun.context}::text), 0)`,
       // Read the one field out in SQL rather than shipping the whole snapshot.
       toolSchemaBytes: sql<number>`coalesce((${schema.agentRun.context} ->> 'toolSchemaBytes')::int, 0)`,
     })
     .from(schema.agentRun)
     .innerJoin(schema.channel, eq(schema.agentRun.channelId, schema.channel.id))
-    .where(
-      and(
-        eq(schema.agentRun.scopeKey, scopeKey),
-        isNotNull(schema.agentRun.context)
-      )
-    )
+    .where(and(eq(schema.agentRun.scopeKey, scopeKey), isNotNull(contextUsage)))
     .orderBy(desc(schema.agentRun.createdAt))
     .limit(1)
     .then((rows) => rows[0])
@@ -197,25 +188,14 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
   // have no access to. The meter hides itself either way, so the caller loses
   // nothing. Workspace drift on the run's channel fails closed into the same
   // response.
-  if (!run) return c.json(EMPTY_CONTEXT, HttpStatusCodes.OK)
+  const usage = run?.contextUsage
+  if (!(run && usage)) return c.json(EMPTY_CONTEXT, HttpStatusCodes.OK)
   const visible =
     run.channelWorkspaceId === run.workspaceId &&
     (await userCanAccessChannel(run.channelId, currentUser.id))
   if (!visible) return c.json(EMPTY_CONTEXT, HttpStatusCodes.OK)
 
-  // Steps at or before the baseline were projected out of the request, so only
-  // the ones after it are still being sent (mirrors replay in
-  // apps/worker/src/lib/run-continuation.ts).
-  const baselineStep = run.compaction?.atStep ?? 0
-  const [steps, scope] = await Promise.all([
-    db
-      .select({
-        tailBytes: sql<number>`coalesce(sum(octet_length(${schema.agentRunStep.messages}::text)) filter (where ${schema.agentRunStep.step} > ${baselineStep}), 0)`,
-        lastInputTokens: sql<number>`coalesce((array_agg(${schema.agentRunStep.inputTokens} order by ${schema.agentRunStep.step} desc) filter (where ${schema.agentRunStep.inputTokens} > 0 and ${schema.agentRunStep.step} > ${baselineStep}))[1], 0)`,
-      })
-      .from(schema.agentRunStep)
-      .where(eq(schema.agentRunStep.runId, run.id))
-      .then((rows) => rows[0]),
+  const [scope, history] = await Promise.all([
     db
       .select({
         creditsSpent: sql<number>`coalesce(sum(${schema.agentRun.creditsSpent}), 0)`,
@@ -223,60 +203,51 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
         state: sql<
           typeof schema.agentRun.$inferSelect.state
         >`(array_agg(${schema.agentRun.state} order by ${schema.agentRun.createdAt} desc))[1]`,
-        // Everything the scope has ever transcribed — what a request would
-        // weigh with no compaction at all.
-        rawHistoryBytes: sql<number>`coalesce((select sum(octet_length(s.messages::text)) from ${schema.agentRunStep} s where s.run_id in (select id from ${schema.agentRun} r where r.scope_key = ${scopeKey})), 0)`,
       })
       .from(schema.agentRun)
       .where(eq(schema.agentRun.scopeKey, scopeKey))
       .then((rows) => rows[0]),
+    // The whole saved Pi log: what a request would weigh with no compaction.
+    // The scope is a session's thread or a call.
+    db
+      .select({ byteLength: schema.harnessState.byteLength })
+      .from(schema.harnessState)
+      .leftJoin(
+        schema.agentSession,
+        eq(schema.harnessState.sessionId, schema.agentSession.id)
+      )
+      .where(
+        or(
+          eq(schema.agentSession.threadRootId, scopeKey),
+          eq(schema.harnessState.voiceSessionId, scopeKey)
+        )
+      )
+      .limit(1)
+      .then((rows) => rows[0]),
   ])
 
   const toTokens = (bytes: number) => Math.ceil(Number(bytes) / BYTES_PER_TOKEN)
-  // Compaction's baseline already contains its summary. A continuation's
-  // initial request includes inherited turns absent from context.conversation.
-  const initialMessagesTokens = run.compaction
-    ? (run.compaction.messageTokens ??
-      toTokens(
-        Buffer.byteLength(
-          JSON.stringify(run.compaction.baselineMessages),
-          "utf8"
-        )
-      ))
-    : (run.initialMessagesTokens ?? toTokens(run.contextBytes))
-  const estimates = {
-    system: toTokens(run.instructionsBytes),
-    tools: toTokens(run.toolSchemaBytes),
-    messages: initialMessagesTokens + toTokens(steps?.tailBytes ?? 0),
-  }
-  const estimateTotal = estimates.system + estimates.tools + estimates.messages
-  // Before the first checkpoint there is no provider figure to anchor to.
-  const usedTokens = Number(steps?.lastInputTokens ?? 0) || estimateTotal
-  // Scale the parts onto the exact total: the segments' value is the shape of
-  // the split, and letting them disagree with the headline reads as a bug.
-  const scale = estimateTotal > 0 ? usedTokens / estimateTotal : 0
-  const systemTokens = Math.round(estimates.system * scale)
-  const toolTokens = Math.min(
-    usedTokens - systemTokens,
-    Math.round(estimates.tools * scale)
-  )
+  const system = toTokens(run.instructionsBytes)
+  const tools = toTokens(run.toolSchemaBytes)
+  // Null right after a compaction until the next model response: only the
+  // prompt and tools are known then.
+  const usedTokens = usage.tokens ?? system + tools
+  const systemTokens = Math.min(system, usedTokens)
+  const toolTokens = Math.min(tools, usedTokens - systemTokens)
 
   return c.json(
     {
       available: true,
       usedTokens,
-      windowTokens: env.LOR_CONTEXT_WINDOW,
-      compactAtTokens: env.LOR_COMPACT_INPUT_TOKENS,
+      windowTokens: usage.windowTokens,
+      compactAtTokens: usage.compactAtTokens,
       segments: {
         system: systemTokens,
         tools: toolTokens,
         messages: usedTokens - systemTokens - toolTokens,
       },
-      compacted: Boolean(run.compaction),
-      rawHistoryTokens:
-        toTokens(scope?.rawHistoryBytes ?? 0) +
-        estimates.system +
-        estimates.tools,
+      compacted: usage.compacted,
+      rawHistoryTokens: toTokens(history?.byteLength ?? 0) + system + tools,
       creditsSpent: Number(scope?.creditsSpent ?? 0),
       runCount: Number(scope?.runCount ?? 0),
       state: scope?.state ?? run.state,

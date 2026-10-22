@@ -3387,6 +3387,7 @@ export async function respond(
             ? { mode: activeSandboxMode, context: sandboxApproval.snapshot() }
             : null,
         coveredMessageIds: coveredAmbient,
+        contextUsage: turn.contextUsage,
       })
       if (approvals.length > 0) {
         if (planRef.current) {

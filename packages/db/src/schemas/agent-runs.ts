@@ -481,6 +481,19 @@ export type AgentRunContext = {
   // The run only finished a paused turn and sent no prompt; the next delta
   // walks back through it (continuedFromRunId) to the paused run.
   continueOnly?: boolean
+  // Pi's own count of the conversation's context after the turn, for the
+  // context meter.
+  contextUsage?: AgentRunContextUsage
+}
+
+// Pi's getContextUsage(): tokens is null right after a compaction, until the
+// next model response. compactAtTokens is where Pi compacts (window minus its
+// reserve).
+export type AgentRunContextUsage = {
+  tokens: number | null
+  windowTokens: number
+  compactAtTokens: number
+  compacted: boolean
 }
 
 // Written by @repo/lor at compaction time (see compaction.ts). summary is

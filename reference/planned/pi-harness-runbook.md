@@ -1876,11 +1876,63 @@ reach worker files or bypass Lor policy.
 
 ### 1.5 — Wire producers and durable activity
 
-- [ ] Audit every production `agentRun` insert and `respond` caller: realtime
-  messages, API scope runs (approvals, proposals, plan continuations), worker
-  queue drains, Loops, Act, voice and `packages/lor` `act-runs.ts`.
-- [ ] Project completed semantic history from saved native entries with stable
-  origin IDs; token deltas stay transient.
+- [x] **1.5-1 Producer audit** (2026-10-22, source review):
+  - **Run producers, all on the Pi path:**
+    - realtime: Lor runs only for a message in a session, scoped to the
+      session's thread;
+    - API scope runs: an approval decision uses the paused run's scope, a
+      plan continuation the plan's thread, and a proposal decision the
+      session the card is in;
+    - the worker queue drain uses the finished run's scope;
+    - Loops use their recurring session;
+    - Act runs are created with the trigger as a placeholder scope
+      (`act-runs.ts`) and moved into their own session before they run;
+    - voice uses the call, and the evals use a random owner.
+
+    Each one ends in `respond()`, which refuses to run without a session
+    harness.
+  - **Fixed:** a proposal from before sessions started its follow-up run in
+    the card's own thread, which has no session, so the run would fail. It
+    now gets the resolution note and no run.
+  - **Not run producers** (no session, no sandbox):
+    - write-back, a short memory-writing tool loop after the answer;
+    - the project-archive summary, its own `streamText` agent with read
+      tools and memory writes, run as a background job when a project is
+      archived;
+    - single model calls: titles, structured output, meeting insights,
+      voice memory, transcription.
+
+    Open for Jacob: whether the project-archive summary becomes a session
+    run.
+  - **Left as is:** the `threadRootId ?? channelId` scope fallbacks in
+    realtime and `startScopeContinuationRun`. Every caller passes a session
+    thread now.
+- [x] **1.5-2 History from the Pi log** (2026-10-22; not run yet). Small on
+  purpose; later phases add messages for fork, rewind and handoff.
+  - **Reader:** `session-core/pi-history.ts` reads the saved log chunks (each
+    tagged with the run whose save wrote it) into tool-call records. Each
+    record has the call and result Pi entry IDs, the run, the input, the
+    output and an error flag. Computed on read: no new table.
+  - **Touches** read the run's tool calls from it instead of
+    `agent_run_step`. Failed and refused calls count for nothing. Lor's tool
+    results are JSON text in Pi's log, cut at Pi's 50 KB limit, so a larger
+    result keeps only its input-based touches. After a Pi format conversion
+    one chunk holds the whole log under the converting run. Its repeats are
+    ignored, because touches are unique per session, item and action.
+  - **Context meter:** the worker saves Pi's own count on the run
+    (`context.contextUsage`). The count is taken with `getContextUsage()` at
+    each answer, at compaction and when the agent settles, and holds the
+    tokens, the window, the compaction point (window minus Pi's 16,384
+    reserve) and whether the session compacted. The meter reads the newest
+    run that has it, plus the saved log size for "history kept", without
+    loading Pi in the API. It stays hidden until the session's first turn
+    saves.
+  - **Found:** Lor's per-call output cap (256 KB) is larger than Pi's 50 KB
+    cut for tool results, so the model sees at most 50 KB of one result.
+    This has been the case since 1.3. Decide whether to lower Lor's cap to
+    match.
+  - **Token deltas** stay transient (run events, pruned 7 days after the
+    run).
 - [ ] Preserve web/mobile tool, memory, plan, approval and message behavior.
 
 Exit: every run producer uses the Pi path, and completed history does not
@@ -1889,9 +1941,10 @@ disappear when transient stream rows expire.
 ### 1.6 — Delete the legacy engine, check quality and document
 
 - [ ] Delete the legacy engine. The `streamText` loop, transcript replay and
-  step checkpoints went in 1.3c-2b; left: `compaction.ts` (write-back still
-  uses `fitMessagesToBudget`), the `agent_run_step` readers (touches, context
-  meter) and `LOR_TOOL_APPROVAL_SECRET`. Legacy tables keep their rows; nothing
+  step checkpoints went in 1.3c-2b, and the `agent_run_step` readers
+  (touches, context meter) moved to the Pi log in 1.5-2; left: `compaction.ts`
+  (write-back still uses `fitMessagesToBudget`) and
+  `LOR_TOOL_APPROVAL_SECRET`. Legacy tables keep their rows; nothing
   writes or reads them. Old sessions start from their visible history on their
   first Pi run. Passing a full messages array to `HarnessAgent` does not import
   history, so no import path is built.
@@ -1939,7 +1992,7 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5–1.6 not started. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5-1 and 1.5-2 built 2026-10-22 (no `db:push`); web/mobile check and 1.6 left. |
 | Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store; `@ai-sdk/harness` `HarnessAgent._toToolSpecs` should resolve AI SDK v7 dynamic tool descriptions as `streamText` does (`resolveToolDescription`), instead of passing the function through, which Pi then cannot clone (worked around in `runPiTurn`, 2026-10-21). |
 
 ## Sources

@@ -19,6 +19,9 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
 import {
   CURRENT_SESSION_VERSION,
   compact,
+  DEFAULT_COMPACTION_SETTINGS,
+  type ExtensionContext,
+  getLatestCompactionEntry,
 } from "@earendil-works/pi-coding-agent"
 import {
   type JSONSchema7,
@@ -215,7 +218,33 @@ function withGatewayOptions(
   }
 }
 
-type TurnProbe = { logFile?: string; loadMismatch?: boolean }
+// Pi's own context count (getContextUsage). Lor changes no Pi setting, so Pi
+// compacts at the window minus its default reserve.
+export type PiContextUsage = {
+  tokens: number | null
+  windowTokens: number
+  compactAtTokens: number
+  compacted: boolean
+}
+
+type TurnProbe = {
+  logFile?: string
+  loadMismatch?: boolean
+  contextUsage?: PiContextUsage
+}
+
+function readContextUsage(ctx: ExtensionContext): PiContextUsage | undefined {
+  const usage = ctx.getContextUsage()
+  if (!usage) return undefined
+  return {
+    tokens: usage.tokens,
+    windowTokens: usage.contextWindow,
+    compactAtTokens:
+      usage.contextWindow - DEFAULT_COMPACTION_SETTINGS.reserveTokens,
+    compacted:
+      getLatestCompactionEntry(ctx.sessionManager.getBranch()) !== null,
+  }
+}
 
 // Pi's built-in tools by public and native name. Lor binds no tool of these
 // names: it would replace the sandbox tool and skip the sandbox policy.
@@ -343,12 +372,21 @@ function lorPiExtension(input: {
           }
         : undefined
     })
-    pi.on("message_end", (event) => {
+    // The context meter's count: the last reading of the turn wins, so a
+    // compaction after the answer still shows.
+    const captureUsage = (ctx: ExtensionContext) => {
+      input.probe.contextUsage =
+        readContextUsage(ctx) ?? input.probe.contextUsage
+    }
+    pi.on("message_end", (event, ctx) => {
       const message = event.message
       if (message.role === "assistant") {
         input.onAssistantModel?.(message.responseModel ?? message.model)
+        captureUsage(ctx)
       }
     })
+    pi.on("session_compact", (_event, ctx) => captureUsage(ctx))
+    pi.on("agent_settled", (_event, ctx) => captureUsage(ctx))
     // Only Pi's built-ins: Pi announces a call before this hook runs, so the
     // harness has already started a Lor tool. Lor tools are refused through
     // the harness's toolApproval map instead.
@@ -527,6 +565,8 @@ export type PiTurnResult = {
   save: PiTurnSave | null
   // Set when the turn paused; the save carries its continuation.
   pendingApprovals: HarnessAgentPendingToolApproval[]
+  // Null when Pi never reported one (it did not start, or no model answered).
+  contextUsage: PiContextUsage | null
 }
 
 function addUsage(total: PiTurnUsage, usage: LanguageModelUsage): PiTurnUsage {
@@ -628,6 +668,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
     responseMessages: [],
     save: null,
     pendingApprovals: [],
+    contextUsage: null,
   }
   const session = await agent
     .createSession({
@@ -723,6 +764,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
           ? null
           : withContinuation(log, input.saved, continuation),
       pendingApprovals: [...(continuation?.pendingToolApprovals ?? [])],
+      contextUsage: probe.contextUsage ?? null,
     }
   } finally {
     // Lor supplies the sandbox, so destroy leaves it alone.

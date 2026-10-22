@@ -225,9 +225,10 @@ async function emitProposalUpdated(proposal: ChangeProposal): Promise<void> {
 }
 
 // Post the resolution as the resolver and start the follow-up continuation
-// run: in the session the card is in, or the card's own thread for
-// pre-session proposals. Best-effort by design for approve (the config is
-// already applied); reject un-resolves on failure at its call site.
+// run in the session the card is in. A pre-session proposal gets the note in
+// the card's own thread but no run: Lor runs only in sessions. Best-effort by
+// design for approve (the config is already applied); reject un-resolves on
+// failure at its call site.
 async function postResolutionAndContinue(args: {
   proposal: ChangeProposal
   authorId: string
@@ -243,13 +244,12 @@ async function postResolutionAndContinue(args: {
     content: args.content,
   }).catch(() => null)
   if (!messageId) return null
+  if (!proposal.threadRootId) return messageId
   // Resolving joins the session, like resolving an approval does.
-  if (proposal.threadRootId) {
-    await subscribeToThread(proposal.threadRootId, [args.authorId]).catch(
-      () => {}
-    )
-    notifyWorkspaceActivity(proposal.workspaceId)
-  }
+  await subscribeToThread(proposal.threadRootId, [args.authorId]).catch(
+    () => {}
+  )
+  notifyWorkspaceActivity(proposal.workspaceId)
   try {
     await startScopeContinuationRun({
       workspaceId: proposal.workspaceId,

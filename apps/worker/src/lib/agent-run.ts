@@ -501,15 +501,19 @@ export async function claimAgentRun(
     turn: RunTurnRecord
   ): Promise<RunCounters> => {
     const credits = turn.extraUsage ? await creditsFor(turn.extraUsage) : 0
-    // The turn's coverage and its paused sandbox state ride the save, so a
-    // lost lease never records one without the other.
+    // The turn's coverage, paused sandbox state and context count ride the
+    // save, so a lost lease never records one without the other.
     const context =
-      runContext && (turn.pausedSandbox || turn.coveredMessageIds.length > 0)
+      runContext &&
+      (turn.pausedSandbox ||
+        turn.contextUsage ||
+        turn.coveredMessageIds.length > 0)
         ? {
             ...mergeRunContextCoverage(runContext, turn.coveredMessageIds),
             ...(turn.pausedSandbox
               ? { pausedSandbox: turn.pausedSandbox }
               : {}),
+            ...(turn.contextUsage ? { contextUsage: turn.contextUsage } : {}),
           }
         : null
     const row = await db
