@@ -1,8 +1,8 @@
 # Pi foundation migration runbook — phase 1
 
 > Status: revised 2026-10-20 after a source review of the exact published
-> packages, the repository and vendor docs. **In progress: 1.1–1.3 built,
-> 1.4 in progress (see the record table in §9).** Implements phase 1 of
+> packages, the repository and vendor docs. **In progress: 1.1–1.4 built,
+> 1.5 next (see the record table in §9).** Implements phase 1 of
 > [Shared harness sessions](harness-sessions.md). Repository baseline: `dev`
 > at `7d663fdf`; branch: `pi-harness-sessions`.
 >
@@ -1830,16 +1830,35 @@ compatibility layer; old code tools break and are deleted.
     `investigate_code`'s catalog place (read-only, on by default). Prompt:
     clone, then read with the sandbox tools, cite `path#Lstart-Lend`; Lor
     cannot commit or open PRs yet.
-- [ ] **1.4-3 Process fencing and run kinds:**
-  - Before a turn uses the sandbox, stop `run-*` and `spawn-*` processes
-    still running from an earlier attempt (crash, Stop, lease loss).
-  - Check that every run kind binds its owner and gets the sandbox,
-    `share_file` and `clone_repo`: chat sessions, Loops (one recurring
-    session per Loop), Act (one session per event) and voice (one sandbox
-    per call). Record gaps for 1.5.
-  - Live checks owed: whether Blaxel's kill also ends a process's children;
-    whether two runs in one voice call can overlap (stopping old processes
-    at the start of one would then stop the other's).
+- [x] **1.4-3 Process fencing and run kinds** (2026-10-22; not run yet):
+  - **Fence:** `openSessionSandbox` lists the processes of an existing
+    sandbox and kills every `run-*` and `spawn-*` still running before the
+    run uses it (`stopLeftoverCommands`). A list or kill failure is logged
+    and the run goes on. Detached background processes whose command already
+    finished are not named records, so a server started in an earlier turn
+    keeps running.
+  - **Why it is safe:** only one run works in a conversation at a time.
+    `agent_run_scopeKey_active_uidx` allows one queued, working or
+    finalizing run per scope. Chat, Loop and Act runs all use the session's
+    thread as the scope, and voice runs use the call
+    (`createVoiceRun` retries on the unique violation), so two runs in one
+    call cannot overlap.
+  - **Run kinds (source review):** `respond()` throws without a harness, so
+    every run gets its sandbox. Its callers are `lor-respond` (chat, Loop and
+    Act, owner = the session found by thread), `voice-request` (owner = the
+    call) and the evals (a random owner, deleted after). Loops keep one
+    recurring session, so all fires share one sandbox; Act makes a session
+    per event. `share_file` and `clone_repo` bind the same way for all of
+    them (voice has a channel). Gap for 1.5: project-archive synthesis is a
+    separate `streamText` agent outside the Pi path, with no sandbox.
+  - **Live checks owed:** whether Blaxel's kill also ends a process's
+    children; how large `process.list()` gets in a long session (each record
+    carries its output); whether a bash command that starts a background
+    child without redirecting output stays "running" (its tool call would
+    then hang, and the next run would kill it).
+  - **Accepted window:** an attempt that lost its lease can start one more
+    command between the new attempt's fence and its own abort; it stops at
+    its next lease check.
 - [x] **Product record** (2026-10-22): `code-channels.md` §2 holds the code
   session shape: mode fixed at the start, "Continue in Code" as the only way
   from chat to code, people (not Lor) commit or open PRs under their GitHub
@@ -1920,7 +1939,7 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4-1 and 1.4-2 built 2026-10-22 (`db:push` owed: drops `github_repo_config`), 1.4-3 next; 1.5–1.6 not started. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5–1.6 not started. |
 | Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store; `@ai-sdk/harness` `HarnessAgent._toToolSpecs` should resolve AI SDK v7 dynamic tool descriptions as `streamText` does (`resolveToolDescription`), instead of passing the function through, which Pi then cannot clone (worked around in `runPiTurn`, 2026-10-21). |
 
 ## Sources

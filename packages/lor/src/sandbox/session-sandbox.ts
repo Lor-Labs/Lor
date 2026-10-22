@@ -129,6 +129,45 @@ async function createSessionSandbox(name: string): Promise<SandboxInstance> {
   return sandbox
 }
 
+// Process fencing (harness-sessions.md, writer ownership). A turn's commands
+// are named run-*/spawn-*, and only one run works in a conversation at a time
+// (one active agent_run per scope), so any still running when a run opens the
+// sandbox belong to an attempt that crashed, was stopped or lost its lease.
+// Stop them before this run writes to the same disk. Detached background
+// processes whose command finished are not named records and keep running.
+async function stopLeftoverCommands(
+  sandbox: SandboxInstance,
+  name: string
+): Promise<void> {
+  const leftover = await sandbox.process
+    .list()
+    .then((records) =>
+      records.filter(
+        (record) =>
+          record.status === "running" && /^(run|spawn)-/.test(record.name)
+      )
+    )
+    .catch((err: unknown) => {
+      logger.warn({ err, sandbox: name }, "Sandbox: process list failed")
+      return []
+    })
+  if (leftover.length === 0) return
+  await Promise.all(
+    leftover.map((record) =>
+      sandbox.process.kill(record.name).catch((err: unknown) => {
+        logger.warn(
+          { err, sandbox: name, process: record.name },
+          "Sandbox: leftover command kill failed"
+        )
+      })
+    )
+  )
+  logger.warn(
+    { sandbox: name, processes: leftover.map((record) => record.name) },
+    "Sandbox: stopped commands left by an earlier attempt"
+  )
+}
+
 export async function openSessionSandbox(
   owner: HarnessOwner
 ): Promise<SessionSandbox> {
@@ -151,6 +190,7 @@ export async function openSessionSandbox(
           })
         : null
     if (health?.healthy) {
+      await stopLeftoverCommands(existing, name)
       return {
         session: blaxelSandboxSession(existing),
         fresh: false,
