@@ -79,7 +79,8 @@ export function sandboxToolApproval(input: {
   policy: PolicyContext
   context?: SandboxTurnContext
   classifier?: SandboxClassifier
-  sandbox?: SandboxSession
+  // Only fixed evidence reads use it (classifierFacts).
+  sandbox?: Pick<SandboxSession, "run">
   signal?: AbortSignal
 }): SandboxApproval {
   const askReasons = new Map<string, string>()

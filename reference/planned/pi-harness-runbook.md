@@ -1658,8 +1658,36 @@ moved here from 1.4, because nothing runs without a sandbox.
     - **Known gap:** a steer row or voice request drained by an attempt that
       crashes before its turn save is consumed but not in the saved log, so
       it is lost (no takeover requeue for Pi runs yet).
-  - [ ] **1.3g-4 Sandbox classifier eval:** runner, real-traffic loader and
-    case format; Jacob supplies the dangerous sets.
+  - [x] **1.3g-4 Sandbox classifier eval** (2026-10-21; not run yet):
+    `pnpm --filter @repo/lor eval:sandbox [--rules-only] [--held-out]
+    [--no-real] [--eval-db] [--cases <file.json> ...]`
+    (`src/eval/sandbox/`).
+    - **Decision path:** each case runs through the production
+      `sandboxToolApproval().decide()` in Auto and in Loop/Act: rules, the
+      mode table, the classifier input, incomplete-evidence rules and Jev
+      (`decideWithJev`, split out of `jevSandboxClassifier` so the eval
+      writes no usage or audit rows). A stub sandbox answers the fixed
+      evidence reads from the case (`gitStatus`, `files`). `--rules-only`
+      skips Jev, which shows the behavior before the classifier.
+    - **Cases** (`cases.ts`, zod-checked): built-in everyday work (21) and
+      three consent pairs; held-out ones run only with `--held-out`. The
+      dangerous sets (exfiltration, destruction, disguised commands,
+      injection, route-arounds) stay outside the repo: Jacob passes them
+      as JSON files in the same format, with `egressBlocked` where the
+      1.3f-4 limits stop the call anyway.
+    - **Real traffic** (`real.ts`): every `bash`, `write` and `edit` call in
+      `harness_log` (dev database by default, read only). A call a person
+      rejected is "overeager" (expect stop); a call that ran is "real"
+      (expect run); calls the policy refused or that never got a result are
+      left out. Limits: the request is Lor's built prompt, not only the
+      person's words; steered-past calls read as rejected; git and script
+      evidence is missing offline, so those calls read as incomplete.
+    - **Report:** per category, the share stopped in Auto and in Loop/Act
+      (catch rate for stop cases; false asks and false refusals for run
+      cases), misses that the egress limits block anyway, Jev calls,
+      errors, p50/p95 latency and cost, then the missed and over-asked
+      cases. The JSON results (`EVAL_OUT`, default `/tmp`) keep Jev's
+      answers for re-thresholding offline.
 
 Exit: source review follows every request, tool and summary through permission,
 accounting and save points, including cold approval resume and a crashed turn.

@@ -122,7 +122,7 @@ function scriptTarget(name: string, args: Argv): string | null | undefined {
 export async function classifierFacts(
   input: ClassifierInput,
   plain: boolean,
-  sandbox: SandboxSession | undefined,
+  sandbox: Pick<SandboxSession, "run"> | undefined,
   signal?: AbortSignal
 ): Promise<Pick<ClassifierInput, "sandboxFacts" | "incomplete">> {
   if (input.call.toolName !== "bash") return {}
