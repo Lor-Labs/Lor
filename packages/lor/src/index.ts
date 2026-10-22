@@ -153,7 +153,9 @@ import {
   type PausedTurnDrop,
   type PendingApproval,
   type RunHandle,
+  type RunStepRecord,
   type RunStopCause,
+  WALL_CLOCK_ANSWER_MARGIN_MS,
   ZERO_RUN_COUNTERS,
 } from "./run"
 import { blaxelConfigured } from "./sandbox/blaxel"
@@ -172,6 +174,7 @@ import {
 import { openSessionSandbox, SESSION_WORK_DIR } from "./sandbox/session-sandbox"
 import type { HarnessOwner } from "./session-core"
 import {
+  type PiTurnUsage,
   pausedApprovals,
   piWorkDir,
   runPiTurn,
@@ -316,6 +319,43 @@ const INPUT_CHANGED_REASON =
   "The approved input does not match this call, so it was not run."
 const NO_DECISION_REASON =
   "No decision was recorded for this action, so it was not run."
+// Near the spend limit or the deadline every tool call is refused, so the
+// model answers with what it has (pi-harness-runbook.md §4.5).
+const SPEND_ANSWER_SHARE = 0.9
+const LIMIT_TOOL_BLOCK_REASON =
+  "Not run: this turn is close to its time or spend limit. Do not call more tools. Answer now with what you have, and say what is left undone."
+
+// The Gateway may name the answering model without its provider prefix: map
+// it to a configured slug so its rate is found. An unknown name bills at the
+// requested model's rate.
+function billedModel(model: string): string {
+  const name = model.split("/").at(-1)
+  const known = [LOR_MODEL, ...LOR_FALLBACK_MODELS].find(
+    (id) => id === model || id.split("/").at(-1) === name
+  )
+  if (!known) logger.warn({ model }, "Unknown answering model")
+  return known ?? LOR_MODEL
+}
+
+// Pi's turn total also holds compaction and cache warming, which no step
+// reports: the part beyond the steps, at the requested model.
+function extraTurnUsage(
+  total: PiTurnUsage,
+  steps: PiTurnUsage
+): RunStepRecord | null {
+  const inputTokens = Math.max(0, total.inputTokens - steps.inputTokens)
+  const outputTokens = Math.max(0, total.outputTokens - steps.outputTokens)
+  if (inputTokens === 0 && outputTokens === 0) return null
+  return {
+    model: LOR_MODEL,
+    inputTokens,
+    cachedInputTokens: Math.min(
+      inputTokens,
+      Math.max(0, total.cachedInputTokens - steps.cachedInputTokens)
+    ),
+    outputTokens,
+  }
+}
 // A dropped paused turn: Pi reads its calls as "No result provided", so the
 // model is told they never ran and why.
 function droppedTurnNote(drop: PausedTurnDrop): string {
@@ -508,6 +548,7 @@ export {
   type RunHandle,
   type RunHarness,
   type RunResume,
+  type RunStepRecord,
   type RunStopCause,
   type RunToolResultStore,
   type RunTurnRecord,
@@ -2947,9 +2988,19 @@ export async function respond(
       const deadline = AbortSignal.timeout(
         Math.max(30_000, budgets.deadlineAt.getTime() - Date.now())
       )
-      const abortSignal = run.abortSignal
-        ? AbortSignal.any([run.abortSignal, deadline])
-        : deadline
+      // Aborts the turn at the spend limit; the step that crossed it is billed.
+      const spendStop = new AbortController()
+      const abortSignal = AbortSignal.any([
+        ...(run.abortSignal ? [run.abortSignal] : []),
+        deadline,
+        spendStop.signal,
+      ])
+      let nearSpendLimit = false
+      const toolBlock = () =>
+        nearSpendLimit ||
+        Date.now() >= budgets.deadlineAt.getTime() - WALL_CLOCK_ANSWER_MARGIN_MS
+          ? LIMIT_TOOL_BLOCK_REASON
+          : null
       const classifier = jevSandboxClassifier({
         workspaceId: ctx.workspaceId,
         runId: run.runId,
@@ -3007,13 +3058,49 @@ export async function respond(
       let text = ""
       let steps = 0
       let toolCallCount = 0
-      // Summed per step so a stopped or timed-out turn still bills what it
-      // used: the turn total rejects on abort.
-      const stepTotals = {
+      // Each step is billed and counted as it finishes, at the model that
+      // answered, so a stopped or timed-out turn keeps what it used.
+      const stepTotals: PiTurnUsage = {
         inputTokens: 0,
         cachedInputTokens: 0,
         outputTokens: 0,
         reasoningTokens: 0,
+      }
+      let stepModel = LOR_MODEL
+      let stepStart = performance.now()
+      let stepToolCalls = 0
+      const finishStep = async (usage: ReturnType<typeof usageTokens>) => {
+        const step: RunStepRecord = {
+          model: stepModel,
+          inputTokens: usage.inputTokens ?? 0,
+          cachedInputTokens: usage.cachedInputTokens ?? 0,
+          outputTokens: usage.outputTokens ?? 0,
+        }
+        stepTotals.inputTokens += step.inputTokens
+        stepTotals.cachedInputTokens += step.cachedInputTokens
+        stepTotals.outputTokens += step.outputTokens
+        stepTotals.reasoningTokens += usage.reasoningTokens ?? 0
+        if (step.inputTokens === 0 && step.outputTokens === 0) return
+        onUsage?.({
+          workspaceId: ctx.workspaceId,
+          tool: "lor.respond",
+          ...step,
+          requestedModel: LOR_MODEL,
+          reasoningTokens: usage.reasoningTokens,
+          wallMs: Math.round(performance.now() - stepStart),
+          toolCalls: toolCallCount - stepToolCalls,
+          // One debit per step of the run: a retried attempt of the same run
+          // is not charged again for the steps it repeats.
+          billingKey: `${run.runId}:step-${steps}`,
+        })
+        steps++
+        stepStart = performance.now()
+        stepToolCalls = toolCallCount
+        const { creditsSpent } = await harness.recordStep(step)
+        if (creditsSpent >= budgets.credits) spendStop.abort()
+        else if (creditsSpent >= budgets.credits * SPEND_ANSWER_SHARE) {
+          nearSpendLimit = true
+        }
       }
       const turn = await runPiTurn({
         sessionId: conversationId,
@@ -3044,6 +3131,10 @@ export async function respond(
         gatewayAuth: piGatewayAuth(),
         gatewayOptions: mainGatewayOptions,
         abortSignal,
+        onAssistantModel: (model) => {
+          stepModel = billedModel(model)
+        },
+        toolBlock,
         onPart: async (part) => {
           if (!firstPartLogged) {
             firstPartLogged = true
@@ -3063,13 +3154,9 @@ export async function respond(
           } else if (part.type === "finish-step") {
             // The adapter also sends an early copy of a step, with the same
             // usage, while Pi waits on a Lor tool result: count it once.
+            // A paused step is counted by the run that finishes it.
             if (part.rawFinishReason !== "host-input") {
-              steps++
-              const usage = usageTokens(part.usage)
-              stepTotals.inputTokens += usage.inputTokens ?? 0
-              stepTotals.cachedInputTokens += usage.cachedInputTokens ?? 0
-              stepTotals.outputTokens += usage.outputTokens ?? 0
-              stepTotals.reasoningTokens += usage.reasoningTokens ?? 0
+              await finishStep(usageTokens(part.usage))
             }
           } else if (part.type === "tool-call") {
             toolCallCount++
@@ -3139,9 +3226,11 @@ export async function respond(
             ? undefined
             : run.stopRequested?.()
               ? "stopped_by_user"
-              : deadline.aborted
-                ? "budget_wall_clock"
-                : undefined
+              : spendStop.signal.aborted
+                ? "budget_spend"
+                : deadline.aborted
+                  ? "budget_wall_clock"
+                  : undefined
       // Any other abort is a lost lease: another attempt owns the run.
       if (turn.aborted && !stoppedFor) throw new Error("Lor run aborted")
 
@@ -3192,27 +3281,24 @@ export async function respond(
         }
       )
 
-      // The turn total when the turn finished, else the steps that did.
-      const totals = turn.usage ?? stepTotals
-      // Billed per attempt, before the save: the tokens are spent either way.
-      if (turn.usage || steps > 0) {
+      // Only a finished turn has a total; billed before the save, since the
+      // tokens are spent either way.
+      const extraUsage = turn.usage
+        ? extraTurnUsage(turn.usage, stepTotals)
+        : null
+      if (extraUsage) {
         onUsage?.({
           workspaceId: ctx.workspaceId,
           tool: "lor.respond",
-          model: turn.modelId ?? LOR_MODEL,
+          ...extraUsage,
           requestedModel: LOR_MODEL,
-          ...totals,
-          wallMs: Math.round(performance.now() - streamStart),
-          toolCalls: toolCallCount,
+          billingKey: `${run.runId}:turn`,
+          metadata: { usage: "compaction-and-cache" },
         })
       }
       await harness.saveTurn({
         save: turn.save,
-        steps,
-        model: turn.modelId,
-        inputTokens: totals.inputTokens,
-        cachedInputTokens: totals.cachedInputTokens,
-        outputTokens: totals.outputTokens,
+        extraUsage,
         toolCalls: toolCallCount,
         toolOutputBytes: guarded.guard.takeStepBytes(),
         approvals,

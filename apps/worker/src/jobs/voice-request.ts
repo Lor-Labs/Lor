@@ -357,6 +357,7 @@ async function runVoiceRequest(
           sandboxMode,
           pausedSandboxContext: paused?.sandboxContext,
           pausedSandboxMode: paused?.sandboxMode,
+          recordStep: (step) => execution.recordStep(step),
           saveTurn: (record) => execution.saveTurn(owner, record),
         },
         // Steering: requests made in the call since the last step.

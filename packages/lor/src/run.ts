@@ -110,16 +110,22 @@ export type PausedTurnDrop =
   | { reason: "stopped"; by: string }
   | { reason: "upgraded" }
 
-// One finished or paused Pi turn, ready to save: the new Pi log (null when
-// nothing changed), the turn's totals for the run counters, and the approvals
-// it paused on.
-export type RunTurnRecord = {
-  save: PiTurnSave | null
-  steps: number
-  model: string | null
+// One model call of a turn, priced at the model that answered.
+export type RunStepRecord = {
+  model: string
   inputTokens: number
   cachedInputTokens: number
   outputTokens: number
+}
+
+// One finished or paused Pi turn, ready to save: the new Pi log (null when
+// nothing changed), the counters its steps did not already record, and the
+// approvals it paused on.
+export type RunTurnRecord = {
+  save: PiTurnSave | null
+  // Usage in Pi's turn total beyond the recorded steps: compaction and
+  // cache warming.
+  extraUsage: RunStepRecord | null
   toolCalls: number
   toolOutputBytes: number
   approvals: PendingApproval[]
@@ -151,6 +157,9 @@ export type RunHarness = {
   sandboxMode: TurnSandboxMode
   pausedSandboxContext?: AgentRunContext["sandboxContext"]
   pausedSandboxMode?: TurnSandboxMode
+  // Adds one step to the run counters under the run's lease, so spend is
+  // checked inside the turn. Throws when the lease moved.
+  recordStep: (step: RunStepRecord) => Promise<RunCounters>
   // One transaction under the run's lease: the Pi log, the new head and the
   // counters. Throws when the lease or the saved head moved.
   saveTurn: (turn: RunTurnRecord) => Promise<RunCounters>

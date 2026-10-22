@@ -213,19 +213,32 @@ function withGatewayOptions(
 
 type TurnProbe = { logFile?: string; loadMismatch?: boolean }
 
-// Trusted inline extension: gateway routing on every agent-loop request, and
-// the load check. Handler errors are swallowed by Pi, so a mismatch sets a
-// flag and aborts instead of throwing.
+// Trusted inline extension: gateway routing on every agent-loop request, the
+// answering model of each message, the tool block near a limit, and the load
+// check. Handler errors are swallowed by Pi (except `tool_call`, which fails
+// closed), so a mismatch sets a flag and aborts instead of throwing.
 function lorPiExtension(input: {
   gateway: Record<string, unknown>
   expected: HarnessHead | null
   convertsFormat: boolean
   probe: TurnProbe
+  onAssistantModel?: (model: string) => void
+  toolBlock?: () => string | null
 }): PiHarnessExtensionFactory {
   return (pi) => {
     pi.on("before_provider_request", (event) =>
       withGatewayOptions(event.payload, input.gateway)
     )
+    pi.on("message_end", (event) => {
+      const message = event.message
+      if (message.role === "assistant") {
+        input.onAssistantModel?.(message.responseModel ?? message.model)
+      }
+    })
+    pi.on("tool_call", () => {
+      const reason = input.toolBlock?.()
+      return reason ? { block: true, reason } : undefined
+    })
     pi.on("agent_start", (_event, ctx) => {
       input.probe.logFile = ctx.sessionManager.getSessionFile()
       const expected = input.expected
@@ -362,6 +375,13 @@ export type PiTurnInput = {
   gatewayOptions: Record<string, unknown>
   abortSignal?: AbortSignal
   onPart: (part: TextStreamPart<ToolSet>) => void | Promise<void>
+  // The model that answered each assistant message, which differs from the
+  // requested one after a Gateway fallback. Reported before the message's
+  // finish-step part, including for a paused message replayed on resume.
+  onAssistantModel?: (model: string) => void
+  // A reason to refuse every tool call so the model answers instead: the
+  // turn is near its spend or time limit.
+  toolBlock?: () => string | null
 }
 
 export type PiTurnUsage = {
@@ -443,6 +463,8 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
           expected: input.saved?.head ?? null,
           convertsFormat,
           probe,
+          onAssistantModel: input.onAssistantModel,
+          toolBlock: input.toolBlock,
         }),
       ],
       thinkingLevel: "high",

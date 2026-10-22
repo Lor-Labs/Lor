@@ -29,6 +29,7 @@ import {
   type RunCounters,
   type RunHandle,
   type RunResume,
+  type RunStepRecord,
   type RunTurnRecord,
   type UsageEvent,
   userDisplayName,
@@ -102,6 +103,8 @@ export type RunExecution = {
   handle: RunHandle
   resume: ResumeState | null
   counters: () => RunCounters
+  // Adds one finished step to the counters (RunHarness.recordStep).
+  recordStep: (step: RunStepRecord) => Promise<RunCounters>
   // Saves a finished Pi turn for the conversation `owner` (RunHarness.saveTurn).
   saveTurn: (owner: HarnessOwner, turn: RunTurnRecord) => Promise<RunCounters>
   // Nested billable usage (investigate_code) folds into the turn's save.
@@ -153,6 +156,21 @@ function countersOf(row: {
     toolCalls: row.toolCalls,
     toolOutputBytes: row.toolOutputBytes,
     creditsSpent: row.creditsSpent,
+  }
+}
+
+// Adds model usage and its credits to the run counters.
+function usageIncrements(
+  steps: number,
+  usage: RunStepRecord | null,
+  credits: number
+) {
+  return {
+    steps: sql`${schema.agentRun.steps} + ${steps}`,
+    inputTokens: sql`${schema.agentRun.inputTokens} + ${usage?.inputTokens ?? 0}`,
+    cachedInputTokens: sql`${schema.agentRun.cachedInputTokens} + ${usage?.cachedInputTokens ?? 0}`,
+    outputTokens: sql`${schema.agentRun.outputTokens} + ${usage?.outputTokens ?? 0}`,
+    creditsSpent: sql`${schema.agentRun.creditsSpent} + ${credits}`,
   }
 }
 
@@ -406,22 +424,49 @@ export async function claimAgentRun(
   const pendingNested: UsageEvent[] = []
   let runContext = claimed.context
 
+  // Nested billable usage noted since the last counter write.
+  const nestedCredits = async (): Promise<number> => {
+    let credits = 0
+    for (const nested of pendingNested.splice(0)) {
+      credits += await creditsFor(nested)
+    }
+    return credits
+  }
+
+  // One finished step, so the spend limit is checked inside the turn
+  // (pi-harness-runbook.md §4.5).
+  const recordStep = async (step: RunStepRecord): Promise<RunCounters> => {
+    const credits = (await creditsFor(step)) + (await nestedCredits())
+    const row = await db
+      .update(schema.agentRun)
+      .set(usageIncrements(1, step, credits))
+      .where(
+        and(
+          eq(schema.agentRun.id, runId),
+          eq(schema.agentRun.leaseOwner, WORKER_ID),
+          eq(schema.agentRun.state, "working")
+        )
+      )
+      .returning(COUNTER_SELECTION)
+      .then((r) => r[0])
+    if (!row) {
+      abort.abort()
+      throw new LeaseLostError()
+    }
+    counters = countersOf(row)
+    return counters
+  }
+
   // One transaction: the Pi log under the lease and head checks, the approval
-  // set a paused turn waits on, then the run counters, including nested
-  // usage noted during the turn.
+  // set a paused turn waits on, then the counters the steps did not record:
+  // compaction and cache usage, tool counts and nested usage.
   const saveTurn = async (
     owner: HarnessOwner,
     turn: RunTurnRecord
   ): Promise<RunCounters> => {
-    let credits = await creditsFor({
-      ...(turn.model ? { model: turn.model } : {}),
-      inputTokens: turn.inputTokens,
-      cachedInputTokens: turn.cachedInputTokens,
-      outputTokens: turn.outputTokens,
-    })
-    for (const nested of pendingNested.splice(0)) {
-      credits += await creditsFor(nested)
-    }
+    const credits =
+      (turn.extraUsage ? await creditsFor(turn.extraUsage) : 0) +
+      (await nestedCredits())
     const row = await db
       .transaction(async (tx) => {
         if (turn.save) {
@@ -445,13 +490,9 @@ export async function claimAgentRun(
         const updated = await tx
           .update(schema.agentRun)
           .set({
-            steps: sql`${schema.agentRun.steps} + ${turn.steps}`,
-            inputTokens: sql`${schema.agentRun.inputTokens} + ${turn.inputTokens}`,
-            cachedInputTokens: sql`${schema.agentRun.cachedInputTokens} + ${turn.cachedInputTokens}`,
-            outputTokens: sql`${schema.agentRun.outputTokens} + ${turn.outputTokens}`,
+            ...usageIncrements(0, turn.extraUsage, credits),
             toolCalls: sql`${schema.agentRun.toolCalls} + ${turn.toolCalls}`,
             toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${turn.toolOutputBytes}`,
-            creditsSpent: sql`${schema.agentRun.creditsSpent} + ${credits}`,
             ...(turn.pausedSandbox
               ? {
                   context: sql`coalesce(${schema.agentRun.context}, '{}'::jsonb) || ${JSON.stringify({ pausedSandbox: turn.pausedSandbox })}::jsonb`,
@@ -673,6 +714,7 @@ export async function claimAgentRun(
       handle,
       resume,
       counters: () => counters,
+      recordStep,
       saveTurn,
       noteNestedUsage: (u) => {
         pendingNested.push(u)

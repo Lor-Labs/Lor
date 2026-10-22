@@ -1569,9 +1569,41 @@ moved here from 1.4, because nothing runs without a sandbox.
       clone` of a public repo; `npm install`, `pip install`; DNS (`dig`,
       `nslookup`); `ssh -T git@github.com` and raw TCP; `curl
       169.254.169.254`; what the proxy's identity token can reach.
-- [ ] **1.3g Turn controls and eval:** the compaction handler, per-step counters,
-  the tool block near the spend or deadline limit, ambient context, steering and
-  stop; the sandbox classifier eval next to the long-task eval (§4.6).
+- [ ] **1.3g Turn controls and eval**, in four chunks agreed with Jacob
+  2026-10-21:
+  - [x] **1.3g-1 Spend inside a turn and the real model** (2026-10-21; no
+    `db:push`; not run yet):
+    - **Per step:** each finished step (not the adapter's early `host-input`
+      copy) is billed as its own `lor.respond` usage event and added to the
+      run counters under the lease (`RunHarness.recordStep`), with nested
+      `investigate_code` spend folded in. A paused step is billed by the run
+      that finishes it, as before. Each event has `billingKey`
+      `<runId>:step-<n>`: the ledger debits once per message and tool
+      unless a key is set, so a retried attempt is not charged again for the
+      steps it repeats, and a resume run is billed separately.
+    - **Real model:** the inline Pi extension reports each assistant
+      message's `responseModel ?? model` on `message_end` (also for the
+      paused message replayed on resume), mapped to a configured slug; an
+      unknown name bills at the requested model with a warning. Not verified
+      live: the name the Gateway returns after a fallback.
+    - **Rest of the turn total:** Pi's turn total also holds compaction and
+      cache warming. The part beyond the steps is billed at the requested
+      model (`<runId>:turn`) and saved with the turn (`extraUsage`).
+      Chunk 1.3g-2 bills compaction exactly.
+    - **Limits:** at 90% of `AGENT_RUN_MAX_CREDITS`, or inside the last
+      3 minutes before the deadline, the extension's `tool_call` hook
+      refuses every tool call ("answer now with what you have"); `tool_call`
+      fails closed. At the credit limit the turn aborts with `budget_spend`;
+      the worker keeps the partial answer.
+    - **Not changed:** Pi's built-in tool output is not added to
+      `toolOutputBytes`, because the host tools' total cap reads that
+      counter; step, tool-call and token ceilings stay unenforced.
+  - [ ] **1.3g-2 Compaction:** Lor's instructions through
+    `session_before_compact`, DeepSeek's window, the plan state, exact
+    compaction billing.
+  - [ ] **1.3g-3 Steering and ambient messages** through the `context` hook.
+  - [ ] **1.3g-4 Sandbox classifier eval:** runner, real-traffic loader and
+    case format; Jacob supplies the dangerous sets.
 
 Exit: source review follows every request, tool and summary through permission,
 accounting and save points, including cold approval resume and a crashed turn.
