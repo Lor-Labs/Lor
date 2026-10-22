@@ -1284,7 +1284,8 @@ moved here from 1.4, because nothing runs without a sandbox.
     - Delta images stay `[file:]` lines, as continuations were before.
     - No touches or context-meter data, because they read `agent_run_step`
       (1.5).
-    - `eval:long` throws until 1.6 gives it a harness.
+    - `eval:long` throws until 1.6 gives it a harness (done early,
+      2026-10-21: see 1.6).
 - [x] **1.3d-1 `share_file` and the end of `create_artifacts`** (2026-10-21,
   Jacob's call after the first dev run showed sandbox files stayed private):
   - **`share_file({ path })`** (`artifacts/share-file.ts`): resolves the path
@@ -1798,6 +1799,14 @@ disappear when transient stream rows expire.
 - [ ] Move `packages/lor/src/eval/long/` to the Pi path. Jacob runs `eval:long`
   and the sandbox classifier eval, sets the thresholds from the classifier
   results, and reviews both before the switch.
+  - [x] Moved (2026-10-21, pulled forward; not run yet). `eval:long` and the
+    short `eval` run each conversation through `respond()` with a run from
+    `src/eval/pi-session.ts`: the saved Pi state lives in memory between
+    turns, each attempt gets a real Blaxel session sandbox (deleted at the
+    end, so Blaxel env is required), and sandbox mode is Bypass because
+    nobody answers an ask in an eval (hard rules still apply). A turn that
+    pauses on an approval ends the attempt with an error. Transcript stats
+    add each turn's messages, since Pi returns only the turn's own.
 - [ ] Update as-built docs (`agent-harness.md`, `context-continuation.md`,
   `approval-policies.md`, `artifacts.md`) and tick phase-1 items individually.
 
