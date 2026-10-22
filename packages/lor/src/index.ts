@@ -3156,8 +3156,30 @@ export async function respond(
         boundaryNotes = []
         return parts.length > 0 ? parts.join("\n\n") : null
       }
+      // The run trail's compaction marker (compact_context): a spinner while
+      // Pi compacts, then the divider. Numbered per attempt, so a retried
+      // attempt upserts the same rows.
+      let compactions = 0
+      let compactionCallId: string | null = null
+      const compactionMarker = (status?: "ok" | "error") => {
+        compactionCallId ??= `compaction-${run.runId}-${++compactions}`
+        onToolEvent?.({
+          toolCallId: compactionCallId,
+          toolName: "compact_context",
+          label: !status
+            ? "Compacting context"
+            : status === "ok"
+              ? "Compacted context"
+              : "Context compaction failed",
+          at: text.length,
+          ...(status ? { status } : {}),
+        })
+        if (status) compactionCallId = null
+      }
       const compaction: PiCompaction = {
         focus: COMPACTION_FOCUS,
+        onStart: () => compactionMarker(),
+        onEnd: (done) => compactionMarker(done ? "ok" : "error"),
         onUsage: async (usage, model) => {
           await record(
             {

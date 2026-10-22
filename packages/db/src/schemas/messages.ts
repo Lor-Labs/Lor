@@ -353,8 +353,8 @@ export type LorToolCall = {
   toolName: string
   // Human status line, e.g. "Searching connected sources for …".
   label: string
-  // Set on a nested sub-step (e.g. a code-investigation sandbox agent's own
-  // tool calls) → the toolCallId of the parent tool. Top-level calls omit it.
+  // Set on a nested sub-step → the toolCallId of the parent tool. Nothing
+  // sets it since the coding child agent was deleted; old rows keep it.
   parentToolCallId?: string
   // Character offset into the message `content` where this call occurred, so the
   // UI can render text and tool groups in the order the model produced them.
@@ -369,8 +369,8 @@ export type LorToolCall = {
     // favicon: site icon url for web results — rendered on the item's badge.
     items?: { title: string; url?: string; favicon?: string }[]
   }
-  // File change a nested sandbox sub-step made (write/edit): line counts for
-  // the row label and a bounded unified diff for the expandable view.
+  // File change a sandbox write/edit made: line counts for the row label and
+  // a bounded diff for the expandable view.
   diff?: {
     path: string
     additions: number

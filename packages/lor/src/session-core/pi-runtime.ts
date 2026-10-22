@@ -265,6 +265,11 @@ const COMPACTION_RETRY = { enabled: true, maxRetries: 3, baseDelayMs: 2_000 }
 export type PiCompaction = {
   // Added to Pi's summary prompt as "Additional focus".
   focus: string
+  // Around each compaction, for the run trail's marker. Ends once Pi saved
+  // it (`done`), including after Pi's own summary when Lor's failed, or when
+  // compaction failed.
+  onStart?: () => void
+  onEnd?: (done: boolean) => void
   // Each summary's usage and the model that wrote it. A throw is ignored:
   // a lost lease aborts the turn on its own.
   onUsage: (usage: PiTurnUsage, model: string) => void | Promise<void>
@@ -321,6 +326,7 @@ function lorPiExtension(input: {
     let compacted = false
     pi.on("session_before_compact", async (event, ctx) => {
       const { compaction: lor } = input
+      lor?.onStart?.()
       if (!lor || !ctx.model) return
       let answeredBy = ctx.model.id
       const compaction = await compact(
@@ -385,7 +391,11 @@ function lorPiExtension(input: {
         captureUsage(ctx)
       }
     })
-    pi.on("session_compact", (_event, ctx) => captureUsage(ctx))
+    pi.on("session_compact", (_event, ctx) => {
+      input.compaction?.onEnd?.(true)
+      captureUsage(ctx)
+    })
+    pi.on("session_compact_failed", () => input.compaction?.onEnd?.(false))
     pi.on("agent_settled", (_event, ctx) => captureUsage(ctx))
     // Only Pi's built-ins: Pi announces a call before this hook runs, so the
     // harness has already started a Lor tool. Lor tools are refused through

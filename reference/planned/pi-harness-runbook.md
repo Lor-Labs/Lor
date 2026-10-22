@@ -1,8 +1,8 @@
 # Pi foundation migration runbook — phase 1
 
 > Status: revised 2026-10-20 after a source review of the exact published
-> packages, the repository and vendor docs. **In progress: 1.1–1.4 built,
-> 1.5 next (see the record table in §9).** Implements phase 1 of
+> packages, the repository and vendor docs. **In progress: 1.1–1.5 built,
+> 1.6 next (see the record table in §9).** Implements phase 1 of
 > [Shared harness sessions](harness-sessions.md). Repository baseline: `dev`
 > at `7d663fdf`; branch: `pi-harness-sessions`.
 >
@@ -1929,11 +1929,33 @@ reach worker files or bypass Lor policy.
     saves.
   - **Found:** Lor's per-call output cap (256 KB) is larger than Pi's 50 KB
     cut for tool results, so the model sees at most 50 KB of one result.
-    This has been the case since 1.3. Decide whether to lower Lor's cap to
-    match.
+    This has been the case since 1.3. Kept on purpose (Jacob, 2026-10-22):
+    Pi cuts a large result and keeps its start with a "narrower parameters"
+    notice, while Lor's cap drops the whole result. Lowering the cap would
+    lose that partial content.
   - **Token deltas** stay transient (run events, pruned 7 days after the
     run).
-- [ ] Preserve web/mobile tool, memory, plan, approval and message behavior.
+- [x] **1.5-3 Web/mobile behavior** (2026-10-22, source review; live QA owed):
+  - **Same as before:**
+    - run events (text, reasoning, tool, memory, state, steer) come from the
+      same worker callbacks, and steer markers from the worker's boundary
+      drain, which the Pi path uses;
+    - Pi's sandbox tools show as flat rows with diffs on web and mobile, and
+      both icon switches cover every Pi tool name and the `memory_*` tools;
+    - shared files, memory chips, plans and the paused-turn text work as
+      before;
+    - a call waiting for approval shows only its start row, as in the old
+      engine; the approval card carries the state.
+  - **Fixed:** Pi's compaction wrote no `compact_context` trail row, so web
+    never showed its compaction divider. `PiCompaction.onStart`/`onEnd` now
+    write it: start in `session_before_compact`; end on Pi's
+    `session_compact`, also when Pi's own summary replaced Lor's, or on
+    `session_compact_failed`. The row IDs are numbered per attempt. Mobile
+    shows it as a plain trail row, as before.
+  - **Comments:** the `LorToolCall` comments no longer describe the deleted
+    coding child.
+  - **Dead code for 1.6:** the nested sub-step rendering (`parentToolCallId`
+    children) on web and mobile; nothing sets it now.
 
 Exit: every run producer uses the Pi path, and completed history does not
 disappear when transient stream rows expire.
@@ -1992,7 +2014,7 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5-1 and 1.5-2 built 2026-10-22 (no `db:push`); web/mobile check and 1.6 left. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5 built 2026-10-22 (no `db:push`; live QA owed); 1.6 left. |
 | Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store; `@ai-sdk/harness` `HarnessAgent._toToolSpecs` should resolve AI SDK v7 dynamic tool descriptions as `streamText` does (`resolveToolDescription`), instead of passing the function through, which Pi then cannot clone (worked around in `runPiTurn`, 2026-10-21). |
 
 ## Sources
