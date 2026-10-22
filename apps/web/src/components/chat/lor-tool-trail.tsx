@@ -7,7 +7,6 @@ import {
   Message01Icon,
   PencilEdit02Icon,
   Search01Icon,
-  SourceCodeIcon,
   Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -55,7 +54,6 @@ function glyph(icon: IconSvgElement): TrailIcon {
   )
 }
 
-const CodeGlyph = glyph(SourceCodeIcon)
 const SearchGlyph = glyph(Search01Icon)
 const DownloadGlyph = glyph(Download01Icon)
 const ReadGlyph = glyph(BookOpen01Icon)
@@ -69,9 +67,6 @@ export function toolIcon(toolName: string): TrailIcon {
   const connector = connectorForTool(toolName)
   if (connector) return connectorLogo(connector)
   switch (toolName) {
-    case "investigate_code":
-    case "propose_code_change":
-      return CodeGlyph
     case "search_sources":
     case "search_messages":
     case "grep":

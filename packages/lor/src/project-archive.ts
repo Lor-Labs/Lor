@@ -17,7 +17,6 @@ import { attioTools, resolveWorkspaceAttio } from "./attio"
 import { type BrainWriteEvent, brainReadTools, brainWriteTools } from "./brain"
 import { EMPTY_TOOL_GRANTS, resolveChannelCapabilities } from "./capabilities"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
-import { codeTools } from "./code"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import { chatTools, searchTools, toolDetail, toolLabel } from "./index"
@@ -25,7 +24,6 @@ import { linearTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
 import { lorModel, mainGatewayOptions } from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
-import { blaxelConfigured } from "./sandbox/blaxel"
 import { sourceTools } from "./sources"
 import type { OnUsage } from "./usage"
 import { webTools } from "./web"
@@ -37,7 +35,7 @@ const TRANSCRIPT_CHAR_MAX = 150_000
 
 const SYNTHESIS_INSTRUCTIONS = `You are Lor, the archivist for a team workspace. A project has just been archived; its channels are now read-only. Your job is to distill it into durable, workspace-visible memory so future conversations anywhere in the workspace can build on what happened here.
 
-You are given the project's metadata and its channel transcript. The project's own scoped memory folder (if any) is readable via your memory tools — consult it for notes taken during the project. Where the team's connected tools are available, verify what actually happened rather than relying on the transcript alone: read the pull requests that merged, the tickets that closed, the code that shipped.
+You are given the project's metadata and its channel transcript. The project's own scoped memory folder (if any) is readable via your memory tools — consult it for notes taken during the project. Where the team's connected tools are available, verify what actually happened rather than relying on the transcript alone: read the pull requests that merged and the tickets that closed.
 
 Write brain pages under the folder path you are given:
 - Capture what the project set out to do, the key decisions AND their rationale, the outcome, and any follow-ups or loose ends.
@@ -208,7 +206,6 @@ export async function synthesizeProjectArchive(
       ...brainWriteTools,
       ...(env.EXA_API_KEY ? webTools : {}),
       ...(github ? githubTools : {}),
-      ...(blaxelConfigured() && github ? codeTools : {}),
       ...(linear ? linearTools : {}),
       ...(attio ? attioTools : {}),
       ...(notion ? notionTools : {}),
@@ -218,7 +215,6 @@ export async function synthesizeProjectArchive(
 
     const connectorNames = new Set([
       ...Object.keys(githubTools),
-      ...Object.keys(codeTools),
       ...Object.keys(linearTools),
       ...Object.keys(attioTools),
       ...Object.keys(notionTools),
@@ -276,13 +272,6 @@ export async function synthesizeProjectArchive(
               onUsage,
             },
             fetch_github: github,
-            investigate_code: {
-              workspaceId: args.workspaceId,
-              installationId: github.installationId,
-              repos: github.repos,
-              onUsage,
-              onToolEvent,
-            },
           }
         : {}),
       ...(linear
@@ -331,7 +320,7 @@ export async function synthesizeProjectArchive(
     }
 
     const connectors = [
-      github && "GitHub (code, PRs)",
+      github && "GitHub (PRs, issues)",
       linear && "Linear (issues)",
       attio && "Attio (CRM)",
       notion && "Notion",

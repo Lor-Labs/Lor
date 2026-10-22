@@ -1000,17 +1000,10 @@ export function createLorRespondProcessor(
                   emitter.to(room).emit("lor:tool", toolPayload)
                 },
                 // Metered usage: every event lands in the usage_event ledger;
-                // billable responses and code investigations debit credits.
-                // Fire-and-forget: billing must never fail the answer. Nested
-                // billable usage also folds into the run's spend counter at the
-                // next checkpoint (the budget_spend ceiling).
+                // billable responses debit credits. Fire-and-forget: billing
+                // must never fail the answer.
                 onUsage: (u) => {
                   logger.info({ ...u }, "Lor usage")
-                  if (
-                    u.tool === "investigate_code" ||
-                    u.tool === "propose_code_change"
-                  )
-                    execution?.noteNestedUsage(u)
                   void recordUsage(u, usageRefs)
                 },
                 onInstructionsProposal: notifyInstructionsProposal,

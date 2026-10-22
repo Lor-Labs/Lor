@@ -342,12 +342,6 @@ async function runVoiceRequest(
           })
         },
         onUsage: (usage) => {
-          if (
-            usage.tool === "investigate_code" ||
-            usage.tool === "propose_code_change"
-          ) {
-            execution.noteNestedUsage(usage)
-          }
           // Voice usage has no message: the request scopes the debit key, so
           // a retried attempt is not charged twice.
           void recordUsage(usage, {

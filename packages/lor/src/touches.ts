@@ -94,16 +94,9 @@ const CATALOG_SPECS: Record<
     const kind = output.type === "issue" ? "github_issue" : "github_pr"
     return [item(kind, githubItemKey(repo, number))]
   },
-  investigate_code: (input) => {
-    const repo = str(input, "repo")
-    return [item("github_repo", repo ? githubRepoKey(repo) : null)]
-  },
-  propose_code_change: (input, output) => {
+  clone_repo: (input, output) => {
     const repo = str(output, "repo") ?? str(input, "repo")
-    const number = str(output.pullRequest, "number")
-    return [
-      item("github_pr", repo && number ? githubItemKey(repo, number) : null),
-    ]
+    return [item("github_repo", repo ? githubRepoKey(repo) : null)]
   },
   search_linear: null,
   list_linear_issues: null,

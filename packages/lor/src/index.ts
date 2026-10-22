@@ -86,17 +86,12 @@ import {
   splitCallToken,
 } from "./citations"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
-import { codeTools } from "./code"
-import { codeActionTools } from "./code-actions"
+import { cloneRepoTool } from "./code"
 import { fitMessagesToBudget } from "./compaction"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage } from "./embeddings"
-import {
-  githubBaseBranchOverrides,
-  githubTools,
-  resolveWorkspaceGithub,
-} from "./github"
+import { githubTools, resolveWorkspaceGithub } from "./github"
 import { fetchImageForView, isViewableImage, MAX_IMAGE_BYTES } from "./images"
 import { buildInitialUserMessage } from "./initial-message"
 import {
@@ -160,7 +155,6 @@ import {
   WALL_CLOCK_ANSWER_MARGIN_MS,
   ZERO_RUN_COUNTERS,
 } from "./run"
-import { blaxelConfigured } from "./sandbox/blaxel"
 import { sandboxRequest } from "./sandbox/classifier-context"
 import { jevSandboxClassifier } from "./sandbox/jev-classifier"
 import {
@@ -269,7 +263,7 @@ const NOTION_WRITE_PROMPT_LINE = `- Selected Notion write tools can create pages
 
 const EXPORT_PROMPT_LINE = `- Bulk data to a file: export_tool_result runs one of your other tools and saves its complete result straight to a file, returning only a receipt (url, row and byte counts, a small preview) — the data itself never enters this conversation. Reach for it whenever a tool would return more data than you need to read: database queries (run_sql and friends), long list or search results, large JSON. Never page through big results by calling a tool repeatedly and copying rows into your reply — export once and use the file. The returned url is a workspace file: share it as the deliverable, and/or download it into your sandbox when the data needs further processing (merging, cleaning, charts). Only read tools without an approval gate can be exported; call approval-gated tools directly. Anything that takes an action is refused.`
 
-const CODE_ACTIONS_PROMPT_LINE = `- Code changes: propose_code_change runs a coding agent on a connected repository, pushes the result to a lor/* branch, and opens a DRAFT pull request — it never merges anything. Use it only when someone clearly asks for a code change (fix, implement, adjust); questions about code go to investigate_code instead. Pull requests target each repository's configured base branch (its default branch unless the workspace overrides it); when someone asks to target a different existing branch, pass it as base. Always share the returned pull request link in your answer. To iterate on an open proposal (review feedback, follow-up fixes), pass its branch back to update the same pull request. Keep proposals small and focused; split unrelated changes into separate proposals.`
+const CODE_PROMPT_LINE = `- The team's code: clone_repo copies a connected GitHub repository (one branch, latest commit) into your sandbox and returns its folder. Use it when a question needs the source, then search and read the folder with your sandbox tools. Link code you cite with a normal Markdown link made of the returned linkBase, the file's path in the repository and its lines, e.g. [src/billing.ts#L10-L24](<linkBase>src/billing.ts#L10-L24). You cannot commit, push or open pull requests.`
 
 const LOOPS_PROMPT_LINE = `- Scheduled loops: propose_loop turns a recurring ask ("check X every morning", "post a Friday digest") into a loop — a recurring run of you on a cron schedule, with standing instructions and an optional plain-language end condition. Each run is a turn in the loop's own session, which the team follows. It creates a draft card here; a teammate activates it from the card, so tell them to press Create Loop there. Only for genuinely recurring work — never for one-off requests you can handle now.`
 
@@ -1476,10 +1470,8 @@ export function toolLabel(toolName: string, input: unknown): string {
   switch (toolName) {
     case "react_to_message":
       return emoji ? `Reacting ${emoji}` : "Reacting to a message"
-    case "investigate_code":
-      return repo ? `Investigating ${repo}` : "Investigating the codebase"
-    case "propose_code_change":
-      return repo ? `Proposing a change to ${repo}` : "Proposing a code change"
+    case "clone_repo":
+      return repo ? `Cloning ${repo}` : "Cloning a repository"
     case "share_file": {
       const name = path?.split("/").at(-1)
       return name ? `Sharing ${name}` : "Sharing a file"
@@ -1848,12 +1840,17 @@ export function toolDetail(
         },
       }
     }
-    case "investigate_code": {
-      const findings = asString(rec?.findings)
+    case "clone_repo": {
+      const repo = asString(rec?.repo)
+      const branch = asString(rec?.branch)
       return {
         status: "ok",
         detail: {
-          summary: findings?.slice(0, 16000) ?? "Explored the codebase",
+          summary:
+            asString(rec?.note) ??
+            (repo
+              ? `Cloned ${repo}${branch ? ` at ${branch}` : ""}`
+              : "Cloned a repository"),
         },
       }
     }
@@ -1865,32 +1862,6 @@ export function toolDetail(
           summary: description
             ? `Drafted a loop — ${description}`
             : "Drafted a loop",
-        },
-      }
-    }
-    case "propose_code_change": {
-      const pullRequest = asRecord(rec?.pullRequest)
-      const number =
-        typeof pullRequest?.number === "number" ? pullRequest.number : null
-      const updated = pullRequest?.updatedExisting === true
-      const heading = `${updated ? "Updated" : "Created"} draft pull request${number === null ? "" : ` #${number}`}`
-      const summary = asString(rec?.summary)?.slice(0, 16000)
-      const url = asString(pullRequest?.url)
-      return {
-        status: "ok",
-        detail: {
-          summary: summary ? `${heading}\n\n${summary}` : heading,
-          items: url
-            ? [
-                {
-                  title:
-                    number === null
-                      ? "View draft pull request"
-                      : `Draft pull request #${number}`,
-                  url,
-                },
-              ]
-            : undefined,
         },
       }
     }
@@ -2485,7 +2456,6 @@ export async function respond(
     notion,
     datadogMcp,
     cloudwatch,
-    baseBranches,
     betterstackMcp,
   ] = await Promise.all([
     needsGithub
@@ -2508,11 +2478,6 @@ export async function respond(
     needsCloudwatch
       ? resolveWorkspaceCloudwatch(ctx.workspaceId).catch(() => null)
       : null,
-    selectedConnectorTools.has("propose_code_change")
-      ? githubBaseBranchOverrides(ctx.workspaceId).catch(
-          () => ({}) as Record<string, string>
-        )
-      : ({} as Record<string, string>),
     needsConnector("betterstack")
       ? betterstackMcpTools(ctx.workspaceId, selectedConnectorTools)
       : null,
@@ -2532,18 +2497,16 @@ export async function respond(
     const shareFileEnabled = Boolean(
       ctx.channelId && sandboxWorkDir && selectedBuiltinTools.has("share_file")
     )
-    const codeActionsEnabled = Boolean(
-      blaxelConfigured() &&
-        github &&
-        ctx.channelId &&
-        selectedConnectorTools.has("propose_code_change")
+    // A clone is only useful when Lor can read it with its sandbox tools.
+    const cloneRepoEnabled = Boolean(
+      sandboxWorkDir &&
+        sandboxBuiltins.some((name) => name === "read" || name === "bash")
     )
     const reservedConnectorNames = new Set([
       ...CONNECTOR_TOOL_NAMES,
       ...[
         githubTools,
-        codeTools,
-        codeActionTools,
+        cloneRepoTool,
         linearTools,
         linearWriteTools,
         attioTools,
@@ -2571,8 +2534,7 @@ export async function respond(
         : {}),
       ...(env.EXA_API_KEY ? webTools : {}),
       ...(github ? githubTools : {}),
-      ...(blaxelConfigured() && github ? codeTools : {}),
-      ...(codeActionsEnabled ? codeActionTools : {}),
+      ...(github && cloneRepoEnabled ? cloneRepoTool : {}),
       ...(shareFileEnabled ? shareFileTool : {}),
       ...(ctx.plan || ctx.threadRootId ? planTools : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
@@ -2688,29 +2650,15 @@ export async function respond(
         ? {
             search_github: { ...github, workspaceId: ctx.workspaceId, onUsage },
             fetch_github: github,
-            investigate_code: {
-              workspaceId: ctx.workspaceId,
-              installationId: github.installationId,
-              repos: github.repos,
-              onUsage,
-              onToolEvent,
-            },
-          }
-        : {}),
-      ...(codeActionsEnabled && github && ctx.channelId
-        ? {
-            propose_code_change: {
-              workspaceId: ctx.workspaceId,
-              installationId: github.installationId,
-              repos: github.repos,
-              baseBranches,
-              // Thread scope when there is one; channel scope otherwise —
-              // matches the run scope, so follow-ups land in the same sandbox.
-              sandboxKey: ctx.threadRootId ?? ctx.channelId,
-              deadlineAt: budgets.deadlineAt,
-              onUsage,
-              onToolEvent,
-            },
+            ...(sandboxWorkDir
+              ? {
+                  clone_repo: {
+                    installationId: github.installationId,
+                    repos: github.repos,
+                    workDir: sandboxWorkDir,
+                  },
+                }
+              : {}),
           }
         : {}),
       ...(shareFileEnabled && ctx.channelId && sandboxWorkDir
@@ -2854,6 +2802,7 @@ export async function respond(
       sandboxPromptLine(sandboxBuiltins, shareFileEnabled),
       hasToolGroup(webTools) ? WEB_PROMPT_LINE : null,
       hasToolGroup(githubTools) ? GITHUB_PROMPT_LINE : null,
+      hasToolGroup(cloneRepoTool) ? CODE_PROMPT_LINE : null,
       hasToolGroup(linearTools) ? LINEAR_PROMPT_LINE : null,
       hasToolGroup(linearWriteTools) ? LINEAR_WRITE_PROMPT_LINE : null,
       datadogMcp && hasToolGroup(datadogMcp.tools) ? DATADOG_PROMPT_LINE : null,
@@ -2863,7 +2812,6 @@ export async function respond(
       hasToolGroup(notionTools) ? NOTION_PROMPT_LINE : null,
       hasToolGroup(notionWriteTools) ? NOTION_WRITE_PROMPT_LINE : null,
       ctx.channelId ? EXPORT_PROMPT_LINE : null,
-      hasToolGroup(codeActionTools) ? CODE_ACTIONS_PROMPT_LINE : null,
       ctx.proposeLoop && ctx.channelId ? LOOPS_PROMPT_LINE : null,
       ctx.proposeChange && ctx.channelId ? PROPOSALS_PROMPT_LINE : null,
       betterstackMcp && hasToolGroup(betterstackMcp.tools)

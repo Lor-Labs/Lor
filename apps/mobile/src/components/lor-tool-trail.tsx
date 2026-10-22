@@ -1,7 +1,6 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import BookOpen01Icon from "@hugeicons/core-free-icons/BookOpen01Icon"
-import CodeIcon from "@hugeicons/core-free-icons/CodeIcon"
 import Download01Icon from "@hugeicons/core-free-icons/Download01Icon"
 import ExternalLinkIcon from "@hugeicons/core-free-icons/ExternalLinkIcon"
 import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
@@ -28,9 +27,6 @@ import { openExternalUrl } from "@/lib/open-url"
 
 function builtinToolIcon(toolName: string): IconSvgElement {
   switch (toolName) {
-    case "investigate_code":
-    case "propose_code_change":
-      return CodeIcon
     case "search_sources":
     case "search_messages":
     case "grep":

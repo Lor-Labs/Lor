@@ -19,13 +19,11 @@ export const connectionIdParamsSchema =
 // One row per integration provider: whether this workspace has it connected,
 // and how to connect it.
 // A repository the connected installation can access. Repo access is managed
-// on GitHub (the App install picker); the PR base branch for code actions is
-// configurable here (null = the repo's default branch).
+// on GitHub (the App install picker).
 export const integrationRepoSchema = z.object({
   fullName: z.string(),
   private: z.boolean(),
   defaultBranch: z.string(),
-  baseBranch: z.string().nullable(),
 })
 
 export const integrationStatusSchema = z.object({
@@ -184,29 +182,6 @@ export const updateIntegrationRequestSchema = z.object({
 })
 
 export const updateIntegrationResponseSchema = z.object({
-  success: z.literal(true),
-})
-
-// Same shape git itself allows for branch names we're willing to interpolate
-// (mirrors the code-session SAFE_REF guard).
-const baseBranchSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(120)
-  .regex(/^[A-Za-z0-9._/-]+$/, "Not a valid branch name")
-  .refine((v) => !v.includes("..") && !v.startsWith("-"), {
-    message: "Not a valid branch name",
-  })
-
-export const updateGithubRepoConfigRequestSchema = z.object({
-  repoFullName: z.string().min(3).max(200),
-  // The branch code-action pull requests target for this repo; null resets to
-  // the repository's default branch.
-  baseBranch: baseBranchSchema.nullable(),
-})
-
-export const updateGithubRepoConfigResponseSchema = z.object({
   success: z.literal(true),
 })
 

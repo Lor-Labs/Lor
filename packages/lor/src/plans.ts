@@ -208,7 +208,7 @@ const startPlanContext = z.object({
 export const planTools = {
   start_plan: tool({
     description:
-      "Turn this conversation's request into a tracked plan the team watches live while you work. Call it BEFORE starting substantial delegated work with a deliverable outcome — produce or transform files, analyze data and deliver results, write a document or report, complete multi-step work. Never for questions (even hard ones), quick answers, code changes (propose_code_change handles those), or recurring/scheduled work (loop tools handle those). Pass a short imperative title like an issue title, the goal in one or two sentences, and your initial steps. Call it ALONE and wait for its result before any other plan tool — update_plan/complete_plan in the same parallel batch will fail.",
+      "Turn this conversation's request into a tracked plan the team watches live while you work. Call it BEFORE starting substantial delegated work with a deliverable outcome — produce or transform files, analyze data and deliver results, write a document or report, complete multi-step work. Never for questions (even hard ones), quick answers, code changes, or recurring/scheduled work (loop tools handle those). Pass a short imperative title like an issue title, the goal in one or two sentences, and your initial steps. Call it ALONE and wait for its result before any other plan tool — update_plan/complete_plan in the same parallel batch will fail.",
     inputSchema: z.object({
       title: z
         .string()

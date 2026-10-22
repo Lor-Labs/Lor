@@ -98,39 +98,23 @@ const serverSchema = z.object({
   AGENT_RUN_MAX_WALL_MS: z.coerce.number().int().positive().default(7_200_000),
   AGENT_RUN_MAX_PROVIDER_RETRIES: z.coerce.number().int().min(0).default(3),
   AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(2_000),
-  // The timeout bounds one propose_code_change coding session; the byte cap
-  // bounds one file share_file copies from a session sandbox into artifacts.
-  LOR_WORKBENCH_TIMEOUT_SEC: z.coerce.number().int().positive().default(1200),
+  // Bounds one file share_file copies from a session sandbox into artifacts.
   LOR_WORKBENCH_MAX_FILE_BYTES: z.coerce
     .number()
     .int()
     .positive()
     .default(104_857_600),
-  // Blaxel sandbox provider — the only one. Session sandboxes and the coding
-  // tools (investigate_code, propose_code_change) run on it. The BL_* names
-  // are fixed — @blaxel/core reads them from process.env directly.
+  // Blaxel sandbox provider — the only one. Session sandboxes run on it. The
+  // BL_* names are fixed — @blaxel/core reads them from process.env directly.
   BL_API_KEY: z.string().min(1).optional(),
   BL_WORKSPACE: z.string().min(1).optional(),
   // Custom sandbox image (pushed via `bl push` from packages/lor/sandbox-image).
   LOR_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
-  // Idle lifetimes for persistent Blaxel sandboxes. Task contents are durable
-  // in R2, while code sandboxes retain unpublished diffs awaiting approval.
-  // Blaxel expiration policies accept hours, days, or weeks only.
-  LOR_WORKBENCH_SANDBOX_TTL: z
-    .string()
-    .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")
-    .default("24h"),
-  LOR_CODE_SANDBOX_TTL: z
-    .string()
-    .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")
-    .default("7d"),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
-  // Disk-backed /workspace volume for clones, dependencies, caches, and outputs.
-  LOR_WORKBENCH_DISK_MB: z.coerce.number().int().positive().default(8192),
   // Session sandboxes (one per Lor session or call). Blaxel caps the account's
   // total ephemeral volume size (40 GB on Tier 1), and idle sandboxes keep
-  // theirs, so chat sessions get a smaller disk than the code tools and are
-  // deleted after this long idle.
+  // theirs, so the disk is small and sandboxes are deleted after this long
+  // idle. Blaxel expiration policies accept hours, days, or weeks only.
   LOR_SESSION_DISK_MB: z.coerce.number().int().positive().default(2048),
   LOR_SESSION_SANDBOX_TTL: z
     .string()

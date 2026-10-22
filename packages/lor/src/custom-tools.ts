@@ -47,8 +47,6 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "fetch_web",
   "search_github",
   "fetch_github",
-  "investigate_code",
-  "propose_code_change",
   "share_file",
   "start_plan",
   "update_plan",

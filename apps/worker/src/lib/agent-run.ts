@@ -117,8 +117,6 @@ export type RunExecution = {
   ) => Promise<RunCounters>
   // Saves a finished Pi turn for the conversation `owner` (RunHarness.saveTurn).
   saveTurn: (owner: HarnessOwner, turn: RunTurnRecord) => Promise<RunCounters>
-  // Nested billable usage (investigate_code) folds into the turn's save.
-  noteNestedUsage: (u: UsageEvent) => void
   // Post-answer usage (write-back) folds straight into the counters.
   addUsage: (u: UsageEvent) => void
   // Persists the predecessor pointer; recovery combines it with this run's
@@ -466,17 +464,7 @@ export async function claimAgentRun(
     return added
   }
 
-  const pendingNested: UsageEvent[] = []
   let runContext = claimed.context
-
-  // Nested billable usage noted since the last counter write.
-  const nestedCredits = async (): Promise<number> => {
-    let credits = 0
-    for (const nested of pendingNested.splice(0)) {
-      credits += await creditsFor(nested)
-    }
-    return credits
-  }
 
   // One model call as it finishes, so the spend limit is checked inside the
   // turn (pi-harness-runbook.md §4.5). A compaction summary is not a step.
@@ -484,7 +472,7 @@ export async function claimAgentRun(
     usage: RunStepRecord,
     kind: "step" | "compaction"
   ): Promise<RunCounters> => {
-    const credits = (await creditsFor(usage)) + (await nestedCredits())
+    const credits = await creditsFor(usage)
     const row = await db
       .update(schema.agentRun)
       .set(usageIncrements(kind === "step" ? 1 : 0, usage, credits))
@@ -507,14 +495,12 @@ export async function claimAgentRun(
 
   // One transaction: the Pi log under the lease and head checks, the approval
   // set a paused turn waits on, then the counters the steps did not record:
-  // compaction and cache usage, tool counts and nested usage.
+  // compaction and cache usage, and tool counts.
   const saveTurn = async (
     owner: HarnessOwner,
     turn: RunTurnRecord
   ): Promise<RunCounters> => {
-    const credits =
-      (turn.extraUsage ? await creditsFor(turn.extraUsage) : 0) +
-      (await nestedCredits())
+    const credits = turn.extraUsage ? await creditsFor(turn.extraUsage) : 0
     // The turn's coverage and its paused sandbox state ride the save, so a
     // lost lease never records one without the other.
     const context =
@@ -772,9 +758,6 @@ export async function claimAgentRun(
       counters: () => counters,
       recordUsage,
       saveTurn,
-      noteNestedUsage: (u) => {
-        pendingNested.push(u)
-      },
       // Write-back runs after the answer is terminal, so this folds without a
       // lease guard — it only feeds observability and the skip floor.
       addUsage: (u) => {

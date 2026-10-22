@@ -51,24 +51,6 @@ export async function activeGithubInstallation(
   return connection?.externalId ?? null
 }
 
-// Per-repo PR base branch overrides (workspace settings → GitHub connector).
-// Repos without a row use their GitHub default branch. Read fresh per run —
-// never cached with the repo list, so settings changes apply immediately.
-export async function githubBaseBranchOverrides(
-  workspaceId: string
-): Promise<Record<string, string>> {
-  const connection = await activeGithubConnection(workspaceId)
-  if (!connection) return {}
-  const rows = await db
-    .select({
-      repoFullName: schema.githubRepoConfig.repoFullName,
-      baseBranch: schema.githubRepoConfig.baseBranch,
-    })
-    .from(schema.githubRepoConfig)
-    .where(eq(schema.githubRepoConfig.connectionId, connection.id))
-  return Object.fromEntries(rows.map((r) => [r.repoFullName, r.baseBranch]))
-}
-
 // Injected by the worker so Lor keeps no Redis dependency.
 export type RepoCacheStore = {
   get(key: string): Promise<string | null>

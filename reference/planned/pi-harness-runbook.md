@@ -1,8 +1,8 @@
 # Pi foundation migration runbook — phase 1
 
 > Status: revised 2026-10-20 after a source review of the exact published
-> packages, the repository and vendor docs. **Documentation only;
-> implementation not started.** Implements phase 1 of
+> packages, the repository and vendor docs. **In progress: 1.1–1.3 built,
+> 1.4 in progress (see the record table in §9).** Implements phase 1 of
 > [Shared harness sessions](harness-sessions.md). Repository baseline: `dev`
 > at `7d663fdf`; branch: `pi-harness-sessions`.
 >
@@ -29,7 +29,7 @@ authority (§4.3). Do not infer production readiness from the common API alone.
 | Pi settings | None in phase 1: compaction, retries and cache warming keep Pi's defaults. If a setting must change later, patch the adapter with `pnpm patch` to pass a settings record and send the same change upstream as a PR. |
 | Sandboxes (G6) | Every agent run gets its session sandbox, **including voice, Loop and Act runs**. Each needs a session workspace owner before it provisions. |
 | Lost workspace (G6) | **Interim until phase 2.** If a session's sandbox no longer exists (crash or deletion), continue the session in a new empty sandbox and tell the model and the people in the session that earlier files are gone. Fail the run only when the native **conversation** state is missing or corrupt. Phase 2 Git checkpoints replace this: Lor rebuilds the sandbox from the last completed-turn commit. |
-| Capacity | Changed 2026-10-21 after Tier 1's 40 GB ephemeral-volume quota allowed only 5 session sandboxes: session sandboxes get a 2 GB `/workspace` (`LOR_SESSION_DISK_MB`; code tools keep 8 GB), Blaxel deletes them after 7 days idle (`LOR_SESSION_SANDBOX_TTL`), and archiving a session deletes its sandbox after a 10-minute undo window (loop sessions excepted). Until phase 2 checkpoints, unshared sandbox files are lost then; the conversation and shared files are not. A quota error still fails the run visibly. |
+| Capacity | Changed 2026-10-21 after Tier 1's 40 GB ephemeral-volume quota allowed only 5 session sandboxes: session sandboxes get a 2 GB `/workspace` (`LOR_SESSION_DISK_MB`), Blaxel deletes them after 7 days idle (`LOR_SESSION_SANDBOX_TTL`), and archiving a session deletes its sandbox after a 10-minute undo window (loop sessions excepted). Until phase 2 checkpoints, unshared sandbox files are lost then; the conversation and shared files are not. A quota error still fails the run visibly. |
 | Worker runtime | Run the Pi path on **Bun**, the worker's current runtime. Verify the adapter on Bun in 1.1; move the Pi path to Node only if a concrete Bun failure appears. |
 | AI SDK | Upgrade `ai` repo-wide to the version the harness requires (≥ `7.0.145`). Change the remaining AI SDK callers (write-back, placement, titles, classifiers, embeddings, rerank) where the upgrade needs it. |
 | Legacy engine | **Delete it** (2026-10-20). No one uses the app yet, so there is no flag, rollout, drain or import. Old sessions have no native state; their first Pi run starts from the visible session history, like any first run. Legacy run tables keep their rows but receive no new writes; dropping them is a separate later decision. |
@@ -40,6 +40,7 @@ authority (§4.3). Do not infer production readiness from the common API alone.
 | Quality check | Jacob runs `eval:long` on the Pi path before the switch. The eval harness moves to the Pi path. A new **sandbox classifier eval** sets the safety thresholds and rules from evidence (§4.6). |
 | Sandbox safety policy | Rules decide clear cases; only flagged calls reach Jev. Bootstrap thresholds: hazard ≥ 0.35, explicit authorization ≥ 0.95, high severity ≥ 2 on a 0–3 rubric, identical in Auto and autonomous. Errors ask or refuse. These are provisional; Jacob's classifier eval must calibrate them before the switch (§4.6). |
 | Skills and slash commands | Out of phase 1; moved to the self-configuration work. |
+| Code work | Changed 2026-10-22. Start over with no compatibility layer (no users; phase 1 may ship with code work broken, and no PRs are made until it is done). Delete the coding child agent: `investigate_code` and `propose_code_change` go, and the main agent does all code work in its session sandbox. Interim: `clone_repo` clones a connected repository read-only into any session's sandbox; nothing in phase 1 commits, pushes or opens a PR. Code sessions (mode chosen at the start, "Continue in Code" handoff, a person commits or opens the PR under their GitHub account or as the Lor bot) are product design in `code-channels.md` §2, built after phase 1. Each conversation (session or voice call) has at most one sandbox. |
 | Versions | **Pinned 2026-10-20:** `@ai-sdk/harness-pi@1.0.160`, `@ai-sdk/harness@1.0.158`, `ai@7.0.147`, Pi `1.3.0` (direct dependency plus a root pnpm override). Exact versions; the harness ships breaking changes in patch releases. 1.0.159 → 1.0.160 only bumped `ai`. |
 
 ### Earlier revisions (kept for the record)
@@ -852,7 +853,7 @@ on the session's first agent run; reuse it across turns, worker attempts and
 approval continuations. Empty session creation or history viewing does not start
 a run.
 
-**Lor today:** plain chat never gets a sandbox. `investigate_code` uses a throwaway
+**Lor before phase 1:** plain chat never gets a sandbox. `investigate_code` uses a throwaway
 `inv-{uuid}`; `create_artifacts` keeps `wbs-{threadRootId}` for 24 h idle;
 `propose_code_change` keeps `code-{scope}` for 7 days idle. Unhealthy or
 undersized sandboxes are deleted and recreated with only a log warning
@@ -892,8 +893,8 @@ is not published.
 - At safe turn/approval boundaries, save native state and settle active work
   before releasing connections so Blaxel can enter standby.
 - The Pi loop runs in the worker, so the session sandbox does not need the
-  Gateway key. Keep it out of session sandboxes; the existing coding child
-  (`investigate_code`, workbench Pi) keeps its current behavior until replaced.
+  Gateway key. Keep it out of every sandbox: 1.4-1 deletes the coding child
+  (`investigate_code`, `propose_code_change`), the last process that got it.
 - Deferred: zero-VM plain chat, virtual-to-remote promotion and allocation cost
   optimization.
 
@@ -1440,7 +1441,7 @@ moved here from 1.4, because nothing runs without a sandbox.
       - A resume run for such a turn runs as a normal turn with that note.
       - `runPiTurn` still throws `incompatible_state` if a caller tries to
         continue it.
-- [ ] **1.3f Sandbox safety** (§4.6), in four chunks agreed with Jacob
+- [x] **1.3f Sandbox safety** (§4.6), in four chunks agreed with Jacob
   2026-10-21:
   - [x] **1.3f-1 Modes and asking** (2026-10-21; needs `db:push`):
     - **Setting:** `user_sandbox_settings` (one row per user; `manual` /
@@ -1582,7 +1583,7 @@ moved here from 1.4, because nothing runs without a sandbox.
       clone` of a public repo; `npm install`, `pip install`; DNS (`dig`,
       `nslookup`); `ssh -T git@github.com` and raw TCP; `curl
       169.254.169.254`; what the proxy's identity token can reach.
-- [ ] **1.3g Turn controls and eval**, in four chunks agreed with Jacob
+- [x] **1.3g Turn controls and eval**, in four chunks agreed with Jacob
   2026-10-21:
   - [x] **1.3g-1 Spend inside a turn and the real model** (2026-10-21; no
     `db:push`; not run yet):
@@ -1765,15 +1766,94 @@ accounting and save points, including cold approval resume and a crashed turn.
 
 ### 1.4 — Attach session sandboxes and scoped resources
 
-- [ ] The Blaxel bridge itself moved to 1.3b. Here: keep workspace identity,
-  artifacts, checkout/publish policy and process fencing across every run kind.
-- [ ] Replace mandatory child dispatch only after primary capability coverage.
+Plan agreed with Jacob 2026-10-22 (decisions table, "Code work"). The Blaxel
+bridge moved to 1.3b. Scope stays small: code sessions, Commit and Create PR
+are product design (`code-channels.md` §2) built after phase 1. No
+compatibility layer; old code tools break and are deleted.
+
+- [x] **1.4-1 One coding path: the main agent** (2026-10-22, built with
+  1.4-2; needs `db:push`; not run yet). Also deleted: `openPullRequest` and
+  `branchExists` (only these used them), `LOR_WORKBENCH_DISK_MB` (callers
+  pass the session disk size), `noteNestedUsage` in the worker, and tests
+  that imported deleted code. `policy.test.ts` and
+  `channel-connectors.test.ts` still name `investigate_code` (not edited).
+  Existing GitHub connections saved their tool list, so "Clone repository"
+  is off for them until switched on in the connector settings.
+  - **Delete the coding child:** `investigate_code`, `propose_code_change`,
+    `code.ts`'s tool, `code-actions.ts`, `sandbox/investigate.ts`,
+    `sandbox/code-session.ts`, `pi-config.ts`, `pi-events.ts`,
+    `sub-events.ts`, `serialize.ts`, and from `blaxel.ts` `runPi`,
+    `execToCompletion`, `withEphemeralSandbox`, `withPersistentSandbox`,
+    `withWorkbenchSandbox` and `sandboxFailureReason`. Tests that import
+    deleted files go with them (not run).
+  - **Delete their wiring:** the connector catalog entries, billing
+    (`investigate_code` as a billable tool, `lor.deep`), touches, the tool
+    guard, custom-tool reserved names, nested child usage in `lor-respond`,
+    `voice-request` and `agent-run`, the web and mobile trail cases, the
+    API's file browsing check (`channel-connectors.ts`), the prompt line,
+    and `investigate_code` in project-archive synthesis (it keeps GitHub
+    search and read).
+  - **Delete settings only they use:** `LOR_WORKBENCH_TIMEOUT_SEC`,
+    `LOR_WORKBENCH_SANDBOX_TTL`, `LOR_CODE_SANDBOX_TTL`,
+    `LOR_WORKBENCH_DISK_MB` (Jacob removes them from Railway).
+  - **Delete the per-repository base-branch setting:** the
+    `github_repo_config` table (destructive `db:push`, Jacob runs it),
+    `githubBaseBranchOverrides`, its settings UI
+    (`github-base-branch-settings.tsx`) and API routes. It answered "where
+    does Lor's PR go" for the old tool; code sessions take the base branch
+    from the session picker, defaulting to the channel's.
+  - **`sandbox:smoke`** probes a session sandbox (`openSessionSandbox` with
+    a random owner, then `deleteSessionSandbox`), so it checks the real
+    config. The image keeps the Pi CLI until a separate image change.
+  - After this, no sandbox gets the Gateway key, and the only sandboxes are
+    session (`ses-`) and voice call (`call-`) sandboxes. Leftover `inv-*`,
+    `code-*` and `wbs-*` sandboxes in Blaxel expire by their own rules.
+- [x] **1.4-2 `clone_repo`** (2026-10-22, `packages/lor/src/code.ts`; not
+  run yet; live check owed: a private repository clones through the egress
+  proxy with the token in the URL) (interim until the code index,
+  `code-channels.md` §11):
+  - Input `{ repo, branch: string | null }`. The repository is resolved
+    against the connected ones (`resolveRepo`); `null` is its default branch.
+  - Shallow clone into `<work folder>/repos/<owner>/<repo>` in the session
+    sandbox, through `experimental_sandbox`. The token is `contents: read`
+    for that one repository, passed as per-command env and removed from the
+    remote URL after the clone. Accepted exposure: a process in the sandbox
+    can read it during the clone; it reads only a repository the sandbox
+    already holds and expires within an hour.
+  - An existing clone fetches the branch and switches only when its work
+    tree is clean; otherwise it keeps Lor's changes and says so. Never
+    `reset --hard` or `clean`.
+  - Returns the path, branch and commit. No commit, push or PR. Egress stays
+    as it is: fetch works, push is blocked (`git-receive-pack` not allowed).
+  - Bound when GitHub is connected, the tool is selected and the Sandbox
+    group's `read` or `bash` is on (Lor reads the clone with them). It takes
+    `investigate_code`'s catalog place (read-only, on by default). Prompt:
+    clone, then read with the sandbox tools, cite `path#Lstart-Lend`; Lor
+    cannot commit or open PRs yet.
+- [ ] **1.4-3 Process fencing and run kinds:**
+  - Before a turn uses the sandbox, stop `run-*` and `spawn-*` processes
+    still running from an earlier attempt (crash, Stop, lease loss).
+  - Check that every run kind binds its owner and gets the sandbox,
+    `share_file` and `clone_repo`: chat sessions, Loops (one recurring
+    session per Loop), Act (one session per event) and voice (one sandbox
+    per call). Record gaps for 1.5.
+  - Live checks owed: whether Blaxel's kill also ends a process's children;
+    whether two runs in one voice call can overlap (stopping old processes
+    at the start of one would then stop the other's).
+- [x] **Product record** (2026-10-22): `code-channels.md` §2 holds the code
+  session shape: mode fixed at the start, "Continue in Code" as the only way
+  from chat to code, people (not Lor) commit or open PRs under their GitHub
+  account or as the Lor bot, Loops never commit or open PRs by themselves, the
+  base branch comes from the channel default, and `clone_repo` in chat until
+  the code index.
 
 Skills and slash commands are out of phase 1 (moved to the self-configuration
 work). User text that starts with `/` is still escaped (§4.9).
 
-Exit: every agent run has its session sandbox, with reuse, standby and explicit
-lost-workspace handling. Tools cannot reach worker files or bypass Lor policy.
+Exit: every agent run has its conversation's sandbox (at most one per session
+or voice call), with reuse, standby and explicit lost-workspace handling. No
+other sandbox kind remains, and no sandbox gets the Gateway key. Tools cannot
+reach worker files or bypass Lor policy.
 
 ### 1.5 — Wire producers and durable activity
 
@@ -1840,7 +1920,7 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.6 not started. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4-1 and 1.4-2 built 2026-10-22 (`db:push` owed: drops `github_repo_config`), 1.4-3 next; 1.5–1.6 not started. |
 | Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store; `@ai-sdk/harness` `HarnessAgent._toToolSpecs` should resolve AI SDK v7 dynamic tool descriptions as `streamText` does (`resolveToolDescription`), instead of passing the function through, which Pi then cannot clone (worked around in `runPiTurn`, 2026-10-21). |
 
 ## Sources

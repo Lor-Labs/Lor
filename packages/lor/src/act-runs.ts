@@ -333,9 +333,8 @@ export function formatActBriefing(input: {
       const effects =
         run.effects.length > 0
           ? // "recorded actions" rather than "side effects": the underlying
-            // allowlist also covers billed-but-read-only work like
-            // investigate_code, and claiming those mutated something would
-            // mislead the successor.
+            // allowlist marks tools whose replay must not repeat, which is not
+            // the same as "mutated something" and would mislead the successor.
             ` — recorded actions: ${[...run.effects].sort().join(", ")}`
           : ""
       lines.push(`- ${run.createdAt.toISOString()} — ${outcome}${effects}`)

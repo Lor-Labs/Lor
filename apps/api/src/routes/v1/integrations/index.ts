@@ -23,7 +23,6 @@ const integrationsRouter = createRouter()
   .openapi(routes.connectCloudwatch, handlers.connectCloudwatch)
   .openapi(routes.updateIntegrationTools, handlers.updateIntegrationTools)
   .openapi(routes.updateIntegration, handlers.updateIntegration)
-  .openapi(routes.updateGithubRepoConfig, handlers.updateGithubRepoConfig)
   .openapi(routes.disconnectIntegration, handlers.disconnectIntegration)
 
 export default integrationsRouter

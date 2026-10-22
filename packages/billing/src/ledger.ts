@@ -39,7 +39,6 @@ const OPERATION_CLASS: Record<
   (typeof schema.operationClassEnum.enumValues)[number]
 > = {
   "lor.respond": "lor.standard",
-  investigate_code: "lor.deep",
   "lor.embed": "embedding",
   "source.summarize": "ingestion",
   "source.embed": "embedding",

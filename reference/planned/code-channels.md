@@ -2,7 +2,8 @@
 
 > Status: design, not built. Updated 2026-10-21: the product shape (Chat and
 > Code modes, repositories, pickers, Loops, instruction files) is in §2 "Modes
-> and repos"; there is no separate code channel type. The shared runtime and implementation
+> and repos"; there is no separate code channel type. Updated 2026-10-22: people,
+> not Lor, commit and open PRs, and the coding child agent is deleted (§2). The shared runtime and implementation
 > sequence now live in [harness-sessions.md](harness-sessions.md): convert the main
 > Lor loop to Pi first, then add durable workspace checkpoints and other official
 > harnesses. This document covers code-specific collaboration. The original
@@ -22,7 +23,7 @@
 | Term | Meaning |
 |---|---|
 | Code session | A session started in Code mode, with one repository and base branch chosen at the start. Any channel can hold code sessions; channel membership controls access. |
-| Default repositories | Optional channel setting that preselects the repository in Code mode. A "code channel" is only a channel with a default repository, not a channel type. |
+| Default repositories | Optional channel setting that preselects the repository and base branch in Code mode. A "code channel" is only a channel with a default repository, not a channel type. |
 | Session | Existing `agent_session` with a selected harness and isolated sandbox-backed workspace, optionally bound to a repository. |
 | Recovery step | An internal model/tool iteration or equivalent native progress boundary. Current `agent_run_step` uses this meaning. |
 | Product checkpoint | State after a completed user turn, potentially many recovery steps, or a committed human workspace change. |
@@ -35,7 +36,7 @@ Every completed turn gets a checkpoint even if code did not change. In that case
 reuse the prior file revision and save the new native/history boundary. Product
 checkpoints do not replace durable recovery during long turns.
 
-### Modes and repos (decided with Jacob, 2026-10-21)
+### Modes and repos (decided with Jacob, 2026-10-21; revised 2026-10-22)
 
 Chat and code sessions are one session model with two modes and two layouts.
 Both support forks and multiplayer the same way.
@@ -46,23 +47,47 @@ Both support forks and multiplayer the same way.
   plans, connectors). Code adds a repository and base branch. The rule the UI
   teaches: Chat to ask, research, write and make files; Code to change a
   repository and open a PR. Chat sessions read code through the code index
-  (§11) without Code mode.
+  (§11) without Code mode. Until the index exists, `clone_repo` clones a
+  connected repository read-only into any session's sandbox
+  ([pi-harness-runbook.md](pi-harness-runbook.md) 1.4); nothing in a chat
+  session commits. Decide whether chat keeps `clone_repo` when the index ships
+  (2026-10-22).
 - **One repository per code session**, chosen at the start. Code mode
   preselects the channel's default repository or the person's last one. Any
   channel can start code sessions on any repository the workspace connected.
-  The base branch defaults to the repository's default branch, the session
-  works on its own branch, and Create PR ships it. Multi-repository sessions
+  The base branch defaults to the channel's default for that repository, or
+  else the repository's default branch; the session works on its own branch,
+  and Create PR ships it. The old workspace per-repository setting
+  (`github_repo_config`) is deleted (2026-10-22). Multi-repository sessions
   come later.
 - **The work folder is the repository root** from the first turn
   (`/workspace/pi-<sessionId>` in phase 1; never a shared fixed folder, see
   [pi-harness-runbook.md](pi-harness-runbook.md) §4.9). Official harnesses
   expect the same.
 - **Chat to code is a handoff.** "Continue in Code" opens a new code session
-  with the chat session linked as context, like "Ask Lor about this". Lor may
-  suggest it with a button; it never switches by itself. In-place conversion
-  is out for v1, because the work folder would change mid-session and break
-  the paths in the saved history. Jacob would prefer fluent switching (for
-  example, Loops without a repository choice); revisit it later.
+  with the chat session linked as context, like "Ask Lor about this". Lor
+  suggests it with a card that shows the repository and a short brief; one
+  click opens the code session with the brief as its first message. Lor never
+  switches by itself, and no tool call turns a chat session into a code
+  session (confirmed 2026-10-22). In-place conversion is out for v1, because
+  the work folder would change mid-session and break the paths in the saved
+  history. Jacob would prefer fluent switching (for example, Loops without a
+  repository choice); revisit it later.
+- **People ship; Lor does not** (Jacob, 2026-10-22).
+  - Lor has no commit, push or pull-request tool. The session's main agent
+    does all code work in the session sandbox; there is no coding child agent
+    (the old `investigate_code` and `propose_code_change` are deleted). When
+    the work is ready, Lor mentions the person who asked so they review it.
+  - A person reviews the diff and clicks Commit or Create PR in the session.
+    By default it goes out under their own GitHub account, through the GitHub
+    App's user authorization. Someone who has not connected GitHub is asked
+    to connect it. A setting lets them commit as the Lor bot instead; those
+    commits show the bot, not the person.
+  - Lor runs the push itself with explicit refspecs; no push credential
+    enters the sandbox (§3).
+  - To verify before design: GitHub App user access tokens (expiry, refresh,
+    commit attribution).
+  - Loops never commit or open PRs by themselves (below).
 - **`@Lor` in channel chat always starts a chat session.**
 - **Everyone types**, as in chat sessions. One Lor turn runs at a time; other
   messages queue or steer.
@@ -86,23 +111,22 @@ Both support forks and multiplayer the same way.
 - **Code Loops start a new code session per fire** (Jacob, 2026-10-21). Chat
   Loops stay one recurring session; this matches connector triggers, which
   start a session per event.
-  - The person says what they want in words: the repository, the branch to
-    start from, and where the work goes. The `propose_loop` card shows these as
-    fields to confirm. Defaults: the channel's default repository and that
-    repository's default branch.
-  - By default the work stays in the fire's session for review. The setup can
-    instead push to a named branch or open a PR into a named base. Pushes go
-    through Lor with explicit refspecs (§3).
+  - The person says what they want in words: the repository and the branch
+    to start from. The `propose_loop` card shows these as fields to confirm.
+    Defaults: the channel's default repository and base branch.
+  - The work always stays in the fire's session for review. A Loop never
+    commits, pushes or opens a PR by itself (Jacob, 2026-10-22; this removed
+    the earlier setup option to push to a named branch or open a PR, which can
+    come back later). If it comes back, unattended commits go out as the Lor
+    bot, because no person reviewed the work.
   - Each fire's session subscribes the Loop's subscribers (the creator, people
     mentioned at setup, or everyone in the channel) and shows "needs you" when
-    the work is ready. They review it, talk to Lor, and push or open the PR
-    from the session.
+    the work is ready. They review it, talk to Lor, and commit or open the PR
+    from the session under their own identity ("People ship" above).
   - Each fire gets a short brief of recent fires (session links, outcomes,
     review state), so it does not redo unreviewed work. A fire runs even when
     earlier fires still wait for review.
   - Fires are autonomous: classifier-only sandbox mode and workspace billing.
-  - An unattended fire never pushes straight to the repository's default
-    branch. A setup that targets it opens a PR into it instead.
 - **Mobile matches web** for code sessions: conversation, diffs, preview,
   approvals and PRs. Only the opt-in live editor (§6) may stay web-only.
 - **Repository instruction files.** At the start of a turn, Lor reads the
@@ -131,7 +155,7 @@ revisions. See [the shared-session storage decision](harness-sessions.md#4-agree
 | GitHub | Upstream code and final PRs. Native transcripts and private Lor state must not be published with code. |
 
 - Keep Git behind `saveCheckpoint`, `restore`, `fork` and `getCloneUrl` operations; choose the vendor during shared-session phase 2.
-- Lor controls commits/pushes with explicit refspecs; the agent never receives the app's push credential.
+- Lor controls commits/pushes with explicit refspecs; the agent never receives the app's or a person's push credential.
 - Completed checkpoints must survive loss of the sandbox. An unfinished turn can still contain uncommitted work; recovery and draft retention must handle that honestly.
 - One native recovery source at a time. Database display/search projections may repeat text without becoming a second resume authority.
 
