@@ -452,6 +452,11 @@ export async function claimAgentRun(
             toolCalls: sql`${schema.agentRun.toolCalls} + ${turn.toolCalls}`,
             toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${turn.toolOutputBytes}`,
             creditsSpent: sql`${schema.agentRun.creditsSpent} + ${credits}`,
+            ...(turn.pausedSandbox
+              ? {
+                  context: sql`coalesce(${schema.agentRun.context}, '{}'::jsonb) || ${JSON.stringify({ pausedSandbox: turn.pausedSandbox })}::jsonb`,
+                }
+              : {}),
           })
           .where(
             and(

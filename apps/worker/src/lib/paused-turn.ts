@@ -1,7 +1,11 @@
 import { canResolveApproval } from "@repo/auth/permissions"
 import { and, db, eq, isNotNull, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
-import type { Approval, TurnSandboxMode } from "@repo/db/schema"
+import type {
+  AgentRunContext,
+  Approval,
+  TurnSandboxMode,
+} from "@repo/db/schema"
 import type { ApprovalDecision, PausedTurnDrop } from "@repo/lor"
 import { loadResolverSpec } from "@/lib/approval-notify"
 
@@ -40,6 +44,7 @@ export async function loadPausedDecisions(
   dropped: PausedTurnDrop | null
   // The paused turn's frozen sandbox mode; a resume keeps it.
   sandboxMode: TurnSandboxMode | undefined
+  sandboxContext: AgentRunContext["sandboxContext"]
 }> {
   const [pausedRun] = await db
     .select({
@@ -50,13 +55,18 @@ export async function loadPausedDecisions(
     .from(schema.agentRun)
     .leftJoin(schema.user, eq(schema.user.id, schema.agentRun.stopRequestedBy))
     .where(eq(schema.agentRun.id, pausedRunId))
-  const sandboxMode = pausedRun?.context?.sandboxMode
+  const sandboxMode =
+    pausedRun?.context?.pausedSandbox?.mode ?? pausedRun?.context?.sandboxMode
+  const sandboxContext =
+    pausedRun?.context?.pausedSandbox?.context ??
+    pausedRun?.context?.sandboxContext
   if (pausedRun?.stoppedAt) {
     return {
       decisions: [],
       closed: [],
       dropped: { reason: "stopped", by: pausedRun.stopperName ?? "Someone" },
       sandboxMode,
+      sandboxContext,
     }
   }
   if (upgraded) {
@@ -75,6 +85,7 @@ export async function loadPausedDecisions(
       closed,
       dropped: { reason: "upgraded" },
       sandboxMode,
+      sandboxContext,
     }
   }
   const steered = steer
@@ -122,6 +133,10 @@ export async function loadPausedDecisions(
       return {
         harnessApprovalId: row.harnessApprovalId,
         approved: allowed,
+        rejectedByPerson:
+          row.status === "rejected" &&
+          row.resolvedBy !== null &&
+          !steeredIds.has(row.id),
         reason:
           steer && steeredIds.has(row.id)
             ? `${steer.name} sent a new message instead of deciding, so this was not run. Do not retry it now; their message follows.`
@@ -140,6 +155,7 @@ export async function loadPausedDecisions(
     closed: steered,
     dropped: null,
     sandboxMode,
+    sandboxContext,
   }
 }
 

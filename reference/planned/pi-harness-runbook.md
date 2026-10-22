@@ -36,9 +36,9 @@ authority (§4.3). Do not infer production readiness from the common API alone.
 | System prompt | Lor's own prompt replaces Pi's "expert coding assistant" prompt, including Pi's tool guidance and dropping the Pi-docs section. Mechanism (§4.8): a small adapter patch passing Pi's `systemPromptOverride`, sent upstream; `before_agent_start` alone misses approval resumes. |
 | Tool permissions | A new **Sandbox** built-in group in agent-profile tool access (workspace default, then category, then channel) holds Pi's `bash`, `read`, `write`, `edit`, `grep`, `find` and `ls`; on by default. When the group is off, the tools stay in the session's fixed list and are refused when called. `bash`, `write` and `edit` are **not** workspace approval targets: a **per-user sandbox permission mode** decides them, like Claude Code and Codex: **manual** (ask before every call), **auto** (a classifier asks only for potentially destructive calls), **bypass** (allow all). Read-only tools never ask (§4.6). |
 | Approvals | `request_approval` pauses the turn like any gate and continues after the decision. Anyone in the session can approve sandbox asks. Steering while approvals are pending denies them and runs next; a queued message waits for the decision; Stop denies them and ends the turn (§4.2). |
-| Sandbox mode details | The turn starter's mode applies; default **auto**; a per-session switch comes later with the code-channel composer. **Loop and Act runs are autonomous:** classifier only, higher tolerance, a flagged call is refused with "try a safer way" and never waits for a human. Voice uses the speaker's mode. The classifier is Jev through `experimental_decide` (§4.6). |
+| Sandbox mode details | The turn starter's mode applies; default **auto**; a per-session switch comes later with the code-channel composer. **Loop and Act runs are autonomous:** the same or stricter classifier bar, with refusal instead of asking. Voice uses the speaker's mode. The classifier is Jev through `experimental_decide` (§4.6). |
 | Quality check | Jacob runs `eval:long` on the Pi path before the switch. The eval harness moves to the Pi path. A new **sandbox classifier eval** sets the safety thresholds and rules from evidence (§4.6). |
-| Sandbox safety policy | Allow list, then rules, then the classifier for the middle. Interactive auto asks at probability ≥ 0.35; Loop/Act refuses at ≥ 0.70; rule hits ask or refuse; errors ask or refuse. Starting values, tuned with the classifier eval (§4.6). |
+| Sandbox safety policy | Rules decide clear cases; only flagged calls reach Jev. Bootstrap thresholds: hazard ≥ 0.35, explicit authorization ≥ 0.95, high severity ≥ 2 on a 0–3 rubric, identical in Auto and autonomous. Errors ask or refuse. These are provisional; Jacob's classifier eval must calibrate them before the switch (§4.6). |
 | Skills and slash commands | Out of phase 1; moved to the self-configuration work. |
 | Versions | **Pinned 2026-10-20:** `@ai-sdk/harness-pi@1.0.160`, `@ai-sdk/harness@1.0.158`, `ai@7.0.147`, Pi `1.3.0` (direct dependency plus a root pnpm override). Exact versions; the harness ships breaking changes in patch releases. 1.0.159 → 1.0.160 only bumped `ai`. |
 
@@ -653,10 +653,10 @@ command into code execution through its flags or the repo's config.
 | Hard rule | Deny | Deny | Deny | Deny |
 | Read-only tool, known-safe command | Allow | Allow | Allow | Allow |
 | Routine | Ask | Allow | Allow | Allow |
-| Flagged | Ask | Classifier: allow or ask (until 1.3f-3: ask) | Allow | Classifier: allow or refuse (until 1.3f-3: refuse) |
+| Flagged | Ask | Classifier: allow or ask | Allow | Classifier: allow or refuse |
 
-- **Ask card:** the call plus the reason: the rule that flagged it, and from
-  1.3f-3 the classifier's reason. Anyone in the session can approve.
+- **Ask card:** the call plus the reason: the rule that flagged it and
+  the classifier's reason. Anyone in the session can approve.
 - **Refusal in Loop/Act:** the tool result reads: "This command was blocked as
   potentially dangerous: <reason>. Don't retry it or a variant. Find a safer
   way, or finish and report what you couldn't do."
@@ -1427,7 +1427,7 @@ moved here from 1.4, because nothing runs without a sandbox.
       - A resume run for such a turn runs as a normal turn with that note.
       - `runPiTurn` still throws `incompatible_state` if a caller tries to
         continue it.
-- [ ] **1.3f Sandbox safety** (§4.6), in three chunks agreed with Jacob
+- [ ] **1.3f Sandbox safety** (§4.6), in four chunks agreed with Jacob
   2026-10-21:
   - [x] **1.3f-1 Modes and asking** (2026-10-21; needs `db:push`):
     - **Setting:** `user_sandbox_settings` (one row per user; `manual` /
@@ -1486,11 +1486,63 @@ moved here from 1.4, because nothing runs without a sandbox.
     - **Known limits:**
       - Option values count as positionals.
       - `env -S` strings are not unwrapped.
-      - `rm -rf` of a build folder asks in Auto until the classifier lands.
+      - `rm -rf` of a build folder reaches the classifier in Auto (1.3f-3).
       - Not run yet: the WASM load on Node and Bun is unverified.
-  - [ ] **1.3f-3 Classifier:** Jev Nouls for flagged calls only, judged
-    against the request, with tool outputs withheld; thresholds from the
-    eval; fail closed; the reason on the ask card.
+  - [x] **1.3f-3 Classifier** (2026-10-21; built; `db:push` and calibration owed):
+    - **Model and policy** (`sandbox/jev-classifier.ts`, `classifier-policy.ts`):
+      Gateway `typesafe-ai/jev-1.13.0`, pinned, through `experimental_decide`.
+      The SDK's installed Gateway decision-model catalog includes this pinned
+      ID; see TypeSafe's [model versions](https://docs.typesafe.ai/models) and
+      [Noul contract](https://docs.typesafe.ai/primitives/noul).
+      One request asks narrow Boolean/Noul questions about data leaving,
+      destruction, outside changes, credentials, publishing, resources,
+      security/agent configuration, untrusted destinations, evading denials
+      and explicit authorization, plus a four-level severity Score.
+      Code combines the answers and constructs the reason on the ask card.
+    - **Scope:** flagged calls only in Auto/autonomous. Manual, Bypass,
+      read-only, routine and hard-rule calls retain their deterministic paths.
+      High severity, untrusted destinations and denial evasion cannot be
+      automatically allowed by consent. Errors/refusals, missing or clipped
+      evidence, and audit-write failures ask or refuse; stop/lease aborts
+      propagate. The model call has an 8-second timeout and no retries.
+    - **Context** (`classifier-context.ts`, `sandbox-approval.ts`): normalized
+      paths, the subcommands the rules parsed (one parse per call), bounded
+      write/edit content, the request (the trigger message plus up to two
+      earlier messages from the same person; for voice, the last turn unless
+      Lor wrote it; saved instructions for Loop/Act), six recent calls and
+      twenty earlier denials a person made (system denials such as a changed
+      input or a steer do not count). No tool outputs, assistant text,
+      connector results or web content. Fixed sandbox reads, run in parallel,
+      add bounded script contents and Git status before destructive Git
+      operations; Git's executable config/submodule traversal is disabled for
+      the read. A `cd` is followed only as the first command of a plain `&&`
+      chain; any other `cd`, `pushd` or `popd` marks the evidence incomplete.
+      Interpreter options are checked only up to the script name;
+      `python -m` and bun/deno subcommands run no file. Missing, oversized or
+      uninspectable evidence fails closed.
+    - **Continuation:** `sandboxContext` is the run's own request, written at
+      the start and never overwritten. When a turn ends paused,
+      `pausedSandbox` (its mode and context) is saved inside the `saveTurn`
+      transaction, and the resume finishes the turn under it, including in
+      voice; `runPiTurn.onPrompt` switches to the new request only after the
+      paused turn finishes. Human follow-ups in Loop or Act sessions use their
+      message, not the automation's standing brief.
+    - **Cache:** allow verdicts only, bounded and turn-local, keyed by the call,
+      directory, request, evidence and denials (not recent calls, which every
+      decided call changes). No cross-turn cache.
+    - **Records:** additive `sandbox_classification` table stores model,
+      policy version, bounded input, answers, thresholds, outcome, reason,
+      latency and cost, linked to run/tool call. Only calls sent to the model
+      get a record. `lor.sandbox.classify` reports auxiliary usage, including
+      model refusals and invalid answers returned by the provider.
+    - **Verification:** focused source review, Biome and Lor/worker/dependency
+      type checks passed. No runtime checks or evals run. Bootstrap thresholds
+      are **not calibrated**: hazard 0.35, authorization 0.95, and a veto
+      when the chance of severity 2 or 3 is at least 0.35 (Jev's score is
+      the probability-weighted mean, so it is not compared directly),
+      identical for Auto and autonomous. The classifier eval framework stays
+      in 1.3g; Jacob's calibration and live Gateway/sandbox checks remain a
+      pre-switch gate in 1.6. Jacob applies the additive table with `db:push`.
   - [x] **1.3f-4 Egress limits** (2026-10-21; built, live checks owed):
     - **Spike** from docs and source: research §7.
     - **Session sandboxes** (`sandbox/session-sandbox.ts`) are created with

@@ -1,10 +1,15 @@
 import path from "node:path"
-import { type Argv, commandName, parseShell } from "./shell-parse"
+import {
+  type Argv,
+  commandName,
+  type ParsedShell,
+  parseShell,
+} from "./shell-parse"
 
 // How a sandbox call is classed before the turn's mode decides
 // (reference/planned/pi-harness-runbook.md §4.6 sandbox safety policy):
 // hard is denied in every mode; flagged asks, is refused in autonomous runs,
-// or goes to the classifier (1.3f-3); safe never asks; routine asks only in
+// or goes to the classifier; safe never asks; routine asks only in
 // Manual mode. Reasons complete the sentence "This …".
 export type SandboxCheck =
   | { kind: "hard"; reason: string }
@@ -536,25 +541,35 @@ function isHarnessState(target: string): boolean {
   return /(^|\/)\.ai-sdk(\/|$)/.test(target)
 }
 
+// The check plus the parse it used (null when the command was not parsed),
+// so the classifier reads the same subcommands.
 export async function checkCommand(
   command: string,
   ctx: PolicyContext
-): Promise<SandboxCheck> {
+): Promise<{ check: SandboxCheck; parsed: ParsedShell | null }> {
+  const early = (check: SandboxCheck) => ({ check, parsed: null })
   if (INVISIBLE.test(command)) {
-    return { kind: "hard", reason: "contains invisible characters" }
+    return early({ kind: "hard", reason: "contains invisible characters" })
   }
   if (METADATA.test(command)) {
-    return { kind: "hard", reason: "reaches the cloud metadata address" }
+    return early({ kind: "hard", reason: "reaches the cloud metadata address" })
   }
   if (command.length > MAX_COMMAND_CHARS) {
-    return { kind: "flagged", reason: "is too long to check" }
+    return early({ kind: "flagged", reason: "is too long to check" })
   }
   if (CONTROL.test(command)) {
-    return { kind: "flagged", reason: "contains control characters" }
+    return early({ kind: "flagged", reason: "contains control characters" })
   }
   const parsed = await parseShell(command).catch(() => null)
-  if (!parsed) return { kind: "flagged", reason: "could not be parsed" }
+  if (!parsed) return early({ kind: "flagged", reason: "could not be parsed" })
+  return { check: checkParsed(command, parsed, ctx), parsed }
+}
 
+function checkParsed(
+  command: string,
+  parsed: ParsedShell,
+  ctx: PolicyContext
+): SandboxCheck {
   const writes = [...parsed.writes, ...parsed.commands.flatMap(writeTargets)]
   for (const argv of parsed.commands) {
     if (argv.some((arg) => arg != null && BYPASS_FLAGS.has(arg))) {

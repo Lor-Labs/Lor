@@ -75,6 +75,12 @@ export const LOR_RERANK_ENABLED = modelConfig.rerank.enabled
 export const LOR_RERANK_MIN_SCORE = modelConfig.rerank.minScore
 export const lorRerankModel = gatewayTransport.rerankingModel(LOR_RERANK_MODEL)
 
+// Pin the decision model: a version change requires classifier calibration.
+export const LOR_SANDBOX_CLASSIFIER_MODEL = "typesafe-ai/jev-1.13.0"
+export const lorSandboxClassifierModel = gatewayTransport.decisionModel(
+  LOR_SANDBOX_CLASSIFIER_MODEL
+)
+
 export const mainGatewayOptions = {
   caching: "auto" as const,
   models: LOR_FALLBACK_MODELS,

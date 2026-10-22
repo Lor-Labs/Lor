@@ -346,6 +346,8 @@ export type PiTurnInput = {
   dropPaused?: boolean
   // Text first, then images (the adapter rejects text after an image).
   prompt?: UserModelMessage
+  // The host can switch turn-scoped policy after finishing a paused turn.
+  onPrompt?: () => void | Promise<void>
   tools: ToolSet
   toolsContext?: Record<string, unknown>
   // Fixed per turn; tools absent from the map run without approval.
@@ -506,6 +508,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
     }
     // A continued turn that paused again leaves the prompt for a later turn.
     if (input.prompt && !aborted && !session.hasUnfinishedTurn()) {
+      await input.onPrompt?.()
       await drain(
         await agent.stream({ session, messages: [input.prompt], ...abort })
       )

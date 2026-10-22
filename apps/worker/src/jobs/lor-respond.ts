@@ -1018,6 +1018,8 @@ export function createLorRespondProcessor(
                   pausedDropped: paused?.dropped ?? null,
                   continueOnly,
                   sandboxMode,
+                  pausedSandboxContext: paused?.sandboxContext,
+                  pausedSandboxMode: paused?.sandboxMode,
                   saveTurn: (turn) => execution.saveTurn(owner, turn),
                 },
               }

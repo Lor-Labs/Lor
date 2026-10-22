@@ -428,6 +428,14 @@ export type AgentRunApprovalResume = {
   target: string
   reason?: string
 }
+export type SandboxTurnContext = {
+  request: string
+  recentCalls?: { toolName: string; subject: string }[]
+  denials?: string[]
+  consecutiveDenials?: number
+  totalDenials?: number
+}
+
 export type AgentRunContext = {
   conversation: AgentRunContextTurn[]
   // Nearby channel messages are reference material, outside the active thread.
@@ -465,6 +473,11 @@ export type AgentRunContext = {
   // The sandbox mode the turn runs under, frozen at its start so a retry or a
   // changed setting never runs a call under a looser mode.
   sandboxMode?: TurnSandboxMode
+  // Authorization and denial history survive retries and approval pauses.
+  sandboxContext?: SandboxTurnContext
+  // The turn this run left paused on approvals, which can differ from the
+  // run's own prompt: the resume finishes it under this mode and context.
+  pausedSandbox?: { mode: TurnSandboxMode; context: SandboxTurnContext }
 }
 
 // Written by @repo/lor at compaction time (see compaction.ts). summary is

@@ -97,6 +97,8 @@ export type PendingApproval = {
 export type ApprovalDecision = {
   harnessApprovalId: string
   approved: boolean
+  // A person pressed reject: not steered past, expired or revoked.
+  rejectedByPerson: boolean
   reason: string
   toolName: string
   kind: ApprovalKind
@@ -122,6 +124,8 @@ export type RunTurnRecord = {
   toolOutputBytes: number
   approvals: PendingApproval[]
   planId: string | null
+  // Set when the turn ended paused; saved with the approvals.
+  pausedSandbox: AgentRunContext["pausedSandbox"] | null
 }
 
 // The conversation's saved Pi state and its save. The worker binds it, since
@@ -145,6 +149,8 @@ export type RunHarness = {
   // How the turn's `bash`, `write` and `edit` calls are approved, frozen at
   // its start (the worker resolves it; respond() saves it with the request).
   sandboxMode: TurnSandboxMode
+  pausedSandboxContext?: AgentRunContext["sandboxContext"]
+  pausedSandboxMode?: TurnSandboxMode
   // One transaction under the run's lease: the Pi log, the new head and the
   // counters. Throws when the lease or the saved head moved.
   saveTurn: (turn: RunTurnRecord) => Promise<RunCounters>

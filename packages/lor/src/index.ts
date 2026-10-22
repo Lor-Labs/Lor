@@ -28,6 +28,7 @@ import type {
   AgentRunContext,
   LorToolCall,
   LorToolCallUpdate,
+  SandboxTurnContext,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import {
@@ -156,6 +157,8 @@ import {
   ZERO_RUN_COUNTERS,
 } from "./run"
 import { blaxelConfigured } from "./sandbox/blaxel"
+import { sandboxRequest } from "./sandbox/classifier-context"
+import { jevSandboxClassifier } from "./sandbox/jev-classifier"
 import {
   deniedReason,
   notRunDetail,
@@ -2828,6 +2831,14 @@ export async function respond(
         ...context,
         toolSchemaBytes,
         sandboxMode: harness.sandboxMode,
+        sandboxContext: harness.continueOnly
+          ? (harness.pausedSandboxContext ?? { request: "" })
+          : {
+              request:
+                harness.sandboxMode === "autonomous"
+                  ? (ctx.loop?.instructions ?? ctx.trigger?.instructions ?? "")
+                  : sandboxRequest(ctx),
+            },
         ...(ctx.delta
           ? {
               continuationDelta: ctx.delta.text,
@@ -2933,13 +2944,63 @@ export async function respond(
           )
 
       const conversationId = conversationIdOf(harness.owner)
-      // `bash`, `write` and `edit` under the turn's sandbox mode.
-      const sandboxApproval = sandboxToolApproval({
-        mode: harness.sandboxMode,
-        policy: { workDir: piWorkDir(SESSION_WORK_DIR, conversationId) },
-      })
       const deadline = AbortSignal.timeout(
         Math.max(30_000, budgets.deadlineAt.getTime() - Date.now())
+      )
+      const abortSignal = run.abortSignal
+        ? AbortSignal.any([run.abortSignal, deadline])
+        : deadline
+      const classifier = jevSandboxClassifier({
+        workspaceId: ctx.workspaceId,
+        runId: run.runId,
+        onUsage,
+      })
+      const makeSandboxApproval = (
+        context: SandboxTurnContext,
+        mode = harness.sandboxMode
+      ) =>
+        sandboxToolApproval({
+          mode,
+          policy: { workDir: piWorkDir(SESSION_WORK_DIR, conversationId) },
+          context,
+          classifier,
+          sandbox: sandbox.session,
+          signal: abortSignal,
+        })
+      const requestSandboxContext = request.sandboxContext ?? {
+        request:
+          harness.sandboxMode === "autonomous" ? "" : sandboxRequest(request),
+      }
+      const finishingPaused = Boolean(
+        harness.pausedDecisions && !harness.pausedDropped
+      )
+      const pausedContext = harness.pausedSandboxContext ?? { request: "" }
+      // Only calls a person rejected count as refusals for the classifier;
+      // system denials (revoked, input changed, steered past) do not.
+      const rejected = pausedApprovals(harness.saved).flatMap((pending) => {
+        const decision = harness.pausedDecisions?.find(
+          (item) => item.harnessApprovalId === pending.approvalId
+        )
+        return decision?.rejectedByPerson
+          ? [
+              `${pending.toolName}: ${pending.input.slice(0, 1_000)} (${decision.reason})`,
+            ]
+          : []
+      })
+      // `bash`, `write` and `edit` under the turn's sandbox mode.
+      let activeSandboxMode = finishingPaused
+        ? (harness.pausedSandboxMode ?? harness.sandboxMode)
+        : harness.sandboxMode
+      let sandboxApproval = makeSandboxApproval(
+        finishingPaused
+          ? {
+              ...pausedContext,
+              denials: [...(pausedContext.denials ?? []), ...rejected].slice(
+                -20
+              ),
+            }
+          : requestSandboxContext,
+        activeSandboxMode
       )
       const streamStart = performance.now()
       let firstPartLogged = false
@@ -2969,7 +3030,12 @@ export async function respond(
         inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
           (name) => !selectedBuiltinTools.has(name)
         ),
-        builtinToolApproval: sandboxApproval.decide,
+        builtinToolApproval: (call) => sandboxApproval.decide(call),
+        onPrompt: () => {
+          if (!finishingPaused) return
+          activeSandboxMode = harness.sandboxMode
+          sandboxApproval = makeSandboxApproval(requestSandboxContext)
+        },
         model: {
           id: LOR_MODEL,
           fallbacks: LOR_FALLBACK_MODELS,
@@ -2977,9 +3043,7 @@ export async function respond(
         },
         gatewayAuth: piGatewayAuth(),
         gatewayOptions: mainGatewayOptions,
-        abortSignal: run.abortSignal
-          ? AbortSignal.any([run.abortSignal, deadline])
-          : deadline,
+        abortSignal,
         onPart: async (part) => {
           if (!firstPartLogged) {
             firstPartLogged = true
@@ -3009,6 +3073,9 @@ export async function respond(
             }
           } else if (part.type === "tool-call") {
             toolCallCount++
+            if (!SANDBOX_TOOL_NAMES.has(part.toolName)) {
+              sandboxApproval.observe(part.toolName, parseToolInput(part.input))
+            }
             onToolEvent?.({
               toolCallId: part.toolCallId,
               toolName: part.toolName,
@@ -3150,6 +3217,10 @@ export async function respond(
         toolOutputBytes: guarded.guard.takeStepBytes(),
         approvals,
         planId: planRef.current?.id ?? null,
+        pausedSandbox:
+          approvals.length > 0
+            ? { mode: activeSandboxMode, context: sandboxApproval.snapshot() }
+            : null,
       })
       if (approvals.length > 0) {
         if (planRef.current) {
