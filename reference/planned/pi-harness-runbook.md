@@ -634,9 +634,8 @@ command into code execution through its flags or the repo's config.
        apply|destroy`, `kubectl apply|delete|exec|patch|scale`, `vercel`, `fly
        deploy`, `aws`/`gcloud` except describe/list/get, `gh pr merge|release|
        repo delete|api -X`, `stripe` writes), remote database clients,
-       `ssh|scp|rsync|sftp|ftp`, `nc|ncat|socat`, `curl`/`wget` sending data
-       (`-d`, `--data*`, `--json`, `-F`, `-T`, `-X` POST/PUT/PATCH/DELETE,
-       `--post-*`, `--method`) until egress limits land;
+       `ssh|scp|rsync|sftp|ftp`, `nc|ncat|socat` (`curl`/`wget` sending data
+       was flagged until the 1.3f-4 egress limits replaced the rule);
      - persistence and config: `crontab`, `systemctl`, `git config` of keys
        that run code (`core.hooksPath`, `core.pager`, `core.fsmonitor`,
        `core.sshCommand`, `diff.external`, `*.textconv`, `filter.*`,
@@ -708,12 +707,17 @@ outbound HTTP by domain, with method and path rules
 (`GET:POST:storage.googleapis.com`), and `firewall: { rulesets: ["proxy"] }`
 forces all egress through its proxy. The firewall can only be set when a
 sandbox is created, so this applies to new sandboxes. Target, as Codex's
-"limited" mode: GET and HEAD to any host; other methods only to package
-registries and a per-workspace trusted list. The spike must confirm that a
-wildcard host works with a method rule, and how DNS, SSH, raw TCP and
-`169.254.169.254` behave (private ranges and the metadata address bypass the
-proxy by default). Later: credentials injected at the proxy, so they never
-enter the sandbox (public preview).
+"limited" mode: GET and HEAD to any host; other methods only where a read
+needs them (revised 2026-10-21: not every method to package registries,
+since an injected registry token could publish workspace data), and later a
+per-workspace trusted list. Spike findings (docs and source;
+live checks still owed) are in `reference/planned/sandbox-safety-research.md`
+§7: a wildcard host with a method rule is valid (`GET:HEAD:OPTIONS:*`); the
+forbidden list wins, so limits must be an allow list; git clone needs
+`POST …/git-upload-pack`; git needs `GIT_SSL_CAINFO` for the proxy CA. Not
+yet known: DNS, SSH, raw TCP and the metadata address under the firewall.
+Later: credentials injected at the proxy, so they never enter the sandbox
+(public preview).
 
 **Sandbox classifier eval (required; revised 2026-10-21).** A classifier eval
 framework next to the long-task eval (`packages/lor/src/eval/`), so thresholds
@@ -1487,9 +1491,32 @@ moved here from 1.4, because nothing runs without a sandbox.
   - [ ] **1.3f-3 Classifier:** Jev Nouls for flagged calls only, judged
     against the request, with tool outputs withheld; thresholds from the
     eval; fail closed; the reason on the ask card.
-  - [ ] **1.3f-4 Egress limits:** a spike on Blaxel's method and domain rules
-    and the `proxy` firewall ruleset, then GET/HEAD to any host and other
-    methods only to registries and a trusted list, for new sandboxes.
+  - [x] **1.3f-4 Egress limits** (2026-10-21; built, live checks owed):
+    - **Spike** from docs and source: research §7.
+    - **Session sandboxes** (`sandbox/session-sandbox.ts`) are created with
+      the `proxy` firewall ruleset and an allow list:
+      - `GET:HEAD:OPTIONS:*`;
+      - `POST` to `…git-upload-pack` on GitHub, GitLab and Bitbucket (clone
+        and fetch; push stays blocked);
+      - `POST` to npm's `/-/npm/v1/security/` (`npm audit`).
+    - **Older sandboxes:** a `lor-egress` label marks sandboxes created with
+      the current limits. A sandbox without it is replaced on its next run
+      (the lost-files note applies). Bump the label's version when the limits
+      change.
+    - **Git:** every command sets `GIT_SSL_CAINFO` from `SSL_CERT_FILE`, so
+      git trusts the proxy's CA.
+    - **Prompt:** the sandbox line tells Lor that writes get a 403 with
+      `Proxy-Error: firewall_blocked`, and not to retry or work around them.
+    - **Rules:** the `curl`/`wget` "sends data" flag is removed; the network
+      now decides.
+    - **Deferred:** the per-workspace trusted list (`updateNetwork` can change
+      the list on running sandboxes); credentials injected at the proxy.
+    - **Live checks owed** (new session sandbox): the region has the proxy and
+      the workspace is not on Carbon (create fails or the firewall is
+      missing); `env | grep -i proxy`; `curl -X POST` gets the 403; `git
+      clone` of a public repo; `npm install`, `pip install`; DNS (`dig`,
+      `nslookup`); `ssh -T git@github.com` and raw TCP; `curl
+      169.254.169.254`; what the proxy's identity token can reach.
 - [ ] **1.3g Turn controls and eval:** the compaction handler, per-step counters,
   the tool block near the spend or deadline limit, ambient context, steering and
   stop; the sandbox classifier eval next to the long-task eval (§4.6).

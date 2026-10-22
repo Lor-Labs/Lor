@@ -197,22 +197,49 @@ tokens per question; pin a versioned model ID.
 | Clinejection, 2026-02 | Triage workflow ran an agent with Bash on untrusted issue text; cache poisoning reached release secrets | No secrets or shared caches near agents reading untrusted input |
 | Cursor CurXecute / MCPoison, 2025 | Injection rewrote `mcp.json`; approved config changed silently | Re-approve on any config change; protect config paths |
 
-## 7. Blaxel network controls (docs and `@blaxel/core` 0.3.11)
+## 7. Blaxel network controls (1.3f-4 spike, 2026-10-21)
 
-- `SandboxNetwork.proxy`: `allowedDomains` / `forbiddenDomains` (wildcards;
-  forbidden wins), `bypass`, and `routing` with header/body injection and
-  write-only `secrets` (`{{SECRET:name}}`; "the sandbox never sees the raw
-  API key"; public preview).
-- Entries can restrict methods and paths, e.g.
-  `GET:POST:storage.googleapis.com` and
-  `storage.googleapis.com/company-mercor*` (start-anchored prefix).
-- Filtering relies on `HTTP_PROXY`/`HTTPS_PROXY` unless
-  `firewall: { rulesets: ["proxy"] }` locks all egress to the proxy.
-  "Firewall rulesets can only be set when the sandbox is created."
-- Private ranges, `169.254.169.254`, `.local` and `.internal` bypass the
-  proxy by default. Not documented: DNS, SSH and raw TCP under the `proxy`
-  ruleset, and whether a wildcard host works with a method filter
-  (e.g. `GET:HEAD:*`). [unverified — test before relying on it]
+From the docs (`Sandboxes/Proxy`, `Proxy-domains`, `Proxy-secrets-injection`,
+`Infrastructure/Gens`), `@blaxel/core` 0.3.11 types, and the
+`blaxel-ai/sandbox` source (`sandbox-api/src/lib/proxy/`).
+
+- **Status:** public preview, "not recommended for production use". The
+  proxy is per region (`Region.proxyAvailable`). Firewalled sandboxes run on
+  Mark 3.0 only; Carbon (Mark 3.1, private preview, rolling out by
+  workspace) has no firewalling.
+- **Fixed at creation:** the proxy cannot be added to or removed from an
+  existing sandbox, and firewall rulesets "can only be set when the sandbox is
+  created". Domain lists, routing and secrets change on a running sandbox
+  with `updateNetwork`, which replaces the whole `network` object.
+- **Patterns:** `[!]METHOD:...:domain[/path]`. The domain is exact, `*.suffix`
+  (not the bare domain) or `*` (every domain), so `GET:HEAD:OPTIONS:*` is
+  valid. Paths are start-anchored prefixes with `*`, canonicalized; query
+  strings are ignored. A pattern that does not fit is a literal domain, so a
+  typo matches nothing extra.
+- **Order:** a `forbiddenDomains` match blocks; else a non-empty
+  `allowedDomains` must match; else allow. (The SDK's type comment says the
+  allow list wins; the docs' explicit order is newer.) So method limits must
+  be an allow list: a forbidden `!GET:HEAD:*` would also block registries.
+- **Blocked request:** HTTP 403 with `Proxy-Error: firewall_blocked`.
+- **Enforcement:** without `firewall: { rulesets: ["proxy"] }`, only clients
+  that honor `HTTP(S)_PROXY` are filtered. With it, all egress must go
+  through the proxy.
+- **Inside the sandbox:** `HTTP(S)_PROXY` points at a loopback shim that adds
+  a rotating workload identity token, read from a file. Every process
+  inherits the variables (process env is merged with the sandbox server's).
+  The proxy CA is merged into `/etc/ssl/certs/sandbox-ca-bundle.crt`, and
+  `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and
+  `NODE_EXTRA_CA_CERTS` point at it. Git reads none of these: Debian's git
+  (libcurl-gnutls) needs `GIT_SSL_CAINFO`.
+- **Git over HTTPS:** clone and fetch send `POST …/git-upload-pack`; push
+  sends `POST …/git-receive-pack`. GET-only egress blocks clone.
+- **Always bypassed** (`NO_PROXY`): localhost, private ranges,
+  `169.254.169.254`, `.local`, `.internal`.
+- **Still unverified** (needs a live sandbox): whether the firewall blocks
+  direct traffic to the bypassed ranges and the metadata address; DNS (and
+  so DNS exfiltration); SSH and raw TCP; what the proxy's identity token can
+  reach besides the proxy (workloads run as root, so they can read it);
+  whether the Lor workspace is on Carbon.
 
 ## Sources
 
@@ -234,7 +261,9 @@ code.visualstudio.com/docs/agents/run/{approvals,security};
 anomalyco/opencode (v1.19.3); block/goose (`permission_judge.rs`);
 OpenHands/software-agent-sdk (`security/`); cline/cline; RooCodeInc/Roo-Code;
 Aider-AI/aider; docs.typesafe.ai (Noul, Jev 1.13 jaggedness);
-docs.blaxel.ai/Sandboxes/{Proxy-domains,Proxy-secrets-injection}.
+docs.blaxel.ai/Sandboxes/{Proxy,Proxy-domains,Proxy-secrets-injection};
+docs.blaxel.ai/Infrastructure/Gens; github.com/blaxel-ai/sandbox
+(`sandbox-api/src/lib/proxy/{proxy,ca,shim}.go`).
 
 Advisories and incidents: backslash.security (Cursor denylist, 2025-07-21;
 Claude Code auto mode, 2026-09-27); tracebit.com (Gemini CLI); Trail of

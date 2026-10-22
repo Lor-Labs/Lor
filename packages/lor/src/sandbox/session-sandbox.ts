@@ -35,6 +35,32 @@ const WAIT_MAX_MS = 1000
 
 export const SESSION_WORK_DIR = WORKSPACE_MOUNT
 
+// Egress limits (reference/planned/sandbox-safety-research.md §7): reads to
+// any host, writes only for git fetch and npm audit. The `proxy` firewall
+// ruleset forces every connection through Blaxel's proxy and can only be set
+// when a sandbox is created, so the label marks sandboxes that have it; bump
+// the version to replace older ones.
+const EGRESS_LABEL = "lor-egress"
+const EGRESS_VERSION = "1"
+const SESSION_NETWORK = {
+  firewall: { rulesets: ["proxy"] },
+  allowedDomains: [
+    "GET:HEAD:OPTIONS:*",
+    "POST:github.com/*git-upload-pack",
+    "POST:gitlab.com/*git-upload-pack",
+    "POST:bitbucket.org/*git-upload-pack",
+    "POST:registry.npmjs.org/-/npm/v1/security/",
+  ],
+  proxy: { routing: [] },
+}
+// Debian's git ignores SSL_CERT_FILE, so it would reject the proxy's CA.
+const GIT_PROXY_CA =
+  'if [ -n "$SSL_CERT_FILE" ]; then export GIT_SSL_CAINFO="$SSL_CERT_FILE"; fi; '
+
+function hasEgressLimits(sandbox: SandboxInstance): boolean {
+  return sandbox.metadata.labels?.[EGRESS_LABEL] === EGRESS_VERSION
+}
+
 // Blaxel's QUOTA_EXCEEDED means the account's tier memory limit is reached,
 // not a sandbox count; its own message names the limit, so it is kept.
 export class SandboxCapacityError extends Error {
@@ -79,6 +105,8 @@ async function createSessionSandbox(name: string): Promise<SandboxInstance> {
   const sandbox = await SandboxInstance.createIfNotExists({
     ...baseConfig(name, env.LOR_SESSION_DISK_MB),
     lifecycle: persistentLifecycle(env.LOR_SESSION_SANDBOX_TTL),
+    network: SESSION_NETWORK,
+    labels: { [EGRESS_LABEL]: EGRESS_VERSION },
   }).catch((err: unknown) => {
     if (hasCode(err, ["QUOTA_EXCEEDED"])) throw new SandboxCapacityError(err)
     throw err
@@ -87,7 +115,11 @@ async function createSessionSandbox(name: string): Promise<SandboxInstance> {
     closeConnection(sandbox)
     throw err
   })
-  if (!health.healthy || !hasWorkspaceDisk(sandbox, env.LOR_SESSION_DISK_MB)) {
+  if (
+    !health.healthy ||
+    !hasWorkspaceDisk(sandbox, env.LOR_SESSION_DISK_MB) ||
+    !hasEgressLimits(sandbox)
+  ) {
     closeConnection(sandbox)
     throw new Error(
       `New sandbox ${name} is unhealthy (${health.status}, exit ${health.exitCode})`
@@ -108,13 +140,16 @@ export async function openSessionSandbox(
 
   if (existing) {
     // A probe error does not prove the workspace is gone: fail the run rather
-    // than delete files. Only a sandbox that answers unhealthy is replaced.
-    const health = hasWorkspaceDisk(existing, env.LOR_SESSION_DISK_MB)
-      ? await probeSandbox(existing).catch((err: unknown) => {
-          closeConnection(existing)
-          throw err
-        })
-      : null
+    // than delete files. Only a sandbox that answers unhealthy is replaced,
+    // or one created without the current egress limits.
+    const health =
+      hasWorkspaceDisk(existing, env.LOR_SESSION_DISK_MB) &&
+      hasEgressLimits(existing)
+        ? await probeSandbox(existing).catch((err: unknown) => {
+            closeConnection(existing)
+            throw err
+          })
+        : null
     if (health?.healthy) {
       return {
         session: blaxelSandboxSession(existing),
@@ -150,7 +185,7 @@ export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
 }
 
 function inShell(command: string): string {
-  return `bash -c ${shellQuote(command)}`
+  return `bash -c ${shellQuote(GIT_PROXY_CA + command)}`
 }
 
 function bytesStream(bytes: Uint8Array): ReadableStream<Uint8Array> {

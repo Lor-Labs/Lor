@@ -309,25 +309,6 @@ function remoteHost(argv: Argv): string | null | undefined {
   return undefined
 }
 
-function curlSendsData(argv: Argv): boolean {
-  const args = argv.slice(1)
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg == null) continue
-    if (/^--(data|json|form|upload-file)/.test(arg)) return true
-    const method =
-      arg === "-X" || arg === "--request"
-        ? args[i + 1]
-        : (/^(?:-X|--request=)(.+)$/.exec(arg)?.[1] ?? null)
-    if (method !== null && method !== undefined) {
-      if (!/^(GET|HEAD|OPTIONS)$/i.test(method)) return true
-      continue
-    }
-    if (/^-[a-zA-Z]+$/.test(arg) && /[dFT]/.test(arg)) return true
-  }
-  return false
-}
-
 const DEPLOY_VERBS = new Set([
   "deploy",
   "up",
@@ -524,17 +505,6 @@ function flagReason(argv: Argv): string | null {
       return has("-l", "--listen")
         ? "opens a network listener"
         : "connects to a remote host"
-    case "curl":
-      return curlSendsData(argv) ? "sends data to a remote host" : null
-    case "wget":
-      return args.some(
-        (a) =>
-          a != null &&
-          /^--(post-data|post-file|body-data|body-file|method)/.test(a) &&
-          !/^--method=GET$/i.test(a)
-      )
-        ? "sends data to a remote host"
-        : null
     case "crontab":
       return has("-l") ? null : "changes scheduled jobs"
     case "systemctl":
