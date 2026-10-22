@@ -155,6 +155,69 @@ function isCriticalTarget(target: string, ctx: PolicyContext): boolean {
   )
 }
 
+const FIND_EXEC = ["-exec", "-execdir", "-ok", "-okdir"]
+const DELETERS = new Set(["rm", "unlink", "shred"])
+// Tests that narrow what `find` matches; without one it matches everything.
+const FIND_TESTS = new Set([
+  "-name",
+  "-iname",
+  "-path",
+  "-ipath",
+  "-wholename",
+  "-iwholename",
+  "-regex",
+  "-iregex",
+  "-type",
+  "-newer",
+  "-mtime",
+  "-mmin",
+  "-atime",
+  "-amin",
+  "-ctime",
+  "-cmin",
+  "-size",
+  "-user",
+  "-group",
+  "-perm",
+  "-empty",
+  "-links",
+  "-inum",
+  "-samefile",
+  "-lname",
+  "-ilname",
+])
+
+// `find -delete`, or `find -exec rm` (and other deleters), deletes what it
+// matches.
+function findDeletes(argv: Argv): boolean {
+  const args = argv.slice(1)
+  if (args.includes("-delete")) return true
+  return args.some(
+    (arg, i) =>
+      FIND_EXEC.includes(arg ?? "") &&
+      DELETERS.has(commandName(args.slice(i + 1)) ?? "")
+  )
+}
+
+// A deleting `find` with no narrowing test, rooted at the work folder or
+// above, wipes it like `rm -rf`.
+function findWipes(argv: Argv, ctx: PolicyContext): boolean {
+  if (!findDeletes(argv)) return false
+  const args = argv.slice(1)
+  if (args.some((arg) => arg != null && FIND_TESTS.has(arg))) return false
+  let i = 0
+  while (/^-[HLP]$|^-O\d$|^-D$/.test(args[i] ?? ""))
+    i += args[i] === "-D" ? 2 : 1
+  const roots: (string | null)[] = []
+  for (; i < args.length; i++) {
+    const arg = args[i]
+    if (arg != null && /^[-(!),]/.test(arg)) break
+    roots.push(arg ?? null)
+  }
+  if (roots.length === 0) roots.push(".")
+  return roots.some((root) => root != null && isCriticalTarget(root, ctx))
+}
+
 // Files a person should see a change to before it happens. Case-folded, as
 // case-insensitive filesystems would treat them (CVE-2025-59944).
 export function protectedPathReason(absolute: string): string | null {
@@ -341,6 +404,8 @@ function flagReason(argv: Argv): string | null {
         words.some((w) => w == null || /[*?[]/.test(w))
         ? "deletes files"
         : null
+    case "find":
+      return findDeletes(argv) ? "deletes files" : null
     case "shred":
     case "mkfs":
     case "fdisk":
@@ -579,8 +644,9 @@ function checkParsed(
       }
     }
     if (
-      commandName(argv) === "rm" &&
-      positionals(argv).some((t) => t != null && isCriticalTarget(t, ctx))
+      (commandName(argv) === "rm" &&
+        positionals(argv).some((t) => t != null && isCriticalTarget(t, ctx))) ||
+      (commandName(argv) === "find" && findWipes(argv, ctx))
     ) {
       return { kind: "hard", reason: "deletes the whole work folder or system" }
     }

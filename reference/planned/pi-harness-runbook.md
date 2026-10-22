@@ -1585,33 +1585,38 @@ moved here from 1.4, because nothing runs without a sandbox.
   2026-10-21:
   - [x] **1.3g-1 Spend inside a turn and the real model** (2026-10-21; no
     `db:push`; not run yet):
-    - **Per step:** each finished step (not the adapter's early `host-input`
-      copy) is billed as its own `lor.respond` usage event and added to the
-      run counters under the lease (`RunHarness.recordStep`), with nested
-      `investigate_code` spend folded in. Each assistant message is billed
-      at its first `finish-step` (fixed 2026-10-21 after the eval run): the
-      early `host-input` copy while Pi waits on a Lor tool result or an
-      approval counts, so a paused step is billed by the run that paused.
-      The adapter replays the paused message on resume with zero usage
-      (`zeroNumbers`); before the fix such a step was never billed. Each
-      event has `billingKey`
-      `<runId>:step-<n>`: the ledger debits once per message and tool
-      unless a key is set, so a retried attempt is not charged again for the
-      steps it repeats, and a resume run is billed separately.
+    - **Per step (revised in the exit review):** each assistant message
+      counts at its first `finish-step`: the early `host-input` copy while
+      Pi waits on a Lor tool result or an approval counts, so a paused step
+      is counted by the run that paused (the adapter replays it on resume
+      with zero usage, `zeroNumbers`). Each step and compaction summary is
+      added to the run counters under the lease (`RunHarness.recordUsage`),
+      with nested `investigate_code` spend folded in; the counter sums
+      exact credits and rounds up once per attempt. The ledger is charged
+      once per model at the end of the attempt (`chargeTurn`, also when the
+      turn fails or is aborted), with `billingKey` `<runId>:turn:<model>`:
+      per-step debits rounded every step up to at least 1 credit (a 40-step
+      turn cost about 40 credits instead of about 16). A retried attempt
+      that already charged is deduped; a resume run is charged separately;
+      a crashed attempt is not charged, its retry is.
     - **Real model:** the inline Pi extension reports each assistant
       message's `responseModel ?? model` on `message_end` (also for the
-      paused message replayed on resume), mapped to a configured slug; an
-      unknown name bills at the requested model with a warning. Not verified
-      live: the name the Gateway returns after a fallback.
-    - **Rest of the turn total:** Pi's turn total also holds compaction and
-      cache warming. The part beyond the steps is billed at the requested
-      model (`<runId>:turn`) and saved with the turn (`extraUsage`).
-      Chunk 1.3g-2 bills compaction exactly.
+      paused message replayed on resume), mapped case-insensitively to a
+      configured slug; an unknown name passes through, so the rate lookup
+      uses the "*" row (the most expensive tier), with a warning. Not
+      verified live: the name the Gateway returns after a fallback.
+    - **Rest of the turn total:** Pi's turn total also holds cache warming.
+      The part beyond the steps and compactions is charged at the requested
+      model with the turn and saved with it (`extraUsage`).
     - **Limits:** at 90% of `AGENT_RUN_MAX_CREDITS`, or inside the last
-      3 minutes before the deadline, the extension's `tool_call` hook
-      refuses every tool call ("answer now with what you have"); `tool_call`
-      fails closed. At the credit limit the turn aborts with `budget_spend`;
-      the worker keeps the partial answer.
+      3 minutes before the deadline, every tool call is refused ("answer
+      now with what you have"): Pi's built-ins through the extension's
+      `tool_call` hook (fails closed), Lor's tools through a Proxy over the
+      harness's `toolApproval` map, which the harness reads per call (Pi
+      announces a call before `tool_call` runs, so the hook alone let Lor
+      tools run). At the credit limit the turn aborts with `budget_spend`;
+      the worker keeps the partial answer. A retried attempt starts from
+      the spend its run already has.
     - **Not changed:** Pi's built-in tool output is not added to
       `toolOutputBytes`, because the host tools' total cap reads that
       counter; step, tool-call and token ceilings stay unenforced.
@@ -1708,6 +1713,51 @@ moved here from 1.4, because nothing runs without a sandbox.
       severity veto stopped an explicitly requested `git reset --hard`
       (0.36 against 0.35). Thresholds wait for Jacob's dangerous sets, so
       recall is measured before any change.
+- [x] **1.3 exit review** (2026-10-21; four Opus reviewers by area, findings
+  checked against the code; fixed in one change, not run yet; needs
+  `db:push` for `approval.steered` and `approval.consumed_by_run_id`):
+  - **Paused turn then a new message:** the harness continues with the
+    paused turn's tool list and prompts with the current one; a different
+    list made the adapter rebuild Pi on an empty journal (`SessionManager
+    .create`), the load check failed and the session stayed stuck. The
+    adapter patch now reopens the current session file on a rebuild.
+  - **Delta:** a queued message predates the previous run's start, so its
+    own run never showed it to Lor. The delta now always includes the run's
+    trigger, and a run that only finished a paused turn
+    (`context.continueOnly`, linked by `continuedFromRunId`) passes the
+    bound and coverage back to the paused run. Delta turns now carry
+    `messageId`, without which the classifier's request was empty and Auto
+    never reached Jev after a session's first turn.
+  - **Approved calls run once:** `loadPausedDecisions` claims each approved
+    row for the run that will finish the turn (`consumed_by_run_id`); a row
+    already claimed (the run failed or crashed after it ran) is denied with
+    "may already have run". A rejection caused by a new message is marked
+    `steered` and never reads as a person's rejection.
+  - **Pi never started** (Stop, deadline or spend while preparing): no save
+    and no `corrupt_state`; a dropped paused turn with nothing to run clears
+    the continuation and settles as stopped. Notes (retry, lost files) of a
+    run that only finishes a paused turn go in at its first boundary.
+  - **Crash takeover:** a claim that meets a live lease (BullMQ redelivers a
+    stalled job before the 60 s lease expires) now delays the job until the
+    lease expires (`delayJobUntil`, no attempt used) instead of finishing
+    with the run left working; voice too. A retried voice resume runs again
+    instead of returning, and a stale voice resume finishes the request.
+    Voice usage is keyed by its request (`debitScope`).
+  - **Billing and limits:** see 1.3g-1 (charge once per model per attempt,
+    exact spend counter, Lor tools refused through `toolApproval`, unknown
+    model at the "*" rate, failed rate lookups not cached).
+  - **Policy:** custom and MCP tools may not take a Pi built-in's name; an
+    unknown turn starter gets Manual and a Lor-authored trigger is
+    autonomous; `find -delete` and `find -exec rm` are flagged, and a
+    deleting `find` with no narrowing test at the work folder or above is
+    a hard rule.
+  - **Open (low):** resume enqueue failure after the decision commits; the
+    saved-answer path settling paused or stopped turns; a crashed attempt's
+    sandbox processes; approval gates not re-checked mid-turn; GET
+    query-string leaks unclassified; voice name matching; prompt-cache
+    churn in Loop sessions; usage of turns that do not finish (errored
+    retries, cache warms); counters vs ledger semantics; replayed turns
+    outside Pi's retry loop (upstream); a journal swap race.
 
 Exit: source review follows every request, tool and summary through permission,
 accounting and save points, including cold approval resume and a crashed turn.

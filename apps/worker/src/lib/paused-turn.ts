@@ -1,5 +1,5 @@
 import { canResolveApproval } from "@repo/auth/permissions"
-import { and, db, eq, isNotNull, schema } from "@repo/db"
+import { and, db, eq, isNotNull, isNull, schema } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type {
   AgentRunContext,
@@ -31,8 +31,13 @@ function decisionReason(
   return "No decision was recorded for this action, so it was not run."
 }
 
+const MAY_HAVE_RUN_REASON =
+  "This approved action may already have run in an earlier attempt that did not finish, so it was not run again. Check whether it took effect before doing it again."
+
 export async function loadPausedDecisions(
   pausedRunId: string,
+  // The run that will finish the turn; it claims each approved call.
+  runId: string,
   // Set for a run that is not the set's resume: who wrote instead.
   steer: { userId: string | null; name: string } | null,
   // Another adapter version saved the paused turn (pausedTurnExpired).
@@ -95,6 +100,7 @@ export async function loadPausedDecisions(
           status: "rejected",
           resolvedBy: steer.userId,
           resolvedAt: new Date(),
+          steered: true,
         })
         .where(
           and(
@@ -118,6 +124,8 @@ export async function loadPausedDecisions(
       inputSha256: schema.approval.inputSha256,
       resolvedBy: schema.approval.resolvedBy,
       resolverName: schema.user.name,
+      steered: schema.approval.steered,
+      consumedByRunId: schema.approval.consumedByRunId,
     })
     .from(schema.approval)
     .innerJoin(schema.agentRun, eq(schema.agentRun.id, schema.approval.runId))
@@ -130,16 +138,32 @@ export async function loadPausedDecisions(
         row.status === "approved" &&
         row.resolvedBy !== null &&
         (await resolverStillAllowed({ ...row, userId: row.resolvedBy }))
+      // Claimed before it runs: a run that fails or crashes after the call
+      // ran must never hand it to the harness again.
+      const claimed =
+        allowed && row.consumedByRunId === null
+          ? await db
+              .update(schema.approval)
+              .set({ consumedByRunId: runId })
+              .where(
+                and(
+                  eq(schema.approval.id, row.id),
+                  isNull(schema.approval.consumedByRunId)
+                )
+              )
+              .returning({ id: schema.approval.id })
+              .then((updated) => updated.length > 0)
+          : false
+      const steeredBy = steeredIds.has(row.id) ? steer?.name : row.resolverName
       return {
         harnessApprovalId: row.harnessApprovalId,
-        approved: allowed,
+        approved: claimed,
         rejectedByPerson:
-          row.status === "rejected" &&
-          row.resolvedBy !== null &&
-          !steeredIds.has(row.id),
-        reason:
-          steer && steeredIds.has(row.id)
-            ? `${steer.name} sent a new message instead of deciding, so this was not run. Do not retry it now; their message follows.`
+          row.status === "rejected" && row.resolvedBy !== null && !row.steered,
+        reason: row.steered
+          ? `${steeredBy ?? "Someone"} sent a new message instead of deciding, so this was not run. Do not retry it now; their message follows.`
+          : allowed && !claimed
+            ? MAY_HAVE_RUN_REASON
             : row.status === "approved"
               ? `${row.resolverName ?? "The approver"} can no longer approve this, so it was not run.`
               : decisionReason(row.status, row.resolverName),

@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   gt,
+  inArray,
   isNotNull,
   LOR_USER_ID,
   ne,
@@ -48,6 +49,8 @@ export const LOOP_SCHEDULE_SPEAKER = "Loop schedule"
 
 function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
   return {
+    // The sandbox classifier finds the person's request by trigger id.
+    messageId: row.id,
     authorName:
       row.eventType === "loop_run"
         ? LOOP_SCHEDULE_SPEAKER
@@ -72,30 +75,32 @@ function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
   }
 }
 
-// Messages that landed in the scope after the predecessor started, minus every
-// message durably covered by its request and minus Lor's own placeholders.
+// Messages that landed in the scope after the predecessors started, plus the
+// run's own trigger (a queued message can predate them), minus every message
+// durably covered by their requests and minus Lor's own placeholders.
 async function loadDelta(args: {
-  predecessorRunId: string
-  predecessorStartedAt: Date
-  predecessorContext: AgentRunContext
+  predecessorRunIds: string[]
+  since: Date
+  covered: string[]
+  triggerMessageId: string | null
   scopeKey: string
   channelId: string
   lorMessageId: string
 }) {
   // Queue rows cover guaranteed steers. The saved context IDs cover the
-  // messages the predecessor's request rendered.
+  // messages the predecessors' requests rendered.
   const consumed = await db
     .select({ messageId: schema.agentRunQueue.messageId })
     .from(schema.agentRunQueue)
     .where(
       and(
-        eq(schema.agentRunQueue.runId, args.predecessorRunId),
+        inArray(schema.agentRunQueue.runId, args.predecessorRunIds),
         eq(schema.agentRunQueue.state, "consumed"),
         isNotNull(schema.agentRunQueue.consumedAtStep)
       )
     )
   const alreadyCovered = new Set([
-    ...(args.predecessorContext.coveredMessageIds ?? []),
+    ...args.covered,
     ...consumed.map((c) => c.messageId),
   ])
 
@@ -116,7 +121,12 @@ async function loadDelta(args: {
           eq(schema.message.id, args.scopeKey),
           eq(schema.message.threadRootId, args.scopeKey)
         ),
-        gt(schema.message.createdAt, args.predecessorStartedAt),
+        args.triggerMessageId
+          ? or(
+              gt(schema.message.createdAt, args.since),
+              eq(schema.message.id, args.triggerMessageId)
+            )
+          : gt(schema.message.createdAt, args.since),
         ne(schema.message.id, args.lorMessageId),
         // Lor's own answers are already in the conversation as assistant
         // turns; re-adding them as user text would double them. A loop's
@@ -212,6 +222,7 @@ export async function loadPredecessorRun(runId: string | null) {
           startedAt: schema.agentRun.startedAt,
           createdAt: schema.agentRun.createdAt,
           finishedAt: schema.agentRun.finishedAt,
+          continuedFromRunId: schema.agentRun.continuedFromRunId,
         })
         .from(schema.agentRun)
         .where(eq(schema.agentRun.id, runId))
@@ -237,16 +248,27 @@ export type TurnDelta = {
 // it (reference/planned/pi-harness-runbook.md §4.3).
 export async function buildTurnDelta(args: {
   predecessorRunId: string | null
+  triggerMessageId: string | null
   scopeKey: string
   channelId: string
   lorMessageId: string
 }): Promise<TurnDelta> {
   const predecessor = await loadPredecessorRun(args.predecessorRunId)
-  const since = predecessor.startedAt ?? predecessor.createdAt
+  // A run that only finished a paused turn sent no prompt: what was said
+  // while that turn waited still dates from the paused run, so the bound and
+  // coverage walk back to it.
+  const chain = [predecessor]
+  let earliest = predecessor
+  while (earliest.context.continueOnly && earliest.continuedFromRunId) {
+    earliest = await loadPredecessorRun(earliest.continuedFromRunId)
+    chain.push(earliest)
+  }
+  const since = earliest.startedAt ?? earliest.createdAt
   const delta = await loadDelta({
-    predecessorRunId: predecessor.id,
-    predecessorStartedAt: since,
-    predecessorContext: predecessor.context,
+    predecessorRunIds: chain.map((run) => run.id),
+    since,
+    covered: chain.flatMap((run) => run.context.coveredMessageIds ?? []),
+    triggerMessageId: args.triggerMessageId,
     scopeKey: args.scopeKey,
     channelId: args.channelId,
     lorMessageId: args.lorMessageId,

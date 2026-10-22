@@ -478,6 +478,9 @@ export type AgentRunContext = {
   // The turn this run left paused on approvals, which can differ from the
   // run's own prompt: the resume finishes it under this mode and context.
   pausedSandbox?: { mode: TurnSandboxMode; context: SandboxTurnContext }
+  // The run only finished a paused turn and sent no prompt; the next delta
+  // walks back through it (continuedFromRunId) to the paused run.
+  continueOnly?: boolean
 }
 
 // Written by @repo/lor at compaction time (see compaction.ts). summary is

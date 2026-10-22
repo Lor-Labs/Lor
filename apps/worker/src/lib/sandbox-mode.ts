@@ -1,9 +1,10 @@
 import { db, eq, schema } from "@repo/db"
 import type { SandboxMode, TurnSandboxMode } from "@repo/db/schema"
 
-// A person's sandbox mode; auto when they never chose one.
+// A person's sandbox mode; auto when they never chose one. An unknown starter
+// (the author lookup failed) gets the strictest interactive mode.
 async function userSandboxMode(userId: string | null): Promise<SandboxMode> {
-  if (!userId) return "auto"
+  if (!userId) return "manual"
   const [row] = await db
     .select({ sandboxMode: schema.userSandboxSettings.sandboxMode })
     .from(schema.userSandboxSettings)

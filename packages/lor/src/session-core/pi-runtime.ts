@@ -217,6 +217,19 @@ function withGatewayOptions(
 
 type TurnProbe = { logFile?: string; loadMismatch?: boolean }
 
+// Pi's built-in tools by public and native name. Lor binds no tool of these
+// names: it would replace the sandbox tool and skip the sandbox policy.
+export const PI_BUILTIN_NAMES: ReadonlySet<string> = new Set([
+  "bash",
+  "read",
+  "write",
+  "edit",
+  "grep",
+  "glob",
+  "find",
+  "ls",
+])
+
 // Pi's defaults; an undefined policy would turn summary retries off.
 const COMPACTION_RETRY = { enabled: true, maxRetries: 3, baseDelayMs: 2_000 }
 
@@ -336,7 +349,11 @@ function lorPiExtension(input: {
         input.onAssistantModel?.(message.responseModel ?? message.model)
       }
     })
-    pi.on("tool_call", () => {
+    // Only Pi's built-ins: Pi announces a call before this hook runs, so the
+    // harness has already started a Lor tool. Lor tools are refused through
+    // the harness's toolApproval map instead.
+    pi.on("tool_call", (event) => {
+      if (!PI_BUILTIN_NAMES.has(event.toolName)) return
       const reason = input.toolBlock?.()
       return reason ? { block: true, reason } : undefined
     })
@@ -407,12 +424,13 @@ async function readLog(
   saved: SavedHarnessState | null,
   convertsFormat: boolean
 ): Promise<Omit<PiTurnSave, "continuation"> | null> {
-  const text = probe.logFile
-    ? await readFile(probe.logFile, "utf8").catch((err: unknown) => {
-        if ((err as { code?: unknown }).code === "ENOENT") return null
-        throw err
-      })
-    : null
+  // Pi never started (aborted while preparing, or nothing to run): no new
+  // entries, not a missing file.
+  if (!probe.logFile) return null
+  const text = await readFile(probe.logFile, "utf8").catch((err: unknown) => {
+    if ((err as { code?: unknown }).code === "ENOENT") return null
+    throw err
+  })
   if (text === null) {
     if (saved) {
       throw new SessionCoreError(
@@ -601,23 +619,39 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
   })
 
   const abort = input.abortSignal ? { abortSignal: input.abortSignal } : {}
-  const session = await agent.createSession({
-    sessionId: input.sessionId,
-    sandboxSession: input.sandbox,
-    ...(paused
-      ? { continueFrom: paused }
-      : input.saved
-        ? {
-            resumeFrom: {
-              type: "resume-session",
-              harnessId: "pi",
-              specificationVersion: "harness-v1",
-              data: { sessionFileName: input.saved.head.logFileName },
-            },
-          }
-        : {}),
-    ...abort,
-  })
+  // Stop, the deadline or the spend limit can land while the session opens:
+  // that is an aborted turn with nothing to save, not a failure.
+  const notStarted: PiTurnResult = {
+    aborted: true,
+    usage: null,
+    modelId: null,
+    responseMessages: [],
+    save: null,
+    pendingApprovals: [],
+  }
+  const session = await agent
+    .createSession({
+      sessionId: input.sessionId,
+      sandboxSession: input.sandbox,
+      ...(paused
+        ? { continueFrom: paused }
+        : input.saved
+          ? {
+              resumeFrom: {
+                type: "resume-session",
+                harnessId: "pi",
+                specificationVersion: "harness-v1",
+                data: { sessionFileName: input.saved.head.logFileName },
+              },
+            }
+          : {}),
+      ...abort,
+    })
+    .catch((err: unknown) => {
+      if (input.abortSignal?.aborted) return null
+      throw err
+    })
+  if (!session) return notStarted
 
   try {
     let aborted = false
@@ -672,6 +706,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
           }
         )
       : null
+    aborted ||= Boolean(input.abortSignal?.aborted)
     const waiting = !aborted && session.hasUnfinishedTurn()
     const log = await readLog(probe, input.saved, convertsFormat)
     // suspendTurn deletes the worker copy, so the log is read first.
@@ -681,7 +716,12 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
       usage,
       modelId: settled.at(-1)?.[1]?.modelId ?? null,
       responseMessages: settled.flatMap(([, , messages]) => messages),
-      save: withContinuation(log, input.saved, continuation),
+      // A turn aborted before Pi started changes nothing. One that never
+      // started because a dropped paused turn had nothing to run clears it.
+      save:
+        aborted && !probe.logFile
+          ? null
+          : withContinuation(log, input.saved, continuation),
       pendingApprovals: [...(continuation?.pendingToolApprovals ?? [])],
     }
   } finally {

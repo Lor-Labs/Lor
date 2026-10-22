@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm"
 import {
+  boolean,
   index,
   jsonb,
   pgEnum,
@@ -71,6 +72,14 @@ export const approval = pgTable(
       onDelete: "set null",
     }),
     resolvedAt: timestamp("resolved_at"),
+    // Rejected because someone sent a new message instead of deciding, not
+    // by a person's explicit reject.
+    steered: boolean("steered").notNull().default(false),
+    // The run handed this approved call to the harness. A later run, or a
+    // retry of that run, may find it already ran, so it never runs it again.
+    consumedByRunId: uuid("consumed_by_run_id").references(() => agentRun.id, {
+      onDelete: "set null",
+    }),
   },
   (table) => [
     index("approval_planId_status_idx").on(table.planId, table.status),

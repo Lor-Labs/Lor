@@ -56,7 +56,7 @@ import {
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
-import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
+import { claimAgentRun, delayJobUntil, LeaseLostError } from "@/lib/agent-run"
 import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
@@ -106,7 +106,7 @@ export function createLorRespondProcessor(
   redis: RedisClient,
   respondQueue: Queue<LorRespondJobData>
 ) {
-  return (job: Job<LorRespondJobData>) =>
+  return (job: Job<LorRespondJobData>, token?: string) =>
     withContext(
       { jobId: job.id, jobName: job.name, channelId: job.data.channelId },
       async () => {
@@ -294,18 +294,20 @@ export function createLorRespondProcessor(
             emitter.to(room).emit("lor:steer", steerPayload)
           },
         })
+        if (claim.kind === "busy") {
+          await delayJobUntil(job, token, claim.retryAt)
+        }
         if (claim.kind === "terminal") {
-          // Finished by (or currently owned by) another attempt. Still drain:
-          // a run settled before it was ever claimed (e.g. stopped while
-          // queued) has no other terminal transition to start its queued
-          // follow-ups, and draining a still-owned scope is a no-op.
+          // Finished by another attempt. Still drain: a run settled before it
+          // was ever claimed (e.g. stopped while queued) has no other terminal
+          // transition to start its queued follow-ups.
           logger.info(
             { lorMessageId, runId: job.data.runId },
-            "Run already terminal or owned elsewhere; skipping"
+            "Run already terminal; skipping"
           )
           // A retry landing after its crashed predecessor's run went terminal
           // (or a stop that raced the claim) is the last actor that can settle
-          // the plan — skip only when another attempt still owns a live lease.
+          // the plan.
           if (job.data.runId) {
             const runState = await db
               .select({ state: schema.agentRun.state })
@@ -574,11 +576,14 @@ export function createLorRespondProcessor(
                 ? null
                 : await buildTurnDelta({
                     predecessorRunId: harnessState.lastRunId,
+                    triggerMessageId: triggerMessageId ?? null,
                     scopeKey: contextThreadRootId,
                     channelId,
                     lorMessageId,
                   })
-            if (delta && harnessState?.lastRunId) {
+            // A resume points at the paused run too, so the next delta can
+            // reach back past it.
+            if ((delta || continueOnly) && harnessState?.lastRunId) {
               await execution.markContinuedFrom(harnessState.lastRunId)
             }
             // On a retry the saved request is the conversation — reloading
@@ -738,6 +743,7 @@ export function createLorRespondProcessor(
               harnessState.lastRunId
                 ? await loadPausedDecisions(
                     harnessState.lastRunId,
+                    execution.runId,
                     continueOnly
                       ? null
                       : {
@@ -764,7 +770,9 @@ export function createLorRespondProcessor(
             const sandboxMode = await turnSandboxMode({
               saved: execution.resume?.context.sandboxMode,
               paused: continueOnly ? paused?.sandboxMode : undefined,
-              automated: Boolean(automated),
+              // A Lor-authored trigger is a Loop fire or Act event even when
+              // its loop or trigger lookup failed: never a person's consent.
+              automated: Boolean(automated) || triggerUserId === LOR_USER_ID,
               userId: triggerUserId,
             })
 

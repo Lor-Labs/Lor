@@ -10,7 +10,7 @@ overrides:
 
 patchedDependencies:
   '@ai-sdk/harness-pi@1.0.160':
-    hash: mfbwy4fdnitbjkcb6qna4343ii
+    hash: 54mca5sqlxby3lcdvbiojrrwk4
     path: patches/@ai-sdk__harness-pi@1.0.160.patch
   react-native-enriched-markdown@0.7.4:
     hash: ccjrlruxecxxvybasbukcumgxy
@@ -993,7 +993,7 @@ importers:
         version: 1.0.158(ws@8.22.0)(zod@4.3.6)
       '@ai-sdk/harness-pi':
         specifier: 1.0.160
-        version: 1.0.160(patch_hash=mfbwy4fdnitbjkcb6qna4343ii)(@aws-sdk/credential-provider-node@3.972.87)(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6))(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6)
+        version: 1.0.160(patch_hash=54mca5sqlxby3lcdvbiojrrwk4)(@aws-sdk/credential-provider-node@3.972.87)(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6))(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6)
       '@ai-sdk/mcp':
         specifier: ^2.0.80
         version: 2.0.80(zod@4.3.6)
@@ -13335,7 +13335,7 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.3.6
 
-  '@ai-sdk/harness-pi@1.0.160(patch_hash=mfbwy4fdnitbjkcb6qna4343ii)(@aws-sdk/credential-provider-node@3.972.87)(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6))(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6)':
+  '@ai-sdk/harness-pi@1.0.160(patch_hash=54mca5sqlxby3lcdvbiojrrwk4)(@aws-sdk/credential-provider-node@3.972.87)(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6))(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6)':
     dependencies:
       '@ai-sdk/harness': 1.0.158(ws@8.22.0)(zod@4.3.6)
       '@ai-sdk/provider-utils': 5.0.64(zod@4.3.6)

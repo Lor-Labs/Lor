@@ -176,6 +176,7 @@ import {
 import { openSessionSandbox, SESSION_WORK_DIR } from "./sandbox/session-sandbox"
 import type { HarnessOwner } from "./session-core"
 import {
+  PI_BUILTIN_NAMES,
   type PiCompaction,
   type PiTurnUsage,
   pausedApprovals,
@@ -328,16 +329,17 @@ const SPEND_ANSWER_SHARE = 0.9
 const LIMIT_TOOL_BLOCK_REASON =
   "Not run: this turn is close to its time or spend limit. Do not call more tools. Answer now with what you have, and say what is left undone."
 
-// The Gateway may name the answering model without its provider prefix: map
-// it to a configured slug so its rate is found. An unknown name bills at the
-// requested model's rate.
+// The Gateway may name the answering model without its provider prefix or
+// in another case: map it to a configured slug so its rate is found. An
+// unknown name passes through, so the rate lookup falls back to the "*" row,
+// priced at the most expensive tier.
 function billedModel(model: string): string {
-  const name = model.split("/").at(-1)
+  const name = model.toLowerCase().split("/").at(-1)
   const known = [LOR_MODEL, ...LOR_FALLBACK_MODELS].find(
-    (id) => id === model || id.split("/").at(-1) === name
+    (id) => id.toLowerCase().split("/").at(-1) === name
   )
   if (!known) logger.warn({ model }, "Unknown answering model")
-  return known ?? LOR_MODEL
+  return known ?? model
 }
 
 // Lor's focus for Pi's compaction summary, which becomes all the model keeps
@@ -2597,6 +2599,9 @@ export async function respond(
         delete (builtinTools as ToolSet)[name]
       }
     }
+    // Custom and MCP tools may not take a Pi built-in's name: Pi would run
+    // the external tool in its place, outside the sandbox policy.
+    for (const name of PI_BUILTIN_NAMES) takenBuiltinNames.add(name)
     const hasToolGroup = (group: ToolSet) =>
       Object.keys(group).some((name) => Object.hasOwn(builtinTools, name))
     toolTargets.addBuiltins(builtinTools)
@@ -2902,6 +2907,7 @@ export async function respond(
       request = {
         ...context,
         toolSchemaBytes,
+        ...(harness.continueOnly ? { continueOnly: true } : {}),
         sandboxMode: harness.sandboxMode,
         sandboxContext: harness.continueOnly
           ? (harness.pausedSandboxContext ?? { request: "" })
@@ -3019,19 +3025,30 @@ export async function respond(
       const deadline = AbortSignal.timeout(
         Math.max(30_000, budgets.deadlineAt.getTime() - Date.now())
       )
-      // Aborts the turn at the spend limit; the step that crossed it is billed.
+      // Aborts the turn at the spend limit; the step that crossed it counts.
+      // A retried attempt starts from the spend its run already has.
       const spendStop = new AbortController()
+      if (counters.creditsSpent >= budgets.credits) spendStop.abort()
       const abortSignal = AbortSignal.any([
         ...(run.abortSignal ? [run.abortSignal] : []),
         deadline,
         spendStop.signal,
       ])
-      let nearSpendLimit = false
+      let nearSpendLimit =
+        counters.creditsSpent >= budgets.credits * SPEND_ANSWER_SHARE
       const toolBlock = () =>
         nearSpendLimit ||
         Date.now() >= budgets.deadlineAt.getTime() - WALL_CLOCK_ANSWER_MARGIN_MS
           ? LIMIT_TOOL_BLOCK_REASON
           : null
+      // Lor's tools are refused through the harness's approval map, which it
+      // reads on every call; Pi's tool_call hook comes too late for them.
+      const limitedToolApproval = new Proxy(toolApproval, {
+        get: (target, name) =>
+          typeof name === "string" && toolBlock()
+            ? { type: "denied" as const, reason: LIMIT_TOOL_BLOCK_REASON }
+            : Reflect.get(target, name),
+      })
       const classifier = jevSandboxClassifier({
         workspaceId: ctx.workspaceId,
         runId: run.runId,
@@ -3087,35 +3104,80 @@ export async function respond(
       const streamStart = performance.now()
       let firstPartLogged = false
       let text = ""
-      let steps = 0
       let toolCallCount = 0
-      // Each step and compaction summary is billed and counted as it
+      // Each step and compaction summary counts toward the spend limit as it
       // finishes, at the model that answered, so a stopped or timed-out turn
-      // keeps what it used.
+      // keeps what it used. The ledger is charged once per model at the end
+      // of the attempt (chargeTurn): one rounding per answer, as before
+      // per-step billing. A crashed attempt is not charged; its retry is.
       const recorded: PiTurnUsage = {
         inputTokens: 0,
         cachedInputTokens: 0,
         outputTokens: 0,
         reasoningTokens: 0,
       }
+      const byModel = new Map<string, PiTurnUsage>()
+      const addTo = (
+        total: PiTurnUsage,
+        usage: RunStepRecord,
+        reasoningTokens: number
+      ) => {
+        total.inputTokens += usage.inputTokens
+        total.cachedInputTokens += usage.cachedInputTokens
+        total.outputTokens += usage.outputTokens
+        total.reasoningTokens += reasoningTokens
+      }
+      const addToModel = (usage: RunStepRecord, reasoningTokens: number) => {
+        const total = byModel.get(usage.model) ?? {
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+        }
+        addTo(total, usage, reasoningTokens)
+        byModel.set(usage.model, total)
+      }
       let stepModel = LOR_MODEL
       // Set by the first finish-step of an assistant message, cleared when
       // the next message ends.
       let stepBilled = false
-      let stepStart = performance.now()
-      let stepToolCalls = 0
-      let compactions = 0
       const record = async (
         usage: RunStepRecord,
-        kind: "step" | "compaction"
+        kind: "step" | "compaction",
+        reasoningTokens: number
       ) => {
-        recorded.inputTokens += usage.inputTokens
-        recorded.cachedInputTokens += usage.cachedInputTokens
-        recorded.outputTokens += usage.outputTokens
+        addTo(recorded, usage, reasoningTokens)
+        addToModel(usage, reasoningTokens)
         const { creditsSpent } = await harness.recordUsage(usage, kind)
         if (creditsSpent >= budgets.credits) spendStop.abort()
         else if (creditsSpent >= budgets.credits * SPEND_ANSWER_SHARE) {
           nearSpendLimit = true
+        }
+      }
+      let charged = false
+      const chargeTurn = (extra: RunStepRecord | null) => {
+        if (charged) return
+        charged = true
+        if (extra) addToModel(extra, 0)
+        let first = true
+        for (const [model, usage] of byModel) {
+          if (usage.inputTokens === 0 && usage.outputTokens === 0) continue
+          onUsage?.({
+            workspaceId: ctx.workspaceId,
+            tool: "lor.respond",
+            model,
+            requestedModel: LOR_MODEL,
+            ...usage,
+            ...(first
+              ? {
+                  wallMs: Math.round(performance.now() - streamStart),
+                  toolCalls: toolCallCount,
+                }
+              : {}),
+            // A retried attempt that charged already is not charged again.
+            billingKey: `${run.runId}:turn:${model}`,
+          })
+          first = false
         }
       }
       const finishStep = async (usage: ReturnType<typeof usageTokens>) => {
@@ -3125,57 +3187,40 @@ export async function respond(
           cachedInputTokens: usage.cachedInputTokens ?? 0,
           outputTokens: usage.outputTokens ?? 0,
         }
-        recorded.reasoningTokens += usage.reasoningTokens ?? 0
         if (step.inputTokens === 0 && step.outputTokens === 0) return
-        onUsage?.({
-          workspaceId: ctx.workspaceId,
-          tool: "lor.respond",
-          ...step,
-          requestedModel: LOR_MODEL,
-          reasoningTokens: usage.reasoningTokens,
-          wallMs: Math.round(performance.now() - stepStart),
-          toolCalls: toolCallCount - stepToolCalls,
-          // One debit per step of the run: a retried attempt of the same run
-          // is not charged again for the steps it repeats.
-          billingKey: `${run.runId}:step-${steps}`,
-        })
-        steps++
-        stepStart = performance.now()
-        stepToolCalls = toolCallCount
-        await record(step, "step")
+        await record(step, "step", usage.reasoningTokens ?? 0)
       }
       // Ambient messages saved into the Pi log this turn: the next turn's
       // delta skips them. At the final boundary only steered messages are
-      // taken; ambient ones wait for that delta.
+      // taken; ambient ones wait for that delta. A run that only finishes a
+      // paused turn has no prompt, so its notes go in at the first boundary.
       const coveredAmbient: string[] = []
       const drain = run.drainConversation
-      const onBoundary = drain
-        ? async (final: boolean) => {
-            const update = await drain()
-            const ambient = final ? [] : update.ambient
-            coveredAmbient.push(...ambient.map((m) => m.messageId))
-            return conversationUpdateText({ steered: update.steered, ambient })
-          }
-        : undefined
+      let boundaryNotes = harness.continueOnly ? notes : []
+      const onBoundary = async (final: boolean) => {
+        const update = drain ? await drain() : { steered: [], ambient: [] }
+        const ambient = final ? [] : update.ambient
+        coveredAmbient.push(...ambient.map((m) => m.messageId))
+        const parts = [
+          ...boundaryNotes.map((note) => `[${note}]`),
+          conversationUpdateText({ steered: update.steered, ambient }),
+        ].filter((part): part is string => Boolean(part))
+        boundaryNotes = []
+        return parts.length > 0 ? parts.join("\n\n") : null
+      }
       const compaction: PiCompaction = {
         focus: COMPACTION_FOCUS,
         onUsage: async (usage, model) => {
-          const summary: RunStepRecord = {
-            model: billedModel(model),
-            inputTokens: usage.inputTokens,
-            cachedInputTokens: usage.cachedInputTokens,
-            outputTokens: usage.outputTokens,
-          }
-          onUsage?.({
-            workspaceId: ctx.workspaceId,
-            tool: "lor.respond",
-            ...summary,
-            requestedModel: LOR_MODEL,
-            reasoningTokens: usage.reasoningTokens,
-            billingKey: `${run.runId}:compaction-${compactions++}`,
-            metadata: { usage: "compaction" },
-          })
-          await record(summary, "compaction")
+          await record(
+            {
+              model: billedModel(model),
+              inputTokens: usage.inputTokens,
+              cachedInputTokens: usage.cachedInputTokens,
+              outputTokens: usage.outputTokens,
+            },
+            "compaction",
+            usage.reasoningTokens
+          )
         },
         afterContext: () =>
           planRef.current
@@ -3193,7 +3238,7 @@ export async function respond(
         ...(prompt ? { prompt } : {}),
         tools: guarded.tools,
         toolsContext,
-        toolApproval,
+        toolApproval: limitedToolApproval,
         inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
           (name) => !selectedBuiltinTools.has(name)
         ),
@@ -3302,22 +3347,31 @@ export async function respond(
             throw part.error
           }
         },
+      }).catch((err: unknown) => {
+        // A failed turn still charges the steps that finished.
+        chargeTurn(null)
+        throw err
       })
 
       const stoppedFor: RunStopCause | undefined =
         turn.pendingApprovals.length > 0
           ? "awaiting_approval"
-          : !turn.aborted
-            ? undefined
-            : run.stopRequested?.()
-              ? "stopped_by_user"
-              : spendStop.signal.aborted
-                ? "budget_spend"
-                : deadline.aborted
-                  ? "budget_wall_clock"
-                  : undefined
+          : harness.continueOnly && harness.pausedDropped?.reason === "stopped"
+            ? "stopped_by_user"
+            : !turn.aborted
+              ? undefined
+              : run.stopRequested?.()
+                ? "stopped_by_user"
+                : spendStop.signal.aborted
+                  ? "budget_spend"
+                  : deadline.aborted
+                    ? "budget_wall_clock"
+                    : undefined
       // Any other abort is a lost lease: another attempt owns the run.
-      if (turn.aborted && !stoppedFor) throw new Error("Lor run aborted")
+      if (turn.aborted && !stoppedFor) {
+        chargeTurn(null)
+        throw new Error("Lor run aborted")
+      }
 
       // One approval row per call the turn paused on.
       const approvals = turn.pendingApprovals.map(
@@ -3366,21 +3420,13 @@ export async function respond(
         }
       )
 
-      // Only a finished turn has a total; billed before the save, since the
-      // tokens are spent either way.
+      // Only a finished turn has a total. Charged before the save, since the
+      // tokens are spent either way: a retry that finds the turn saved
+      // delivers it without charging again.
       const extraUsage = turn.usage
         ? extraTurnUsage(turn.usage, recorded)
         : null
-      if (extraUsage) {
-        onUsage?.({
-          workspaceId: ctx.workspaceId,
-          tool: "lor.respond",
-          ...extraUsage,
-          requestedModel: LOR_MODEL,
-          billingKey: `${run.runId}:turn`,
-          metadata: { usage: "cache-warming" },
-        })
-      }
+      chargeTurn(extraUsage)
       await harness.saveTurn({
         save: turn.save,
         extraUsage,

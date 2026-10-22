@@ -1,4 +1,9 @@
-import { computeCredits, getRate } from "@repo/billing"
+import {
+  CREDIT_USD,
+  type CreditRate,
+  computeCostUsd,
+  getRate,
+} from "@repo/billing"
 import {
   and,
   asc,
@@ -36,6 +41,7 @@ import {
   userDisplayName,
 } from "@repo/lor"
 import { type HarnessOwner, SessionCoreError } from "@repo/lor/session-core"
+import { DelayedError, type Job } from "bullmq"
 import { writeHarnessState } from "@/lib/harness-state"
 import { logger } from "@/lib/logger"
 import { createRunEventWriter, type RunEventWriter } from "@/lib/run-events"
@@ -141,7 +147,29 @@ export type ClaimOutcome =
   | { kind: "legacy" }
   | { kind: "terminal" }
   | { kind: "exhausted" }
+  // Another attempt holds a live lease. After a crash BullMQ redelivers the
+  // job before the lease expires, so the job waits for it (delayJobUntil)
+  // instead of finishing with the run left working.
+  | { kind: "busy"; retryAt: Date }
   | { kind: "claimed"; execution: RunExecution }
+
+// Thrown from deep in a job that met a busy claim; the processor delays.
+export class RunBusyError extends Error {
+  constructor(readonly retryAt: Date) {
+    super("The run's lease is held by another attempt")
+    this.name = "RunBusyError"
+  }
+}
+
+// Puts the job back until `at` without using one of its attempts.
+export async function delayJobUntil(
+  job: Job,
+  token: string | undefined,
+  at: Date
+): Promise<never> {
+  await job.moveToDelayed(at.getTime() + 1_000, token)
+  throw new DelayedError()
+}
 
 function countersOf(row: {
   steps: number
@@ -332,8 +360,12 @@ export async function claimAgentRun(
         .catch(() => {})
       return { kind: "exhausted" }
     }
-    // A live lease elsewhere — that worker owns the answer.
-    return { kind: "terminal" }
+    // A live lease elsewhere: a running worker renews it until the run ends;
+    // a crashed one's lease expires and the waiting job takes over.
+    return {
+      kind: "busy",
+      retryAt: row.leaseExpiresAt ?? new Date(now.getTime() + LEASE_TTL_MS),
+    }
   }
 
   // queued → working changes the channel's sidebar aggregate (a takeover
@@ -398,10 +430,13 @@ export async function claimAgentRun(
       })
   }, HEARTBEAT_MS)
 
-  const rateCache = new Map<
-    string,
-    Awaited<ReturnType<typeof getRate>> | null
-  >()
+  // Spend toward the run's limit, summed exactly and rounded up once per
+  // attempt: per-call rounding (at least 1 credit each) would inflate a long
+  // turn several times over. Returns the whole credits to add now. A failed
+  // rate lookup is not cached, so the next call tries again.
+  const rateCache = new Map<string, CreditRate>()
+  let attemptCredits = 0
+  let attemptCounted = 0
   const creditsFor = async (u: {
     model?: string
     inputTokens?: number
@@ -410,12 +445,13 @@ export async function claimAgentRun(
   }): Promise<number> => {
     if (!u.model) return 0
     if ((u.inputTokens ?? 0) === 0 && (u.outputTokens ?? 0) === 0) return 0
-    if (!rateCache.has(u.model)) {
-      rateCache.set(u.model, await getRate(u.model).catch(() => null))
+    let rate = rateCache.get(u.model)
+    if (!rate) {
+      rate = (await getRate(u.model).catch(() => null)) ?? undefined
+      if (rate) rateCache.set(u.model, rate)
     }
-    const rate = rateCache.get(u.model)
     if (!rate) return 0
-    return computeCredits(
+    const usd = computeCostUsd(
       {
         inputTokens: u.inputTokens,
         cachedInputTokens: u.cachedInputTokens,
@@ -423,6 +459,11 @@ export async function claimAgentRun(
       },
       rate
     )
+    attemptCredits += (usd * rate.conversionRate) / CREDIT_USD
+    const whole = Math.ceil(attemptCredits)
+    const added = whole - attemptCounted
+    attemptCounted = whole
+    return added
   }
 
   const pendingNested: UsageEvent[] = []

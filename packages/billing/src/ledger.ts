@@ -29,6 +29,8 @@ export type UsageRefs = {
   messageId?: string | null
   channelId?: string | null
   userId?: string | null
+  // Scopes the debit key when there is no message (voice requests).
+  debitScope?: string
 }
 
 // Analytics buckets, not prices — debits come from token math.
@@ -65,7 +67,7 @@ export async function recordUsage(
     const credits = billable && rate ? computeCredits(tokens, rate) : 0
     const debitKey = usageDebitKey({
       billingKey: u.billingKey,
-      messageId: refs.messageId,
+      messageId: refs.messageId ?? refs.debitScope,
       tool: u.tool,
     })
     const selection = {
