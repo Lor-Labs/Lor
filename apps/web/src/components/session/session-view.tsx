@@ -1,9 +1,11 @@
 import {
   Archive02Icon,
+  GitBranchIcon,
   HashtagIcon,
   Link01Icon,
   MoreHorizontalIcon,
   PencilEdit02Icon,
+  SourceCodeIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
@@ -400,6 +402,30 @@ function SessionHeading({
             {channelName}
           </Link>
         ) : null}
+        {session.repoFullName && session.baseBranch && (
+          <>
+            <span aria-hidden="true">·</span>
+            <a
+              href={`https://github.com/${session.repoFullName}/tree/${session.baseBranch}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+            >
+              <HugeiconsIcon
+                icon={SourceCodeIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              {session.repoFullName}
+              <HugeiconsIcon
+                icon={GitBranchIcon}
+                className="ml-1 size-3.5"
+                strokeWidth={2}
+              />
+              {session.baseBranch}
+            </a>
+          </>
+        )}
         <span aria-hidden="true">·</span>
         <span className="inline-flex items-center gap-1.5">
           {starter && (

@@ -60,6 +60,8 @@ export const channelSessionSchema = z.object({
   title: z.string(),
   titleEdited: z.boolean(),
   loop: z.boolean(),
+  // Code sessions only.
+  repoFullName: z.string().nullable(),
   // Null for loop and trigger sessions.
   creator: z
     .object({

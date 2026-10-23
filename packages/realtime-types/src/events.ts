@@ -21,6 +21,7 @@ export type SidebarSession = {
   titleEdited: boolean
   state: SidebarSessionState
   loop: boolean
+  code: boolean
   lastActivityAt: string
 }
 

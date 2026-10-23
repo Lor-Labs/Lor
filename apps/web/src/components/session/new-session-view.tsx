@@ -21,6 +21,12 @@ import { useNavigate } from "@tanstack/react-router"
 import { type CSSProperties, useState } from "react"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
+import {
+  CodeTargetPicker,
+  SessionModeSwitch,
+  useCodeTarget,
+  useSessionMode,
+} from "@/components/session/code-target-picker"
 import { SessionStartedNote } from "@/components/session/session-started-note"
 import { useSocket } from "@/context/socket-context"
 import { useFileUpload } from "@/hooks/use-file-upload"
@@ -172,6 +178,12 @@ function NewSessionComposer({
     </>
   )
 
+  const [mode, setMode] = useSessionMode()
+  const code = useCodeTarget({
+    workspaceSlug,
+    channelId: channel.id,
+    enabled: mode === "code",
+  })
   const sessionStart = useSessionStart({ workspaceSlug, channel })
   const { handleSend } = useMessageSending({
     socket,
@@ -181,8 +193,40 @@ function NewSessionComposer({
     sessionStart: sessionStart.handlers,
   })
 
+  const channelDropdown = aboutMessageId ? (
+    <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 font-medium text-agent">
+      {channelLabel}
+    </span>
+  ) : (
+    <DropdownMenu>
+      <DropdownMenuTrigger className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 font-medium text-agent transition-colors hover:bg-agent/10 data-popup-open:bg-agent/10">
+        {channelLabel}
+        <HugeiconsIcon
+          icon={ArrowDown01Icon}
+          className="size-3"
+          strokeWidth={2}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-56">
+        <DropdownMenuRadioGroup
+          value={channel.id}
+          onValueChange={(value) => onPickChannel(String(value))}
+        >
+          {options.map((option) => (
+            <DropdownMenuRadioItem key={option.id} value={option.id}>
+              # {option.name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
   return (
     <>
+      <div className="mx-4 mb-2">
+        <SessionModeSwitch mode={mode} onChange={setMode} />
+      </div>
       {aboutMessageId && (
         <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] px-3 py-2 text-sm">
           <span className="shrink-0 text-muted-foreground">About</span>
@@ -237,42 +281,30 @@ function NewSessionComposer({
           />
         }
         channelPicker={
-          aboutMessageId ? (
-            <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 font-medium text-agent">
-              {channelLabel}
-            </span>
+          mode === "code" ? (
+            <>
+              {channelDropdown}
+              <CodeTargetPicker
+                workspaceSlug={workspaceSlug}
+                channelId={channel.id}
+                code={code}
+              />
+            </>
           ) : (
-            <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 font-medium text-agent transition-colors hover:bg-agent/10 data-popup-open:bg-agent/10">
-                {channelLabel}
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  className="size-3"
-                  strokeWidth={2}
-                />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="max-h-72 w-56">
-                <DropdownMenuRadioGroup
-                  value={channel.id}
-                  onValueChange={(value) => onPickChannel(String(value))}
-                >
-                  {options.map((option) => (
-                    <DropdownMenuRadioItem key={option.id} value={option.id}>
-                      # {option.name}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            channelDropdown
           )
         }
-        placeholder="Ask Lor…"
+        placeholder={
+          mode === "code" ? "Ask Lor to work on the code…" : "Ask Lor…"
+        }
+        sendBlocked={mode === "code" && !code.target}
         onSend={(content, options) =>
           handleSend(content, {
             mentions: [],
             ...options,
             startSession: true,
             contextMessageId: aboutMessageId,
+            ...(mode === "code" && code.target ? { code: code.target } : {}),
           })
         }
         currentUserId={authSession?.user.id}
@@ -284,7 +316,7 @@ function NewSessionComposer({
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
       />
-      {!aboutMessageId && (
+      {!aboutMessageId && mode === "chat" && (
         <SessionExamples
           examples={sessionExamples(channelName)}
           onPick={(text) => setComposerDraft({ id: crypto.randomUUID(), text })}

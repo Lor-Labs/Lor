@@ -2,6 +2,7 @@ import {
   Archive02Icon,
   ArrowDown01Icon,
   RepeatIcon,
+  SourceCodeIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { SidebarSession } from "@repo/realtime-types"
@@ -274,9 +275,9 @@ function SessionRow({
           active && "bg-foreground/[0.06] font-medium"
         )}
       >
-        {session.loop && (
+        {(session.loop || session.code) && (
           <HugeiconsIcon
-            icon={RepeatIcon}
+            icon={session.loop ? RepeatIcon : SourceCodeIcon}
             className="size-3.5 shrink-0 opacity-60"
             strokeWidth={2}
           />

@@ -191,6 +191,7 @@ export const listChannelSessions: AppRouteHandler<
       title: session.title,
       titleEditedAt: session.titleEditedAt,
       loopId: session.loopId,
+      repoFullName: session.repoFullName,
       archivedAt: session.archivedAt,
       lastActivityAt,
       creatorId: schema.user.id,
@@ -225,6 +226,7 @@ export const listChannelSessions: AppRouteHandler<
         title: row.title,
         titleEdited: row.titleEditedAt !== null,
         loop: row.loopId !== null,
+        repoFullName: row.repoFullName,
         creator:
           row.creatorId && row.creatorName
             ? {

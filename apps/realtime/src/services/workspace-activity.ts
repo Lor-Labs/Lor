@@ -112,6 +112,7 @@ export async function getWorkspaceActivity(
         title: schema.agentSession.title,
         titleEditedAt: schema.agentSession.titleEditedAt,
         loopId: schema.agentSession.loopId,
+        mode: schema.agentSession.mode,
         lastActivityAt,
         unread: sql<boolean>`(exists (select 1 from message m where m.thread_root_id = ${schema.agentSession.threadRootId} and m.author_id <> ${userId}::uuid and m.created_at > ${readCursor}) or exists (select 1 from agent_run r where r.thread_root_id = ${schema.agentSession.threadRootId} and r.updated_at > ${readCursor}))`,
       })
@@ -196,6 +197,7 @@ export async function getWorkspaceActivity(
       titleEdited: session.titleEditedAt !== null,
       state,
       loop: session.loopId !== null,
+      code: session.mode === "code",
       lastActivityAt: session.lastActivityAt.toISOString(),
     })
   }
