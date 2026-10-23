@@ -3,6 +3,7 @@ import { shellQuote } from "@ai-sdk/harness/utils"
 import { tool } from "ai"
 import { z } from "zod"
 import { isSafeBranch, REPO_FULL_NAME } from "./code-repo"
+import { shallowCloneCommand } from "./code-session"
 import { getInstallationToken, type InstallationRepo } from "./providers/github"
 
 const MAX_LISTED = 30
@@ -116,11 +117,7 @@ export const cloneRepoTool = {
       let note: string | undefined
       if (top.exitCode !== 0 || top.stdout.trim() !== dir) {
         const clone = await run(
-          [
-            `mkdir -p ${q(posix.dirname(dir))}`,
-            `git clone --quiet --depth 1 --single-branch ${target ? `--branch ${q(target)} ` : ""}${tokenUrl} ${q(dir)}`,
-            `git -C ${q(dir)} remote set-url origin ${q(`https://github.com/${fullName}.git`)}`,
-          ].join(" && "),
+          shallowCloneCommand({ dir, fullName, branch: target }),
           true
         )
         if (clone.exitCode !== 0) {

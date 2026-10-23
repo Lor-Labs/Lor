@@ -1,8 +1,8 @@
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index 092defda380f277002ccc446e6a0259286bd62b9..006400475a47d5acbd33564ff3113335422d484f 100644
+index 092defda380f277002ccc446e6a0259286bd62b9..75242773ede5e29b7bec9e8f28aac28240a51c25 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
-@@ -186,7 +186,44 @@ type PiHarnessSettings = {
+@@ -186,7 +186,49 @@ type PiHarnessSettings = {
     * is not restricted.
     */
    readonly fileToolPathPolicy?: PiFileToolPathPolicy;
@@ -15,11 +15,16 @@ index 092defda380f277002ccc446e6a0259286bd62b9..006400475a47d5acbd33564ff3113335
 +  readonly systemPrompt?: () => string;
 +  /**
 +   * Set `false` to skip AGENTS.md / CLAUDE.md discovery from the working
-+   * directory upward.
++   * directory upward. A list skips discovery and gives Pi these files
++   * instead, rendered in its project context section (for a host that reads
++   * them from the sandbox).
 +   *
 +   * @default true
 +   */
-+  readonly contextFiles?: boolean;
++  readonly contextFiles?: boolean | readonly {
++    readonly path: string;
++    readonly content: string;
++  }[];
 +  /**
 +   * Set `false` to load no skills (workspace or harness-provided).
 +   *
@@ -47,7 +52,7 @@ index 092defda380f277002ccc446e6a0259286bd62b9..006400475a47d5acbd33564ff3113335
  declare const PI_BUILTIN_TOOLS: {
    readonly read: HarnessV1BuiltinTool<{
      file_path: string;
-@@ -268,5 +305,5 @@ export declare const pi: import("@ai-sdk/harness").HarnessV1<{
+@@ -268,5 +310,5 @@ export declare const pi: import("@ai-sdk/harness").HarnessV1<{
    readonly ls: import("@ai-sdk/harness").HarnessV1BuiltinTool;
  }>;
  //#endregion
@@ -56,7 +61,7 @@ index 092defda380f277002ccc446e6a0259286bd62b9..006400475a47d5acbd33564ff3113335
  //# sourceMappingURL=index.d.ts.map
 \ No newline at end of file
 diff --git a/dist/index.js b/dist/index.js
-index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e9786f1420f 100644
+index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c73754d548ee 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -2401,7 +2401,7 @@ function resolveActivePiBuiltinNames(toolFiltering) {
@@ -76,16 +81,20 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  	const activeBuiltinNames = resolveActivePiBuiltinNames(input.builtinToolFiltering);
  	const activeNativeToCommon = Object.fromEntries(Object.entries(NATIVE_TO_COMMON).filter(([native]) => activeBuiltinNames.some((name) => name === native)));
  	const sandboxSkillRootDir = path.posix.join(sandboxHomeDir, ".agents", "skills");
-@@ -2556,6 +2557,8 @@ async function createPiSession(input) {
+@@ -2556,6 +2557,12 @@ async function createPiSession(input) {
  		agentDir: hostAgentDir,
  		settingsManager,
  		appendSystemPromptOverride: () => sessionInstructions ? [sessionInstructions] : [],
 +		...input.settings.systemPrompt ? { systemPromptOverride: () => input.settings.systemPrompt() } : {},
 +		...input.settings.contextFiles === false ? { noContextFiles: true } : {},
++		...Array.isArray(input.settings.contextFiles) ? {
++			noContextFiles: true,
++			agentsFilesOverride: () => ({ agentsFiles: input.settings.contextFiles.map((file) => ({ path: file.path, content: file.content })) })
++		} : {},
  		extensionFactories,
  		...hasExtensionFactories ? { extensionsOverride: (extensions) => {
  			if (preserveExtensionsResult && currentExtensionsResult != null) return currentExtensionsResult;
-@@ -2567,7 +2570,7 @@ async function createPiSession(input) {
+@@ -2567,7 +2574,7 @@ async function createPiSession(input) {
  		noPromptTemplates: true,
  		skillsOverride: (base) => ({
  			...base,
@@ -94,7 +103,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  		})
  	});
  	await resourceLoader.reload();
-@@ -2855,15 +2858,26 @@ async function createPiSession(input) {
+@@ -2855,15 +2862,26 @@ async function createPiSession(input) {
  		};
  	}
  	async function requestBuiltinToolApproval(args) {
@@ -125,7 +134,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  		currentEmit?.({
  			type: "tool-approval-request",
  			approvalId: args.toolCallId,
-@@ -2903,6 +2917,9 @@ async function createPiSession(input) {
+@@ -2903,6 +2921,9 @@ async function createPiSession(input) {
  	}
  	async function rebuildPiSession(userTools, isFirstBuild) {
  		let resourcesReloaded = false;
@@ -135,7 +144,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  		if (piSession) {
  			await disposePiSession({ reason: "reload" });
  			await new Promise((resolve) => setTimeout(resolve, 25));
-@@ -2913,7 +2930,7 @@ async function createPiSession(input) {
+@@ -2913,7 +2934,7 @@ async function createPiSession(input) {
  		}
  		const { customTools, builtinNames } = buildToolDefinitions(userTools);
  		const toolNames = customTools.map((t) => t.name);
@@ -144,7 +153,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  		const { session } = await createAgentSession({
  			cwd: sessionWorkDir,
  			agentDir: hostAgentDir,
-@@ -3326,7 +3343,8 @@ function asPiToolResult(text) {
+@@ -3326,7 +3347,8 @@ function asPiToolResult(text) {
  async function maybeDenyPiBuiltinTool(input) {
  	const decision = await input.requestApproval({
  		toolCallId: input.toolCallId,
@@ -154,7 +163,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  	});
  	if (decision.approved) return void 0;
  	return asPiToolResult(serializeToolOutput({
-@@ -3359,7 +3377,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3359,7 +3381,7 @@ function buildBuiltinToolDefinition(input) {
  					}))
  				}),
  				async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -163,7 +172,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  						toolCallId,
  						nativeName: "read",
  						requestApproval: input.requestApproval
-@@ -3383,7 +3401,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3383,7 +3405,7 @@ function buildBuiltinToolDefinition(input) {
  				content: Type.String()
  			}),
  			async execute(toolCallId, params) {
@@ -172,7 +181,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  					toolCallId,
  					nativeName: "write",
  					requestApproval: input.requestApproval
-@@ -3403,7 +3421,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3403,7 +3425,7 @@ function buildBuiltinToolDefinition(input) {
  				new_string: Type.String()
  			}),
  			async execute(toolCallId, params) {
@@ -181,7 +190,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  					toolCallId,
  					nativeName: "edit",
  					requestApproval: input.requestApproval
-@@ -3422,7 +3440,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3422,7 +3444,7 @@ function buildBuiltinToolDefinition(input) {
  				timeout: Type.Optional(Type.Number({ description: "Timeout in seconds." }))
  			}),
  			async execute(toolCallId, params, signal) {
@@ -190,7 +199,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  					toolCallId,
  					nativeName: "bash",
  					requestApproval: input.requestApproval
-@@ -3453,7 +3471,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3453,7 +3475,7 @@ function buildBuiltinToolDefinition(input) {
  				limit: Type.Optional(Type.Number())
  			}),
  			async execute(toolCallId, params) {
@@ -199,7 +208,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  					toolCallId,
  					nativeName: "grep",
  					requestApproval: input.requestApproval
-@@ -3472,7 +3490,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3472,7 +3494,7 @@ function buildBuiltinToolDefinition(input) {
  				limit: Type.Optional(Type.Number())
  			}),
  			async execute(toolCallId, params) {
@@ -208,7 +217,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  					toolCallId,
  					nativeName: "find",
  					requestApproval: input.requestApproval
-@@ -3490,7 +3508,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3490,7 +3512,7 @@ function buildBuiltinToolDefinition(input) {
  				limit: Type.Optional(Type.Number())
  			}),
  			async execute(toolCallId, params) {
@@ -217,7 +226,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e97
  					toolCallId,
  					nativeName: "ls",
  					requestApproval: input.requestApproval
-@@ -3654,6 +3672,10 @@ function createPi(settings = {}) {
+@@ -3654,6 +3676,10 @@ function createPi(settings = {}) {
  					...settings.providers ? { providers: settings.providers } : {},
  					...settings.extensionFactories ? { extensionFactories: settings.extensionFactories } : {},
  					...settings.fileToolPathPolicy ? { fileToolPathPolicy: settings.fileToolPathPolicy } : {},

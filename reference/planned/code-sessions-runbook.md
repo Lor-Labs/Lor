@@ -40,11 +40,24 @@ may lag web), a Lor-offered "Continue in Code" card.
 
 ## Stage 1 — code sessions on Pi
 
-- [ ] **1. Code mode.** Session mode, repo and base branch; the New session
+- [x] **1. Code mode.** Session mode, repo and base branch; the New session
   `Chat | Code` switch with a repo and branch picker; the repo cloned as the
   work folder root before the first turn; a code prompt section (edit and
   check freely, never commit or push, mention the person when ready); Pi's
-  repository-instructions loader.
+  repository-instructions loader. Built 2026-10-23:
+  - `agent_session.mode`, `repo_full_name`, `base_branch` (additive
+    `db:push`). Realtime checks the repo at start with
+    `channelCodeRepo` (`@repo/lor/code-repo`): the channel's tools include
+    `clone_repo` and the GitHub installation lists the repo.
+  - Repo picker: the GitHub scopes route. Branch picker:
+    `GET …/channels/{channelId}/code/branches` (GitHub GraphQL `refs(query:)`).
+  - Each turn, `prepareCodeWorkFolder` (`packages/lor/src/code-session.ts`)
+    shallow-clones the repo into the work folder when it is missing and
+    reads one instruction file in Pi's own order. A re-clone after earlier
+    turns tells the model and the session that changes are gone.
+  - The file reaches Pi through the patched adapter's `contextFiles` list
+    (Pi's `agentsFilesOverride`), so Pi renders it in its own project
+    context section. `clone_repo` is hidden in code sessions.
 - [ ] **2. Continue in Code.** From any session: a new code session in the
   same channel with the source session's conversation attached as its
   starting context.

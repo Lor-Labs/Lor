@@ -537,7 +537,11 @@ export function createLorRespondProcessor(
             if (!execution) throw new Error("A Lor turn needs a durable run")
             const session = threadRootId
               ? await db
-                  .select({ id: schema.agentSession.id })
+                  .select({
+                    id: schema.agentSession.id,
+                    repoFullName: schema.agentSession.repoFullName,
+                    baseBranch: schema.agentSession.baseBranch,
+                  })
                   .from(schema.agentSession)
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
                   .then((rows) => rows[0])
@@ -870,6 +874,14 @@ export function createLorRespondProcessor(
                 // files proposals.
                 ...(automated ? {} : { proposeLoop, proposeChange }),
                 ...(triggerRun ? { trigger: triggerRun.context } : {}),
+                ...(session.repoFullName && session.baseBranch
+                  ? {
+                      code: {
+                        repoFullName: session.repoFullName,
+                        baseBranch: session.baseBranch,
+                      },
+                    }
+                  : {}),
                 ...(loopRun && threadRootId
                   ? {
                       loop: loopRunContext(

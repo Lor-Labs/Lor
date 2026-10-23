@@ -516,6 +516,9 @@ export type PiTurnInput = {
   saved: SavedHarnessState | null
   sandbox: SandboxSession
   systemPrompt: string
+  // Repository instruction files, read from the sandbox by the host. Pi's
+  // own discovery reads the worker's disk, so it stays off.
+  contextFiles?: { path: string; content: string }[]
   // A paused turn in `saved` continues first, with one decision per pending
   // approval. Then `prompt`, when given, starts a new turn in the same session.
   decisions?: ToolApprovalResponse[]
@@ -626,7 +629,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         },
       },
       systemPrompt: () => input.systemPrompt,
-      contextFiles: false,
+      contextFiles: input.contextFiles ?? false,
       skills: false,
       fileToolPathPolicy: { deniedRoots: [sandboxStateRoot(home)] },
       ...(input.builtinToolApproval
