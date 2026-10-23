@@ -1,8 +1,8 @@
 # Pi foundation migration runbook — phase 1
 
 > Status: revised 2026-10-20 after a source review of the exact published
-> packages, the repository and vendor docs. **In progress: 1.1–1.5 built,
-> 1.6 next (see the record table in §9).** Implements phase 1 of
+> packages, the repository and vendor docs. **Phase 1 code-complete 2026-10-22; `db:push`, live QA and both evals owed
+> (see the record table in §9).** Implements phase 1 of
 > [Shared harness sessions](harness-sessions.md). Repository baseline: `dev`
 > at `7d663fdf`; branch: `pi-harness-sessions`.
 >
@@ -2015,8 +2015,20 @@ disappear when transient stream rows expire.
     nobody answers an ask in an eval (hard rules still apply). A turn that
     pauses on an approval ends the attempt with an error. Transcript stats
     add each turn's messages, since Pi returns only the turn's own.
-- [ ] Update as-built docs (`agent-harness.md`, `context-continuation.md`,
+- [x] Update as-built docs (`agent-harness.md`, `context-continuation.md`,
   `approval-policies.md`, `artifacts.md`) and tick phase-1 items individually.
+  - **1.6-2** (2026-10-22):
+    - `agent-harness.md` and `artifacts.md` are rewritten for the Pi path.
+    - `context-continuation.md` gets a status note and an "as built on the
+      Pi path" section; its replay and compaction steps stay as history.
+    - `approval-policies.md` gets "Run mechanics on the Pi path" and a log
+      entry.
+    - `github-connector.md` is updated for `clone_repo` and the deleted code
+      tools.
+    - `reference/README.md`, the CLAUDE.md harness paragraph and the
+      `harness-sessions.md` phase-1 checklist are updated.
+    - `AgentRunContext` lost `approvalResume` and `initialMessagesTokens`,
+      which nothing read.
 
 Exit: one engine. The Pi path keeps Lor's controls, per-turn native recovery and
 activity; workspace limits stay explicit until Git checkpoints ship.
@@ -2048,7 +2060,7 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5 built 2026-10-22 (no `db:push`; live QA owed); 1.6-1 legacy deletion built 2026-10-22; as-built docs left. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5 built 2026-10-22 (no `db:push`; live QA owed); 1.6 built 2026-10-22 (legacy deletion, destructive `db:push` owed; as-built docs updated). Phase 1 is code-complete; owed: `db:push`, Railway env removals, live QA, `eval:long` and the sandbox classifier eval. |
 | Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store; `@ai-sdk/harness` `HarnessAgent._toToolSpecs` should resolve AI SDK v7 dynamic tool descriptions as `streamText` does (`resolveToolDescription`), instead of passing the function through, which Pi then cannot clone (worked around in `runPiTurn`, 2026-10-21). |
 
 ## Sources

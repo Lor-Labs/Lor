@@ -201,8 +201,8 @@ for (const name of Object.keys(webTools)) {
     throw new Error(`Tool ${name} needs a STANDALONE_TOOLS entry`)
 }
 
-// Step cap for the background write-back pass only; the answer loop's
-// ceilings come from the run budgets (reference/agent-harness.md, budgets).
+// Step cap for the background write-back pass only; the answer turn's limits
+// are spend and wall clock (reference/agent-harness.md, Limits).
 const WRITEBACK_MAX_STEPS = 30
 const WRITEBACK_TIMEOUT_MS = 5 * 60_000
 // Transcript budget for the write-back pass (estimated tokens).

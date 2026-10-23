@@ -171,11 +171,9 @@ export const agentRun = pgTable(
     // See reference/automation-primitives.md §5.
     handoffNote: text("handoff_note"),
 
-    // Set when this run continued a predecessor's transcript instead of
-    // rebuilding context from the chat snapshot (reference/context-continuation.md).
-    // Recovery depends on this pointer plus predecessor-chain replay to rebuild
-    // the inherited prefix. Deletion still uses set null rather than cascading
-    // into the run that followed it.
+    // The run this one's delta continues from (reference/context-continuation.md);
+    // a delta walks back through runs that only finished a paused turn. Set
+    // null on delete rather than cascading into the run that followed it.
     continuedFromRunId: uuid("continued_from_run_id").references(
       (): AnyPgColumn => agentRun.id,
       { onDelete: "set null" }
@@ -371,17 +369,6 @@ export type AgentRunContextWorkspace = {
   website?: string
   description?: string
 }
-// Approval resume (LOR-81): a continuation started by resolving a policy gate
-// carries the tool-approval-response instead of a delta message. Replayed
-// verbatim so the parked tool call stays paired on every later replay —
-// without it the provider rejects the transcript (unpaired tool call).
-export type AgentRunApprovalResume = {
-  approvalId: string
-  approved: boolean
-  toolName: string
-  target: string
-  reason?: string
-}
 export type SandboxTurnContext = {
   request: string
   recentCalls?: { toolName: string; subject: string }[]
@@ -407,22 +394,17 @@ export type AgentRunContext = {
   // Cold-start context from onboarding; absent on older snapshots.
   workspace?: AgentRunContextWorkspace
   plan?: AgentRunContextPlan
-  // Continued runs only (agentRun.continuedFromRunId set): the exact rendered
-  // delta message appended after the inherited transcript. Stored rather than
-  // re-rendered because it embeds elapsed time ("about 3 hours since then"),
-  // which would drift on recovery and break the byte-stable replay.
+  // Runs after a session's first: the rendered delta sent as the turn's
+  // prompt. Stored rather than re-rendered because it embeds elapsed time
+  // ("about 3 hours since then"), so a retried attempt sends the same text.
   continuationDelta?: string
-  // Set instead of continuationDelta when this run resumed a parked approval.
-  approvalResume?: AgentRunApprovalResume
   // Serialized size of the tool schemas bound to this run. Tool definitions are
   // re-sent on every request but live nowhere else on the row, so the context
   // meter would otherwise fold them into the other segments invisibly. Which
   // tools are bound depends on the channel's connectors, hence per-run.
   toolSchemaBytes?: number
-  // Includes the inherited transcript on continuations, before the first checkpoint.
-  initialMessagesTokens?: number
-  // Message IDs injected at step boundaries and committed with the checkpoint
-  // that first exposed them to the model. Optional for pre-existing snapshots.
+  // Message IDs the turn took in (its prompt, and ambient messages saved into
+  // the Pi log at turn boundaries); the next delta skips them.
   coveredMessageIds?: string[]
   // The sandbox mode the turn runs under, frozen at its start so a retry or a
   // changed setting never runs a call under a looser mode.

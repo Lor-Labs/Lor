@@ -135,7 +135,8 @@ retain their supported native payloads. Code sessions are a mode of the same
 session (`Chat | Code` at the start, one repo each), not a separate channel
 type. Code workspace collaboration,
 fork/handoff/rewind, deferred Lor CLI local/cloud handoff, Yjs and the independent code index live in
-`reference/planned/code-channels.md`. These are design only, not built. The
+`reference/planned/code-channels.md`. Everything after phase 1, code sessions
+included, is design only, not built. The
 phase-1 implementation runbook is `reference/planned/pi-harness-runbook.md`.
 Runtime decided 2026-10-20: Vercel `HarnessAgent` + `@ai-sdk/harness-pi` (Pi
 Durable rejected for phase 1), Pi's native compactor and the adapter's remote
@@ -152,7 +153,10 @@ is deferred. The legacy
 import. Keep its
 internal session core separate from Lor policy/UI; SDK publication is deferred.
 It covers only the main Lor loop's Pi conversion and shared foundation;
-implementation has not started. Update its slices and gates as
+built 2026-10-22 (as built: `reference/agent-harness.md`), with `db:push`,
+live QA and both evals still owed. Lor reads code with `clone_repo` in its
+session sandbox; the coding child agent is deleted and Lor never commits or
+opens PRs itself. Update its slices and gates as
 they land. Official provider adapters, Git checkpoints and fork/rewind remain
 in later phases.
 
