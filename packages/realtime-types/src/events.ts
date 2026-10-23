@@ -176,6 +176,9 @@ export const sendMessagePayloadSchema = z
         branch: z.string().min(1).max(255),
       })
       .optional(),
+    // With startSession: "Continue in Code" from this session (same channel),
+    // whose recent messages become the new session's context.
+    continueFrom: z.string().uuid().optional(),
     // Ids the sender chose for the session this send starts (New session or
     // @Lor), so it can show the session before the ack. Ignored when the
     // send starts none.
@@ -262,6 +265,7 @@ export type RealtimeChannelEventType =
   | "loop_completed"
   | "loop_run"
   | "trigger_run"
+  | "session_continued"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -275,6 +279,7 @@ export type RealtimeChannelEventPayload =
       via?: "proposal"
     }
   | { triggerId: string; label: string }
+  | { sessionId: string; repoFullName: string | null }
   | null
 
 export type RealtimeAuthor = {
@@ -935,6 +940,7 @@ export type RealtimeAgentSession = {
   mode: RealtimeAgentSessionMode
   repoFullName: string | null
   baseBranch: string | null
+  sourceSessionId: string | null
   title: string
   titleEditedAt: string | null
   loopId: string | null

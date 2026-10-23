@@ -58,9 +58,18 @@ may lag web), a Lor-offered "Continue in Code" card.
   - The file reaches Pi through the patched adapter's `contextFiles` list
     (Pi's `agentsFilesOverride`), so Pi renders it in its own project
     context section. `clone_repo` is hidden in code sessions.
-- [ ] **2. Continue in Code.** From any session: a new code session in the
+- [x] **2. Continue in Code.** From any session: a new code session in the
   same channel with the source session's conversation attached as its
-  starting context.
+  starting context. Built 2026-10-23:
+  - The session menu opens New session with `?continueFrom=`, Code mode on
+    and the channel fixed. Realtime attaches the source's newest 50
+    messages as `agent_session_context` and sets
+    `agent_session.source_session_id` (additive `db:push`).
+  - The first turn labels them as the work being continued
+    (`AgentRunContext.continuesSession`), not channel background.
+  - A `session_continued` event row in the source session links to the new
+    session. Its content names the new session's anchor, so Lor there can
+    `read_thread` it. Only the starter follows the new session.
 - [ ] **3. Changes window** (web). File list against the base, stage and
   unstage, diff, a model-written commit message, Commit. Disabled while Lor
   works.

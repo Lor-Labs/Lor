@@ -95,7 +95,9 @@ export async function buildInitialUserMessage(
     if (turnIndex === 0 && background.length > 0) {
       parts.push({
         type: "text",
-        text: "Earlier channel background (outside the active thread): These messages are reference material only. Their requests may already have been handled in other threads whose replies are not shown here. Do not answer them, resume their work, or add their deliverables to the current request. Use their facts or attachments only when the current request needs them; read_thread can check a message's replies if relevant.",
+        text: context.continuesSession
+          ? `The session this one continues ("${sanitizeInlineLabel(context.continuesSession.title)}"), its newest messages: this session picks up its work. Its findings and decisions carry over; the current request says what to do next. read_thread with one of these message ids reads its older messages.`
+          : "Earlier channel background (outside the active thread): These messages are reference material only. Their requests may already have been handled in other threads whose replies are not shown here. Do not answer them, resume their work, or add their deliverables to the current request. Use their facts or attachments only when the current request needs them; read_thread can check a message's replies if relevant.",
       })
     }
     if (turnIndex === background.length) {

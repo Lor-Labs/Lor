@@ -185,10 +185,10 @@ export async function listRepoBranches(
         refs: { nodes: { name: string }[] } | null
       } | null
     }>(
-      `query ($owner: String!, $name: String!, $query: String, $first: Int!) {
+      `query ($owner: String!, $name: String!, $filter: String, $first: Int!) {
         repository(owner: $owner, name: $name) {
           defaultBranchRef { name }
-          refs(refPrefix: "refs/heads/", query: $query, first: $first, orderBy: { field: ALPHABETICAL, direction: ASC }) {
+          refs(refPrefix: "refs/heads/", query: $filter, first: $first, orderBy: { field: ALPHABETICAL, direction: ASC }) {
             nodes { name }
           }
         }
@@ -196,7 +196,8 @@ export async function listRepoBranches(
       {
         owner,
         name,
-        query: query.trim() || undefined,
+        // "query" is reserved by @octokit/graphql (it carries the document).
+        filter: query.trim() || undefined,
         first: BRANCH_PAGE_SIZE,
         request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
       }

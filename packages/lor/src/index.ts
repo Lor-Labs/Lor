@@ -525,6 +525,8 @@ export type RespondContext = {
   voice?: RunVoiceContext
   // Set on every run in a code session: its repo is the work folder.
   code?: RunCodeContext
+  // "Continue in Code": names the session whose messages are the background.
+  continuesSession?: { title: string }
   // Binds propose_loop (the worker owns the card posting + draft loop row
   // insert). Never set on the run that answers a loop fire or an Act event —
   // automations must not schedule more loops.
@@ -2333,6 +2335,7 @@ async function buildRunContext(ctx: RespondContext): Promise<AgentRunContext> {
     ...(ctx.backgroundConversation?.length
       ? { backgroundConversation: ctx.backgroundConversation }
       : {}),
+    ...(ctx.continuesSession ? { continuesSession: ctx.continuesSession } : {}),
     ...(ctx.threadRootId ? { threadRootId: ctx.threadRootId } : {}),
     ...(ctx.triggerMessageId ? { triggerMessageId: ctx.triggerMessageId } : {}),
     rosterText,

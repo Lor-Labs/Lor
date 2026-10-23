@@ -40,9 +40,13 @@ function writeStored(key: string, value: string) {
   } catch {}
 }
 
-export function useSessionMode(): [SessionMode, (mode: SessionMode) => void] {
-  const [mode, setMode] = useState<SessionMode>(() =>
-    readStored(MODE_KEY) === "code" ? "code" : "chat"
+// `start` opens on that mode (Continue in Code) without changing the saved
+// choice; switching still saves.
+export function useSessionMode(
+  start?: SessionMode
+): [SessionMode, (mode: SessionMode) => void] {
+  const [mode, setMode] = useState<SessionMode>(
+    () => start ?? (readStored(MODE_KEY) === "code" ? "code" : "chat")
   )
   const change = (next: SessionMode) => {
     setMode(next)

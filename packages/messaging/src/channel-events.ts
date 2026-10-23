@@ -31,6 +31,13 @@ export type ChannelEventContentInput =
     }
   | { eventType: "loop_completed"; actorName: string; loopName: string }
   | { eventType: "loop_run"; loopName: string }
+  | {
+      eventType: "session_continued"
+      actorName: string
+      repoFullName: string | null
+      // The new session's anchor: Lor reads it with read_thread.
+      threadRootId: string
+    }
 
 export function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ""
@@ -67,5 +74,7 @@ export function channelEventContent(input: ChannelEventContentInput): string {
       return `${input.actorName} completed the loop "${input.loopName}"`
     case "loop_run":
       return `The loop "${input.loopName}" ran on schedule`
+    case "session_continued":
+      return `${input.actorName} continued this session in a new code session${input.repoFullName ? ` on ${input.repoFullName}` : ""} (message ${input.threadRootId})`
   }
 }

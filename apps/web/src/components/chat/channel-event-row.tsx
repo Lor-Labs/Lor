@@ -39,6 +39,10 @@ type LoopPayload = {
   via?: "proposal"
 }
 type TriggerRunPayload = { triggerId: string; label: string }
+type SessionContinuedPayload = {
+  sessionId: string
+  repoFullName: string | null
+}
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -97,6 +101,27 @@ function LoopName({
 // A channel reference in event copy — 500ms hover previews the channel
 // (topic, private/archived state); click navigates to it. Shares the channel
 // page's ["channel", slug, id] query cache.
+// The code session a "Continue in Code" event points at.
+function SessionLink({
+  sessionId,
+  children,
+}: {
+  sessionId: string
+  children: ReactNode
+}) {
+  const { workspaceSlug } = useParams({ strict: false })
+  if (!workspaceSlug) return <Name>{children}</Name>
+  return (
+    <Link
+      to="/$workspaceSlug/session/$sessionId"
+      params={{ workspaceSlug, sessionId }}
+      className={HOVER_NAME_CLASS}
+    >
+      {children}
+    </Link>
+  )
+}
+
 function ChannelName({
   channelId,
   children,
@@ -410,6 +435,18 @@ function eventText(
             {p.loopName}
           </LoopName>{" "}
           ran on schedule
+        </>
+      )
+    }
+    case "session_continued": {
+      if (!payload) break
+      const p = payload as SessionContinuedPayload
+      return (
+        <>
+          {actor} continued this in{" "}
+          <SessionLink sessionId={p.sessionId}>
+            a code session{p.repoFullName ? ` on ${p.repoFullName}` : ""}
+          </SessionLink>
         </>
       )
     }

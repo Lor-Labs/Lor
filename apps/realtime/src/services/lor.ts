@@ -57,6 +57,32 @@ async function loadThreadContextIds(threadRootId: string) {
   return [threadRootId, ...replies.map((row) => row.id)]
 }
 
+// "Continue in Code": the source session's newest messages become the new
+// session's context, like `@Lor` in a human thread. Context must come from
+// the new session's own channel.
+async function continuedSession(sessionId: string, channelId: string) {
+  const source = await db
+    .select({
+      id: schema.agentSession.id,
+      channelId: schema.agentSession.channelId,
+      threadRootId: schema.agentSession.threadRootId,
+    })
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.id, sessionId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!source || source.channelId !== channelId) {
+    throw new Error("That session can't be continued here")
+  }
+  const replies = await db
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(eq(schema.message.threadRootId, source.threadRootId))
+    .orderBy(desc(schema.message.createdAt))
+    .limit(THREAD_CONTEXT_LIMIT)
+  return { ...source, contextMessageIds: replies.map((row) => row.id) }
+}
+
 // The picker only offers allowed repos, so a refusal here means the channel's
 // tools or the GitHub connection changed since it loaded.
 async function codeSessionStart(
@@ -104,15 +130,25 @@ export async function sessionStartFor(args: {
           payload.code
         )
       : undefined
+    const source = payload.continueFrom
+      ? await continuedSession(payload.continueFrom, payload.channelId)
+      : null
     return {
       ...ids,
       origin: "new",
       ...(code ? { code } : {}),
+      ...(source
+        ? {
+            sourceSessionId: source.id,
+            sourceThreadRootId: source.threadRootId,
+          }
+        : {}),
       title: sessionTitleFromPrompt(payload.content ?? ""),
       // "Ask Lor about this": the quoted message is the only context.
-      contextMessageIds: payload.referencedMessageId
-        ? [payload.referencedMessageId]
-        : [],
+      contextMessageIds: [
+        ...(source?.contextMessageIds ?? []),
+        ...(payload.referencedMessageId ? [payload.referencedMessageId] : []),
+      ],
       subscriberIds,
     }
   }

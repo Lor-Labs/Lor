@@ -72,6 +72,8 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   // The connector event that started an Act session. Content is the event
   // payload Lor reads; clients show the label.
   "trigger_run",
+  // In a session: someone continued it in a new code session.
+  "session_continued",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Lor
@@ -292,6 +294,12 @@ export type TriggerRunPayload = {
   label: string
 }
 
+export type SessionContinuedPayload = {
+  // The new code session.
+  sessionId: string
+  repoFullName: string | null
+}
+
 export type ChannelEventPayload =
   | ChannelCreatedPayload
   | ChannelRenamedPayload
@@ -299,6 +307,7 @@ export type ChannelEventPayload =
   | MemberRemovedPayload
   | LoopEventPayload
   | TriggerRunPayload
+  | SessionContinuedPayload
   | null
 
 // Type definitions for the JSONB fields

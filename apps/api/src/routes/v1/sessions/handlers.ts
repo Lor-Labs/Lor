@@ -80,6 +80,18 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
     )
     .where(eq(schema.agentSessionContext.sessionId, sessionId))
     .orderBy(asc(schema.message.createdAt))
+  const sourceId = row.session.sourceSessionId
+  const source = sourceId
+    ? await db
+        .select({
+          id: schema.agentSession.id,
+          title: schema.agentSession.title,
+        })
+        .from(schema.agentSession)
+        .where(eq(schema.agentSession.id, sourceId))
+        .limit(1)
+        .then((rows) => rows[0] ?? null)
+    : null
 
   return c.json(
     {
@@ -89,6 +101,7 @@ export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
         id: message.id,
         createdAt: message.createdAt.toISOString(),
       })),
+      source,
     },
     HttpStatusCodes.OK
   )

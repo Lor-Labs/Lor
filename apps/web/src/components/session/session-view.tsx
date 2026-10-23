@@ -106,7 +106,7 @@ export function SessionView({
 
 function SessionConversation({
   workspaceSlug,
-  detail: { session, channel },
+  detail: { session, channel, source },
   targetMessageId,
 }: {
   workspaceSlug: string
@@ -210,6 +210,7 @@ function SessionConversation({
         <SessionHeading
           session={session}
           channelName={channel.name ?? "channel"}
+          source={source}
           startedBy={startedBy}
           starter={starter}
           renaming={renaming}
@@ -262,6 +263,7 @@ function SessionStrip({
   onArchive: () => void
 }) {
   const { workspaceSlug, channelId } = workView
+  const navigate = useNavigate()
   const archived = session.archivedAt !== null
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const [confirmArchive, setConfirmArchive] = useState(false)
@@ -318,6 +320,21 @@ function SessionStrip({
                 Rename
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem
+              onClick={() =>
+                void navigate({
+                  to: "/$workspaceSlug/session/new",
+                  params: { workspaceSlug },
+                  search: {
+                    channelId: session.channelId,
+                    continueFrom: session.id,
+                  },
+                })
+              }
+            >
+              <HugeiconsIcon icon={SourceCodeIcon} strokeWidth={2} />
+              Continue in Code
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={copyLink}>
               <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
               Copy link
@@ -357,6 +374,7 @@ function SessionStrip({
 function SessionHeading({
   session,
   channelName,
+  source,
   startedBy,
   starter,
   renaming,
@@ -365,6 +383,8 @@ function SessionHeading({
 }: {
   session: RealtimeAgentSession
   channelName: string
+  // "Continue in Code": the session this one continues.
+  source: { id: string; title: string } | null
   startedBy: string
   // The person who started it; null for loops and automations.
   starter: {
@@ -402,6 +422,21 @@ function SessionHeading({
             {channelName}
           </Link>
         ) : null}
+        {source && workspaceSlug && (
+          <>
+            <span aria-hidden="true">·</span>
+            <Link
+              to="/$workspaceSlug/session/$sessionId"
+              params={{ workspaceSlug, sessionId: source.id }}
+              className="inline-flex min-w-0 items-center gap-1 transition-colors hover:text-foreground"
+            >
+              Continued from
+              <span className="max-w-64 truncate font-medium">
+                {source.title}
+              </span>
+            </Link>
+          </>
+        )}
         {session.repoFullName && session.baseBranch && (
           <>
             <span aria-hidden="true">·</span>

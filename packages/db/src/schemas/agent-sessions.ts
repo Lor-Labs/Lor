@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm"
 import {
+  type AnyPgColumn,
   index,
   pgEnum,
   pgTable,
@@ -62,6 +63,12 @@ export const agentSession = pgTable(
     // and the branch it starts from. Null in chat sessions.
     repoFullName: text("repo_full_name"),
     baseBranch: text("base_branch"),
+    // "Continue in Code": the session this one continues, whose messages are
+    // its starting context.
+    sourceSessionId: uuid("source_session_id").references(
+      (): AnyPgColumn => agentSession.id,
+      { onDelete: "set null" }
+    ),
     title: text("title").notNull(),
     // Set when a person renames the session; generated titles stop then.
     titleEditedAt: timestamp("title_edited_at"),

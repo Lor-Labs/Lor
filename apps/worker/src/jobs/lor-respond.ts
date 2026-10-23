@@ -541,6 +541,7 @@ export function createLorRespondProcessor(
                     id: schema.agentSession.id,
                     repoFullName: schema.agentSession.repoFullName,
                     baseBranch: schema.agentSession.baseBranch,
+                    sourceSessionId: schema.agentSession.sourceSessionId,
                   })
                   .from(schema.agentSession)
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
@@ -558,6 +559,16 @@ export function createLorRespondProcessor(
               execution.resume && harnessState?.lastRunId === execution.runId
                 ? await savedTurnText(execution.runId)
                 : null
+            // "Continue in Code": the first turn's background is the source
+            // session's messages, labeled as the work being continued.
+            const continuesSession =
+              session.sourceSessionId && !harnessState
+                ? await db
+                    .select({ title: schema.agentSession.title })
+                    .from(schema.agentSession)
+                    .where(eq(schema.agentSession.id, session.sourceSessionId))
+                    .then((rows) => rows[0])
+                : undefined
             // Another adapter version saved the paused turn: it is dropped.
             const upgraded = harnessState
               ? pausedTurnExpired(harnessState)
@@ -874,6 +885,7 @@ export function createLorRespondProcessor(
                 // files proposals.
                 ...(automated ? {} : { proposeLoop, proposeChange }),
                 ...(triggerRun ? { trigger: triggerRun.context } : {}),
+                ...(continuesSession ? { continuesSession } : {}),
                 ...(session.repoFullName && session.baseBranch
                   ? {
                       code: {

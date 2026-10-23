@@ -21,6 +21,7 @@ export const agentSessionSchema = z
     mode: z.enum(agentSessionModeEnum.enumValues),
     repoFullName: z.string().nullable(),
     baseBranch: z.string().nullable(),
+    sourceSessionId: z.string().uuid().nullable(),
     title: z.string(),
     titleEditedAt: z.string().nullable(),
     loopId: z.string().uuid().nullable(),
@@ -98,6 +99,8 @@ export const getAgentSessionResponseSchema = z.object({
   session: agentSessionSchema,
   channel: z.object({ id: z.string().uuid(), name: z.string().nullable() }),
   context: z.array(sessionContextMessageSchema),
+  // "Continue in Code": the session this one continues. Same channel.
+  source: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
 })
 
 export const sessionFilesResponseSchema = z.object({
