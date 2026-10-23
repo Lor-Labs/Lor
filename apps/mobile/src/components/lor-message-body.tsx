@@ -19,19 +19,12 @@ export function LorMessageBody({
   streaming: boolean
   onCitationJump?: (messageId: string) => void
 }) {
-  const { segments, childrenByParent, deliverables } = useMemo(() => {
+  const { segments, deliverables } = useMemo(() => {
     const toolCalls = message.lorToolCalls ?? []
-    const children = new Map<string, LorToolCall[]>()
-    // Deliverables from any top-level tool call (mirrors web) — presented at
-    // the end of the message, deduped by artifact (the latest version wins).
+    // Deliverables from any tool call (mirrors web) — presented at the end of
+    // the message, deduped by artifact (the latest version wins).
     const files = new Map<string, NonNullable<LorToolCall["files"]>[number]>()
     for (const toolCall of toolCalls) {
-      if (toolCall.parentToolCallId) {
-        const existing = children.get(toolCall.parentToolCallId) ?? []
-        existing.push(toolCall)
-        children.set(toolCall.parentToolCallId, existing)
-        continue
-      }
       for (const file of toolCall.files ?? []) {
         files.set(file.artifactId, file)
       }
@@ -39,10 +32,9 @@ export function LorMessageBody({
     return {
       segments: buildLorSegments(
         message.content ?? "",
-        toolCalls.filter((toolCall) => !toolCall.parentToolCallId),
+        toolCalls,
         message.lorReasoningSegments ?? []
       ),
-      childrenByParent: children,
       deliverables: [...files.values()],
     }
   }, [message])
@@ -69,9 +61,7 @@ export function LorMessageBody({
         index !== answerIndex &&
         (segment.kind !== "text" || segment.text.trim())
     )
-  const topLevelTools = (message.lorToolCalls ?? []).filter(
-    (toolCall) => !toolCall.parentToolCallId
-  )
+  const toolCalls = message.lorToolCalls ?? []
 
   const renderSegment = ({
     segment,
@@ -104,7 +94,6 @@ export function LorMessageBody({
     }
     return (
       <LorToolTrail
-        childrenByParent={childrenByParent}
         key={segment.key}
         streaming={streaming && isLast}
         toolCalls={segment.tools}
@@ -118,11 +107,10 @@ export function LorMessageBody({
         <LorActivity
           active={streaming}
           errorCount={
-            topLevelTools.filter((toolCall) => toolCall.status === "error")
-              .length
+            toolCalls.filter((toolCall) => toolCall.status === "error").length
           }
           failed={failed}
-          toolCount={topLevelTools.length}
+          toolCount={toolCalls.length}
         >
           {activitySegments.map(renderSegment)}
         </LorActivity>

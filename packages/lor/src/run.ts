@@ -14,14 +14,7 @@ export type { ModelMessage } from "ai"
 // worker owns Postgres and billing; respond() runs one Pi turn and saves it
 // through the harness binding (reference/planned/pi-harness-runbook.md).
 
-export type BudgetStopReason =
-  | "budget_steps"
-  | "budget_input_tokens"
-  | "budget_output_tokens"
-  | "budget_tool_calls"
-  | "budget_tool_output"
-  | "budget_wall_clock"
-  | "budget_spend"
+export type BudgetStopReason = "budget_wall_clock" | "budget_spend"
 
 // Why the answer loop ended early: a budget ceiling, an explicit user stop, or
 // a turn paused on approvals — the last decision starts the continuation run.
@@ -57,12 +50,6 @@ export function conversationUpdateMessageIds(
 }
 
 export type RunBudgets = {
-  steps: number
-  inputTokens: number
-  // Total output tokens (the SDK's outputTokens includes reasoning).
-  outputTokens: number
-  toolCalls: number
-  toolOutputBytes: number
   credits: number
   deadlineAt: Date
 }
@@ -234,48 +221,14 @@ export const ZERO_RUN_COUNTERS: RunCounters = {
   creditsSpent: 0,
 }
 
-// Budgets for a respond() call with no durable run behind it (legacy jobs,
-// evals): same env ceilings, wall clock anchored at call time. Credits never
-// accumulate without the worker's rate math, so that ceiling is inert here.
+// Budgets for a respond() call with no durable run behind it (evals): the
+// env limits, wall clock anchored at call time. Credits never accumulate
+// without the worker's rate math, so that limit is inert here.
 export function defaultRunBudgets(): RunBudgets {
   return {
-    steps: env.AGENT_RUN_MAX_STEPS,
-    inputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-    outputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-    toolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-    toolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
     credits: env.AGENT_RUN_MAX_CREDITS,
     deadlineAt: new Date(Date.now() + env.AGENT_RUN_MAX_WALL_MS),
   }
-}
-
-// First ceiling the counters have hit, if any.
-export function budgetViolation(
-  counters: RunCounters,
-  budgets: RunBudgets
-): BudgetStopReason | null {
-  if (counters.steps >= budgets.steps) return "budget_steps"
-  // Cache reads bill at a fraction of fresh input and re-send the same bytes
-  // every step, so they count at 1/10 — otherwise long tool loops exhaust the
-  // rail on cheap cached re-sends while credits sit far below their ceiling.
-  const weightedInputTokens =
-    counters.inputTokens - Math.floor(counters.cachedInputTokens * 0.9)
-  if (weightedInputTokens >= budgets.inputTokens) return "budget_input_tokens"
-  if (counters.outputTokens >= budgets.outputTokens) {
-    return "budget_output_tokens"
-  }
-  if (counters.toolCalls >= budgets.toolCalls) return "budget_tool_calls"
-  if (counters.toolOutputBytes >= budgets.toolOutputBytes) {
-    return "budget_tool_output"
-  }
-  if (counters.creditsSpent >= budgets.credits) return "budget_spend"
-  if (
-    Date.now() >=
-    budgets.deadlineAt.getTime() - WALL_CLOCK_ANSWER_MARGIN_MS
-  ) {
-    return "budget_wall_clock"
-  }
-  return null
 }
 
 // Reserved tail of the wall budget: once inside it, tools are disabled so the

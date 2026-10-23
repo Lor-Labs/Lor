@@ -151,8 +151,8 @@ function splitLabel(toolCall: LorToolCall) {
   }
 }
 
-// A sub-step that wrote one of the files the run delivered (paths are
-// relative to the sandbox's output folder).
+// A sandbox call that wrote one of the files the turn shared (shared paths
+// are relative to the work folder).
 function deliveredFile(path: string | null, delivered: DeliveredFile[]) {
   if (!path) return undefined
   return delivered.find(
@@ -184,10 +184,10 @@ function DiffCounts({ diff }: { diff: FileDiff }) {
   )
 }
 
-// One step inside a sandbox run, flat: verb, target (or a chip for a file
-// the run delivered, which opens it), diff counts. Tapping the row opens its
-// diff or output. Mirrors web's SubStepRow.
-function SubStepRow({
+// One sandbox call, flat: verb, target (or a chip for a file the turn
+// shared, which opens it), diff counts. Tapping the row opens its diff or
+// output. Mirrors web's SandboxRow.
+function SandboxRow({
   toolCall,
   delivered,
 }: {
@@ -299,11 +299,9 @@ function SubStepRow({
 
 export function LorToolTrail({
   toolCalls,
-  childrenByParent,
   streaming = false,
 }: {
   toolCalls: LorToolCall[]
-  childrenByParent?: Map<string, LorToolCall[]>
   streaming?: boolean
 }) {
   const [muted, foreground, accent] = useThemeColor([
@@ -354,7 +352,7 @@ export function LorToolTrail({
             // Lor's own sandbox work reads as flat rows (mirrors web).
             if (SANDBOX_TOOLS.has(toolCall.toolName)) {
               return (
-                <SubStepRow
+                <SandboxRow
                   delivered={shared}
                   key={toolCall.toolCallId}
                   toolCall={toolCall}
@@ -362,51 +360,38 @@ export function LorToolTrail({
               )
             }
             const drillable = hasDetail(toolCall)
-            const children = childrenByParent?.get(toolCall.toolCallId) ?? []
             return (
-              <View className="gap-one" key={toolCall.toolCallId}>
-                <Pressable
-                  accessibilityHint={
-                    drillable ? "Opens the tool result drawer" : undefined
-                  }
-                  accessibilityLabel={toolCall.label}
-                  accessibilityRole={drillable ? "button" : undefined}
-                  className="min-h-8 flex-row items-center gap-two py-one"
-                  disabled={!drillable}
-                  onPress={() => setSelectedToolId(toolCall.toolCallId)}
+              <Pressable
+                accessibilityHint={
+                  drillable ? "Opens the tool result drawer" : undefined
+                }
+                accessibilityLabel={toolCall.label}
+                accessibilityRole={drillable ? "button" : undefined}
+                className="min-h-8 flex-row items-center gap-two py-one"
+                disabled={!drillable}
+                key={toolCall.toolCallId}
+                onPress={() => setSelectedToolId(toolCall.toolCallId)}
+              >
+                <ToolGlyph color={muted} toolName={toolCall.toolName} />
+                <Text
+                  className="min-w-0 flex-1 text-xs text-muted"
+                  numberOfLines={1}
                 >
-                  <ToolGlyph color={muted} toolName={toolCall.toolName} />
-                  <Text
-                    className="min-w-0 flex-1 text-xs text-muted"
-                    numberOfLines={1}
-                  >
-                    {toolCall.label}
+                  {toolCall.label}
+                </Text>
+                {toolCall.status === "error" ? (
+                  <Text className="text-xs font-semibold text-danger">
+                    failed
                   </Text>
-                  {toolCall.status === "error" ? (
-                    <Text className="text-xs font-semibold text-danger">
-                      failed
-                    </Text>
-                  ) : null}
-                  {drillable ? (
-                    <HugeiconsIcon
-                      color={muted}
-                      icon={ArrowRight01Icon}
-                      size={13}
-                    />
-                  ) : null}
-                </Pressable>
-                {children.length > 0 ? (
-                  <View className="ml-five gap-one border-l border-border pl-three">
-                    {children.map((child) => (
-                      <SubStepRow
-                        delivered={toolCall.files ?? []}
-                        key={child.toolCallId}
-                        toolCall={child}
-                      />
-                    ))}
-                  </View>
                 ) : null}
-              </View>
+                {drillable ? (
+                  <HugeiconsIcon
+                    color={muted}
+                    icon={ArrowRight01Icon}
+                    size={13}
+                  />
+                ) : null}
+              </Pressable>
             )
           })}
         </View>

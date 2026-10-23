@@ -696,11 +696,6 @@ export async function claimAgentRun(
   const handle: RunHandle = {
     runId,
     budgets: {
-      steps: claimed.budgetSteps,
-      inputTokens: claimed.budgetInputTokens,
-      outputTokens: claimed.budgetOutputTokens,
-      toolCalls: claimed.budgetToolCalls,
-      toolOutputBytes: claimed.budgetToolOutputBytes,
       credits: claimed.budgetCredits,
       deadlineAt:
         claimed.deadlineAt ?? new Date(now.getTime() + claimed.budgetWallMs),

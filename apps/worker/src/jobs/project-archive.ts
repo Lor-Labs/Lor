@@ -78,11 +78,7 @@ export function createProjectArchiveProcessor(
       const next: LorToolCall = {
         ...base,
         ...toolCall,
-        ...(existing?.order !== undefined
-          ? { order: existing.order }
-          : !toolCall.parentToolCallId
-            ? { order: eventOrder++ }
-            : {}),
+        order: existing?.order ?? eventOrder++,
       }
       if (idx >= 0) toolCalls[idx] = next
       else toolCalls.push(next)

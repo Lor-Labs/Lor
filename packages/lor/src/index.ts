@@ -87,7 +87,6 @@ import {
 } from "./citations"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { cloneRepoTool } from "./code"
-import { fitMessagesToBudget } from "./compaction"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage } from "./embeddings"
@@ -193,6 +192,7 @@ import {
 import type { OnUsage } from "./usage"
 import { type RunVoiceContext, voicePromptSection, voiceTools } from "./voice"
 import { webTools } from "./web"
+import { fitTurnForWriteBack } from "./writeback-input"
 
 // Standalone tools are not filtered like connector tools, so one missing from
 // STANDALONE_TOOLS would bind with no approval target. Fail at boot instead.
@@ -555,7 +555,6 @@ export type RespondCallbacks = {
   notifyWorkspaceActivity?: (workspaceId: string) => void
 }
 
-export { estimateMessagesTokens, isSafeSplit } from "./compaction"
 export { embedDocumentsWithUsage } from "./embeddings"
 export { buildInitialUserMessage } from "./initial-message"
 export type { InstructionsProposalEvent } from "./instructions"
@@ -2933,11 +2932,7 @@ export async function respond(
       privateContainerChannelId: runScope.privateContainerChannelId,
       threadRootId: ctx.threadRootId ?? null,
     })
-    const guarded = guardTools(hinted, {
-      priorBytes: counters.toolOutputBytes,
-      totalBudgetBytes: budgets.toolOutputBytes,
-      store: run.toolResults,
-    })
+    const guarded = guardTools(hinted, { store: run.toolResults })
 
     logger.info(
       { ms: Math.round(performance.now() - respondStart) },
@@ -3469,9 +3464,9 @@ export async function writeBack(
     reasoning: "high",
     instructions: `${buildSystemPrompt([])}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}`,
     messages: [
-      // Long sessions replay their whole transcript; bound what write-back
-      // re-reads. Under the budget this is the transcript unchanged.
-      ...fitMessagesToBudget(ctx.priorMessages, WRITEBACK_INPUT_TOKENS),
+      // The turn's prompt and Lor's messages; a turn over the budget is
+      // re-read as a shortened transcript.
+      ...fitTurnForWriteBack(ctx.priorMessages, WRITEBACK_INPUT_TOKENS),
       { role: "user", content: WRITEBACK_INSTRUCTION },
     ],
     tools: {

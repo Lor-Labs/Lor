@@ -29,6 +29,7 @@ import type { OnUsage } from "./usage"
 import { webTools } from "./web"
 
 const SYNTHESIS_TIMEOUT_MS = 15 * 60_000
+const SYNTHESIS_MAX_STEPS = 500
 const MESSAGES_PER_CHANNEL = 400
 const MESSAGE_CHAR_MAX = 1500
 const TRANSCRIPT_CHAR_MAX = 150_000
@@ -360,7 +361,7 @@ export async function synthesizeProjectArchive(
       tools,
       toolsContext,
       maxRetries: env.AGENT_RUN_MAX_PROVIDER_RETRIES,
-      stopWhen: isStepCount(env.AGENT_RUN_MAX_STEPS),
+      stopWhen: isStepCount(SYNTHESIS_MAX_STEPS),
       timeout: { totalMs: SYNTHESIS_TIMEOUT_MS },
       providerOptions: { gateway: mainGatewayOptions },
     })

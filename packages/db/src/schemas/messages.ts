@@ -353,9 +353,6 @@ export type LorToolCall = {
   toolName: string
   // Human status line, e.g. "Searching connected sources for …".
   label: string
-  // Set on a nested sub-step → the toolCallId of the parent tool. Nothing
-  // sets it since the coding child agent was deleted; old rows keep it.
-  parentToolCallId?: string
   // Character offset into the message `content` where this call occurred, so the
   // UI can render text and tool groups in the order the model produced them.
   at?: number

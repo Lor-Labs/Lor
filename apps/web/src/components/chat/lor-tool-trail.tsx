@@ -4,7 +4,6 @@ import {
   ComputerTerminal01Icon,
   Download01Icon,
   LinkSquare02Icon,
-  Message01Icon,
   PencilEdit02Icon,
   Search01Icon,
   Wrench01Icon,
@@ -137,36 +136,6 @@ function hasDetail(t: LorToolCallView): boolean {
   return Boolean(t.detail?.summary || (t.detail?.items?.length ?? 0) > 0)
 }
 
-const SummaryGlyph = glyph(Message01Icon)
-
-// The sandbox agent's narration, presented as a final sub-step: expand for
-// the raw markdown — the polished version of this text is the answer itself.
-function SummaryRow({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="flex flex-col gap-1">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex cursor-pointer items-center gap-1.5 text-left text-muted-foreground text-xs hover:text-foreground"
-      >
-        <SummaryGlyph className="size-3 shrink-0" />
-        <span className="truncate">Summary</span>
-        <HugeiconsIcon
-          icon={ArrowRight01Icon}
-          className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
-          strokeWidth={2}
-        />
-      </button>
-      {open && (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/50 bg-muted/30 p-2 font-mono text-[11px] text-muted-foreground/80 leading-4">
-          {text}
-        </pre>
-      )}
-    </div>
-  )
-}
-
 function diffLineClass(line: string): string {
   if (
     line.startsWith("+++") ||
@@ -217,8 +186,8 @@ function splitLabel(toolCall: LorToolCallView) {
   }
 }
 
-// A sub-step that wrote one of the files the run delivered (paths are
-// relative to the sandbox's output folder).
+// A sandbox call that wrote one of the files the turn shared (shared paths
+// are relative to the work folder).
 function deliveredFile(path: string | null, delivered: DeliveredFile[]) {
   if (!path) return undefined
   return delivered.find(
@@ -226,10 +195,10 @@ function deliveredFile(path: string | null, delivered: DeliveredFile[]) {
   )
 }
 
-// One step inside a sandbox run, flat: verb, target (or a chip for a file
-// the run delivered, which opens it), diff counts. The whole row opens its
-// diff or output once.
-function SubStepRow({
+// One sandbox call, flat: verb, target (or a chip for a file the turn
+// shared, which opens it), diff counts. The whole row opens its diff or
+// output once.
+function SandboxRow({
   toolCall,
   delivered,
 }: {
@@ -340,12 +309,10 @@ function stepStatus(
 
 export function LorToolTrail({
   toolCalls,
-  childrenByParent,
   streaming,
   embedded = false,
 }: {
   toolCalls: LorToolCallView[]
-  childrenByParent?: Map<string, LorToolCallView[]>
   streaming?: boolean
   embedded?: boolean
 }) {
@@ -366,34 +333,31 @@ export function LorToolTrail({
       {!embedded && <ChainOfThoughtTrigger>{summary}</ChainOfThoughtTrigger>}
       <ChainOfThoughtContent className="mt-1.5 space-y-1.5">
         {toolCalls.map((t) => {
-          // Lor's own sandbox work reads as flat rows, like a sandbox run's
-          // sub-steps (session-files-runbook.md decision 5).
+          // Lor's sandbox work reads as flat rows (session-files-runbook.md
+          // decision 5).
           if (SANDBOX_TOOLS.has(t.toolName)) {
             return (
-              <SubStepRow key={t.toolCallId} toolCall={t} delivered={shared} />
+              <SandboxRow key={t.toolCallId} toolCall={t} delivered={shared} />
             )
           }
           const Icon = toolIcon(t.toolName)
-          const children = childrenByParent?.get(t.toolCallId) ?? []
-          const isSandbox = children.length > 0
-          const drillable = hasDetail(t) || isSandbox
+          const drillable = hasDetail(t)
           return (
             <ChainOfThoughtStep
               key={t.toolCallId}
               status={stepStatus(t, streaming)}
               hasContent={drillable}
               // Nexus opens steps by default; the trail is a summary, so rows
-              // start closed and only auto-open while one is running. A
-              // sandbox run stays open: its sub-steps are the flat rows.
-              defaultOpen={isSandbox}
-              autoCloseOnComplete={!isSandbox}
+              // start closed and only auto-open while one is running.
+              defaultOpen={false}
+              autoCloseOnComplete
             >
               <ChainOfThoughtStepTitle icon={<Icon className="size-3.5" />}>
                 {t.label}
               </ChainOfThoughtStepTitle>
               {drillable && (
                 <ChainOfThoughtStepContent className="space-y-1">
-                  {t.detail?.summary && children.length === 0 && (
+                  {t.detail?.summary && (
                     // Full output, markdown parsed but kept dim and small so it
                     // reads as detail under the step; scrollable so the user can
                     // read everything.
@@ -403,22 +367,6 @@ export function LorToolTrail({
                         mentions={[]}
                         className="text-muted-foreground/80 text-xs [&_*]:!text-xs"
                       />
-                    </div>
-                  )}
-                  {/* Nested sub-steps (e.g. the code agent's own tool calls),
-                      streamed live as it explores. */}
-                  {isSandbox && (
-                    <div className="flex min-w-0 flex-col gap-1 border-border/50 border-l pl-2.5">
-                      {children.map((c) => (
-                        <SubStepRow
-                          key={c.toolCallId}
-                          toolCall={c}
-                          delivered={t.files ?? []}
-                        />
-                      ))}
-                      {t.detail?.summary && (
-                        <SummaryRow text={t.detail.summary} />
-                      )}
                     </div>
                   )}
                   {t.detail?.items?.map((it) => {

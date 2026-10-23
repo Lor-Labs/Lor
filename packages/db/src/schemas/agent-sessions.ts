@@ -82,7 +82,7 @@ export const agentSession = pgTable(
 // The messages a session was started with: chat history before `@Lor`, the
 // message behind "Ask Lor about this", or a thread's replies. Written once at
 // session start; renders as the "From #channel" block and is the background
-// Lor reads. What Lor reads later lives in agent_run_step.
+// Lor reads. What Lor reads later is in the session's Pi log (harness_log).
 export const agentSessionContext = pgTable(
   "agent_session_context",
   {

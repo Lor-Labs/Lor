@@ -144,7 +144,7 @@ const EMPTY_CONTEXT = {
   available: false as const,
   usedTokens: 0,
   windowTokens: env.LOR_CONTEXT_WINDOW,
-  compactAtTokens: env.LOR_COMPACT_INPUT_TOKENS,
+  compactAtTokens: env.LOR_CONTEXT_WINDOW,
   segments: { system: 0, tools: 0, messages: 0 },
   compacted: false,
   rawHistoryTokens: 0,

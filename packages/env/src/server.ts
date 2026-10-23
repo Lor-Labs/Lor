@@ -57,44 +57,22 @@ const serverSchema = z.object({
   LOR_MODEL_PROVIDER_ORDER: defaultedString("moonshotai,deepinfra"),
   LOR_SMALL_MODEL: defaultedString("zai/glm-5.3-flash"),
   LOR_SMALL_MODEL_FALLBACKS: defaultedString("moonshotai/kimi-k3"),
-  // Per-request input size above which older tool calls are compacted into
-  // rolling working notes (packages/lor/src/compaction.ts). MUST stay well
-  // under the real context window of EVERY model in the chain — primary and
-  // gateway fallbacks — or compaction stops being graceful and the request
-  // hard-fails on length.
-  LOR_COMPACT_INPUT_TOKENS: z.coerce.number().int().positive().default(700_000),
   // Smallest real context window across LOR_MODEL and its fallbacks — the
   // one that actually binds, since the gateway may route to any of them
   // mid-run. Verified 2026-10-14 (gateway endpoints): mimo-v2.6-pro routes
-  // list 1,048,576 to 1,050,000, kimi-k3 routes 1,000,000 to 1,048,576. Also
-  // bounds request preparation, with headroom reserved for instructions,
-  // tools, and output even if the compaction threshold is higher.
+  // list 1,048,576 to 1,050,000, kimi-k3 routes 1,000,000 to 1,048,576. Pi
+  // gets every model's window capped at this, so it compacts in time for
+  // all of them (pi-harness-runbook.md §4.4).
   LOR_CONTEXT_WINDOW: z.coerce.number().int().positive().default(1_000_000),
-  // Agent-run hard ceilings (reference/agent-harness.md, budgets). Snapshotted
-  // onto each agent_run row at creation, so changing these never alters an
-  // in-flight run. Emergency rails, not normal stopping targets.
-  AGENT_RUN_MAX_STEPS: z.coerce.number().int().positive().default(500),
-  AGENT_RUN_MAX_INPUT_TOKENS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(10_000_000),
-  AGENT_RUN_MAX_OUTPUT_TOKENS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(1_000_000),
-  AGENT_RUN_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(1_000),
+  // Agent-run limits (pi-harness-runbook.md §4.5): spend is the real limit,
+  // the wall clock a backstop for a stuck run, and the per-call output cap
+  // protects the context. Wall clock and credits are snapshotted onto each
+  // agent_run row at creation, so a change never alters an in-flight run.
   AGENT_RUN_MAX_TOOL_OUTPUT_BYTES_PER_CALL: z.coerce
     .number()
     .int()
     .positive()
     .default(262_144),
-  AGENT_RUN_MAX_TOOL_OUTPUT_BYTES: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(16_777_216),
   AGENT_RUN_MAX_WALL_MS: z.coerce.number().int().positive().default(7_200_000),
   AGENT_RUN_MAX_PROVIDER_RETRIES: z.coerce.number().int().min(0).default(3),
   AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(2_000),

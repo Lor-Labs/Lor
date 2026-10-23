@@ -17,7 +17,6 @@ type ToolCall = {
   label: string
   at?: number
   order?: number
-  parentToolCallId?: string
   detail?: { summary?: string; items?: { title: string; url?: string }[] }
   diff?: {
     path: string

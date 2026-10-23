@@ -32,7 +32,6 @@ const toolCallSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
   label: z.string(),
-  parentToolCallId: z.string().optional(),
   at: z.number().optional(),
   order: z.number().optional(),
   detail: z

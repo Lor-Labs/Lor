@@ -150,14 +150,6 @@ function ProjectOverview() {
 
   const archivedDate = formatDate(data.archivedAt)
   const memories = data.status === "archived" ? data.memories : liveMemories
-  const topLevelTools = liveTools.filter((t) => !t.parentToolCallId)
-  const childrenByParent = new Map<string, LorToolCallView[]>()
-  for (const t of liveTools) {
-    if (!t.parentToolCallId) continue
-    const list = childrenByParent.get(t.parentToolCallId) ?? []
-    list.push(t)
-    childrenByParent.set(t.parentToolCallId, list)
-  }
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -241,12 +233,8 @@ function ProjectOverview() {
                   Lor is reviewing this project — reading the channels, checking
                   what shipped, and saving what matters.
                 </div>
-                {topLevelTools.length > 0 && (
-                  <LorToolTrail
-                    toolCalls={topLevelTools}
-                    childrenByParent={childrenByParent}
-                    streaming
-                  />
+                {liveTools.length > 0 && (
+                  <LorToolTrail toolCalls={liveTools} streaming />
                 )}
               </div>
             ) : data.summary ? (

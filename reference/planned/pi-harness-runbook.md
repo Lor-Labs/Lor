@@ -1962,14 +1962,48 @@ disappear when transient stream rows expire.
 
 ### 1.6 — Delete the legacy engine, check quality and document
 
-- [ ] Delete the legacy engine. The `streamText` loop, transcript replay and
+- [x] Delete the legacy engine. The `streamText` loop, transcript replay and
   step checkpoints went in 1.3c-2b, and the `agent_run_step` readers
-  (touches, context meter) moved to the Pi log in 1.5-2; left: `compaction.ts`
-  (write-back still uses `fitMessagesToBudget`) and
-  `LOR_TOOL_APPROVAL_SECRET`. Legacy tables keep their rows; nothing
-  writes or reads them. Old sessions start from their visible history on their
-  first Pi run. Passing a full messages array to `HarnessAgent` does not import
-  history, so no import path is built.
+  (touches, context meter) moved to the Pi log in 1.5-2. Legacy tables keep
+  their rows; nothing writes or reads them. Old sessions start from their
+  visible history on their first Pi run. Passing a full messages array to
+  `HarnessAgent` does not import history, so no import path is built.
+  - **1.6-1** (2026-10-22; no `db:push`; not run yet):
+    - `compaction.ts` and its test are deleted. Write-back now uses
+      `writeback-input.ts`: a turn under its 120k-token budget is re-read
+      unchanged; a larger one becomes one shortened plain-text transcript
+      (tool results clipped, the middle cut, the request and the answer
+      kept).
+    - `LOR_COMPACT_INPUT_TOKENS` is deleted (Jacob removes it from Railway);
+      `LOR_CONTEXT_WINDOW` stays as the window cap Pi compacts against.
+      `LOR_TOOL_APPROVAL_SECRET` was already gone.
+    - The nested sub-step trail is deleted: `parentToolCallId` from the DB,
+      realtime and API types, the worker trail merge, and the web (message
+      body, trail, project page, stream hook) and mobile rendering. Sandbox
+      rows are `SandboxRow` on both. Old rows that still carry the field
+      render flat.
+    - `budgetViolation` (the old step, token and tool-call ceiling check)
+      had no callers and is deleted.
+    - **Dropped (Jacob, 2026-10-22; destructive `db:push`):** the
+      `agent_run_step` table and the `agent_run.compaction` column, with
+      their types. Nothing read or wrote them.
+    - **Dropped (Jacob, 2026-10-22; destructive `db:push`):** the five
+      activity limits §4.5 retired, with their `agent_run` columns and
+      settings:
+      - `budget_steps` (`AGENT_RUN_MAX_STEPS`);
+      - `budget_input_tokens` (`AGENT_RUN_MAX_INPUT_TOKENS`);
+      - `budget_output_tokens` (`AGENT_RUN_MAX_OUTPUT_TOKENS`);
+      - `budget_tool_calls` (`AGENT_RUN_MAX_TOOL_CALLS`);
+      - `budget_tool_output_bytes` (`AGENT_RUN_MAX_TOOL_OUTPUT_BYTES`, the
+        16 MB total that still refused tools).
+
+      Runs keep `budget_credits`, `budget_wall_ms` and the per-call output
+      cap. Write-back is now skipped only near the spend or time limit. The
+      usage counters stay. The stop-reason enum keeps the old values for
+      old rows; `BudgetStopReason` lists only `budget_wall_clock` and
+      `budget_spend`. Project-archive synthesis keeps its 500-step cap as a
+      constant. Jacob removes the five settings and `LOR_COMPACT_INPUT_TOKENS`
+      from Railway.
 - [ ] Move `packages/lor/src/eval/long/` to the Pi path. Jacob runs `eval:long`
   and the sandbox classifier eval, sets the thresholds from the classifier
   results, and reviews both before the switch.
@@ -2014,7 +2048,7 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5 built 2026-10-22 (no `db:push`; live QA owed); 1.6 left. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5 built 2026-10-22 (no `db:push`; live QA owed); 1.6-1 legacy deletion built 2026-10-22; as-built docs left. |
 | Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store; `@ai-sdk/harness` `HarnessAgent._toToolSpecs` should resolve AI SDK v7 dynamic tool descriptions as `streamText` does (`resolveToolDescription`), instead of passing the function through, which Pi then cannot clone (worked around in `runPiTurn`, 2026-10-21). |
 
 ## Sources

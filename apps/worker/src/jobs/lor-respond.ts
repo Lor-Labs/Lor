@@ -88,8 +88,7 @@ type RedisClient = ReturnType<typeof createClient>
 
 // Batch streamed tokens so we publish ~every 24 chars, not per chunk.
 const FLUSH_THRESHOLD = 24
-// Floor of remaining budget below which the optional write-back is skipped.
-const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
+// Credits left below which the optional write-back is skipped.
 const WRITEBACK_MIN_CREDITS = 50
 
 const LOR_ERROR_FALLBACK =
@@ -959,9 +958,8 @@ export function createLorRespondProcessor(
                     (t) => t.toolCallId === toolCall.toolCallId
                   )
                   const existing = idx >= 0 ? toolCalls[idx] : undefined
-                  // Frames may be partial updates (streamed sandbox summary,
-                  // diffs); one for a row that never got its start frame
-                  // can't render — drop it.
+                  // Frames may be partial updates; one for a row that never
+                  // got its start frame can't render — drop it.
                   const base =
                     existing ??
                     (toolCall.toolName && toolCall.label
@@ -971,18 +969,12 @@ export function createLorRespondProcessor(
                         }
                       : undefined)
                   if (!base) return
-                  if (!existing && !toolCall.parentToolCallId) {
-                    closeReasoningSegment()
-                  }
+                  if (!existing) closeReasoningSegment()
                   const nextToolCall: LorToolCall = {
                     ...base,
                     ...toolCall,
                     ...(existing?.at !== undefined ? { at: existing.at } : {}),
-                    ...(existing?.order !== undefined
-                      ? { order: existing.order }
-                      : !toolCall.parentToolCallId
-                        ? { order: eventOrder++ }
-                        : {}),
+                    order: existing?.order ?? eventOrder++,
                   }
                   if (idx >= 0) toolCalls[idx] = nextToolCall
                   else toolCalls.push(nextToolCall)
@@ -1385,23 +1377,14 @@ export function createLorRespondProcessor(
             return
           }
 
-          // Skip the optional write-back when the answer finished near a
-          // ceiling — never endanger an already-delivered response.
+          // Skip the optional write-back when the answer finished near the
+          // spend or time limit — never endanger an already-delivered response.
           if (execution) {
             const { budgets } = execution.handle
             const c = execution.counters()
-            const inputLeft =
-              (budgets.inputTokens - c.inputTokens) / budgets.inputTokens
-            const outputLeft =
-              (budgets.outputTokens - c.outputTokens) / budgets.outputTokens
             const creditsLeft = budgets.credits - c.creditsSpent
             const wallLeftMs = budgets.deadlineAt.getTime() - Date.now()
-            if (
-              inputLeft < WRITEBACK_MIN_BUDGET_FRACTION ||
-              outputLeft < WRITEBACK_MIN_BUDGET_FRACTION ||
-              creditsLeft < WRITEBACK_MIN_CREDITS ||
-              wallLeftMs < 60_000
-            ) {
+            if (creditsLeft < WRITEBACK_MIN_CREDITS || wallLeftMs < 60_000) {
               logger.info(
                 { lorMessageId, runId: execution.runId, counters: c },
                 "Write-back skipped; run finished near a budget ceiling"

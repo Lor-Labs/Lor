@@ -175,31 +175,20 @@ export const LorMessageBody = memo(function LorMessageBody({
   mentions: Message["mentions"]
   onCitationJump?: (messageId: string) => void
 }) {
-  // Only top-level calls drive timeline segmentation; nested sub-steps render
-  // inside their parent tool's trail.
-  const { segments, childrenByParent, deliverables } = useMemo(() => {
-    const children = new Map<string, LorToolCallView[]>()
-    for (const toolCall of toolCalls) {
-      if (!toolCall.parentToolCallId) continue
-      const childCalls = children.get(toolCall.parentToolCallId) ?? []
-      childCalls.push(toolCall)
-      children.set(toolCall.parentToolCallId, childCalls)
-    }
-    const topLevel = toolCalls.filter((toolCall) => !toolCall.parentToolCallId)
+  const { segments, deliverables } = useMemo(() => {
     // Files this answer produced, presented as cards at the end of the
     // message — deduped by artifact so a re-run keeps the latest version.
     const files = new Map<
       string,
       NonNullable<LorToolCallView["files"]>[number]
     >()
-    for (const toolCall of topLevel) {
+    for (const toolCall of toolCalls) {
       for (const file of toolCall.files ?? []) {
         files.set(file.artifactId, file)
       }
     }
     return {
-      segments: buildSegments(content ?? "", topLevel, reasoningSegments),
-      childrenByParent: children,
+      segments: buildSegments(content ?? "", toolCalls, reasoningSegments),
       deliverables: [...files.values()],
     }
   }, [content, toolCalls, reasoningSegments])
@@ -257,10 +246,6 @@ export const LorMessageBody = memo(function LorMessageBody({
             const groupTools = block.segments.flatMap((segment) =>
               segment.kind === "tools" ? segment.tools : []
             )
-            const allGroupTools = groupTools.flatMap((tool) => [
-              tool,
-              ...(childrenByParent.get(tool.toolCallId) ?? []),
-            ])
             return (
               <LorActivityGroup
                 key={block.key}
@@ -272,7 +257,7 @@ export const LorMessageBody = memo(function LorMessageBody({
                 bare={activityBlocks.length === 1}
                 toolCount={groupTools.length}
                 errorCount={
-                  allGroupTools.filter((tool) => tool.status === "error").length
+                  groupTools.filter((tool) => tool.status === "error").length
                 }
               >
                 {block.segments.map((segment) => {
@@ -299,7 +284,6 @@ export const LorMessageBody = memo(function LorMessageBody({
                     <LorToolTrail
                       key={segment.key}
                       toolCalls={segment.tools}
-                      childrenByParent={childrenByParent}
                       streaming={streaming}
                       embedded
                     />

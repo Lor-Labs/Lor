@@ -68,7 +68,6 @@ export function toolExecutionKey(toolName: string, input: unknown): string {
 export type ToolGuard = {
   // Bytes produced by tools since the last step boundary.
   takeStepBytes: () => number
-  exhausted: () => boolean
 }
 
 type AnyToolExecute = (
@@ -78,19 +77,14 @@ type AnyToolExecute = (
 
 type WrappableTool = { execute?: AnyToolExecute }
 
-// Wraps every tool's execute with output-size caps and (for side-effecting
-// tools) the per-run idempotency store. Returns the same toolset type — only
-// execute is replaced.
+// Wraps every tool's execute with the per-call output cap and (for
+// side-effecting tools) the per-run idempotency store. Returns the same
+// toolset type — only execute is replaced.
 export function guardTools<T extends Record<string, unknown>>(
   tools: T,
-  opts: {
-    priorBytes: number
-    totalBudgetBytes: number
-    store: RunToolResultStore | null
-  }
+  opts: { store: RunToolResultStore | null }
 ): { tools: T; guard: ToolGuard } {
   const perCallBytes = env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES_PER_CALL
-  let totalBytes = opts.priorBytes
   let stepBytes = 0
 
   const guard: ToolGuard = {
@@ -99,7 +93,6 @@ export function guardTools<T extends Record<string, unknown>>(
       stepBytes = 0
       return n
     },
-    exhausted: () => totalBytes >= opts.totalBudgetBytes,
   }
 
   const wrapped = Object.fromEntries(
@@ -107,25 +100,17 @@ export function guardTools<T extends Record<string, unknown>>(
       const original = (t as WrappableTool).execute
       if (typeof original !== "function") return [name, t]
       const execute: AnyToolExecute = async (input, options) => {
-        if (guard.exhausted()) {
-          return {
-            error: "tool output budget exhausted; answer with what you have",
-          }
-        }
         const sideEffect = SIDE_EFFECT_TOOLS.has(name)
         const key = sideEffect ? toolExecutionKey(name, input) : null
         if (key && opts.store) {
           const cached = await opts.store.get(key).catch(() => undefined)
           if (cached !== undefined) {
             logger.info({ tool: name }, "Tool result served from run cache")
-            // A replayed output still enters the context (and its original
-            // count lives in an un-checkpointed step), so it counts here too.
-            const cachedSize = Math.min(
+            // A replayed output still enters the context, so it counts too.
+            stepBytes += Math.min(
               Buffer.byteLength(JSON.stringify(cached) ?? ""),
               perCallBytes
             )
-            totalBytes += cachedSize
-            stepBytes += cachedSize
             return cached
           }
         }
@@ -155,9 +140,7 @@ export function guardTools<T extends Record<string, unknown>>(
                   error: `tool output was too large (${size} bytes) and was dropped; narrow the request`,
                 }
         }
-        const counted = Math.min(size, perCallBytes)
-        totalBytes += counted
-        stepBytes += counted
+        stepBytes += Math.min(size, perCallBytes)
         // Known failures may retry. An unknown write outcome must be replayed,
         // because a timeout can happen after the provider applied the mutation.
         if (key && opts.store && replayable) {

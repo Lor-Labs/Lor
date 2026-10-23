@@ -152,11 +152,6 @@ export async function createAgentRun(args: {
         threadRootId: args.threadRootId,
         triggerMessageId: args.triggerMessageId,
         scopeKey: args.threadRootId ?? args.channelId,
-        budgetSteps: env.AGENT_RUN_MAX_STEPS,
-        budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-        budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-        budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-        budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
         budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
         budgetCredits: env.AGENT_RUN_MAX_CREDITS,
       })
