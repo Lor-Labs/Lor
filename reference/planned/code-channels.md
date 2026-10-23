@@ -294,7 +294,9 @@ part of the storage decision.
 
 ## 9. Build phases
 
-The authoritative sequence is in [harness-sessions.md](harness-sessions.md#6-implementation-sequence):
+Launch scope and execution order (decided 2026-10-22):
+[code-sessions-runbook.md](code-sessions-runbook.md). The authoritative
+architecture sequence is in [harness-sessions.md](harness-sessions.md#6-implementation-sequence):
 
 - [ ] **1. Pi primary runtime:** same session model for chat/cowork/code; scoped tools, memory, approvals, budgets, native persistence, skills/commands and adapter capabilities from the start.
 - [ ] **2. Durable workspace checkpoints and official adapters:** storage decision, writer ownership, snapshot manifests, sandbox restoration, Claude Code/Codex adapters and eligible auth.

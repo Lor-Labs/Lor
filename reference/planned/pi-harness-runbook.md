@@ -106,7 +106,7 @@ experiments ran. Verified source behavior is separated from inference below.
 | Component | Version | Notes |
 |---|---|---|
 | `@ai-sdk/harness-pi` | `1.0.160`, pinned (first review on `1.0.158`) | 1.0.159 added prompt image input; 1.0.160 only bumped `ai`. Depends on `pi-coding-agent ^1.0.3`, so Lor pins 1.3.0 with a root pnpm override. |
-| `@ai-sdk/harness` | `1.0.158`, pinned | Shared by the Pi, Claude Code (`1.0.161`) and Codex (`1.0.159`) adapters. Depends on exactly `ai@7.0.147`. Docs label it experimental; ~8 releases a week; breaking changes ship as patches (e.g. 1.0.92, 1.0.123). |
+| `@ai-sdk/harness` | `1.0.158`, pinned | Shared by the Pi, Claude Code (`1.0.162`) and Codex (`1.0.160`) adapters (corrected 2026-10-22: 1.0.161/1.0.159 depend on harness 1.0.157). Depends on exactly `ai@7.0.147`. Docs label it experimental; ~8 releases a week; breaking changes ship as patches (e.g. 1.0.92, 1.0.123). |
 | `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai` | `1.3.0`, pinned (first review on `1.0.3`) | pi-coding-agent pins the rest of the family exactly. Compaction, session manager and Gateway behavior below were rechecked on 1.3.0. No native modules (image work is WASM). |
 | `@ai-sdk/provider-utils` | `5.0.64` | `SandboxSession` contract unchanged from 5.0.63. |
 | Lor | `ai@7.0.147` (upgraded from 7.0.11 on 2026-10-20; type check and Biome pass); sandbox image Pi `0.84.1` | The worker **runs on Bun** (`oven/bun:1-slim`). Harness packages declare `node >=22`; Bun verdict in §4.9. |
