@@ -18,6 +18,7 @@ import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
+import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import { requestRunStop } from "@/routes/v1/runs/handlers"
@@ -321,6 +322,16 @@ export const updateAgentSession: AppRouteHandler<
         currentUser.id
       ).catch((err) =>
         logger.warn({ err, runId: run.id }, "Archive run stop failed")
+      )
+    }
+    // Loop sessions keep theirs: archiving one only dismisses it, and the
+    // loop keeps running there.
+    if (!session.loopId && updated.archivedAt) {
+      void enqueueSessionSandboxDelete({
+        sessionId,
+        archivedAt: updated.archivedAt.toISOString(),
+      }).catch((err) =>
+        logger.warn({ err, sessionId }, "Session sandbox delete enqueue failed")
       )
     }
   }

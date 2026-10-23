@@ -131,9 +131,12 @@ Lor-owned memory/permissions/approvals/budgets, native runtime persistence and
 completed-turn checkpoints. Postgres owns native Pi state and common durable
 activity history for every harness; private Git holds
 workspace revisions joined by immutable checkpoint references. Official harnesses
-retain their supported native payloads. Code workspace collaboration,
+retain their supported native payloads. Code sessions are a mode of the same
+session (`Chat | Code` at the start, one repo each), not a separate channel
+type. Code workspace collaboration,
 fork/handoff/rewind, deferred Lor CLI local/cloud handoff, Yjs and the independent code index live in
-`reference/planned/code-channels.md`. These are design only, not built. The
+`reference/planned/code-channels.md`. Everything after phase 1, code sessions
+included, is design only, not built. The
 phase-1 implementation runbook is `reference/planned/pi-harness-runbook.md`.
 Runtime decided 2026-10-20: Vercel `HarnessAgent` + `@ai-sdk/harness-pi` (Pi
 Durable rejected for phase 1), Pi's native compactor and the adapter's remote
@@ -142,13 +145,18 @@ saves native Pi state to Postgres per completed turn; spend is the only run
 limit (no step/tool/token ceilings; workspace balance with auto top-up is the target).
 Every Lor agent run, including voice, Loop and Act runs, gets its session's
 isolated sandbox on the first run, reused across turns with standby; until
-phase 2 checkpoints, a lost sandbox continues empty with a notice. Build as if
-sandboxes are unlimited; cost optimization is deferred. The legacy
+phase 2 checkpoints, a lost sandbox continues empty with a notice. Session
+sandboxes get a 2 GB disk and are deleted after 7 days idle or 10 minutes
+after archive (Blaxel's ephemeral-volume quota); further cost optimization
+is deferred. The legacy
 `streamText` engine is deleted in phase 1 (no users yet), with no flag or
 import. Keep its
 internal session core separate from Lor policy/UI; SDK publication is deferred.
 It covers only the main Lor loop's Pi conversion and shared foundation;
-implementation has not started. Update its slices and gates as
+built 2026-10-22 (as built: `reference/agent-harness.md`), with `db:push`,
+live QA and both evals still owed. Lor reads code with `clone_repo` in its
+session sandbox; the coding child agent is deleted and Lor never commits or
+opens PRs itself. Update its slices and gates as
 they land. Official provider adapters, Git checkpoints and fork/rewind remain
 in later phases.
 

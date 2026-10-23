@@ -18,7 +18,8 @@ export type ChannelConnector = {
 }
 
 // Composer searches require the matching search tool; code-file browsing also
-// requires the code investigation tool. Profiles and workspace selections apply.
+// requires clone_repo, which Lor reads the files with. Profiles and workspace
+// selections apply.
 export function attachableConnectors(
   connected: Set<IntegrationProvider>,
   connectorTools: readonly string[] = [],
@@ -36,7 +37,7 @@ export function attachableConnectors(
   const canBrowseFiles = (provider: IntegrationProvider) =>
     connectorSupportsFiles(provider) &&
     provider === "github" &&
-    tools.has("investigate_code")
+    tools.has("clone_repo")
   return CONNECTOR_LIST.filter(
     (descriptor) =>
       isSearchableConnector(descriptor.id) &&

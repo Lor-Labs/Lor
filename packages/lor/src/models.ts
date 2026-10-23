@@ -75,6 +75,12 @@ export const LOR_RERANK_ENABLED = modelConfig.rerank.enabled
 export const LOR_RERANK_MIN_SCORE = modelConfig.rerank.minScore
 export const lorRerankModel = gatewayTransport.rerankingModel(LOR_RERANK_MODEL)
 
+// Pin the decision model: a version change requires classifier calibration.
+export const LOR_SANDBOX_CLASSIFIER_MODEL = "typesafe-ai/jev-1.13.0"
+export const lorSandboxClassifierModel = gatewayTransport.decisionModel(
+  LOR_SANDBOX_CLASSIFIER_MODEL
+)
+
 export const mainGatewayOptions = {
   caching: "auto" as const,
   models: LOR_FALLBACK_MODELS,
@@ -83,4 +89,15 @@ export const mainGatewayOptions = {
 
 export const smallGatewayOptions = {
   models: LOR_SMALL_FALLBACK_MODELS,
+}
+
+// Explicit credentials for the Pi harness. Without a record, Pi reads every
+// *_API_KEY in the worker environment (reference/planned/pi-harness-runbook.md §4.9).
+export function piGatewayAuth(): Record<string, string> {
+  return {
+    AI_GATEWAY_API_KEY: modelConfig.gateway.apiKey,
+    ...(modelConfig.gateway.baseURL
+      ? { AI_GATEWAY_BASE_URL: modelConfig.gateway.baseURL }
+      : {}),
+  }
 }

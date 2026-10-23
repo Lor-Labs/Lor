@@ -14,7 +14,6 @@ import {
   createVoiceRequest,
   deleteCall,
   dismissVoiceRequest as dismissRequest,
-  expireRunApproval,
   findVoiceRequest,
   getCurrentCall,
   getLiveKitConfig,
@@ -32,6 +31,7 @@ import {
   stageVoiceRequest as stageRequest,
   summaryPassageFor,
 } from "@repo/voice/server"
+import { stopPausedTurn } from "@/lib/approvals"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -397,7 +397,8 @@ export const cancelVoiceRequest: AppRouteHandler<
   }
   if (cancelled.runId) {
     await stopVoiceRun(cancelled.runId, c.var.user.id)
-    await expireRunApproval(cancelled.runId)
+    // A request waiting on approvals: its turn ends with no reply.
+    await stopPausedTurn(cancelled.runId, c.var.user.id, "expired")
   }
   if (scope.threadRootId) {
     notifyVoiceRequest(scope.threadRootId, cancelled.request)

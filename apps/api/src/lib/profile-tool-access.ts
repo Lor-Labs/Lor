@@ -54,7 +54,9 @@ export async function workspaceProfileToolGroups(
       .orderBy(asc(schema.customTool.name)),
   ])
   const builtins: ProfileToolGroup[] = BUILTIN_TOOL_GROUPS.filter(
-    (group) => group !== "web" || Boolean(env.EXA_API_KEY)
+    (group) =>
+      (group !== "web" || Boolean(env.EXA_API_KEY)) &&
+      STANDALONE_TOOLS.some((tool) => tool.group === group)
   ).map((group) => ({
     kind: "builtin",
     id: group,
@@ -133,8 +135,12 @@ export async function profileToolAccessIssue(
       (candidate) =>
         candidate.kind === override.kind && candidate.id === override.id
     )
-    if (!group)
+    if (!group) {
+      // A saved override for a built-in group the workspace no longer offers
+      // (the emptied Artifacts group) is stale, not invalid.
+      if (override.kind === "builtin") continue
       return "Tool access must reference tools available in this workspace"
+    }
     if (override.selection.mode !== "custom") continue
     const enabled = new Set(group.tools.map((tool) => tool.name))
     if (override.selection.tools.some((name) => !enabled.has(name)))

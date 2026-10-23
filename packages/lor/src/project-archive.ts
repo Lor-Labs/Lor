@@ -17,7 +17,6 @@ import { attioTools, resolveWorkspaceAttio } from "./attio"
 import { type BrainWriteEvent, brainReadTools, brainWriteTools } from "./brain"
 import { EMPTY_TOOL_GRANTS, resolveChannelCapabilities } from "./capabilities"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
-import { codeTools } from "./code"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import { chatTools, searchTools, toolDetail, toolLabel } from "./index"
@@ -25,25 +24,25 @@ import { linearTools, resolveWorkspaceLinear } from "./linear"
 import { logger } from "./logger"
 import { lorModel, mainGatewayOptions } from "./models"
 import { notionTools, resolveWorkspaceNotion } from "./notion"
-import { blaxelConfigured } from "./sandbox/blaxel"
 import { sourceTools } from "./sources"
 import type { OnUsage } from "./usage"
 import { webTools } from "./web"
 
 const SYNTHESIS_TIMEOUT_MS = 15 * 60_000
+const SYNTHESIS_MAX_STEPS = 500
 const MESSAGES_PER_CHANNEL = 400
 const MESSAGE_CHAR_MAX = 1500
 const TRANSCRIPT_CHAR_MAX = 150_000
 
 const SYNTHESIS_INSTRUCTIONS = `You are Lor, the archivist for a team workspace. A project has just been archived; its channels are now read-only. Your job is to distill it into durable, workspace-visible memory so future conversations anywhere in the workspace can build on what happened here.
 
-You are given the project's metadata and its channel transcript. The project's own scoped memory folder (if any) is readable via your memory tools — consult it for notes taken during the project. Where the team's connected tools are available, verify what actually happened rather than relying on the transcript alone: read the pull requests that merged, the tickets that closed, the code that shipped.
+You are given the project's metadata and its channel transcript. The project's own scoped memory folder (if any) is readable via your memory tools — consult it for notes taken during the project. Where the team's connected tools are available, verify what actually happened rather than relying on the transcript alone: read the pull requests that merged and the tickets that closed.
 
 Write brain pages under the folder path you are given:
 - Capture what the project set out to do, the key decisions AND their rationale, the outcome, and any follow-ups or loose ends.
 - A few focused pages beat many shallow ones; one page is fine for a small project.
 - Write conclusions the team should remember, not a play-by-play. Leave out sensitive interpersonal details.
-- Use the link tool (supersedes / part_of / relates_to) when a page supersedes or extends existing workspace memory. A decision that replaces an earlier one goes on its own page, linked supersedes from the new page to the old one; never rewrite the old decision.
+- Use the memory_link tool (supersedes / part_of / relates_to) when a page supersedes or extends existing workspace memory. A decision that replaces an earlier one goes on its own page, linked supersedes from the new page to the old one; never rewrite the old decision.
 
 Then reply with your final message: a concise closing summary to post in the project's channel — the outcome, the key decisions, and any follow-ups. A few short paragraphs or bullets, plain markdown, no heading. Do not mention memory tools or file paths.`
 
@@ -208,7 +207,6 @@ export async function synthesizeProjectArchive(
       ...brainWriteTools,
       ...(env.EXA_API_KEY ? webTools : {}),
       ...(github ? githubTools : {}),
-      ...(blaxelConfigured() && github ? codeTools : {}),
       ...(linear ? linearTools : {}),
       ...(attio ? attioTools : {}),
       ...(notion ? notionTools : {}),
@@ -218,7 +216,6 @@ export async function synthesizeProjectArchive(
 
     const connectorNames = new Set([
       ...Object.keys(githubTools),
-      ...Object.keys(codeTools),
       ...Object.keys(linearTools),
       ...Object.keys(attioTools),
       ...Object.keys(notionTools),
@@ -260,14 +257,14 @@ export async function synthesizeProjectArchive(
       read_attachment: retrieval,
       read_call: retrieval,
       fetch_source: retrieval,
-      ls: readContext,
-      read: readContext,
-      tree: readContext,
-      write: { workspaceId: args.workspaceId, onWrite: onMemoryWritten },
-      edit: { workspaceId: args.workspaceId, onWrite: onMemoryWritten },
-      mkdir: { workspaceId: args.workspaceId },
-      move: { workspaceId: args.workspaceId },
-      link: { workspaceId: args.workspaceId },
+      memory_ls: readContext,
+      memory_read: readContext,
+      memory_write: {
+        workspaceId: args.workspaceId,
+        onWrite: onMemoryWritten,
+      },
+      memory_edit: { workspaceId: args.workspaceId, onWrite: onMemoryWritten },
+      memory_link: { workspaceId: args.workspaceId },
       ...(github
         ? {
             search_github: {
@@ -276,13 +273,6 @@ export async function synthesizeProjectArchive(
               onUsage,
             },
             fetch_github: github,
-            investigate_code: {
-              workspaceId: args.workspaceId,
-              installationId: github.installationId,
-              repos: github.repos,
-              onUsage,
-              onToolEvent,
-            },
           }
         : {}),
       ...(linear
@@ -331,7 +321,7 @@ export async function synthesizeProjectArchive(
     }
 
     const connectors = [
-      github && "GitHub (code, PRs)",
+      github && "GitHub (PRs, issues)",
       linear && "Linear (issues)",
       attio && "Attio (CRM)",
       notion && "Notion",
@@ -371,7 +361,7 @@ export async function synthesizeProjectArchive(
       tools,
       toolsContext,
       maxRetries: env.AGENT_RUN_MAX_PROVIDER_RETRIES,
-      stopWhen: isStepCount(env.AGENT_RUN_MAX_STEPS),
+      stopWhen: isStepCount(SYNTHESIS_MAX_STEPS),
       timeout: { totalMs: SYNTHESIS_TIMEOUT_MS },
       providerOptions: { gateway: mainGatewayOptions },
     })

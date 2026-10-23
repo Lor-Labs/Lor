@@ -255,22 +255,46 @@ async function resolveApproval(
   if (!allowed) return { kind: "forbidden" }
 
   // CAS: only one resolver wins; a second click reads as already resolved.
-  const resolved = await db
-    .update(schema.approval)
-    .set({
-      status: resolution,
-      resolvedBy: userId,
-      resolvedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(schema.approval.id, approvalId),
-        eq(schema.approval.status, "pending")
+  // A paused turn waits on its whole set: resolutions of one run serialize on
+  // the run row, so exactly one of them sees the set complete.
+  const decided = await db.transaction(async (tx) => {
+    if (row.approval.runId) {
+      await tx
+        .select({ id: schema.agentRun.id })
+        .from(schema.agentRun)
+        .where(eq(schema.agentRun.id, row.approval.runId))
+        .for("update")
+    }
+    const resolved = await tx
+      .update(schema.approval)
+      .set({
+        status: resolution,
+        resolvedBy: userId,
+        resolvedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(schema.approval.id, approvalId),
+          eq(schema.approval.status, "pending")
+        )
       )
-    )
-    .returning()
-    .then((rows) => rows[0] ?? null)
-  if (!resolved) return { kind: "conflict" }
+      .returning()
+      .then((rows) => rows[0] ?? null)
+    if (!resolved?.runId) return resolved ? { resolved, complete: true } : null
+    const open = await tx
+      .select({ id: schema.approval.id })
+      .from(schema.approval)
+      .where(
+        and(
+          eq(schema.approval.runId, resolved.runId),
+          eq(schema.approval.status, "pending")
+        )
+      )
+      .limit(1)
+    return { resolved, complete: open.length === 0 }
+  })
+  if (!decided) return { kind: "conflict" }
+  const { resolved } = decided
 
   const undoResolution = () =>
     db
@@ -285,9 +309,10 @@ async function resolveApproval(
       )
       .catch(() => {})
 
-  // Nothing posts to the call chat: the paused request resumes in Lor's
-  // window. Without the resume job the request would wait forever, so a
-  // failed enqueue undoes the resolution for a retry.
+  // Nothing posts to the call chat. Lor's window shows a set one approval at
+  // a time: the job shows the next one, or resumes the request once the set
+  // is decided. Without the job the request would wait forever, so a failed
+  // enqueue undoes the resolution for a retry.
   if (voice) {
     const queued = await enqueueVoiceRequest(voice.id, resolved.id)
       .then(() => true)
@@ -300,23 +325,24 @@ async function resolveApproval(
     return { kind: "resolved", approval: resolved }
   }
 
-  // No message posts: the decision reaches Lor as the AI SDK's approval
-  // response (or a decision line for request_approval), and the card shows
-  // it. The continuation answers Lor's parked reply. Only an old message-less
-  // run still needs a posted resolution to trigger on; if that can't be
-  // created, un-resolve the CAS so the caller can retry.
-  const messageId =
-    row.run?.messageId ??
-    (await postScopeMessage({
-      channelId: scope.channelId,
-      threadRootId: scope.threadRootId,
-      authorId: userId,
-      content:
-        resolution === "approved"
-          ? `Approved — go ahead: ${resolved.description}`
-          : `Rejected — do not proceed: ${resolved.description}`,
-    }).catch(() => null))
-  if (!messageId) {
+  // No message posts: the decision reaches Lor as the harness approval
+  // response, and the card shows it. When the set is complete, the
+  // continuation answers Lor's paused reply. Only an old message-less run
+  // still needs a posted resolution to trigger on; if that can't be created,
+  // un-resolve the CAS so the caller can retry.
+  const messageId = !decided.complete
+    ? null
+    : (row.run?.messageId ??
+      (await postScopeMessage({
+        channelId: scope.channelId,
+        threadRootId: scope.threadRootId,
+        authorId: userId,
+        content:
+          resolution === "approved"
+            ? `Approved — go ahead: ${resolved.description}`
+            : `Rejected — do not proceed: ${resolved.description}`,
+      }).catch(() => null)))
+  if (decided.complete && !messageId) {
     await undoResolution()
     return { kind: "post_failed" }
   }
@@ -350,6 +376,8 @@ async function resolveApproval(
       "Approval resolution broadcast failed; continuing"
     )
   }
+  // The rest of the set is still open: the turn stays paused.
+  if (!messageId) return { kind: "resolved", approval: resolved }
 
   try {
     const plan = row.plan
@@ -387,12 +415,8 @@ async function resolveApproval(
       scopeKey: scope.scopeKey,
       triggerMessageId: messageId,
       senderId: userId,
-      // The worker replays a policy gate's parked tool call with the SDK
-      // approval response, or hands request_approval its decision (unless an
-      // old run's posted resolution already says it).
-      ...(resolved.runId && (resolved.toolCallId || row.run?.messageId)
-        ? { resumeApprovalId: resolved.id }
-        : {}),
+      // The worker finishes the paused turn with the set's decisions.
+      ...(resolved.runId ? { resumeApprovalId: resolved.id } : {}),
       ...(plan
         ? {
             onAbandoned: async () => {

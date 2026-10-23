@@ -31,6 +31,7 @@ import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
 import { ForwardedMessageCard } from "@/components/chat/forwarded-message-card"
 import { LoopCard } from "@/components/chat/loop-card"
+import { LorFailureNotice } from "@/components/chat/lor-failure-notice"
 import { LorMessageBody } from "@/components/chat/lor-message-body"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
 import {
@@ -767,12 +768,12 @@ export const MessageItem = memo(function MessageItem({
             // reasoning starts, that block takes over the "thinking" affordance.
             <ThinkingIndicator />
           ) : message.status === "failed" &&
-            !message.content &&
+            message.authorId === LOR_USER_ID &&
             !hasToolCalls &&
             !hasReasoningSegments ? (
-            <span className="text-sm text-muted-foreground italic">
-              Lor couldn't respond to that.
-            </span>
+            <LorFailureNotice
+              text={message.content || "Lor couldn't respond to that."}
+            />
           ) : hasToolCalls || hasReasoningSegments ? (
             <LorMessageBody
               content={message.content}

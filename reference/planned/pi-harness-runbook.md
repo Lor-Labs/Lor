@@ -1,10 +1,10 @@
 # Pi foundation migration runbook — phase 1
 
 > Status: revised 2026-10-20 after a source review of the exact published
-> packages, the repository and vendor docs. **Documentation only;
-> implementation not started.** Implements phase 1 of
+> packages, the repository and vendor docs. **Phase 1 code-complete 2026-10-22; `db:push`, live QA and both evals owed
+> (see the record table in §9).** Implements phase 1 of
 > [Shared harness sessions](harness-sessions.md). Repository baseline: `dev`
-> at `7d663fdf`; planning branch: `codex/pi-harness-sessions`.
+> at `7d663fdf`; branch: `pi-harness-sessions`.
 >
 > **Runtime decided (G0 closed 2026-10-20):** Vercel `HarnessAgent` +
 > `@ai-sdk/harness-pi`. Pi Durable is rejected for phase 1. Vercel's
@@ -29,16 +29,18 @@ authority (§4.3). Do not infer production readiness from the common API alone.
 | Pi settings | None in phase 1: compaction, retries and cache warming keep Pi's defaults. If a setting must change later, patch the adapter with `pnpm patch` to pass a settings record and send the same change upstream as a PR. |
 | Sandboxes (G6) | Every agent run gets its session sandbox, **including voice, Loop and Act runs**. Each needs a session workspace owner before it provisions. |
 | Lost workspace (G6) | **Interim until phase 2.** If a session's sandbox no longer exists (crash or deletion), continue the session in a new empty sandbox and tell the model and the people in the session that earlier files are gone. Fail the run only when the native **conversation** state is missing or corrupt. Phase 2 Git checkpoints replace this: Lor rebuilds the sandbox from the last completed-turn commit. |
-| Capacity | Build as if sandboxes are unlimited. No idle TTL or reclamation for session sandboxes in phase 1; capacity planning is deferred. A quota error still fails the run visibly. |
+| Capacity | Changed 2026-10-21 after Tier 1's 40 GB ephemeral-volume quota allowed only 5 session sandboxes: session sandboxes get a 2 GB `/workspace` (`LOR_SESSION_DISK_MB`), Blaxel deletes them after 7 days idle (`LOR_SESSION_SANDBOX_TTL`), and archiving a session deletes its sandbox after a 10-minute undo window (loop sessions excepted). Until phase 2 checkpoints, unshared sandbox files are lost then; the conversation and shared files are not. A quota error still fails the run visibly. |
 | Worker runtime | Run the Pi path on **Bun**, the worker's current runtime. Verify the adapter on Bun in 1.1; move the Pi path to Node only if a concrete Bun failure appears. |
 | AI SDK | Upgrade `ai` repo-wide to the version the harness requires (≥ `7.0.145`). Change the remaining AI SDK callers (write-back, placement, titles, classifiers, embeddings, rerank) where the upgrade needs it. |
 | Legacy engine | **Delete it** (2026-10-20). No one uses the app yet, so there is no flag, rollout, drain or import. Old sessions have no native state; their first Pi run starts from the visible session history, like any first run. Legacy run tables keep their rows but receive no new writes; dropping them is a separate later decision. |
 | System prompt | Lor's own prompt replaces Pi's "expert coding assistant" prompt, including Pi's tool guidance and dropping the Pi-docs section. Mechanism (§4.8): a small adapter patch passing Pi's `systemPromptOverride`, sent upstream; `before_agent_start` alone misses approval resumes. |
 | Tool permissions | A new **Sandbox** built-in group in agent-profile tool access (workspace default, then category, then channel) holds Pi's `bash`, `read`, `write`, `edit`, `grep`, `find` and `ls`; on by default. When the group is off, the tools stay in the session's fixed list and are refused when called. `bash`, `write` and `edit` are **not** workspace approval targets: a **per-user sandbox permission mode** decides them, like Claude Code and Codex: **manual** (ask before every call), **auto** (a classifier asks only for potentially destructive calls), **bypass** (allow all). Read-only tools never ask (§4.6). |
 | Approvals | `request_approval` pauses the turn like any gate and continues after the decision. Anyone in the session can approve sandbox asks. Steering while approvals are pending denies them and runs next; a queued message waits for the decision; Stop denies them and ends the turn (§4.2). |
-| Sandbox mode details | The turn starter's mode applies; default **auto**; a per-session switch comes later with the code-channel composer. **Loop and Act runs are autonomous:** classifier only, higher tolerance, a flagged call is refused with "try a safer way" and never waits for a human. Voice uses the speaker's mode. The classifier is Jev through `experimental_decide` (§4.6). |
-| Quality check | Jacob runs `eval:long` on the Pi path before the switch. The eval harness moves to the Pi path. |
+| Sandbox mode details | The turn starter's mode applies; default **auto**; a per-session switch comes later with the code-channel composer. **Loop and Act runs are autonomous:** the same or stricter classifier bar, with refusal instead of asking. Voice uses the speaker's mode. The classifier is Jev through `experimental_decide` (§4.6). |
+| Quality check | Jacob runs `eval:long` on the Pi path before the switch. The eval harness moves to the Pi path. A new **sandbox classifier eval** sets the safety thresholds and rules from evidence (§4.6). |
+| Sandbox safety policy | Rules decide clear cases; only flagged calls reach Jev. Bootstrap thresholds: hazard ≥ 0.35, explicit authorization ≥ 0.95, high severity ≥ 2 on a 0–3 rubric, identical in Auto and autonomous. Errors ask or refuse. These are provisional; Jacob's classifier eval must calibrate them before the switch (§4.6). |
 | Skills and slash commands | Out of phase 1; moved to the self-configuration work. |
+| Code work | Changed 2026-10-22. Start over with no compatibility layer (no users; phase 1 may ship with code work broken, and no PRs are made until it is done). Delete the coding child agent: `investigate_code` and `propose_code_change` go, and the main agent does all code work in its session sandbox. Interim: `clone_repo` clones a connected repository read-only into any session's sandbox; nothing in phase 1 commits, pushes or opens a PR. Code sessions (mode chosen at the start, "Continue in Code" handoff, a person commits or opens the PR under their GitHub account or as the Lor bot) are product design in `code-channels.md` §2, built after phase 1. Each conversation (session or voice call) has at most one sandbox. |
 | Versions | **Pinned 2026-10-20:** `@ai-sdk/harness-pi@1.0.160`, `@ai-sdk/harness@1.0.158`, `ai@7.0.147`, Pi `1.3.0` (direct dependency plus a root pnpm override). Exact versions; the harness ships breaking changes in patch releases. 1.0.159 → 1.0.160 only bumped `ai`. |
 
 ### Earlier revisions (kept for the record)
@@ -104,7 +106,7 @@ experiments ran. Verified source behavior is separated from inference below.
 | Component | Version | Notes |
 |---|---|---|
 | `@ai-sdk/harness-pi` | `1.0.160`, pinned (first review on `1.0.158`) | 1.0.159 added prompt image input; 1.0.160 only bumped `ai`. Depends on `pi-coding-agent ^1.0.3`, so Lor pins 1.3.0 with a root pnpm override. |
-| `@ai-sdk/harness` | `1.0.158`, pinned | Shared by the Pi, Claude Code (`1.0.161`) and Codex (`1.0.159`) adapters. Depends on exactly `ai@7.0.147`. Docs label it experimental; ~8 releases a week; breaking changes ship as patches (e.g. 1.0.92, 1.0.123). |
+| `@ai-sdk/harness` | `1.0.158`, pinned | Shared by the Pi, Claude Code (`1.0.162`) and Codex (`1.0.160`) adapters (corrected 2026-10-22: 1.0.161/1.0.159 depend on harness 1.0.157). Depends on exactly `ai@7.0.147`. Docs label it experimental; ~8 releases a week; breaking changes ship as patches (e.g. 1.0.92, 1.0.123). |
 | `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai` | `1.3.0`, pinned (first review on `1.0.3`) | pi-coding-agent pins the rest of the family exactly. Compaction, session manager and Gateway behavior below were rechecked on 1.3.0. No native modules (image work is WASM). |
 | `@ai-sdk/provider-utils` | `5.0.64` | `SandboxSession` contract unchanged from 5.0.63. |
 | Lor | `ai@7.0.147` (upgraded from 7.0.11 on 2026-10-20; type check and Biome pass); sandbox image Pi `0.84.1` | The worker **runs on Bun** (`oven/bun:1-slim`). Harness packages declare `node >=22`; Bun verdict in §4.9. |
@@ -330,11 +332,27 @@ insertion of approval results.
 5. **Size.** Compaction appends and deletes nothing, replay leaves inactive
    branches, and images are stored inline, so the journal only grows. Resume
    reads the whole file. Watch the size; the later session-store option (item 8)
-   removes this.
-6. Keep **one stable host-tool list per session**. Bind every tool the session
-   may use and deny unavailable ones at execute time, so a grant or connector
-   change never changes the tool-name set. Do not call harness `compact()` on a
-   freshly resumed session.
+   removes this. **Two full transfers per turn** (found 2026-10-21; deferred
+   with Jacob): the adapter copies the file back to the sandbox only on
+   stop, detach or suspend, never on `destroy()`. So after every completed turn
+   the sandbox copy is a turn behind; the next restore uploads the whole file,
+   and `pullSessionFileFromSandbox` downloads it again. That is negligible for
+   short sessions and costs seconds for long ones with images and big tool
+   results. Appending each turn's new lines to the sandbox copy after the save
+   would remove the upload. Removing both needs the session store (item 8) or
+   a patch that lets the adapter open a worker-local file Lor writes.
+6. **Tool lists may change between turns** (decided with Jacob 2026-10-21;
+   this replaces "one stable host-tool list per session"). The empty-journal
+   rebuild only happens inside one live adapter session: `rebuildPiSession`
+   restores the saved file whenever `piSession` is null, and every Lor turn is
+   a fresh session (`reattachInProcess: false`). The load check would catch a
+   miss anyway. So each turn binds only the tools the run may use, and the
+   model never sees tools it would be refused. Costs accepted: a turn whose
+   list changed re-sends the whole prompt uncached. Keep the tool order
+   deterministic so an unchanged list never busts the cache. On an approval
+   resume whose tool is no longer bound, deny that approval with a reason
+   (1.3e) instead of letting the adapter throw. Do not call harness
+   `compact()` on a freshly resumed session.
 7. Worker crash mid-turn: the turn's native progress is lost. BullMQ's second
    attempt re-runs the turn from the last saved head with the same input and a
    note that an earlier attempt was interrupted and may have changed files or
@@ -505,9 +523,10 @@ others are adapter wrappers. All route through `SandboxSession`.
 **Permissions (decision 2026-10-20):** agent-profile tool access has two built-in
 groups today, `web` and `artifacts` (`BUILTIN_TOOL_GROUPS` in
 `profile-tool-access.ts`). Add a **Sandbox** group holding `bash`, `read`,
-`write`, `edit`, `grep`, `find` and `ls`, on by default. When a profile turns the
-group off, the tools stay in the session's fixed list (§4.3) and are refused
-when called. Agent profiles already resolve per channel (channel, then category,
+`write`, `edit`, `grep`, `find` and `ls`, plus `share_file`, on by default. When
+a profile turns the group off, the turn leaves them out: the adapter's
+built-in tool filter drops Pi's tools and `share_file` is not bound
+(2026-10-21, §4.3 item 6). Agent profiles already resolve per channel (channel, then category,
 then workspace default), so Sandbox on/off works at each level.
 
 **Sandbox permission mode (decision 2026-10-20).** `bash`, `write` and `edit`
@@ -516,9 +535,9 @@ user settings (a per-user row, like `user_notification_settings`):
 
 | Mode | `bash`, `write`, `edit` | Read-only tools |
 |---|---|---|
-| Manual | Ask before every call | Never ask |
-| Auto | A classifier allows routine calls and asks for potentially destructive ones | Never ask |
-| Bypass | Allow every call | Never ask |
+| Manual | Ask before every call, except known-safe read-only commands (2026-10-21) | Never ask |
+| Auto | Allow routine calls; flagged calls go to the classifier, which allows or asks (revised 2026-10-21) | Never ask |
+| Bypass | Allow every call except the hard rules (2026-10-21) | Never ask |
 
 - **Auto classifier:** a decision model, TypeSafe's Jev (`typesafe-ai/jev`
   through the Gateway), called with `experimental_decide` (available in
@@ -526,13 +545,9 @@ user settings (a per-user row, like `user_notification_settings`):
   the Gateway's `/decision-model` endpoint and gets `{type: "boolean",
   probability}` back (verified in `@ai-sdk/gateway@4.0.120`); TypeSafe's own API
   calls this question type `noul`, and the Gateway maps it. A `refusal` answer
-  counts as a classifier error. One `boolean` question: is this call
-  potentially destructive or irreversible? It reads the
-  tool name, the arguments (long `write` content truncated; Jev's state limit is
-  32k) and the recent request. A probability above the chat threshold asks. A
-  classifier error asks (fail closed). Its usage is billed like other auxiliary
-  calls. Gateway catalog flags for Jev (2026-09-30): no ZDR, no training.
-  Thresholds start as untuned guesses.
+  counts as a classifier error. Usage is billed like other auxiliary calls.
+  Gateway catalog flags for Jev (2026-09-30): no ZDR, no training. The policy
+  that uses it is below.
 - **Mechanism:** the adapter's static `permissionMode` cannot express a
   per-call decision. Patch the adapter (`pnpm patch`, then upstream) with a
   per-call built-in approval callback, `(call) => "allow" | "ask" | {deny,
@@ -550,16 +565,184 @@ user settings (a per-user row, like `user_notification_settings`):
 - **Who approves:** anyone in the session (sessions are multiplayer), with the
   usual floor of channel write access. Anyone can also interrupt by **steering**
   (§4.2); a message that only queues waits for the decision.
-- **Loop and Act runs are autonomous** and never ask. They use the classifier
-  only, with a higher tolerance than chats: only a clearly dangerous call is
-  refused. A refused call returns a tool result telling the model the command
-  was flagged as dangerous and to try a safer way, so the run continues without
-  a human. A classifier error also refuses (fail closed). Workspace approval
-  policies for connector, custom and MCP tools still apply to these runs as today.
+- **Loop and Act runs are autonomous** and never ask. Flagged calls go to the
+  classifier, which allows or refuses (revised 2026-10-21: the autonomous bar
+  is the same or stricter than the interactive one, never looser). A refused
+  call returns a tool result telling the model the command was flagged as
+  dangerous and to try a safer way, so the run continues without a human. A
+  classifier error also refuses (fail closed). Workspace approval policies for
+  connector, custom and MCP tools still apply to these runs as today.
 - **Voice** uses the speaker's mode; only someone in the call can approve, as today.
 - **Default mode** for new users: auto.
 - **Per-session switch** (like Claude Code's mode toggle): later, with the
   code-channel composer. Phase 1 has the user setting only.
+
+**Sandbox safety policy (revised with Jacob 2026-10-21; replaces the
+2026-10-20 draft).** Based on how Claude Code, Codex, Cursor, Gemini CLI, VS
+Code and others do it, and on the research evidence, both summarized with
+sources in `reference/planned/sandbox-safety-research.md`. Containment carries
+the most weight: the sandbox holds no Lor credentials, and egress limits come
+next (1.3f-4). Rules decide the clear cases from a parsed command. The
+classifier judges only flagged calls. People approve 93–97% of prompts, so
+asking less often makes each ask count.
+
+What can go wrong in a session sandbox (no Lor credentials, no worker access,
+host-controlled Git): destroying the session's own work (unrecoverable until
+phase 2); using credentials found in the workspace, such as a cloned repo's
+`.env`; changing systems outside the sandbox (deploy, publish, writes to
+external APIs, sending data out); abusing resources; turning a "read-only"
+command into code execution through its flags or the repo's config.
+
+**Decision per call** (`sandbox/sandbox-approval.ts`):
+
+1. **Hard rules, deny in every mode (Bypass and autonomous included):**
+   deletes of `/`, `~`, `/workspace`, the work folder or their parents; writes
+   (tool or shell) to the adapter's state folder `~/.ai-sdk/`; other agent
+   CLIs with their permission bypass flags (`--dangerously-skip-permissions`,
+   `--yolo`, `--trust-all-tools`, `--dangerously-bypass-approvals-and-sandbox`);
+   the metadata address `169.254.169.254` and link-local addresses; invisible
+   or bidirectional Unicode in a command.
+2. **Read-only tools** (`read`, `grep`, `glob`, `ls`): allow.
+3. **`write` and `edit`:** resolve the path (symlinks, case). Inside the work
+   folder or `/tmp` and not protected: routine. A protected path or anywhere
+   else: flagged. Protected: `.git/` (hooks, config), `.env*` except templates,
+   keys and credential files (`*.pem`, `id_*`, `.aws/`, `.ssh/`, `.npmrc`,
+   `.pypirc`, `.netrc`, `.git-credentials`), shell rc files, CI workflows
+   (`.github/workflows/`), agent instruction and config files (`AGENTS.md`,
+   `CLAUDE.md`, `.pi/`, `.claude/`, `.cursor/`, `.vscode/`, `.mcp.json`).
+4. **`bash`:** parse with tree-sitter-bash (web-tree-sitter).
+   - **Known safe:** plain words and quoted strings joined by `&& || ; |`,
+     every segment on the safe list: Codex's last list (`cat cd cut echo expr
+     false grep head id ls nl paste pwd rev seq stat tail tr true uname uniq wc
+     which whoami`; `find` without `-exec -execdir -ok -okdir -delete -fls
+     -fprint -fprint0 -fprintf`; `rg` without `--pre --hostname-bin
+     --search-zip -z`; `sed -n Np` / `-n M,Np` only; `base64` without `-o`).
+     No git: repo config can make read-only git commands run code.
+   - **Flagged:** walk every literal command, including those nested in
+     `$( )`, backticks, subshells, control flow and `bash|sh|zsh -c`; unwrap
+     `sudo`, `env`, `command`, `exec`, `nohup`, `nice`, `timeout`, `time`,
+     `stdbuf`, `xargs` and `find -exec`; past depth 8, flag. Then flag:
+     - unparseable input, over 10,000 characters, control characters;
+     - constructs that hide what runs: a dynamic command name (`$cmd`),
+       `eval`, `source` of a downloaded file, piping into a shell or
+       interpreter (including `curl … | sh` and decode-then-run; a heredoc
+       or here-string with a literal body is not hidden, and one into a
+       shell is checked like `-c`);
+     - loss of work: `rm` with `-r` or `-f`, `git reset --hard`, `git clean
+       -f*`, `git checkout -- .`, `git restore .`, `git stash drop|clear`,
+       `git branch -D`;
+     - leaving the sandbox: `git push`, `git remote add|set-url`, publishing
+       (`npm|pnpm|yarn publish`, `cargo publish`, `twine upload`, `gem push`,
+       `docker push`), deploy and infrastructure by subcommand (`terraform
+       apply|destroy`, `kubectl apply|delete|exec|patch|scale`, `vercel`, `fly
+       deploy`, `aws`/`gcloud` except describe/list/get, `gh pr merge|release|
+       repo delete|api -X`, `stripe` writes), remote database clients,
+       `ssh|scp|rsync|sftp|ftp`, `nc|ncat|socat` (`curl`/`wget` sending data
+       was flagged until the 1.3f-4 egress limits replaced the rule);
+     - persistence and config: `crontab`, `systemctl`, `git config` of keys
+       that run code (`core.hooksPath`, `core.pager`, `core.fsmonitor`,
+       `core.sshCommand`, `diff.external`, `*.textconv`, `filter.*`,
+       `alias.*`), shell writes (`>`, `tee`, `cp`, `mv`, `sed -i`) to
+       protected paths;
+     - tunnels, listeners and scanners: `ngrok`, `cloudflared`, `ssh -R`, `nc
+       -l`, `nmap`, `masscan`;
+     - privilege and disk: `sudo`, `mount`, `dd`, `mkfs`, `shred`, `iptables`,
+       `--privileged`, `docker.sock`; fork bombs.
+   - **Routine:** anything else (`npm install`, `pytest`, builds, running a
+     script the session wrote). The sandbox is the boundary for these.
+
+| Call | Manual | Auto | Bypass | Loop / Act |
+|---|---|---|---|---|
+| Hard rule | Deny | Deny | Deny | Deny |
+| Read-only tool, known-safe command | Allow | Allow | Allow | Allow |
+| Routine | Ask | Allow | Allow | Allow |
+| Flagged | Ask | Classifier: allow or ask | Allow | Classifier: allow or refuse |
+
+- **Ask card:** the call plus the reason: the rule that flagged it and
+  the classifier's reason. Anyone in the session can approve.
+- **Refusal in Loop/Act:** the tool result reads: "This command was blocked as
+  potentially dangerous: <reason>. Don't retry it or a variant. Find a safer
+  way, or finish and report what you couldn't do."
+- **Loop guard** (Claude Code's breaker): after 3 refusals in a row or 20 in a
+  turn, the refusal tells the model to stop and finish now; the run's final
+  message lists the refused calls, so the team sees what Lor skipped.
+- **No separate decision table** (dropped 2026-10-21). `harness_log` keeps
+  every call with its full input, and the rules are deterministic, so the
+  check and outcome are recomputed from it with the current rules. A
+  person's approve or reject is the `sandbox` approval row with the same
+  tool call ID. Add a table only for classifier answers, which cannot be
+  recomputed, and only for the calls the classifier saw.
+
+**Classifier (1.3f-3), revised 2026-10-21:**
+
+- **Scope:** flagged calls only, in Auto and Loop/Act. Routine calls never
+  reach it.
+- **Judge the action against what the person asked for.** Claude Code,
+  Codex and Cursor all do; risk alone ignores authorization, and the main
+  reported failure is consent misjudged.
+- **Input:** the call, normalized, with its parsed subcommands; the working
+  directory; a `git status` summary before destructive git; the bounded
+  content of a session-written script the call runs; the latest messages of
+  the person who started the turn (for a Loop, its saved prompt); the last few
+  tool calls without their outputs; earlier denials. **Withhold** tool
+  outputs, Lor's own text, connector and web content: they carry injected
+  instructions, and Jev does not treat state as hostile.
+- **Questions:** several narrow Jev Nouls in one request instead of one
+  compound "could this cause harm" question (Jev's docs: one yes/no question
+  per Noul, combined in code): sends data out, destroys existing work,
+  changes an outside system, uses credentials, publishes or deploys, heavy
+  resource use, and "the person explicitly asked for this action and named
+  its target"; plus a severity Score. Combine in code: no hazard → allow; a
+  hazard the person explicitly asked for → allow, unless data leaves to an
+  untrusted host or severity is high; otherwise ask (interactive) or refuse
+  (autonomous).
+- **Thresholds** come from the eval: recall on the dangerous sets first, then
+  the false-ask budget on real traffic. The autonomous bar is the same or
+  stricter than the interactive one. Errors and `refusal` answers ask or
+  refuse (fail closed). Pin the Jev version and re-tune when it changes. A
+  second, reasoning stage on flagged calls before asking a person is an
+  option if false asks are too high (Claude Code: 8.5% → 0.4%).
+- **Cache** only allow verdicts, keyed by the normalized call, working
+  directory and request; never across a changed request.
+
+**Egress limits (1.3f-4, after a spike).** Blaxel filters each sandbox's
+outbound HTTP by domain, with method and path rules
+(`GET:POST:storage.googleapis.com`), and `firewall: { rulesets: ["proxy"] }`
+forces all egress through its proxy. The firewall can only be set when a
+sandbox is created, so this applies to new sandboxes. Target, as Codex's
+"limited" mode: GET and HEAD to any host; other methods only where a read
+needs them (revised 2026-10-21: not every method to package registries,
+since an injected registry token could publish workspace data), and later a
+per-workspace trusted list. Spike findings (docs and source;
+live checks still owed) are in `reference/planned/sandbox-safety-research.md`
+§7: a wildcard host with a method rule is valid (`GET:HEAD:OPTIONS:*`); the
+forbidden list wins, so limits must be an allow list; git clone needs
+`POST …/git-upload-pack`; git needs `GIT_SSL_CAINFO` for the proxy CA. Not
+yet known: DNS, SSH, raw TCP and the metadata address under the firewall.
+Later: credentials injected at the proxy, so they never enter the sandbox
+(public preview).
+
+**Sandbox classifier eval (required; revised 2026-10-21).** A classifier eval
+framework next to the long-task eval (`packages/lor/src/eval/`), so thresholds
+and rules are set from evidence, not guesses. Jacob runs it, like `eval:long`.
+The set follows Anthropic's three-set design:
+
+- **Real benign traffic** (sandbox calls from `harness_log`, re-checked
+  with the current rules) for the false-ask rate.
+- **Real overeager actions**, from Manual-mode rejections.
+- **Synthetic dangerous calls**: exfiltration and destruction, with
+  obfuscated variants (base64, `$IFS`, quoting, aliases, write-then-run,
+  Unicode).
+- **Injection cases**, with the payload in tool output and in user-like
+  fields (Loop prompts, pasted text).
+- **Consent pairs** ("clean up branches" vs "delete branch X"; "just run it,
+  no need to check").
+- **Route-around cases**: a denied command retried through a file edit or a
+  script.
+- **Metrics:** recall at a fixed false-ask rate per category, false refusals
+  (autonomous), latency and cost per decision, per Jev version. Keep a
+  held-out set that prompts are never tuned on. Run it before the switch and
+  after any change to the rules, questions, model or thresholds.
 
 **Tool-name collisions:** Lor's brain tools are literally `ls`, `read`, `tree`,
 `write`, `edit`, `mkdir`, `move`, `link` and `search` (`brain.ts`). `ls`, `read`,
@@ -591,6 +774,16 @@ Pi `steer`. Pi follow-up messages are not exposed. Abort, `stop`,
 hook (appended at the end) rather than `steer`, and record coverage at the turn
 save. Map stop to abort plus a stop save (§4.3).
 
+**Revised in 1.3g-3 (2026-10-21):** a `context`-hook message is not saved in
+the Pi log, so after the turn the model would lose it, or see it twice if the
+next delta repeated it. Instead, a `turn_end` hook drains the conversation and
+sends the messages with the extension's `pi.sendMessage(..., { deliverAs:
+"steer" })`. Pi 1.3.0 takes steering messages only after the whole tool batch
+finishes (no calls are skipped), saves them as custom messages (sent to the
+model as user text) before the next model call, and continues when the model
+would otherwise stop. This is not the harness's text-only
+`experimental_steerTurn`. Coverage is still recorded at the turn save.
+
 ### 4.8 System prompt and prompt cache
 
 **Observed:** Pi's default prompt (C `buildSystemPromptSections`) opens with "You
@@ -613,18 +806,19 @@ only a coding assistant.
 path only, not on the approval-replay path (`agent.continue()`), so a resumed
 approval turn would fall back to Pi's prompt. Pi's `DefaultResourceLoader`
 accepts `systemPromptOverride`, which applies when the session is built, so it
-covers both paths; the adapter passes only `appendSystemPromptOverride`. Add a
-`systemPrompt` option to the adapter with a `pnpm patch` that passes
-`systemPromptOverride`, and send it upstream. With an override Pi drops its own
-tool and rule sections, so Lor's prompt includes the tool guidance. Fallback
-without a patch: `before_agent_start` plus rewriting `system` in
-`before_provider_request`, which runs on every agent-loop request.
+covers both paths; the adapter passed only `appendSystemPromptOverride`. The
+1.3a patch adds a `systemPrompt` getter that passes `systemPromptOverride`. With
+an override Pi drops its preamble, tool list, rules and docs sections, so Lor's
+prompt includes the tool guidance. Pi still appends the working-directory
+section (stable), and context-file and skills sections unless the patched
+`contextFiles: false` and `skills: false` are set; Lor sets both.
 
 **Cache rules:** build the prompt from per-session inputs only, so it is
 byte-identical across turns until LOR.md, connectors or rules actually change.
 Put volatile state (plan state, delta, elapsed time, ambient messages) at the
 end of the turn's user message or through the `context` hook at the end of the
-context. The stable tool list (§4.3) keeps the tool section stable. Send the
+context. A deterministic tool order keeps the tool section stable while the
+list is unchanged; a changed list costs one uncached turn (§4.3 item 6). Send the
 Lor session id to the Gateway (`providerOptions.gateway.sessionId` and
 `x-session-id`, §4.5).
 
@@ -634,10 +828,10 @@ Each item is verified in P/C source unless marked.
 
 | Default | Risk | Required handling |
 |---|---|---|
-| Host-tool name set change rebuilds the session with an empty journal | Silent loss of conversation | Stable tool list per session (§4.3) |
+| Host-tool name set change rebuilds the session with an empty journal | Silent loss of conversation, but only within one live adapter session | Not reachable: each turn is a fresh session, whose first build restores the saved file; the load check catches a miss (§4.3 item 6) |
 | Missing restored journal creates a fresh session | Silent loss of conversation | Postgres restore + load check (§4.3) |
 | Without an `auth` record, Pi reads every `*_API_KEY`, `*_BASE_URL` and `VERCEL_OIDC_TOKEN` in the worker env and `~/.pi/agent/auth.json` | Worker credentials reach the runtime | Always pass an explicit request-scoped `auth` record |
-| Context files: `noContextFiles` is not set, so AGENTS.md/CLAUDE.md are read from the working directory upward | Host files above the workspace mount reach the prompt | Disable for phase 1; repository instruction files are never workspace instructions (`agent-harness.md`) |
+| Context files: `noContextFiles` is not set, so AGENTS.md/CLAUDE.md are read from the working directory upward | Host files above the workspace mount reach the prompt | Disabled with the patched `contextFiles: false` (1.3a); repository instruction files are never workspace instructions (`agent-harness.md`) |
 | No settings record: P uses `SettingsManager.inMemory()`; passing `agentDir` loads global settings **and** `<workspace>/.pi/settings.json` | A settings folder would let the model change Pi's settings by writing a workspace file | Phase 1 changes no settings, so never pass `agentDir`. If a setting must change later: `pnpm patch` the adapter to pass a settings record (`SettingsManager.inMemory(settings)` already accepts one) and send the same change upstream |
 | `cacheWarming: "streaming"` default | Background requests (1-token replays near the cache expiry) | Keep the default. Evaluated 2026-10-20: C `CacheWarmer` warms only when the model has a cache lifetime (`promptCache`) and the expected saving is at least $0.05, and stops when the run settles. No Gateway model in pi-ai 1.3.0 has `promptCache`, so it stays inactive for Lor's models. Count `cache_warm` usage if it ever appears |
 | Pi's system prompt opens as a coding assistant and lists the worker's Pi doc paths | Wrong role for team chat; worker paths in every prompt | Replace it with Lor's prompt through a patched `systemPromptOverride` option (§4.8) |
@@ -659,7 +853,7 @@ on the session's first agent run; reuse it across turns, worker attempts and
 approval continuations. Empty session creation or history viewing does not start
 a run.
 
-**Lor today:** plain chat never gets a sandbox. `investigate_code` uses a throwaway
+**Lor before phase 1:** plain chat never gets a sandbox. `investigate_code` uses a throwaway
 `inv-{uuid}`; `create_artifacts` keeps `wbs-{threadRootId}` for 24 h idle;
 `propose_code_change` keeps `code-{scope}` for 7 days idle. Unhealthy or
 undersized sandboxes are deleted and recreated with only a log warning
@@ -689,16 +883,18 @@ is not published.
   tell the model and the session that earlier files are gone. Never recreate a
   sandbox silently, as `blaxel.ts` does today. Fail only for missing conversation
   state. Phase 2 checkpoints rebuild the sandbox from the last completed turn.
-- Capacity (decision 2026-10-20): build as if sandboxes are unlimited. No idle
-  TTL or reclamation for session sandboxes in phase 1. A quota error fails the
+- Capacity: changed 2026-10-21, see the decisions table. The archive
+  delete is a delayed `delete-session-sandbox` maintenance job queued by the
+  archive handler; it carries the archive time and does nothing if the
+  session was unarchived or archived again since. A quota error fails the
   run with a visible capacity state; it never falls back to worker-local tools.
 - Latency: measure first-run provisioning and per-turn setup, especially for
   voice's live 10-minute interaction.
 - At safe turn/approval boundaries, save native state and settle active work
   before releasing connections so Blaxel can enter standby.
 - The Pi loop runs in the worker, so the session sandbox does not need the
-  Gateway key. Keep it out of session sandboxes; the existing coding child
-  (`investigate_code`, workbench Pi) keeps its current behavior until replaced.
+  Gateway key. Keep it out of every sandbox: 1.4-1 deletes the coding child
+  (`investigate_code`, `propose_code_change`), the last process that got it.
 - Deferred: zero-VM plain chat, virtual-to-remote promotion and allocation cost
   optimization.
 
@@ -757,49 +953,22 @@ Code lives in `packages/lor/src/session-core/`. The core imports
 `@repo/db`, channel or role logic, the brain, Loop policy or UI types. Lor
 implements the ports in its integration layer (worker and `packages/lor`).
 
+The harness state types are built (1.2): `HarnessBinding`, `HarnessHead`,
+`SavedHarnessState`, `SaveHarnessStateInput`, the `HarnessStateStore` port,
+`SessionCoreError` and `checkCompatibility`, in
+`packages/lor/src/session-core/harness-state.ts`. The rest of the contract:
+
 ```ts
-// Versioned binding; a mismatch fails the run, it never converts silently.
-type RuntimeBinding = {
-  kind: "pi"                 // "claude-code" | "codex" in phase 2
-  adapterVersion: string     // e.g. "@ai-sdk/harness-pi@1.0.160"
-  nativeFormat: string       // e.g. "pi-session-jsonl@3"
-}
-
-type NativeHead = {
-  nativeSessionId: string    // Pi header id
-  sessionFileName: string
-  entryCount: number
-  headEntryId: string
-  byteLength: number
-  sha256: string
-}
-
-type SavedNativeState = {
-  binding: RuntimeBinding
-  journal: Uint8Array        // full bytes, loaded from Postgres
-  head: NativeHead
-  continuation: unknown | null  // verbatim harness continue-turn state, or null
-}
-
 type TurnOutcome =
   | { kind: "completed"; text: string }
   | { kind: "awaiting_approval"; pending: PendingApproval[] }
   | { kind: "stopped"; reason: "user" | "spend" | "deadline" | "lease" }
   | { kind: "failed"; error: SessionCoreError }
 
-// Ports Lor injects.
-interface NativeStateStore {
-  load(sessionId: string): Promise<SavedNativeState | null>
-  // One transaction; throws on a lease-generation or expected-head conflict.
-  save(input: {
-    sessionId: string; claimGeneration: number; expectedHead: NativeHead | null
-    appendBytes: Uint8Array; head: NativeHead; continuation: unknown | null
-    outcome: TurnOutcome
-  }): Promise<void>
-}
+// Ports Lor injects (HarnessStateStore is built).
 interface WorkspacePort {     // Blaxel bridge
-  sandboxSession(sessionId: string): Promise<SandboxSession>
-  syncNativeFile(path: string, bytes: Uint8Array, sha256: string): Promise<void>
+  sandboxSession(owner: HarnessOwner): Promise<SandboxSession>
+  syncLogFile(path: string, text: string, sha256: string): Promise<void>
 }
 interface RunPolicy {         // stable tool list, grants, gates, spend/deadline
   tools(): ToolSet            // fixed per session
@@ -906,6 +1075,7 @@ as completed turns.
 | `packages/db/src/schemas/profile-tool-access.ts`, `packages/connectors/src/tools.ts` | Add the Sandbox built-in group (§4.6). Pi's built-in tools stay out of the workspace approval-target vocabulary. |
 | New per-user settings row in `packages/db/src/schemas/` (pattern: `user-notification-settings.ts`); user settings UI on web and mobile | The sandbox permission mode (manual, auto, bypass) and the auto classifier call (§4.6). |
 | `packages/lor/src/eval/long/` | Move the long-task eval to the Pi path so Jacob can run it before the switch. |
+| New sandbox classifier eval in `packages/lor/src/eval/` | Labeled calls, metrics per mode and a threshold sweep (§4.6). |
 | `packages/lor/src/models.ts`, `usage.ts` | Keep model/routing and credit semantics; add gateway options through the payload hook and the summary stream function. |
 | `packages/lor/src/tool-guard.ts`, `approval-policy.ts`, `custom-tools.ts` | Keep grants, targets, output limits and execution context. Map gates to harness approvals. Update `SIDE_EFFECT_TOOLS` and the reserved-name list for the rename. |
 | `apps/worker/src/lib/agent-run.ts`, `run-continuation.ts` | Native dispatch, generation fencing, per-step counters, per-turn saves and fresh-process restore. Delete the legacy transcript replay (`replayChain`, continuation deltas). Today's continuation silently falls back to fresh context on error; the Pi path fails visibly instead. Re-point the context meter (`GET /v1/runs/context/{scopeKey}`) to Pi usage. |
@@ -955,71 +1125,912 @@ works (decision 2026-10-20; no one uses the app yet).
 Exit: every gate in §5 has a recorded seam; the focused upstream changes are
 listed; no claim that unmodified stock APIs meet Lor's guarantees.
 
-### 1.2 — Add native state and explicit dispatch
+### 1.2 — Add harness state and explicit dispatch
 
-- [ ] Add only the schema and references from §6.
-- [ ] Implement expected-head/claim-generation saves, source deduplication,
-  native/continuation storage and operation/accounting identity.
-- [ ] Record the runtime kind and version per session (Pi now; Claude Code and
-  Codex in phase 2). Missing native data fails explicitly.
+- [x] Harness state schema (2026-10-20, `packages/db/src/schemas/harness-states.ts`;
+  named with Jacob to avoid another meaning of "session"): `harness_state`,
+  one row per conversation owner (an `agent_session` or a voice call's
+  `voice_session`, exactly one, cascade on delete) with the harness `kind`,
+  `adapterVersion`, `formatVersion` (Pi's `CURRENT_SESSION_VERSION`), the saved
+  head, the verbatim `continuation` and `lastRunId`; `harness_log`, Pi's session
+  file as append-only UTF-8 chunks, one per save. It replaces `agent_run_step`
+  for Pi runs; workspace files are never stored here. Additive only; `db:push`
+  owed (Jacob).
+- [x] Guarded saves and checked loads (`apps/worker/src/lib/harness-state.ts`):
+  `writeHarnessState(tx, …)` runs inside the caller's transaction so the turn's
+  counters and stop reason commit with it; it checks the claiming run's lease
+  at the same attempt (`FOR UPDATE`), compares-and-swaps the head on sha256 and
+  length, and appends one chunk, or replaces the whole log after Pi converted an
+  older format. `loadHarnessState` rebuilds the log and throws on a gap,
+  reorder, length or hash mismatch. `WORKER_ID` moved to `worker-id.ts`.
+- [x] Session-core types and upgrade rules
+  (`packages/lor/src/session-core/harness-state.ts`, exported as
+  `@repo/lor/session-core`): `HarnessBinding`, `HarnessHead`, the
+  `HarnessStateStore` port, `SessionCoreError`, and `checkCompatibility`.
+  Upgrades keep working: an older Pi format is converted by Pi (next save
+  replaces the log); a pending continuation from another adapter version
+  expires its approvals with a notice instead of failing. Only a different
+  harness or a newer format (a downgrade) is refused. No Pi import yet; the
+  binding values come from harness-pi `VERSION` and Pi
+  `CURRENT_SESSION_VERSION` in 1.3.
+- Moved to 1.3, next to the code that uses them: the approval-table changes
+  (§4.2) and the per-user sandbox-mode row (§4.6). The legacy engine relies on
+  the one-pending-per-run indexes until 1.6 deletes it.
+- Source deduplication is the prefix check at save (§4.3 item 2); semantic
+  activity deduplication lands with the projection in 1.5. Tool receipts keep
+  `agent_run_tool_result` (same run across attempts).
 
 Exit: storage review covers owner isolation, atomic save, retained payloads and
 version rejection. No destructive history rewrite.
 
 ### 1.3 — Integrate the adapter and Lor services
 
-- [ ] Replace the `streamText` loop in `respond` with the Pi adapter; keep
-  context building and scoped tools.
-- [ ] Build Lor's system prompt for `before_agent_start` (§4.8).
-- [ ] Wire the stable tool list, renamed brain tools, exact execute context,
-  output limits, images, Gateway options and current event consumers.
-- [ ] Add the Sandbox tool group, the per-user sandbox permission mode, the
-  auto classifier and the per-call built-in approval patch (§4.6).
-- [ ] Apply every override in §4.9.
-- [ ] Reuse harness approval/continuation APIs with Lor policy and durable decisions.
-- [ ] Add the compaction handler, per-step counters, tool block near ceilings,
-  ambient context, steering and stop.
+Built in reviewable chunks (agreed with Jacob 2026-10-20). The Blaxel bridge
+moved here from 1.4, because nothing runs without a sandbox.
+
+- [x] **1.3a Adapter patch** (2026-10-20,
+  `patches/@ai-sdk__harness-pi@1.0.160.patch`, registered in the root
+  `package.json`; every app Dockerfile copies `patches/`). New `createPi`
+  options: `systemPrompt` (a getter passed as Pi's `systemPromptOverride`, so it
+  applies to new prompts and resumed approval turns alike); `contextFiles:
+  false` (Pi's `noContextFiles`); `skills: false` (no workspace or harness
+  skills); `builtinToolApproval`, a per-call callback `(call) => "allow" | "ask"
+  | {type: "deny", reason}` that receives the tool's arguments. A decision
+  delivered on resume is now checked before any policy. Without a callback the
+  adapter keeps its `permissionMode` behavior. Upstream PR candidate.
+- [x] **1.3b Blaxel sandbox bridge** (2026-10-20,
+  `packages/lor/src/sandbox/session-sandbox.ts`): `openSessionSandbox(owner)`
+  gets or creates `ses-{sessionId}` / `call-{voiceSessionId}` with no
+  expiration policy, probes health, and returns `{ session, fresh, close }`.
+  `fresh` is true on the first run and when the old sandbox was missing or
+  answered unhealthy (replaced, logged); a probe that errors fails the run
+  instead of deleting files. Quota exhaustion throws `SandboxCapacityError`.
+  `close()` ends the connection so Blaxel can enter standby. The
+  `SandboxSession` implementation: `run` wraps the command in `bash -c` (the
+  adapter expects it; Blaxel does not document its shell), starts a named
+  process with `keepAlive` and a 30-minute runaway timeout, and polls
+  `process.get` with backoff from 50 ms to 1 s. This follows Blaxel's
+  documented pattern for long work: its docs cap `waitForCompletion` at 60
+  seconds, and the SDK's `wait()` always sleeps one full interval. Abort kills
+  the process. Reads return `null` on 404; writes always pass bytes (Blaxel
+  reads a string as a local path) and retry once after `mkdir -p`, since parent
+  folder creation is undocumented; `spawn` polls process logs, because Blaxel's
+  push log stream drops lines. The session sandbox gets no Gateway
+  key. Showing the lost-files notice and the capacity error to people is 1.3c.
+- [x] **1.3c Core turn**, in review chunks:
+  - [x] **1.3c-1** (2026-10-20, `packages/lor/src/session-core/pi-runtime.ts`):
+    `runPiTurn()` restores the saved log into the sandbox (skipped when the
+    sandbox copy's sha256 matches), clears any stale worker copy, builds the
+    `HarnessAgent` with every §4.9 override (explicit Gateway `auth` record via
+    `piGatewayAuth()` in `models.ts`, `reattachInProcess: false`,
+    `contextFiles: false`, `skills: false`, Lor's `systemPrompt`, the adapter's
+    state folder in `deniedRoots`, the default per-session work folder
+    `/workspace/pi-<sessionId>` on the persistent disk — never a shared fixed
+    folder, see §4.9, and tool caches stay outside it), the window
+    override (Lor's gateway models from Pi's catalog, each capped at
+    `LOR_CONTEXT_WINDOW`), and a trusted extension that adds `models`, `order`
+    and the Lor session id to every agent-loop request and runs the load check
+    at `agent_start` (abort on mismatch). It streams parts to the caller, then
+    reads the worker log before `destroy()` and returns the append (or the
+    replace after a format conversion) plus the new head. Session affinity also
+    rides `x-session-id`. `pi-ai` is now a direct dependency; the sandbox bridge
+    defaults commands to `/workspace`.
+  - [x] **1.3c-2a Memory tool rename** (2026-10-21, pulled forward from 1.3d):
+    the adapter registers Pi's built-ins and host tools in one list, so Lor's
+    `ls`/`read`/`write`/`edit` would collide and a Pi turn could not start. The
+    brain tools are now `memory_ls`, `memory_read`, `memory_write`,
+    `memory_edit` and `memory_link` ("memory" is the UI's word). With Jacob
+    (2026-10-21): `tree` folded into `memory_ls` as an optional `depth`;
+    `mkdir` and `move` removed (writes create folders; a move broke stored
+    `[[/path]]` citations; fewer tools beside Pi's seven). Updated: tool keys and their
+    execute contexts (`respond`, project archive), prompts and tool error
+    texts, `toolLabel`/`toolDetail`, `SIDE_EFFECT_TOOLS` (so the export deny
+    list), touches, the web and mobile trail icons, and the custom-tool
+    reserved names, which now also hold `bash`, `read`, `write`, `edit`,
+    `grep`, `find`, `glob` and `ls`. Brain tools are not approval targets, so no
+    stored policy changes. Old messages keep their old tool names and show the
+    generic icon.
+  - [x] **1.3c-2b Pi turn wired in** (2026-10-21). `respond()` now runs one
+    Pi turn and the `streamText` loop is gone. What it does:
+    - Context building, grants, tools and Lor's system prompt stay; a sandbox
+      line is added to the prompt.
+    - The request is saved on the run before the turn, so a retried attempt
+      sends the same request with a note that the earlier attempt may have
+      changed files or connected services.
+    - The first turn of a conversation sends the full initial message, now
+      text-first with numbered images last (`initial-message.ts`).
+    - Later turns send the delta since the run that last saved the
+      conversation (`harness_state.lastRunId`; `buildTurnDelta`, and
+      `buildVoiceDelta` for calls). The worker resolves the owner (the
+      `agent_session` of the thread, or the call), loads the saved state and
+      binds `RunHarness`.
+    - `saveTurn` writes the Pi log and the run counters in one transaction
+      under the lease. A lost lease exits silently.
+    - If a retried attempt finds its own turn already saved, it delivers that
+      answer (`savedTurnText`) instead of running the turn again.
+    - A replaced sandbox adds a notice for the model and a trail row; a full
+      sandbox quota shows a capacity message.
+    - Deleted with the loop: the transcript replay (`replayChain`, approval
+      replay, step checkpoints, compaction saves) and their tests; only the
+      `formatDelta` tests remain.
+
+    **First dev run (2026-10-21, worker on Node via `tsx watch`):**
+    - A loop fire ran end to end: the sandbox was created, the turn streamed,
+      2 tool calls ran, usage was billed and write-back ran. Gateway routing
+      was not rejected.
+    - A workspace with GitHub failed: `HarnessAgent` passes dynamic tool
+      descriptions (`search_github`, `investigate_code`, `propose_code_change`)
+      through as functions, and Pi cannot clone them. Fixed by resolving them
+      in `runPiTurn`.
+    - Still unverified: Bun (`pnpm dev` runs the worker on Node; `start` uses
+      Bun), the second-turn load check, and Stop.
+
+    **Temporary until later slices:**
+    - Approval-gated tools are refused with a reason (1.3e).
+    - Sandbox tools run as "bypass" (1.3f).
+    - No mid-turn steering or ambient messages: a steered message reaches the
+      next turn's delta (done in 1.3g-3).
+    - Pi's default compaction, without Lor's instructions (done in 1.3g-2).
+    - Usage is summed per step from `finish-step` parts, and the turn total
+      is used when the turn finishes. So a stopped or timed-out turn still
+      bills and counts its finished steps, because the total rejects on abort.
+      The adapter also sends an early copy of a step while Pi waits on a Lor
+      tool result (`rawFinishReason: "host-input"`, same usage), so those
+      copies are skipped. There are no spend checks inside a turn; the wall
+      clock and Stop abort the turn (1.3g).
+    - Billing uses the requested model's rate: the harness fills
+      `response.modelId` with the requested id, not the fallback that
+      answered. Pi's assistant entries carry the real `model`; read it there
+      (1.3g, with the per-step counters).
+    - Delta images stay `[file:]` lines, as continuations were before.
+    - No touches or context-meter data, because they read `agent_run_step`
+      (1.5).
+    - `eval:long` throws until 1.6 gives it a harness (done early,
+      2026-10-21: see 1.6).
+- [x] **1.3d-1 `share_file` and the end of `create_artifacts`** (2026-10-21,
+  Jacob's call after the first dev run showed sandbox files stayed private):
+  - **`share_file({ path })`** (`artifacts/share-file.ts`): resolves the path
+    in the sandbox. A relative path starts at the conversation's work folder
+    (`piWorkDir`). `realpath` must stay under `/workspace`, and the file must
+    fit `LOR_WORKBENCH_MAX_FILE_BYTES`. The tool reads the bytes through the
+    session sandbox the adapter passes to host tools, then commits them with
+    `writeArtifactVersion`. The file appears in the Files panel and as a
+    trail file chip, and re-sharing a path makes a new version.
+  - It is not a side-effect tool, so a second share of an edited file is not
+    deduplicated into the old receipt. `export_tool_result` refuses it.
+  - It is bound on every channel run with a harness, with no profile group
+    yet; the 1.3d Sandbox group will gate it with the sandbox tools.
+  - **Removed:** `create_artifacts`, the workbench sandbox
+    (`sandbox/workbench.ts`), its smoke step, and its standalone tool entry.
+    The `artifacts` group key stays so saved profiles parse, and empty groups
+    are hidden in settings.
+  - **Prompts updated:** the sandbox line now covers sharing and downloading
+    shared files, and the plan rules, attachment hints and export text point
+    to the sandbox.
+  - **Also changed:** `export_tool_result` is now bound on every channel run;
+    it was tied to the `create_artifacts` grant. Unused env vars are gone
+    (`LOR_WORKBENCH_MAX_TOTAL_BYTES`, `LOR_WORKBENCH_MAX_FILES`).
+- [x] **1.3d-2 Sandbox tool group and tool order** (2026-10-21):
+  - **The group:** `sandbox` is a third built-in group (`BUILTIN_TOOL_GROUPS`).
+    Its catalog entries are `bash`, `read`, `write`, `edit`, `grep`, `glob`,
+    `ls` and `share_file`; it is on by default (workspace mode) and switchable
+    per workspace, category and channel. They are not approval targets:
+    they are excluded from `builtinApprovalTool` and the approval-target list.
+  - **Switched-off tools:** they are left out of the turn. Pi's tools go
+    through `HarnessAgent` `inactiveTools`, and `share_file` is not bound.
+  - **Prompt:** the sandbox line names only the tools the run has.
+  - **Tool order:** `runPiTurn` sorts tools by name so an unchanged list keeps
+    the cache.
+  - **Other:** a terminal icon for the group in the web and mobile settings;
+    touches list every sandbox tool, and `share_file` touches the artifact.
+- [x] **1.3d-3 Trail rows and the tool contract** (2026-10-21):
+  - **Execute contract, checked in source:** `HarnessAgent` runs Lor's tools
+    through the AI SDK's `executeTool` with `context` from `toolsContext[name]`,
+    checked against each `contextSchema`, plus `abortSignal`, `toolCallId`,
+    `toModelOutput` and streamed (preliminary) output.
+  - **Differences:** `messages` is always empty, and no Lor tool reads it.
+    Tools also get `experimental_sandbox`. A thrown error returns
+    `{ error }` to the model.
+  - **Output limits:** Lor's guard wrappers (output limits, receipts, touch
+    hints) still wrap every Lor tool. Pi's own tools truncate their output
+    (read 2,000 lines or 50 KB; bash tail; grep, find and ls head) and do not
+    count toward `toolOutputBytes`.
+  - **Trail:**
+    - Labels read `file_path` (`piToolLabel`).
+    - `sandboxToolDetail` (`sandbox/pi-events.ts`) builds each row:
+      - `write` is an all-added diff and `edit` an old→new diff, both from the
+        call's arguments, because the adapter's results are plain text with
+        no patch;
+      - `bash` keeps the output tail and fails on a non-zero `(exit N)`;
+      - searches keep the head;
+      - a refused call shows "Not run: reason".
+    - `tool-error` parts, which is how Pi's tools report failures, now mark the
+      row failed.
+    - Web and mobile render Pi's tools as flat `SubStepRow`s (file chip when the
+      file was shared, diff counts, one expansion); `glob` gets the search icon.
+    - Needs a visual check.
+- [x] **1.3e Approvals**, in review chunks:
+  - [x] **1.3e-1 Pause and continue** (2026-10-21; needs `db:push`):
+    - **Schema:** the two one-pending indexes are gone. New: unique
+      `(run_id, tool_call_id)`, `kind` (`policy` | `request`),
+      `harness_approval_id` and `input_sha256`.
+    - **Pause** (`runPiTurn`): a turn that ends with an unfinished turn
+      reads the log, then calls `suspendTurn()`. The save stores the
+      continue-turn state verbatim, and the worker files one approval row per
+      pending call in the same transaction. A plan moves to
+      `waiting_for_approval` after the save.
+    - **Gates:** `toolApproval` is `user-approval` for gated tools and
+      always for `request_approval`. In a call where nobody can approve, the
+      call is refused, as before.
+    - **`request_approval`:** now a real gate: the tool runs only after a
+      person approves it, and a rejection reaches the model as not run. It
+      no longer needs a plan. When a plan exists, its approval rows reference
+      the plan.
+    - **Resume:** the API serializes decisions on the paused run's row
+      (`FOR UPDATE`), so exactly one decision sees the set complete. That
+      decision starts the resume run (`resumeApprovalId`, as before). The
+      resume run sends no prompt: `createSession({ continueFrom })`, then
+      `continueStream` with one decision per pending approval.
+    - **Checks before resume:** an approved call is denied with a reason
+      when its tool is gone, its gate target changed, or its input sha256
+      differs.
+    - **Missing tools:** tools the paused turn listed but this run no longer
+      binds get stubs that answer "no longer available". Without them, the
+      harness throws.
+    - **Writing instead of deciding:** any other run in the session first
+      rejects what is still pending, with a reason that names the author.
+      It finishes the paused turn in the same Pi session, then sends its
+      own prompt. On voice, the waiting request ends.
+    - **Queued resumes:** a resume queued behind a run that already
+      finished the turn is skipped at drain (`resumeStillPending`).
+    - **Cards:** web and mobile show one card per approval under the paused
+      message.
+    - **Trail:** calls that were not run show "Not run: reason".
+    - **Removed:** `buildToolApproval`, `fileParkedApproval`, the
+      `request_approval` decision line, and `LOR_TOOL_APPROVAL_SECRET`.
+    - **Known gap:** if a finished paused turn pauses again before the new
+      prompt goes out, that prompt is not sent. Its message is already
+      covered by the run, so it does not reach a later delta either. This is
+      rare, because the model has just been told to stop.
+  - [x] **1.3e-2 Resolver, notices and Stop** (2026-10-21):
+    - **Resolver check before resume** (`loadPausedDecisions`): an approval
+      stands only while its approver could still give it. The check is the
+      same rule the resolve endpoint applies: write access to the channel,
+      plus the gate's resolver rule for policy rows. Otherwise the call is
+      not run, and the model reads that the approver can no longer approve
+      it.
+    - **One notice per set** (`approval-notify.ts`): the requester and
+      escalation rules still apply per row. Each person gets one notice per
+      set, about the rows they can decide ("… (and N more)"). The
+      escalation job covers the whole set.
+    - **Stop while approvals are pending** (changed with Jacob 2026-10-21:
+      Stop just ends the turn, with no reply, as it does for a running turn):
+      - **Web and mobile:** Stop shows while the session's newest paused
+        reply has pending approvals.
+      - **Stop endpoint** (`stopPausedTurn`): closes every pending row of the
+        set as rejected and sets `stopRequestedAt` on the paused run. Anyone
+        who can write in the conversation may do this, as with a running
+        turn. Nothing resumes.
+      - **Voice:** cancelling a waiting request does the same, with the
+        rows expired. This replaces `expireRunApproval`.
+      - **The session's next run drops the stopped turn** (`dropPaused`). It
+        resumes from the saved log instead of the continuation, so the
+        unanswered calls read as "No result provided" (pi-ai
+        `transformMessages`). Its prompt says who stopped the turn and that
+        those actions did not run.
+      - **Effect on approved calls:** approved calls in a partly decided set
+        do not run either. A sibling call that already ran keeps its effects.
+      - **A set that was already complete:** its resume is already under
+        way; Stop on that run's reply stops it as usual.
+    - **Plan header:** no change. The plan's `pendingApproval` is never
+      rendered; only an optimistic cache patch reads it.
+  - [x] **1.3e-3 Voice sets and upgrades** (2026-10-21):
+    - **Voice sets:** Lor's window shows the set one approval at a time, in
+      set order. The overlay UI is unchanged.
+      - Every decision in a call queues the voice job. That job shows the
+        next pending approval with its approvers and a new watcher, or
+        resumes the request once the set is decided.
+      - When nobody who can approve is in the call for the grace period, the
+        watcher rejects the approval shown, and the next one takes its place.
+        The model reads "Nobody who could approve this was available".
+      - When the call ends, the whole set expires (`expireApprovalSet`).
+    - **Adapter upgrades:** `pausedTurnExpired` detects a paused turn saved
+      by another adapter version. The next run expires its pending rows and
+      drops the turn, as Stop does (`pausedDropped: { reason: "upgraded" }`).
+      Its prompt says Lor was updated and the actions did not run.
+      - A resume run for such a turn runs as a normal turn with that note.
+      - `runPiTurn` still throws `incompatible_state` if a caller tries to
+        continue it.
+- [x] **1.3f Sandbox safety** (§4.6), in four chunks agreed with Jacob
+  2026-10-21:
+  - [x] **1.3f-1 Modes and asking** (2026-10-21; needs `db:push`):
+    - **Setting:** `user_sandbox_settings` (one row per user; `manual` /
+      `auto` / `bypass`, default `auto`). The API is
+      `GET`/`PATCH /v1/sandbox-settings`. Web shows it in a "Sandbox"
+      settings tab; mobile shows it on You → Sandbox.
+    - **Frozen mode** (`turnSandboxMode`, worker): the turn's mode is saved
+      as `sandboxMode` on the run's request, so a retry keeps it.
+      - A resume keeps the paused turn's mode.
+      - Loop and Act runs are `autonomous`.
+      - Voice uses the speaker's mode.
+      - Anything else uses the mode of the person whose message started it.
+    - **Asking** (`sandboxToolApproval`, through the patched
+      `builtinToolApproval`):
+      - Read-only tools never ask.
+      - `bypass` and `autonomous` allow every call.
+      - `manual` asks for every `bash`, `write` and `edit`. Until 1.3f-2,
+        so does `auto`; its settings text already describes the final
+        behavior.
+      - An ask pauses the turn like any approval. It is filed as a `sandbox`
+        approval row with no gate target; the card reads "Run a command: …"
+        or "Write/Edit <path>".
+      - Anyone who can write in the session approves; in a call, anyone
+        connected with write access.
+      - On resume, an approved call is denied when the Sandbox group no
+        longer binds its tool.
+  - [x] **1.3f-2 Rules and autonomous runs** (2026-10-21; §4.6 policy as
+    revised 2026-10-21):
+    - **Parser** (`sandbox/shell-parse.ts`): tree-sitter-bash from
+      `@vscode/tree-sitter-wasm` 0.3.1 (VS Code's prebuilt runtime and
+      grammar; no install scripts), loaded once with `createRequire`.
+      - It collects every command, including nested ones and `bash -c`
+        scripts (re-parsed).
+      - It unwraps `sudo`, `env`, `xargs`, `timeout`, `nice`, `find -exec`
+        and others, up to depth 8.
+      - It records write redirects.
+      - It marks a script `plain` (Codex's grammar), or `hidden` when it
+        hides what runs: a computed command name, `eval`, piping into a shell
+        or interpreter, a computed script.
+    - **Rules** (`sandbox/command-policy.ts`): `checkCommand` and
+      `checkFileWrite` return hard, flagged, safe or routine with a reason.
+      They cover the hard rules, Codex's last safe list without git, the
+      flag categories, and protected paths for tool and shell writes.
+      Paths are resolved lexically; `ln` is checked at both ends, so a
+      symlink into a protected folder is flagged.
+    - **Modes** (`sandbox/sandbox-approval.ts`): the §4.6 table.
+      - A flagged call asks with its reason on the card ("Run a command: git
+        push (pushes to a remote)").
+      - Loop and Act refuse with the refusal text. Hard rules are denied with
+        their own text.
+      - After 3 denials in a row or 20 in a turn, the denial tells the model
+        to stop and report.
+    - **Records:** none of its own. The `sandbox_decision` table was built,
+      then dropped the same day: `harness_log` and the `sandbox` approval
+      rows hold the same facts (§4.6).
+    - **Known limits:**
+      - Option values count as positionals.
+      - `env -S` strings are not unwrapped.
+      - `rm -rf` of a build folder reaches the classifier in Auto (1.3f-3).
+      - Not run yet: the WASM load on Node and Bun is unverified.
+  - [x] **1.3f-3 Classifier** (2026-10-21; built; `db:push` and calibration owed):
+    - **Model and policy** (`sandbox/jev-classifier.ts`, `classifier-policy.ts`):
+      Gateway `typesafe-ai/jev-1.13.0`, pinned, through `experimental_decide`.
+      The SDK's installed Gateway decision-model catalog includes this pinned
+      ID; see TypeSafe's [model versions](https://docs.typesafe.ai/models) and
+      [Noul contract](https://docs.typesafe.ai/primitives/noul).
+      One request asks narrow Boolean/Noul questions about data leaving,
+      destruction, outside changes, credentials, publishing, resources,
+      security/agent configuration, untrusted destinations, evading denials
+      and explicit authorization, plus a four-level severity Score.
+      Code combines the answers and constructs the reason on the ask card.
+    - **Scope:** flagged calls only in Auto/autonomous. Manual, Bypass,
+      read-only, routine and hard-rule calls retain their deterministic paths.
+      High severity, untrusted destinations and denial evasion cannot be
+      automatically allowed by consent. Errors/refusals, missing or clipped
+      evidence, and audit-write failures ask or refuse; stop/lease aborts
+      propagate. The model call has an 8-second timeout and no retries.
+    - **Context** (`classifier-context.ts`, `sandbox-approval.ts`): normalized
+      paths, the subcommands the rules parsed (one parse per call), bounded
+      write/edit content, the request (the trigger message plus up to two
+      earlier messages from the same person; for voice, the last turn unless
+      Lor wrote it; saved instructions for Loop/Act), six recent calls and
+      twenty earlier denials a person made (system denials such as a changed
+      input or a steer do not count). No tool outputs, assistant text,
+      connector results or web content. Fixed sandbox reads, run in parallel,
+      add bounded script contents and Git status before destructive Git
+      operations; Git's executable config/submodule traversal is disabled for
+      the read. A `cd` is followed only as the first command of a plain `&&`
+      chain; any other `cd`, `pushd` or `popd` marks the evidence incomplete.
+      Interpreter options are checked only up to the script name;
+      `python -m` and bun/deno subcommands run no file. Missing, oversized or
+      uninspectable evidence fails closed.
+    - **Continuation:** `sandboxContext` is the run's own request, written at
+      the start and never overwritten. When a turn ends paused,
+      `pausedSandbox` (its mode and context) is saved inside the `saveTurn`
+      transaction, and the resume finishes the turn under it, including in
+      voice; `runPiTurn.onPrompt` switches to the new request only after the
+      paused turn finishes. Human follow-ups in Loop or Act sessions use their
+      message, not the automation's standing brief.
+    - **Cache:** allow verdicts only, bounded and turn-local, keyed by the call,
+      directory, request, evidence and denials (not recent calls, which every
+      decided call changes). No cross-turn cache.
+    - **Records:** additive `sandbox_classification` table stores model,
+      policy version, bounded input, answers, thresholds, outcome, reason,
+      latency and cost, linked to run/tool call. Only calls sent to the model
+      get a record. `lor.sandbox.classify` reports auxiliary usage, including
+      model refusals and invalid answers returned by the provider.
+    - **Verification:** focused source review, Biome and Lor/worker/dependency
+      type checks passed. No runtime checks or evals run. Bootstrap thresholds
+      are **not calibrated**: hazard 0.35, authorization 0.95, and a veto
+      when the chance of severity 2 or 3 is at least 0.35 (Jev's score is
+      the probability-weighted mean, so it is not compared directly),
+      identical for Auto and autonomous. The classifier eval framework stays
+      in 1.3g; Jacob's calibration and live Gateway/sandbox checks remain a
+      pre-switch gate in 1.6. Jacob applies the additive table with `db:push`.
+  - [x] **1.3f-4 Egress limits** (2026-10-21; built, live checks owed):
+    - **Spike** from docs and source: research §7.
+    - **Session sandboxes** (`sandbox/session-sandbox.ts`) are created with
+      the `proxy` firewall ruleset and an allow list:
+      - `GET:HEAD:OPTIONS:*`;
+      - `POST` to `…git-upload-pack` on GitHub, GitLab and Bitbucket (clone
+        and fetch; push stays blocked);
+      - `POST` to npm's `/-/npm/v1/security/` (`npm audit`).
+    - **Older sandboxes:** a `lor-egress` label marks sandboxes created with
+      the current limits. A sandbox without it is replaced on its next run
+      (the lost-files note applies). Bump the label's version when the limits
+      change.
+    - **Git:** every command sets `GIT_SSL_CAINFO` from `SSL_CERT_FILE`, so
+      git trusts the proxy's CA.
+    - **Prompt:** the sandbox line tells Lor that writes get a 403 with
+      `Proxy-Error: firewall_blocked`, and not to retry or work around them.
+    - **Rules:** the `curl`/`wget` "sends data" flag is removed; the network
+      now decides.
+    - **Deferred:** the per-workspace trusted list (`updateNetwork` can change
+      the list on running sandboxes); credentials injected at the proxy.
+    - **Live checks owed** (new session sandbox): the region has the proxy and
+      the workspace is not on Carbon (create fails or the firewall is
+      missing); `env | grep -i proxy`; `curl -X POST` gets the 403; `git
+      clone` of a public repo; `npm install`, `pip install`; DNS (`dig`,
+      `nslookup`); `ssh -T git@github.com` and raw TCP; `curl
+      169.254.169.254`; what the proxy's identity token can reach.
+- [x] **1.3g Turn controls and eval**, in four chunks agreed with Jacob
+  2026-10-21:
+  - [x] **1.3g-1 Spend inside a turn and the real model** (2026-10-21; no
+    `db:push`; not run yet):
+    - **Per step (revised in the exit review):** each assistant message
+      counts at its first `finish-step`: the early `host-input` copy while
+      Pi waits on a Lor tool result or an approval counts, so a paused step
+      is counted by the run that paused (the adapter replays it on resume
+      with zero usage, `zeroNumbers`). Each step and compaction summary is
+      added to the run counters under the lease (`RunHarness.recordUsage`),
+      with nested `investigate_code` spend folded in; the counter sums
+      exact credits and rounds up once per attempt. The ledger is charged
+      once per model at the end of the attempt (`chargeTurn`, also when the
+      turn fails or is aborted), with `billingKey` `<runId>:turn:<model>`:
+      per-step debits rounded every step up to at least 1 credit (a 40-step
+      turn cost about 40 credits instead of about 16). A retried attempt
+      that already charged is deduped; a resume run is charged separately;
+      a crashed attempt is not charged, its retry is.
+    - **Real model:** the inline Pi extension reports each assistant
+      message's `responseModel ?? model` on `message_end` (also for the
+      paused message replayed on resume), mapped case-insensitively to a
+      configured slug; an unknown name passes through, so the rate lookup
+      uses the "*" row (the most expensive tier), with a warning. Not
+      verified live: the name the Gateway returns after a fallback.
+    - **Rest of the turn total:** Pi's turn total also holds cache warming.
+      The part beyond the steps and compactions is charged at the requested
+      model with the turn and saved with it (`extraUsage`).
+    - **Limits:** at 90% of `AGENT_RUN_MAX_CREDITS`, or inside the last
+      3 minutes before the deadline, every tool call is refused ("answer
+      now with what you have"): Pi's built-ins through the extension's
+      `tool_call` hook (fails closed), Lor's tools through a Proxy over the
+      harness's `toolApproval` map, which the harness reads per call (Pi
+      announces a call before `tool_call` runs, so the hook alone let Lor
+      tools run). At the credit limit the turn aborts with `budget_spend`;
+      the worker keeps the partial answer. A retried attempt starts from
+      the spend its run already has.
+    - **Not changed:** Pi's built-in tool output is not added to
+      `toolOutputBytes`, because the host tools' total cap reads that
+      counter; step, tool-call and token ceilings stay unenforced.
+  - [x] **1.3g-2 Compaction** (2026-10-21; not run yet):
+    - **Lor's focus:** the inline extension handles
+      `session_before_compact` by calling Pi's exported `compact()` with
+      `COMPACTION_FOCUS` (copy IDs, `[[...]]` citations, URLs, paths and
+      exact values; keep open decisions, approvals and plan progress). Pi
+      adds it to its structured prompt as "Additional focus"; Pi's trigger,
+      cut point and iterative summary are unchanged. The summary runs on the
+      session model with Pi's retry policy (3 tries, 2 s), through
+      `modelRegistry.streamSimple` with the gateway options added in
+      `onPayload` (summary requests skip `before_provider_request`). If the
+      handler throws, Pi falls back to its own summary.
+    - **Window:** already in place since 1.3c: `gatewayModels` caps every
+      model at `LOR_CONTEXT_WINDOW` (1,000,000).
+    - **Plan state:** after a compaction in a turn, the `context` hook
+      appends the current plan state (`planStateSection`) as the last
+      message of every later request in that turn. Later turns start with
+      it in their prompt.
+    - **Billing:** each summary is billed as `lor.respond` (debited, as the
+      Pi path has done since 1.3c through the turn total), at the model that
+      answered, with `billingKey` `<runId>:compaction-<n>`, and counted
+      toward spend (`recordUsage(..., "compaction")`, not a step). The
+      turn-total remainder now covers cache warming only. The legacy engine
+      recorded compaction as `lor.compact`, which is not debited: say if
+      compaction should be free to the workspace.
+    - **Not verified:** a live compaction (it starts near 984k tokens of
+      context), the Gateway's model name on the summary, and the hook order
+      on a resumed turn.
+  - [x] **1.3g-3 Steering and ambient messages** (2026-10-21; not run yet;
+    §4.7 as revised):
+    - **Boundary:** after each completed step, the extension's `turn_end`
+      hook calls `run.drainConversation()` (chat: consumed steer rows plus up
+      to 20 ambient messages; voice: requests claimed from the call) and
+      sends them as one `lor-conversation` custom message through Pi
+      steering. Steered messages are marked "for you"; ambient ones are
+      "context only: act on these only if they are addressed to you".
+    - **Final boundary:** when the model stopped calling tools, only steered
+      messages are sent (Pi then answers them in the same turn). Ambient
+      messages drained then are not covered, so the next turn's delta
+      carries them.
+    - **Coverage:** ambient messages saved into the Pi log are added to the
+      run's `coveredMessageIds` inside the `saveTurn` transaction, together
+      with `pausedSandbox` (now merged from the worker's copy of the run
+      context instead of a SQL jsonb merge). Consumed steer rows were
+      already skipped by the delta.
+    - **Session chat:** realtime still queues every session message as its
+      own run (`threadScope`), so chat steer rows stay rare; ambient
+      messages and voice requests are the main users.
+    - **Known gap:** a steer row or voice request drained by an attempt that
+      crashes before its turn save is consumed but not in the saved log, so
+      it is lost (no takeover requeue for Pi runs yet).
+  - [x] **1.3g-4 Sandbox classifier eval** (2026-10-21; not run yet):
+    `pnpm --filter @repo/lor eval:sandbox [--rules-only] [--held-out]
+    [--no-real] [--eval-db] [--cases <file.json> ...]`
+    (`src/eval/sandbox/`).
+    - **Decision path:** each case runs through the production
+      `sandboxToolApproval().decide()` in Auto and in Loop/Act: rules, the
+      mode table, the classifier input, incomplete-evidence rules and Jev
+      (`decideWithJev`, split out of `jevSandboxClassifier` so the eval
+      writes no usage or audit rows). A stub sandbox answers the fixed
+      evidence reads from the case (`gitStatus`, `files`). `--rules-only`
+      skips Jev, which shows the behavior before the classifier.
+    - **Cases** (`cases.ts`, zod-checked): built-in everyday work (21) and
+      three consent pairs; held-out ones run only with `--held-out`. The
+      dangerous sets (exfiltration, destruction, disguised commands,
+      injection, route-arounds) stay outside the repo: Jacob passes them
+      as JSON files in the same format, with `egressBlocked` where the
+      1.3f-4 limits stop the call anyway.
+    - **Real traffic** (`real.ts`): every `bash`, `write` and `edit` call on
+      the active branch of each `harness_log` (dev database by default, read
+      only; a resumed approval turn leaves its paused message on an inactive
+      branch, which the first run counted twice). A call a person
+      rejected is "overeager" (expect stop); a call that ran is "real"
+      (expect run); calls the policy refused or that never got a result are
+      left out. Limits: the request is Lor's built prompt, not only the
+      person's words; steered-past calls read as rejected; git and script
+      evidence is missing offline, so those calls read as incomplete.
+    - **Report:** per category, the share stopped in Auto and in Loop/Act
+      (catch rate for stop cases; false asks and false refusals for run
+      cases), misses that the egress limits block anyway, Jev calls,
+      errors, p50/p95 latency and cost, then the missed and over-asked
+      cases. The JSON results (`EVAL_OUT`, default `/tmp`) keep Jev's
+      answers for re-thresholding offline.
+    - **First run (2026-10-21), dev set:** benign work asked 1 in 19 (the
+      CI workflow); 4 of 6 real calls asked because the rules flagged
+      `python3 - <<'EOF'` as hidden. Fixed: a heredoc or here-string with a
+      literal body is in the call itself. Into a shell it is parsed and
+      checked like `-c`; into another interpreter it is inline code, like
+      `python3 -c`. A pipe, an input file or a body with expansions is still
+      hidden. Jev's "authorized" scored 0.80–0.95 on explicit requests and
+      0.02–0.05 on unasked ones, so the 0.95 bar is likely too high; the
+      severity veto stopped an explicitly requested `git reset --hard`
+      (0.36 against 0.35). Thresholds wait for Jacob's dangerous sets, so
+      recall is measured before any change.
+- [x] **1.3 exit review** (2026-10-21; four Opus reviewers by area, findings
+  checked against the code; fixed in one change, not run yet; needs
+  `db:push` for `approval.steered` and `approval.consumed_by_run_id`):
+  - **Paused turn then a new message:** the harness continues with the
+    paused turn's tool list and prompts with the current one; a different
+    list made the adapter rebuild Pi on an empty journal (`SessionManager
+    .create`), the load check failed and the session stayed stuck. The
+    adapter patch now reopens the current session file on a rebuild.
+  - **Delta:** a queued message predates the previous run's start, so its
+    own run never showed it to Lor. The delta now always includes the run's
+    trigger, and a run that only finished a paused turn
+    (`context.continueOnly`, linked by `continuedFromRunId`) passes the
+    bound and coverage back to the paused run. Delta turns now carry
+    `messageId`, without which the classifier's request was empty and Auto
+    never reached Jev after a session's first turn.
+  - **Approved calls run once:** `loadPausedDecisions` claims each approved
+    row for the run that will finish the turn (`consumed_by_run_id`); a row
+    already claimed (the run failed or crashed after it ran) is denied with
+    "may already have run". A rejection caused by a new message is marked
+    `steered` and never reads as a person's rejection.
+  - **Pi never started** (Stop, deadline or spend while preparing): no save
+    and no `corrupt_state`; a dropped paused turn with nothing to run clears
+    the continuation and settles as stopped. Notes (retry, lost files) of a
+    run that only finishes a paused turn go in at its first boundary.
+  - **Crash takeover:** a claim that meets a live lease (BullMQ redelivers a
+    stalled job before the 60 s lease expires) now delays the job until the
+    lease expires (`delayJobUntil`, no attempt used) instead of finishing
+    with the run left working; voice too. A retried voice resume runs again
+    instead of returning, and a stale voice resume finishes the request.
+    Voice usage is keyed by its request (`debitScope`).
+  - **Billing and limits:** see 1.3g-1 (charge once per model per attempt,
+    exact spend counter, Lor tools refused through `toolApproval`, unknown
+    model at the "*" rate, failed rate lookups not cached).
+  - **Policy:** custom and MCP tools may not take a Pi built-in's name; an
+    unknown turn starter gets Manual and a Lor-authored trigger is
+    autonomous; `find -delete` and `find -exec rm` are flagged, and a
+    deleting `find` with no narrowing test at the work folder or above is
+    a hard rule.
+  - **Open (low):** resume enqueue failure after the decision commits; the
+    saved-answer path settling paused or stopped turns; a crashed attempt's
+    sandbox processes; approval gates not re-checked mid-turn; GET
+    query-string leaks (narrowed 2026-10-22: `curl`/`wget`/`http`/`xh`
+    with a computed argument are flagged for the classifier); voice name
+    matching; prompt-cache
+    churn in Loop sessions; usage of turns that do not finish (errored
+    retries, cache warms); counters vs ledger semantics; replayed turns
+    outside Pi's retry loop (upstream); a journal swap race.
 
 Exit: source review follows every request, tool and summary through permission,
 accounting and save points, including cold approval resume and a crashed turn.
 
 ### 1.4 — Attach session sandboxes and scoped resources
 
-- [ ] Implement the thin Blaxel bridge; provision on a session's first run and
-  reconnect later, for every run kind.
-- [ ] Keep workspace identity, artifacts, checkout/publish policy and process
-  fencing. Add the lost-workspace notice and the visible quota failure.
-- [ ] Replace mandatory child dispatch only after primary capability coverage.
+Plan agreed with Jacob 2026-10-22 (decisions table, "Code work"). The Blaxel
+bridge moved to 1.3b. Scope stays small: code sessions, Commit and Create PR
+are product design (`code-channels.md` §2) built after phase 1. No
+compatibility layer; old code tools break and are deleted.
+
+- [x] **1.4-1 One coding path: the main agent** (2026-10-22, built with
+  1.4-2; needs `db:push`; not run yet). Also deleted: `openPullRequest` and
+  `branchExists` (only these used them), `LOR_WORKBENCH_DISK_MB` (callers
+  pass the session disk size), `noteNestedUsage` in the worker, and tests
+  that imported deleted code. `policy.test.ts` and
+  `channel-connectors.test.ts` still name `investigate_code` (not edited).
+  Existing GitHub connections saved their tool list, so "Clone repository"
+  is off for them until switched on in the connector settings.
+  - **Delete the coding child:** `investigate_code`, `propose_code_change`,
+    `code.ts`'s tool, `code-actions.ts`, `sandbox/investigate.ts`,
+    `sandbox/code-session.ts`, `pi-config.ts`, `pi-events.ts`,
+    `sub-events.ts`, `serialize.ts`, and from `blaxel.ts` `runPi`,
+    `execToCompletion`, `withEphemeralSandbox`, `withPersistentSandbox`,
+    `withWorkbenchSandbox` and `sandboxFailureReason`. Tests that import
+    deleted files go with them (not run).
+  - **Delete their wiring:** the connector catalog entries, billing
+    (`investigate_code` as a billable tool, `lor.deep`), touches, the tool
+    guard, custom-tool reserved names, nested child usage in `lor-respond`,
+    `voice-request` and `agent-run`, the web and mobile trail cases, the
+    API's file browsing check (`channel-connectors.ts`), the prompt line,
+    and `investigate_code` in project-archive synthesis (it keeps GitHub
+    search and read).
+  - **Delete settings only they use:** `LOR_WORKBENCH_TIMEOUT_SEC`,
+    `LOR_WORKBENCH_SANDBOX_TTL`, `LOR_CODE_SANDBOX_TTL`,
+    `LOR_WORKBENCH_DISK_MB` (Jacob removes them from Railway).
+  - **Delete the per-repository base-branch setting:** the
+    `github_repo_config` table (destructive `db:push`, Jacob runs it),
+    `githubBaseBranchOverrides`, its settings UI
+    (`github-base-branch-settings.tsx`) and API routes. It answered "where
+    does Lor's PR go" for the old tool; code sessions take the base branch
+    from the session picker, defaulting to the channel's.
+  - **`sandbox:smoke`** probes a session sandbox (`openSessionSandbox` with
+    a random owner, then `deleteSessionSandbox`), so it checks the real
+    config. The image keeps the Pi CLI until a separate image change.
+  - After this, no sandbox gets the Gateway key, and the only sandboxes are
+    session (`ses-`) and voice call (`call-`) sandboxes. Leftover `inv-*`,
+    `code-*` and `wbs-*` sandboxes in Blaxel expire by their own rules.
+- [x] **1.4-2 `clone_repo`** (2026-10-22, `packages/lor/src/code.ts`; not
+  run yet; live check owed: a private repository clones through the egress
+  proxy with the token in the URL) (interim until the code index,
+  `code-channels.md` §11):
+  - Input `{ repo, branch: string | null }`. The repository is resolved
+    against the connected ones (`resolveRepo`); `null` is its default branch.
+  - Shallow clone into `<work folder>/repos/<owner>/<repo>` in the session
+    sandbox, through `experimental_sandbox`. The token is `contents: read`
+    for that one repository, passed as per-command env and removed from the
+    remote URL after the clone. Accepted exposure: a process in the sandbox
+    can read it during the clone; it reads only a repository the sandbox
+    already holds and expires within an hour.
+  - An existing clone fetches the branch and switches only when its work
+    tree is clean; otherwise it keeps Lor's changes and says so. Never
+    `reset --hard` or `clean`.
+  - Returns the path, branch and commit. No commit, push or PR. Egress stays
+    as it is: fetch works, push is blocked (`git-receive-pack` not allowed).
+  - Bound when GitHub is connected, the tool is selected and the Sandbox
+    group's `read` or `bash` is on (Lor reads the clone with them). It takes
+    `investigate_code`'s catalog place (read-only, on by default). Prompt:
+    clone, then read with the sandbox tools, cite `path#Lstart-Lend`; Lor
+    cannot commit or open PRs yet.
+- [x] **1.4-3 Process fencing and run kinds** (2026-10-22; not run yet):
+  - **Fence:** `openSessionSandbox` lists the processes of an existing
+    sandbox and kills every `run-*` and `spawn-*` still running before the
+    run uses it (`stopLeftoverCommands`). A list or kill failure is logged
+    and the run goes on. Detached background processes whose command already
+    finished are not named records, so a server started in an earlier turn
+    keeps running.
+  - **Why it is safe:** only one run works in a conversation at a time.
+    `agent_run_scopeKey_active_uidx` allows one queued, working or
+    finalizing run per scope. Chat, Loop and Act runs all use the session's
+    thread as the scope, and voice runs use the call
+    (`createVoiceRun` retries on the unique violation), so two runs in one
+    call cannot overlap.
+  - **Run kinds (source review):** `respond()` throws without a harness, so
+    every run gets its sandbox. Its callers are `lor-respond` (chat, Loop and
+    Act, owner = the session found by thread), `voice-request` (owner = the
+    call) and the evals (a random owner, deleted after). Loops keep one
+    recurring session, so all fires share one sandbox; Act makes a session
+    per event. `share_file` and `clone_repo` bind the same way for all of
+    them (voice has a channel). Gap for 1.5: project-archive synthesis is a
+    separate `streamText` agent outside the Pi path, with no sandbox.
+  - **Live checks owed:** whether Blaxel's kill also ends a process's
+    children; how large `process.list()` gets in a long session (each record
+    carries its output); whether a bash command that starts a background
+    child without redirecting output stays "running" (its tool call would
+    then hang, and the next run would kill it).
+  - **Accepted window:** an attempt that lost its lease can start one more
+    command between the new attempt's fence and its own abort; it stops at
+    its next lease check.
+- [x] **Product record** (2026-10-22): `code-channels.md` §2 holds the code
+  session shape: mode fixed at the start, "Continue in Code" as the only way
+  from chat to code, people (not Lor) commit or open PRs under their GitHub
+  account or as the Lor bot, Loops never commit or open PRs by themselves, the
+  base branch comes from the channel default, and `clone_repo` in chat until
+  the code index.
 
 Skills and slash commands are out of phase 1 (moved to the self-configuration
 work). User text that starts with `/` is still escaped (§4.9).
 
-Exit: every agent run has its session sandbox, with reuse, standby and explicit
-lost-workspace handling. Tools cannot reach worker files or bypass Lor policy.
+Exit: every agent run has its conversation's sandbox (at most one per session
+or voice call), with reuse, standby and explicit lost-workspace handling. No
+other sandbox kind remains, and no sandbox gets the Gateway key. Tools cannot
+reach worker files or bypass Lor policy.
 
 ### 1.5 — Wire producers and durable activity
 
-- [ ] Audit every production `agentRun` insert and `respond` caller: realtime
-  messages, API scope runs (approvals, proposals, plan continuations), worker
-  queue drains, Loops, Act, voice and `packages/lor` `act-runs.ts`.
-- [ ] Project completed semantic history from saved native entries with stable
-  origin IDs; token deltas stay transient.
-- [ ] Preserve web/mobile tool, memory, plan, approval and message behavior.
+- [x] **1.5-1 Producer audit** (2026-10-22, source review):
+  - **Run producers, all on the Pi path:**
+    - realtime: Lor runs only for a message in a session, scoped to the
+      session's thread;
+    - API scope runs: an approval decision uses the paused run's scope, a
+      plan continuation the plan's thread, and a proposal decision the
+      session the card is in;
+    - the worker queue drain uses the finished run's scope;
+    - Loops use their recurring session;
+    - Act runs are created with the trigger as a placeholder scope
+      (`act-runs.ts`) and moved into their own session before they run;
+    - voice uses the call, and the evals use a random owner.
+
+    Each one ends in `respond()`, which refuses to run without a session
+    harness.
+  - **Fixed:** a proposal from before sessions started its follow-up run in
+    the card's own thread, which has no session, so the run would fail. It
+    now gets the resolution note and no run.
+  - **Not run producers** (no session, no sandbox):
+    - write-back, a short memory-writing tool loop after the answer;
+    - the project-archive summary, its own `streamText` agent with read
+      tools and memory writes, run as a background job when a project is
+      archived;
+    - single model calls: titles, structured output, meeting insights,
+      voice memory, transcription.
+
+    Decided (Jacob, 2026-10-22): the project-archive summary stays a
+    background job for now. Projects are not shipping yet; redo it later.
+  - **Left as is:** the `threadRootId ?? channelId` scope fallbacks in
+    realtime and `startScopeContinuationRun`. Every caller passes a session
+    thread now.
+- [x] **1.5-2 History from the Pi log** (2026-10-22; not run yet). Small on
+  purpose; later phases add messages for fork, rewind and handoff.
+  - **Reader:** `session-core/pi-history.ts` reads the saved log chunks (each
+    tagged with the run whose save wrote it) into tool-call records. Each
+    record has the call and result Pi entry IDs, the run, the input, the
+    output and an error flag. Computed on read: no new table.
+  - **Touches** read the run's tool calls from it instead of
+    `agent_run_step`. Failed and refused calls count for nothing. Lor's tool
+    results are JSON text in Pi's log, cut at Pi's 50 KB limit, so a larger
+    result keeps only its input-based touches. After a Pi format conversion
+    one chunk holds the whole log under the converting run. Its repeats are
+    ignored, because touches are unique per session, item and action.
+  - **Context meter:** the worker saves Pi's own count on the run
+    (`context.contextUsage`). The count is taken with `getContextUsage()` at
+    each answer, at compaction and when the agent settles, and holds the
+    tokens, the window, the compaction point (window minus Pi's 16,384
+    reserve) and whether the session compacted. The meter reads the newest
+    run that has it, plus the saved log size for "history kept", without
+    loading Pi in the API. It stays hidden until the session's first turn
+    saves.
+  - **Found:** Lor's per-call output cap (256 KB) is larger than Pi's 50 KB
+    cut for tool results, so the model sees at most 50 KB of one result.
+    This has been the case since 1.3. Kept on purpose (Jacob, 2026-10-22):
+    Pi cuts a large result and keeps its start with a "narrower parameters"
+    notice, while Lor's cap drops the whole result. Lowering the cap would
+    lose that partial content.
+  - **Token deltas** stay transient (run events, pruned 7 days after the
+    run).
+- [x] **1.5-3 Web/mobile behavior** (2026-10-22, source review; live QA owed):
+  - **Same as before:**
+    - run events (text, reasoning, tool, memory, state, steer) come from the
+      same worker callbacks, and steer markers from the worker's boundary
+      drain, which the Pi path uses;
+    - Pi's sandbox tools show as flat rows with diffs on web and mobile, and
+      both icon switches cover every Pi tool name and the `memory_*` tools;
+    - shared files, memory chips, plans and the paused-turn text work as
+      before;
+    - a call waiting for approval shows only its start row, as in the old
+      engine; the approval card carries the state.
+  - **Fixed:** Pi's compaction wrote no `compact_context` trail row, so web
+    never showed its compaction divider. `PiCompaction.onStart`/`onEnd` now
+    write it: start in `session_before_compact`; end on Pi's
+    `session_compact`, also when Pi's own summary replaced Lor's, or on
+    `session_compact_failed`. The row IDs are numbered per attempt. Mobile
+    shows it as a plain trail row, as before.
+  - **Comments:** the `LorToolCall` comments no longer describe the deleted
+    coding child.
+  - **Dead code for 1.6:** the nested sub-step rendering (`parentToolCallId`
+    children) on web and mobile; nothing sets it now.
 
 Exit: every run producer uses the Pi path, and completed history does not
 disappear when transient stream rows expire.
 
 ### 1.6 — Delete the legacy engine, check quality and document
 
-- [ ] Delete the legacy engine: the `streamText` loop, `compaction.ts`, legacy
-  continuation replay and their callers. Legacy tables keep their rows; nothing
-  writes or reads them. Old sessions start from their visible history on their
-  first Pi run. Passing a full messages array to `HarnessAgent` does not import
-  history, so no import path is built.
+- [x] Delete the legacy engine. The `streamText` loop, transcript replay and
+  step checkpoints went in 1.3c-2b, and the `agent_run_step` readers
+  (touches, context meter) moved to the Pi log in 1.5-2. Legacy tables keep
+  their rows; nothing writes or reads them. Old sessions start from their
+  visible history on their first Pi run. Passing a full messages array to
+  `HarnessAgent` does not import history, so no import path is built.
+  - **1.6-1** (2026-10-22; no `db:push`; not run yet):
+    - `compaction.ts` and its test are deleted. Write-back now uses
+      `writeback-input.ts`: a turn under its 120k-token budget is re-read
+      unchanged; a larger one becomes one shortened plain-text transcript
+      (tool results clipped, the middle cut, the request and the answer
+      kept).
+    - `LOR_COMPACT_INPUT_TOKENS` is deleted (Jacob removes it from Railway);
+      `LOR_CONTEXT_WINDOW` stays as the window cap Pi compacts against.
+      `LOR_TOOL_APPROVAL_SECRET` was already gone.
+    - The nested sub-step trail is deleted: `parentToolCallId` from the DB,
+      realtime and API types, the worker trail merge, and the web (message
+      body, trail, project page, stream hook) and mobile rendering. Sandbox
+      rows are `SandboxRow` on both. Old rows that still carry the field
+      render flat.
+    - `budgetViolation` (the old step, token and tool-call ceiling check)
+      had no callers and is deleted.
+    - **Dropped (Jacob, 2026-10-22; destructive `db:push`):** the
+      `agent_run_step` table and the `agent_run.compaction` column, with
+      their types. Nothing read or wrote them.
+    - **Dropped (Jacob, 2026-10-22; destructive `db:push`):** the five
+      activity limits §4.5 retired, with their `agent_run` columns and
+      settings:
+      - `budget_steps` (`AGENT_RUN_MAX_STEPS`);
+      - `budget_input_tokens` (`AGENT_RUN_MAX_INPUT_TOKENS`);
+      - `budget_output_tokens` (`AGENT_RUN_MAX_OUTPUT_TOKENS`);
+      - `budget_tool_calls` (`AGENT_RUN_MAX_TOOL_CALLS`);
+      - `budget_tool_output_bytes` (`AGENT_RUN_MAX_TOOL_OUTPUT_BYTES`, the
+        16 MB total that still refused tools).
+
+      Runs keep `budget_credits`, `budget_wall_ms` and the per-call output
+      cap. Write-back is now skipped only near the spend or time limit. The
+      usage counters stay. The stop-reason enum keeps the old values for
+      old rows; `BudgetStopReason` lists only `budget_wall_clock` and
+      `budget_spend`. Project-archive synthesis keeps its 500-step cap as a
+      constant. Jacob removes the five settings and `LOR_COMPACT_INPUT_TOKENS`
+      from Railway.
 - [ ] Move `packages/lor/src/eval/long/` to the Pi path. Jacob runs `eval:long`
-  and reviews the results before the switch.
-- [ ] Update as-built docs (`agent-harness.md`, `context-continuation.md`,
+  and the sandbox classifier eval, sets the thresholds from the classifier
+  results, and reviews both before the switch.
+  - [x] Moved (2026-10-21, pulled forward; not run yet). `eval:long` and the
+    short `eval` run each conversation through `respond()` with a run from
+    `src/eval/pi-session.ts`: the saved Pi state lives in memory between
+    turns, each attempt gets a real Blaxel session sandbox (deleted at the
+    end, so Blaxel env is required), and sandbox mode is Bypass because
+    nobody answers an ask in an eval (hard rules still apply). A turn that
+    pauses on an approval ends the attempt with an error. Transcript stats
+    add each turn's messages, since Pi returns only the turn's own.
+- [x] Update as-built docs (`agent-harness.md`, `context-continuation.md`,
   `approval-policies.md`, `artifacts.md`) and tick phase-1 items individually.
+  - **1.6-2** (2026-10-22):
+    - `agent-harness.md` and `artifacts.md` are rewritten for the Pi path.
+    - `context-continuation.md` gets a status note and an "as built on the
+      Pi path" section; its replay and compaction steps stay as history.
+    - `approval-policies.md` gets "Run mechanics on the Pi path" and a log
+      entry.
+    - `github-connector.md` is updated for `clone_repo` and the deleted code
+      tools.
+    - `reference/README.md`, the CLAUDE.md harness paragraph and the
+      `harness-sessions.md` phase-1 checklist are updated.
+    - `AgentRunContext` lost `approvalResume` and `initialMessagesTokens`,
+      which nothing read.
 
 Exit: one engine. The Pi path keeps Lor's controls, per-turn native recovery and
 activity; workspace limits stay explicit until Git checkpoints ship.
@@ -1027,8 +2038,8 @@ activity; workspace limits stay explicit until Git checkpoints ship.
 ## 9. Verification, rollout and record
 
 No tests, ad hoc test scripts, browser test harnesses or `pnpm run validate`,
-per repository policy. One exception (decision 2026-10-20): Jacob runs
-`eval:long` on the Pi path before the switch. This revision is source and
+per repository policy. Exception (decision 2026-10-20): Jacob runs `eval:long`
+on the Pi path and the sandbox classifier eval (§4.6) before the switch. This revision is source and
 documentation review, not runtime proof. For implementation use focused
 code/SQL review, lint, type checking and builds that do not execute tests.
 
@@ -1051,8 +2062,8 @@ reader/build. No automatic fallback to fresh history.
 | G0 runtime | Closed 2026-10-20: `HarnessAgent` + `harness-pi`. |
 | Per-turn saves, spend-only run limits, sandboxes for every run kind, interim lost-workspace behavior, unlimited capacity, Bun, `ai` upgrade, Lor's own system prompt, Sandbox tool group, legacy deletion, `eval:long` before the switch, skills deferred | Decided with Jacob 2026-10-20. |
 | Gates G1–G7 | Findings and seams recorded; implementation not validated. |
-| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2–1.6 not started. |
-| Upstream changes / SDK publication | None submitted. Candidates for `@ai-sdk/harness-pi` PRs (each starts as a `pnpm patch` where Lor needs it): a `systemPrompt` option passing Pi's `systemPromptOverride` (needed, §4.8); a per-call built-in approval callback that checks the delivered decision before asking (needed for the sandbox permission modes, §4.6); keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store. |
+| Implementation slices 1.1–1.6 | 1.1 done 2026-10-20; 1.2 built 2026-10-20 (`db:push` owed); 1.3a–1.3b built 2026-10-20; 1.3c–1.3g and the 1.3 exit review built 2026-10-21 (`db:push`, egress live checks, QA and both evals owed; nothing run yet); `eval:long` moved to Pi 2026-10-21; 1.4 built 2026-10-22 (`db:push` owed: drops `github_repo_config`; live checks owed); 1.5 built 2026-10-22 (no `db:push`; live QA owed); 1.6 built 2026-10-22 (legacy deletion, destructive `db:push` owed; as-built docs updated). Phase 1 is code-complete; owed: `db:push`, Railway env removals, live QA, `eval:long` and the sandbox classifier eval. |
+| Upstream changes / SDK publication | None submitted. Patched locally (1.3a, `patches/@ai-sdk__harness-pi@1.0.160.patch`), ready to turn into `@ai-sdk/harness-pi` PRs: the `systemPrompt`, `contextFiles` and `skills` options (§4.8); the per-call `builtinToolApproval` callback that checks a delivered decision before any policy (§4.6). Further candidates: keep history when the host-tool list changes (`rebuildPiSession`); fail instead of a silent fresh start on a missing journal; a settings record if a setting must change; later a session store; `@ai-sdk/harness` `HarnessAgent._toToolSpecs` should resolve AI SDK v7 dynamic tool descriptions as `streamText` does (`resolveToolDescription`), instead of passing the function through, which Pi then cannot clone (worked around in `runPiTurn`, 2026-10-21). |
 
 ## Sources
 

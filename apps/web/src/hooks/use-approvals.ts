@@ -77,18 +77,33 @@ export function useChannelApprovals(
   return query
 }
 
-// The approval anchored to one Lor message, if any: in a session, pending or
-// resolved; in chat, pending only. Shares the list query's cache; select
-// keeps a message from re-rendering on other messages' approvals.
-export function useMessageApproval(
+// The approvals anchored to one Lor message (a paused turn files one per
+// gated call): in a session, pending or resolved; in chat, pending only.
+// Shares the list query's cache; select keeps a message from re-rendering on
+// other messages' approvals.
+export function useMessageApprovals(
   channelId: string,
   messageId: string,
   threadRootId: string | null
-): ChannelApproval | null {
+): ChannelApproval[] {
   const { data } = useQuery({
     ...channelApprovalsQueryOptions(channelId, threadRootId),
     select: (approvals: ChannelApproval[]) =>
-      approvals.find((a) => a.messageId === messageId) ?? null,
+      approvals.filter((a) => a.messageId === messageId),
+  })
+  return data ?? []
+}
+
+// The Lor message whose turn is paused on pending approvals, if any: Stop
+// rejects them all.
+export function usePausedLorMessageId(
+  channelId: string,
+  threadRootId: string | null
+): string | null {
+  const { data } = useQuery({
+    ...channelApprovalsQueryOptions(channelId, threadRootId),
+    select: (approvals: ChannelApproval[]) =>
+      approvals.find((a) => a.status === "pending")?.messageId ?? null,
   })
   return data ?? null
 }

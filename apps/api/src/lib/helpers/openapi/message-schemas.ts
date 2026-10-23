@@ -73,7 +73,6 @@ export const lorToolCallSchema = z.object({
   label: z.string(),
   at: z.number().optional(),
   order: z.number().int().nonnegative().optional(),
-  parentToolCallId: z.string().optional(),
   detail: z
     .object({
       summary: z.string().optional(),

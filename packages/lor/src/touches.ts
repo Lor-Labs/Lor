@@ -31,6 +31,8 @@ import {
   privateAudienceFilter,
   type SearchFilters,
 } from "./retrieval"
+import { deniedReason } from "./sandbox/pi-events"
+import { type PiToolCallRecord, piToolCalls } from "./session-core/pi-history"
 
 // What a session's run touched, recorded after the run persists: tool calls,
 // citations in the reply, and the chat it started from. No model call.
@@ -94,16 +96,9 @@ const CATALOG_SPECS: Record<
     const kind = output.type === "issue" ? "github_issue" : "github_pr"
     return [item(kind, githubItemKey(repo, number))]
   },
-  investigate_code: (input) => {
-    const repo = str(input, "repo")
-    return [item("github_repo", repo ? githubRepoKey(repo) : null)]
-  },
-  propose_code_change: (input, output) => {
+  clone_repo: (input, output) => {
     const repo = str(output, "repo") ?? str(input, "repo")
-    const number = str(output.pullRequest, "number")
-    return [
-      item("github_pr", repo && number ? githubItemKey(repo, number) : null),
-    ]
+    return [item("github_repo", repo ? githubRepoKey(repo) : null)]
   },
   search_linear: null,
   list_linear_issues: null,
@@ -188,7 +183,15 @@ const CATALOG_SPECS: Record<
   fetch_web: (input, output) => [
     urlItem(str(output, "url") ?? str(input, "url") ?? ""),
   ],
-  create_artifacts: (_input, output) =>
+  // Sandbox files are private until shared; only a shared file is an item.
+  bash: null,
+  read: null,
+  write: null,
+  edit: null,
+  grep: null,
+  glob: null,
+  ls: null,
+  share_file: (_input, output) =>
     Array.isArray(output.files)
       ? output.files.map((f) => item("artifact", str(f, "artifactId")))
       : [],
@@ -210,9 +213,9 @@ const CORE_SPECS: Record<
   read_thread: (input) => [touchOf("message", str(input, "messageId"), "read")],
   read_call: (input) => [touchOf("call", str(input, "sessionId"), "read")],
   fetch_source: (input) => [touchOf("source", str(input, "id"), "read")],
-  read: (input) => [brainPathOf(str(input, "path"), "read")],
-  write: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
-  edit: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
+  memory_read: (input) => [brainPathOf(str(input, "path"), "read")],
+  memory_write: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
+  memory_edit: (_input, output) => [brainPathOf(str(output, "path"), "wrote")],
 }
 
 function touchOf(
@@ -254,53 +257,30 @@ function touchesForCall(call: ToolCall): (Touch | BrainPathTouch | null)[] {
 
 type ToolCall = { toolName: string; input: Rec; output: Rec }
 
-// Stored step messages pair tool-call parts with tool-result parts by id.
-// Error results are skipped; text and content results carry no typed fields.
-function toolCallsOf(messages: unknown[]): ToolCall[] {
-  const pending = new Map<string, { toolName: string; input: Rec }>()
-  const calls: ToolCall[] = []
-  for (const message of messages) {
-    if (!isRec(message) || !Array.isArray(message.content)) continue
-    for (const part of message.content) {
-      if (!isRec(part) || typeof part.toolCallId !== "string") continue
-      if (part.type === "tool-call" && typeof part.toolName === "string") {
-        pending.set(part.toolCallId, {
-          toolName: part.toolName,
-          input: isRec(part.input) ? part.input : {},
-        })
-      } else if (part.type === "tool-result") {
-        const call = pending.get(part.toolCallId)
-        const output = isRec(part.output) ? part.output : null
-        if (!call || !output || String(output.type).startsWith("error")) {
-          continue
-        }
-        calls.push({
-          ...call,
-          output:
-            output.type === "json" && isRec(output.value) ? output.value : {},
-        })
-      }
-    }
-  }
-  return calls
-}
-
-// Everything the run's tools returned, as text: a link in the reply counts
-// only if it came from here, so a made-up link records nothing. Covers MCP
-// and custom tools, whose results have no typed fields.
-function toolResultText(messages: unknown[]): string {
-  const parts: string[] = []
-  for (const message of messages) {
-    if (!isRec(message) || !Array.isArray(message.content)) continue
-    for (const part of message.content) {
-      if (!isRec(part) || part.type !== "tool-result" || !isRec(part.output)) {
-        continue
-      }
-      if (String(part.output.type).startsWith("error")) continue
-      parts.push(JSON.stringify(part.output))
-    }
-  }
-  return parts.join("\n")
+// The run's tool calls from the session's saved Pi log, without failed or
+// refused calls. Text results (Pi's built-ins, MCP) carry no typed fields.
+async function runToolCalls(
+  sessionId: string,
+  runId: string
+): Promise<PiToolCallRecord[]> {
+  const chunks = await db
+    .select({
+      content: schema.harnessLog.content,
+      runId: schema.harnessLog.runId,
+    })
+    .from(schema.harnessLog)
+    .innerJoin(
+      schema.harnessState,
+      eq(schema.harnessLog.harnessStateId, schema.harnessState.id)
+    )
+    .where(eq(schema.harnessState.sessionId, sessionId))
+    .orderBy(asc(schema.harnessLog.seq))
+  return piToolCalls(chunks).filter(
+    (call) =>
+      call.runId === runId &&
+      !call.isError &&
+      deniedReason(call.outputText) === null
+  )
 }
 
 const MARKDOWN_LINK = /\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s>]+)>/g
@@ -358,23 +338,25 @@ export async function recordRunTouches(args: {
     .then((r) => r[0])
   if (!session) return
 
-  const [steps, context] = await Promise.all([
-    args.runId
-      ? db
-          .select({ messages: schema.agentRunStep.messages })
-          .from(schema.agentRunStep)
-          .where(eq(schema.agentRunStep.runId, args.runId))
-          .orderBy(asc(schema.agentRunStep.step))
-      : [],
+  const [calls, context] = await Promise.all([
+    args.runId ? runToolCalls(session.id, args.runId) : [],
     db
       .select({ messageId: schema.agentSessionContext.messageId })
       .from(schema.agentSessionContext)
       .where(eq(schema.agentSessionContext.sessionId, session.id)),
   ])
 
-  const seen = steps.map((s) => toolResultText(s.messages)).join("\n")
+  // Everything the run's tools returned: a link in the reply counts only if
+  // it came from here, so a made-up link records nothing.
+  const seen = calls.map((call) => call.outputText).join("\n")
   const found = [
-    ...steps.flatMap((s) => toolCallsOf(s.messages).flatMap(touchesForCall)),
+    ...calls.flatMap((call) =>
+      touchesForCall({
+        toolName: call.toolName,
+        input: call.input,
+        output: call.output ?? {},
+      })
+    ),
     ...citationTouches(args.replyText),
     ...linkTouches(args.replyText, seen),
     ...mentionTouches(args.promptTexts),

@@ -1,181 +1,272 @@
 # Durable agent runs (Lor harness)
 
-As-built reference for the durable run system, shipped 2026-08-01/02. A Lor response is a durable **run**: Postgres owns all state, BullMQ is scheduler only, recovery happens at step boundaries (never byte-level stream restore). Late joiners replay the persisted event log; crashes resume from the last checkpoint; budgets are hard ceilings the run can never exceed; mid-run messages steer, queue, or ride along as ambient context.
+As-built reference for the durable run system. Rewritten 2026-10-22 for the
+Pi path (phase 1 of [harness-sessions.md](planned/harness-sessions.md); the
+decisions and their history are in
+[pi-harness-runbook.md](planned/pi-harness-runbook.md)). The legacy
+`streamText` engine, its step checkpoints and transcript replay are deleted.
 
-## Data model (`packages/db/src/schemas/agent-runs.ts`, `workspace-instructions.ts`)
+A Lor response is a durable **run**: Postgres owns its state, BullMQ only
+schedules it. Each turn runs in the conversation's **Pi session** (Vercel
+`HarnessAgent` + `@ai-sdk/harness-pi`), and the native Pi log is saved to
+Postgres after every completed turn. A crash re-runs the turn from the last
+saved turn. Spend is the real limit. Mid-run messages steer, queue or ride
+along as ambient context.
+
+## Data model (`packages/db/src/schemas/agent-runs.ts`, `harness-states.ts`, `workspace-instructions.ts`)
 
 ### `agent_run`
 
-One row per user-facing run — the durable spine.
+One row per user-facing run.
 
-- Identity: `workspaceId`, `channelId`, `threadRootId` (null for channel-placed replies), `messageId` (the pending placeholder the run streams into — **null for headless triggered runs**, the Act effect), `triggerMessageId`, and trigger provenance `triggerId`/`deliveryId` (null on conversational runs; see `automation-primitives.md` §2).
-- Scope: `scopeKey = threadRootId ?? channelId` (headless triggered runs use their `deliveryId`), with a partial unique index over active states (`queued | working | finalizing`) → **one active run per conversation scope, enforced by Postgres**. Placement-ducked answers get their own thread scope, so only genuinely in-channel answers serialize.
-- State machine: `state` (`queued | working | finalizing | complete | failed | stopped`), `phase` (`answer | writeback`), `stopReason` (completed, per-budget reasons, out_of_credits, error, stopped_by_user). Stop reason and terminal state commit in the same transaction that ends the run.
-- Ownership: `leaseOwner`, `leaseExpiresAt`, `attempt`, `maxAttempts` (2 = one recovery). Claiming and every counter/state write is a lease-guarded CAS UPDATE — retries and concurrent workers can't double-spend or double-own.
-- Counters (cumulative, never reset on retry): `steps` (doubles as the checkpoint pointer — transcript rows 1..steps are durable), `inputTokens`, `cachedInputTokens` (the cache-read subset of `inputTokens`), `outputTokens` (incl. reasoning), `toolCalls`, `toolOutputBytes`, `creditsSpent`, `startedAt`, `deadlineAt` (absolute wall-clock ceiling so recovery can't extend it).
-- Budgets snapshotted at creation as columns — changing env defaults never changes an in-flight run.
-- `nextSeq`: allocator for the event log. `context` + `instructions` columns hold the step-0 prepared context (conversation snapshot, brain prefetch, roster, LOR.md, task state, continuation delta) so recovery replays the exact same context with no re-prefetch or drift.
-- `continuedFromRunId`: set when this run inherited an earlier run's transcript rather than building a fresh snapshot (see Context continuation). `on delete set null` — never cascade, or deleting an old run would delete the run that followed it.
-- Stop: `stopRequestedAt` / `stopRequestedBy` (see Stop below).
+- **Identity:** `workspaceId`, `channelId`, `threadRootId`, `messageId` (the
+  pending placeholder the run streams into), `triggerMessageId`, trigger
+  provenance `triggerId`/`deliveryId` and `loopId`.
+- **Scope:** `scopeKey` is the session's thread, or the call for voice runs.
+  An Act run holds its trigger id until it moves into its own session. A
+  partial unique index over active states (`queued | working | finalizing`)
+  allows **one active run per conversation, enforced by Postgres**.
+- **State machine:** `state` (`queued | working | finalizing | complete |
+  failed | stopped`), `phase` (`answer | writeback`), `stopReason`
+  (`completed`, `budget_spend`, `budget_wall_clock`, `out_of_credits`,
+  `error`, `stopped_by_user`, `awaiting_approval`; older values stay in the
+  enum for old rows). A paused turn settles `complete` with
+  `awaiting_approval`.
+- **Ownership:** `leaseOwner`, `leaseExpiresAt`, `attempt`, `maxAttempts`
+  (2 = one recovery). Claims and every counter/state write are lease-guarded
+  CAS updates.
+- **Limits:** `budgetCredits` and `budgetWallMs`, snapshotted at creation;
+  `deadlineAt` is absolute, so recovery can't extend it.
+- **Usage counters** (cumulative, never reset on retry): `steps` (model
+  calls), `inputTokens`, `cachedInputTokens`, `outputTokens`, `toolCalls`,
+  `toolOutputBytes`, `creditsSpent`.
+- **`context` + `instructions`:** the turn's request as sent (conversation
+  snapshot or delta, roster, plan), the system prompt, and turn state that
+  must survive retries: covered message ids, sandbox mode and sandbox
+  context, a paused turn's sandbox state, Pi's context count
+  (`contextUsage`), and `continueOnly` for runs that only finish a paused
+  turn.
+- `continuedFromRunId` links a run to its predecessor for the delta (see
+  Continuation). `on delete set null`.
+- Stop: `stopRequestedAt` / `stopRequestedBy`.
 
-### `agent_run_step`
+### `harness_state` and `harness_log`
 
-Append-only transcript, one row per completed model/tool step. `(runId, step)` unique; `messages` jsonb holds **only that step's own new** `ModelMessage`s (not anything inherited) plus per-step usage. Transcript reconstruction = run `context` + concat of steps 1..steps. Steer injections are prepended to the next checkpoint's messages so a resumed flat concat reproduces runtime order exactly.
-
-**Never pruned.** Unlike `agent_run_event` (7-day post-terminal sweep), step rows are the permanent record of what a run actually did, and context continuation replays them across runs. Adding a retention job here would break both run history and continuation. Because a row holds only its own run's messages, replaying a chain requires walking `continuedFromRunId` — continuing just the immediate predecessor silently drops everything before it.
+One `harness_state` per conversation (a Lor session or a voice call), with
+the saved head of Pi's session log (entry count, head entry id, byte length,
+sha256), the adapter and format versions, the pending `continuation` while
+approvals wait, and `lastRunId`. `harness_log` holds the log itself, one
+chunk per save, each tagged with the `runId` that saved it. Saves happen once
+per completed turn (and at pause and stop), inside the run's transaction,
+guarded by the lease and a compare-and-swap on the previous head. Loading
+checks length and sha256; a gap fails the run instead of starting Pi blank.
+This log is the permanent record of what a run did; nothing prunes it.
 
 ### `agent_run_event`
 
-Ordered event log for live UX + late-join replay. `(runId, seq)` unique, seq allocated from `agent_run.nextSeq` at emit time so live socket frames and persisted rows share numbering. Kinds: `text | reasoning | tool | memory | state | steer` (`queued`/`truncate` reserved, unused). Writes are batched (~1s / 50 events) with contiguous text/reasoning coalescing; a crash can lose the un-flushed tail — fine, anything past the last checkpoint is discarded on recovery anyway. Recovery resets clients with a `replace` text frame, and a lease takeover jumps `nextSeq` by 10,000 so a zombie's tail can't collide. Events for runs terminal > 7 days are pruned by a worker interval.
+Ordered event log for live UX and late-join replay. `(runId, seq)` unique;
+`seq` comes from `agent_run.nextSeq`, so live socket frames and persisted
+rows share numbering. Kinds: `text | reasoning | tool | memory | state |
+steer` (`queued`/`truncate` reserved, unused). Writes are batched (~1 s / 50
+events). A takeover jumps `nextSeq` by 10,000 so a zombie's tail can't
+collide. Events of runs terminal for more than 7 days are pruned
+(`prune-run-events.ts`); the message row keeps the durable trail.
 
 ### `agent_run_tool_result`
 
-Idempotency for side-effecting tools (fs writes, `propose_instructions`, `investigate_code`, Linear mutations). Key: `(runId, toolKey)`, `toolKey = hash(toolName + canonical input)` — a recovered step returns the stored result instead of re-executing. `investigate_code`'s billing key is a stable hash of (repo, question), aligned with this cache, so recovery never re-runs or re-bills the sandbox.
+Idempotency for side-effecting Lor tools (`SIDE_EFFECT_TOOLS` in
+`tool-guard.ts`): `(runId, toolKey)`, `toolKey = hash(toolName + canonical
+input)`. A re-run turn returns the stored result instead of acting twice.
 
 ### `agent_run_queue`
 
-Trigger-tier messages that arrived while a run was active: `scopeKey`, `runId`, `messageId` (unique), `senderId`, `state` (`queued | steered | consumed | rejected | cancelled`), `consumedAtStep`. The message row is the content; this table is ordering + lifecycle + audit. Realtime writes these rows; **only the worker writes `agent_run_event`** (single seq writer).
+Trigger-tier messages that arrived while a run was active: `scopeKey`,
+`runId`, `messageId` (unique), `senderId`, `state` (`queued | steered |
+consumed | rejected | cancelled`), `consumedAtStep`, `promotedAt`. Realtime
+writes these rows; **only the worker writes `agent_run_event`**.
 
 ### `message.clientKey`
 
-The client send nonce persists with a partial unique index on (author, channel, clientKey); a resend returns the original row and skips fanout/broadcast/triggers entirely. Web sends `crypto.randomUUID()`, mobile a `mobile-…` nonce.
+The client send nonce, with a partial unique index on (author, channel,
+clientKey); a resend returns the original row and skips fanout and triggers.
 
 ### `workspace_instructions` (LOR.md)
 
-Immutable version rows: `version` (monotonic per workspace), `content`, `state` (`active | pending | rejected | superseded`), `authorType`, `baseVersion`, `rationale`, approver/rejecter, timestamps. Exactly one `active` per workspace (partial unique index); at most one `pending` (a newer proposal supersedes the previous in the same transaction).
+Immutable version rows (`active | pending | rejected | superseded`); see
+LOR.md below.
 
-## Run lifecycle (worker: `apps/worker/src/lib/agent-run.ts`, `jobs/lor-respond.ts`)
+## Run lifecycle (`apps/worker/src/lib/agent-run.ts`, `jobs/lor-respond.ts`, `jobs/voice-request.ts`)
 
 ```text
-queued ──claim──▶ working ──answer done──▶ finalizing ──persisted──▶ complete
-   │                 │  ▲                      │
-   │                 │  └─recovery (attempt≤2) │
-   └──────────▶ failed / stopped ◀─────────────┘
+queued ──claim──▶ working ──turn saved──▶ finalizing ──persisted──▶ complete
+   │                 │  ▲                     │
+   │                 │  └─recovery (attempt≤2)│
+   └──────────▶ failed / stopped ◀────────────┘
 ```
 
-- **Claim:** CAS `queued→working` or expired-lease takeover (`attempt++`, capped); heartbeat every ~20s (TTL 60s).
-- **Checkpoint:** one lease-guarded transaction per completed step — insert step row, add usage, check ceilings, advance `steps`. Runs *inside* the async `stopWhen` so the loop can't continue past an uncommitted step; a post-loop sweep covers the final text-only step. `prepareStep` is the graceful enforcer (forces `toolChoice: "none"` when the next step would hit a ceiling); `stopWhen` is the hard backstop.
-- **Recovery:** BullMQ `attempts: 2`, `jobId = runId`. The retry claims only on expired lease, rebuilds messages from durable steps, replace-frames clients, and resumes. The incomplete step's model request is re-issued; completed side-effects are absorbed by `agent_run_tool_result`. Ledger billing stays per attempt — a crashed attempt's tokens count toward ceilings but are never re-billed.
-- **Finalizing:** grounding, message persistence, fanout as before. Write-back runs only if remaining budget clears a floor (≥15% tokens + ≥50 credits + ≥60s of wall clock); otherwise skipped and recorded, never failing the answer.
-- **Dead-run sweep** (10-min interval): force-fails dead runs — claimed runs 10 min past `deadlineAt`, never-claimed queued runs 30 min past `createdAt` (the longer grace so a worker-outage backlog isn't failed just before its jobs run) — settling each stuck placeholder in the same per-run transaction, then drains their scope queues. Covers the double-crash case.
-- Railway drain seconds is manual mitigation so deploys usually finish the in-flight step; correctness never depends on graceful shutdown.
+- **Claim:** CAS `queued → working`, or takeover of an expired lease
+  (`attempt++`). A claim that meets a live lease delays the job until the
+  lease expires (`delayJobUntil`), without using an attempt. Heartbeat
+  every ~20 s (TTL 60 s); a lost lease aborts the turn.
+- **During the turn:** each model call's usage is recorded as it finishes
+  (`recordUsage`), so the spend limit is checked inside the turn. The ledger
+  is charged once per model per attempt (`<runId>:turn:<model>`), at the
+  model that answered.
+- **Save:** one transaction per turn (`saveTurn`): the new Pi log bytes, the
+  approval rows of a paused turn, the remaining counters (compaction and
+  cache usage, tool counts) and the run's context updates.
+- **Recovery:** BullMQ `attempts: 2`, `jobId = runId`. The retry claims on
+  an expired lease. If the lost attempt already saved its turn, the saved
+  answer is delivered instead of running the turn twice. Otherwise the turn
+  runs again from the last saved turn, with a note that an earlier attempt
+  may already have changed files or connected services; side-effecting Lor
+  tools replay from `agent_run_tool_result`.
+- **Finalizing:** citation grounding, message persistence and fanout, then
+  write-back (skipped and recorded when the run finished near its spend or
+  time limit), touches, session title.
+- **Dead-run sweep** (10-min interval): force-fails claimed runs 10 min past
+  `deadlineAt` and never-claimed runs 30 min past `createdAt`, settles their
+  placeholders, then drains their scope queues.
 
-## Execution engine (`packages/lor/src/run.ts`, `index.ts`)
+## A turn (`packages/lor/src/index.ts`, `session-core/pi-runtime.ts`)
 
-`respond()` takes a `RunHandle` (persisted state in; checkpoint/event/drain/stop callbacks out), verified against `ai@7.0.11`:
+`respond()` refuses to run without a session harness. It builds Lor's
+system prompt and tool set, opens the conversation's sandbox, and runs one
+Pi turn (`runPiTurn`):
 
-- `stopWhen`: one async predicate over cumulative counters (steps, tokens, tool calls, `deadlineAt`, spend, stop flag) that also performs the checkpoint.
-- `prepareStep`: compaction (summarizing `compact()` in `compaction.ts` shapes what's *sent*, never what's *stored*; fires above `LOR_COMPACT_INPUT_TOKENS`, persists notes + baseline via `saveCompaction`, surfaces in the trail as a `compact_context` entry → web divider), forced final text step near ceilings, and conversation drain (steering; see below).
-- Tool wrapper (`tool-guard.ts`): 256 KB/call (env) + 2 MB cumulative output caps, byte counting, side-effect idempotency.
-- Spend: `recordUsage` stays the async ledger; the checkpoint also folds `computeCredits` into `creditsSpent` synchronously. Nested usage (`investigate_code`, future child agents) accumulates into the parent run's counters.
-- Provider retries: `maxRetries: 3`. Context-per-request stays governed by `LOR_COMPACT_INPUT_TOKENS`.
+- **Sandbox:** every run gets its conversation's Blaxel sandbox
+  (`openSessionSandbox`): one per session or voice call, created on the first
+  run, reused after, in standby between turns. Commands still running from
+  an earlier attempt are stopped first. A replaced sandbox continues empty
+  with a notice to the model and a trail row. See
+  [artifacts.md](artifacts.md) for files.
+- **Tools:** Lor's host tools (memory, search, connectors, plans,
+  `share_file`, `clone_repo`, MCP and custom tools) plus Pi's built-ins
+  (`bash`, `read`, `write`, `edit`, `grep`, `glob`, `ls`). Lor tools are
+  wrapped by `tool-guard.ts` (256 KB per-call output cap, idempotency).
+- **Approvals:** workspace approval policies gate Lor tools; `bash`, `write`
+  and `edit` follow the turn starter's sandbox mode (manual, auto with the
+  classifier, bypass; Loop and Act runs are autonomous). A gated call pauses
+  the turn; see [approval-policies.md](approval-policies.md).
+- **Limits inside the turn:** at 90% of the spend limit, or near the
+  deadline, tools are refused so the model answers; at the limit the turn is
+  aborted and the step that crossed it still counts.
+- **Compaction:** Pi's own, with Lor's focus (copy ids, citations and paths
+  exactly) and the plan restated after it. It shows in the trail as a
+  `compact_context` row (web divider). Its usage is charged like the turn.
+- **Steering:** at each Pi turn boundary, steered queue rows and ambient
+  messages (see below) are saved into the Pi log as a conversation update.
+- **Trail:** text, reasoning, tool rows (Pi's sandbox tools as flat rows
+  with diffs) and memory writes stream as run events and persist on the
+  message.
 
-## Context continuation (`apps/worker/src/lib/run-continuation.ts`)
+## Continuation (`apps/worker/src/lib/run-continuation.ts`)
 
-A follow-up run in a thread or task scope **inherits its predecessor's transcript** — its tool calls, results, and reasoning — instead of rebuilding context from chat text alone. Without this, every follow-up rediscovered what the last run already knew (the failure that motivated it: a budget-tripped run, then "go ahead", then 10 steps re-deriving a project id and schema it had found minutes earlier). See `reference/context-continuation.md` for the full runbook.
-
-Two regimes, never mixed:
-
-- **Fresh** — a scope's first run, or any fallback. `loadConversation` builds a snapshot: whole thread (+10 channel messages before the root) for thread scope, newest 30 for channel scope.
-- **Continuation** — every later run in the same scope. Messages = the chain's replay + one delta message. No snapshot is built or injected alongside it.
-
-Mechanics:
-
-- **Predecessor**: newest finished run in the same `scopeKey` + channel with `steps > 0` and a stored `context`. `complete`, `stopped`, and `failed` all qualify — a budget-tripped run is exactly the one worth continuing. **No age cutoff**: a thread is one conversation however long the gap; a gap over 30 min is instead reported in the delta ("about 3 days since then, so re-check anything that may have changed").
-- **Chain replay** (`replayChain`): walks `continuedFromRunId` back to the chain root (cap 20 hops), then emits root snapshot → root steps → each later hop's stored delta → that hop's steps. Necessary because a step row holds only its own run's messages. **When any run in the chain persisted a compaction** (`agent_run.compaction`: notes + post-compaction baseline + `atStep`), replay starts at the newest baseline instead — baseline + that run's steps `> atStep` + later hops — which keeps replay bounded to one context however long the thread lives, keeps the prefix byte-identical (prompt cache), and hands the notes to the successor's compactor so facts merge forward.
-- **Delta**: scope messages created after the predecessor started, excluding Lor's own (already assistant turns), the placeholder, still-`queued` rows, and rows the predecessor actually injected — the last identified by **`consumedAtStep IS NOT NULL`**. `drainScopeQueue` marks the winning queued row `consumed` against the *predecessor's* run id with `consumedAtStep` left null, so excluding all consumed rows would drop the very message that triggered the continued run.
-- **`context.continuationDelta`** stores the rendered delta verbatim; it embeds elapsed time, so re-rendering on recovery would change the string and break byte-stable replay (and the prompt cache). Recovery uses `replayContinuedPrefix`, not `buildInitialUserMessage`.
-- **Instructions are rebuilt fresh**, not inherited: rules reflect the current world even though history does not. They rarely change, so the cached prefix normally survives anyway.
-- Empty delta → fall back to fresh (nothing new to ask). Any error → fall back to fresh, logged.
-- Compaction is seeded with `max(estimate(replayed messages), last-step input)` — on both the continuation and crash-recovery paths — so a heavy inherited transcript compacts on the first step rather than after it. The last step alone is never trusted: after a compaction it is small precisely because the bulk was projected away.
+The Pi session holds the conversation, so a later run sends only what is
+new. A session's first run sends the initial message (conversation snapshot,
+roster, plan). Every later run sends a **delta**: scope messages since the
+predecessor, without Lor's own messages, still-queued rows, or messages a
+turn already took in (`coveredMessageIds`). The delta walks back through
+runs that only finished a paused turn (`continuedFromRunId`), and always
+includes the trigger message. See
+[context-continuation.md](context-continuation.md).
 
 ## Context meter (`GET /v1/runs/context/{scopeKey}`)
 
-Ring in the thread composer (`apps/web/src/components/chat/context-meter.tsx`) showing how full the model's window is for that thread, with a System / Tools / Messages breakdown on hover.
+Ring in the session composer showing how full the model's window is.
 
-- **Thread scope only.** Channel runs always rebuild a fresh snapshot, so context never accumulates there — a meter would imply a budget that doesn't exist.
-- **The total is exact**, not estimated: `agent_run_step.inputTokens` of the newest run's last checkpoint is what the provider actually counted. Only the split between segments is estimated (`octet_length` aggregates in SQL, bytes÷3 as in `compaction.ts`), then scaled onto that exact total so the parts always agree with the headline.
-- **Tools are measured, not inferred.** `AgentRunContext.toolSchemaBytes` records the serialized size of the bound tool schemas (`asSchema(...).jsonSchema`, written once at `saveContext`), because which tools are bound varies per channel and they are re-sent every request. Without it the meter folded tool tokens invisibly into the other segments.
-- Steps at or before a compaction baseline are excluded (mirroring replay), and the tooltip reports what the uncompacted transcript would weigh.
-- **Cost is credits, never USD**: `computeCredits` applies `model_rate.conversionRate` (the margin multiplier, deliberately DB-only), so a USD figure here would either expose it or need it divided back out.
-- Denominator is `LOR_CONTEXT_WINDOW` (default 1,048,576 — the smallest window across the model chain, which is what binds). Display only; the rail that protects runs is `LOR_COMPACT_INPUT_TOKENS`.
+- **The total is Pi's own count** (`getContextUsage()`), taken at each answer,
+  at compaction and when the agent settles, and saved on the run
+  (`context.contextUsage`) with the window, the compaction point (window minus
+  Pi's 16,384 reserve) and whether the session compacted. The meter reads the
+  newest run that has it; it is hidden until the first turn saves.
+- The System and Tools segments are estimated from the saved prompt and tool
+  schema sizes (bytes ÷ 3); Messages is the rest.
+- "History kept" is the saved Pi log size.
+- Cost is shown in credits, never USD.
 
-## Budgets
+## Limits
 
-Env-defaulted (`AGENT_RUN_*` in `packages/env` — mirror new required fields into `TEST_ENV` in `apps/api/vitest.config.ts`), snapshotted per run. Emergency ceilings, not stopping targets:
+Spend is the only real limit (runbook §4.5). Env-defaulted in
+`packages/env`; credits and wall clock are snapshotted per run.
 
-| Budget | Default |
+| Limit | Default |
 |---|---|
-| Model/tool steps | 500 |
-| Cumulative input tokens | 10,000,000 (cache reads weighted ×0.1) |
-| Cumulative output+reasoning tokens | 1,000,000 |
-| Tool calls | 1,000 |
-| Tool output | 256 KB/call (env), 16 MB cumulative |
-| Wall clock | 2 h |
-| Provider retries | 3 per request |
+| Spend | `AGENT_RUN_MAX_CREDITS` 2,000 (operator backstop while billing is off) |
+| Wall clock | `AGENT_RUN_MAX_WALL_MS` 2 h; 10 min for voice |
+| Tool output | 256 KB per Lor tool call; Pi cuts any tool result at 50 KB |
 | Recovery attempts | 1 |
-| Spend | min(2,000 credits, workspace remaining balance) |
 
-The input rail counts `inputTokens - 0.9 × cachedInputTokens`. Every step re-sends the whole context, so at a high cache-hit rate the raw total climbs ~10× faster than real cost: pre-weighting, runs tripped `budget_input_tokens` at ~25% of their credit ceiling with every other rail under half used.
+There are no step, token or tool-call ceilings.
 
 ## Realtime + replay
 
-- Socket frames (`message:stream`, `lor:tool`, `lor:reasoning`, `lor:memory`, `lor:steer`) carry `{ runId, seq }`.
-- Replay API: `GET /v1/runs/by-message/:messageId/events?after=<seq>` (workspace membership through the run's channel, tenant-checked).
-- Client protocol (web `apps/web/src/hooks/use-lor-stream.ts`, mobile `apps/mobile/src/lib/run-replay.ts`): any pending Lor placeholder in view starts a replay — buffer live frames, fetch the log, rebuild streamed fields (authoritative up to max seq), then drain the buffer gated by seq. Terminal runs refetch the message row instead. Legacy runs (404/no seq) fall back to live-frames-only.
-- The pending placeholder and the instant reply-count signal are untouched — run-state UI layers onto the placeholder, never replaces it.
+- Socket frames (`message:stream`, `lor:tool`, `lor:reasoning`,
+  `lor:memory`, `lor:steer`) carry `{ runId, seq }`.
+- Replay API: `GET /v1/runs/by-message/:messageId/events?after=<seq>`.
+- Client protocol (web `use-lor-stream.ts`, mobile `run-replay.ts`): a
+  pending placeholder in view starts a replay — buffer live frames, fetch the
+  log, rebuild streamed fields, drain the buffer gated by seq. Terminal runs
+  refetch the message row.
 
 ## Multiplayer steering (two-tier contract)
 
-Any message that would **trigger** Lor (mention, direct reply to a Lor-authored message, open session, Lor-thread reply) is absorbed by the scope's active run, with delivery guarantees. Messages that would *not* trigger (someone addressing a teammate mid-run) are the **ambient tier**: `prepareStep` re-reads the scope at each boundary and injects them as context only ("act on these only if addressed to you") — no guarantee, never spawns or queues a run. Both arrive in one injected user message per boundary.
-
-How a trigger is absorbed depends on the scope:
-
-- **Channel scope**: active `queued`/`working` run → `steered` row (injected at the next step boundary); `finalizing` → `queued`.
-- **Thread scope**: always `queued` (Codex model). The thread composer shows the queue as a pill with per-message actions: **Steer** (`POST /v1/runs/queued-messages/:messageId/steer`, any member) stamps the row's `promotedAt` (front of the drain order) and stops the active run immediately, so this message is answered next, ahead of the rest of the queue; **remove** (`DELETE /v1/runs/queued-messages/:messageId`, sender only) marks the row `cancelled`. Pill state: adds via `message:routed` (outcome `queued`, room-broadcast), removals via `run:queue:updated` (consumed/rejected/cancelled), late-join snapshot via the events endpoint's `queue` field.
-
-Mechanics:
-
-- **Routing** (`apps/realtime/src/services/lor.ts`, `routeToActiveRun`): post-insert re-read downgrades steer→queue (run hit finalizing) or undoes the row entirely (run terminal → fresh run — closes the stranded-row window for both outcomes). Placeholder creation stays first (the run row references it); a lost race deletes the never-emitted placeholder and late-routes.
-- **No drops, no double-injection**: a fresh claim's snapshot sweep (`markConversationLoaded`) consumes steer rows the conversation snapshot already covers; recovered attempts skip the sweep and drain everything pending; the completion/dead-run drain re-queues leftovers.
-- **Completion drain** (`apps/worker/src/lib/run-queue.ts`, `drainScopeQueue`): sweeps scope-wide leftover `steered` rows of terminal runs to `queued`, then pops exactly ONE row per drain — order is `promotedAt ASC NULLS LAST, createdAt ASC` (steered messages jump the line) — **reauthorizes that sender at dequeue** (workspace membership + message-in-run-channel tenant binding; unauthorized rows ahead of the winner → `rejected`, rows behind stay queued), and starts one follow-up run answering just that message. Each completion drains the next, so every queued message gets its own run and its own answer — never collapsed into a batch. Still-`queued` messages are excluded from `loadConversation` (and the ambient boundary re-read), so Lor can't see or answer them early — the server mirror of clients hiding them from the transcript. Author attribution is audit data, not authorization. Emits `run:queue:updated` per consumed/rejected row. A lost scope race leaves rows queued (nothing consumed — the occupying run can't see them either).
-- **UX**: a queued message lives ONLY in the composer queue pill — clients hide it from the transcript entirely (render filter on queuedIds) until the drain settles the row, when it materializes in its createdAt slot (full Codex model; everyone sees the pill, so nothing is hidden from the team). Pill mounted on thread AND channel composers (channel covers the finalizing-queue window), rows show the sender's name for other members' messages. Trash = withdraw AND delete: queue-cancel endpoint first (needs the message row), then the normal socket `message:delete` — a queued message reads as never-sent, so cancelling must not pop it into the transcript. Sends into a working thread run land in the pill optimistically: the row is added with the send nonce at send time and the `message:created` echo swaps in the real id (`message:routed` then dedups; mobile holds steer/remove while the row still has a nonce id). The `steered` outcome keeps its transcript chip ("Steering Lor's current answer"), cleared when the steer lands (`lor:steer` → `steeredMessageId`) or the row settles (`run:queue:updated`); `lor:steer` shows "Applying {name}'s new direction…" on the placeholder (replayable from the event log). The pill renders tucked into the composer's top edge (web: flush-attached rounded-t card above MessageInput; mobile: `topAccessory` slot on MessageComposer sliding under the opaque input card). Cancel-and-restart is never an implicit fallback — thread "Steer" is the explicit stop+reprompt affordance.
+- **Trigger tier:** a message that would trigger Lor while a run is active
+  goes to the scope's queue. The composer shows the queue as a pill:
+  **Steer** (`POST /v1/runs/queued-messages/:messageId/steer`) promotes the
+  row and stops the active run, so it is answered next; **remove**
+  (`DELETE /v1/runs/queued-messages/:messageId`, sender only) cancels it.
+  `steered` rows are injected at the next turn boundary. The completion
+  drain (`run-queue.ts`, `drainScopeQueue`) pops one row per finished run
+  (`promotedAt` first), reauthorizes the sender, and starts one follow-up
+  run for it.
+- **Ambient tier:** messages not addressed to Lor (teammates talking
+  mid-run) are re-read at each turn boundary and added as context only, with
+  no delivery guarantee. Queued rows are never read early.
 
 ## Stop
 
-`POST /v1/runs/by-message/:messageId/stop` (any member with channel access), shared core `requestRunStop` in `apps/api/src/routes/v1/runs/handlers.ts`:
+`POST /v1/runs/by-message/:messageId/stop` (any member with channel access):
 
-- Never-claimed `queued` run → settled directly by the API (placeholder → "⏹️ Stopped.").
-- `working` run → the `stopRequestedAt/By` flag is written durably, then the API publishes the runId on the `agent-run:stop` Redis pub/sub channel. The lease-holding worker (subscriber in `apps/worker/src/index.ts` → `signalRunStop` → per-claim `requestStop`) **aborts the in-flight model request immediately** via a stop-specific `AbortController` (combined with the lease-loss controller through `AbortSignal.any` into `streamText`'s `abortSignal`). The stream ends with an `abort` part; `respond()` keeps the partial text, checkpoints completed steps, and returns `stoppedFor: "stopped_by_user"`; the worker persists the partial answer as a normal message, settles the run `stopped`, and skips write-back. The flag riding the heartbeat + checkpoint RETURNING stays as the durable fallback (also aborts on discovery). A step blocked inside a long tool execution still runs to its boundary (tools don't observe the signal; accepted).
-- `finalizing` accepts the flag but effectively no-ops. Terminal → 409.
-- Lease-loss aborts stay distinguishable: `execution.aborted()` reflects only the lease controller, so a superseded attempt still exits silently while a user stop settles gracefully.
-- Clients show a Stop button on in-flight placeholders with optimistic "Stopping…" (web `message-item.tsx` `LorRunControls`, mobile `message-row.tsx`).
+- A never-claimed `queued` run is settled by the API.
+- A `working` run gets `stopRequestedAt/By`, and the API publishes the run id
+  on `agent-run:stop`. The lease-holding worker aborts the Pi turn at once;
+  `respond()` keeps the partial text and returns `stopped_by_user`, the worker
+  saves the partial answer, settles the run `stopped` and skips write-back.
+- A turn paused on approvals is dropped: its pending approvals are denied and
+  a later run is told the calls did not run.
+- `finalizing` accepts the flag but does nothing; terminal runs get 409.
 
 ## LOR.md (workspace instructions)
 
-Durable operating instructions, distinct from workspace memory (knowledge). Repository files named `LOR.md`/`AGENTS.md`/`CLAUDE.md` are never workspace instructions.
+Durable operating instructions, distinct from workspace memory. Repository
+files named `LOR.md`/`AGENTS.md`/`CLAUDE.md` are never workspace instructions.
 
-- Owner/admins (new `instructions: ["update", "approve"]` workspace statement) edit directly — active immediately, still audited. Agent proposals (`propose_instructions`, a side-effect tool so recovery can't file duplicates) stay `pending` until a human approves that exact version; the agent can never activate its own proposal. Pending proposals are visible to all members read-only.
-- Validation on write **and** injection, fail closed (`validateWorkspaceInstructionsContent` in `packages/db`): ~2,000-token cap (chars/4) + secret heuristics (PEM, AWS keys, `sk-`/GitHub/Slack tokens, JWTs, bearer strings). Clients mirror the cap constant.
-- Activation races can't merge silently: version-guarded supersede + partial unique active index → 409s; stale proposals block approval in the UI.
-- Injection appends a "## Workspace instructions" block to `respond()` + `writeBack()` system prompts (after connector lines, before conversation). Not injected into the salience gate, ingestion, or the Pi sandbox brief. The run's `instructions` snapshot carries it through recovery unchanged.
-- Proposal push (`sendInstructionsProposalPush`): presence-independent, owner+admins, data-only deep link to the approval screen (web `instructions-section.tsx` + sidebar alert; mobile `/settings/instructions`, diff via jsdiff) — never approve from the push itself.
+- Owner/admins edit directly (active at once, audited). Agent proposals
+  (`propose_instructions`, a side-effect tool) stay `pending` until a human
+  approves that exact version.
+- Validation on write **and** injection, fail closed
+  (`validateWorkspaceInstructionsContent`): ~2,000-token cap plus secret
+  heuristics.
+- Version-guarded supersede and a partial unique active index turn races into
+  409s.
+- Injected as a "Workspace instructions" block in the `respond()` and
+  `writeBack()` system prompts; the run's `instructions` snapshot carries it
+  through recovery.
+- Proposal push (`sendInstructionsProposalPush`) deep-links owner/admins to
+  the approval screen.
 
-## Tasks (layer on runs, shipped 2026-08-08)
+## Plans
 
-**Tasks** (the multiplayer delegated-work feature) layer a `task` entity over run chains without touching the run engine. Artifacts + workbench are documented in [`artifacts.md`](./artifacts.md).
-
-- **Task = thread.** `task` row (`packages/db/src/schemas/tasks.ts`) anchors to a `task_card` message that is also the thread root, so every task run executes in that thread scope — steering, always-queue, stop, replay, and recovery apply unchanged, and a long task never blocks channel Q&A. Tasks are created at routing time: the placement router (`packages/lor/src/placement.ts`) returns a third judgment `task` (clear delegation with a deliverable) and `createTaskWithCard` (apps/realtime `services/lor.ts`) inserts card + task before the normal placeholder/run/enqueue flow. Task threads auto-trigger on plain replies via the existing `isLorThread` rule (the pending placeholder makes the thread Lor's immediately).
-- **States live BETWEEN runs, never on them.** `running | waiting_for_input | waiting_for_approval | completed | failed | stopped`. The worker sets `running` on claim and settles on run end (`settleTask` in `jobs/lor-respond.ts`): failed/stopped mirror the run; a clean end without `complete_task` parks the task `waiting_for_input` (ball in the team's court). Tool-set states (`completed`, `waiting_for_approval`) are never clobbered.
-- **Task tools** (`packages/lor/src/tasks.ts`, bound only when the run has task context): `set_plan` (full-replace checklist the team watches live), `complete_task` (only path to `completed`), `request_approval` (files an `approval` row — `schemas/approvals.ts`, workflow-agnostic, one pending per task — then trips a flag that makes `prepareStep` force a final text step, same mechanism as budget ceilings; the run ends cleanly, no lease is ever held waiting on a human).
-- **Approval resolution = end-and-resume, no waitpoints.** `POST /v1/approvals/:id/approve|reject` (apps/api `routes/v1/tasks/`): CAS-resolves the row, posts the resolution into the task thread AS the resolver, and starts the continuation run via `startTaskContinuationRun` (`apps/api/src/lib/task-runs.ts`) — a copy of the drain's recipe: busy scope → ride the run queue; free scope → placeholder + run + enqueue with the same unique-index race fallbacks. This made the API a BullMQ **producer** (producer only). Run-creation recipe now exists in three places (realtime, worker drain, API) — extract to a shared package if touched again.
-- **Task context:** the worker detects task runs by `cardMessageId = threadRootId`, threads `RunTaskContext` into `respond()` (task tools + workbench continuity: per-task sandbox checkpoint and Pi session resume — see artifacts.md), and broadcasts every task change as `task:updated` to the **channel room** (fine-grained run events stay thread-room-only). The prompt is split: static rules (`taskRulesSection`) sit in the instructions, while the volatile title/goal/status/plan (`taskStateSection`) render at the tail of the initial user message via `context.task`. Keeping live task state out of the system prompt is what lets a task's run chain share one cached prefix — otherwise every `set_plan` invalidated the entire prompt.
+Plans (delegated multi-step work, formerly Tasks) layer over session runs;
+see [tasks-v2.md](tasks-v2.md).
 
 ## Open items
 
-- **Channel-scope serialization** is live and deliberately strict; one line to relax if it chafes.
-- Live verification still owed: steer/queue/ambient/stop flows and a kill-mid-run crash-recovery exercise.
-- **Context continuation live tests owed** (built 2026-08-28, unproven in the app): budget-trip → "continue" resumes mid-work rather than restarting; a queued follow-up actually takes the continuation path; steer-then-continue doesn't duplicate messages; a crashed continued run recovers with its inherited chain intact.
-- ~~Compaction is still a blunt prune~~ **Done (C1 + C2 in `context-continuation.md`)**: summarizing `compact()` at 700k trigger (the smallest window across the main model and its fallbacks binds), notes + baseline persisted in `agent_run.compaction`, replay-from-baseline on recovery and continuation, `compact_context` divider in the trail. `pruneMessages` remains only as the fallback when the summarizer fails repeatedly. Compaction live test owed alongside the continuation ones.
-- Trigger.dev remains deferred: Postgres-owned state + BullMQ-as-scheduler covers durability; revisit only for hours-long waitpoints/fan-out.
-- Next milestone after this harness: the read-only [`Slack connector`](./planned/slack-connector-next.md).
+- Live QA owed for the Pi path: approvals (single, set, steer, Stop, voice),
+  sandbox modes and the classifier, egress, the spend limit, mid-turn
+  messages, two queued messages, a worker crash mid-turn, a paused Loop
+  followed by a message, compaction, the context meter and touches.
+- Known gaps (runbook 1.3 exit review, low): resume enqueue failure after a
+  decision commits, approval gates not re-checked mid-turn, usage of turns
+  that do not finish, steered or voice messages lost on a crash.

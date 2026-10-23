@@ -37,7 +37,10 @@ import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
 import { useUpdateAgentSession } from "@/hooks/use-agent-session"
-import { useChannelApprovals } from "@/hooks/use-approvals"
+import {
+  useChannelApprovals,
+  usePausedLorMessageId,
+} from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
@@ -222,11 +225,18 @@ export function ThreadView({
   })
   const { openDM } = useOpenDM()
 
+  // A turn paused on approvals is stoppable too: Stop rejects them all.
+  // Scoped to this thread: a channel-wide lookup would let a human thread
+  // stop another session's paused turn.
+  const pausedLorMessageId = usePausedLorMessageId(
+    channelId ?? "",
+    threadRootId
+  )
+  const stoppableLorMessageId = pendingLorMessageId ?? pausedLorMessageId
   const stopPendingLor = useCallback(async () => {
-    const messageId = pendingLorMessage?.id
-    if (!messageId) return
-    await requestStop(messageId)
-  }, [pendingLorMessage?.id, requestStop])
+    if (!stoppableLorMessageId) return
+    await requestStop(stoppableLorMessageId)
+  }, [stoppableLorMessageId, requestStop])
 
   const channelName = channelState.channel?.name ?? "channel"
   // Who a message "To subscribers" reaches, shown as faces in the composer.
@@ -559,7 +569,7 @@ export function ThreadView({
               channelName={channelName}
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
-              isStopping={stoppingMessageId === pendingLorMessageId}
+              isStopping={stoppingMessageId === stoppableLorMessageId}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
               // The thread doesn't exist until the start is confirmed.
@@ -609,7 +619,7 @@ export function ThreadView({
                 }
                 setReplyingTo(null)
               }}
-              onStop={pendingLorMessage ? stopPendingLor : undefined}
+              onStop={stoppableLorMessageId ? stopPendingLor : undefined}
               placeholder={lorSession ? "Reply…" : "Reply in thread"}
               replyingTo={replyingTo}
               topAccessory={

@@ -9,6 +9,8 @@ import {
   type ActFlushJobData,
   AGENT_RUN_STOP_CHANNEL,
   ATTACHMENT_INDEX_QUEUE,
+  DELETE_SESSION_SANDBOX_JOB,
+  type DeleteSessionSandboxJobData,
   LINK_UNFURL_QUEUE,
   LOOP_RUN_QUEUE,
   LOR_RESPOND_QUEUE,
@@ -58,6 +60,7 @@ import {
 } from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { awaitInflightDrains } from "@/lib/run-queue"
+import { deleteArchivedSessionSandbox } from "@/lib/session-sandboxes"
 import { installVoiceNotifier } from "@/lib/voice-notify"
 import { setWorkspaceActivityEmitter } from "@/lib/workspace-activity"
 
@@ -391,7 +394,11 @@ async function bootstrap() {
       } else if (job.name === "sweep-due-loops")
         await sweepDueLoops(emitter, loopRunQueue)
       else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
-      else if (job.name === "audit-voice-sessions") await auditVoiceSessions()
+      else if (job.name === DELETE_SESSION_SANDBOX_JOB) {
+        await deleteArchivedSessionSandbox(
+          job.data as DeleteSessionSandboxJobData
+        )
+      } else if (job.name === "audit-voice-sessions") await auditVoiceSessions()
       else if (job.name === NOTIFY_APPROVAL_JOB) {
         const { approvalId } = job.data as { approvalId: string }
         await escalateApproval(

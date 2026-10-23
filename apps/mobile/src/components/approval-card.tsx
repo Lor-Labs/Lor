@@ -10,7 +10,7 @@ import {
   type ApprovalResolverSpec,
   resolverLabel,
   useCanResolveApproval,
-  useMessageApproval,
+  useMessageApprovals,
   useResolveChannelApproval,
 } from "@/hooks/use-approvals"
 import { useWorkspaceMembers } from "@/hooks/use-workspace-members"
@@ -156,10 +156,10 @@ export function ApprovalGateCard({
   )
 }
 
-// The gate card under a parked run's own message. Renders nothing unless
-// this message's run parked on an approval. In a session it stays after the
-// decision as its record (`threadRootId` lists resolved ones too); in chat
-// it shows only while pending.
+// The gate cards under a paused run's own message, one per gated call.
+// Renders nothing unless this message's run paused on approvals. In a
+// session they stay after the decision as its record (`threadRootId` lists
+// resolved ones too); in chat they show only while pending.
 export function MessageApprovalCard({
   channelId,
   messageId,
@@ -169,11 +169,17 @@ export function MessageApprovalCard({
   messageId: string
   threadRootId: string | null
 }) {
-  const approval = useMessageApproval(channelId, messageId, threadRootId)
-  if (!approval) return null
+  const approvals = useMessageApprovals(channelId, messageId, threadRootId)
+  if (approvals.length === 0) return null
   return (
-    <View className="pt-two">
-      <ApprovalGateCard approval={approval} channelId={channelId} />
+    <View className="gap-two pt-two">
+      {approvals.map((approval) => (
+        <ApprovalGateCard
+          approval={approval}
+          channelId={channelId}
+          key={approval.id}
+        />
+      ))}
     </View>
   )
 }

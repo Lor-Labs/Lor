@@ -1,8 +1,13 @@
 import { setTimeout as sleep } from "node:timers/promises"
 import { checkCredits, recordUsage } from "@repo/billing"
-import { and, db, desc, eq, isUniqueViolation, schema } from "@repo/db"
+import { and, asc, db, desc, eq, isUniqueViolation, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { type ConversationTurn, respond, voiceBlocksText } from "@repo/lor"
+import {
+  type ConversationTurn,
+  pausedTurnExpired,
+  respond,
+  voiceBlocksText,
+} from "@repo/lor"
 import type { VoiceRequestState } from "@repo/realtime-types/events"
 import {
   VOICE_APPROVAL_WATCH_JOB,
@@ -13,6 +18,7 @@ import {
 } from "@repo/realtime-types/queues"
 import {
   claimQueuedVoiceRequests,
+  findRunVoiceRequest,
   finishRunVoiceRequests,
   finishVoiceRequest,
   listCallLines,
@@ -30,23 +36,28 @@ import {
 } from "@repo/voice/server"
 import type { Job } from "bullmq"
 import { processCallMemory } from "@/jobs/voice-session-memory"
-import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
+import {
+  claimAgentRun,
+  delayJobUntil,
+  LeaseLostError,
+  RunBusyError,
+} from "@/lib/agent-run"
+import { loadHarnessState, savedTurnText } from "@/lib/harness-state"
 import { logger } from "@/lib/logger"
 import type { LorMessageDeps } from "@/lib/lor-messages"
-import {
-  buildApprovalContinuation,
-  type Continuation,
-} from "@/lib/run-continuation"
+import { loadPausedDecisions, resumeStillPending } from "@/lib/paused-turn"
+import { turnSandboxMode } from "@/lib/sandbox-mode"
 import { cancelPendingRun } from "@/lib/unattended-run"
 import {
   APPROVER_GRACE_MS,
   enqueueApprovalResume,
+  expireApprovalSet,
   listCallApprovers,
   loadApproval,
   scheduleApprovalWatch,
   settleApprovalUnresolved,
 } from "@/lib/voice-approvals"
-import { buildVoiceContinuation } from "@/lib/voice-continuation"
+import { buildVoiceDelta } from "@/lib/voice-continuation"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 // A request in a call is bounded to the call, not the 2h default.
@@ -87,11 +98,6 @@ async function createVoiceRun(
         workspaceId: request.workspaceId,
         channelId: request.channelId,
         scopeKey: request.sessionId,
-        budgetSteps: env.AGENT_RUN_MAX_STEPS,
-        budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-        budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-        budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-        budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
         budgetWallMs: Math.min(env.AGENT_RUN_MAX_WALL_MS, VOICE_RUN_WALL_MS),
         budgetCredits: env.AGENT_RUN_MAX_CREDITS,
       })
@@ -187,14 +193,15 @@ async function failRun(request: LoadedRequest, runId: string) {
   }
 }
 
-// `approvalResume`: the paused run's transcript plus the approval's answer,
-// which this run continues instead of the call's last run.
+// `resume`: the run finishes a turn paused on approvals whose set is now
+// decided.
 async function runVoiceRequest(
   request: LoadedRequest,
   runId: string,
-  approvalResume: Continuation | null = null
+  resume = false
 ) {
   const claim = await claimAgentRun(runId)
+  if (claim.kind === "busy") throw new RunBusyError(claim.retryAt)
   if (claim.kind === "terminal") return
   if (claim.kind !== "claimed") {
     await failRun(request, runId)
@@ -220,39 +227,76 @@ async function runVoiceRequest(
       authorName: request.speakerName,
       content: requestText(request.gate, request.heardText),
     }
-    // A recovered attempt replays its own transcript instead.
-    const continuation = execution.resume
-      ? null
-      : (approvalResume ??
-        (await buildVoiceContinuation(
-          { ...request, speakerName: turn.authorName, content: turn.content },
-          runId
-        )))
-    if (continuation) {
-      await execution.markContinuedFrom(continuation.predecessorRunId)
+    // One Pi conversation per call (pi-harness-runbook.md §4.10).
+    const owner = { voiceSessionId: request.sessionId }
+    const harnessState = await loadHarnessState(owner, execution.workspaceId)
+    // The lost attempt saved its turn before it died: deliver that answer.
+    const savedAnswer =
+      execution.resume && harnessState?.lastRunId === runId
+        ? await savedTurnText(runId)
+        : null
+    // Another adapter version saved the paused turn: it is dropped.
+    const upgraded = harnessState ? pausedTurnExpired(harnessState) : false
+    const continueOnly =
+      resume && Boolean(harnessState?.continuation) && !upgraded
+    // After the call's first turn, the prompt is only what was said since.
+    const delta =
+      execution.resume || continueOnly || !harnessState
+        ? null
+        : await buildVoiceDelta(
+            { ...request, speakerName: turn.authorName, content: turn.content },
+            harnessState.lastRunId
+          )
+    if (delta && harnessState?.lastRunId) {
+      await execution.markContinuedFrom(harnessState.lastRunId)
     }
+    // A paused turn finishes first, or is dropped; a new request rejects
+    // what is pending.
+    const paused =
+      savedAnswer === null &&
+      harnessState?.continuation &&
+      harnessState.lastRunId
+        ? await loadPausedDecisions(
+            harnessState.lastRunId,
+            runId,
+            continueOnly
+              ? null
+              : { userId: request.userId, name: request.speakerName },
+            upgraded
+          )
+        : null
+    // The request that waited on them ends; this run takes over the turn.
+    if (paused?.closed.length && harnessState?.lastRunId) {
+      const waiting = await findRunVoiceRequest(harnessState.lastRunId)
+      if (waiting?.status === "awaiting_approval") {
+        publish(
+          request,
+          await finishVoiceRequest(waiting.id, { status: "done" })
+        )
+      }
+    }
+    // The speaker's mode (pi-harness-runbook.md §4.6).
+    const sandboxMode = await turnSandboxMode({
+      saved: execution.resume?.context.sandboxMode,
+      paused: continueOnly ? paused?.sandboxMode : undefined,
+      automated: false,
+      userId: request.userId,
+    })
 
     const answer = await respond(
       {
         workspaceId: execution.workspaceId,
-        conversation: execution.resume ? execution.resume.conversation : [turn],
-        ...(execution.resume || continuation
+        conversation: execution.resume
+          ? execution.resume.conversation
+          : continueOnly
+            ? []
+            : [turn],
+        ...(execution.resume || delta || continueOnly
           ? {}
-          : { backgroundConversation: await loadCallBackground(request) }),
-        ...(continuation
-          ? {
-              continuation: {
-                messages: continuation.messages,
-                coveredMessageIds: continuation.coveredMessageIds,
-                deltaText: continuation.deltaText,
-                ...(continuation.approvalResume
-                  ? { approvalResume: continuation.approvalResume }
-                  : {}),
-                lastInputTokens: continuation.lastInputTokens,
-                compaction: continuation.compaction,
-              },
-            }
-          : {}),
+          : {
+              backgroundConversation: await loadCallBackground(request),
+            }),
+        ...(delta ? { delta: { text: delta, coveredMessageIds: [] } } : {}),
         channelId: request.channelId,
         runId,
         voice: {
@@ -293,19 +337,30 @@ async function runVoiceRequest(
           })
         },
         onUsage: (usage) => {
-          if (
-            usage.tool === "investigate_code" ||
-            usage.tool === "propose_code_change" ||
-            usage.tool === "create_artifacts"
-          ) {
-            execution.noteNestedUsage(usage)
-          }
-          void recordUsage(usage, { channelId: request.channelId })
+          // Voice usage has no message: the request scopes the debit key, so
+          // a retried attempt is not charged twice.
+          void recordUsage(usage, {
+            channelId: request.channelId,
+            debitScope: `voice-request:${request.id}`,
+          })
         },
         notifyWorkspaceActivity,
       },
       {
         ...execution.handle,
+        harness: {
+          owner,
+          saved: harnessState,
+          savedAnswer,
+          pausedDecisions: paused && !paused.dropped ? paused.decisions : null,
+          pausedDropped: paused?.dropped ?? null,
+          continueOnly,
+          sandboxMode,
+          pausedSandboxContext: paused?.sandboxContext,
+          pausedSandboxMode: paused?.sandboxMode,
+          recordUsage: (usage, kind) => execution.recordUsage(usage, kind),
+          saveTurn: (record) => execution.saveTurn(owner, record),
+        },
         // Steering: requests made in the call since the last step.
         drainConversation: async () => {
           const claimed = await claimQueuedVoiceRequests(
@@ -369,10 +424,9 @@ async function runVoiceRequest(
   }
 }
 
-// The run paused on an approval gate (only ever one someone in the call can
-// resolve: canApprove refuses the rest). Its request waits in Lor's window
-// and a watcher keeps the approvers current.
-async function parkRun(request: LoadedRequest, runId: string) {
+// The paused set's next pending approval, in set order, as Lor's window
+// shows it. Null when none is left.
+async function nextVoiceApproval(request: LoadedRequest, runId: string) {
   const [approval] = await db
     .select({
       id: schema.approval.id,
@@ -387,31 +441,58 @@ async function parkRun(request: LoadedRequest, runId: string) {
         eq(schema.approval.status, "pending")
       )
     )
+    .orderBy(asc(schema.approval.createdAt), asc(schema.approval.id))
     .limit(1)
-  if (!approval?.target) {
-    await failRun(request, runId)
-    return
-  }
-  const parked = await parkRunVoiceRequests(runId, {
+  if (!approval) return null
+  return {
     approvalId: approval.id,
     label: approval.description,
     toolName: approval.toolName ?? "",
     approvers: await listCallApprovers(request, approval.target),
-  })
+  }
+}
+
+// The run paused on approvals (only ones someone in the call can resolve:
+// canApprove refuses the rest). Its request waits in Lor's window on one
+// approval of the set at a time, and a watcher keeps the approvers current.
+async function parkRun(request: LoadedRequest, runId: string) {
+  const approval = await nextVoiceApproval(request, runId)
+  if (!approval) {
+    await failRun(request, runId)
+    return
+  }
+  const parked = await parkRunVoiceRequests(runId, approval)
   for (const state of parked) publish(request, state)
   const waiting = parked.find((state) => state.status === "awaiting_approval")
   if (waiting) {
     await scheduleApprovalWatch({
       requestId: waiting.id,
-      approvalId: approval.id,
+      approvalId: approval.approvalId,
       missingSince: null,
     })
   }
 }
 
+// A decision left more of the set pending: Lor's window shows the next one.
+async function showNextApproval(
+  request: LoadedRequest,
+  runId: string
+): Promise<boolean> {
+  const approval = await nextVoiceApproval(request, runId)
+  if (!approval) return false
+  publish(request, await setVoiceRequestApprovers(request.id, approval))
+  await scheduleApprovalWatch({
+    requestId: request.id,
+    approvalId: approval.approvalId,
+    missingSince: null,
+  })
+  return true
+}
+
 // Keeps a paused request's approvers current. When none is left in the call
-// for the grace period the approval is rejected and the request resumes, so
-// Lor says so; when the call ended it expires and the request fails.
+// for the grace period the approval is rejected and the request moves on
+// (the next approval, or Lor says so); when the call ended the whole set
+// expires and the request fails.
 async function watchApproval(data: VoiceApprovalWatchJobData) {
   const request = await loadVoiceRequest(data.requestId)
   if (
@@ -421,9 +502,9 @@ async function watchApproval(data: VoiceApprovalWatchJobData) {
     return
   }
   const approval = await loadApproval(data.approvalId)
-  if (approval?.status !== "pending" || !approval.target) return
+  if (approval?.status !== "pending") return
   if (request.sessionEndedAt) {
-    await settleApprovalUnresolved(data.approvalId, "expired")
+    if (request.runId) await expireApprovalSet(request.runId)
     publish(request, await finishVoiceRequest(request.id, { status: "failed" }))
     return
   }
@@ -451,37 +532,81 @@ async function watchApproval(data: VoiceApprovalWatchJobData) {
   await scheduleApprovalWatch({ ...data, missingSince })
 }
 
-// Continues a request paused on an approval that's now resolved: a new run
-// replays the paused transcript with the approval's answer, so an approved
-// tool runs as it was asked and a rejection reaches Lor.
+// After a decision on a paused request: the set's next approval, or, once
+// all are decided, a new run finishes the paused turn
+// (pi-harness-runbook.md §4.2).
 async function resumeRequest(request: LoadedRequest, approvalId: string) {
+  // A retried resume job finds the request working: run it again from the
+  // last save instead of dropping it.
+  if (request.status === "working" && request.runId) {
+    await runVoiceRequest(request, request.runId, true)
+    return
+  }
   if (request.status !== "awaiting_approval") return
+  // Another run already finished or re-paused the turn this decision was for.
+  if (!(await resumeStillPending(approvalId))) {
+    publish(request, await finishVoiceRequest(request.id, { status: "done" }))
+    return
+  }
+  if (request.runId && (await showNextApproval(request, request.runId))) {
+    return
+  }
   const created = await createVoiceRun(request)
   if (created === "timeout") {
     publish(request, await finishVoiceRequest(request.id, { status: "failed" }))
     return
   }
   if (typeof created === "string") return
-  const continuation = await buildApprovalContinuation({ approvalId })
   const resumed = await resumeVoiceRequest(request.id, created.runId)
   if (!resumed) {
     await cancelPendingRun(created.runId)
     return
   }
   publish(request, resumed)
-  await runVoiceRequest(request, created.runId, continuation)
+  await runVoiceRequest(request, created.runId, true)
 }
 
 // Runs a request someone spoke to Lor in a call. A retried job (worker crash)
 // finds the request working and resumes its run from the last checkpoint.
 // `deps` also tells everyone in a call that its summary is ready.
+async function runVoiceJob(data: VoiceRequestJobData) {
+  const request = await loadVoiceRequest(data.requestId)
+  if (!request) return
+  if (data.resumeApprovalId) {
+    await resumeRequest(request, data.resumeApprovalId)
+    return
+  }
+  if (request.status === "working" && request.runId) {
+    await runVoiceRequest(request, request.runId)
+    return
+  }
+  if (request.status !== "queued") return
+
+  const created = await createVoiceRun(request)
+  if (created === "absorbed" || created === "gone") return
+  if (created === "timeout") {
+    publish(request, await finishVoiceRequest(request.id, { status: "failed" }))
+    return
+  }
+  const started = await startVoiceRequest(request.id, created.runId)
+  if (!started) {
+    // Cancelled, or claimed by a run that just started, before this one.
+    await cancelPendingRun(created.runId)
+    return
+  }
+  publish(request, started)
+  notifyWorkspaceActivity(request.workspaceId)
+  await runVoiceRequest(request, created.runId)
+}
+
 export function createVoiceRequestProcessor(deps: LorMessageDeps) {
   return async (
     job: Job<
       | VoiceRequestJobData
       | VoiceApprovalWatchJobData
       | VoiceSessionMemoryJobData
-    >
+    >,
+    token?: string
   ) => {
     if (job.name === VOICE_APPROVAL_WATCH_JOB) {
       await watchApproval(job.data as VoiceApprovalWatchJobData)
@@ -494,36 +619,14 @@ export function createVoiceRequestProcessor(deps: LorMessageDeps) {
       )
       return
     }
-    const data = job.data as VoiceRequestJobData
-    const request = await loadVoiceRequest(data.requestId)
-    if (!request) return
-    if (data.resumeApprovalId) {
-      await resumeRequest(request, data.resumeApprovalId)
-      return
+    try {
+      await runVoiceJob(job.data as VoiceRequestJobData)
+    } catch (err) {
+      // A crashed attempt's lease is still live: wait it out.
+      if (err instanceof RunBusyError) {
+        await delayJobUntil(job, token, err.retryAt)
+      }
+      throw err
     }
-    if (request.status === "working" && request.runId) {
-      await runVoiceRequest(request, request.runId)
-      return
-    }
-    if (request.status !== "queued") return
-
-    const created = await createVoiceRun(request)
-    if (created === "absorbed" || created === "gone") return
-    if (created === "timeout") {
-      publish(
-        request,
-        await finishVoiceRequest(request.id, { status: "failed" })
-      )
-      return
-    }
-    const started = await startVoiceRequest(request.id, created.runId)
-    if (!started) {
-      // Cancelled, or claimed by a run that just started, before this one.
-      await cancelPendingRun(created.runId)
-      return
-    }
-    publish(request, started)
-    notifyWorkspaceActivity(request.workspaceId)
-    await runVoiceRequest(request, created.runId)
   }
 }

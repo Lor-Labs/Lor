@@ -13,7 +13,7 @@ export const profileToolSelectionSchema = z.discriminatedUnion("mode", [
 ])
 
 // Lor's own tools that need no connection, grouped like a service.
-export const BUILTIN_TOOL_GROUPS = ["web", "artifacts"] as const
+export const BUILTIN_TOOL_GROUPS = ["web", "artifacts", "sandbox"] as const
 export type BuiltinToolGroup = (typeof BUILTIN_TOOL_GROUPS)[number]
 
 // Every tool source uses the same selection: a missing entry follows the

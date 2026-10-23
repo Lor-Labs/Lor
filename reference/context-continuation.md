@@ -8,6 +8,51 @@ Worked step-by-step: each step is an independently reviewable ~150–500 LOC dif
 Jacob reviews and commits each step manually before the next begins. Update the
 checkboxes and deviations log as steps land.
 
+> **Status 2026-10-22:** Tracks A (`export_tool_result`) and D (`read_thread`,
+> images, speaker labels) are as built. Tracks B (continuation by transcript
+> replay) and C (Lor's own summarizing compaction) were replaced by the Pi path
+> in phase 1 ([pi-harness-runbook.md](planned/pi-harness-runbook.md) 1.3c-2b,
+> 1.3g-2, 1.6): `agent_run_step`, `agent_run.compaction`, `compaction.ts` and
+> `replayChain` are deleted. The B and C sections below are history; the next
+> section is how it works now.
+
+## As built: continuation on the Pi path
+
+- **The Pi session is the memory.** Each conversation (a session or a voice
+  call) has one Pi session, saved to Postgres after every turn
+  (`harness_state`, `harness_log`). A later run resumes it, so Lor keeps its
+  own earlier tool calls, results and reasoning without any replay.
+- **First run:** the session's first run sends the initial message: the
+  conversation snapshot (the whole thread plus messages before the root),
+  roster, workspace and plan state. The session start context
+  (`agent_session_context`) is part of it.
+- **Later runs send a delta** (`buildTurnDelta` in
+  `apps/worker/src/lib/run-continuation.ts`): the scope's messages since the
+  predecessor started, without Lor's own messages, the placeholder, still
+  `queued` rows, and messages a turn already took in
+  (`context.coveredMessageIds`, which ambient messages also join). The
+  trigger message is always included. Over 1,000 messages, the delta says
+  how many were left out. A gap over 30 min is told to the model ("It has
+  been about 3 days since then, so re-check anything that may have
+  changed"). With nothing new, the delta says so.
+- **Paused turns:** a run that only finishes a paused turn sends no prompt
+  (`context.continueOnly`). The next delta walks back through such runs
+  (`continuedFromRunId`) to the paused run, so messages sent while approvals
+  waited are not lost.
+- **Instructions are rebuilt every turn** and kept byte-stable per session
+  (no per-request values), so the prompt cache holds.
+- **Compaction is Pi's own**, with Lor's focus added
+  (`session_before_compact`: copy ids, citations, URLs and paths exactly) and
+  the plan state restated after it. Pi triggers it at the window minus its
+  16,384-token reserve; Lor caps every model's window at
+  `LOR_CONTEXT_WINDOW`. The trail shows a `compact_context` row (web
+  divider).
+- **History and touches** read Pi's saved log (`session-core/pi-history.ts`);
+  the context meter reads Pi's own count saved on the run.
+- **Write-back** re-reads only the turn (its prompt and Lor's messages),
+  shortened to a transcript excerpt when it exceeds 120k tokens
+  (`writeback-input.ts`).
+
 ## Locked decisions
 
 - **No silent truncation of what people can see.** A thread is a bounded unit
@@ -66,7 +111,7 @@ Ship first: independent of Track B, immediate win for export-style tasks.
   - Deny-list: `create_artifacts`, `propose_code_change`, `request_approval`,
     `set_plan`, `complete_task`, `propose_loop`, `propose_instructions`,
     `create_linear_issue`, `update_linear_issue`, `comment_linear`, brain
-    write tools (`write`, `mkdir`, `move`, `link`), and itself.
+    write tools (`memory_write`, `memory_edit`, `memory_link`), and itself.
   - Serialization: uniform array-of-flat-objects (or `{rows: [...]}`) → CSV
     (small local encoder, RFC 4180 quoting); anything else → pretty JSON.
     Handles the Neon MCP `run_sql` result shape explicitly.

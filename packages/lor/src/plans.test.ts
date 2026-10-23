@@ -20,25 +20,18 @@ const plan: AgentRunContextPlan = {
 
 describe("planRulesSection", () => {
   it("carries no plan-specific data, so it stays cacheable across runs", () => {
-    const rules = planRulesSection(true, true)
+    const rules = planRulesSection(true)
     expect(rules).not.toContain(plan.title)
     expect(rules).not.toContain(plan.goal)
     expect(rules).not.toContain("[active]")
-    // Identical for any two plan runs with the same capability.
-    expect(rules).toBe(planRulesSection(true, true))
+    // Identical for any two plan runs.
+    expect(rules).toBe(planRulesSection(true))
     expect(rules).toContain("update_plan")
     expect(rules).toContain("complete_plan")
   })
 
   it("points the model at where the live plan state actually is", () => {
-    expect(planRulesSection(true, true)).toContain(
-      "end of the conversation below"
-    )
-  })
-
-  it("only mentions deliverables when artifacts are enabled", () => {
-    expect(planRulesSection(true, true)).toContain("create_artifacts")
-    expect(planRulesSection(false, true)).not.toContain("create_artifacts")
+    expect(planRulesSection(true)).toContain("end of the conversation below")
   })
 })
 

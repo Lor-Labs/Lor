@@ -47,10 +47,8 @@ const DEAD_RUN_MESSAGE = "I ran into an error answering that. Please try again."
 // message row holds the durable trail, so prune old terminal runs' events.
 // Idempotent — safe to run from any number of worker replicas.
 //
-// Events ONLY. `agent_run_step` is the permanent record of what a run did and
-// is never pruned: run history and context continuation (a follow-up run
-// replaying its predecessors' transcripts) both read it. Adding a retention
-// sweep there would silently break both — see reference/agent-harness.md.
+// Events only. The record of what a run did is Pi's log (`harness_log`),
+// never pruned.
 export async function pruneRunEvents(): Promise<void> {
   const cutoff = new Date(Date.now() - RUN_EVENT_RETENTION_MS)
   const stale = db

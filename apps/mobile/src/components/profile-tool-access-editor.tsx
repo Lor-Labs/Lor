@@ -1,6 +1,7 @@
 import ApiIcon from "@hugeicons/core-free-icons/ApiIcon"
 import CloudServerIcon from "@hugeicons/core-free-icons/CloudServerIcon"
 import File02Icon from "@hugeicons/core-free-icons/File02Icon"
+import TerminalIcon from "@hugeicons/core-free-icons/TerminalIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import {
   CONNECTORS,
@@ -41,7 +42,9 @@ export function ProfileServiceIcon({ group }: { group: ProfileToolGroup }) {
     return <ConnectorIcon connector={null} color={foreground} size={18} />
   const icon =
     group.kind === "builtin"
-      ? File02Icon
+      ? group.id === "sandbox"
+        ? TerminalIcon
+        : File02Icon
       : group.kind === "customTools"
         ? ApiIcon
         : CloudServerIcon

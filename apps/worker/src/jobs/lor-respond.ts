@@ -24,7 +24,9 @@ import { withContext } from "@repo/logger"
 import {
   formatSpeakerLine,
   groundCitations,
+  pausedTurnExpired,
   respond,
+  SandboxCapacityError,
   writeBack,
 } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
@@ -54,12 +56,13 @@ import {
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
-import { claimAgentRun, LeaseLostError } from "@/lib/agent-run"
+import { claimAgentRun, delayJobUntil, LeaseLostError } from "@/lib/agent-run"
 import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
 } from "@/lib/approval-notify"
 import { createProposalCard } from "@/lib/change-proposal"
+import { loadHarnessState, savedTurnText } from "@/lib/harness-state"
 import { logger } from "@/lib/logger"
 import {
   loadLoopRun,
@@ -69,13 +72,11 @@ import {
 } from "@/lib/loop-session"
 import { loadConversation } from "@/lib/lor-conversation"
 import { createLoopCard } from "@/lib/lor-loop"
-import {
-  approvalDecisionTurn,
-  buildApprovalContinuation,
-  buildContinuation,
-} from "@/lib/run-continuation"
+import { loadPausedDecisions } from "@/lib/paused-turn"
+import { buildTurnDelta } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
+import { turnSandboxMode } from "@/lib/sandbox-mode"
 import { titleSessionAfterFirstReply } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
 import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
@@ -87,8 +88,7 @@ type RedisClient = ReturnType<typeof createClient>
 
 // Batch streamed tokens so we publish ~every 24 chars, not per chunk.
 const FLUSH_THRESHOLD = 24
-// Floor of remaining budget below which the optional write-back is skipped.
-const WRITEBACK_MIN_BUDGET_FRACTION = 0.15
+// Credits left below which the optional write-back is skipped.
 const WRITEBACK_MIN_CREDITS = 50
 
 const LOR_ERROR_FALLBACK =
@@ -97,12 +97,15 @@ const LOR_ERROR_FALLBACK =
 const OUT_OF_CREDITS_MESSAGE =
   "This workspace is out of Lor credits. An admin can top up in Settings → Billing."
 
+const SANDBOX_CAPACITY_MESSAGE =
+  "Lor's sandboxes are at capacity right now. Please try again in a few minutes."
+
 export function createLorRespondProcessor(
   emitter: Emitter<ServerToClientEvents>,
   redis: RedisClient,
   respondQueue: Queue<LorRespondJobData>
 ) {
-  return (job: Job<LorRespondJobData>) =>
+  return (job: Job<LorRespondJobData>, token?: string) =>
     withContext(
       { jobId: job.id, jobName: job.name, channelId: job.data.channelId },
       async () => {
@@ -290,18 +293,20 @@ export function createLorRespondProcessor(
             emitter.to(room).emit("lor:steer", steerPayload)
           },
         })
+        if (claim.kind === "busy") {
+          await delayJobUntil(job, token, claim.retryAt)
+        }
         if (claim.kind === "terminal") {
-          // Finished by (or currently owned by) another attempt. Still drain:
-          // a run settled before it was ever claimed (e.g. stopped while
-          // queued) has no other terminal transition to start its queued
-          // follow-ups, and draining a still-owned scope is a no-op.
+          // Finished by another attempt. Still drain: a run settled before it
+          // was ever claimed (e.g. stopped while queued) has no other terminal
+          // transition to start its queued follow-ups.
           logger.info(
             { lorMessageId, runId: job.data.runId },
-            "Run already terminal or owned elsewhere; skipping"
+            "Run already terminal; skipping"
           )
           // A retry landing after its crashed predecessor's run went terminal
           // (or a stop that raced the claim) is the last actor that can settle
-          // the plan — skip only when another attempt still owns a live lease.
+          // the plan.
           if (job.data.runId) {
             const runState = await db
               .select({ state: schema.agentRun.state })
@@ -430,11 +435,9 @@ export function createLorRespondProcessor(
             return
           }
 
-          // Recovered attempt: reset clients to the durable answer prefix — the
-          // dead attempt's un-checkpointed tail is discarded by design.
-          if (execution?.resume) {
-            emit(execution.resume.answerTextSoFar, false, undefined, true)
-          }
+          // Retried attempt: the lost attempt's streamed text is discarded, so
+          // reset clients before the turn runs again.
+          if (execution?.resume) emit("", false, undefined, true)
 
           // Reasoning is kept both as a legacy aggregate and ordered segments that
           // can be interleaved with tool calls at the same answer-text offset.
@@ -530,58 +533,77 @@ export function createLorRespondProcessor(
             )
           }
           try {
-            // Continuation: a follow-up run in a thread/plan scope inherits the
-            // previous run's transcript (its tool results and reasoning) rather
-            // than rebuilding context from chat text alone, so it resumes the
-            // work instead of rediscovering it. Channel scope always builds
-            // fresh, and a recovered attempt already has its own transcript.
-            // An approval resume is explicit rather than scope-inferred: it
-            // replays the parked run named by the approval row, so it also
-            // works in a plain channel scope where no delta path exists.
-            // request_approval parks no tool call: its decision rides the
-            // delta as a line instead.
-            const decisionTurn =
-              !execution?.resume && job.data.resumeApprovalId
-                ? await approvalDecisionTurn(job.data.resumeApprovalId).catch(
-                    () => null
-                  )
+            // Every Lor turn runs in its session's Pi conversation.
+            if (!execution) throw new Error("A Lor turn needs a durable run")
+            const session = threadRootId
+              ? await db
+                  .select({ id: schema.agentSession.id })
+                  .from(schema.agentSession)
+                  .where(eq(schema.agentSession.threadRootId, threadRootId))
+                  .then((rows) => rows[0])
+              : undefined
+            if (!session) throw new Error("This Lor run has no session")
+            const owner = { sessionId: session.id }
+            const harnessState = await loadHarnessState(
+              owner,
+              execution.workspaceId
+            )
+            // The lost attempt saved its turn before it died: deliver that
+            // answer instead of running the turn twice.
+            const savedAnswer =
+              execution.resume && harnessState?.lastRunId === execution.runId
+                ? await savedTurnText(execution.runId)
                 : null
-            const continuation = execution?.resume
-              ? null
-              : job.data.resumeApprovalId && !decisionTurn
-                ? await buildApprovalContinuation({
-                    approvalId: job.data.resumeApprovalId,
-                  })
-                : contextThreadRootId
-                  ? await buildContinuation({
-                      scopeKey: contextThreadRootId,
-                      channelId,
-                      lorMessageId,
-                      runId: job.data.runId,
-                      ...(decisionTurn ? { extraTurns: [decisionTurn] } : {}),
-                    })
-                  : null
-            if (continuation && execution) {
-              await execution.markContinuedFrom(continuation.predecessorRunId)
-            }
-            // On recovery the persisted step-0 snapshot is the conversation —
-            // reloading would drift (new messages may have landed since). A
-            // continued run's snapshot is the delta it was started with.
-            const snapshot = execution?.resume
-              ? execution.resume
-              : continuation
-                ? { conversation: continuation.conversation }
-                : await loadConversation({
+            // Another adapter version saved the paused turn: it is dropped.
+            const upgraded = harnessState
+              ? pausedTurnExpired(harnessState)
+              : false
+            // The last decision on a paused turn's approval set: this run only
+            // finishes that turn, with no prompt of its own.
+            const continueOnly = Boolean(
+              job.data.resumeApprovalId &&
+                harnessState?.continuation &&
+                !upgraded
+            )
+            // After the session's first turn, Pi's saved state holds the
+            // conversation, so the prompt is only what was said since.
+            const delta =
+              execution.resume ||
+              continueOnly ||
+              !harnessState ||
+              !contextThreadRootId
+                ? null
+                : await buildTurnDelta({
+                    predecessorRunId: harnessState.lastRunId,
+                    triggerMessageId: triggerMessageId ?? null,
+                    scopeKey: contextThreadRootId,
                     channelId,
-                    threadRootId: contextThreadRootId,
                     lorMessageId,
-                    triggerMessageId,
                   })
+            // A resume points at the paused run too, so the next delta can
+            // reach back past it.
+            if ((delta || continueOnly) && harnessState?.lastRunId) {
+              await execution.markContinuedFrom(harnessState.lastRunId)
+            }
+            // On a retry the saved request is the conversation — reloading
+            // would drift (new messages may have landed since).
+            const snapshot = execution.resume
+              ? execution.resume
+              : continueOnly
+                ? { conversation: [] }
+                : delta
+                  ? { conversation: delta.turns }
+                  : await loadConversation({
+                      channelId,
+                      threadRootId: contextThreadRootId,
+                      lorMessageId,
+                      triggerMessageId,
+                    })
             const conversation =
               triggerRun?.isEvent &&
               job.data.runId &&
-              !execution?.resume &&
-              !continuation &&
+              !execution.resume &&
+              !delta &&
               "backgroundConversation" in snapshot
                 ? await briefActEvent(snapshot.conversation, {
                     triggerId: triggerRun.triggerId,
@@ -595,10 +617,9 @@ export function createLorRespondProcessor(
                 ? snapshot.backgroundConversation
                 : undefined
             // A fresh snapshot covers every pending steer row, so consume them
-            // before the first boundary. A continuation delta is bounded and may
-            // omit older steers; leave those rows pending rather than sweeping
-            // them all as loaded.
-            if (execution && !execution.resume && !continuation) {
+            // before the first boundary. A delta is bounded and may omit older
+            // steers; leave those rows pending rather than sweeping them all.
+            if (!execution.resume && !delta && !continueOnly) {
               await execution.markConversationLoaded()
             }
 
@@ -711,6 +732,49 @@ export function createLorRespondProcessor(
               userId: triggerUserId,
             }
 
+            // A paused turn finishes first, or is dropped (stopped, or saved
+            // by another adapter version). Unless this run is its resume, its
+            // pending approvals are rejected: the trigger's author wrote
+            // instead of deciding.
+            const paused =
+              savedAnswer === null &&
+              harnessState?.continuation &&
+              harnessState.lastRunId
+                ? await loadPausedDecisions(
+                    harnessState.lastRunId,
+                    execution.runId,
+                    continueOnly
+                      ? null
+                      : {
+                          userId: triggerUserId,
+                          name:
+                            streamMentionRoster.find(
+                              (m) => m.id === triggerUserId
+                            )?.name ?? "Someone",
+                        },
+                    upgraded
+                  )
+                : null
+            for (const row of paused?.closed ?? []) {
+              emitter.to(channelRoom(channelId)).emit("approval:updated", {
+                approvalId: row.id,
+                channelId,
+                planId: row.planId,
+                status: row.status,
+                resolvedBy: row.resolvedBy,
+                resolvedAt: row.resolvedAt?.toISOString() ?? null,
+              })
+            }
+            if (paused?.closed.length) notifyWorkspaceActivity(workspaceId)
+            const sandboxMode = await turnSandboxMode({
+              saved: execution.resume?.context.sandboxMode,
+              paused: continueOnly ? paused?.sandboxMode : undefined,
+              // A Lor-authored trigger is a Loop fire or Act event even when
+              // its loop or trigger lookup failed: never a person's consent.
+              automated: Boolean(automated) || triggerUserId === LOR_USER_ID,
+              userId: triggerUserId,
+            })
+
             // start_plan: adopt this run's thread as a new plan, anchored to
             // the thread root and assigned to this run so settlePlan owns it.
             // No card in channel chat: the plan lives in the session's right
@@ -794,17 +858,11 @@ export function createLorRespondProcessor(
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
-                ...(continuation
+                ...(delta
                   ? {
-                      continuation: {
-                        messages: continuation.messages,
-                        coveredMessageIds: continuation.coveredMessageIds,
-                        deltaText: continuation.deltaText,
-                        ...(continuation.approvalResume
-                          ? { approvalResume: continuation.approvalResume }
-                          : {}),
-                        lastInputTokens: continuation.lastInputTokens,
-                        compaction: continuation.compaction,
+                      delta: {
+                        text: delta.text,
+                        coveredMessageIds: delta.coveredMessageIds,
                       },
                     }
                   : {}),
@@ -900,27 +958,23 @@ export function createLorRespondProcessor(
                     (t) => t.toolCallId === toolCall.toolCallId
                   )
                   const existing = idx >= 0 ? toolCalls[idx] : undefined
-                  // Frames may be partial updates (streamed sandbox summary,
-                  // diffs); one for a row that never got its start frame
-                  // can't render — drop it.
+                  // Frames may be partial updates; one for a row that never
+                  // got its start frame can't render — drop it.
                   const base =
                     existing ??
                     (toolCall.toolName && toolCall.label
-                      ? { toolName: toolCall.toolName, label: toolCall.label }
+                      ? {
+                          toolName: toolCall.toolName,
+                          label: toolCall.label,
+                        }
                       : undefined)
                   if (!base) return
-                  if (!existing && !toolCall.parentToolCallId) {
-                    closeReasoningSegment()
-                  }
+                  if (!existing) closeReasoningSegment()
                   const nextToolCall: LorToolCall = {
                     ...base,
                     ...toolCall,
                     ...(existing?.at !== undefined ? { at: existing.at } : {}),
-                    ...(existing?.order !== undefined
-                      ? { order: existing.order }
-                      : !toolCall.parentToolCallId
-                        ? { order: eventOrder++ }
-                        : {}),
+                    order: existing?.order ?? eventOrder++,
                   }
                   if (idx >= 0) toolCalls[idx] = nextToolCall
                   else toolCalls.push(nextToolCall)
@@ -938,23 +992,32 @@ export function createLorRespondProcessor(
                   emitter.to(room).emit("lor:tool", toolPayload)
                 },
                 // Metered usage: every event lands in the usage_event ledger;
-                // billable responses and code investigations debit credits.
-                // Fire-and-forget: billing must never fail the answer. Nested
-                // billable usage also folds into the run's spend counter at the
-                // next checkpoint (the budget_spend ceiling).
+                // billable responses debit credits. Fire-and-forget: billing
+                // must never fail the answer.
                 onUsage: (u) => {
                   logger.info({ ...u }, "Lor usage")
-                  if (
-                    u.tool === "investigate_code" ||
-                    u.tool === "propose_code_change" ||
-                    u.tool === "create_artifacts"
-                  )
-                    execution?.noteNestedUsage(u)
                   void recordUsage(u, usageRefs)
                 },
                 onInstructionsProposal: notifyInstructionsProposal,
               },
-              execution?.handle
+              {
+                ...execution.handle,
+                harness: {
+                  owner,
+                  saved: harnessState,
+                  savedAnswer,
+                  pausedDecisions:
+                    paused && !paused.dropped ? paused.decisions : null,
+                  pausedDropped: paused?.dropped ?? null,
+                  continueOnly,
+                  sandboxMode,
+                  pausedSandboxContext: paused?.sandboxContext,
+                  pausedSandboxMode: paused?.sandboxMode,
+                  recordUsage: (usage, kind) =>
+                    execution.recordUsage(usage, kind),
+                  saveTurn: (turn) => execution.saveTurn(owner, turn),
+                },
+              }
             )
             flushPendingText()
             closeReasoningSegment()
@@ -983,14 +1046,18 @@ export function createLorRespondProcessor(
               return
             }
             logger.error({ err, lorMessageId }, "Lor response failed")
+            const failureText =
+              err instanceof SandboxCapacityError
+                ? SANDBOX_CAPACITY_MESSAGE
+                : LOR_ERROR_FALLBACK
             await db
               .update(schema.message)
-              .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
+              .set({ content: failureText, status: "failed" })
               .where(eq(schema.message.id, lorMessageId))
               .catch(() => {})
             // Replace (not append) so a partial answer streamed before the error
             // is dropped in favor of the fallback, matching the persisted row.
-            emit(LOR_ERROR_FALLBACK, true, "failed", true)
+            emit(failureText, true, "failed", true)
             await runWriter.transition("failed", {
               stopReason:
                 execution &&
@@ -1008,9 +1075,8 @@ export function createLorRespondProcessor(
           // Explicit user stop: keep whatever partial answer streamed, settle
           // the run as stopped, and skip the write-back.
           const stoppedByUser = answer.stoppedFor === "stopped_by_user"
-          // Parked on an approval policy: the loop ends the moment the gate
-          // trips, so there may be no closing text — the approval card carries
-          // the explanation.
+          // Paused on approvals: the turn stops at the gated calls, so there
+          // may be no closing text — the approval cards carry the explanation.
           const awaitingApproval = answer.stoppedFor === "awaiting_approval"
 
           // Phase 2 — persist, then fan out. Persistence decides the terminal
@@ -1253,9 +1319,9 @@ export function createLorRespondProcessor(
               logger.warn({ err, threadRootId }, "Recording touches failed")
             )
           }
-          // Announce the gate only after the run is terminal — the resolve
-          // endpoint refuses to resume a run that hasn't finished parking.
-          // Ids only; cards read the durable row via the approvals query.
+          // Announce the set once the run is terminal: a decision made sooner
+          // queues its resume behind this run. Ids only; cards refetch the
+          // whole set, and each person gets one notice for it.
           if (awaitingApproval && job.data.runId) {
             const parkedApproval = await db
               .select({
@@ -1311,23 +1377,14 @@ export function createLorRespondProcessor(
             return
           }
 
-          // Skip the optional write-back when the answer finished near a
-          // ceiling — never endanger an already-delivered response.
+          // Skip the optional write-back when the answer finished near the
+          // spend or time limit — never endanger an already-delivered response.
           if (execution) {
             const { budgets } = execution.handle
             const c = execution.counters()
-            const inputLeft =
-              (budgets.inputTokens - c.inputTokens) / budgets.inputTokens
-            const outputLeft =
-              (budgets.outputTokens - c.outputTokens) / budgets.outputTokens
             const creditsLeft = budgets.credits - c.creditsSpent
             const wallLeftMs = budgets.deadlineAt.getTime() - Date.now()
-            if (
-              inputLeft < WRITEBACK_MIN_BUDGET_FRACTION ||
-              outputLeft < WRITEBACK_MIN_BUDGET_FRACTION ||
-              creditsLeft < WRITEBACK_MIN_CREDITS ||
-              wallLeftMs < 60_000
-            ) {
+            if (creditsLeft < WRITEBACK_MIN_CREDITS || wallLeftMs < 60_000) {
               logger.info(
                 { lorMessageId, runId: execution.runId, counters: c },
                 "Write-back skipped; run finished near a budget ceiling"

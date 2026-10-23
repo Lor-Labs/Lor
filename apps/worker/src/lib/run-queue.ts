@@ -18,6 +18,7 @@ import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
+import { resumeStillPending } from "@/lib/paused-turn"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 const TERMINAL_RUN_STATES = ["complete", "failed", "stopped"] as const
@@ -169,13 +170,33 @@ async function runDrain(args: {
     )
   const memberIds = new Set(members.map((m) => m.userId))
   const rejected: typeof rows = []
+  // Queued resumes whose paused turn another run already finished.
+  const finished: typeof rows = []
   let winner: (typeof rows)[number] | undefined
   for (const row of rows) {
+    if (
+      row.resumeApprovalId &&
+      !(await resumeStillPending(row.resumeApprovalId))
+    ) {
+      finished.push(row)
+      continue
+    }
     if (memberIds.has(row.senderId) && row.messageChannelId === run.channelId) {
       winner = row
       break
     }
     rejected.push(row)
+  }
+  if (finished.length > 0) {
+    await db
+      .update(schema.agentRunQueue)
+      .set({ state: "consumed" })
+      .where(
+        inArray(
+          schema.agentRunQueue.id,
+          finished.map((r) => r.id)
+        )
+      )
   }
   if (rejected.length > 0) {
     await db
@@ -207,7 +228,7 @@ async function runDrain(args: {
       scopeKey: run.scopeKey,
       triggerMessageId: winner.messageId,
       // A queued approval resolution keeps its resume: the follow-up run
-      // replays the parked transcript instead of building a delta.
+      // finishes the paused turn instead of building a delta.
       resumeApprovalId: winner.resumeApprovalId,
     },
     {
@@ -328,11 +349,6 @@ export async function startScopeRun(
           channelId,
           loopId: args.loopId ?? null,
           scheduledFor: args.scheduledFor ?? null,
-          budgetSteps: env.AGENT_RUN_MAX_STEPS,
-          budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-          budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-          budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-          budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
           budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
           budgetCredits: env.AGENT_RUN_MAX_CREDITS,
         })

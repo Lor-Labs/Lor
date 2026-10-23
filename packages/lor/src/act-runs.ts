@@ -137,11 +137,6 @@ export async function createActRun(input: {
         channelId: input.channelId,
         scopeKey: input.triggerId,
         triggerId: input.triggerId,
-        budgetSteps: env.AGENT_RUN_MAX_STEPS,
-        budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-        budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-        budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-        budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
         budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
         budgetCredits: env.AGENT_RUN_MAX_CREDITS,
       })
@@ -333,9 +328,8 @@ export function formatActBriefing(input: {
       const effects =
         run.effects.length > 0
           ? // "recorded actions" rather than "side effects": the underlying
-            // allowlist also covers billed-but-read-only work like
-            // investigate_code, and claiming those mutated something would
-            // mislead the successor.
+            // allowlist marks tools whose replay must not repeat, which is not
+            // the same as "mutated something" and would mislead the successor.
             ` — recorded actions: ${[...run.effects].sort().join(", ")}`
           : ""
       lines.push(`- ${run.createdAt.toISOString()} — ${outcome}${effects}`)

@@ -383,19 +383,6 @@ export async function resumeVoiceRequest(requestId: string, runId: string) {
   return row ? toState(row) : null
 }
 
-// A cancelled request's open approval can no longer be acted on.
-export async function expireRunApproval(runId: string) {
-  await db
-    .update(schema.approval)
-    .set({ status: "expired", resolvedAt: new Date() })
-    .where(
-      and(
-        eq(schema.approval.runId, runId),
-        eq(schema.approval.status, "pending")
-      )
-    )
-}
-
 // Keeps the paused request's approver list current as people join and leave.
 export async function setVoiceRequestApprovers(
   requestId: string,

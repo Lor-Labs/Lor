@@ -57,7 +57,6 @@ import {
   ConnectorToolPreview,
   ConnectorToolSettings,
 } from "@/components/workspace/connector-tool-settings"
-import { GithubBaseBranchSettings } from "@/components/workspace/github-base-branch-settings"
 import {
   IconTile,
   PILL_BUTTON,
@@ -685,9 +684,7 @@ function ConnectorDetail({
           </SettingsSection>
         ))}
 
-      {p.connected && (
-        <Repositories workspaceSlug={workspaceSlug} provider={p} />
-      )}
+      {p.connected && <Repositories provider={p} />}
     </div>
   )
 }
@@ -833,13 +830,7 @@ function EventRoutes({
   )
 }
 
-function Repositories({
-  workspaceSlug,
-  provider: p,
-}: {
-  workspaceSlug: string
-  provider: IntegrationStatus
-}) {
+function Repositories({ provider: p }: { provider: IntegrationStatus }) {
   const repos = p.repos ?? []
   // `repos` may be capped server-side; repoCount is the true total.
   const repoCount = p.repoCount ?? repos.length
@@ -862,56 +853,34 @@ function Repositories({
   )
 
   return (
-    <>
-      <SettingsSection
-        title="Repositories"
-        count={repoCount}
-        action={manageLink}
-      >
-        <SettingsGroup>
-          {repos.length === 0 && (
-            <div className="py-3 text-sm text-muted-foreground">
-              No repositories yet.
-            </div>
-          )}
-          {repos.slice(0, REPO_DISPLAY_LIMIT).map((r) => (
-            <div key={r.fullName} className="flex items-center gap-2 py-2.5">
-              <span className="min-w-0 truncate text-sm">{r.fullName}</span>
-              {r.private && (
-                <HugeiconsIcon
-                  icon={SquareLock02Icon}
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  strokeWidth={2}
-                  role="img"
-                  aria-label="Private"
-                />
-              )}
-            </div>
-          ))}
-          {repoCount > REPO_DISPLAY_LIMIT && (
-            <div className="py-2.5 text-sm text-muted-foreground">
-              +{repoCount - REPO_DISPLAY_LIMIT} more
-            </div>
-          )}
-        </SettingsGroup>
-      </SettingsSection>
-      {p.id === "github" &&
-        p.canManage &&
-        p.connectionId &&
-        repos.length > 0 && (
-          <SettingsSection title="Pull request base branch">
-            <SettingsGroup>
-              <div className="py-3">
-                <GithubBaseBranchSettings
-                  workspaceSlug={workspaceSlug}
-                  connectionId={p.connectionId}
-                  repos={repos}
-                />
-              </div>
-            </SettingsGroup>
-          </SettingsSection>
+    <SettingsSection title="Repositories" count={repoCount} action={manageLink}>
+      <SettingsGroup>
+        {repos.length === 0 && (
+          <div className="py-3 text-sm text-muted-foreground">
+            No repositories yet.
+          </div>
         )}
-    </>
+        {repos.slice(0, REPO_DISPLAY_LIMIT).map((r) => (
+          <div key={r.fullName} className="flex items-center gap-2 py-2.5">
+            <span className="min-w-0 truncate text-sm">{r.fullName}</span>
+            {r.private && (
+              <HugeiconsIcon
+                icon={SquareLock02Icon}
+                className="size-3.5 shrink-0 text-muted-foreground"
+                strokeWidth={2}
+                role="img"
+                aria-label="Private"
+              />
+            )}
+          </div>
+        ))}
+        {repoCount > REPO_DISPLAY_LIMIT && (
+          <div className="py-2.5 text-sm text-muted-foreground">
+            +{repoCount - REPO_DISPLAY_LIMIT} more
+          </div>
+        )}
+      </SettingsGroup>
+    </SettingsSection>
   )
 }
 

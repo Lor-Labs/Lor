@@ -1,0 +1,230 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 092defda380f277002ccc446e6a0259286bd62b9..006400475a47d5acbd33564ff3113335422d484f 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -186,7 +186,44 @@ type PiHarnessSettings = {
+    * is not restricted.
+    */
+   readonly fileToolPathPolicy?: PiFileToolPathPolicy;
++  /**
++   * Replaces Pi's default system prompt (preamble, tool list, rules and Pi docs).
++   * Called on every resource reload, so it applies to new prompts and to
++   * resumed approval turns alike. Pi still appends the cwd section, and the
++   * context-file and skills sections unless disabled below.
++   */
++  readonly systemPrompt?: () => string;
++  /**
++   * Set `false` to skip AGENTS.md / CLAUDE.md discovery from the working
++   * directory upward.
++   *
++   * @default true
++   */
++  readonly contextFiles?: boolean;
++  /**
++   * Set `false` to load no skills (workspace or harness-provided).
++   *
++   * @default true
++   */
++  readonly skills?: boolean;
++  /**
++   * Decides each built-in tool call. Replaces the `permissionMode` mapping
++   * for built-in tools. A decision delivered on resume always wins, so a
++   * changed policy can never run a rejected call. "ask" emits a normal tool
++   * approval request.
++   */
++  readonly builtinToolApproval?: PiBuiltinToolApproval;
++};
++type PiBuiltinToolDecision = "allow" | "ask" | {
++  type: "deny";
++  reason: string;
+ };
++type PiBuiltinToolApproval = (call: {
++  readonly toolCallId: string;
++  readonly toolName: "read" | "write" | "edit" | "bash" | "grep" | "find" | "ls";
++  readonly kind: "readonly" | "edit" | "bash";
++  readonly input: unknown;
++}) => PiBuiltinToolDecision | Promise<PiBuiltinToolDecision>;
+ declare const PI_BUILTIN_TOOLS: {
+   readonly read: HarnessV1BuiltinTool<{
+     file_path: string;
+@@ -268,5 +305,5 @@ export declare const pi: import("@ai-sdk/harness").HarnessV1<{
+   readonly ls: import("@ai-sdk/harness").HarnessV1BuiltinTool;
+ }>;
+ //#endregion
+-export type { PiAuthenticationMode, PiCredentialStore, PiFileToolPathPolicy, PiHarnessExtensionFactory, PiHarnessExtensionSession, PiHarnessSettings, PiMcpExposure, PiMcpServerConfig };
++export type { PiAuthenticationMode, PiBuiltinToolApproval, PiBuiltinToolDecision, PiCredentialStore, PiFileToolPathPolicy, PiHarnessExtensionFactory, PiHarnessExtensionSession, PiHarnessSettings, PiMcpExposure, PiMcpServerConfig };
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
+diff --git a/dist/index.js b/dist/index.js
+index 01de5947269c110248dfb4d442e46767c42afb0c..bee61b08d2b78b591f952a6d1b0f3e9786f1420f 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2401,7 +2401,7 @@ function resolveActivePiBuiltinNames(toolFiltering) {
+ 	return PI_NATIVE_BUILTIN_NAMES.filter((native) => !toolFiltering.toolNames.includes(NATIVE_TO_COMMON[native] ?? native));
+ }
+ function hasCompatibleReattachSettings(parked, current) {
+-	return parked.sandboxSession === current.sandboxSession && parked.sessionWorkDir === current.sessionWorkDir && parked.clientApp === current.clientApp && parked.permissionMode === current.permissionMode && parked.builtinToolFiltering === current.builtinToolFiltering && parked.abortSignal === current.abortSignal && parked.agentDir === current.agentDir && parked.settings.auth === current.settings.auth && parked.settings.credentials === current.settings.credentials && parked.settings.headers === current.settings.headers && parked.settings.thinkingLevel === current.settings.thinkingLevel && parked.settings.cacheRetention === current.settings.cacheRetention && parked.settings.mcpServers === current.settings.mcpServers && parked.settings.mcpSettings === current.settings.mcpSettings && parked.settings.providers === current.settings.providers && parked.settings.extensionFactories === current.settings.extensionFactories && parked.settings.fileToolPathPolicy === current.settings.fileToolPathPolicy;
++	return parked.sandboxSession === current.sandboxSession && parked.sessionWorkDir === current.sessionWorkDir && parked.clientApp === current.clientApp && parked.permissionMode === current.permissionMode && parked.builtinToolFiltering === current.builtinToolFiltering && parked.abortSignal === current.abortSignal && parked.agentDir === current.agentDir && parked.settings.auth === current.settings.auth && parked.settings.credentials === current.settings.credentials && parked.settings.headers === current.settings.headers && parked.settings.thinkingLevel === current.settings.thinkingLevel && parked.settings.cacheRetention === current.settings.cacheRetention && parked.settings.mcpServers === current.settings.mcpServers && parked.settings.mcpSettings === current.settings.mcpSettings && parked.settings.providers === current.settings.providers && parked.settings.extensionFactories === current.settings.extensionFactories && parked.settings.fileToolPathPolicy === current.settings.fileToolPathPolicy && parked.settings.systemPrompt === current.settings.systemPrompt && parked.settings.contextFiles === current.settings.contextFiles && parked.settings.skills === current.settings.skills && parked.settings.builtinToolApproval === current.settings.builtinToolApproval;
+ }
+ async function isWorkspaceAvailableOnHost({ sandbox, sessionWorkDir }) {
+ 	const probePath = path.join(sessionWorkDir, `.ai-sdk-harness-pi-${randomUUID()}`);
+@@ -2461,6 +2461,7 @@ async function createPiSession(input) {
+ 		sessionId: input.sessionId
+ 	});
+ 	const permissionMode = input.permissionMode ?? "allow-all";
++	const builtinToolApproval = input.settings.builtinToolApproval;
+ 	const activeBuiltinNames = resolveActivePiBuiltinNames(input.builtinToolFiltering);
+ 	const activeNativeToCommon = Object.fromEntries(Object.entries(NATIVE_TO_COMMON).filter(([native]) => activeBuiltinNames.some((name) => name === native)));
+ 	const sandboxSkillRootDir = path.posix.join(sandboxHomeDir, ".agents", "skills");
+@@ -2556,6 +2557,8 @@ async function createPiSession(input) {
+ 		agentDir: hostAgentDir,
+ 		settingsManager,
+ 		appendSystemPromptOverride: () => sessionInstructions ? [sessionInstructions] : [],
++		...input.settings.systemPrompt ? { systemPromptOverride: () => input.settings.systemPrompt() } : {},
++		...input.settings.contextFiles === false ? { noContextFiles: true } : {},
+ 		extensionFactories,
+ 		...hasExtensionFactories ? { extensionsOverride: (extensions) => {
+ 			if (preserveExtensionsResult && currentExtensionsResult != null) return currentExtensionsResult;
+@@ -2567,7 +2570,7 @@ async function createPiSession(input) {
+ 		noPromptTemplates: true,
+ 		skillsOverride: (base) => ({
+ 			...base,
+-			skills: [...base.skills.filter((skill) => isWithinWorkspace(skill.filePath, sessionWorkDir, hostWorkDir)), ...harnessSkills]
++			skills: input.settings.skills === false ? [] : [...base.skills.filter((skill) => isWithinWorkspace(skill.filePath, sessionWorkDir, hostWorkDir)), ...harnessSkills]
+ 		})
+ 	});
+ 	await resourceLoader.reload();
+@@ -2855,15 +2858,26 @@ async function createPiSession(input) {
+ 		};
+ 	}
+ 	async function requestBuiltinToolApproval(args) {
+-		if (!piBuiltinToolRequiresApproval({
+-			permissionMode,
+-			kind: PI_NATIVE_TOOL_KINDS[args.nativeName]
+-		})) return { approved: true };
+ 		const deliveredDecision = nativeApprovalDecisions.get(args.toolCallId);
+ 		if (deliveredDecision != null) {
+ 			nativeApprovalDecisions.delete(args.toolCallId);
+ 			return deliveredDecision;
+ 		}
++		const kind = PI_NATIVE_TOOL_KINDS[args.nativeName];
++		const decision = builtinToolApproval ? await builtinToolApproval({
++			toolCallId: args.toolCallId,
++			toolName: args.nativeName,
++			kind,
++			input: args.input
++		}) : piBuiltinToolRequiresApproval({
++			permissionMode,
++			kind
++		}) ? "ask" : "allow";
++		if (decision === "allow") return { approved: true };
++		if (decision !== "ask") return {
++			approved: false,
++			reason: decision.reason
++		};
+ 		currentEmit?.({
+ 			type: "tool-approval-request",
+ 			approvalId: args.toolCallId,
+@@ -2903,6 +2917,9 @@ async function createPiSession(input) {
+ 	}
+ 	async function rebuildPiSession(userTools, isFirstBuild) {
+ 		let resourcesReloaded = false;
++		// A rebuild for a changed tool list keeps the journal: reopen the
++		// current session file instead of starting an empty one.
++		const currentSessionFile = piSession?.sessionManager.getSessionFile();
+ 		if (piSession) {
+ 			await disposePiSession({ reason: "reload" });
+ 			await new Promise((resolve) => setTimeout(resolve, 25));
+@@ -2913,7 +2930,7 @@ async function createPiSession(input) {
+ 		}
+ 		const { customTools, builtinNames } = buildToolDefinitions(userTools);
+ 		const toolNames = customTools.map((t) => t.name);
+-		const sessionManager = isFirstBuild && resumeSessionFilePath ? getRestoredSessionManager() : SessionManager.create(sessionWorkDir, hostSessionDir);
++		const sessionManager = isFirstBuild && resumeSessionFilePath ? getRestoredSessionManager() : currentSessionFile ? SessionManager.open(currentSessionFile, hostSessionDir, sessionWorkDir) : SessionManager.create(sessionWorkDir, hostSessionDir);
+ 		const { session } = await createAgentSession({
+ 			cwd: sessionWorkDir,
+ 			agentDir: hostAgentDir,
+@@ -3326,7 +3343,8 @@ function asPiToolResult(text) {
+ async function maybeDenyPiBuiltinTool(input) {
+ 	const decision = await input.requestApproval({
+ 		toolCallId: input.toolCallId,
+-		nativeName: input.nativeName
++		nativeName: input.nativeName,
++		input: input.input
+ 	});
+ 	if (decision.approved) return void 0;
+ 	return asPiToolResult(serializeToolOutput({
+@@ -3359,7 +3377,7 @@ function buildBuiltinToolDefinition(input) {
+ 					}))
+ 				}),
+ 				async execute(toolCallId, params, signal, onUpdate, ctx) {
+-					const denied = await maybeDenyPiBuiltinTool({
++					const denied = await maybeDenyPiBuiltinTool({ input: params,
+ 						toolCallId,
+ 						nativeName: "read",
+ 						requestApproval: input.requestApproval
+@@ -3383,7 +3401,7 @@ function buildBuiltinToolDefinition(input) {
+ 				content: Type.String()
+ 			}),
+ 			async execute(toolCallId, params) {
+-				const denied = await maybeDenyPiBuiltinTool({
++				const denied = await maybeDenyPiBuiltinTool({ input: params,
+ 					toolCallId,
+ 					nativeName: "write",
+ 					requestApproval: input.requestApproval
+@@ -3403,7 +3421,7 @@ function buildBuiltinToolDefinition(input) {
+ 				new_string: Type.String()
+ 			}),
+ 			async execute(toolCallId, params) {
+-				const denied = await maybeDenyPiBuiltinTool({
++				const denied = await maybeDenyPiBuiltinTool({ input: params,
+ 					toolCallId,
+ 					nativeName: "edit",
+ 					requestApproval: input.requestApproval
+@@ -3422,7 +3440,7 @@ function buildBuiltinToolDefinition(input) {
+ 				timeout: Type.Optional(Type.Number({ description: "Timeout in seconds." }))
+ 			}),
+ 			async execute(toolCallId, params, signal) {
+-				const denied = await maybeDenyPiBuiltinTool({
++				const denied = await maybeDenyPiBuiltinTool({ input: params,
+ 					toolCallId,
+ 					nativeName: "bash",
+ 					requestApproval: input.requestApproval
+@@ -3453,7 +3471,7 @@ function buildBuiltinToolDefinition(input) {
+ 				limit: Type.Optional(Type.Number())
+ 			}),
+ 			async execute(toolCallId, params) {
+-				const denied = await maybeDenyPiBuiltinTool({
++				const denied = await maybeDenyPiBuiltinTool({ input: params,
+ 					toolCallId,
+ 					nativeName: "grep",
+ 					requestApproval: input.requestApproval
+@@ -3472,7 +3490,7 @@ function buildBuiltinToolDefinition(input) {
+ 				limit: Type.Optional(Type.Number())
+ 			}),
+ 			async execute(toolCallId, params) {
+-				const denied = await maybeDenyPiBuiltinTool({
++				const denied = await maybeDenyPiBuiltinTool({ input: params,
+ 					toolCallId,
+ 					nativeName: "find",
+ 					requestApproval: input.requestApproval
+@@ -3490,7 +3508,7 @@ function buildBuiltinToolDefinition(input) {
+ 				limit: Type.Optional(Type.Number())
+ 			}),
+ 			async execute(toolCallId, params) {
+-				const denied = await maybeDenyPiBuiltinTool({
++				const denied = await maybeDenyPiBuiltinTool({ input: params,
+ 					toolCallId,
+ 					nativeName: "ls",
+ 					requestApproval: input.requestApproval
+@@ -3654,6 +3672,10 @@ function createPi(settings = {}) {
+ 					...settings.providers ? { providers: settings.providers } : {},
+ 					...settings.extensionFactories ? { extensionFactories: settings.extensionFactories } : {},
+ 					...settings.fileToolPathPolicy ? { fileToolPathPolicy: settings.fileToolPathPolicy } : {},
++					...settings.systemPrompt ? { systemPrompt: settings.systemPrompt } : {},
++					...settings.contextFiles != null ? { contextFiles: settings.contextFiles } : {},
++					...settings.skills != null ? { skills: settings.skills } : {},
++					...settings.builtinToolApproval ? { builtinToolApproval: settings.builtinToolApproval } : {},
+ 					...startOpts.headers ? { headers: startOpts.headers } : {}
+ 				},
+ 				clientApp: PI_CLIENT_APP,

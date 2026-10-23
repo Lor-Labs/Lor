@@ -13,7 +13,7 @@
 | `conversation_chunks` / `memory_events` | In the model | **Dropped**; non-destructive page updates via `status` + `version` |
 | Edge `type` | Free text (taxonomy-as-data) | **Controlled pgEnum** `brain_edge_type` — the graph needs a stable vocabulary |
 | Brain table names | `nodes` / `edges` | **`brain_node` / `brain_edge`** |
-| Brain tool names | — | bare **`ls`/`read`/`tree`/`write`/`mkdir`/`move`/`link`** (models know these) |
+| Brain tool names | — | **`memory_ls`/`memory_read`/`memory_write`/`memory_edit`/`memory_link`** (2026-10-21: renamed from bare `ls`/`read`/…, which Pi's sandbox file tools own, `planned/pi-harness-runbook.md` §4.6; `tree` folded into `memory_ls` as `depth`; `mkdir` and `move` removed, since writes create folders and a move broke stored `[[/path]]` citations) |
 | Write-back | (implied) | **Autonomous** — Lor decides salience itself; Inkling gate + Kimi K3 agent |
 | Grounding | Strict citations, hard-verified | Citation use is **prompt-conditional** (institutional vs general); emitted citations are hard-verified |
 | Self-host / BYO-key | First-class (AGPL) | model roles are configurable across AI Gateway's providers; code investigation uses the same main model through Pi |
