@@ -11,6 +11,7 @@ import {
 import { env } from "@repo/env/server"
 import { enterContext, flushErrorReports } from "@repo/logger"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
+import { setRepoCacheStore } from "@repo/lor/github"
 import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import {
   buildMessageFanout,
@@ -1354,6 +1355,15 @@ async function bootstrap() {
   ])
 
   io.adapter(createAdapter(redisPubClient, redisSubClient))
+
+  // Code session starts check the repo against the GitHub repo list; share
+  // the worker's and API's cached copy.
+  setRepoCacheStore({
+    get: (key) => redisPresenceClient.get(key),
+    set: async (key, value, ttlSeconds) => {
+      await redisPresenceClient.set(key, value, { EX: ttlSeconds })
+    },
+  })
 
   // Periodically clean up stale presence entries (crashed servers)
   setInterval(() => {

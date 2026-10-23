@@ -29,6 +29,8 @@ export type SessionStart = {
   id: string
   threadRootId: string
   origin: "chat" | "new"
+  // New session in Code mode.
+  code?: { repo: string; branch: string }
   title: string
   // The sender's message, the session's first turn.
   message: Message
@@ -92,6 +94,9 @@ export function useSessionStart({
       threadRootId: start.threadRootId,
       creatorId: user.id,
       origin: start.origin,
+      mode: start.code ? "code" : "chat",
+      repoFullName: start.code?.repo ?? null,
+      baseBranch: start.code?.branch ?? null,
       title: start.title,
       titleEditedAt: null,
       loopId: null,

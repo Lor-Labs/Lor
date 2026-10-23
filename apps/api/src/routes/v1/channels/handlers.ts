@@ -20,6 +20,7 @@ import {
   threadReadState,
   user,
 } from "@repo/db/schema"
+import { channelCodeRepo, listRepoBranches } from "@repo/lor/code-repo"
 import {
   listConnectorScopes as listScopes,
   searchConnector,
@@ -74,6 +75,7 @@ import type {
   ListChannelConnectorsRoute,
   ListChannelMessagesRoute,
   ListChannelsRoute,
+  ListCodeBranchesRoute,
   ListConnectorScopesRoute,
   ListPinnedMessagesRoute,
   ListThreadActivityRoute,
@@ -1397,6 +1399,45 @@ export const listConnectorScopes: AppRouteHandler<
 
   const scopes = await listScopes(provider, workspace.id)
   return c.json({ scopes: scopes ?? [] }, HttpStatusCodes.OK)
+}
+
+export const listCodeBranches: AppRouteHandler<ListCodeBranchesRoute> = async (
+  c
+) => {
+  const workspace = c.var.workspace
+  const currentUser = c.var.user
+  const { channelId } = c.req.valid("param")
+  const { repo, q } = c.req.valid("query")
+
+  if (
+    !(await channelInWorkspace(channelId, workspace.id)) ||
+    !(await userCanAccessChannel(channelId, currentUser.id))
+  ) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const allowed = await channelCodeRepo(workspace.id, channelId, repo)
+  if (!allowed) {
+    return c.json(
+      {
+        success: false,
+        message: "That repository isn't available for code sessions here",
+      },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+
+  const listed = await listRepoBranches(
+    allowed.installationId,
+    allowed.repo.fullName,
+    q ?? ""
+  )
+  return c.json(
+    listed ?? { defaultBranch: allowed.repo.defaultBranch, branches: [] },
+    HttpStatusCodes.OK
+  )
 }
 
 export const searchConnectorFiles: AppRouteHandler<

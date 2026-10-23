@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi"
-import { agentSessionOriginEnum } from "@repo/db/schema"
+import { agentSessionModeEnum, agentSessionOriginEnum } from "@repo/db/schema"
 
 export const sessionParamsSchema = z.object({
   sessionId: z
@@ -18,6 +18,9 @@ export const agentSessionSchema = z
     threadRootId: z.string().uuid(),
     creatorId: z.string().uuid().nullable(),
     origin: z.enum(agentSessionOriginEnum.enumValues),
+    mode: z.enum(agentSessionModeEnum.enumValues),
+    repoFullName: z.string().nullable(),
+    baseBranch: z.string().nullable(),
     title: z.string(),
     titleEditedAt: z.string().nullable(),
     loopId: z.string().uuid().nullable(),

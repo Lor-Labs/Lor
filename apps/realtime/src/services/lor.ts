@@ -14,6 +14,7 @@ import {
   findAgentSessionByThreadRoot,
 } from "@repo/db/queries/agent-sessions"
 import { env } from "@repo/env/server"
+import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 import { extractDirectMentionUserIds } from "@repo/messaging"
 import {
   type RealtimeMessage,
@@ -56,6 +57,25 @@ async function loadThreadContextIds(threadRootId: string) {
   return [threadRootId, ...replies.map((row) => row.id)]
 }
 
+// The picker only offers allowed repos, so a refusal here means the channel's
+// tools or the GitHub connection changed since it loaded.
+async function codeSessionStart(
+  workspaceId: string,
+  channelId: string,
+  code: { repo: string; branch: string }
+) {
+  if (!isSafeBranch(code.branch)) {
+    throw new Error(`"${code.branch}" can't be used as a base branch`)
+  }
+  const allowed = await channelCodeRepo(workspaceId, channelId, code.repo)
+  if (!allowed) {
+    throw new Error(
+      `${code.repo} isn't available for code sessions in this channel`
+    )
+  }
+  return { repoFullName: allowed.repo.fullName, baseBranch: code.branch }
+}
+
 // `@Lor` in channel chat or a human thread starts a session seeded with what
 // led up to it, and nothing posts where it was sent
 // (reference/workspace-model.md). Undefined = a normal send.
@@ -77,9 +97,17 @@ export async function sessionStartFor(args: {
     threadRootId: payload.newSession?.threadRootId,
   }
   if (payload.startSession && !payload.threadRootId) {
+    const code = payload.code
+      ? await codeSessionStart(
+          channel.workspaceId,
+          payload.channelId,
+          payload.code
+        )
+      : undefined
     return {
       ...ids,
       origin: "new",
+      ...(code ? { code } : {}),
       title: sessionTitleFromPrompt(payload.content ?? ""),
       // "Ask Lor about this": the quoted message is the only context.
       contextMessageIds: payload.referencedMessageId

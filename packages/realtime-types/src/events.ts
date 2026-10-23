@@ -167,6 +167,14 @@ export const sendMessagePayloadSchema = z
     // New session view: the message starts a session in this channel with
     // no chat context, @Lor or not.
     startSession: z.boolean().optional(),
+    // New session in Code mode: the repository (owner/repo) and base branch
+    // the session works in. Only read with startSession.
+    code: z
+      .object({
+        repo: z.string().min(3).max(200),
+        branch: z.string().min(1).max(255),
+      })
+      .optional(),
     // Ids the sender chose for the session this send starts (New session or
     // @Lor), so it can show the session before the ack. Ignored when the
     // send starts none.
@@ -912,6 +920,7 @@ export type PlanUpdatedEvent = {
 }
 
 export type RealtimeAgentSessionOrigin = "chat" | "new" | "loop" | "trigger"
+export type RealtimeAgentSessionMode = "chat" | "code"
 
 // Snapshot of a Lor session row. Mirrors agent_session in @repo/db; guarded
 // in @repo/lor.
@@ -922,6 +931,9 @@ export type RealtimeAgentSession = {
   threadRootId: string
   creatorId: string | null
   origin: RealtimeAgentSessionOrigin
+  mode: RealtimeAgentSessionMode
+  repoFullName: string | null
+  baseBranch: string | null
   title: string
   titleEditedAt: string | null
   loopId: string | null

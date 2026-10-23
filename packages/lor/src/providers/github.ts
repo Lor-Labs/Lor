@@ -159,6 +159,65 @@ export async function listInstallationRepos(
   }
 }
 
+export type RepoBranches = { defaultBranch: string | null; branches: string[] }
+
+const BRANCH_PAGE_SIZE = 50
+
+// Branches for the code session picker. GitHub filters by name, so a repo with
+// thousands of branches still finds the one being typed. REST has no name
+// search; GraphQL `refs(query:)` does.
+export async function listRepoBranches(
+  installationId: string,
+  repoFullName: string,
+  query: string
+): Promise<RepoBranches | null> {
+  const app = getApp()
+  if (!app) return null
+  const id = Number(installationId)
+  if (!Number.isFinite(id)) return null
+  const [owner, name] = repoFullName.split("/")
+  if (!(owner && name)) return null
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    const { repository } = await octokit.graphql<{
+      repository: {
+        defaultBranchRef: { name: string } | null
+        refs: { nodes: { name: string }[] } | null
+      } | null
+    }>(
+      `query ($owner: String!, $name: String!, $query: String, $first: Int!) {
+        repository(owner: $owner, name: $name) {
+          defaultBranchRef { name }
+          refs(refPrefix: "refs/heads/", query: $query, first: $first, orderBy: { field: ALPHABETICAL, direction: ASC }) {
+            nodes { name }
+          }
+        }
+      }`,
+      {
+        owner,
+        name,
+        query: query.trim() || undefined,
+        first: BRANCH_PAGE_SIZE,
+        request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      }
+    )
+    if (!repository) return null
+    const defaultBranch = repository.defaultBranchRef?.name ?? null
+    const names = (repository.refs?.nodes ?? []).map((ref) => ref.name)
+    // The default branch leads when it matches, and always with no query (it
+    // can sort past the first page).
+    const lead =
+      defaultBranch && (!query.trim() || names.includes(defaultBranch))
+        ? defaultBranch
+        : null
+    const branches = lead ? [lead, ...names.filter((n) => n !== lead)] : names
+    return { defaultBranch, branches }
+  } catch (err) {
+    logger.error({ err, repoFullName }, "GitHub branch list failed")
+    return null
+  }
+}
+
 export async function getInstallationOverview(
   installationId: string
 ): Promise<{ repos: InstallationRepo[]; manageUrl: string | null } | null> {

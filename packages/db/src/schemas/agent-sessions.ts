@@ -24,6 +24,12 @@ export const agentSessionOriginEnum = pgEnum("agent_session_origin", [
   "trigger",
 ])
 
+// Fixed when the session starts (reference/planned/code-channels.md §2).
+export const agentSessionModeEnum = pgEnum("agent_session_mode", [
+  "chat",
+  "code",
+])
+
 // A Lor session: one place where Lor works on one thing, next to the channel
 // chat (reference/workspace-model.md). Its anchor message (type
 // "agent_session") never shows in chat; session messages are thread replies
@@ -51,6 +57,11 @@ export const agentSession = pgTable(
       onDelete: "set null",
     }),
     origin: agentSessionOriginEnum("origin").notNull(),
+    mode: agentSessionModeEnum("mode").notNull().default("chat"),
+    // Code sessions: the GitHub repo (owner/repo) cloned as the work folder
+    // and the branch it starts from. Null in chat sessions.
+    repoFullName: text("repo_full_name"),
+    baseBranch: text("base_branch"),
     title: text("title").notNull(),
     // Set when a person renames the session; generated titles stop then.
     titleEditedAt: timestamp("title_edited_at"),

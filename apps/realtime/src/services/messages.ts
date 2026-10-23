@@ -53,6 +53,7 @@ export type NewSessionInput = Pick<
   | "id"
   | "threadRootId"
   | "origin"
+  | "code"
   | "title"
   | "contextMessageIds"
   | "subscriberIds"

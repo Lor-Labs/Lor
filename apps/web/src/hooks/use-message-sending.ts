@@ -182,6 +182,8 @@ export function useMessageSending({
         toPeople?: boolean
         // New session view: start a session in this channel.
         startSession?: boolean
+        // With startSession: start it in Code mode on this repo and branch.
+        code?: { repo: string; branch: string }
         // "Ask Lor about this": the message the new session starts with.
         contextMessageId?: string
         // Cmd+Enter: a session start stays where it was sent.
@@ -215,10 +217,12 @@ export function useMessageSending({
         startsSession && handlers
           ? { id: crypto.randomUUID(), threadRootId: crypto.randomUUID() }
           : null
+      const code = options?.startSession ? options.code : undefined
       const start: SessionStart | null = startIds
         ? {
             ...startIds,
             origin: options?.startSession ? "new" : "chat",
+            ...(code ? { code } : {}),
             title: sessionTitleFromPrompt(content),
             stay: Boolean(options?.stay),
             message: {
@@ -268,6 +272,7 @@ export function useMessageSending({
           attachments,
           toPeople: options?.toPeople || undefined,
           startSession: options?.startSession || undefined,
+          code,
           newSession: start
             ? { id: start.id, threadRootId: start.threadRootId }
             : undefined,

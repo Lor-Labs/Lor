@@ -2,6 +2,7 @@ import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import { tool } from "ai"
 import { z } from "zod"
+import { isSafeBranch, REPO_FULL_NAME } from "./code-repo"
 import { getInstallationToken, type InstallationRepo } from "./providers/github"
 
 const MAX_LISTED = 30
@@ -41,22 +42,6 @@ function repoHint(repos: InstallationRepo[]): string {
         .map((r) => r.fullName)
         .join(", ")}.`
     : ""
-}
-
-// The names become a folder path and git arguments. resolveRepo passes the raw
-// request through when the installation has no repo list, so `.` and `..`
-// segments are refused here.
-const REPO_FULL_NAME =
-  /^(?!\.{1,2}\/)(?![A-Za-z0-9._-]+\/\.{1,2}$)[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
-const BRANCH = /^[A-Za-z0-9._/-]{1,200}$/
-
-function isSafeBranch(branch: string): boolean {
-  return (
-    BRANCH.test(branch) &&
-    !branch.includes("..") &&
-    !branch.startsWith("-") &&
-    !branch.startsWith("/")
-  )
 }
 
 // Exit codes of the update script for a clone that is kept as it is.

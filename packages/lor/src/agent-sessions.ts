@@ -31,6 +31,9 @@ export function toRealtimeAgentSession(
     threadRootId: row.threadRootId,
     creatorId: row.creatorId,
     origin: row.origin,
+    mode: row.mode,
+    repoFullName: row.repoFullName,
+    baseBranch: row.baseBranch,
     title: row.title,
     titleEditedAt: row.titleEditedAt?.toISOString() ?? null,
     loopId: row.loopId,
@@ -53,6 +56,8 @@ export type CreateSessionArgs = {
   authorId: string
   creatorId: string | null
   origin: AgentSession["origin"]
+  // Set for a code session; checked against the channel's repos by the caller.
+  code?: { repoFullName: string; baseBranch: string }
   title: string
   loopId?: string
   triggerId?: string
@@ -86,6 +91,9 @@ export async function createSession(
       threadRootId: anchor.id,
       creatorId: args.creatorId,
       origin: args.origin,
+      mode: args.code ? "code" : "chat",
+      repoFullName: args.code?.repoFullName ?? null,
+      baseBranch: args.code?.baseBranch ?? null,
       title: args.title,
       loopId: args.loopId ?? null,
       triggerId: args.triggerId ?? null,
