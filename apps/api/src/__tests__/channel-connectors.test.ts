@@ -20,9 +20,9 @@ describe("attachableConnectors", () => {
     ])
   })
 
-  it("grants file browsing through its investigation tool", () => {
+  it("grants file browsing through its clone tool", () => {
     const connected = new Set(["github"] as const)
-    expect(ids(attachableConnectors(connected, ["investigate_code"]))).toEqual([
+    expect(ids(attachableConnectors(connected, ["clone_repo"]))).toEqual([
       "github",
     ])
   })
