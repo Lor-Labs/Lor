@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+reviews:
+  auto_review:
+    # Review PRs into dev too, not only the default branch.
+    base_branches:
+      - "^dev$"
+  # Docs, tests, the lockfile and patches stay out of reviews (and out of the
+  # per-review file limit).
+  path_filters:
+    - "!**/*.md"
+    - "!**/*.test.ts"
+    - "!**/*.test.tsx"
+    - "!pnpm-lock.yaml"
+    - "!patches/**"
