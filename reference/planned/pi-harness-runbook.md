@@ -1583,6 +1583,13 @@ moved here from 1.4, because nothing runs without a sandbox.
       clone` of a public repo; `npm install`, `pip install`; DNS (`dig`,
       `nslookup`); `ssh -T git@github.com` and raw TCP; `curl
       169.254.169.254`; what the proxy's identity token can reach.
+    - **Changed 2026-10-23 (Jacob):** the firewall ruleset is off. Blaxel's
+      ephemeral volumes now need Carbon, which has no firewalling, so every
+      new session sandbox failed (`EPHEMERAL_VOLUME_CONFLICT`). The allow
+      list stays and binds proxy-aware clients; `NODE_USE_ENV_PROXY=1` makes
+      Node's `fetch` one of them. Sandboxes are pinned to `BL_REGION`
+      (default `us-pdx-1`). The curl/wget flag stays removed: the proxy
+      already blocks their writes. Probes and results: research §7.
 - [x] **1.3g Turn controls and eval**, in four chunks agreed with Jacob
   2026-10-21:
   - [x] **1.3g-1 Spend inside a turn and the real model** (2026-10-21; no

@@ -36,14 +36,16 @@ const WAIT_MAX_MS = 1000
 export const SESSION_WORK_DIR = WORKSPACE_MOUNT
 
 // Egress limits (reference/planned/sandbox-safety-research.md §7): reads to
-// any host, writes only for git fetch and npm audit. The `proxy` firewall
-// ruleset forces every connection through Blaxel's proxy and can only be set
-// when a sandbox is created, so the label marks sandboxes that have it; bump
-// the version to replace older ones.
+// any host, writes only for git fetch and npm audit. They bind tools that use
+// HTTP_PROXY/HTTPS_PROXY (curl, git, npm, pip, Python, and Node with
+// NODE_USE_ENV_PROXY); raw sockets get past them. The `proxy` firewall
+// ruleset that would force all traffic through is off: since 2026-10-23
+// Blaxel puts ephemeral volumes only on Carbon, which has no firewalling yet.
+// The network is fixed at creation, so the label marks sandboxes with the
+// current limits; bump the version to replace older ones.
 const EGRESS_LABEL = "lor-egress"
 const EGRESS_VERSION = "1"
 const SESSION_NETWORK = {
-  firewall: { rulesets: ["proxy"] },
   allowedDomains: [
     "GET:HEAD:OPTIONS:*",
     "POST:github.com/*git-upload-pack",

@@ -224,6 +224,15 @@ From the docs (`Sandboxes/Proxy`, `Proxy-domains`, `Proxy-secrets-injection`,
 - **Enforcement:** without `firewall: { rulesets: ["proxy"] }`, only clients
   that honor `HTTP(S)_PROXY` are filtered. With it, all egress must go
   through the proxy.
+- **Live result (2026-10-23):** ephemeral volumes now need Carbon
+  (`EPHEMERAL_VOLUME_CONFLICT`: with the firewall in `us-pdx-1`, and "the
+  previous infrastructure generation" in `eu-lon-1`), and Carbon has no
+  firewalling, so the ruleset is off. Without it, in `us-pdx-1`: the proxy
+  variables are set; `curl -X POST` and Python `urllib` POST get 403; GET
+  gets 200; Node 22's `fetch` POST got through until `NODE_USE_ENV_PROXY=1`
+  (now set for every sandbox command), then 403. Raw sockets and clients
+  that ignore the variables are not filtered. Ask Blaxel when Carbon gets
+  firewalling, then turn the ruleset back on and bump `lor-egress`.
 - **Inside the sandbox:** `HTTP(S)_PROXY` points at a loopback shim that adds
   a rotating workload identity token, read from a file. Every process
   inherits the variables (process env is merged with the sandbox server's).

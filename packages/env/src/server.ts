@@ -86,6 +86,9 @@ const serverSchema = z.object({
   // BL_* names are fixed — @blaxel/core reads them from process.env directly.
   BL_API_KEY: z.string().min(1).optional(),
   BL_WORKSPACE: z.string().min(1).optional(),
+  // Where session sandboxes are created. It must offer ephemeral volumes and
+  // the egress proxy (us-pdx-1 checked 2026-10-23).
+  BL_REGION: defaultedString("us-pdx-1"),
   // Custom sandbox image (pushed via `bl push` from packages/lor/sandbox-image).
   LOR_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
