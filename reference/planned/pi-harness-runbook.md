@@ -1756,7 +1756,9 @@ moved here from 1.4, because nothing runs without a sandbox.
   - **Open (low):** resume enqueue failure after the decision commits; the
     saved-answer path settling paused or stopped turns; a crashed attempt's
     sandbox processes; approval gates not re-checked mid-turn; GET
-    query-string leaks unclassified; voice name matching; prompt-cache
+    query-string leaks (narrowed 2026-10-22: `curl`/`wget`/`http`/`xh`
+    with a computed argument are flagged for the classifier); voice name
+    matching; prompt-cache
     churn in Loop sessions; usage of turns that do not finish (errored
     retries, cache warms); counters vs ledger semantics; replayed turns
     outside Pi's retry loop (upstream); a journal swap race.

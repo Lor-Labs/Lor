@@ -1,3 +1,4 @@
+import { Button } from "@repo/ui/components/button"
 import { Label } from "@repo/ui/components/label"
 import {
   Select,
@@ -37,7 +38,12 @@ const SANDBOX_MODE_OPTIONS = [
 
 export function SandboxSettings() {
   const queryClient = useQueryClient()
-  const { data: settings, isPending } = useQuery({
+  const {
+    data: settings,
+    isPending,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: SANDBOX_SETTINGS_KEY,
     queryFn: async () => {
       const res = await apiClient.v1["sandbox-settings"].$get()
@@ -82,7 +88,21 @@ export function SandboxSettings() {
     )
   }
 
-  const mode = settings?.sandboxMode ?? "auto"
+  // Never show a guessed mode: a change would save on top of it.
+  if (isError || !settings) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-10 text-center">
+        <p className="text-sm text-muted-foreground">
+          Couldn't load sandbox settings.
+        </p>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          Try again
+        </Button>
+      </div>
+    )
+  }
+
+  const mode = settings.sandboxMode
   const selected = SANDBOX_MODE_OPTIONS.find((opt) => opt.value === mode)
 
   return (

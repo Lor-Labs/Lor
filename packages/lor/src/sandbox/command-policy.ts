@@ -575,6 +575,16 @@ function flagReason(argv: Argv): string | null {
       return has("-l", "--listen")
         ? "opens a network listener"
         : "connects to a remote host"
+    // Reads to any host pass the egress proxy, so a request built from
+    // computed values (`$(…)`, variables) can carry data out in its URL.
+    case "curl":
+    case "wget":
+    case "http":
+    case "https":
+    case "xh":
+      return args.some((a) => a == null)
+        ? "builds a network request from computed values"
+        : null
     case "crontab":
       return has("-l") ? null : "changes scheduled jobs"
     case "systemctl":

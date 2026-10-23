@@ -226,9 +226,11 @@ export function ThreadView({
   const { openDM } = useOpenDM()
 
   // A turn paused on approvals is stoppable too: Stop rejects them all.
+  // Scoped to this thread: a channel-wide lookup would let a human thread
+  // stop another session's paused turn.
   const pausedLorMessageId = usePausedLorMessageId(
     channelId ?? "",
-    lorSession ? threadRootId : null
+    threadRootId
   )
   const stoppableLorMessageId = pendingLorMessageId ?? pausedLorMessageId
   const stopPendingLor = useCallback(async () => {

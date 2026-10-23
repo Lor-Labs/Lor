@@ -368,6 +368,8 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
       await sandbox.process.kill(name).catch(() => {})
     }
     abortSignal?.addEventListener("abort", () => void kill(), { once: true })
+    // An abort during exec fired before the process existed.
+    if (abortSignal?.aborted) void kill()
     let done: Promise<{ exitCode: number }> | null = null
     const handle: SandboxProcess = {
       stdout: logStream(sandbox, name, "stdout"),
