@@ -755,6 +755,9 @@ importers:
       '@repo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@repo/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@tailwindcss/postcss':
         specifier: ^4.1.18
         version: 4.1.18
@@ -1112,6 +1115,9 @@ importers:
       '@repo/realtime-types':
         specifier: workspace:*
         version: link:../realtime-types
+      '@repo/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
