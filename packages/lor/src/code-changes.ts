@@ -73,9 +73,30 @@ const GIT = "git --no-optional-locks --literal-pathspecs"
 export type CodeSandbox = {
   run(
     command: string,
-    options?: { env?: Record<string, string> }
+    options?: { env?: Record<string, string>; abortSignal?: AbortSignal }
   ): Promise<{ exitCode: number; stdout: string; stderr: string }>
   close(): void
+}
+
+// Commands run in the session's repo folder. The worker uses its open
+// sandbox directly; it closes the sandbox itself.
+export function codeSandboxIn(
+  session: SandboxSession,
+  workDir: string,
+  close: () => void = () => {}
+): CodeSandbox {
+  return {
+    run: async (command, options) => {
+      const result = await session.run({
+        command: `cd ${shellQuote(workDir)} 2>/dev/null || exit ${NOT_A_CLONE}\n${command}`,
+        ...(options?.env ? { env: options.env } : {}),
+        ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
+      })
+      if (result.exitCode === NOT_A_CLONE) throw new CodeSandboxMissingError()
+      return result
+    },
+    close,
+  }
 }
 
 // The session's sandbox, set to its repo folder. Null when it is gone.
@@ -84,19 +105,11 @@ export async function attachCodeSandbox(
 ): Promise<CodeSandbox | null> {
   const sandbox = await attachSessionSandbox({ sessionId })
   if (!sandbox) return null
-  const workDir = piWorkDir(SESSION_WORK_DIR, sessionId)
-  const session: SandboxSession = sandbox.session
-  return {
-    run: async (command, options) => {
-      const result = await session.run({
-        command: `cd ${shellQuote(workDir)} 2>/dev/null || exit ${NOT_A_CLONE}\n${command}`,
-        ...(options?.env ? { env: options.env } : {}),
-      })
-      if (result.exitCode === NOT_A_CLONE) throw new CodeSandboxMissingError()
-      return result
-    },
-    close: sandbox.close,
-  }
+  return codeSandboxIn(
+    sandbox.session,
+    piWorkDir(SESSION_WORK_DIR, sessionId),
+    sandbox.close
+  )
 }
 
 export class CodeSandboxMissingError extends Error {

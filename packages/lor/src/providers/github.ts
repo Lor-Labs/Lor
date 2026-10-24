@@ -25,7 +25,11 @@ function rewrapPem(key: string): string {
 }
 
 // Accept multi-line, escaped-newline, single-line, or base64-encoded PEMs.
-function normalizePrivateKey(raw: string | undefined): string | undefined {
+// PEM from env: real newlines, "\n" escapes, or base64. Also used for the
+// Code Storage key (code-checkpoints.ts).
+export function normalizePrivateKey(
+  raw: string | undefined
+): string | undefined {
   if (!raw) return undefined
   let key = raw.trim()
   if (!key.includes("-----BEGIN")) {

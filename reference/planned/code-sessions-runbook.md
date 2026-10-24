@@ -195,10 +195,11 @@ may lag web), a Lor-offered "Continue in Code" card.
   Plan, 2026-10-24 (Pierre docs and `@pierre/storage` 1.17.1 read):
   - **Layout:** one Code Storage repo per workspace and GitHub repo
     (`<workspaceId>/<owner>/<repo>`; repo IDs may contain `/`), so sessions
-    on the same repo share the base's objects; one ephemeral branch per
-    session (`session/<sessionId>`). Ephemeral refs stay until deleted,
-    never reach GitHub, and a normal clone doesn't show them. Deleting a
-    session deletes its branch (`DELETE /repos/branches`, `ephemeral`);
+    on the same repo share the base's objects; one normal branch per
+    session (`session/<sessionId>`). Not the ephemeral namespace: the spike
+    showed per-branch token rules don't work there (below). Our repos have
+    no GitHub link and only Lor clones them, so hiding refs adds nothing.
+    Deleting a session deletes its branch (`DELETE /repos/branches`);
     deleting a workspace deletes its repos (`DELETE /repos/delete`, async).
   - **Cold repos:** Code Storage thaws an archived repo before a read; API
     calls may return 503 for 5–10 seconds meanwhile, so reads retry.
@@ -226,12 +227,35 @@ may lag web), a Lor-offered "Continue in Code" card.
     saved upstream SHA.
   - **Env:** `CODE_STORAGE_ORG`, `CODE_STORAGE_PRIVATE_KEY` (PKCS8 PEM;
     one line with `\n` or base64 also works).
-  - **Spike first** (not in Pierre's docs): a push from a depth-1 clone, a
-    fetch of it into a fresh repo, checkpoint push time at real sizes, and
-    reading a repo after it went cold.
+  - **Spike, 2026-10-24** (org `lor`, throwaway repos deleted; base: a
+    depth-1 clone of honojs/hono, 583 files, 1.9 MB `.git`):
+    - A push from the depth-1 clone is accepted: 1.3 s for the first
+      checkpoint (it uploads the base), 0.3 s for later ones. Repo create
+      about 0.2 s.
+    - Restore: `git fetch --update-shallow` (required; without it git
+      refuses the shallow history) of the session branch into a fresh repo
+      took 0.6 s. HEAD and the work tree matched exactly; status showed only
+      the uncommitted and untracked changes, nothing staged; older
+      checkpoints were reachable.
+    - A cold repo (pushed through `+import`) fetched in 0.75 s, warm
+      0.3 s.
+    - Token ref policies: in the default namespace,
+      `refs/heads/session/<id>: no-force-push` then `*: no-push` allows
+      the fast-forward and refuses a force-push and other refs. In the
+      ephemeral namespace, branch patterns never match (only `*` does), and
+      a force-push got past `*: no-push`. Report to Pierre.
+    - Not checked: object cleanup after a branch delete, SOC 2, EU region.
   - **Parts:** 5a client, table, egress and a checkpoint after each turn;
     5b restore on demand (worker and panel, "Restoring…"); 5c checkpoints
     after Commit and Pull, and deleting the session branch with the session.
+  - [x] **5a** built 2026-10-24: `@repo/lor/code-checkpoints`
+    (`writeCheckpoint`), the `session_checkpoint` table (additive
+    `db:push`), the egress rules, and a checkpoint after each saved turn in
+    `respond` (best-effort: a failure is logged, the turn stands). An
+    unchanged tree and HEAD writes nothing. No `EGRESS_VERSION` bump, so
+    live sandboxes keep their work; they skip checkpoints until replaced.
+  - [ ] **5b** restore on demand.
+  - [ ] **5c** checkpoints after Commit and Pull; branch cleanup.
 - [ ] **6. Rewind and native fork** (Pi first): files and harness state at
   turn N; fork into a new session; the UI for both.
 - [ ] **7. Claude Code** on the session contract: native state per turn,

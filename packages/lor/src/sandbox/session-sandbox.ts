@@ -45,6 +45,13 @@ export const SESSION_WORK_DIR = WORKSPACE_MOUNT
 // current limits; bump the version to replace older ones.
 const EGRESS_LABEL = "lor-egress"
 const EGRESS_VERSION = "1"
+// Code session checkpoints push and fetch Lor's own Code Storage org with a
+// token for one session branch (code-checkpoints.ts). Added without a version
+// bump: a bump would replace live sandboxes and lose their work, so older
+// sandboxes skip checkpoints until they are replaced.
+const checkpointHost = env.CODE_STORAGE_ORG
+  ? `${env.CODE_STORAGE_ORG}.code.storage`
+  : null
 const SESSION_NETWORK = {
   allowedDomains: [
     "GET:HEAD:OPTIONS:*",
@@ -52,6 +59,12 @@ const SESSION_NETWORK = {
     "POST:gitlab.com/*git-upload-pack",
     "POST:bitbucket.org/*git-upload-pack",
     "POST:registry.npmjs.org/-/npm/v1/security/",
+    ...(checkpointHost
+      ? [
+          `POST:${checkpointHost}/*git-upload-pack`,
+          `POST:${checkpointHost}/*git-receive-pack`,
+        ]
+      : []),
   ],
   proxy: { routing: [] },
 }

@@ -87,6 +87,8 @@ import {
 } from "./citations"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { cloneRepoTool } from "./code"
+import { codeSandboxIn } from "./code-changes"
+import { writeCheckpoint } from "./code-checkpoints"
 import {
   type CodeWorkFolder,
   codeSessionPromptSection,
@@ -3450,6 +3452,24 @@ export async function respond(
         coveredMessageIds: coveredAmbient,
         contextUsage: turn.contextUsage,
       })
+      // A failed checkpoint never fails the turn: the files are still in the
+      // sandbox, and the next turn tries again.
+      if (ctx.code && workFolder?.status === "ready") {
+        await writeCheckpoint(
+          codeSandboxIn(
+            sandbox.session,
+            piWorkDir(SESSION_WORK_DIR, conversationId)
+          ),
+          {
+            sessionId: conversationId,
+            workspaceId: ctx.workspaceId,
+            repoFullName: ctx.code.repoFullName,
+            runId: run.runId,
+          }
+        ).catch((err) =>
+          logger.warn({ err, sessionId: conversationId }, "Checkpoint failed")
+        )
+      }
       if (approvals.length > 0) {
         if (planRef.current) {
           await updatePlan(

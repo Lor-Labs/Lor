@@ -60,6 +60,7 @@
     "@linear/sdk": "^87.0.0",
     "@napi-rs/canvas": "^1.0.9",
     "@notionhq/client": "^5.24.0",
+    "@pierre/storage": "1.17.1",
     "@repo/connectors": "workspace:^",
     "@repo/db": "workspace:^",
     "@repo/env": "workspace:^",
