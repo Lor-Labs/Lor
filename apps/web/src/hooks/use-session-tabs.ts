@@ -1,6 +1,7 @@
 import { authClient } from "@repo/auth/client"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { useCallback, useSyncExternalStore } from "react"
+import { webOrigin } from "@/lib/web-origin"
 
 // A code session's tabs beside the chat (reference/planned/code-sessions-runbook.md,
 // 3b): the open tabs per person per session in local storage, the active one
@@ -154,6 +155,29 @@ export function useSessionTabs(sessionId: string) {
     [key, active, select]
   )
 
+  // Keeps only `id`; null (the Chat tab) closes every tab.
+  const closeOthers = useCallback(
+    (id: string | null) => {
+      const current = readTabs(key)
+      writeTabs(key, {
+        ids: id ? [id] : [],
+        preview: current.preview === id ? id : null,
+      })
+      if (active !== id) select(id)
+    },
+    [key, active, select]
+  )
+
+  // The next (1) or previous (-1) tab, Chat included, wrapping around.
+  const cycle = useCallback(
+    (step: 1 | -1) => {
+      const order = [null, ...readTabs(key).ids]
+      const index = Math.max(order.indexOf(active), 0)
+      select(order[(index + step + order.length) % order.length] ?? null)
+    },
+    [key, active, select]
+  )
+
   return {
     ids: state.ids,
     preview: state.preview,
@@ -163,7 +187,20 @@ export function useSessionTabs(sessionId: string) {
     adopt,
     keep,
     close,
+    closeOthers,
+    cycle,
   }
+}
+
+// A tab's link for other people: the web app's address, never the desktop
+// app's tauri:// one.
+export function sessionTabLink(
+  workspaceSlug: string,
+  sessionId: string,
+  id: string | null
+) {
+  const base = `${webOrigin()}/${workspaceSlug}/session/${sessionId}`
+  return id ? `${base}?open=${encodeURIComponent(id)}` : base
 }
 
 export type SessionTabs = ReturnType<typeof useSessionTabs>

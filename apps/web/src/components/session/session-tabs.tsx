@@ -9,8 +9,15 @@ import {
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { File as CodeFile } from "@pierre/diffs/react"
 import { Button } from "@repo/ui/components/button"
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuPopup,
+  ContextMenuTrigger,
+} from "@repo/ui/components/context-menu"
 import { useSidebar } from "@repo/ui/components/sidebar"
 import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useTheme } from "next-themes"
 import { type ReactNode, useEffect, useRef, useState } from "react"
@@ -40,6 +47,7 @@ import {
   parseTabId,
   type SessionTab,
   type SessionTabs,
+  sessionTabLink,
 } from "@/hooks/use-session-tabs"
 
 // A code session's tabs above the main area, Linear-style: Chat first, then
@@ -52,8 +60,20 @@ const TAB_ICONS: Record<SessionTab["kind"], IconSvgElement> = {
   changes: GitCompareIcon,
 }
 
-export function SessionTabBar({ tabs }: { tabs: SessionTabs }) {
+const TYPING_TARGET =
+  "input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']"
+
+export function SessionTabBar({
+  workspaceSlug,
+  sessionId,
+  tabs,
+}: {
+  workspaceSlug: string
+  sessionId: string
+  tabs: SessionTabs
+}) {
   const { ids, preview, active, select, adopt, keep, close } = tabs
+  const { closeOthers, cycle } = tabs
   const { isMacDesktop, isFullscreen } = useDesktopChrome()
   const { open: sidebarOpen, isMobile } = useSidebar()
   const appScale = (useDesktopZoom()?.levels.app ?? 100) / 100
@@ -66,6 +86,54 @@ export function SessionTabBar({ tabs }: { tabs: SessionTabs }) {
     if (active && parseTabId(active)) adopt(active)
   }, [active, adopt])
 
+  // Escape goes back to Chat. Ctrl+Tab, Ctrl+Shift+Tab and Cmd+W only in the
+  // Mac app: browsers keep those keys for their own tabs.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return
+      if (event.key === "Escape") {
+        const target = event.target instanceof Element ? event.target : null
+        if (
+          active === null ||
+          target?.closest(TYPING_TARGET) ||
+          document.querySelector("[role='dialog'], [role='menu']")
+        ) {
+          return
+        }
+        select(null)
+      } else if (isMacDesktop && event.ctrlKey && event.key === "Tab") {
+        event.preventDefault()
+        cycle(event.shiftKey ? -1 : 1)
+      } else if (
+        isMacDesktop &&
+        event.metaKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "w" &&
+        active
+      ) {
+        // On the Chat tab Cmd+W still closes the window.
+        event.preventDefault()
+        close(active)
+      }
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [active, isMacDesktop, select, cycle, close])
+
+  const copyLink = (id: string | null) =>
+    void navigator.clipboard
+      .writeText(sessionTabLink(workspaceSlug, sessionId, id))
+      .then(() => toast.success("Link copied"))
+  const menuFor = (id: string | null) => (
+    <>
+      <ContextMenuItem onClick={() => copyLink(id)}>Copy link</ContextMenuItem>
+      {id && <ContextMenuItem onClick={() => close(id)}>Close</ContextMenuItem>}
+      <ContextMenuItem onClick={() => closeOthers(id)}>
+        {id ? "Close others" : "Close all tabs"}
+      </ContextMenuItem>
+    </>
+  )
+
   return (
     <MainAreaTabs>
       <div
@@ -76,6 +144,7 @@ export function SessionTabBar({ tabs }: { tabs: SessionTabs }) {
           label="Chat"
           icon={BubbleChatIcon}
           selected={active === null}
+          menu={menuFor(null)}
           onSelect={() => select(null)}
         />
         {ids.map((id) => {
@@ -93,6 +162,7 @@ export function SessionTabBar({ tabs }: { tabs: SessionTabs }) {
               icon={TAB_ICONS[tab.kind]}
               preview={preview === id}
               selected={active === id}
+              menu={menuFor(id)}
               onSelect={() => select(id)}
               onKeep={() => keep(id)}
               onClose={() => close(id)}
@@ -110,6 +180,7 @@ function TabButton({
   icon,
   preview,
   selected,
+  menu,
   onSelect,
   onKeep,
   onClose,
@@ -120,68 +191,73 @@ function TabButton({
   // A preview tab's name is italic until it is kept.
   preview?: boolean
   selected: boolean
+  // Right-click menu items.
+  menu: ReactNode
   onSelect: () => void
   onKeep?: () => void
   onClose?: () => void
 }) {
   // The selected tab matches the card below it.
   return (
-    <div
-      className={cn(
-        "group flex h-8 shrink-0 items-center rounded-lg border text-[13px] transition-colors",
-        selected
-          ? "border-border/60 bg-background text-foreground"
-          : "border-transparent bg-foreground/[0.03] text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
-      )}
-    >
-      <button
-        type="button"
-        aria-pressed={selected}
-        title={title}
-        onClick={onSelect}
-        onDoubleClick={onKeep}
-        onAuxClick={(event) => {
-          if (event.button === 1) onClose?.()
-        }}
+    <ContextMenu>
+      <ContextMenuTrigger
         className={cn(
-          "flex h-full max-w-56 cursor-pointer items-center gap-2 px-2.5",
-          onClose && "pr-1.5"
+          "group flex h-8 shrink-0 items-center rounded-lg border text-[13px] transition-colors",
+          selected
+            ? "border-border/60 bg-background text-foreground"
+            : "border-transparent bg-foreground/[0.03] text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
         )}
       >
-        <HugeiconsIcon
-          icon={icon}
-          className="size-3.5 shrink-0"
-          strokeWidth={2}
-        />
-        <span
-          className={cn(
-            "truncate",
-            selected && "font-medium",
-            preview && "italic"
-          )}
-        >
-          {label}
-        </span>
-      </button>
-      {onClose && (
         <button
           type="button"
-          aria-label={`Close ${label}`}
-          onClick={onClose}
+          aria-pressed={selected}
+          title={title}
+          onClick={onSelect}
+          onDoubleClick={onKeep}
+          onAuxClick={(event) => {
+            if (event.button === 1) onClose?.()
+          }}
           className={cn(
-            "mr-1.5 flex size-4 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
-            !selected &&
-              "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+            "flex h-full max-w-56 cursor-pointer items-center gap-2 px-2.5",
+            onClose && "pr-1.5"
           )}
         >
           <HugeiconsIcon
-            icon={Cancel01Icon}
-            className="size-3"
+            icon={icon}
+            className="size-3.5 shrink-0"
             strokeWidth={2}
           />
+          <span
+            className={cn(
+              "truncate",
+              selected && "font-medium",
+              preview && "italic"
+            )}
+          >
+            {label}
+          </span>
         </button>
-      )}
-    </div>
+        {onClose && (
+          <button
+            type="button"
+            aria-label={`Close ${label}`}
+            onClick={onClose}
+            className={cn(
+              "mr-1.5 flex size-4 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
+              !selected &&
+                "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+            )}
+          >
+            <HugeiconsIcon
+              icon={Cancel01Icon}
+              className="size-3"
+              strokeWidth={2}
+            />
+          </button>
+        )}
+      </ContextMenuTrigger>
+      <ContextMenuPopup align="start">{menu}</ContextMenuPopup>
+    </ContextMenu>
   )
 }
 

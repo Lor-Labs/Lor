@@ -86,7 +86,7 @@ may lag web), a Lor-offered "Continue in Code" card.
     staging by others arrives as `session:changes:updated`.
   - **Commit is a stub** (Jacob): commits wait for GitHub identity in
     chunk 4, which also adds the commit event row. No per-file discard.
-- [ ] **3b. Files tab and main-area tabs** (moved into launch scope by
+- [x] **3b. Files tab and main-area tabs** (moved into launch scope by
   Jacob, 2026-10-23; read-only, desktop web first; mobile opens a file
   full-screen):
   - [x] **F1** Files tab: `/sessions/{id}/repo/tree` (`git ls-files`,
@@ -108,7 +108,13 @@ may lag web), a Lor-offered "Continue in Code" card.
     - "All changes" (`?open=changes`, the Changes list's View all): one
       card per file with a sticky header and its stage checkbox; each diff
       loads when it scrolls near the view.
-  - [ ] **F3** Polish: link sharing, keyboard switching.
+  - [x] **F3** Polish: link sharing, keyboard switching. Built 2026-10-23:
+    a right-click menu on tabs (Copy link, Close, Close others; Close all
+    tabs on Chat). Links use `webOrigin()`, so the Mac app copies a web
+    link; the session's own Copy link leaves the tab out. Escape goes back
+    to Chat. Ctrl+Tab, Ctrl+Shift+Tab and Cmd+W only in the Mac app
+    (browsers keep them). Cmd+W relies on WKWebView giving the page the key
+    before the menu's Close Window: not yet checked in the app.
 - [ ] **4. Personal GitHub and shipping.** The GitHub App's user
   authorization, stored and refreshed tokens, a connect prompt; Push and
   Create PR as the person, or as the Lor bot by setting.

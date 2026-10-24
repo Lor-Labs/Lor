@@ -56,7 +56,11 @@ import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useLiveSessionChanges } from "@/hooks/use-session-changes"
-import { parseTabId, useSessionTabs } from "@/hooks/use-session-tabs"
+import {
+  parseTabId,
+  sessionTabLink,
+  useSessionTabs,
+} from "@/hooks/use-session-tabs"
 import {
   findSidebarSession,
   patchSidebarSession,
@@ -198,7 +202,13 @@ function SessionConversation({
 
   return (
     <>
-      {showTabs && <SessionTabBar tabs={tabs} />}
+      {showTabs && (
+        <SessionTabBar
+          workspaceSlug={workspaceSlug}
+          sessionId={session.id}
+          tabs={tabs}
+        />
+      )}
       <SessionDocument
         workspaceSlug={workspaceSlug}
         channelId={session.channelId}
@@ -293,9 +303,10 @@ function SessionStrip({
   const archived = session.archivedAt !== null
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const [confirmArchive, setConfirmArchive] = useState(false)
+  // The session itself, without an open tab or highlighted message.
   const copyLink = () =>
     void navigator.clipboard
-      .writeText(window.location.href)
+      .writeText(sessionTabLink(workspaceSlug, session.id, null))
       .then(() => toast.success("Link copied"))
 
   return (
