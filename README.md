@@ -20,6 +20,10 @@ apps/
   www/          — Marketing site & waitlist (Next.js)
   api/          — Hono API server
   realtime/     — Socket.IO realtime gateway
+  desktop/      — Desktop client
+  mobile/       — Mobile client
+  transcriber/  — Speech-to-text service
+  worker/       — Background worker
 
 packages/
   api-client/   — Shared type-safe Hono API client
@@ -28,6 +32,13 @@ packages/
   db/           — Drizzle ORM schema & database client
   env/          — Type-safe environment variables (server/client)
   utils/        — Shared utility helpers
+  billing/      — Subscription and billing logic
+  connectors/   — Integration connector registry
+  logger/       — Shared logging helpers
+  lor/          — Lor agent runtime
+  messaging/    — Message and channel domain logic
+  realtime-types/ — Shared realtime event types
+  voice/        — Voice channel support
   typescript-config/ — Shared TypeScript configs
 ```
 
