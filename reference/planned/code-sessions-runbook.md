@@ -34,8 +34,7 @@ after launch.
   `AGENTS.md` natively; Pi gets Lor's own loader (Pi's loading reads the
   worker's disk, runbook §4.9).
 
-**Later:** file tree, live editor, previews, code Loops, channel default
-repos, multiple repos per session, mobile Changes window and commit (mobile
+**Later:** live editor, previews, code Loops, channel default repos, multiple repos per session, mobile Changes window and commit (mobile
 may lag web), a Lor-offered "Continue in Code" card.
 
 ## Stage 1 — code sessions on Pi
@@ -84,6 +83,19 @@ may lag web), a Lor-offered "Continue in Code" card.
     commit box. It refreshes as Lor's tool calls finish.
   - **Commit is a stub** (Jacob): commits wait for GitHub identity in
     chunk 4, which also adds the commit event row. No per-file discard.
+- [ ] **3b. Files tab and main-area tabs** (moved into launch scope by
+  Jacob, 2026-10-23; read-only, desktop web first; mobile opens a file
+  full-screen):
+  - [x] **F1** Files tab: `/sessions/{id}/repo/tree` (`git ls-files`,
+    tracked and untracked, at most 20,000 paths) and `/repo/file` (text up
+    to 1 MB; binary, too large, and paths resolving outside the repo
+    reported). Tree with folders, a filter, change marks; a file opens
+    read-only in the panel until F2.
+  - [ ] **F2** Tabs beside the chat: Agent (fixed) plus file, diff and "All
+    changes" tabs; the chat stays mounted. Preview tabs (single click
+    reuses one); open tabs per person per session in local storage, the
+    active tab in the URL. Composer on the Agent tab only.
+  - [ ] **F3** Polish: link sharing, keyboard switching.
 - [ ] **4. Personal GitHub and shipping.** The GitHub App's user
   authorization, stored and refreshed tokens, a connect prompt; Push and
   Create PR as the person, or as the Lor bot by setting.

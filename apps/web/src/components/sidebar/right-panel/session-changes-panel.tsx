@@ -26,6 +26,7 @@ import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-h
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
   SessionChangesSidebarView,
+  SessionFilesSidebarView,
   SessionWorkSidebarView,
 } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useDiffHighlighterReady } from "@/hooks/use-diff-highlighter"
@@ -62,7 +63,7 @@ const STATUS: Record<
 // Claude Code's look: tinted rows on the card color, no line numbers or
 // +/- markers. Set inside the diff's shadow root, where the theme's own
 // values would win over inherited ones.
-const DIFF_CSS = `:host {
+export const DIFF_CSS = `:host {
   --diffs-light-bg: var(--card);
   --diffs-dark-bg: var(--card);
   --diffs-font-family: var(--font-mono);
@@ -70,7 +71,10 @@ const DIFF_CSS = `:host {
   --diffs-line-height: 20px;
 }`
 
-type SessionPanelView = SessionWorkSidebarView | SessionChangesSidebarView
+type SessionPanelView =
+  | SessionWorkSidebarView
+  | SessionChangesSidebarView
+  | SessionFilesSidebarView
 
 // Details | Changes, the title of a code session's panel. The count shows
 // once the Changes view has read the sandbox.
@@ -84,6 +88,7 @@ export function SessionPanelTabs({ view }: { view: SessionPanelView }) {
   const tabs = [
     { type: "session-work", label: "Details" },
     { type: "session-changes", label: "Changes" },
+    { type: "session-files", label: "Files" },
   ] as const
   return (
     <div className="flex items-center gap-1">
@@ -174,7 +179,7 @@ export function SessionChangesPanel({
   )
 }
 
-function PanelNote({ children }: { children: ReactNode }) {
+export function PanelNote({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
       {children}
@@ -389,7 +394,7 @@ function FileGroup({
   )
 }
 
-function splitPath(path: string) {
+export function splitPath(path: string) {
   const slash = path.lastIndexOf("/")
   return {
     name: path.slice(slash + 1),
@@ -397,7 +402,7 @@ function splitPath(path: string) {
   }
 }
 
-function StatusMark({ status }: { status: ChangedFile["status"] }) {
+export function StatusMark({ status }: { status: ChangedFile["status"] }) {
   const { label, className } = STATUS[status]
   return (
     <span

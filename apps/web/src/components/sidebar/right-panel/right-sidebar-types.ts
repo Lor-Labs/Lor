@@ -69,6 +69,15 @@ export type SessionChangesSidebarView = {
   threadRootId: string
 }
 
+// A code session's repository files, beside the session page.
+export type SessionFilesSidebarView = {
+  type: "session-files"
+  workspaceSlug: string
+  channelId: string
+  sessionId: string
+  threadRootId: string
+}
+
 export type RightSidebarView =
   | WorkspaceMembersSidebarView
   | ThreadSidebarView
@@ -78,3 +87,4 @@ export type RightSidebarView =
   | SessionsListSidebarView
   | SessionWorkSidebarView
   | SessionChangesSidebarView
+  | SessionFilesSidebarView

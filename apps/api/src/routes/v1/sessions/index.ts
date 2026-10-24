@@ -8,6 +8,8 @@ const sessionsRouter = createRouter()
   .openapi(routes.getSessionChanges, handlers.getSessionChanges)
   .openapi(routes.getSessionChangeDiff, handlers.getSessionChangeDiff)
   .openapi(routes.stageSessionChanges, handlers.stageSessionChanges)
+  .openapi(routes.getRepoTree, handlers.getRepoTree)
+  .openapi(routes.getRepoFile, handlers.getRepoFile)
   .openapi(
     routes.generateSessionCommitMessage,
     handlers.generateSessionCommitMessage

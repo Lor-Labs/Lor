@@ -15,6 +15,9 @@ import {
   commitMessageResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  repoFileQuerySchema,
+  repoFileResponseSchema,
+  repoTreeResponseSchema,
   sessionChangeDiffQuerySchema,
   sessionChangeDiffResponseSchema,
   sessionChangesResponseSchema,
@@ -153,6 +156,52 @@ export const stageSessionChanges = createRoute({
 })
 
 export type StageSessionChangesRoute = typeof stageSessionChanges
+
+export const getRepoTree = createRoute({
+  path: "/sessions/{sessionId}/repo/tree",
+  method: "get",
+  summary: "List a code session's repository files",
+  description:
+    "Every tracked and untracked file in the session's repository (ignored files left out), read from its sandbox. For the Files tab.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: repoTreeResponseSchema,
+      description: "File paths, or that the sandbox is gone",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetRepoTreeRoute = typeof getRepoTree
+
+export const getRepoFile = createRoute({
+  path: "/sessions/{sessionId}/repo/file",
+  method: "get",
+  summary: "Read one file in a code session's repository",
+  description:
+    "The file's text as it is now in the sandbox. Binary and large files are reported, not returned; a path outside the repository reads as missing.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema, query: repoFileQuerySchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: repoFileResponseSchema,
+      description: "The file's text, or why there is none",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetRepoFileRoute = typeof getRepoFile
 
 export const generateSessionCommitMessage = createRoute({
   path: "/sessions/{sessionId}/changes/message",

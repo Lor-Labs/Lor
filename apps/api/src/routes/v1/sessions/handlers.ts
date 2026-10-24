@@ -21,6 +21,8 @@ import {
   generateCommitMessage,
   readChanges,
   readFileDiff,
+  readRepoFile,
+  readRepoTree,
   stagePaths,
 } from "@repo/lor/code-changes"
 import { channelRoom } from "@repo/realtime-types/rooms"
@@ -35,6 +37,8 @@ import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
   GenerateSessionCommitMessageRoute,
   GetAgentSessionRoute,
+  GetRepoFileRoute,
+  GetRepoTreeRoute,
   GetSessionChangeDiffRoute,
   GetSessionChangesRoute,
   ListChannelSessionsRoute,
@@ -514,6 +518,33 @@ export const stageSessionChanges: AppRouteHandler<
   })
   return c.json(
     result === "gone" ? { state: "gone" as const } : result,
+    HttpStatusCodes.OK
+  )
+}
+
+export const getRepoTree: AppRouteHandler<GetRepoTreeRoute> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const session = await findCodeSession(sessionId, c.var.user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const tree = await withCodeSandbox(sessionId, readRepoTree)
+  return c.json(
+    tree === "gone"
+      ? { state: "gone" as const }
+      : { state: "ready" as const, ...tree },
+    HttpStatusCodes.OK
+  )
+}
+
+export const getRepoFile: AppRouteHandler<GetRepoFileRoute> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const { path } = c.req.valid("query")
+  const session = await findCodeSession(sessionId, c.var.user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const file = await withCodeSandbox(sessionId, (sandbox) =>
+    readRepoFile(sandbox, path)
+  )
+  return c.json(
+    file === "gone" ? { kind: "gone" as const } : file,
     HttpStatusCodes.OK
   )
 }

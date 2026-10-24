@@ -48,9 +48,13 @@ export function useLiveSessionChanges(sessionId: string, threadRootId: string) {
     const refresh = (delay: number) => {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        void queryClient.invalidateQueries({
-          queryKey: sessionChangesKey(sessionId),
-        })
+        for (const queryKey of [
+          sessionChangesKey(sessionId),
+          repoTreeKey(sessionId),
+          ["repo-file", sessionId],
+        ]) {
+          void queryClient.invalidateQueries({ queryKey })
+        }
       }, delay)
     }
     const onTool = (payload: LorToolEventPayload) => {
@@ -104,6 +108,38 @@ export function useChangeDiff(
       return res.json()
     },
     placeholderData: (previous) => previous,
+  })
+}
+
+// ── Files tab ─────────────────────────────────────────
+
+export const repoTreeKey = (sessionId: string) =>
+  ["repo-tree", sessionId] as const
+
+export function useRepoTree(sessionId: string) {
+  return useQuery({
+    queryKey: repoTreeKey(sessionId),
+    queryFn: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].repo.tree.$get({
+        param: { sessionId },
+      })
+      if (!res.ok) throw new Error("Failed to load the files")
+      return res.json()
+    },
+  })
+}
+
+export function useRepoFile(sessionId: string, path: string) {
+  return useQuery({
+    queryKey: ["repo-file", sessionId, path],
+    queryFn: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].repo.file.$get({
+        param: { sessionId },
+        query: { path },
+      })
+      if (!res.ok) throw new Error("Failed to load the file")
+      return res.json()
+    },
   })
 }
 

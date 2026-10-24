@@ -100,7 +100,8 @@ function sizeClassFor(
   if (
     view?.type === "thread" ||
     view?.type === "loop" ||
-    view?.type === "session-changes"
+    view?.type === "session-changes" ||
+    view?.type === "session-files"
   ) {
     return "wide"
   }

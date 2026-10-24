@@ -257,6 +257,64 @@ export async function readFileDiff(
   return { kind: "patch", patch: result.stdout }
 }
 
+// ── Files tab: the repo's tree and one file's text ─────
+
+export type RepoTree = { paths: string[]; truncated: boolean }
+
+export type RepoFile =
+  | { kind: "text"; content: string }
+  | { kind: "binary" }
+  | { kind: "too_large" }
+  | { kind: "missing" }
+
+const MAX_TREE_PATHS = 20_000
+const MAX_FILE_BYTES = 1_000_000
+const FILE_OUTSIDE = 5
+const FILE_MISSING = 6
+const FILE_TOO_LARGE = 7
+const FILE_BINARY = 8
+
+// Tracked and untracked files, without ignored ones (node_modules, builds).
+export async function readRepoTree(sandbox: CodeSandbox): Promise<RepoTree> {
+  const result = await sandbox.run(
+    `${GIT} ls-files -z --cached --others --exclude-standard | head -z -n ${MAX_TREE_PATHS + 1}`
+  )
+  if (result.exitCode !== 0) {
+    throw new Error(`git ls-files failed: ${result.stderr.slice(0, 300)}`)
+  }
+  const paths = [...new Set(result.stdout.split("\0").filter(Boolean))]
+  return {
+    paths: paths.slice(0, MAX_TREE_PATHS),
+    truncated: paths.length > MAX_TREE_PATHS,
+  }
+}
+
+// A path that resolves outside the repo (a symlink to the sandbox's home, or
+// "..") reads as missing, so the Files tab only ever shows repo files.
+export async function readRepoFile(
+  sandbox: CodeSandbox,
+  path: string
+): Promise<RepoFile> {
+  const result = await sandbox.run(
+    [
+      `p=$(realpath -e -- ${shellQuote(path)} 2>/dev/null) || exit ${FILE_MISSING}`,
+      `case "$p" in "$(pwd -P)"/*) ;; *) exit ${FILE_OUTSIDE};; esac`,
+      `[ -f "$p" ] || exit ${FILE_MISSING}`,
+      `[ "$(stat -c %s -- "$p")" -le ${MAX_FILE_BYTES} ] || exit ${FILE_TOO_LARGE}`,
+      `[ -s "$p" ] || exit 0`,
+      `grep -Iq '' -- "$p" || exit ${FILE_BINARY}`,
+      `cat -- "$p"`,
+    ].join("\n")
+  )
+  if (result.exitCode === 0) return { kind: "text", content: result.stdout }
+  if (result.exitCode === FILE_OUTSIDE || result.exitCode === FILE_MISSING) {
+    return { kind: "missing" }
+  }
+  if (result.exitCode === FILE_TOO_LARGE) return { kind: "too_large" }
+  if (result.exitCode === FILE_BINARY) return { kind: "binary" }
+  throw new Error(`reading the file failed: ${result.stderr.slice(0, 300)}`)
+}
+
 export async function stagePaths(
   sandbox: CodeSandbox,
   input: { paths: string[] | "all"; staged: boolean }

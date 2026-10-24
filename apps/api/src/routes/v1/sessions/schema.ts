@@ -171,6 +171,27 @@ export const stageSessionChangesRequestSchema = z
     message: "Pass paths or all, not both",
   })
 
+export const repoTreeResponseSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("ready"),
+    // Tracked and untracked files, without ignored ones.
+    paths: z.array(z.string()),
+    truncated: z.boolean(),
+  }),
+  z.object({ state: z.literal("gone") }),
+])
+
+export const repoFileQuerySchema = z.object({ path: pathSchema })
+
+export const repoFileResponseSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("text"), content: z.string() }),
+  z.object({ kind: z.literal("binary") }),
+  z.object({ kind: z.literal("too_large") }),
+  // Not a file in the repo, or it resolves outside it.
+  z.object({ kind: z.literal("missing") }),
+  z.object({ kind: z.literal("gone") }),
+])
+
 export const commitMessageResponseSchema = z.object({
   // Null when nothing is staged or the model failed.
   message: z.string().nullable(),
