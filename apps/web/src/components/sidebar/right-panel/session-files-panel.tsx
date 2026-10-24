@@ -1,38 +1,32 @@
 import {
-  ArrowLeft01Icon,
   ArrowRight01Icon,
   File01Icon,
   Folder01Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { File as CodeFile } from "@pierre/diffs/react"
 import { Button } from "@repo/ui/components/button"
 import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
-import { useTheme } from "next-themes"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { SessionFilesSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import {
-  DIFF_CSS,
   PanelNote,
   SessionPanelTabs,
   StatusMark,
   splitPath,
 } from "@/components/sidebar/right-panel/session-changes-panel"
-import { useDiffHighlighterReady } from "@/hooks/use-diff-highlighter"
 import {
   type ChangedFile,
-  useLiveSessionChanges,
-  useRepoFile,
   useRepoTree,
   useSessionChanges,
 } from "@/hooks/use-session-changes"
+import { fileTabId, useSessionTabs } from "@/hooks/use-session-tabs"
 
 // A code session's repository files: the tree read from the sandbox, changed
-// files marked, and a file opening read-only over the list
-// (reference/planned/code-sessions-runbook.md, Files tab).
+// files marked, and a click opening the file read-only in a tab beside the
+// chat (reference/planned/code-sessions-runbook.md, Files tab).
 
 type Status = ChangedFile["status"]
 
@@ -84,8 +78,7 @@ function sortedChildren(node: TreeNode): TreeNode[] {
 export function SessionFilesPanel({ view }: { view: SessionFilesSidebarView }) {
   const tree = useRepoTree(view.sessionId)
   const changes = useSessionChanges(view.sessionId)
-  useLiveSessionChanges(view.sessionId, view.threadRootId)
-  const [openPath, setOpenPath] = useState<string | null>(null)
+  const tabs = useSessionTabs(view.sessionId)
 
   const statusByPath = useMemo(
     () =>
@@ -112,19 +105,13 @@ export function SessionFilesPanel({ view }: { view: SessionFilesSidebarView }) {
     <PanelNote>
       This session's sandbox no longer exists, so its files are gone.
     </PanelNote>
-  ) : openPath ? (
-    <FileView
-      sessionId={view.sessionId}
-      path={openPath}
-      status={statusByPath.get(openPath) ?? null}
-      onBack={() => setOpenPath(null)}
-    />
   ) : (
     <FileTree
       paths={tree.data.paths}
       truncated={tree.data.truncated}
       statusByPath={statusByPath}
-      onOpen={setOpenPath}
+      activeTab={tabs.active}
+      onOpen={(path, preview) => tabs.open(fileTabId(path), { preview })}
     />
   )
 
@@ -145,12 +132,14 @@ function FileTree({
   paths,
   truncated,
   statusByPath,
+  activeTab,
   onOpen,
 }: {
   paths: string[]
   truncated: boolean
   statusByPath: Map<string, Status>
-  onOpen: (path: string) => void
+  activeTab: string | null
+  onOpen: (path: string, preview: boolean) => void
 }) {
   const [filter, setFilter] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -181,6 +170,10 @@ function FileTree({
       else next.add(path)
       return next
     })
+  const rowHighlight = (path: string) =>
+    activeTab === fileTabId(path)
+      ? "bg-foreground/[0.06]"
+      : "hover:bg-foreground/[0.04]"
 
   const renderLevel = (node: TreeNode, depth: number) =>
     sortedChildren(node).map((child) => {
@@ -191,10 +184,19 @@ function FileTree({
         <div key={child.path}>
           <button
             type="button"
-            onClick={() => (isFolder ? toggle(child.path) : onOpen(child.path))}
+            // A click opens a preview tab, a double click keeps it.
+            onClick={() =>
+              isFolder ? toggle(child.path) : onOpen(child.path, true)
+            }
+            onDoubleClick={
+              isFolder ? undefined : () => onOpen(child.path, false)
+            }
             aria-expanded={isFolder ? open : undefined}
             style={{ paddingLeft: 12 + depth * INDENT_PX }}
-            className="flex h-7 w-full cursor-pointer items-center gap-1.5 pr-3 text-left text-[13px] hover:bg-foreground/[0.04]"
+            className={cn(
+              "flex h-7 w-full cursor-pointer items-center gap-1.5 pr-3 text-left text-[13px]",
+              rowHighlight(child.path)
+            )}
           >
             {isFolder ? (
               <HugeiconsIcon
@@ -256,8 +258,12 @@ function FileTree({
                 <button
                   key={path}
                   type="button"
-                  onClick={() => onOpen(path)}
-                  className="flex h-7 w-full cursor-pointer items-center gap-2 px-3 text-left text-[13px] hover:bg-foreground/[0.04]"
+                  onClick={() => onOpen(path, true)}
+                  onDoubleClick={() => onOpen(path, false)}
+                  className={cn(
+                    "flex h-7 w-full cursor-pointer items-center gap-2 px-3 text-left text-[13px]",
+                    rowHighlight(path)
+                  )}
                 >
                   <span className="shrink-0">{name}</span>
                   {folder && (
@@ -283,87 +289,6 @@ function FileTree({
           </p>
         )}
       </div>
-    </div>
-  )
-}
-
-// One file, read-only, over the tree; Escape or the arrow goes back.
-function FileView({
-  sessionId,
-  path,
-  status,
-  onBack,
-}: {
-  sessionId: string
-  path: string
-  status: Status | null
-  onBack: () => void
-}) {
-  const { resolvedTheme } = useTheme()
-  const file = useRepoFile(sessionId, path)
-  const highlighterReady = useDiffHighlighterReady(path)
-  const { name, folder } = splitPath(path)
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onBack()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onBack])
-
-  const body =
-    file.isPending || !highlighterReady ? (
-      <PanelNote>
-        <Spinner className="size-4" />
-      </PanelNote>
-    ) : file.isError ? (
-      <PanelNote>Couldn't load the file.</PanelNote>
-    ) : file.data.kind === "binary" ? (
-      <PanelNote>Binary file: no text to show.</PanelNote>
-    ) : file.data.kind === "too_large" ? (
-      <PanelNote>This file is too large to show.</PanelNote>
-    ) : file.data.kind === "missing" ? (
-      <PanelNote>This file no longer exists.</PanelNote>
-    ) : file.data.kind === "gone" ? (
-      <PanelNote>The sandbox no longer exists.</PanelNote>
-    ) : (
-      <div className="m-3 overflow-hidden rounded-lg border border-border/70 bg-card py-1.5">
-        <CodeFile
-          file={{ name: path, contents: file.data.content }}
-          options={{
-            themeType: resolvedTheme === "dark" ? "dark" : "light",
-            overflow: "scroll",
-            disableFileHeader: true,
-            unsafeCSS: DIFF_CSS,
-          }}
-        />
-      </div>
-    )
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b pr-3 pl-1.5 text-[13px]">
-        <button
-          type="button"
-          aria-label="Back to files"
-          onClick={onBack}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-        >
-          <HugeiconsIcon
-            icon={ArrowLeft01Icon}
-            className="size-4"
-            strokeWidth={2}
-          />
-        </button>
-        {status && <StatusMark status={status} />}
-        <span className="shrink-0 font-medium">{name}</span>
-        {folder && (
-          <span className="min-w-0 truncate text-muted-foreground text-xs [direction:rtl]">
-            <bdi>{folder}</bdi>
-          </span>
-        )}
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">{body}</div>
     </div>
   )
 }

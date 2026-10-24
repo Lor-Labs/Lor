@@ -1,6 +1,5 @@
 import {
   ArrowDown01Icon,
-  ArrowLeft01Icon,
   GitBranchIcon,
   GitCommitIcon,
   RefreshIcon,
@@ -21,7 +20,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useTheme } from "next-themes"
-import { type ReactNode, useEffect, useMemo, useState } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
@@ -36,14 +35,14 @@ import {
   sessionChangesQueryOptions,
   useChangeDiff,
   useCommitMessage,
-  useLiveSessionChanges,
   useSessionChanges,
   useStageChanges,
 } from "@/hooks/use-session-changes"
+import { diffTabId, useSessionTabs } from "@/hooks/use-session-tabs"
 
 // A code session's changes, laid out like Zed's git panel: one row per file
-// with its line counts and a staging checkbox, the diff opening over the
-// list, and the commit box at the bottom
+// with its line counts and a staging checkbox, a click opening its diff in a
+// tab beside the chat, and the commit box at the bottom
 // (reference/planned/code-sessions-runbook.md, chunk 3). Commit waits for
 // GitHub sign-in (chunk 4).
 
@@ -123,7 +122,6 @@ export function SessionChangesPanel({
   view: SessionChangesSidebarView
 }) {
   const changes = useSessionChanges(view.sessionId)
-  useLiveSessionChanges(view.sessionId, view.threadRootId)
 
   const body = changes.isPending ? (
     <PanelNote>
@@ -145,11 +143,7 @@ export function SessionChangesPanel({
       This session's sandbox no longer exists, so its changes are gone.
     </PanelNote>
   ) : (
-    <ChangesView
-      sessionId={view.sessionId}
-      changes={changes.data}
-      version={changes.dataUpdatedAt}
-    />
+    <ChangesView sessionId={view.sessionId} changes={changes.data} />
   )
 
   return (
@@ -196,14 +190,12 @@ function stagedState(file: ChangedFile): "all" | "some" | "none" {
 function ChangesView({
   sessionId,
   changes,
-  version,
 }: {
   sessionId: string
   changes: ReadyChanges
-  version: number
 }) {
   const stage = useStageChanges(sessionId)
-  const [openPath, setOpenPath] = useState<string | null>(null)
+  const tabs = useSessionTabs(sessionId)
   const locked = changes.lorWorking
   const tracked = changes.files.filter((file) => file.status !== "untracked")
   const untracked = changes.files.filter((file) => file.status === "untracked")
@@ -225,24 +217,12 @@ function ChangesView({
       ),
       staged,
     })
-  const openFile = changes.files.find((file) => file.path === openPath)
-
-  // The open file left the list (reverted, or Lor undid it): back to the list.
-  useEffect(() => {
-    if (openPath && !openFile) setOpenPath(null)
-  }, [openPath, openFile])
-
-  if (openFile) {
-    return (
-      <FileDiffView
-        sessionId={sessionId}
-        file={openFile}
-        version={version}
-        locked={locked}
-        onBack={() => setOpenPath(null)}
-        onToggle={(staged) => setStaged([openFile], staged)}
-      />
-    )
+  const groupProps = {
+    locked,
+    activeTab: tabs.active,
+    onToggleGroup: setStaged,
+    onOpen: (path: string, preview: boolean) =>
+      tabs.open(diffTabId(path), { preview }),
   }
 
   return (
@@ -276,20 +256,8 @@ function ChangesView({
           </p>
         ) : (
           <>
-            <FileGroup
-              title="Tracked"
-              files={tracked}
-              locked={locked}
-              onToggleGroup={setStaged}
-              onOpen={setOpenPath}
-            />
-            <FileGroup
-              title="Untracked"
-              files={untracked}
-              locked={locked}
-              onToggleGroup={setStaged}
-              onOpen={setOpenPath}
-            />
+            <FileGroup title="Tracked" files={tracked} {...groupProps} />
+            <FileGroup title="Untracked" files={untracked} {...groupProps} />
             {changes.truncated && (
               <p className="px-3 py-2 text-muted-foreground text-xs">
                 Showing the first 1,000 files.
@@ -332,14 +300,16 @@ function FileGroup({
   title,
   files,
   locked,
+  activeTab,
   onToggleGroup,
   onOpen,
 }: {
   title: string
   files: ChangedFile[]
   locked: boolean
+  activeTab: string | null
   onToggleGroup: (files: ChangedFile[], staged: boolean) => void
-  onOpen: (path: string) => void
+  onOpen: (path: string, preview: boolean) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
   if (files.length === 0) return null
@@ -386,7 +356,8 @@ function FileGroup({
             key={file.path}
             file={file}
             locked={locked}
-            onOpen={() => onOpen(file.path)}
+            selected={activeTab === diffTabId(file.path)}
+            onOpen={(preview) => onOpen(file.path, preview)}
             onToggle={(staged) => onToggleGroup([file], staged)}
           />
         ))}
@@ -417,7 +388,7 @@ export function StatusMark({ status }: { status: ChangedFile["status"] }) {
   )
 }
 
-function LineCounts({
+export function LineCounts({
   additions,
   deletions,
   className,
@@ -442,7 +413,7 @@ function LineCounts({
   )
 }
 
-function StageCheckbox({
+export function StageCheckbox({
   file,
   locked,
   onToggle,
@@ -466,20 +437,29 @@ function StageCheckbox({
 function FileRow({
   file,
   locked,
+  selected,
   onOpen,
   onToggle,
 }: {
   file: ChangedFile
   locked: boolean
-  onOpen: () => void
+  // Its diff is the active tab.
+  selected: boolean
+  onOpen: (preview: boolean) => void
   onToggle: (staged: boolean) => void
 }) {
   const { name, folder } = splitPath(file.path)
   return (
-    <div className="flex h-7 items-center gap-2 pr-3 hover:bg-foreground/[0.04]">
+    <div
+      className={cn(
+        "flex h-7 items-center gap-2 pr-3",
+        selected ? "bg-foreground/[0.06]" : "hover:bg-foreground/[0.04]"
+      )}
+    >
       <button
         type="button"
-        onClick={onOpen}
+        onClick={() => onOpen(true)}
+        onDoubleClick={() => onOpen(false)}
         title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
         className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-3 text-left text-[13px]"
       >
@@ -509,67 +489,7 @@ function FileRow({
   )
 }
 
-// One file's diff over the whole panel; Escape or the arrow goes back.
-function FileDiffView({
-  sessionId,
-  file,
-  version,
-  locked,
-  onBack,
-  onToggle,
-}: {
-  sessionId: string
-  file: ChangedFile
-  version: number
-  locked: boolean
-  onBack: () => void
-  onToggle: (staged: boolean) => void
-}) {
-  const { name, folder } = splitPath(file.path)
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onBack()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onBack])
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b pr-3 pl-1.5 text-[13px]">
-        <button
-          type="button"
-          aria-label="Back to changes"
-          onClick={onBack}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-        >
-          <HugeiconsIcon
-            icon={ArrowLeft01Icon}
-            className="size-4"
-            strokeWidth={2}
-          />
-        </button>
-        <StatusMark status={file.status} />
-        <span className="shrink-0 font-medium">{name}</span>
-        {folder && (
-          <span className="min-w-0 truncate text-muted-foreground text-xs [direction:rtl]">
-            <bdi>{folder}</bdi>
-          </span>
-        )}
-        <LineCounts
-          additions={file.additions}
-          deletions={file.deletions}
-          className="ml-auto pl-2"
-        />
-        <StageCheckbox file={file} locked={locked} onToggle={onToggle} />
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        <ChangeDiff sessionId={sessionId} file={file} version={version} />
-      </div>
-    </div>
-  )
-}
-
-function ChangeDiff({
+export function ChangeDiff({
   sessionId,
   file,
   version,

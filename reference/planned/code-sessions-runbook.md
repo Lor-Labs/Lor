@@ -77,10 +77,10 @@ may lag web), a Lor-offered "Continue in Code" card.
     commands); `/sessions/{id}/changes`, `/changes/diff`, `/changes/stage`
     (409 while Lor works), `/changes/message` (small model, billed as
     `code.commit_message`).
-  - Web: a Changes button in the code session header opens the
-    `session-changes` right-panel view (Details | Changes tabs): Staged and
-    Changes lists with checkboxes, inline `@pierre/diffs` diffs, and a
-    commit box. It refreshes as Lor's tool calls finish.
+  - Web: the `session-changes` right-panel view (Details | Changes | Files
+    tabs): Tracked and Untracked lists with line counts and checkboxes,
+    `@pierre/diffs` diffs (in tabs beside the chat since 3b), and a commit
+    box. It refreshes as Lor's tool calls finish.
   - **Commit is a stub** (Jacob): commits wait for GitHub identity in
     chunk 4, which also adds the commit event row. No per-file discard.
 - [ ] **3b. Files tab and main-area tabs** (moved into launch scope by
@@ -89,12 +89,19 @@ may lag web), a Lor-offered "Continue in Code" card.
   - [x] **F1** Files tab: `/sessions/{id}/repo/tree` (`git ls-files`,
     tracked and untracked, at most 20,000 paths) and `/repo/file` (text up
     to 1 MB; binary, too large, and paths resolving outside the repo
-    reported). Tree with folders, a filter, change marks; a file opens
-    read-only in the panel until F2.
+    reported). Tree with folders, a filter, change marks.
   - [ ] **F2** Tabs beside the chat: Agent (fixed) plus file, diff and "All
     changes" tabs; the chat stays mounted. Preview tabs (single click
     reuses one); open tabs per person per session in local storage, the
     active tab in the URL. Composer on the Agent tab only.
+    - Built 2026-10-23: file and diff tabs (`use-session-tabs.ts`,
+      `session-tabs.tsx`). The tab bar takes the title's place in the
+      session strip while tabs are open. The active tab is `?open=file:<path>`
+      or `diff:<path>` (`?tab=` is the settings dialog's). The tab covers
+      the transcript, which stays mounted but inert; type-to-focus and file
+      drops pause. A double click keeps a preview tab. The Changes and Files
+      lists went back to rail width.
+    - Still owed: the "All changes" tab.
   - [ ] **F3** Polish: link sharing, keyboard switching.
 - [ ] **4. Personal GitHub and shipping.** The GitHub App's user
   authorization, stored and refreshed tokens, a connect prompt; Push and

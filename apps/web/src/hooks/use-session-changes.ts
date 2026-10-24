@@ -38,12 +38,16 @@ export type ReadyChanges = Extract<SessionChanges, { state: "ready" }>
 export type ChangedFile = ReadyChanges["files"][number]
 
 // Files change while Lor works: refresh as its tool calls finish, and once
-// more when its reply ends.
-export function useLiveSessionChanges(sessionId: string, threadRootId: string) {
+// more when its reply ends. The session page runs it for the panel and tabs.
+export function useLiveSessionChanges(
+  sessionId: string,
+  threadRootId: string,
+  enabled: boolean
+) {
   const socket = useSocket()
   const queryClient = useQueryClient()
   useEffect(() => {
-    if (!socket) return
+    if (!socket || !enabled) return
     let timer: ReturnType<typeof setTimeout> | null = null
     const refresh = (delay: number) => {
       if (timer) clearTimeout(timer)
@@ -75,7 +79,7 @@ export function useLiveSessionChanges(sessionId: string, threadRootId: string) {
       socket.off("message:stream", onStream)
       if (timer) clearTimeout(timer)
     }
-  }, [socket, queryClient, sessionId, threadRootId])
+  }, [socket, queryClient, sessionId, threadRootId, enabled])
 }
 
 // The file's changes against HEAD, staged and unstaged together.

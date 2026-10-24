@@ -32,11 +32,15 @@ import { timeAgo } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
 import { SessionDocument } from "@/components/session/session-document"
+import {
+  SessionTabBar,
+  SessionTabView,
+} from "@/components/session/session-tabs"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
@@ -51,6 +55,8 @@ import {
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { useChannelProposals } from "@/hooks/use-proposals"
+import { useLiveSessionChanges } from "@/hooks/use-session-changes"
+import { parseTabId, useSessionTabs } from "@/hooks/use-session-tabs"
 import {
   findSidebarSession,
   patchSidebarSession,
@@ -158,6 +164,13 @@ function SessionConversation({
     return () => clearView()
   }, [workView, isMobile, setView, clearView])
 
+  // Code sessions: files and diffs open in tabs beside the chat.
+  const code = session.mode === "code"
+  useLiveSessionChanges(session.id, session.threadRootId, code)
+  const tabs = useSessionTabs(session.id)
+  const activeTab = code && tabs.active ? parseTabId(tabs.active) : null
+  const showTabs = code && (tabs.ids.length > 0 || activeTab !== null)
+
   useAgentSessionUpdates(session.id)
   const updateSession = useUpdateAgentSession()
   const navigate = useNavigate()
@@ -195,6 +208,7 @@ function SessionConversation({
           workView={workView}
           lorRunning={lorRunning}
           showTitle={!headingVisible}
+          tabBar={showTabs ? <SessionTabBar tabs={tabs} /> : null}
           onRename={() => setRenaming(true)}
           onArchive={() => {
             updateSession.mutate({ ...change, archived: true })
@@ -217,6 +231,16 @@ function SessionConversation({
           onRenamingChange={setRenaming}
           onRename={(title) => updateSession.mutate({ ...change, title })}
         />
+      }
+      cover={
+        activeTab ? (
+          <SessionTabView
+            key={activeTab.id}
+            sessionId={session.id}
+            tab={activeTab}
+            onOpen={tabs.open}
+          />
+        ) : undefined
       }
       archivedBar={
         session.archivedAt ? (
@@ -252,6 +276,7 @@ function SessionStrip({
   workView,
   lorRunning,
   showTitle,
+  tabBar,
   onRename,
   onArchive,
 }: {
@@ -259,6 +284,8 @@ function SessionStrip({
   workView: SessionWorkSidebarView
   lorRunning: boolean
   showTitle: boolean
+  // A code session's open tabs take the title's place.
+  tabBar: ReactNode
   onRename: () => void
   onArchive: () => void
 }) {
@@ -275,8 +302,9 @@ function SessionStrip({
   return (
     <div className="flex h-11 shrink-0 items-center gap-1 px-3">
       <HeaderNavControls className="-ml-1" />
+      {tabBar}
       <AnimatePresence initial={false}>
-        {showTitle && (
+        {showTitle && !tabBar && (
           <motion.span
             key="title"
             initial={{ opacity: 0 }}
