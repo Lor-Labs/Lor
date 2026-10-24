@@ -6,6 +6,7 @@ import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
 import { LoopsListPanel } from "@/components/sidebar/right-panel/loops-list-panel"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { SessionChangesPanel } from "@/components/sidebar/right-panel/session-changes-panel"
 import { SessionWorkPanel } from "@/components/sidebar/right-panel/session-work-panel"
 import { SessionsListPanel } from "@/components/sidebar/right-panel/sessions-list-panel"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
@@ -24,7 +25,9 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView | null }) {
     ? `file:${file.key}`
     : !view
       ? "empty"
-      : view.type === "thread" || view.type === "session-work"
+      : view.type === "thread" ||
+          view.type === "session-work" ||
+          view.type === "session-changes"
         ? `${view.type}:${view.threadRootId}`
         : view.type === "loop"
           ? `loop:${view.loopId}`
@@ -58,6 +61,9 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView | null }) {
               )}
               {view?.type === "session-work" && (
                 <SessionWorkPanel view={view} />
+              )}
+              {view?.type === "session-changes" && (
+                <SessionChangesPanel view={view} />
               )}
               {view?.type === "sessions" && <SessionsListPanel view={view} />}
             </>

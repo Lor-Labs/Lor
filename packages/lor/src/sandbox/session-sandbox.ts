@@ -247,8 +247,12 @@ export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
   logger.info({ sandbox: name }, "Sandbox: session sandbox deleted")
 }
 
+// SANDBOX_PROCESS_ENV points TMPDIR at the workspace disk, which starts
+// without that folder; mktemp and others fail until it exists.
+const ENSURE_TMPDIR = 'mkdir -p "$TMPDIR" 2>/dev/null; '
+
 function inShell(command: string): string {
-  return `bash -c ${shellQuote(GIT_PROXY_CA + command)}`
+  return `bash -c ${shellQuote(GIT_PROXY_CA + ENSURE_TMPDIR + command)}`
 }
 
 function bytesStream(bytes: Uint8Array): ReadableStream<Uint8Array> {

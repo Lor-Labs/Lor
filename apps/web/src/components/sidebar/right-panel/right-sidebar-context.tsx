@@ -97,7 +97,13 @@ function sizeClassFor(
   file: OpenFile | null
 ): PanelSizeClass {
   if (file) return "file"
-  if (view?.type === "thread" || view?.type === "loop") return "wide"
+  if (
+    view?.type === "thread" ||
+    view?.type === "loop" ||
+    view?.type === "session-changes"
+  ) {
+    return "wide"
+  }
   return view?.type === "session-work" ? "rail" : "compact"
 }
 

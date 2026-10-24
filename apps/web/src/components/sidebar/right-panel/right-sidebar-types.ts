@@ -59,6 +59,16 @@ export type SessionWorkSidebarView = {
   threadRootId: string
 }
 
+// A code session's changes against its base branch, staged or not, beside
+// the session page.
+export type SessionChangesSidebarView = {
+  type: "session-changes"
+  workspaceSlug: string
+  channelId: string
+  sessionId: string
+  threadRootId: string
+}
+
 export type RightSidebarView =
   | WorkspaceMembersSidebarView
   | ThreadSidebarView
@@ -67,3 +77,4 @@ export type RightSidebarView =
   | LoopsListSidebarView
   | SessionsListSidebarView
   | SessionWorkSidebarView
+  | SessionChangesSidebarView

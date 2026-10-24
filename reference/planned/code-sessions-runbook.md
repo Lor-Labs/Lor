@@ -70,9 +70,20 @@ may lag web), a Lor-offered "Continue in Code" card.
   - A `session_continued` event row in the source session links to the new
     session. Its content names the new session's anchor, so Lor there can
     `read_thread` it. Only the starter follows the new session.
-- [ ] **3. Changes window** (web). File list against the base, stage and
+- [x] **3. Changes window** (web). File list against the base, stage and
   unstage, diff, a model-written commit message, Commit. Disabled while Lor
-  works.
+  works. Built 2026-10-23:
+  - Server: `@repo/lor/code-changes` runs git in the live sandbox
+    (`attachSessionSandbox`: never creates a sandbox or stops Lor's
+    commands); `/sessions/{id}/changes`, `/changes/diff`, `/changes/stage`
+    (409 while Lor works), `/changes/message` (small model, billed as
+    `code.commit_message`).
+  - Web: a Changes button in the code session header opens the
+    `session-changes` right-panel view (Details | Changes tabs): Staged and
+    Changes lists with checkboxes, inline `@pierre/diffs` diffs, and a
+    commit box. It refreshes as Lor's tool calls finish.
+  - **Commit is a stub** (Jacob): commits wait for GitHub identity in
+    chunk 4, which also adds the commit event row. No per-file discard.
 - [ ] **4. Personal GitHub and shipping.** The GitHub App's user
   authorization, stored and refreshed tokens, a connect prompt; Push and
   Create PR as the person, or as the Lor bot by setting.

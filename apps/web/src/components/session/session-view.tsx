@@ -29,7 +29,7 @@ import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -51,6 +51,7 @@ import {
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { useChannelProposals } from "@/hooks/use-proposals"
+import { sessionChangesQueryOptions } from "@/hooks/use-session-changes"
 import {
   findSidebarSession,
   patchSidebarSession,
@@ -290,6 +291,7 @@ function SessionStrip({
         )}
       </AnimatePresence>
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        {session.mode === "code" && <ChangesButton workView={workView} />}
         <ThreadSubscribers
           workspaceSlug={workspaceSlug}
           channelId={channelId}
@@ -367,6 +369,44 @@ function SessionStrip({
         onConfirm={onArchive}
       />
     </div>
+  )
+}
+
+// Opens the code session's Changes panel. The count shows once the panel has
+// loaded the changes; the header alone never reads the sandbox.
+function ChangesButton({ workView }: { workView: SessionWorkSidebarView }) {
+  const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
+  const { data } = useQuery({
+    ...sessionChangesQueryOptions(workView.sessionId),
+    enabled: false,
+  })
+  const count = data?.state === "ready" ? data.files.length : 0
+  const open = view?.type === "session-changes" && !isCollapsed
+  return (
+    <button
+      type="button"
+      aria-pressed={open}
+      onClick={() => {
+        setView({ ...workView, type: "session-changes" })
+        if (isCollapsed) toggleCollapsed()
+      }}
+      className={cn(
+        "flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground",
+        open && "bg-foreground/5 text-foreground"
+      )}
+    >
+      <HugeiconsIcon
+        icon={GitBranchIcon}
+        className="size-3.5"
+        strokeWidth={2}
+      />
+      Changes
+      {count > 0 && (
+        <span className="rounded-full bg-foreground/10 px-1.5 text-xs tabular-nums">
+          {count}
+        </span>
+      )}
+    </button>
   )
 }
 

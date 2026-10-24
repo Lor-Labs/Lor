@@ -15,6 +15,7 @@ import {
 import { PlanStepList } from "@/components/chat/plan-step-list"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { SessionPanelTabs } from "@/components/sidebar/right-panel/session-changes-panel"
 import { MorphText } from "@/components/ui/morph-text"
 import {
   type AgentSessionDetail,
@@ -128,7 +129,13 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
   return (
     <div className="flex h-full w-full flex-col">
       <RightPanelHeader
-        title="Details"
+        title={
+          detail?.session.mode === "code" ? (
+            <SessionPanelTabs view={view} />
+          ) : (
+            "Details"
+          )
+        }
         workspaceSlug={view.workspaceSlug}
         channelId={view.channelId}
         hideBack

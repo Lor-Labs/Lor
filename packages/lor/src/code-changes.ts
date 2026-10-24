@@ -53,11 +53,14 @@ const MAX_PATCH_BYTES = 1_000_000
 // Enough of the staged diff for a commit message; the stat covers the rest.
 const MESSAGE_DIFF_CHARS = 40_000
 const NOT_A_CLONE = 3
+const SIGPIPE_EXIT = 141
 const LOG_MARKER = "__LOR_LOG__"
 const GIT = "git --no-optional-locks --literal-pathspecs"
 
 export type CodeSandbox = {
-  run(command: string): Promise<{ exitCode: number; stdout: string }>
+  run(
+    command: string
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }>
   close(): void
 }
 
@@ -75,7 +78,7 @@ export async function attachCodeSandbox(
         command: `cd ${shellQuote(workDir)} 2>/dev/null || exit ${NOT_A_CLONE}\n${command}`,
       })
       if (result.exitCode === NOT_A_CLONE) throw new CodeSandboxMissingError()
-      return { exitCode: result.exitCode, stdout: result.stdout }
+      return result
     },
     close: sandbox.close,
   }
@@ -151,7 +154,9 @@ export async function readChanges(
       `${GIT} log -n ${MAX_COMMITS} --format='%H%x1f%s' ${base}..HEAD 2>/dev/null || true`,
     ].join("\n")
   )
-  if (result.exitCode !== 0) throw new Error("git status failed")
+  if (result.exitCode !== 0) {
+    throw new Error(`git status failed: ${result.stderr.slice(0, 300)}`)
+  }
   const [status = "", log = ""] = result.stdout.split(`\0${LOG_MARKER}\0`)
   const parsed = parseStatus(status)
   const commits = log
@@ -180,17 +185,20 @@ export async function readFileDiff(
   const diff = untracked
     ? `${GIT} diff --no-index --no-color --no-ext-diff -- /dev/null ${q(file.path)}`
     : `${GIT} diff ${file.staged ? "--cached " : ""}--no-color --no-ext-diff --find-renames -- ${paths.join(" ")}`
-  // Through a file, so a huge diff is cut without losing git's exit code.
+  // git's own exit code: a huge diff cut by head ends with SIGPIPE (141).
   const result = await sandbox.run(
-    [
-      `out=$(mktemp)`,
-      `${diff} > "$out"; code=$?`,
-      `head -c ${MAX_PATCH_BYTES + 1} "$out"; rm -f "$out"`,
-      `[ "$code" -le ${untracked ? 1 : 0} ]`,
-    ].join("\n")
+    `${diff} | head -c ${MAX_PATCH_BYTES + 1}\nexit "\${PIPESTATUS[0]}"`
   )
-  if (result.exitCode !== 0) throw new Error("git diff failed")
-  if (result.stdout.length > MAX_PATCH_BYTES) return { kind: "too_large" }
+  const okCodes = untracked ? [0, 1, SIGPIPE_EXIT] : [0, SIGPIPE_EXIT]
+  if (!okCodes.includes(result.exitCode)) {
+    throw new Error(`git diff failed: ${result.stderr.slice(0, 300)}`)
+  }
+  if (
+    result.exitCode === SIGPIPE_EXIT ||
+    result.stdout.length > MAX_PATCH_BYTES
+  ) {
+    return { kind: "too_large" }
+  }
   if (/^Binary files .* differ$/m.test(result.stdout)) return { kind: "binary" }
   return { kind: "patch", patch: result.stdout }
 }
@@ -207,7 +215,9 @@ export async function stagePaths(
       ? `${GIT} restore --staged -- ${paths.join(" ")}`
       : `${GIT} reset -q`
   const result = await sandbox.run(command)
-  if (result.exitCode !== 0) throw new Error("git staging failed")
+  if (result.exitCode !== 0) {
+    throw new Error(`git staging failed: ${result.stderr.slice(0, 300)}`)
+  }
 }
 
 const messageSchema = z.object({
@@ -225,7 +235,9 @@ export async function generateCommitMessage(
   const result = await sandbox.run(
     `${GIT} diff --cached --stat=200 --no-color && printf '\\0' && ${GIT} diff --cached --no-color --no-ext-diff | head -c ${MESSAGE_DIFF_CHARS}`
   )
-  if (result.exitCode !== 0) throw new Error("git diff failed")
+  if (result.exitCode !== 0) {
+    throw new Error(`git diff failed: ${result.stderr.slice(0, 300)}`)
+  }
   const [stat = "", patch = ""] = result.stdout.split("\0")
   if (!stat.trim()) return null
   try {
