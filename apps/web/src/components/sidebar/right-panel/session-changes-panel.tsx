@@ -21,13 +21,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useTheme } from "next-themes"
-import {
-  type CSSProperties,
-  type ReactNode,
-  useEffect,
-  useMemo,
-  useState,
-} from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
@@ -65,11 +59,16 @@ const STATUS: Record<
   conflicted: { label: "Conflict", className: "text-destructive" },
 }
 
-const DIFF_STYLE = {
-  "--diffs-font-family": "var(--font-mono)",
-  "--diffs-font-size": "12px",
-  "--diffs-line-height": "18px",
-} as CSSProperties
+// Claude Code's look: tinted rows on the card color, no line numbers or
+// +/- markers. Set inside the diff's shadow root, where the theme's own
+// values would win over inherited ones.
+const DIFF_CSS = `:host {
+  --diffs-light-bg: var(--card);
+  --diffs-dark-bg: var(--card);
+  --diffs-font-family: var(--font-mono);
+  --diffs-font-size: 12.5px;
+  --diffs-line-height: 20px;
+}`
 
 type SessionPanelView = SessionWorkSidebarView | SessionChangesSidebarView
 
@@ -609,23 +608,27 @@ function ChangeDiff({
   if (!patch?.trim()) {
     return <PanelNote>No changes to the file's text.</PanelNote>
   }
-  return fileDiff ? (
-    <div style={DIFF_STYLE}>
-      <FileDiff
-        fileDiff={fileDiff}
-        options={{
-          themeType: resolvedTheme === "dark" ? "dark" : "light",
-          diffStyle: "unified",
-          diffIndicators: "bars",
-          hunkSeparators: "line-info-basic",
-          lineDiffType: "word-alt",
-          overflow: "scroll",
-          disableFileHeader: true,
-        }}
-      />
+  return (
+    <div className="m-3 overflow-hidden rounded-lg border border-border/70 bg-card py-1.5">
+      {fileDiff ? (
+        <FileDiff
+          fileDiff={fileDiff}
+          options={{
+            themeType: resolvedTheme === "dark" ? "dark" : "light",
+            diffStyle: "unified",
+            diffIndicators: "none",
+            disableLineNumbers: true,
+            hunkSeparators: "simple",
+            lineDiffType: "none",
+            overflow: "scroll",
+            disableFileHeader: true,
+            unsafeCSS: DIFF_CSS,
+          }}
+        />
+      ) : (
+        <pre className="px-3 py-1.5 font-mono text-xs">{patch}</pre>
+      )}
     </div>
-  ) : (
-    <pre className="p-3 font-mono text-xs">{patch}</pre>
   )
 }
 
