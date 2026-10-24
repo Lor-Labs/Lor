@@ -5,6 +5,7 @@ import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
 import { SentryLogo } from "@repo/ui/components/logos/sentry"
 import { SlackLogo } from "@repo/ui/components/logos/slack"
+import { features } from "@repo/utils/features"
 import {
   ArrowRight,
   CalendarClock,
@@ -256,12 +257,16 @@ function VoiceCard() {
 
 function AppsCard() {
   return (
-    <div className="group relative flex flex-col justify-between rounded-2xl border bg-card md:col-span-5 dark:bg-card/50">
+    <div
+      className={`group relative flex flex-col justify-between rounded-2xl border bg-card dark:bg-card/50 ${features.voiceChannels ? "md:col-span-5" : "md:col-span-8"}`}
+    >
       <div className="p-6">
         <h3 className="font-medium text-base leading-tight md:text-lg">
           <span>The chat your team already knows.</span>{" "}
           <span className="text-muted-foreground">
-            Channels, threads, DMs, and reactions, native on desktop and mobile.
+            {features.directMessages
+              ? "Channels, threads, DMs, and reactions, native on desktop and mobile."
+              : "Channels, threads, and reactions, native on desktop and mobile."}
           </span>
         </h3>
       </div>
@@ -322,7 +327,7 @@ export function AgentBento() {
         <div className="mt-12 grid grid-cols-1 gap-2 md:grid-cols-8">
           <ActionsCard />
           <ContextCard />
-          <VoiceCard />
+          {features.voiceChannels && <VoiceCard />}
           <AppsCard />
         </div>
       </Reveal>

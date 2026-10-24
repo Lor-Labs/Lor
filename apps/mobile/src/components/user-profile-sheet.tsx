@@ -3,6 +3,7 @@ import AtSignIcon from "@hugeicons/core-free-icons/AtSignIcon"
 import Message01Icon from "@hugeicons/core-free-icons/Message01Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { formatDate } from "@repo/utils/date"
+import { features } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
@@ -126,7 +127,10 @@ export function UserProfileSheet({
                 </View>
 
                 <View className="flex-row gap-three px-one">
-                  {onMessage && currentUserId && !isSelf ? (
+                  {features.directMessages &&
+                  onMessage &&
+                  currentUserId &&
+                  !isSelf ? (
                     <ActionTile
                       icon={Message01Icon}
                       label="Message"

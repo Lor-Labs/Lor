@@ -13,6 +13,7 @@ import {
 } from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
+import { features } from "@repo/utils/features"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useBlocker } from "@tanstack/react-router"
 import { listen } from "@tauri-apps/api/event"
@@ -109,9 +110,35 @@ function disconnectMessage(reason: DisconnectReason) {
   }
 }
 
+const disabledVoiceCall: VoiceCallContextValue = {
+  call: null,
+  joining: false,
+  ownVoiceChannel: null,
+  chatUnread: 0,
+  clearChatUnread: () => {},
+  captionsOn: false,
+  toggleCaptions: () => {},
+  join: async () => {
+    throw new Error("Voice channels are unavailable")
+  },
+  leave: async () => {},
+  remoteCall: null,
+}
+
+export function VoiceCallProvider({ children }: { children: ReactNode }) {
+  if (!features.voiceChannels) {
+    return (
+      <VoiceCallContext.Provider value={disabledVoiceCall}>
+        {children}
+      </VoiceCallContext.Provider>
+    )
+  }
+  return <EnabledVoiceCallProvider>{children}</EnabledVoiceCallProvider>
+}
+
 // One Room for the app's lifetime: the call survives navigation, and
 // remounting a room disconnects everyone.
-export function VoiceCallProvider({ children }: { children: ReactNode }) {
+function EnabledVoiceCallProvider({ children }: { children: ReactNode }) {
   const [room] = useState(
     () => new Room({ adaptiveStream: true, dynacast: true })
   )

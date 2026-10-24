@@ -16,6 +16,7 @@ import {
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarColorStyle } from "@repo/utils/avatar-colors"
+import { features } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import { UserAvatar } from "@/components/ui/user-avatar"
@@ -132,7 +133,7 @@ function ProfileCardContent({
         </div>
       )}*/}
 
-      {!isCurrentUser && (
+      {features.directMessages && !isCurrentUser && (
         <div className="mt-4 flex flex-col gap-3 border-t border-border/60 pt-3">
           <Button
             size="sm"

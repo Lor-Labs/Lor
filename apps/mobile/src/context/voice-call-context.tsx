@@ -1,5 +1,6 @@
 import { RoomContext } from "@livekit/react-native"
 import type { RealtimeMessage } from "@repo/realtime-types"
+import { features } from "@repo/utils/features"
 import * as SecureStore from "expo-secure-store"
 import {
   ConnectionState,
@@ -97,9 +98,36 @@ function disconnectMessage(reason: DisconnectReason) {
   }
 }
 
+const disabledVoiceCall: VoiceCallContextValue = {
+  call: null,
+  joining: false,
+  ownVoiceChannel: null,
+  chatUnread: 0,
+  clearChatUnread: () => {},
+  captionsOn: false,
+  toggleCaptions: () => {},
+  join: async () => {
+    throw new Error("Voice channels are unavailable")
+  },
+  leave: async () => {},
+  cameraFacing: "user",
+  flipCamera: async () => {},
+}
+
+export function VoiceCallProvider({ children }: { children: ReactNode }) {
+  if (!features.voiceChannels) {
+    return (
+      <VoiceCallContext.Provider value={disabledVoiceCall}>
+        {children}
+      </VoiceCallContext.Provider>
+    )
+  }
+  return <EnabledVoiceCallProvider>{children}</EnabledVoiceCallProvider>
+}
+
 // One Room for the app's lifetime, so the call survives navigation; the call
 // bar brings you back to it. Same rules as web's VoiceCallProvider.
-export function VoiceCallProvider({ children }: { children: ReactNode }) {
+function EnabledVoiceCallProvider({ children }: { children: ReactNode }) {
   const [room] = useState(
     () => new Room({ adaptiveStream: true, dynacast: true })
   )

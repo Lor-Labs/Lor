@@ -8,6 +8,7 @@ import {
 } from "@repo/ui/components/sidebar"
 import { useIsMobile } from "@repo/ui/hooks/use-mobile"
 import { cn } from "@repo/ui/lib/utils"
+import { features } from "@repo/utils/features"
 import { useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -66,13 +67,17 @@ function LeftSidebar() {
             }}
             className="absolute inset-0 flex h-full w-full flex-col"
           >
-            {isWorkspace ? <WorkspaceSidebarContent /> : <DMSidebarContent />}
+            {isWorkspace ? (
+              <WorkspaceSidebarContent />
+            ) : features.directMessages ? (
+              <DMSidebarContent />
+            ) : null}
           </motion.div>
         </AnimatePresence>
       </div>
       <SidebarFooter>
         <DesktopAppCard />
-        <CallBar />
+        {features.voiceChannels && <CallBar />}
         <UserBar />
       </SidebarFooter>
     </ShadcnSidebar>
@@ -547,7 +552,7 @@ function SidebarLayout({ children }: { children: React.ReactNode }) {
       <LeftSidebarResizeHandle width={width} onWidthChange={persistWidth} />
       <MainArea>{children}</MainArea>
       {isMobile ? <MobileRightPanel /> : <RightPanelDock />}
-      <CallWindow />
+      {features.voiceChannels && <CallWindow />}
     </SidebarProvider>
   )
 }

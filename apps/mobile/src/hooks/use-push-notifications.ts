@@ -1,11 +1,14 @@
+import { features, isChannelFeatureEnabled } from "@repo/utils/features"
 import * as Notifications from "expo-notifications"
 import { router } from "expo-router"
 import { useEffect, useRef } from "react"
 import { AppState } from "react-native"
 import { useWorkspace } from "@/context/workspace-context"
+import { channelDetailQueryOptions } from "@/hooks/use-channel-detail"
 import { authClient } from "@/lib/auth-client"
 import { registerPushToken } from "@/lib/push-notifications"
 import { parsePushTarget } from "@/lib/push-target"
+import { queryClient } from "@/lib/query-client"
 
 // While the app is foregrounded the socket already renders messages and
 // in-app badges, so any push that races through stays silent.
@@ -20,7 +23,7 @@ Notifications.setNotificationHandler({
 
 export function usePushNotifications() {
   const { data: session } = authClient.useSession()
-  const { workspace, isLoading, selectWorkspace } = useWorkspace()
+  const { workspace, workspaces, isLoading, selectWorkspace } = useWorkspace()
   const registeredUserIdRef = useRef<string | null>(null)
   const handledResponseRef = useRef<string | null>(null)
   const lastResponse = Notifications.useLastNotificationResponse()
@@ -81,6 +84,10 @@ export function usePushNotifications() {
         return
       }
       if (target.workspaceId === null) {
+        if (!features.directMessages) {
+          clearResponse()
+          return
+        }
         router.push({
           pathname: "/dm/[dmId]",
           params: {
@@ -90,6 +97,27 @@ export function usePushNotifications() {
         } as never)
         clearResponse()
         return
+      }
+      if (!features.voiceChannels) {
+        const destination = workspaces.find(
+          (item) => item.id === target.workspaceId
+        )
+        if (!destination) {
+          clearResponse()
+          return
+        }
+        try {
+          const channel = await queryClient.ensureQueryData(
+            channelDetailQueryOptions(destination.slug, target.channelId)
+          )
+          if (!isChannelFeatureEnabled(channel)) {
+            clearResponse()
+            return
+          }
+        } catch {
+          retryResponseLater()
+          return
+        }
       }
       if (target.workspaceId !== activeWorkspaceId) {
         const switched = await selectWorkspace(target.workspaceId)
@@ -127,7 +155,14 @@ export function usePushNotifications() {
       }
       clearResponse()
     })()
-  }, [lastResponse, userId, isLoading, activeWorkspaceId, selectWorkspace])
+  }, [
+    lastResponse,
+    userId,
+    isLoading,
+    activeWorkspaceId,
+    selectWorkspace,
+    workspaces,
+  ])
 
   useEffect(() => {
     const clearDelivered = () => {

@@ -3,8 +3,9 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { toast } from "@repo/ui/components/toast"
+import { isChannelFeatureEnabled } from "@repo/utils/features"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useDropzone } from "react-dropzone"
 import { ChatSkeleton } from "@/components/chat/chat-skeleton"
@@ -105,12 +106,32 @@ export const Route = createFileRoute(
   }),
 })
 
-// Text channels render immediately so messages load in parallel with the
-// channel fetch; voice channels swap in once the type is known.
+// Resolve the channel type before mounting chat effects for a hidden feature.
 function ChannelRoute() {
   const { workspaceSlug, channelId } = Route.useParams()
   const { threadId, threadMessageId, callAt } = Route.useSearch()
-  const { data } = useQuery(channelQueryOptions(workspaceSlug, channelId))
+  const { data, isPending, refetch } = useQuery(
+    channelQueryOptions(workspaceSlug, channelId)
+  )
+
+  if (isPending) return <ChatSkeleton />
+  if (!data) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+        <p>Could not load this channel.</p>
+        <button
+          type="button"
+          className="underline"
+          onClick={() => void refetch()}
+        >
+          Try again
+        </button>
+      </div>
+    )
+  }
+  if (data && !isChannelFeatureEnabled(data)) {
+    return <Navigate to="/$workspaceSlug" params={{ workspaceSlug }} replace />
+  }
 
   if (data?.type === "voice") {
     return (

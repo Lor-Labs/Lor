@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@repo/db": "workspace:*",
-    "@repo/realtime-types": "workspace:*"
+    "@repo/realtime-types": "workspace:*",
+    "@repo/utils": "workspace:*"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*"

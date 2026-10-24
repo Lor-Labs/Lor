@@ -2,8 +2,9 @@ import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import type { UnreadNotification } from "@repo/realtime-types"
 import { timeAgo } from "@repo/utils/date"
+import { features } from "@repo/utils/features"
 import { useQueryClient } from "@tanstack/react-query"
-import { router, useFocusEffect } from "expo-router"
+import { Redirect, router, useFocusEffect } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { FlatList, Pressable, RefreshControl, Text, View } from "react-native"
@@ -20,6 +21,10 @@ import type { DM, DMSearchResult } from "@/lib/api-types"
 import { dmDisplayName, dmMemberName } from "@/lib/dms"
 
 export default function DMsScreen() {
+  return features.directMessages ? <EnabledDMsScreen /> : <Redirect href="/" />
+}
+
+function EnabledDMsScreen() {
   const socket = useSocket()
   const queryClient = useQueryClient()
   const foreground = useThemeColor("foreground")

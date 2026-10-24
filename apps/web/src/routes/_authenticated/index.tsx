@@ -1,4 +1,5 @@
 import { authClient } from "@repo/auth/client"
+import { features } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
@@ -12,9 +13,8 @@ export const Route = createFileRoute("/_authenticated/")({
   component: LandingRedirect,
 })
 
-// Send returning users back to the last workspace/channel they were in; fall
-// back to DMs only when there's no valid last workspace. Users with no
-// workspace at all go to onboarding.
+// Restore the last workspace location. Without one, use DMs when enabled or
+// the first workspace; users without any workspace go to onboarding.
 function LandingRedirect() {
   const navigate = useNavigate()
   const { data: workspaces, isPending } = useQuery({
@@ -61,7 +61,15 @@ function LandingRedirect() {
       return
     }
 
-    void navigate({ to: "/dms", replace: true })
+    if (features.directMessages) {
+      void navigate({ to: "/dms", replace: true })
+    } else if (workspaces?.[0]) {
+      void navigate({
+        to: "/$workspaceSlug",
+        params: { workspaceSlug: workspaces[0].slug },
+        replace: true,
+      })
+    }
   }, [isPending, workspaces, navigate])
 
   return (
