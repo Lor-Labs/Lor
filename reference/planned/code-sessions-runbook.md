@@ -99,8 +99,9 @@ may lag web), a Lor-offered "Continue in Code" card.
     active tab in the URL. Composer on the Agent tab only.
     - Built 2026-10-23: file and diff tabs (`use-session-tabs.ts`,
       `session-tabs.tsx`). While tabs are open, the tab bar (Chat first)
-      sits above the main area's card, like Linear's
-      (`main-area-tabs.tsx`). The active tab is `?open=file:<path>`
+      takes the title's place in the session's header strip. (Tried above
+      the main card, Linear-style; Jacob dropped it because the card
+      jumped down when tabs opened.) The active tab is `?open=file:<path>`
       or `diff:<path>` (`?tab=` is the settings dialog's). The tab covers
       the transcript, which stays mounted but inert; type-to-focus and file
       drops pause. A double click keeps a preview tab. The Changes and Files

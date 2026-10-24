@@ -15,14 +15,12 @@ import {
   ContextMenuPopup,
   ContextMenuTrigger,
 } from "@repo/ui/components/context-menu"
-import { useSidebar } from "@repo/ui/components/sidebar"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useTheme } from "next-themes"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
-import { MainAreaTabs } from "@/components/main-area-tabs"
 import {
   ChangeDiff,
   changeTotals,
@@ -33,7 +31,6 @@ import {
   StatusMark,
   splitPath,
 } from "@/components/sidebar/right-panel/session-changes-panel"
-import { useDesktopZoom } from "@/context/desktop-zoom-context"
 import { useDiffHighlighterReady } from "@/hooks/use-diff-highlighter"
 import {
   type ChangedFile,
@@ -50,9 +47,9 @@ import {
   sessionTabLink,
 } from "@/hooks/use-session-tabs"
 
-// A code session's tabs above the main area, Linear-style: Chat first, then
-// the files and diffs opened from the panel's Files and Changes lists.
-// Read-only.
+// A code session's tabs in its header strip, in the title's place while any
+// are open: Chat first, then the files and diffs opened from the panel's
+// Files and Changes lists. Read-only.
 
 const TAB_ICONS: Record<SessionTab["kind"], IconSvgElement> = {
   file: File01Icon,
@@ -74,12 +71,7 @@ export function SessionTabBar({
 }) {
   const { ids, preview, active, select, adopt, keep, close } = tabs
   const { closeOthers, cycle } = tabs
-  const { isMacDesktop, isFullscreen } = useDesktopChrome()
-  const { open: sidebarOpen, isMobile } = useSidebar()
-  const appScale = (useDesktopZoom()?.levels.app ?? 100) / 100
-  // With the sidebar collapsed, macOS's window buttons sit over this row.
-  const clearWindowButtons =
-    isMacDesktop && !isMobile && !sidebarOpen && !isFullscreen
+  const { isMacDesktop } = useDesktopChrome()
   // Only when the URL changes: a tab just closed stays closed while the URL
   // catches up.
   useEffect(() => {
@@ -135,42 +127,35 @@ export function SessionTabBar({
   )
 
   return (
-    <MainAreaTabs>
-      <div
-        className="flex shrink-0 items-center gap-1.5 overflow-x-auto pb-2 [scrollbar-width:none] max-md:p-2"
-        style={clearWindowButtons ? { paddingLeft: 72 / appScale } : undefined}
-      >
-        <TabButton
-          label="Chat"
-          icon={BubbleChatIcon}
-          selected={active === null}
-          menu={menuFor(null)}
-          onSelect={() => select(null)}
-        />
-        {ids.map((id) => {
-          const tab = parseTabId(id)
-          if (!tab) return null
-          return (
-            <TabButton
-              key={id}
-              label={
-                tab.kind === "changes"
-                  ? "All changes"
-                  : splitPath(tab.path).name
-              }
-              title={tab.kind === "changes" ? undefined : tab.path}
-              icon={TAB_ICONS[tab.kind]}
-              preview={preview === id}
-              selected={active === id}
-              menu={menuFor(id)}
-              onSelect={() => select(id)}
-              onKeep={() => keep(id)}
-              onClose={() => close(id)}
-            />
-          )
-        })}
-      </div>
-    </MainAreaTabs>
+    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]">
+      <TabButton
+        label="Chat"
+        icon={BubbleChatIcon}
+        selected={active === null}
+        menu={menuFor(null)}
+        onSelect={() => select(null)}
+      />
+      {ids.map((id) => {
+        const tab = parseTabId(id)
+        if (!tab) return null
+        return (
+          <TabButton
+            key={id}
+            label={
+              tab.kind === "changes" ? "All changes" : splitPath(tab.path).name
+            }
+            title={tab.kind === "changes" ? undefined : tab.path}
+            icon={TAB_ICONS[tab.kind]}
+            preview={preview === id}
+            selected={active === id}
+            menu={menuFor(id)}
+            onSelect={() => select(id)}
+            onKeep={() => keep(id)}
+            onClose={() => close(id)}
+          />
+        )
+      })}
+    </div>
   )
 }
 
@@ -197,15 +182,14 @@ function TabButton({
   onKeep?: () => void
   onClose?: () => void
 }) {
-  // The selected tab matches the card below it.
   return (
     <ContextMenu>
       <ContextMenuTrigger
         className={cn(
-          "group flex h-8 shrink-0 items-center rounded-lg border text-[13px] transition-colors",
+          "group flex h-7 shrink-0 items-center rounded-md text-[13px] transition-colors",
           selected
-            ? "border-border/60 bg-background text-foreground"
-            : "border-transparent bg-foreground/[0.03] text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+            ? "bg-foreground/[0.06] text-foreground"
+            : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
         )}
       >
         <button
@@ -218,8 +202,8 @@ function TabButton({
             if (event.button === 1) onClose?.()
           }}
           className={cn(
-            "flex h-full max-w-56 cursor-pointer items-center gap-2 px-2.5",
-            onClose && "pr-1.5"
+            "flex h-full max-w-48 cursor-pointer items-center gap-1.5 px-2",
+            onClose && "pr-1"
           )}
         >
           <HugeiconsIcon
@@ -243,7 +227,7 @@ function TabButton({
             aria-label={`Close ${label}`}
             onClick={onClose}
             className={cn(
-              "mr-1.5 flex size-4 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
+              "mr-1 flex size-4 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
               !selected &&
                 "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
             )}

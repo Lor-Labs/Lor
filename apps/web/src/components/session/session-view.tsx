@@ -32,7 +32,7 @@ import { timeAgo } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
@@ -201,83 +201,83 @@ function SessionConversation({
   const [renaming, setRenaming] = useState(false)
 
   return (
-    <>
-      {showTabs && (
-        <SessionTabBar
-          workspaceSlug={workspaceSlug}
-          sessionId={session.id}
-          tabs={tabs}
+    <SessionDocument
+      workspaceSlug={workspaceSlug}
+      channelId={session.channelId}
+      threadRootId={session.threadRootId}
+      targetMessageId={targetMessageId}
+      header={({ lorRunning, headingVisible }) => (
+        <SessionStrip
+          session={session}
+          workView={workView}
+          lorRunning={lorRunning}
+          showTitle={!headingVisible}
+          tabBar={
+            showTabs ? (
+              <SessionTabBar
+                workspaceSlug={workspaceSlug}
+                sessionId={session.id}
+                tabs={tabs}
+              />
+            ) : null
+          }
+          onRename={() => setRenaming(true)}
+          onArchive={() => {
+            updateSession.mutate({ ...change, archived: true })
+            // Nothing left to do here; back to the channel's chat.
+            void navigate({
+              to: "/$workspaceSlug/$channelId",
+              params: { workspaceSlug, channelId: session.channelId },
+            })
+          }}
         />
       )}
-      <SessionDocument
-        workspaceSlug={workspaceSlug}
-        channelId={session.channelId}
-        threadRootId={session.threadRootId}
-        targetMessageId={targetMessageId}
-        header={({ lorRunning, headingVisible }) => (
-          <SessionStrip
-            session={session}
-            workView={workView}
-            lorRunning={lorRunning}
-            showTitle={!headingVisible}
-            onRename={() => setRenaming(true)}
-            onArchive={() => {
-              updateSession.mutate({ ...change, archived: true })
-              // Nothing left to do here; back to the channel's chat.
-              void navigate({
-                to: "/$workspaceSlug/$channelId",
-                params: { workspaceSlug, channelId: session.channelId },
-              })
-            }}
+      heading={
+        <SessionHeading
+          session={session}
+          channelName={channel.name ?? "channel"}
+          source={source}
+          startedBy={startedBy}
+          starter={starter}
+          renaming={renaming}
+          onRenamingChange={setRenaming}
+          onRename={(title) => updateSession.mutate({ ...change, title })}
+        />
+      }
+      cover={
+        activeTab ? (
+          <SessionTabView
+            key={activeTab.id}
+            sessionId={session.id}
+            tab={activeTab}
+            onOpen={tabs.open}
           />
-        )}
-        heading={
-          <SessionHeading
-            session={session}
-            channelName={channel.name ?? "channel"}
-            source={source}
-            startedBy={startedBy}
-            starter={starter}
-            renaming={renaming}
-            onRenamingChange={setRenaming}
-            onRename={(title) => updateSession.mutate({ ...change, title })}
-          />
-        }
-        cover={
-          activeTab ? (
-            <SessionTabView
-              key={activeTab.id}
-              sessionId={session.id}
-              tab={activeTab}
-              onOpen={tabs.open}
+        ) : undefined
+      }
+      archivedBar={
+        session.archivedAt ? (
+          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
+            <HugeiconsIcon
+              icon={Archive02Icon}
+              className="size-3.5 shrink-0"
+              strokeWidth={2}
             />
-          ) : undefined
-        }
-        archivedBar={
-          session.archivedAt ? (
-            <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
-              <HugeiconsIcon
-                icon={Archive02Icon}
-                className="size-3.5 shrink-0"
-                strokeWidth={2}
-              />
-              <span className="min-w-0 flex-1 truncate">
-                Archived by {archivedBy}
-              </span>
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() =>
-                  updateSession.mutate({ ...change, archived: false })
-                }
-              >
-                Unarchive
-              </Button>
-            </div>
-          ) : undefined
-        }
-      />
-    </>
+            <span className="min-w-0 flex-1 truncate">
+              Archived by {archivedBy}
+            </span>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() =>
+                updateSession.mutate({ ...change, archived: false })
+              }
+            >
+              Unarchive
+            </Button>
+          </div>
+        ) : undefined
+      }
+    />
   )
 }
 
@@ -288,6 +288,7 @@ function SessionStrip({
   workView,
   lorRunning,
   showTitle,
+  tabBar,
   onRename,
   onArchive,
 }: {
@@ -295,6 +296,8 @@ function SessionStrip({
   workView: SessionWorkSidebarView
   lorRunning: boolean
   showTitle: boolean
+  // A code session's open tabs take the title's place.
+  tabBar: ReactNode
   onRename: () => void
   onArchive: () => void
 }) {
@@ -312,8 +315,9 @@ function SessionStrip({
   return (
     <div className="flex h-11 shrink-0 items-center gap-1 px-3">
       <HeaderNavControls className="-ml-1" />
+      {tabBar}
       <AnimatePresence initial={false}>
-        {showTitle && (
+        {showTitle && !tabBar && (
           <motion.span
             key="title"
             initial={{ opacity: 0 }}
