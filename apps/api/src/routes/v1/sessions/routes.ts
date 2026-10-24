@@ -103,7 +103,7 @@ export const getSessionChangeDiff = createRoute({
   method: "get",
   summary: "Get one changed file's diff",
   description:
-    "The unified diff of one file in a code session, staged or unstaged. Large and binary files are reported, not returned.",
+    "The unified diff of one file in a code session against HEAD, staged and unstaged changes together. Large and binary files are reported, not returned.",
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: {

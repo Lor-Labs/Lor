@@ -1,5 +1,6 @@
 import {
-  ArrowRight01Icon,
+  ArrowDown01Icon,
+  ArrowLeft01Icon,
   GitBranchIcon,
   GitCommitIcon,
   RefreshIcon,
@@ -18,8 +19,15 @@ import {
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { cn } from "@repo/ui/lib/utils"
+import { useQuery } from "@tanstack/react-query"
 import { useTheme } from "next-themes"
-import { type ReactNode, useMemo, useState } from "react"
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
@@ -30,6 +38,7 @@ import { useDiffHighlighterReady } from "@/hooks/use-diff-highlighter"
 import {
   type ChangedFile,
   type ReadyChanges,
+  sessionChangesQueryOptions,
   useChangeDiff,
   useCommitMessage,
   useLiveSessionChanges,
@@ -37,33 +46,42 @@ import {
   useStageChanges,
 } from "@/hooks/use-session-changes"
 
-// A code session's changes, IDE-style: what changed against the base branch,
-// staged or not, with diffs and a commit box
+// A code session's changes, laid out like Zed's git panel: one row per file
+// with its line counts and a staging checkbox, the diff opening over the
+// list, and the commit box at the bottom
 // (reference/planned/code-sessions-runbook.md, chunk 3). Commit waits for
 // GitHub sign-in (chunk 4).
 
 const STATUS: Record<
   ChangedFile["status"],
-  { letter: string; label: string; className: string }
+  { label: string; className: string }
 > = {
-  modified: { letter: "M", label: "Modified", className: "text-warning" },
-  added: { letter: "A", label: "Added", className: "text-success" },
-  untracked: {
-    letter: "U",
-    label: "New, untracked",
-    className: "text-success",
-  },
-  deleted: { letter: "D", label: "Deleted", className: "text-destructive" },
-  renamed: { letter: "R", label: "Renamed", className: "text-info" },
-  typechange: { letter: "T", label: "Type changed", className: "text-info" },
-  conflicted: { letter: "!", label: "Conflict", className: "text-destructive" },
+  modified: { label: "Modified", className: "text-warning" },
+  added: { label: "Added", className: "text-success" },
+  untracked: { label: "New, untracked", className: "text-success" },
+  deleted: { label: "Deleted", className: "text-destructive" },
+  renamed: { label: "Renamed", className: "text-info" },
+  typechange: { label: "Type changed", className: "text-info" },
+  conflicted: { label: "Conflict", className: "text-destructive" },
 }
+
+const DIFF_STYLE = {
+  "--diffs-font-family": "var(--font-mono)",
+  "--diffs-font-size": "12px",
+  "--diffs-line-height": "18px",
+} as CSSProperties
 
 type SessionPanelView = SessionWorkSidebarView | SessionChangesSidebarView
 
-// Details | Changes, the title of a code session's panel.
+// Details | Changes, the title of a code session's panel. The count shows
+// once the Changes view has read the sandbox.
 export function SessionPanelTabs({ view }: { view: SessionPanelView }) {
   const { setView } = useRightSidebar()
+  const { data } = useQuery({
+    ...sessionChangesQueryOptions(view.sessionId),
+    enabled: false,
+  })
+  const count = data?.state === "ready" ? data.files.length : 0
   const tabs = [
     { type: "session-work", label: "Details" },
     { type: "session-changes", label: "Changes" },
@@ -77,13 +95,18 @@ export function SessionPanelTabs({ view }: { view: SessionPanelView }) {
           aria-pressed={view.type === tab.type}
           onClick={() => setView({ ...view, type: tab.type })}
           className={cn(
-            "cursor-pointer rounded-md px-2 py-1 text-sm transition-colors",
+            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors",
             view.type === tab.type
               ? "bg-foreground/[0.06] font-medium text-foreground"
               : "text-muted-foreground hover:text-foreground"
           )}
         >
           {tab.label}
+          {tab.type === "session-changes" && count > 0 && (
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {count}
+            </span>
+          )}
         </button>
       ))}
     </div>
@@ -118,7 +141,7 @@ export function SessionChangesPanel({
       This session's sandbox no longer exists, so its changes are gone.
     </PanelNote>
   ) : (
-    <ChangesList
+    <ChangesView
       sessionId={view.sessionId}
       changes={changes.data}
       version={changes.dataUpdatedAt}
@@ -160,7 +183,13 @@ function PanelNote({ children }: { children: ReactNode }) {
   )
 }
 
-function ChangesList({
+// Fully staged, partly staged (some hunks), or not staged.
+function stagedState(file: ChangedFile): "all" | "some" | "none" {
+  if (!file.staged) return "none"
+  return file.unstaged ? "some" : "all"
+}
+
+function ChangesView({
   sessionId,
   changes,
   version,
@@ -170,238 +199,368 @@ function ChangesList({
   version: number
 }) {
   const stage = useStageChanges(sessionId)
-  const staged = changes.files.filter((file) => file.staged)
-  const unstaged = changes.files.filter((file) => file.unstaged)
+  const [openPath, setOpenPath] = useState<string | null>(null)
   const locked = changes.lorWorking
-  const toggle = (file: ChangedFile, toStaged: boolean) =>
+  const tracked = changes.files.filter((file) => file.status !== "untracked")
+  const untracked = changes.files.filter((file) => file.status === "untracked")
+  const allStaged =
+    changes.files.length > 0 &&
+    changes.files.every((file) => stagedState(file) === "all")
+  const totals = changes.files.reduce(
+    (sum, file) => ({
+      additions: sum.additions + (file.additions ?? 0),
+      deletions: sum.deletions + (file.deletions ?? 0),
+    }),
+    { additions: 0, deletions: 0 }
+  )
+  const stagedCount = changes.files.filter((file) => file.staged).length
+  const setStaged = (files: ChangedFile[], staged: boolean) =>
     stage.mutate({
-      paths: file.oldPath ? [file.oldPath, file.path] : [file.path],
-      staged: toStaged,
+      paths: files.flatMap((file) =>
+        file.oldPath ? [file.oldPath, file.path] : [file.path]
+      ),
+      staged,
     })
+  const openFile = changes.files.find((file) => file.path === openPath)
+
+  // The open file left the list (reverted, or Lor undid it): back to the list.
+  useEffect(() => {
+    if (openPath && !openFile) setOpenPath(null)
+  }, [openPath, openFile])
+
+  if (openFile) {
+    return (
+      <FileDiffView
+        sessionId={sessionId}
+        file={openFile}
+        version={version}
+        locked={locked}
+        onBack={() => setOpenPath(null)}
+        onToggle={(staged) => setStaged([openFile], staged)}
+      />
+    )
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <div className="mb-3 flex flex-wrap items-center gap-x-1.5 px-2 text-muted-foreground text-xs">
-          <HugeiconsIcon
-            icon={GitBranchIcon}
-            className="size-3.5"
-            strokeWidth={2}
-          />
-          <span className="font-medium text-foreground">
-            {changes.branch ?? "detached HEAD"}
-          </span>
-          <span>from {changes.baseBranch}</span>
-        </div>
-        {locked && (
-          <p className="mb-3 rounded-md bg-agent/10 px-3 py-2 text-agent text-xs">
-            Lor is working. Staging waits until it finishes.
-          </p>
+      <div className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b px-3 text-[13px]">
+        <span className="text-muted-foreground">
+          {changes.files.length} {changes.files.length === 1 ? "file" : "files"}
+        </span>
+        <LineCounts additions={totals.additions} deletions={totals.deletions} />
+        {changes.files.length > 0 && (
+          <Button
+            size="xs"
+            variant="outline"
+            className="ml-auto"
+            disabled={locked}
+            onClick={() => stage.mutate({ all: true, staged: !allStaged })}
+          >
+            {allStaged ? "Unstage all" : "Stage all"}
+          </Button>
         )}
-        {changes.commits.length > 0 && (
-          <Section title="Commits" count={changes.commits.length}>
-            {changes.commits.map((commit) => (
-              <div
-                key={commit.sha}
-                className="flex items-center gap-2 px-2 py-1 text-[13px]"
-              >
-                <HugeiconsIcon
-                  icon={GitCommitIcon}
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  strokeWidth={2}
-                />
-                <span className="min-w-0 truncate">{commit.subject}</span>
-                <span className="ml-auto shrink-0 font-mono text-muted-foreground text-xs">
-                  {commit.sha.slice(0, 7)}
-                </span>
-              </div>
-            ))}
-          </Section>
-        )}
+      </div>
+      {locked && (
+        <p className="shrink-0 border-border/70 border-b bg-agent/5 px-3 py-2 text-agent text-xs">
+          Lor is working. Staging waits until it finishes.
+        </p>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {changes.files.length === 0 ? (
-          <p className="px-2 py-6 text-center text-muted-foreground text-sm">
+          <p className="px-3 py-8 text-center text-muted-foreground text-sm">
             No changes yet. Lor's edits show up here as it works.
           </p>
         ) : (
           <>
-            {staged.length > 0 && (
-              <Section
-                title="Staged"
-                count={staged.length}
-                action={
-                  <SectionAction
-                    disabled={locked}
-                    onClick={() => stage.mutate({ all: true, staged: false })}
-                  >
-                    Unstage all
-                  </SectionAction>
-                }
-              >
-                {staged.map((file) => (
-                  <FileRow
-                    key={`staged:${file.path}`}
-                    sessionId={sessionId}
-                    file={file}
-                    staged
-                    version={version}
-                    disabled={locked}
-                    onToggle={toggle}
-                  />
-                ))}
-              </Section>
-            )}
-            {unstaged.length > 0 && (
-              <Section
-                title="Changes"
-                count={unstaged.length}
-                action={
-                  <SectionAction
-                    disabled={locked}
-                    onClick={() => stage.mutate({ all: true, staged: true })}
-                  >
-                    Stage all
-                  </SectionAction>
-                }
-              >
-                {unstaged.map((file) => (
-                  <FileRow
-                    key={`unstaged:${file.path}`}
-                    sessionId={sessionId}
-                    file={file}
-                    staged={false}
-                    version={version}
-                    disabled={locked}
-                    onToggle={toggle}
-                  />
-                ))}
-              </Section>
-            )}
+            <FileGroup
+              title="Tracked"
+              files={tracked}
+              locked={locked}
+              onToggleGroup={setStaged}
+              onOpen={setOpenPath}
+            />
+            <FileGroup
+              title="Untracked"
+              files={untracked}
+              locked={locked}
+              onToggleGroup={setStaged}
+              onOpen={setOpenPath}
+            />
             {changes.truncated && (
-              <p className="px-2 py-2 text-muted-foreground text-xs">
+              <p className="px-3 py-2 text-muted-foreground text-xs">
                 Showing the first 1,000 files.
               </p>
             )}
           </>
         )}
       </div>
-      <CommitBox sessionId={sessionId} stagedCount={staged.length} />
+      <div className="shrink-0 border-border/70 border-t">
+        <div className="flex h-9 items-center gap-1.5 px-3 text-[13px]">
+          <HugeiconsIcon
+            icon={GitBranchIcon}
+            className="size-3.5 shrink-0 text-muted-foreground"
+            strokeWidth={2}
+          />
+          <span className="min-w-0 truncate font-medium">
+            {changes.branch ?? "detached HEAD"}
+          </span>
+          <span className="shrink-0 text-muted-foreground text-xs">
+            from {changes.baseBranch}
+          </span>
+          {changes.commits.length > 0 && (
+            <span className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground text-xs">
+              <HugeiconsIcon
+                icon={GitCommitIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              {changes.commits.length} unpushed
+            </span>
+          )}
+        </div>
+        <CommitBox sessionId={sessionId} stagedCount={stagedCount} />
+      </div>
     </div>
   )
 }
 
-function Section({
+function FileGroup({
   title,
-  count,
-  action,
-  children,
+  files,
+  locked,
+  onToggleGroup,
+  onOpen,
 }: {
   title: string
-  count: number
-  action?: ReactNode
-  children: ReactNode
+  files: ChangedFile[]
+  locked: boolean
+  onToggleGroup: (files: ChangedFile[], staged: boolean) => void
+  onOpen: (path: string) => void
 }) {
+  const [collapsed, setCollapsed] = useState(false)
+  if (files.length === 0) return null
+  const states = new Set(files.map(stagedState))
+  const groupState =
+    states.size === 1 && states.has("all")
+      ? "all"
+      : states.size === 1 && states.has("none")
+        ? "none"
+        : "some"
   return (
-    <section className="mb-3">
-      <div className="flex h-7 items-center gap-1.5 px-2 font-medium text-muted-foreground text-xs">
-        {title}
-        <span className="tabular-nums">{count}</span>
-        <span className="ml-auto">{action}</span>
+    <section>
+      <div className="flex h-8 items-center gap-1.5 pr-3 pl-2 text-muted-foreground text-xs">
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          aria-expanded={!collapsed}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left hover:text-foreground"
+        >
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            className={cn(
+              "size-3.5 shrink-0 transition-transform",
+              collapsed && "-rotate-90"
+            )}
+            strokeWidth={2}
+          />
+          <span className="font-medium">{title}</span>
+          <span className="rounded bg-foreground/[0.06] px-1.5 tabular-nums">
+            {files.length}
+          </span>
+        </button>
+        <Checkbox
+          checked={groupState === "all"}
+          indeterminate={groupState === "some"}
+          disabled={locked}
+          onCheckedChange={() => onToggleGroup(files, groupState !== "all")}
+          aria-label={`${groupState === "all" ? "Unstage" : "Stage"} all ${title.toLowerCase()} files`}
+        />
       </div>
-      {children}
+      {!collapsed &&
+        files.map((file) => (
+          <FileRow
+            key={file.path}
+            file={file}
+            locked={locked}
+            onOpen={() => onOpen(file.path)}
+            onToggle={(staged) => onToggleGroup([file], staged)}
+          />
+        ))}
     </section>
   )
 }
 
-function SectionAction({
-  disabled,
-  onClick,
-  children,
-}: {
-  disabled: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
+function splitPath(path: string) {
+  const slash = path.lastIndexOf("/")
+  return {
+    name: path.slice(slash + 1),
+    folder: slash > 0 ? path.slice(0, slash) : "",
+  }
+}
+
+function StatusMark({ status }: { status: ChangedFile["status"] }) {
+  const { label, className } = STATUS[status]
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
+    <span
+      title={label}
+      className={cn(
+        "flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border-[1.5px] border-current",
+        className
+      )}
     >
-      {children}
-    </button>
+      <span className="size-1 rounded-full bg-current" />
+    </span>
+  )
+}
+
+function LineCounts({
+  additions,
+  deletions,
+  className,
+}: {
+  additions: number | null
+  deletions: number | null
+  className?: string
+}) {
+  if (!(additions || deletions)) return null
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center gap-1.5 font-mono text-xs tabular-nums",
+        className
+      )}
+    >
+      {additions ? <span className="text-success">+{additions}</span> : null}
+      {deletions ? (
+        <span className="text-destructive">−{deletions}</span>
+      ) : null}
+    </span>
+  )
+}
+
+function StageCheckbox({
+  file,
+  locked,
+  onToggle,
+}: {
+  file: ChangedFile
+  locked: boolean
+  onToggle: (staged: boolean) => void
+}) {
+  const state = stagedState(file)
+  return (
+    <Checkbox
+      checked={state === "all"}
+      indeterminate={state === "some"}
+      disabled={locked || file.status === "conflicted"}
+      onCheckedChange={() => onToggle(state !== "all")}
+      aria-label={`${state === "all" ? "Unstage" : "Stage"} ${file.path}`}
+    />
   )
 }
 
 function FileRow({
+  file,
+  locked,
+  onOpen,
+  onToggle,
+}: {
+  file: ChangedFile
+  locked: boolean
+  onOpen: () => void
+  onToggle: (staged: boolean) => void
+}) {
+  const { name, folder } = splitPath(file.path)
+  return (
+    <div className="flex h-7 items-center gap-2 pr-3 hover:bg-foreground/[0.04]">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+        className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-3 text-left text-[13px]"
+      >
+        <StatusMark status={file.status} />
+        <span
+          className={cn(
+            "shrink-0",
+            file.status === "deleted" && "text-muted-foreground line-through"
+          )}
+        >
+          {name}
+        </span>
+        {folder && (
+          // Truncates from the start, so the nearest folders stay visible.
+          <span className="min-w-0 truncate text-muted-foreground text-xs [direction:rtl]">
+            <bdi>{folder}</bdi>
+          </span>
+        )}
+        <LineCounts
+          additions={file.additions}
+          deletions={file.deletions}
+          className="ml-auto pl-2"
+        />
+      </button>
+      <StageCheckbox file={file} locked={locked} onToggle={onToggle} />
+    </div>
+  )
+}
+
+// One file's diff over the whole panel; Escape or the arrow goes back.
+function FileDiffView({
   sessionId,
   file,
-  staged,
   version,
-  disabled,
+  locked,
+  onBack,
   onToggle,
 }: {
   sessionId: string
   file: ChangedFile
-  staged: boolean
   version: number
-  disabled: boolean
-  onToggle: (file: ChangedFile, toStaged: boolean) => void
+  locked: boolean
+  onBack: () => void
+  onToggle: (staged: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const slash = file.path.lastIndexOf("/")
-  const name = file.path.slice(slash + 1)
-  const folder = slash > 0 ? file.path.slice(0, slash) : ""
-  const status = STATUS[file.status]
+  const { name, folder } = splitPath(file.path)
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onBack()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onBack])
   return (
-    <div>
-      <div className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-foreground/[0.04]">
-        <Checkbox
-          checked={staged}
-          disabled={disabled || file.status === "conflicted"}
-          onCheckedChange={() => onToggle(file, !staged)}
-          aria-label={`${staged ? "Unstage" : "Stage"} ${file.path}`}
-        />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b pr-3 pl-1.5 text-[13px]">
         <button
           type="button"
-          onClick={() => setOpen(!open)}
-          aria-expanded={open}
-          title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-[13px]"
+          aria-label="Back to changes"
+          onClick={onBack}
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         >
           <HugeiconsIcon
-            icon={ArrowRight01Icon}
-            className={cn(
-              "size-3 shrink-0 text-muted-foreground transition-transform",
-              open && "rotate-90"
-            )}
+            icon={ArrowLeft01Icon}
+            className="size-4"
             strokeWidth={2}
           />
-          <span className="shrink-0">{name}</span>
-          {folder && (
-            <span className="min-w-0 truncate text-muted-foreground text-xs">
-              {folder}
-            </span>
-          )}
         </button>
-        <span
-          title={status.label}
-          className={cn(
-            "w-3 shrink-0 text-center font-mono font-semibold text-xs",
-            status.className
-          )}
-        >
-          {status.letter}
-        </span>
-      </div>
-      {open && (
-        <ChangeDiff
-          sessionId={sessionId}
-          file={file}
-          staged={staged}
-          version={version}
+        <StatusMark status={file.status} />
+        <span className="shrink-0 font-medium">{name}</span>
+        {folder && (
+          <span className="min-w-0 truncate text-muted-foreground text-xs [direction:rtl]">
+            <bdi>{folder}</bdi>
+          </span>
+        )}
+        <LineCounts
+          additions={file.additions}
+          deletions={file.deletions}
+          className="ml-auto pl-2"
         />
-      )}
+        <StageCheckbox file={file} locked={locked} onToggle={onToggle} />
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <ChangeDiff sessionId={sessionId} file={file} version={version} />
+      </div>
     </div>
   )
 }
@@ -409,16 +568,14 @@ function FileRow({
 function ChangeDiff({
   sessionId,
   file,
-  staged,
   version,
 }: {
   sessionId: string
   file: ChangedFile
-  staged: boolean
   version: number
 }) {
   const { resolvedTheme } = useTheme()
-  const diff = useChangeDiff(sessionId, file, staged, version)
+  const diff = useChangeDiff(sessionId, file, version)
   const highlighterReady = useDiffHighlighterReady(file.path)
   const patch = diff.data?.kind === "patch" ? diff.data.patch : null
   // A patch with no hunks (a mode change) or one the parser rejects shows
@@ -432,38 +589,43 @@ function ChangeDiff({
     }
   }, [patch])
 
-  const note = (text: string) => (
-    <p className="px-9 pb-2 text-muted-foreground text-xs">{text}</p>
-  )
   if (diff.isPending || !highlighterReady) {
     return (
-      <div className="flex h-12 items-center justify-center">
-        <Spinner className="size-4 text-muted-foreground" />
-      </div>
+      <PanelNote>
+        <Spinner className="size-4" />
+      </PanelNote>
     )
   }
-  if (diff.isError) return note("Couldn't load the diff.")
-  if (diff.data.kind === "binary") return note("Binary file: no text diff.")
-  if (diff.data.kind === "too_large")
-    return note("This diff is too large to show.")
-  if (diff.data.kind === "gone") return note("The sandbox no longer exists.")
-  if (!patch?.trim()) return note("No changes to the file's text.")
-  return (
-    <div className="mx-2 mb-2 overflow-auto rounded-lg border border-border text-xs">
-      {fileDiff ? (
-        <FileDiff
-          fileDiff={fileDiff}
-          options={{
-            themeType: resolvedTheme === "dark" ? "dark" : "light",
-            diffStyle: "unified",
-            overflow: "scroll",
-            disableFileHeader: true,
-          }}
-        />
-      ) : (
-        <pre className="p-3 font-mono">{patch}</pre>
-      )}
+  if (diff.isError) return <PanelNote>Couldn't load the diff.</PanelNote>
+  if (diff.data.kind === "binary") {
+    return <PanelNote>Binary file: no text diff.</PanelNote>
+  }
+  if (diff.data.kind === "too_large") {
+    return <PanelNote>This diff is too large to show.</PanelNote>
+  }
+  if (diff.data.kind === "gone") {
+    return <PanelNote>The sandbox no longer exists.</PanelNote>
+  }
+  if (!patch?.trim()) {
+    return <PanelNote>No changes to the file's text.</PanelNote>
+  }
+  return fileDiff ? (
+    <div style={DIFF_STYLE}>
+      <FileDiff
+        fileDiff={fileDiff}
+        options={{
+          themeType: resolvedTheme === "dark" ? "dark" : "light",
+          diffStyle: "unified",
+          diffIndicators: "bars",
+          hunkSeparators: "line-info-basic",
+          lineDiffType: "word-alt",
+          overflow: "scroll",
+          disableFileHeader: true,
+        }}
+      />
     </div>
+  ) : (
+    <pre className="p-3 font-mono text-xs">{patch}</pre>
   )
 }
 
@@ -477,15 +639,15 @@ function CommitBox({
   const [message, setMessage] = useState("")
   const generate = useCommitMessage(sessionId)
   return (
-    <div className="shrink-0 border-border/70 border-t p-3">
-      <div className="relative">
-        <Textarea
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          placeholder="Commit message"
-          rows={3}
-          className="pr-9 text-[13px]"
-        />
+    <div className="px-3 pb-3">
+      <Textarea
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+        placeholder="Commit message"
+        rows={3}
+        className="font-mono text-[13px]"
+      />
+      <div className="mt-2 flex items-center gap-2">
         <Tooltip>
           <TooltipTrigger
             render={
@@ -496,7 +658,7 @@ function CommitBox({
                 onClick={() =>
                   generate.mutate(undefined, { onSuccess: setMessage })
                 }
-                className="absolute top-2 right-2 flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-agent disabled:cursor-default disabled:opacity-50"
+                className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-agent disabled:cursor-default disabled:opacity-50"
               />
             }
           >
@@ -514,19 +676,19 @@ function CommitBox({
             Write a message from the staged changes
           </TooltipContent>
         </Tooltip>
+        {/* Stub until chunk 4: commits are made under the person's GitHub
+            account, so they wait for GitHub sign-in. */}
+        <Tooltip>
+          <TooltipTrigger render={<span className="ml-auto" />}>
+            <Button size="sm" disabled>
+              {stagedCount > 0
+                ? `Commit ${stagedCount} ${stagedCount === 1 ? "file" : "files"}`
+                : "Commit"}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Committing comes with GitHub sign-in</TooltipContent>
+        </Tooltip>
       </div>
-      {/* Stub until chunk 4: commits are made under the person's GitHub
-          account, so they wait for GitHub sign-in. */}
-      <Tooltip>
-        <TooltipTrigger render={<span className="mt-2 block" />}>
-          <Button size="sm" className="w-full" disabled>
-            {stagedCount > 0
-              ? `Commit ${stagedCount} ${stagedCount === 1 ? "file" : "files"}`
-              : "Commit"}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Committing comes with GitHub sign-in</TooltipContent>
-      </Tooltip>
     </div>
   )
 }

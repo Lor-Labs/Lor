@@ -74,10 +74,10 @@ export function useLiveSessionChanges(sessionId: string, threadRootId: string) {
   }, [socket, queryClient, sessionId, threadRootId])
 }
 
+// The file's changes against HEAD, staged and unstaged together.
 export function useChangeDiff(
   sessionId: string,
   file: ChangedFile,
-  staged: boolean,
   // Refetch whenever the file list refreshes: the file may have changed.
   version: number
 ) {
@@ -87,7 +87,6 @@ export function useChangeDiff(
       sessionId,
       file.path,
       file.oldPath,
-      staged,
       version,
     ],
     queryFn: async () => {
@@ -96,7 +95,6 @@ export function useChangeDiff(
         query: {
           path: file.path,
           ...(file.oldPath ? { oldPath: file.oldPath } : {}),
-          staged: String(staged) as "true" | "false",
           ...(file.status === "untracked"
             ? { untracked: "true" as const }
             : {}),

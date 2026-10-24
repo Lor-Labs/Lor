@@ -32,6 +32,10 @@ export type ChangedFile = {
   status: ChangeStatus
   staged: boolean
   unstaged: boolean
+  // Lines added and removed against HEAD; null for binary files or when not
+  // counted (past the untracked-file limit).
+  additions: number | null
+  deletions: number | null
 }
 
 export type CodeChanges = {
@@ -55,6 +59,10 @@ const MESSAGE_DIFF_CHARS = 40_000
 const NOT_A_CLONE = 3
 const SIGPIPE_EXIT = 141
 const LOG_MARKER = "__LOR_LOG__"
+const STAT_MARKER = "__LOR_STAT__"
+const NEW_MARKER = "__LOR_NEW__"
+// Untracked files are counted one by one, so only the first ones are.
+const MAX_COUNTED_NEW_FILES = 300
 const GIT = "git --no-optional-locks --literal-pathspecs"
 
 export type CodeSandbox = {
@@ -120,6 +128,8 @@ export function parseStatus(output: string): {
         status: "untracked",
         staged: false,
         unstaged: true,
+        additions: null,
+        deletions: null,
       })
     } else if (/^[12u] /.test(entry)) {
       const kind = entry[0]
@@ -136,10 +146,36 @@ export function parseStatus(output: string): {
         status: kind === "u" ? "conflicted" : statusOf(x !== "." ? x : y),
         staged: kind !== "u" && x !== ".",
         unstaged: kind === "u" || y !== ".",
+        additions: null,
+        deletions: null,
       })
     }
   }
   return { branch, files }
+}
+
+type LineCounts = { additions: number | null; deletions: number | null }
+
+// `git diff --numstat -z`: "added\tdeleted\tpath"; a rename has an empty path
+// and its old and new paths as the next two entries. "-" marks binary.
+export function parseNumstat(output: string): Map<string, LineCounts> {
+  const entries = output.split("\0")
+  const counts = new Map<string, LineCounts>()
+  for (let i = 0; i < entries.length; i++) {
+    const [added, deleted, ...rest] = (entries[i] ?? "").split("\t")
+    if (added === undefined || deleted === undefined) continue
+    let path = rest.join("\t")
+    if (!path) {
+      i += 2
+      path = entries[i] ?? ""
+    }
+    if (!path) continue
+    counts.set(path, {
+      additions: added === "-" ? null : Number(added),
+      deletions: deleted === "-" ? null : Number(deleted),
+    })
+  }
+  return counts
 }
 
 export async function readChanges(
@@ -147,18 +183,34 @@ export async function readChanges(
   baseBranch: string
 ): Promise<CodeChanges> {
   const base = shellQuote(`refs/remotes/origin/${baseBranch}`)
+  // Untracked files have no diff to count: their lines are all added, and a
+  // file grep calls binary has no count.
+  const countNewFiles = `${GIT} ls-files --others --exclude-standard -z | head -z -n ${MAX_COUNTED_NEW_FILES} | while IFS= read -r -d '' f; do if [ ! -s "$f" ]; then printf '0\\t0\\t%s\\0' "$f"; elif grep -Iq '' "$f"; then printf '%s\\t0\\t%s\\0' "$(grep -c '' "$f")" "$f"; else printf -- '-\\t-\\t%s\\0' "$f"; fi; done`
   const result = await sandbox.run(
     [
       `${GIT} status --porcelain=v2 -z --branch --untracked-files=all || exit 4`,
       `printf '\\0${LOG_MARKER}\\0'`,
       `${GIT} log -n ${MAX_COMMITS} --format='%H%x1f%s' ${base}..HEAD 2>/dev/null || true`,
+      `printf '\\0${STAT_MARKER}\\0'`,
+      `${GIT} diff HEAD --numstat -z --find-renames --no-color 2>/dev/null || true`,
+      `printf '\\0${NEW_MARKER}\\0'`,
+      countNewFiles,
     ].join("\n")
   )
   if (result.exitCode !== 0) {
     throw new Error(`git status failed: ${result.stderr.slice(0, 300)}`)
   }
-  const [status = "", log = ""] = result.stdout.split(`\0${LOG_MARKER}\0`)
+  const [status = "", afterStatus = ""] = result.stdout.split(
+    `\0${LOG_MARKER}\0`
+  )
+  const [log = "", afterLog = ""] = afterStatus.split(`\0${STAT_MARKER}\0`)
+  const [tracked = "", untracked = ""] = afterLog.split(`\0${NEW_MARKER}\0`)
+  const counts = new Map([...parseNumstat(tracked), ...parseNumstat(untracked)])
   const parsed = parseStatus(status)
+  for (const file of parsed.files) {
+    const lines = counts.get(file.path)
+    if (lines) Object.assign(file, lines)
+  }
   const commits = log
     .split("\n")
     .map((line) => line.split("\x1f"))
@@ -173,9 +225,11 @@ export async function readChanges(
   }
 }
 
+// One file's changes against HEAD, staged and unstaged together (one row per
+// file in the panel, as in Zed).
 export async function readFileDiff(
   sandbox: CodeSandbox,
-  file: { path: string; oldPath: string | null; staged: boolean },
+  file: { path: string; oldPath: string | null },
   untracked: boolean
 ): Promise<FileDiff> {
   const q = shellQuote
@@ -184,7 +238,7 @@ export async function readFileDiff(
   // exit 1 means "differs".
   const diff = untracked
     ? `${GIT} diff --no-index --no-color --no-ext-diff -- /dev/null ${q(file.path)}`
-    : `${GIT} diff ${file.staged ? "--cached " : ""}--no-color --no-ext-diff --find-renames -- ${paths.join(" ")}`
+    : `${GIT} diff HEAD --no-color --no-ext-diff --find-renames -- ${paths.join(" ")}`
   // git's own exit code: a huge diff cut by head ends with SIGPIPE (141).
   const result = await sandbox.run(
     `${diff} | head -c ${MAX_PATCH_BYTES + 1}\nexit "\${PIPESTATUS[0]}"`

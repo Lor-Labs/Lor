@@ -478,11 +478,7 @@ export const getSessionChangeDiff: AppRouteHandler<
   const diff = await withCodeSandbox(sessionId, (sandbox) =>
     readFileDiff(
       sandbox,
-      {
-        path: query.path,
-        oldPath: query.oldPath ?? null,
-        staged: query.staged === "true",
-      },
+      { path: query.path, oldPath: query.oldPath ?? null },
       query.untracked === "true"
     )
   )

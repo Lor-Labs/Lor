@@ -119,6 +119,9 @@ const changedFileSchema = z.object({
   ]),
   staged: z.boolean(),
   unstaged: z.boolean(),
+  // Lines against HEAD; null for binary or uncounted files.
+  additions: z.number().int().nullable(),
+  deletions: z.number().int().nullable(),
 })
 
 export const sessionChangesResponseSchema = z.discriminatedUnion("state", [
@@ -147,7 +150,6 @@ const pathSchema = z
 export const sessionChangeDiffQuerySchema = z.object({
   path: pathSchema,
   oldPath: pathSchema.optional(),
-  staged: z.enum(["true", "false"]),
   untracked: z.enum(["true", "false"]).optional(),
 })
 
