@@ -13,6 +13,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { DesktopSidebarTitlebar } from "@/components/desktop-titlebar"
 import { DesktopZoomRegion } from "@/components/desktop-zoom"
+import { MainAreaTabsSlot } from "@/components/main-area-tabs"
 import { UserBar } from "@/components/sidebar/channel-panel/user-bar"
 import { DesktopAppCard } from "@/components/sidebar/desktop-app-card"
 import { DMSidebarContent } from "@/components/sidebar/dm-sidebar"
@@ -299,11 +300,16 @@ function RightPanelDock() {
   )
 }
 
+// The card is the inner element so page tabs (MainAreaTabs) can sit above it.
 function MainArea({ children }: { children: React.ReactNode }) {
+  const [tabsSlot, setTabsSlot] = useState<HTMLDivElement | null>(null)
   return (
-    <SidebarInset className="min-w-0 md:my-2 md:mr-2 md:rounded-xl md:border md:border-border/60 md:shadow-none">
-      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden md:rounded-[inherit]">
-        <DesktopZoomRegion scope="main">{children}</DesktopZoomRegion>
+    <SidebarInset className="min-w-0 bg-transparent md:my-2 md:mr-2 md:shadow-none">
+      <div ref={setTabsSlot} />
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background md:rounded-xl md:border md:border-border/60">
+        <MainAreaTabsSlot.Provider value={tabsSlot}>
+          <DesktopZoomRegion scope="main">{children}</DesktopZoomRegion>
+        </MainAreaTabsSlot.Provider>
       </div>
     </SidebarInset>
   )

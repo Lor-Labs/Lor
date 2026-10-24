@@ -90,13 +90,14 @@ may lag web), a Lor-offered "Continue in Code" card.
     tracked and untracked, at most 20,000 paths) and `/repo/file` (text up
     to 1 MB; binary, too large, and paths resolving outside the repo
     reported). Tree with folders, a filter, change marks.
-  - [ ] **F2** Tabs beside the chat: Agent (fixed) plus file, diff and "All
+  - [ ] **F2** Tabs beside the chat: Chat (fixed) plus file, diff and "All
     changes" tabs; the chat stays mounted. Preview tabs (single click
     reuses one); open tabs per person per session in local storage, the
     active tab in the URL. Composer on the Agent tab only.
     - Built 2026-10-23: file and diff tabs (`use-session-tabs.ts`,
-      `session-tabs.tsx`). The tab bar takes the title's place in the
-      session strip while tabs are open. The active tab is `?open=file:<path>`
+      `session-tabs.tsx`). While tabs are open, the tab bar (Chat first)
+      sits above the main area's card, like Linear's
+      (`main-area-tabs.tsx`). The active tab is `?open=file:<path>`
       or `diff:<path>` (`?tab=` is the settings dialog's). The tab covers
       the transcript, which stays mounted but inert; type-to-focus and file
       drops pause. A double click keeps a preview tab. The Changes and Files

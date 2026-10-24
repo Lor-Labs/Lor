@@ -4,7 +4,7 @@ import { useCallback, useSyncExternalStore } from "react"
 
 // A code session's tabs beside the chat (reference/planned/code-sessions-runbook.md,
 // 3b): the open tabs per person per session in local storage, the active one
-// in the URL (?open=file:<path> or diff:<path>; none is the Agent tab).
+// in the URL (?open=file:<path> or diff:<path>; none is the Chat tab).
 
 export type SessionTab = { id: string; kind: "file" | "diff"; path: string }
 
@@ -133,7 +133,7 @@ export function useSessionTabs(sessionId: string) {
     [key]
   )
 
-  // Closing the active tab shows its neighbor, or the Agent tab.
+  // Closing the active tab shows its neighbor, or the Chat tab.
   const close = useCallback(
     (id: string) => {
       const current = readTabs(key)
