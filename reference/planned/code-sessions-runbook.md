@@ -196,6 +196,8 @@ may lag web), a Lor-offered "Continue in Code" card.
 - [ ] **7. Claude Code** on the session contract: native state per turn,
   approvals and Lor's sandbox policy, sign-in, usage.
 - [ ] **8. Codex**, the same way.
+- [ ] Then OpenCode and other ACP agents, through Vercel's adapters
+  ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
 
 ## Research (started 2026-10-22)
 

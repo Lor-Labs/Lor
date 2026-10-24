@@ -20,6 +20,7 @@
 - Lor owns permissions, memory, tools, approvals, plans, Loops, queues, budgets, billing, collaboration and durable session identity. The selected harness owns the model/tool loop and its native context.
 - Harness selection, native-state persistence and capability differences belong in the first phase. Additional provider adapters can follow the Pi conversion; they must not require a second session architecture.
 - Shared code and consistent behavior across Pi, Claude Code and Codex take priority over a Pi-only simplification. On this basis the runtime is `HarnessAgent` + `@ai-sdk/harness-pi` (2026-10-20): Vercel's Claude Code and Codex adapters share that harness spec. Pi Durable is Pi-only and is rejected for phase 1.
+- New harnesses come in through the same spec (2026-10-24): their own Vercel adapter where one exists, else Vercel's ACP adapter; each with a capability record (§3 "Adding a harness"). OpenCode and other ACP agents follow Claude Code and Codex.
 - A user-visible checkpoint follows a completed user turn, including all its model/tool iterations. Recovery inside that turn remains a separate requirement.
 - Fork and rewind preserve both conversation state and workspace state. Rewind creates another branch and excludes later branch context. It does not undo external actions.
 - Every Lor agent run gets its session's isolated sandbox, regardless of chat type or harness, including voice, Loop and Act runs. Provision on the session's first agent run, reuse the logical workspace across turns and allow standby between runs or while awaiting approval. A new request must not create a new empty workspace or discard native history. If the sandbox itself is lost (crash or deletion), phase 1 continues the session in a new empty sandbox and Lor tells the model and the people in the session that earlier files are gone; phase 2 checkpoints rebuild it from the last completed turn instead. Further allocation cost optimization is deferred.
@@ -101,6 +102,33 @@ is needed instead, retain the same control contract over RPC.
 The current tool-result cache reduces duplicate side effects but has best-effort
 writes. Do not describe it as exactly-once execution, and do not automatically
 replay an uncertain external mutation after a crash.
+
+### Adding a harness
+
+Decided with Jacob 2026-10-24. Vercel's `HarnessV1` spec is Lor's one harness
+contract; Lor does not adopt the Agent Client Protocol (ACP) as its own
+interface. ACP comes in under the spec instead:
+
+- A harness with its own Vercel adapter uses it (`@ai-sdk/harness-pi`,
+  `-claude-code`, `-codex`, `-opencode`, and others on npm, all
+  experimental). Native adapters reach deeper features.
+- Any other agent that speaks ACP uses `@ai-sdk/harness-acp`: the agent and a
+  bridge run in the sandbox, with model, instruction and permission-mode
+  mappings and credential brokering (the real key stays on the host and is
+  swapped into matching requests).
+- Order: Claude Code and Codex first (code-sessions-runbook chunks 7 and 8).
+  OpenCode and other ACP agents (Gemini CLI, Goose and so on) come after them.
+
+Every harness gets a short capability record. Product behavior follows the
+record, not the harness name:
+
+| Capability | Why it matters | Known so far |
+|---|---|---|
+| Native state restore | Survives a lost sandbox only if saved outside it | Pi: Postgres per turn. Most others keep state inside the sandbox; it needs the chunk 5 checkpoints |
+| Per-call approvals | Lor's approval cards gate each tool call | Claude Code: `canUseTool`. Codex: none built in. ACP adapter: coarse permission modes in its README; ACP's own permission requests not yet checked |
+| Usage | Billing; spend is the only run limit | Codex: per turn only. Others: check per adapter |
+| Fork and rewind | Chunk 6 | Not standard in any adapter |
+| Instructions | Lor's code-session section appended | Pi: Lor's prompt. Others: append only |
 
 ## 4. Agreed storage: Postgres session state, private Git workspace files
 
