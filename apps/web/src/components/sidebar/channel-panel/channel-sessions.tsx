@@ -1,6 +1,7 @@
 import {
   Archive02Icon,
   ArrowDown01Icon,
+  MessageMultiple01Icon,
   RepeatIcon,
   SourceCodeIcon,
 } from "@hugeicons/core-free-icons"
@@ -275,13 +276,17 @@ function SessionRow({
           active && "bg-foreground/[0.06] font-medium"
         )}
       >
-        {(session.loop || session.code) && (
-          <HugeiconsIcon
-            icon={session.loop ? RepeatIcon : SourceCodeIcon}
-            className="size-3.5 shrink-0 opacity-60"
-            strokeWidth={2}
-          />
-        )}
+        <HugeiconsIcon
+          icon={
+            session.loop
+              ? RepeatIcon
+              : session.code
+                ? SourceCodeIcon
+                : MessageMultiple01Icon
+          }
+          className="size-3.5 shrink-0 opacity-60"
+          strokeWidth={2}
+        />
         <span className="min-w-0 flex-1 truncate">
           <TypewriterText text={session.title} animate={!session.titleEdited} />
         </span>
