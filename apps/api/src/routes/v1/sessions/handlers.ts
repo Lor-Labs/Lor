@@ -33,7 +33,11 @@ import {
   readUnpushedCommits,
   stagePaths,
 } from "@repo/lor/code-changes"
-import { hasCheckpoint, restoreSessionFiles } from "@repo/lor/code-checkpoints"
+import {
+  hasCheckpoint,
+  restoreSessionFiles,
+  writeCheckpoint,
+} from "@repo/lor/code-checkpoints"
 import { channelEventContent } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
@@ -581,6 +585,51 @@ export const stageSessionChanges: AppRouteHandler<
   return c.json(result, HttpStatusCodes.OK)
 }
 
+// A person's Commit, Push or Pull changes what a restore must bring back.
+// In the background, on its own sandbox connection; a failure only logs.
+function checkpointAfter(session: CodeSession) {
+  void attachCodeSandbox(session.id)
+    .then(async (sandbox) => {
+      if (!sandbox) return
+      try {
+        await writeCheckpoint(sandbox, {
+          sessionId: session.id,
+          workspaceId: session.workspaceId,
+          repoFullName: session.repoFullName,
+          runId: null,
+        })
+      } finally {
+        sandbox.close()
+      }
+    })
+    .catch((err) =>
+      logger.warn({ err, sessionId: session.id }, "Checkpoint failed")
+    )
+}
+
+// "Which session made this commit": GitHub's blame gives the SHA (Push keeps
+// it), this row the session, person and the Lor turn before it.
+async function recordSessionCommit(
+  session: CodeSession,
+  userId: string,
+  commit: { sha: string; branch: string | null }
+) {
+  const [run] = await db
+    .select({ id: schema.agentRun.id })
+    .from(schema.agentRun)
+    .where(eq(schema.agentRun.threadRootId, session.threadRootId))
+    .orderBy(desc(schema.agentRun.createdAt))
+    .limit(1)
+  await db.insert(schema.sessionCommit).values({
+    sha: commit.sha,
+    sessionId: session.id,
+    userId,
+    repoFullName: session.repoFullName,
+    branch: commit.branch,
+    runId: run?.id ?? null,
+  })
+}
+
 // Everyone else with the session open refetches its changes.
 function broadcastChangesUpdated(
   session: CodeSession,
@@ -675,6 +724,10 @@ export const commitSessionChanges: AppRouteHandler<
 
   const { commit, changes } = result
   broadcastChangesUpdated(session, user.id)
+  checkpointAfter(session)
+  void recordSessionCommit(session, user.id, commit).catch((err) =>
+    logger.error({ err, sessionId }, "Session commit record failed")
+  )
   const author = eventAuthor(user)
   const eventPayload = {
     sessionId,
@@ -771,6 +824,7 @@ export const pushSessionChanges: AppRouteHandler<
     branch: result.pushed.branch,
   })
   broadcastChangesUpdated(session, user.id)
+  checkpointAfter(session)
   const author = eventAuthor(user)
   const eventPayload = {
     sessionId,
@@ -840,6 +894,7 @@ export const pullSessionChanges: AppRouteHandler<
   if (!result.ok) return refuse(result.detail)
   if (result.pulled.commitCount > 0) {
     broadcastChangesUpdated(session, user.id, { filesChanged: true })
+    checkpointAfter(session)
   }
   return c.json(
     { pulled: result.pulled, changes: result.changes },

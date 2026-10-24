@@ -172,7 +172,7 @@ may lag web), a Lor-offered "Continue in Code" card.
 
 ## Stage 2 — before charging
 
-- [ ] **5. Checkpoints** on the chosen Git host: a snapshot of the work folder
+- [x] **5. Checkpoints** on the chosen Git host: a snapshot of the work folder
   after every completed turn, joined to the saved harness head; a lost
   sandbox rebuilt from the last checkpoint instead of continuing empty.
   Decided with Jacob 2026-10-23:
@@ -272,12 +272,27 @@ may lag web), a Lor-offered "Continue in Code" card.
       message meanwhile.
     - Archived sessions restore too when their panel opens; the new
       sandbox idles out after 7 days.
-  - [ ] **5c** checkpoints after Commit and Pull; branch cleanup;
-    `Lor-Session` / `Lor-Run` trailers on checkpoint commits; a
-    `session_commit` table (commit SHA → session, person, repo, branch,
-    the turn before it). Decided with Jacob 2026-10-24 for line-level
-    attribution ("which session and turn wrote this line", a Lor blame view,
-    an `explain_line` tool): GitHub blame → commit SHA → `session_commit`;
+  - [x] **5c** built 2026-10-24:
+    - Checkpoints also after Commit, Push and Pull (`checkpointAfter` in
+      the sessions handlers, in the background on its own sandbox
+      connection). A change of upstream alone (a push) writes one too.
+    - Trailers on every checkpoint commit: `Lor-Session`, `Lor-Run` (a turn's
+      checkpoint) and `Lor-Checkpoint` (the row's id, minted before the
+      push).
+    - `session_commit` (additive `db:push`): one row per Commit, with the
+      SHA (indexed), session, person, repo, branch and the session's newest
+      run.
+    - `sweepCheckpointStorage`, a daily worker maintenance job: deletes
+      `session/<id>` branches whose session is gone and repos whose
+      workspace is gone. Sessions and checkpoint rows go by database cascade
+      (channel delete), so nothing runs at that moment. Only repos named
+      `<uuid>/<owner>/<repo>` are touched.
+    - Edge: a sandbox lost mid-merge (conflicts not yet committed) restores
+      the conflicted files but not the merge itself; committing them makes
+      a plain commit, and the next push asks to pull again.
+  - Attribution, decided with Jacob 2026-10-24 ("which session and turn
+    wrote this line", a Lor blame view, an `explain_line` tool): GitHub
+    blame → commit SHA → `session_commit`;
     Code Storage blame on `session/<id>` → checkpoint → trailers. Checkpoint
     parents stay [previous checkpoint, HEAD] so blame follows turns. No git
     notes: GitHub doesn't show them and the trailers and table cover it.
@@ -293,7 +308,8 @@ may lag web), a Lor-offered "Continue in Code" card.
 
 ## Research (started 2026-10-22)
 
-- [ ] Git host for checkpoints: Pierre Code Storage vs Cloudflare Artifacts
+- [x] Git host for checkpoints: Pierre Code Storage vs Cloudflare Artifacts
+  (Code Storage chosen; spike 2026-10-24 under chunk 5)
   (decide before chunk 5). Research read 2026-10-22, recommending **Code
   Storage**:
   - **Tokens:** ref-scoped JWTs signed with our own key (one session branch,

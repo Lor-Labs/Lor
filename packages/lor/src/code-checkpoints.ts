@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import { GitStorage, OP_NO_FORCE_PUSH, OP_NO_PUSH } from "@pierre/storage"
-import { db, desc, eq, schema, sql } from "@repo/db"
+import { db, desc, eq, inArray, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import type { CodeSandbox } from "./code-changes"
@@ -205,9 +206,9 @@ export async function restoreSessionFiles(input: {
 
 export type CheckpointResult = "written" | "unchanged" | "disabled"
 
-// Saves the work folder after a completed turn (or a person's Commit or
-// Pull). Unchanged files and HEAD add nothing. One writer per session at a
-// time: a Postgres advisory lock covers the read, push and row.
+// Saves the work folder after a completed turn, or a person's Commit, Push or
+// Pull. Unchanged files, HEAD and upstream add nothing. One writer per
+// session at a time: a Postgres advisory lock covers the read, push and row.
 export async function writeCheckpoint(
   sandbox: CodeSandbox,
   input: {
@@ -227,7 +228,12 @@ export async function writeCheckpoint(
     await lockSession(tx, input.sessionId)
     const previous = await newestCheckpoint(tx, input.sessionId)
     const state = await readWorkFolder(sandbox, abortSignal)
-    if (previous?.treeSha === state.tree && previous.headSha === state.head) {
+    // A push changes only the upstream; a restore must know it too.
+    if (
+      previous?.treeSha === state.tree &&
+      previous.headSha === state.head &&
+      previous.upstreamSha === state.upstream
+    ) {
       return "unchanged"
     }
     // A chain continues only within one Code Storage repo.
@@ -244,6 +250,16 @@ export async function writeCheckpoint(
       ],
     })
     const token = new URL(remote).password
+    // Trailers make Code Storage's blame on the session branch name the
+    // session, turn and checkpoint behind each line.
+    const checkpointId = randomUUID()
+    const message = [
+      "Lor checkpoint",
+      "",
+      `Lor-Session: ${input.sessionId}`,
+      ...(input.runId ? [`Lor-Run: ${input.runId}`] : []),
+      `Lor-Checkpoint: ${checkpointId}`,
+    ].join("\n")
     const result = await sandbox.run(
       [
         // A new sandbox (or a fresh clone) lacks the previous checkpoint:
@@ -251,7 +267,7 @@ export async function writeCheckpoint(
         parent
           ? `git cat-file -e ${parent}^{commit} 2>/dev/null || git fetch -q --update-shallow "$LOR_CHECKPOINT_REMOTE" "refs/heads/${branch}:refs/lor/checkpoint" || exit ${PUSH_FAILED}`
           : "",
-        `c=$(git -c user.name=Lor -c user.email=checkpoints@lor.chat commit-tree ${state.tree}${parent ? ` -p ${parent}` : ""} -p ${state.head} -m "Lor checkpoint") || exit ${SNAPSHOT_FAILED}`,
+        `c=$(printf '%s\\n' ${shellQuote(message)} | git -c user.name=Lor -c user.email=checkpoints@lor.chat commit-tree ${state.tree}${parent ? ` -p ${parent}` : ""} -p ${state.head} -F -) || exit ${SNAPSHOT_FAILED}`,
         `git push -q "$LOR_CHECKPOINT_REMOTE" "$c:refs/heads/${branch}" || exit ${PUSH_FAILED}`,
         'git update-ref refs/lor/checkpoint "$c"',
         `printf '%s' "$c"`,
@@ -268,6 +284,7 @@ export async function writeCheckpoint(
     if (!SHA.test(sha)) throw new Error("checkpoint push returned no commit")
 
     await tx.insert(schema.sessionCheckpoint).values({
+      id: checkpointId,
       sessionId: input.sessionId,
       runId: input.runId,
       storageRepo,
@@ -279,4 +296,96 @@ export async function writeCheckpoint(
     })
     return "written"
   })
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const SESSION_BRANCH = /^session\/([0-9a-f-]{36})$/
+
+// Deletions reach Code Storage (no default pruning; people's deletions
+// propagate): a daily sweep deletes the branches of sessions that are gone
+// (a channel deleted, say) and the repos of workspaces that are gone.
+// Sessions and their checkpoint rows go by database cascade, so nothing runs
+// at that moment. Only repos named <workspaceId>/<owner>/<repo> are touched.
+export async function sweepCheckpointStorage(): Promise<{
+  deletedBranches: number
+  deletedRepos: number
+}> {
+  const store = codeStorage()
+  const counts = { deletedBranches: 0, deletedRepos: 0 }
+  if (!store) return counts
+  let cursor: string | undefined
+  do {
+    const page = await store.listRepos({
+      limit: 100,
+      ...(cursor ? { cursor } : {}),
+    })
+    for (const { repoId } of page.repos) {
+      const [workspaceId, ...rest] = repoId.split("/")
+      if (!(workspaceId && UUID.test(workspaceId) && rest.length === 2)) {
+        continue
+      }
+      const [workspace] = await db
+        .select({ id: schema.workspace.id })
+        .from(schema.workspace)
+        .where(eq(schema.workspace.id, workspaceId))
+        .limit(1)
+      if (!workspace) {
+        await deleteStorageRepo(store, repoId)
+        counts.deletedRepos++
+        continue
+      }
+      counts.deletedBranches += await sweepSessionBranches(store, repoId)
+    }
+    cursor = page.hasMore ? page.nextCursor : undefined
+  } while (cursor)
+  return counts
+}
+
+async function sweepSessionBranches(store: GitStorage, repoId: string) {
+  const repo = store.repo({ id: repoId })
+  const sessionIds: string[] = []
+  let cursor: string | undefined
+  do {
+    const page = await repo.listBranches({
+      limit: 100,
+      ...(cursor ? { cursor } : {}),
+    })
+    for (const { name } of page.branches) {
+      const id = SESSION_BRANCH.exec(name)?.[1]
+      if (id) sessionIds.push(id)
+    }
+    cursor = page.hasMore ? page.nextCursor : undefined
+  } while (cursor)
+  if (sessionIds.length === 0) return 0
+  const live = new Set(
+    (
+      await db
+        .select({ id: schema.agentSession.id })
+        .from(schema.agentSession)
+        .where(inArray(schema.agentSession.id, sessionIds))
+    ).map((row) => row.id)
+  )
+  const gone = sessionIds.filter((id) => !live.has(id))
+  for (const id of gone) {
+    await repo.deleteBranch({ name: sessionBranch(id) })
+  }
+  return gone.length
+}
+
+// The SDK has no repo delete; the HTTP API's delete is asynchronous.
+async function deleteStorageRepo(store: GitStorage, repoId: string) {
+  const url = await store
+    .repo({ id: repoId })
+    .getRemoteURL({ permissions: ["repo:write"], ttl: 300 })
+  const org = env.CODE_STORAGE_ORG ?? ""
+  const res = await fetch(
+    `${GitStorage.getDefaultAPIBaseUrl(org)}/api/v1/repos/delete`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${new URL(url).password}` },
+    }
+  )
+  if (!res.ok && res.status !== 404 && res.status !== 409) {
+    throw new Error(`Code Storage repo delete failed: ${res.status}`)
+  }
 }

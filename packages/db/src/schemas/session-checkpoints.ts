@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm"
 import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 import { agentRun } from "./agent-runs"
 import { agentSession } from "./agent-sessions"
+import { user } from "./users"
 
 // A code session's work folder saved to Pierre Code Storage
 // (reference/planned/code-sessions-runbook.md, chunk 5): a commit whose tree
@@ -35,6 +36,35 @@ export const sessionCheckpoint = pgTable(
       table.sessionId,
       table.createdAt
     ),
+  ]
+)
+
+// A commit a person made in a code session (the Changes panel's Commit), by
+// SHA. Push keeps SHAs, so GitHub's blame leads back here: the session, the
+// person, and the Lor turn just before it. Line-level attribution and the
+// graph start from this (code-sessions-runbook.md chunk 5c).
+export const sessionCommit = pgTable(
+  "session_commit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    sha: text("sha").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => agentSession.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    repoFullName: text("repo_full_name").notNull(),
+    branch: text("branch"),
+    // The session's newest run when it was made.
+    runId: uuid("run_id").references(() => agentRun.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    index("session_commit_sha_idx").on(table.sha),
+    index("session_commit_session_idx").on(table.sessionId),
   ]
 )
 
