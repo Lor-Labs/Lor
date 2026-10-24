@@ -4,14 +4,20 @@ import { useCallback, useSyncExternalStore } from "react"
 
 // A code session's tabs beside the chat (reference/planned/code-sessions-runbook.md,
 // 3b): the open tabs per person per session in local storage, the active one
-// in the URL (?open=file:<path> or diff:<path>; none is the Chat tab).
+// in the URL (?open=file:<path>, diff:<path> or changes; none is the Chat
+// tab).
 
-export type SessionTab = { id: string; kind: "file" | "diff"; path: string }
+export const CHANGES_TAB_ID = "changes"
+
+export type SessionTab =
+  | { id: string; kind: "file" | "diff"; path: string }
+  | { id: typeof CHANGES_TAB_ID; kind: "changes" }
 
 export const fileTabId = (path: string) => `file:${path}`
 export const diffTabId = (path: string) => `diff:${path}`
 
 export function parseTabId(id: string): SessionTab | null {
+  if (id === CHANGES_TAB_ID) return { id, kind: "changes" }
   const colon = id.indexOf(":")
   const kind = id.slice(0, colon)
   const path = id.slice(colon + 1)

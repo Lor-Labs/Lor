@@ -90,7 +90,7 @@ may lag web), a Lor-offered "Continue in Code" card.
     tracked and untracked, at most 20,000 paths) and `/repo/file` (text up
     to 1 MB; binary, too large, and paths resolving outside the repo
     reported). Tree with folders, a filter, change marks.
-  - [ ] **F2** Tabs beside the chat: Chat (fixed) plus file, diff and "All
+  - [x] **F2** Tabs beside the chat: Chat (fixed) plus file, diff and "All
     changes" tabs; the chat stays mounted. Preview tabs (single click
     reuses one); open tabs per person per session in local storage, the
     active tab in the URL. Composer on the Agent tab only.
@@ -102,7 +102,9 @@ may lag web), a Lor-offered "Continue in Code" card.
       the transcript, which stays mounted but inert; type-to-focus and file
       drops pause. A double click keeps a preview tab. The Changes and Files
       lists went back to rail width.
-    - Still owed: the "All changes" tab.
+    - "All changes" (`?open=changes`, the Changes list's View all): one
+      card per file with a sticky header and its stage checkbox; each diff
+      loads when it scrolls near the view.
   - [ ] **F3** Polish: link sharing, keyboard switching.
 - [ ] **4. Personal GitHub and shipping.** The GitHub App's user
   authorization, stored and refreshed tokens, a connect prompt; Push and

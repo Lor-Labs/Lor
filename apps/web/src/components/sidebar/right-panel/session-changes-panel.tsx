@@ -38,7 +38,11 @@ import {
   useSessionChanges,
   useStageChanges,
 } from "@/hooks/use-session-changes"
-import { diffTabId, useSessionTabs } from "@/hooks/use-session-tabs"
+import {
+  CHANGES_TAB_ID,
+  diffTabId,
+  useSessionTabs,
+} from "@/hooks/use-session-tabs"
 
 // A code session's changes, laid out like Zed's git panel: one row per file
 // with its line counts and a staging checkbox, a click opening its diff in a
@@ -181,6 +185,16 @@ export function PanelNote({ children }: { children: ReactNode }) {
   )
 }
 
+export function changeTotals(files: ChangedFile[]) {
+  return files.reduce(
+    (sum, file) => ({
+      additions: sum.additions + (file.additions ?? 0),
+      deletions: sum.deletions + (file.deletions ?? 0),
+    }),
+    { additions: 0, deletions: 0 }
+  )
+}
+
 // Fully staged, partly staged (some hunks), or not staged.
 function stagedState(file: ChangedFile): "all" | "some" | "none" {
   if (!file.staged) return "none"
@@ -202,13 +216,7 @@ function ChangesView({
   const allStaged =
     changes.files.length > 0 &&
     changes.files.every((file) => stagedState(file) === "all")
-  const totals = changes.files.reduce(
-    (sum, file) => ({
-      additions: sum.additions + (file.additions ?? 0),
-      deletions: sum.deletions + (file.deletions ?? 0),
-    }),
-    { additions: 0, deletions: 0 }
-  )
+  const totals = changeTotals(changes.files)
   const stagedCount = changes.files.filter((file) => file.staged).length
   const setStaged = (files: ChangedFile[], staged: boolean) =>
     stage.mutate({
@@ -233,15 +241,24 @@ function ChangesView({
         </span>
         <LineCounts additions={totals.additions} deletions={totals.deletions} />
         {changes.files.length > 0 && (
-          <Button
-            size="xs"
-            variant="outline"
-            className="ml-auto"
-            disabled={locked}
-            onClick={() => stage.mutate({ all: true, staged: !allStaged })}
-          >
-            {allStaged ? "Unstage all" : "Stage all"}
-          </Button>
+          <>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="ml-auto"
+              onClick={() => tabs.open(CHANGES_TAB_ID, { preview: false })}
+            >
+              View all
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={locked}
+              onClick={() => stage.mutate({ all: true, staged: !allStaged })}
+            >
+              {allStaged ? "Unstage all" : "Stage all"}
+            </Button>
+          </>
         )}
       </div>
       {locked && (
@@ -493,10 +510,13 @@ export function ChangeDiff({
   sessionId,
   file,
   version,
+  framed = true,
 }: {
   sessionId: string
   file: ChangedFile
   version: number
+  // False when the caller draws the card (the All changes tab).
+  framed?: boolean
 }) {
   const { resolvedTheme } = useTheme()
   const diff = useChangeDiff(sessionId, file, version)
@@ -534,7 +554,13 @@ export function ChangeDiff({
     return <PanelNote>No changes to the file's text.</PanelNote>
   }
   return (
-    <div className="m-3 overflow-hidden rounded-lg border border-border/70 bg-card py-1.5">
+    <div
+      className={
+        framed
+          ? "m-3 overflow-hidden rounded-lg border border-border/70 bg-card py-1.5"
+          : "py-1.5"
+      }
+    >
       {fileDiff ? (
         <FileDiff
           fileDiff={fileDiff}

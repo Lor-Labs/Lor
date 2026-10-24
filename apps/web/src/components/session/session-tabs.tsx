@@ -1,7 +1,9 @@
 import {
+  ArrowDown01Icon,
   BubbleChatIcon,
   Cancel01Icon,
   File01Icon,
+  FileDiffIcon,
   GitCompareIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -11,11 +13,12 @@ import { useSidebar } from "@repo/ui/components/sidebar"
 import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
 import { useTheme } from "next-themes"
-import { type ReactNode, useEffect } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
 import { MainAreaTabs } from "@/components/main-area-tabs"
 import {
   ChangeDiff,
+  changeTotals,
   DIFF_CSS,
   LineCounts,
   PanelNote,
@@ -42,6 +45,12 @@ import {
 // A code session's tabs above the main area, Linear-style: Chat first, then
 // the files and diffs opened from the panel's Files and Changes lists.
 // Read-only.
+
+const TAB_ICONS: Record<SessionTab["kind"], IconSvgElement> = {
+  file: File01Icon,
+  diff: FileDiffIcon,
+  changes: GitCompareIcon,
+}
 
 export function SessionTabBar({ tabs }: { tabs: SessionTabs }) {
   const { ids, preview, active, select, adopt, keep, close } = tabs
@@ -75,9 +84,13 @@ export function SessionTabBar({ tabs }: { tabs: SessionTabs }) {
           return (
             <TabButton
               key={id}
-              label={splitPath(tab.path).name}
-              title={tab.path}
-              icon={tab.kind === "diff" ? GitCompareIcon : File01Icon}
+              label={
+                tab.kind === "changes"
+                  ? "All changes"
+                  : splitPath(tab.path).name
+              }
+              title={tab.kind === "changes" ? undefined : tab.path}
+              icon={TAB_ICONS[tab.kind]}
               preview={preview === id}
               selected={active === id}
               onSelect={() => select(id)}
@@ -183,14 +196,16 @@ export function SessionTabView({
   onOpen: SessionTabs["open"]
 }) {
   const changes = useSessionChanges(sessionId)
+  if (tab.kind === "changes") return <AllChangesTab sessionId={sessionId} />
+
   const ready = changes.data?.state === "ready" ? changes.data : null
   const file = ready?.files.find((changed) => changed.path === tab.path) ?? null
+  const title = <PathTitle path={tab.path} file={file} />
 
   if (tab.kind === "file") {
     return (
       <TabPage
-        path={tab.path}
-        file={file}
+        title={title}
         actions={
           file && (
             <Button
@@ -220,8 +235,7 @@ export function SessionTabView({
     )
   return (
     <TabPage
-      path={tab.path}
-      file={file}
+      title={title}
       actions={
         file &&
         ready && (
@@ -237,57 +251,210 @@ export function SessionTabView({
         )
       }
     >
-      {changes.isPending ? (
-        <PanelNote>
-          <Spinner className="size-4" />
-        </PanelNote>
-      ) : changes.isError ? (
-        <PanelNote>Couldn't load the changes.</PanelNote>
-      ) : changes.data.state === "gone" ? (
-        <PanelNote>The sandbox no longer exists.</PanelNote>
-      ) : file ? (
-        <ChangeDiff
-          sessionId={sessionId}
-          file={file}
-          version={changes.dataUpdatedAt}
-        />
-      ) : (
-        <PanelNote>
-          This file has no changes now.
-          {openFile}
-        </PanelNote>
-      )}
+      {changesNote(changes) ??
+        (file ? (
+          <ChangeDiff
+            sessionId={sessionId}
+            file={file}
+            version={changes.dataUpdatedAt}
+          />
+        ) : (
+          <PanelNote>
+            This file has no changes now.
+            {openFile}
+          </PanelNote>
+        ))}
     </TabPage>
   )
 }
 
-function TabPage({
-  path,
+// Loading, failed, or the sandbox is gone: the note shown instead.
+function changesNote(changes: ReturnType<typeof useSessionChanges>) {
+  if (changes.isPending) {
+    return (
+      <PanelNote>
+        <Spinner className="size-4" />
+      </PanelNote>
+    )
+  }
+  if (changes.isError) return <PanelNote>Couldn't load the changes.</PanelNote>
+  if (changes.data.state === "gone") {
+    return <PanelNote>The sandbox no longer exists.</PanelNote>
+  }
+  return null
+}
+
+// Every changed file's diff, one card each, like a pull request's files.
+function AllChangesTab({ sessionId }: { sessionId: string }) {
+  const changes = useSessionChanges(sessionId)
+  const ready = changes.data?.state === "ready" ? changes.data : null
+  const files = ready?.files ?? []
+  const totals = changeTotals(files)
+
+  const body =
+    changesNote(changes) ??
+    (ready && files.length > 0 ? (
+      <div className="flex flex-col gap-3 p-4">
+        {files.map((file) => (
+          <ChangeSection
+            key={file.path}
+            sessionId={sessionId}
+            file={file}
+            version={changes.dataUpdatedAt}
+            locked={ready.lorWorking}
+          />
+        ))}
+        {ready.truncated && (
+          <p className="text-muted-foreground text-xs">
+            Showing the first 1,000 files.
+          </p>
+        )}
+      </div>
+    ) : (
+      <PanelNote>
+        No changes yet. Lor's edits show up here as it works.
+      </PanelNote>
+    ))
+
+  return (
+    <TabPage
+      title={<span className="font-medium">All changes</span>}
+      actions={
+        files.length > 0 && (
+          <>
+            <span className="text-muted-foreground">
+              {files.length} {files.length === 1 ? "file" : "files"}
+            </span>
+            <LineCounts {...totals} />
+          </>
+        )
+      }
+    >
+      {body}
+    </TabPage>
+  )
+}
+
+function ChangeSection({
+  sessionId,
   file,
+  version,
+  locked,
+}: {
+  sessionId: string
+  file: ChangedFile
+  version: number
+  locked: boolean
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+  // overflow-clip, not hidden: the header stays sticky while scrolling.
+  return (
+    <section className="overflow-clip rounded-lg border border-border/70 bg-card">
+      <div
+        className={cn(
+          "sticky top-0 z-10 flex h-9 items-center gap-2 bg-card pr-3 text-[13px]",
+          !collapsed && "border-border/70 border-b"
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          aria-expanded={!collapsed}
+          className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-2.5 text-left"
+        >
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              collapsed && "-rotate-90"
+            )}
+            strokeWidth={2}
+          />
+          <PathTitle path={file.path} file={file} />
+        </button>
+        <LineCounts additions={file.additions} deletions={file.deletions} />
+        <TabStageCheckbox sessionId={sessionId} file={file} locked={locked} />
+      </div>
+      {!collapsed && (
+        <LazyDiff sessionId={sessionId} file={file} version={version} />
+      )}
+    </section>
+  )
+}
+
+// A diff loads once it scrolls near the view, so a long list doesn't read
+// every file from the sandbox at once.
+function LazyDiff({
+  sessionId,
+  file,
+  version,
+}: {
+  sessionId: string
+  file: ChangedFile
+  version: number
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [near, setNear] = useState(false)
+  useEffect(() => {
+    const element = ref.current
+    if (near || !element) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setNear(true)
+      },
+      { root: element.closest("[data-tab-scroll]"), rootMargin: "600px 0px" }
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [near])
+
+  return (
+    <div ref={ref} className="flex min-h-12 flex-col">
+      {near && (
+        <ChangeDiff
+          sessionId={sessionId}
+          file={file}
+          version={version}
+          framed={false}
+        />
+      )}
+    </div>
+  )
+}
+
+function PathTitle({ path, file }: { path: string; file: ChangedFile | null }) {
+  const { name, folder } = splitPath(path)
+  return (
+    <>
+      {file && <StatusMark status={file.status} />}
+      <span className="min-w-0 truncate">
+        {folder && <span className="text-muted-foreground">{folder}/</span>}
+        <span className="font-medium">{name}</span>
+      </span>
+    </>
+  )
+}
+
+function TabPage({
+  title,
   actions,
   children,
 }: {
-  path: string
-  file: ChangedFile | null
+  title: ReactNode
   actions: ReactNode
   children: ReactNode
 }) {
-  const { name, folder } = splitPath(path)
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex h-10 shrink-0 items-center gap-2 border-border/70 border-b px-4 text-[13px]">
-        {file && <StatusMark status={file.status} />}
-        <span className="min-w-0 truncate">
-          {folder && <span className="text-muted-foreground">{folder}/</span>}
-          <span className="font-medium">{name}</span>
-        </span>
+        {title}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {actions}
         </div>
       </div>
       {/* Not a flex column itself: the clipped code card would shrink to
           fit instead of scrolling. */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div data-tab-scroll="" className="min-h-0 flex-1 overflow-auto">
         <div className="flex min-h-full flex-col">{children}</div>
       </div>
     </div>
