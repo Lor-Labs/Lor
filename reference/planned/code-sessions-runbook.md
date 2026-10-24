@@ -299,7 +299,71 @@ may lag web), a Lor-offered "Continue in Code" card.
     Squash merges need the PR-merge link (graph work, from GitHub's PR
     events).
 - [ ] **6. Rewind and native fork** (Pi first): files and harness state at
-  turn N; fork into a new session; the UI for both.
+  turn N; fork into a new session; the UI for both. Decided with Jacob
+  2026-10-24:
+  - Both act on Lor's replies. **Fork from here:** a new session from that
+    turn; the original does not change. **Rewind to here:** the session
+    itself goes back to that turn, for everyone in it. Anyone who can write
+    in the channel can do both. Chat sessions too, for the conversation
+    only: their sandbox files are not rewound or carried into a fork.
+  - Rewind in a code session puts back the full state of that turn: files,
+    branch and commits. What was pushed stays on GitHub; the next push asks
+    to pull first.
+  - After a rewind, the later turns stay in the transcript, collapsed under
+    a row ("Jacob rewound to here · 6 messages · Show"), and Lor no longer
+    sees them. A collapsed Lor reply can still be forked, so nothing is
+    lost. Not hidden: in a shared session everyone sees who rewound and
+    what was undone.
+  - A fork's heading says "Forked from X" (like "Continued from X"), and its
+    Context section links to the parent at the fork point. Its transcript
+    starts empty; Lor has the whole conversation natively.
+  - **Later, if forks feel empty** (option A): show the parent's messages up
+    to the fork point at the top of the fork, read-only and dimmed under the
+    "Forked from X" header. The same messages, not copies. The transcript
+    must then load and page another session's messages, with actions on
+    them turned off or sent to the parent.
+
+  Plan (Pi 1.3.0 source read 2026-10-24):
+  - **Where a turn ends.** A Lor reply → its run → the last entry of the
+    run's last `harness_log` chunk. Its files: the `session_checkpoint` row
+    with that run (6a also writes a row for an unchanged turn, copying the
+    previous one, so every code turn has one). A turn paused for an
+    approval is not a fork point. After a Pi format conversion, older turns
+    can't be found (one chunk then holds the whole log).
+  - **Fork:** a new session in the same channel, created at once with the
+    same mode, repo and base branch. Its title is "X (fork)", then
+    "X (fork 2)" and so on, until Lor's first reply names it (Jacob: parallel
+    forks need telling apart). Only the person who forks follows it. Its Pi log
+    is Pi's own branched session (`SessionManager.createBranchedSession`:
+    the path to that entry under a new header). A code session gets a
+    `session/<forkId>` branch at the turn's checkpoint (a ref, no copy) and
+    a checkpoint row copying the turn's, so its first turn restores it. A
+    `session_forked` event row goes into the parent. Forking while Lor works
+    in the parent is fine: it reads saved state only.
+  - **Rewind:** refused while Lor works or waits on an approval. Pi's log
+    gets one `label` entry under that turn's entry: what Pi's own tree
+    navigation writes when it makes no summary (strict rewind), and Pi
+    takes the last entry as its position. The turn's checkpoint replaces
+    the work folder (under the checkpoint lock, built aside and moved in),
+    then a checkpoint of the result with the branch tip and that turn's
+    HEAD as parents, so the branch still only fast-forwards. The next
+    turn's prompt starts after the rewind.
+  - **Parts:** 6a fork on the server; 6b fork in the web; 6c rewind on the
+    server; 6d rewind in the web (collapsed turns).
+  - [x] **6a** fork on the server, built 2026-10-24:
+    - `POST /sessions/{id}/fork` with the reply's message id
+      (`forkSession`, `@repo/lor/session-fork`). New: the
+      `agent_session.forked_from_message_id` column and the `session_forked`
+      event type (additive `db:push`). The harness log reader moved to
+      `@repo/lor/harness-store`, so the API can read it.
+    - Every code turn now has a checkpoint row; an unchanged turn copies
+      the previous one.
+    - The fork's harness state has no last run. So its first turn's prompt
+      is everything said in the fork, and a note tells Lor that the session
+      is a fork and where its work folder is now (the forked conversation
+      still names the old path).
+    - Not yet checked live: Code Storage's branch create with a commit SHA
+      as its base (the docs allow it).
 - [ ] **7. Claude Code** on the session contract: native state per turn,
   approvals and Lor's sandbox policy, sign-in, usage.
 - [ ] **8. Codex**, the same way.

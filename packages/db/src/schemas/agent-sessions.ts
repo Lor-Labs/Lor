@@ -69,6 +69,12 @@ export const agentSession = pgTable(
       (): AnyPgColumn => agentSession.id,
       { onDelete: "set null" }
     ),
+    // A fork: the Lor reply in the source session whose turn it starts from
+    // (code-sessions-runbook.md chunk 6).
+    forkedFromMessageId: uuid("forked_from_message_id").references(
+      () => message.id,
+      { onDelete: "set null" }
+    ),
     title: text("title").notNull(),
     // Set when a person renames the session; generated titles stop then.
     titleEditedAt: timestamp("title_edited_at"),

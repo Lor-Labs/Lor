@@ -98,6 +98,7 @@ export function useSessionStart(
       repoFullName: null,
       baseBranch: null,
       sourceSessionId: null,
+      forkedFromMessageId: null,
       title: start.title,
       titleEditedAt: null,
       loopId: null,

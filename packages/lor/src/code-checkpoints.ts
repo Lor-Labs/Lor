@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import { GitStorage, OP_NO_FORCE_PUSH, OP_NO_PUSH } from "@pierre/storage"
-import { db, desc, eq, inArray, schema, sql } from "@repo/db"
+import { and, db, desc, eq, inArray, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import type { CodeSandbox } from "./code-changes"
@@ -234,6 +234,13 @@ export async function writeCheckpoint(
       previous.headSha === state.head &&
       previous.upstreamSha === state.upstream
     ) {
+      // Every turn still gets its row, so fork and rewind find its files.
+      if (input.runId) {
+        const { id: _id, createdAt: _createdAt, ...same } = previous
+        await tx
+          .insert(schema.sessionCheckpoint)
+          .values({ ...same, runId: input.runId })
+      }
       return "unchanged"
     }
     // A chain continues only within one Code Storage repo.
@@ -295,6 +302,41 @@ export async function writeCheckpoint(
       upstreamSha: state.upstream,
     })
     return "written"
+  })
+}
+
+// The files a run's completed turn left: its own checkpoint row.
+export function turnCheckpoint(sessionId: string, runId: string) {
+  return db
+    .select()
+    .from(schema.sessionCheckpoint)
+    .where(
+      and(
+        eq(schema.sessionCheckpoint.sessionId, sessionId),
+        eq(schema.sessionCheckpoint.runId, runId)
+      )
+    )
+    .orderBy(desc(schema.sessionCheckpoint.createdAt))
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+}
+
+export type SessionCheckpointRow = NonNullable<
+  Awaited<ReturnType<typeof turnCheckpoint>>
+>
+
+// A fork's files: its own session branch at the turn's checkpoint (a ref, no
+// object copy). The caller copies the checkpoint row to the fork, so the
+// fork's first turn restores it and its next checkpoint fast-forwards it.
+export async function branchCheckpoint(
+  checkpoint: SessionCheckpointRow,
+  sessionId: string
+): Promise<void> {
+  const store = codeStorage()
+  if (!store) throw new Error("Code Storage is not configured")
+  await store.repo({ id: checkpoint.storageRepo }).createBranch({
+    baseRef: checkpoint.sha,
+    targetBranch: sessionBranch(sessionId),
   })
 }
 

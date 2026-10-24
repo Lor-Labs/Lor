@@ -189,7 +189,11 @@ import { generateSmallObject } from "./structured"
 import { chooseThreadWindow } from "./thread-window"
 import { guardTools } from "./tool-guard"
 import { itemsInText, sessionsTouching, withTouchHints } from "./touches"
-import { formatSpeakerLine, sanitizeRosterLabel } from "./transcript"
+import {
+  formatSpeakerLine,
+  sanitizeInlineLabel,
+  sanitizeRosterLabel,
+} from "./transcript"
 import {
   completeLoopTool,
   loopSessionPromptSection,
@@ -395,6 +399,18 @@ function extraTurnUsage(
 }
 // A dropped paused turn: Pi reads its calls as "No result provided", so the
 // model is told they never ran and why.
+// The fork's own work folder has a new path; the forked conversation still
+// names the old one.
+function forkNote(
+  forkedFrom: { sessionId: string; title: string },
+  workDirs: { now: string; before: string } | null
+): string {
+  const files = workDirs
+    ? ` Your work folder holds that turn's files at ${workDirs.now}; paths under ${workDirs.before} in the conversation above are the same files here.`
+    : ""
+  return `This session is a fork of "${sanitizeInlineLabel(forkedFrom.title)}", made at one of your replies there: the conversation above is that session's up to that reply. Work done there after it is not part of this session.${files}`
+}
+
 function droppedTurnNote(drop: PausedTurnDrop): string {
   return drop.reason === "stopped"
     ? `${drop.by} pressed Stop while your last turn waited for approval. The actions waiting for approval did not run, and that turn ended. Do not retry them unless someone asks again.`
@@ -529,6 +545,8 @@ export type RespondContext = {
   code?: RunCodeContext
   // "Continue in Code": names the session whose messages are the background.
   continuesSession?: { title: string }
+  // A fork's first turn: the session it was forked from.
+  forkedFrom?: { sessionId: string; title: string }
   // Binds propose_loop (the worker owns the card posting + draft loop row
   // insert). Never set on the run that answers a loop fire or an Act event —
   // automations must not schedule more loops.
@@ -2970,6 +2988,19 @@ export async function respond(
           })
         : null
       const notes = run.resume ? [RETRY_NOTE] : []
+      if (ctx.forkedFrom) {
+        notes.push(
+          forkNote(
+            ctx.forkedFrom,
+            workFolder?.status === "ready" && !workFolder.cloned
+              ? {
+                  now: piWorkDir(SESSION_WORK_DIR, conversationId),
+                  before: piWorkDir(SESSION_WORK_DIR, ctx.forkedFrom.sessionId),
+                }
+              : null
+          )
+        )
+      }
       if (harness.pausedDropped) {
         notes.push(droppedTurnNote(harness.pausedDropped))
       }

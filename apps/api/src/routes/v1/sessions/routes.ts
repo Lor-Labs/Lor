@@ -16,6 +16,8 @@ import {
   commitMessageResponseSchema,
   commitSessionChangesRequestSchema,
   commitSessionChangesResponseSchema,
+  forkAgentSessionRequestSchema,
+  forkAgentSessionResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
   pullSessionChangesResponseSchema,
@@ -243,6 +245,37 @@ export const pullSessionChanges = createRoute({
 })
 
 export type PullSessionChangesRoute = typeof pullSessionChanges
+
+export const forkAgentSession = createRoute({
+  path: "/sessions/{sessionId}/fork",
+  method: "post",
+  summary: "Fork a Lor session at one of Lor's replies",
+  description:
+    "Creates a session in the same channel that continues from that reply's turn: Lor's conversation up to it and, in a code session, that turn's files. The session itself is unchanged. Only the caller follows the fork.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: forkAgentSessionRequestSchema,
+      description: "The reply to fork at",
+    }),
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.CREATED]: jsonContent({
+      schema: forkAgentSessionResponseSchema,
+      description: "The new session",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ForkAgentSessionRoute = typeof forkAgentSession
 
 export const getRepoTree = createRoute({
   path: "/sessions/{sessionId}/repo/tree",

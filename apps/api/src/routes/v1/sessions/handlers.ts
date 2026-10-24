@@ -14,7 +14,9 @@ import {
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type {
+  AgentSession,
   SessionCommittedPayload,
+  SessionForkedPayload,
   SessionPushedPayload,
 } from "@repo/db/schema"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
@@ -38,6 +40,7 @@ import {
   restoreSessionFiles,
   writeCheckpoint,
 } from "@repo/lor/code-checkpoints"
+import { ForkRefusedError, forkSession } from "@repo/lor/session-fork"
 import { channelEventContent } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
@@ -53,6 +56,7 @@ import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
   CommitSessionChangesRoute,
+  ForkAgentSessionRoute,
   GenerateSessionCommitMessageRoute,
   GetAgentSessionRoute,
   GetRepoFileRoute,
@@ -401,6 +405,76 @@ export const updateAgentSession: AppRouteHandler<
     )
   notifyWorkspaceActivity(session.workspaceId)
   return c.json({ session: realtimeSession }, HttpStatusCodes.OK)
+}
+
+// A new session from one of Lor's replies (code-sessions-runbook.md chunk 6);
+// this one is unchanged. Anyone who can write in the channel.
+export const forkAgentSession: AppRouteHandler<ForkAgentSessionRoute> = async (
+  c
+) => {
+  const user = c.var.user
+  const { sessionId } = c.req.valid("param")
+  const { messageId } = c.req.valid("json")
+
+  const source = await db
+    .select()
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.id, sessionId))
+    .limit(1)
+    .then((rows) => rows[0])
+  const access = source
+    ? await resolveChannelAccess(user.id, source.channelId)
+    : null
+  if (!source || !access?.ok) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!access.access.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+
+  let fork: AgentSession
+  try {
+    fork = await forkSession({ source, messageId, userId: user.id })
+  } catch (err) {
+    if (!(err instanceof ForkRefusedError)) throw err
+    return c.json(
+      { success: false as const, message: err.message },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const realtimeSession = toRealtimeAgentSession(fork)
+  void getEmitter()
+    .then((io) =>
+      io
+        .to(channelRoom(fork.channelId))
+        .emit("session:updated", { session: realtimeSession })
+    )
+    .catch((err) =>
+      logger.warn({ err, sessionId: fork.id }, "Fork broadcast failed")
+    )
+  const author = eventAuthor(user)
+  void postSessionEvent(
+    source,
+    author,
+    {
+      eventType: "session_forked",
+      eventPayload: { sessionId: fork.id, fromMessageId: messageId },
+    },
+    channelEventContent({
+      eventType: "session_forked",
+      actorName: author.name,
+      fromMessageId: messageId,
+      threadRootId: fork.threadRootId,
+    })
+  ).catch((err) => logger.error({ err, sessionId }, "Fork event failed"))
+  return c.json({ session: realtimeSession }, HttpStatusCodes.CREATED)
 }
 
 // ── Code session Changes panel ─────────────────────────
@@ -910,13 +984,15 @@ const eventAuthor = (user: {
   image?: string | null
 }): EventAuthor => ({ id: user.id, name: user.name, image: user.image ?? null })
 
-// A commit or push as a line in the session, for its people and for Lor there.
+// A commit, push or fork as a line in the session, for its people and for
+// Lor there.
 async function postSessionEvent(
-  session: CodeSession,
+  session: Pick<AgentSession, "channelId" | "threadRootId" | "workspaceId">,
   author: EventAuthor,
   event:
     | { eventType: "session_committed"; eventPayload: SessionCommittedPayload }
-    | { eventType: "session_pushed"; eventPayload: SessionPushedPayload },
+    | { eventType: "session_pushed"; eventPayload: SessionPushedPayload }
+    | { eventType: "session_forked"; eventPayload: SessionForkedPayload },
   content: string
 ) {
   const [row] = await db

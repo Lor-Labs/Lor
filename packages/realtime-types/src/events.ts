@@ -268,6 +268,7 @@ export type RealtimeChannelEventType =
   | "session_continued"
   | "session_committed"
   | "session_pushed"
+  | "session_forked"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -296,6 +297,7 @@ export type RealtimeChannelEventPayload =
       commitCount: number
       headSha: string
     }
+  | { sessionId: string; fromMessageId: string }
   | null
 
 export type RealtimeAuthor = {
@@ -968,6 +970,7 @@ export type RealtimeAgentSession = {
   repoFullName: string | null
   baseBranch: string | null
   sourceSessionId: string | null
+  forkedFromMessageId: string | null
   title: string
   titleEditedAt: string | null
   loopId: string | null

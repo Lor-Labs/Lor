@@ -54,6 +54,14 @@ export type ChannelEventContentInput =
       commitCount: number
       headSha: string
     }
+  | {
+      eventType: "session_forked"
+      actorName: string
+      // The reply it was forked at, and the new session's anchor (Lor reads
+      // it with read_thread).
+      fromMessageId: string
+      threadRootId: string
+    }
 
 export function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ""
@@ -96,5 +104,7 @@ export function channelEventContent(input: ChannelEventContentInput): string {
       return `${input.actorName} committed ${input.fileCount} ${input.fileCount === 1 ? "file" : "files"}${input.branch ? ` to ${input.branch}` : ""}: "${input.subject}" (${input.sha.slice(0, 7)})`
     case "session_pushed":
       return `${input.actorName} pushed ${input.commitCount} ${input.commitCount === 1 ? "commit" : "commits"} to ${input.branch} on ${input.repoFullName} (${input.headSha.slice(0, 7)})`
+    case "session_forked":
+      return `${input.actorName} forked this session at Lor's reply ${input.fromMessageId} into a new session (message ${input.threadRootId})`
   }
 }

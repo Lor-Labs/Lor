@@ -1,9 +1,8 @@
-import { createHash } from "node:crypto"
 import { and, asc, db, eq, inArray, schema, sql } from "@repo/db"
+import { loadHarnessState, ownerWhere } from "@repo/lor/harness-store"
 import {
   type HarnessOwner,
   type HarnessStateStore,
-  type SavedHarnessState,
   type SaveHarnessStateInput,
   SessionCoreError,
 } from "@repo/lor/session-core"
@@ -11,89 +10,12 @@ import { WORKER_ID } from "@/lib/worker-id"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
-function sha256(text: string): string {
-  return createHash("sha256").update(text, "utf8").digest("hex")
-}
-
-function ownerWhere(owner: HarnessOwner) {
-  return "sessionId" in owner
-    ? eq(schema.harnessState.sessionId, owner.sessionId)
-    : eq(schema.harnessState.voiceSessionId, owner.voiceSessionId)
-}
+export { loadHarnessState }
 
 function ownerColumns(owner: HarnessOwner) {
   return "sessionId" in owner
     ? { sessionId: owner.sessionId }
     : { voiceSessionId: owner.voiceSessionId }
-}
-
-// Rebuilds the harness log from its chunks and checks it against the saved
-// head. A gap, reorder or hash mismatch throws: the run fails visibly instead
-// of letting Pi start a blank conversation.
-export async function loadHarnessState(
-  owner: HarnessOwner,
-  workspaceId: string
-): Promise<(SavedHarnessState & { lastRunId: string | null }) | null> {
-  const row = await db
-    .select()
-    .from(schema.harnessState)
-    .where(
-      and(ownerWhere(owner), eq(schema.harnessState.workspaceId, workspaceId))
-    )
-    .then((r) => r[0])
-  if (!row) return null
-
-  const chunks = await db
-    .select({
-      seq: schema.harnessLog.seq,
-      byteOffset: schema.harnessLog.byteOffset,
-      content: schema.harnessLog.content,
-    })
-    .from(schema.harnessLog)
-    .where(eq(schema.harnessLog.harnessStateId, row.id))
-    .orderBy(asc(schema.harnessLog.seq))
-
-  let log = ""
-  let byteLength = 0
-  for (const [index, chunk] of chunks.entries()) {
-    if (chunk.seq !== index || chunk.byteOffset !== byteLength) {
-      throw new SessionCoreError(
-        "corrupt_state",
-        `Harness log chunk ${chunk.seq} of ${row.id} is out of order`
-      )
-    }
-    log += chunk.content
-    byteLength += Buffer.byteLength(chunk.content, "utf8")
-  }
-  if (
-    chunks.length !== row.chunkCount ||
-    byteLength !== row.byteLength ||
-    sha256(log) !== row.sha256
-  ) {
-    throw new SessionCoreError(
-      "corrupt_state",
-      `Harness log of ${row.id} does not match its saved head`
-    )
-  }
-
-  return {
-    binding: {
-      kind: row.kind,
-      adapterVersion: row.adapterVersion,
-      formatVersion: row.formatVersion,
-    },
-    head: {
-      harnessSessionId: row.harnessSessionId,
-      logFileName: row.logFileName,
-      entryCount: row.entryCount,
-      headEntryId: row.headEntryId,
-      byteLength: row.byteLength,
-      sha256: row.sha256,
-    },
-    log,
-    continuation: row.continuation ?? null,
-    lastRunId: row.lastRunId,
-  }
 }
 
 // The answer of a turn this run already saved, for an attempt retried after

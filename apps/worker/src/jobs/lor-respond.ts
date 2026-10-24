@@ -542,6 +542,8 @@ export function createLorRespondProcessor(
                     repoFullName: schema.agentSession.repoFullName,
                     baseBranch: schema.agentSession.baseBranch,
                     sourceSessionId: schema.agentSession.sourceSessionId,
+                    forkedFromMessageId:
+                      schema.agentSession.forkedFromMessageId,
                   })
                   .from(schema.agentSession)
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
@@ -565,6 +567,22 @@ export function createLorRespondProcessor(
               session.sourceSessionId && !harnessState
                 ? await db
                     .select({ title: schema.agentSession.title })
+                    .from(schema.agentSession)
+                    .where(eq(schema.agentSession.id, session.sourceSessionId))
+                    .then((rows) => rows[0])
+                : undefined
+            // A fork's first turn: its saved state is the source's, up to the
+            // fork point, and no run of its own has saved yet.
+            const forkedFrom =
+              session.forkedFromMessageId &&
+              session.sourceSessionId &&
+              harnessState &&
+              !harnessState.lastRunId
+                ? await db
+                    .select({
+                      sessionId: schema.agentSession.id,
+                      title: schema.agentSession.title,
+                    })
                     .from(schema.agentSession)
                     .where(eq(schema.agentSession.id, session.sourceSessionId))
                     .then((rows) => rows[0])
@@ -886,6 +904,7 @@ export function createLorRespondProcessor(
                 ...(automated ? {} : { proposeLoop, proposeChange }),
                 ...(triggerRun ? { trigger: triggerRun.context } : {}),
                 ...(continuesSession ? { continuesSession } : {}),
+                ...(forkedFrom ? { forkedFrom } : {}),
                 ...(session.repoFullName && session.baseBranch
                   ? {
                       code: {

@@ -1,0 +1,135 @@
+import { randomUUID } from "node:crypto"
+import { and, count, db, eq, isNotNull, schema } from "@repo/db"
+import type { AgentSession } from "@repo/db/schema"
+import { createSession } from "./agent-sessions"
+import { branchCheckpoint, turnCheckpoint } from "./code-checkpoints"
+import { loadHarnessState, turnEndEntryId } from "./harness-store"
+import { SESSION_WORK_DIR } from "./sandbox/session-sandbox"
+import { branchPiLog } from "./session-core/pi-branch"
+import { piWorkDir } from "./session-core/work-dir"
+
+// Fork: a new session from one of Lor's replies, on the same harness with its
+// native state (code-sessions-runbook.md chunk 6): Pi's log up to that turn
+// and, in a code session, that turn's files. The source session is unchanged,
+// and Lor may keep working there: only saved state is read.
+
+export class ForkRefusedError extends Error {}
+
+export async function forkSession(input: {
+  source: AgentSession
+  // The Lor reply whose turn the fork starts from.
+  messageId: string
+  userId: string
+}): Promise<AgentSession> {
+  const { source } = input
+  const [run] = await db
+    .select({
+      id: schema.agentRun.id,
+      state: schema.agentRun.state,
+      stopReason: schema.agentRun.stopReason,
+    })
+    .from(schema.agentRun)
+    .where(
+      and(
+        eq(schema.agentRun.messageId, input.messageId),
+        eq(schema.agentRun.threadRootId, source.threadRootId)
+      )
+    )
+    .limit(1)
+  if (!run) throw new ForkRefusedError("That isn't one of Lor's replies here")
+  if (["queued", "working", "finalizing"].includes(run.state)) {
+    throw new ForkRefusedError("Lor is still working on that reply")
+  }
+  if (run.stopReason === "awaiting_approval") {
+    throw new ForkRefusedError(
+      "That turn waited on an approval. Fork from a later reply"
+    )
+  }
+
+  const [saved, entryId] = await Promise.all([
+    loadHarnessState({ sessionId: source.id }, source.workspaceId),
+    turnEndEntryId(source.id, run.id),
+  ])
+  if (!saved || !entryId) {
+    throw new ForkRefusedError("That reply has no saved conversation to fork")
+  }
+  const code =
+    source.mode === "code" && source.repoFullName && source.baseBranch
+      ? { repoFullName: source.repoFullName, baseBranch: source.baseBranch }
+      : null
+  const checkpoint = code ? await turnCheckpoint(source.id, run.id) : null
+  if (code && !checkpoint) {
+    throw new ForkRefusedError(
+      "That turn's files weren't saved, so it can't be forked"
+    )
+  }
+
+  // "X (fork)", then "X (fork 2)"... until Lor's first reply in it names it.
+  const [earlier] = await db
+    .select({ forks: count() })
+    .from(schema.agentSession)
+    .where(
+      and(
+        eq(schema.agentSession.sourceSessionId, source.id),
+        isNotNull(schema.agentSession.forkedFromMessageId)
+      )
+    )
+  const forks = earlier?.forks ?? 0
+  const title = `${source.title} (fork${forks > 0 ? ` ${forks + 1}` : ""})`
+
+  const id = randomUUID()
+  const branched = await branchPiLog(
+    saved.log,
+    entryId,
+    piWorkDir(SESSION_WORK_DIR, id)
+  )
+  // Before the rows: a failed transaction leaves only a branch, which the
+  // daily checkpoint sweep deletes.
+  if (checkpoint) await branchCheckpoint(checkpoint, id)
+
+  return db.transaction(async (tx) => {
+    const session = await createSession(tx, {
+      id,
+      workspaceId: source.workspaceId,
+      channelId: source.channelId,
+      authorId: input.userId,
+      creatorId: input.userId,
+      origin: "new",
+      ...(code ? { code } : {}),
+      sourceSessionId: source.id,
+      forkedFromMessageId: input.messageId,
+      title,
+      subscriberIds: [input.userId],
+    })
+    // No last run: the first turn's prompt is everything said in the fork.
+    const [state] = await tx
+      .insert(schema.harnessState)
+      .values({
+        workspaceId: source.workspaceId,
+        sessionId: id,
+        kind: saved.binding.kind,
+        adapterVersion: saved.binding.adapterVersion,
+        formatVersion: branched.formatVersion,
+        ...branched.head,
+        chunkCount: 1,
+        continuation: null,
+        lastRunId: null,
+      })
+      .returning({ id: schema.harnessState.id })
+    if (!state) throw new Error("Fork harness state insert returned no row")
+    await tx.insert(schema.harnessLog).values({
+      harnessStateId: state.id,
+      seq: 0,
+      byteOffset: 0,
+      content: branched.log,
+      runId: null,
+    })
+    if (checkpoint) {
+      const { id: _id, createdAt: _createdAt, ...files } = checkpoint
+      await tx
+        .insert(schema.sessionCheckpoint)
+        .values({ ...files, sessionId: id, runId: null })
+    }
+    return session
+  })
+}

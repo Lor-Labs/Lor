@@ -22,6 +22,7 @@ export const agentSessionSchema = z
     repoFullName: z.string().nullable(),
     baseBranch: z.string().nullable(),
     sourceSessionId: z.string().uuid().nullable(),
+    forkedFromMessageId: z.string().uuid().nullable(),
     title: z.string(),
     titleEditedAt: z.string().nullable(),
     loopId: z.string().uuid().nullable(),
@@ -99,8 +100,18 @@ export const getAgentSessionResponseSchema = z.object({
   session: agentSessionSchema,
   channel: z.object({ id: z.string().uuid(), name: z.string().nullable() }),
   context: z.array(sessionContextMessageSchema),
-  // "Continue in Code": the session this one continues. Same channel.
+  // "Continue in Code" or a fork: the session this one comes from. Same
+  // channel.
   source: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
+})
+
+export const forkAgentSessionRequestSchema = z.object({
+  // The Lor reply whose turn the fork starts from.
+  messageId: z.string().uuid(),
+})
+
+export const forkAgentSessionResponseSchema = z.object({
+  session: agentSessionSchema,
 })
 
 // ── Code session Changes panel ─────────────────────────

@@ -89,16 +89,19 @@ async function loadDelta(args: {
 }) {
   // Queue rows cover guaranteed steers. The saved context IDs cover the
   // messages the predecessors' requests rendered.
-  const consumed = await db
-    .select({ messageId: schema.agentRunQueue.messageId })
-    .from(schema.agentRunQueue)
-    .where(
-      and(
-        inArray(schema.agentRunQueue.runId, args.predecessorRunIds),
-        eq(schema.agentRunQueue.state, "consumed"),
-        isNotNull(schema.agentRunQueue.consumedAtStep)
-      )
-    )
+  const consumed =
+    args.predecessorRunIds.length === 0
+      ? []
+      : await db
+          .select({ messageId: schema.agentRunQueue.messageId })
+          .from(schema.agentRunQueue)
+          .where(
+            and(
+              inArray(schema.agentRunQueue.runId, args.predecessorRunIds),
+              eq(schema.agentRunQueue.state, "consumed"),
+              isNotNull(schema.agentRunQueue.consumedAtStep)
+            )
+          )
   const alreadyCovered = new Set([
     ...args.covered,
     ...consumed.map((c) => c.messageId),
@@ -253,6 +256,24 @@ export async function buildTurnDelta(args: {
   channelId: string
   lorMessageId: string
 }): Promise<TurnDelta> {
+  // A fork's first turn: Pi's saved state ends at the fork point and no run
+  // of this session saved yet, so the prompt is everything said here.
+  if (!args.predecessorRunId) {
+    const delta = await loadDelta({
+      predecessorRunIds: [],
+      since: new Date(0),
+      covered: [],
+      triggerMessageId: args.triggerMessageId,
+      scopeKey: args.scopeKey,
+      channelId: args.channelId,
+      lorMessageId: args.lorMessageId,
+    })
+    return {
+      text: formatDelta(delta.turns, undefined, delta.omitted) ?? NOTHING_NEW,
+      turns: delta.turns,
+      coveredMessageIds: delta.coveredMessageIds,
+    }
+  }
   const predecessor = await loadPredecessorRun(args.predecessorRunId)
   // A run that only finished a paused turn sent no prompt: what was said
   // while that turn waited still dates from the paused run, so the bound and

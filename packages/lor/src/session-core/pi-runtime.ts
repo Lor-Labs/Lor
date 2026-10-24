@@ -44,6 +44,7 @@ import {
   type SaveHarnessStateInput,
   SessionCoreError,
 } from "./harness-state"
+import { headOf } from "./pi-branch"
 
 // One Pi turn through Vercel's adapter: restore the saved log into the
 // sandbox, run the turn, and return what to save. The caller saves inside its
@@ -417,22 +418,6 @@ function lorPiExtension(input: {
         ctx.abort()
       }
     })
-  }
-}
-
-function headOf(text: string, logFileName: string): HarnessHead | null {
-  const lines = text.split("\n").filter((line) => line.trim() !== "")
-  if (lines.length < 2) return null
-  const header = JSON.parse(lines[0] ?? "") as { id?: unknown }
-  const last = JSON.parse(lines[lines.length - 1] ?? "") as { id?: unknown }
-  if (typeof header.id !== "string" || typeof last.id !== "string") return null
-  return {
-    harnessSessionId: header.id,
-    logFileName,
-    entryCount: lines.length - 1,
-    headEntryId: last.id,
-    byteLength: Buffer.byteLength(text, "utf8"),
-    sha256: sha256(text),
   }
 }
 
