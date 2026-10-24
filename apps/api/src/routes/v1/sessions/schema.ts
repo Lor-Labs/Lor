@@ -103,6 +103,77 @@ export const getAgentSessionResponseSchema = z.object({
   source: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
 })
 
+// ── Code session Changes panel ─────────────────────────
+
+const changedFileSchema = z.object({
+  path: z.string(),
+  oldPath: z.string().nullable(),
+  status: z.enum([
+    "modified",
+    "added",
+    "deleted",
+    "renamed",
+    "typechange",
+    "conflicted",
+    "untracked",
+  ]),
+  staged: z.boolean(),
+  unstaged: z.boolean(),
+})
+
+export const sessionChangesResponseSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("ready"),
+    repoFullName: z.string(),
+    baseBranch: z.string(),
+    branch: z.string().nullable(),
+    // Staging waits while Lor works in the session.
+    lorWorking: z.boolean(),
+    // Commits made in the sandbox since the base, newest first.
+    commits: z.array(z.object({ sha: z.string(), subject: z.string() })),
+    files: z.array(changedFileSchema),
+    truncated: z.boolean(),
+  }),
+  // The sandbox or its repository folder no longer exists.
+  z.object({ state: z.literal("gone") }),
+])
+
+const pathSchema = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine((path) => !path.includes("\0"), "Invalid path")
+
+export const sessionChangeDiffQuerySchema = z.object({
+  path: pathSchema,
+  oldPath: pathSchema.optional(),
+  staged: z.enum(["true", "false"]),
+  untracked: z.enum(["true", "false"]).optional(),
+})
+
+export const sessionChangeDiffResponseSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("patch"), patch: z.string() }),
+  z.object({ kind: z.literal("binary") }),
+  z.object({ kind: z.literal("too_large") }),
+  z.object({ kind: z.literal("gone") }),
+])
+
+export const stageSessionChangesRequestSchema = z
+  .object({
+    // Omitted with all: true.
+    paths: z.array(pathSchema).min(1).max(1_000).optional(),
+    all: z.boolean().optional(),
+    staged: z.boolean(),
+  })
+  .refine((body) => Boolean(body.paths) !== Boolean(body.all), {
+    message: "Pass paths or all, not both",
+  })
+
+export const commitMessageResponseSchema = z.object({
+  // Null when nothing is staged or the model failed.
+  message: z.string().nullable(),
+})
+
 export const sessionFilesResponseSchema = z.object({
   // Lor's files, most recently updated first.
   outputs: z.array(

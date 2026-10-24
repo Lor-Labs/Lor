@@ -215,6 +215,27 @@ export async function openSessionSandbox(
   }
 }
 
+// People's actions on a session's files (the Changes panel) use the sandbox
+// as it is: never create one, and never stop a run's commands. Null when it
+// is gone.
+export async function attachSessionSandbox(
+  owner: HarnessOwner
+): Promise<SessionSandbox | null> {
+  if (!blaxelConfigured()) return null
+  const existing = await SandboxInstance.get(sessionSandboxName(owner)).catch(
+    (err: unknown) => {
+      if (isNotFound(err)) return null
+      throw err
+    }
+  )
+  if (!existing) return null
+  return {
+    session: blaxelSandboxSession(existing),
+    fresh: false,
+    close: () => closeConnection(existing),
+  }
+}
+
 // The conversation's files go with it; Pi's saved state and shared files
 // live in Postgres and R2. A sandbox that is already gone counts as deleted.
 export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {

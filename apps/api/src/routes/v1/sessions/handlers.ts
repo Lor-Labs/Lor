@@ -1,3 +1,4 @@
+import { recordUsage } from "@repo/billing"
 import {
   and,
   asc,
@@ -13,6 +14,15 @@ import {
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
+import {
+  attachCodeSandbox,
+  type CodeSandbox,
+  CodeSandboxMissingError,
+  generateCommitMessage,
+  readChanges,
+  readFileDiff,
+  stagePaths,
+} from "@repo/lor/code-changes"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -23,9 +33,13 @@ import type { AppRouteHandler } from "@/lib/types/app-types"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
+  GenerateSessionCommitMessageRoute,
   GetAgentSessionRoute,
+  GetSessionChangeDiffRoute,
+  GetSessionChangesRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
+  StageSessionChangesRoute,
   UpdateAgentSessionRoute,
 } from "@/routes/v1/sessions/routes"
 
@@ -363,4 +377,166 @@ export const updateAgentSession: AppRouteHandler<
     )
   notifyWorkspaceActivity(session.workspaceId)
   return c.json({ session: realtimeSession }, HttpStatusCodes.OK)
+}
+
+// ── Code session Changes panel ─────────────────────────
+
+const LOR_ACTIVE_RUN_STATES = ["queued", "working", "finalizing"] as const
+
+// A code session the caller can see. Null otherwise, like findAccessibleSession.
+async function findCodeSession(sessionId: string, userId: string) {
+  const session = (await findAccessibleSession(sessionId, userId))?.session
+  if (
+    !session ||
+    session.mode !== "code" ||
+    !session.repoFullName ||
+    !session.baseBranch
+  ) {
+    return null
+  }
+  return {
+    ...session,
+    repoFullName: session.repoFullName,
+    baseBranch: session.baseBranch,
+  }
+}
+
+type CodeSession = NonNullable<Awaited<ReturnType<typeof findCodeSession>>>
+
+async function lorWorkingIn(threadRootId: string): Promise<boolean> {
+  const [run] = await db
+    .select({ id: schema.agentRun.id })
+    .from(schema.agentRun)
+    .where(
+      and(
+        eq(schema.agentRun.threadRootId, threadRootId),
+        inArray(schema.agentRun.state, [...LOR_ACTIVE_RUN_STATES])
+      )
+    )
+    .limit(1)
+  return Boolean(run)
+}
+
+// "gone" when the sandbox or its repository folder no longer exists.
+async function withCodeSandbox<T>(
+  sessionId: string,
+  use: (sandbox: CodeSandbox) => Promise<T>
+): Promise<T | "gone"> {
+  const sandbox = await attachCodeSandbox(sessionId)
+  if (!sandbox) return "gone"
+  try {
+    return await use(sandbox)
+  } catch (err) {
+    if (err instanceof CodeSandboxMissingError) return "gone"
+    throw err
+  } finally {
+    sandbox.close()
+  }
+}
+
+async function changesBody(session: CodeSession, sandbox: CodeSandbox) {
+  const [changes, lorWorking] = await Promise.all([
+    readChanges(sandbox, session.baseBranch),
+    lorWorkingIn(session.threadRootId),
+  ])
+  return {
+    state: "ready" as const,
+    repoFullName: session.repoFullName,
+    baseBranch: session.baseBranch,
+    lorWorking,
+    ...changes,
+  }
+}
+
+const codeSessionNotFound = {
+  success: false as const,
+  message: "Code session not found",
+}
+
+export const getSessionChanges: AppRouteHandler<
+  GetSessionChangesRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const session = await findCodeSession(sessionId, c.var.user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const body = await withCodeSandbox(sessionId, (sandbox) =>
+    changesBody(session, sandbox)
+  )
+  return c.json(
+    body === "gone" ? { state: "gone" as const } : body,
+    HttpStatusCodes.OK
+  )
+}
+
+export const getSessionChangeDiff: AppRouteHandler<
+  GetSessionChangeDiffRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const query = c.req.valid("query")
+  const session = await findCodeSession(sessionId, c.var.user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const diff = await withCodeSandbox(sessionId, (sandbox) =>
+    readFileDiff(
+      sandbox,
+      {
+        path: query.path,
+        oldPath: query.oldPath ?? null,
+        staged: query.staged === "true",
+      },
+      query.untracked === "true"
+    )
+  )
+  return c.json(
+    diff === "gone" ? { kind: "gone" as const } : diff,
+    HttpStatusCodes.OK
+  )
+}
+
+export const stageSessionChanges: AppRouteHandler<
+  StageSessionChangesRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+  const session = await findCodeSession(sessionId, c.var.user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  // Lor's own edits and git would race a person's staging.
+  if (await lorWorkingIn(session.threadRootId)) {
+    return c.json(
+      {
+        success: false as const,
+        message: "Lor is working in this session. Try again when it finishes.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  const result = await withCodeSandbox(sessionId, async (sandbox) => {
+    await stagePaths(sandbox, {
+      paths: body.all ? "all" : (body.paths ?? []),
+      staged: body.staged,
+    })
+    return changesBody(session, sandbox)
+  })
+  return c.json(
+    result === "gone" ? { state: "gone" as const } : result,
+    HttpStatusCodes.OK
+  )
+}
+
+export const generateSessionCommitMessage: AppRouteHandler<
+  GenerateSessionCommitMessageRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const session = await findCodeSession(sessionId, c.var.user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const message = await withCodeSandbox(sessionId, (sandbox) =>
+    generateCommitMessage(
+      sandbox,
+      { workspaceId: session.workspaceId, sessionTitle: session.title },
+      (usage) => void recordUsage(usage, { channelId: session.channelId })
+    )
+  )
+  return c.json(
+    { message: message === "gone" ? null : message },
+    HttpStatusCodes.OK
+  )
 }

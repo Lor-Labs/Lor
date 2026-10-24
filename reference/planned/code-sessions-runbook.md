@@ -82,6 +82,22 @@ may lag web), a Lor-offered "Continue in Code" card.
 - [ ] **5. Checkpoints** on the chosen Git host: a snapshot of the work folder
   after every completed turn, joined to the saved harness head; a lost
   sandbox rebuilt from the last checkpoint instead of continuing empty.
+  Decided with Jacob 2026-10-23:
+  - **The files on a box are the source of truth.** Every read and write
+    of a session's files (Lor's turns, the Changes panel, later the file
+    tree and editor) uses a live sandbox, never a read-only checkpoint
+    view.
+  - **One "ensure the box" function:** attach the live sandbox, or create
+    one and restore the last checkpoint onto it. The worker's turn start
+    and the panel routes share it; the worker adds its command fence on
+    top. A lock lets only one restore run; other callers wait for it.
+  - **Restore on demand:** opening the Changes panel (later the file tree),
+    or sending a message. Only reading the transcript never restores. The
+    panel shows "Restoring the session's files…" until it finishes.
+  - **Standby stays:** idle sandboxes keep the 7-day standby, so sessions
+    in regular use open at once.
+  - Staging is not in a checkpoint: after a restore every change is
+    unstaged.
 - [ ] **6. Rewind and native fork** (Pi first): files and harness state at
   turn N; fork into a new session; the UI for both.
 - [ ] **7. Claude Code** on the session contract: native state per turn,

@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
+  conflictSchema,
   forbiddenSchema,
   internalServerErrorSchema,
   notFoundSchema,
@@ -11,10 +12,15 @@ import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
+  commitMessageResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  sessionChangeDiffQuerySchema,
+  sessionChangeDiffResponseSchema,
+  sessionChangesResponseSchema,
   sessionFilesResponseSchema,
   sessionParamsSchema,
+  stageSessionChangesRequestSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
 } from "@/routes/v1/sessions/schema"
@@ -68,6 +74,109 @@ export const listSessionFiles = createRoute({
 })
 
 export type ListSessionFilesRoute = typeof listSessionFiles
+
+export const getSessionChanges = createRoute({
+  path: "/sessions/{sessionId}/changes",
+  method: "get",
+  summary: "List a code session's changes",
+  description:
+    "The files changed in the session's repository against its base branch, staged or not, and commits made since the base. Reads the session's sandbox.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionChangesResponseSchema,
+      description: "Changes, or that the sandbox is gone",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetSessionChangesRoute = typeof getSessionChanges
+
+export const getSessionChangeDiff = createRoute({
+  path: "/sessions/{sessionId}/changes/diff",
+  method: "get",
+  summary: "Get one changed file's diff",
+  description:
+    "The unified diff of one file in a code session, staged or unstaged. Large and binary files are reported, not returned.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    query: sessionChangeDiffQuerySchema,
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionChangeDiffResponseSchema,
+      description: "The file's diff",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetSessionChangeDiffRoute = typeof getSessionChangeDiff
+
+export const stageSessionChanges = createRoute({
+  path: "/sessions/{sessionId}/changes/stage",
+  method: "post",
+  summary: "Stage or unstage a code session's files",
+  description:
+    "Anyone in the session can stage. Refused while Lor works in the session. Returns the changes after staging.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: stageSessionChangesRequestSchema,
+      description: "Paths (or all) and whether to stage them",
+    }),
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionChangesResponseSchema,
+      description: "Changes after staging",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type StageSessionChangesRoute = typeof stageSessionChanges
+
+export const generateSessionCommitMessage = createRoute({
+  path: "/sessions/{sessionId}/changes/message",
+  method: "post",
+  summary: "Write a commit message for the staged changes",
+  description:
+    "The small model writes a commit message from the staged diff. Billed like session titles.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: commitMessageResponseSchema,
+      description: "The suggested message",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GenerateSessionCommitMessageRoute =
+  typeof generateSessionCommitMessage
 
 export const listChannelSessions = createRoute({
   path: "/channels/{channelId}/sessions",
