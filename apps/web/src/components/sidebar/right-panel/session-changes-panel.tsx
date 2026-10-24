@@ -1,5 +1,6 @@
 import {
   ArrowDown01Icon,
+  ArrowDown02Icon,
   GitBranchIcon,
   RefreshIcon,
   SparklesIcon,
@@ -38,6 +39,7 @@ import {
   useChangeDiff,
   useCommitChanges,
   useCommitMessage,
+  usePullChanges,
   usePushChanges,
   useSessionChanges,
   useStageChanges,
@@ -270,6 +272,12 @@ function ChangesView({
           Lor is working. Staging waits until it finishes.
         </p>
       )}
+      {changes.merging && (
+        <p className="shrink-0 border-border/70 border-b bg-warning/5 px-3 py-2 text-warning text-xs">
+          The pulled commits conflict with this session's. Fix the conflicted
+          files (Lor can), stage them, then commit to finish the merge.
+        </p>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {changes.files.length === 0 ? (
           <p className="px-3 py-8 text-center text-muted-foreground text-sm">
@@ -427,7 +435,9 @@ export function StageCheckbox({
     <Checkbox
       checked={state === "all"}
       indeterminate={state === "some"}
-      disabled={locked || file.status === "conflicted"}
+      // Staging a conflicted file marks it fixed (git add), which a pull's
+      // merge needs before Commit.
+      disabled={locked}
       onCheckedChange={() => onToggle(state !== "all")}
       aria-label={`${state === "all" ? "Unstage" : "Stage"} ${file.path}`}
     />
@@ -581,6 +591,7 @@ function CommitBox({
   const generate = useCommitMessage(sessionId)
   const commit = useCommitChanges(sessionId)
   const push = usePushChanges(sessionId)
+  const pull = usePullChanges(sessionId)
   const accounts = usePersonalAccounts()
   const connect = useConnectGithubAccount()
   // Undefined while loading; null when the person hasn't linked GitHub.
@@ -626,6 +637,36 @@ function CommitBox({
         )}
         {unpushed > 0 && (
           <span className="shrink-0">· {unpushed} unpushed</span>
+        )}
+        {account && changes.branch && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Pull from GitHub"
+                  disabled={
+                    pull.isPending || changes.lorWorking || changes.merging
+                  }
+                  onClick={() => pull.mutate()}
+                  className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+                />
+              }
+            >
+              {pull.isPending ? (
+                <Spinner className="size-3" />
+              ) : (
+                <HugeiconsIcon
+                  icon={ArrowDown02Icon}
+                  className="size-3.5"
+                  strokeWidth={2}
+                />
+              )}
+            </TooltipTrigger>
+            <TooltipContent>
+              Pull new commits on {changes.branch} from GitHub
+            </TooltipContent>
+          </Tooltip>
         )}
         <Tooltip>
           <TooltipTrigger

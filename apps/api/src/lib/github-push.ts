@@ -13,7 +13,8 @@ import { GITHUB_API, GITHUB_HEADERS } from "@/lib/github-account"
 
 export type PushResult =
   | { ok: true; headSha: string }
-  | { ok: false; detail: string }
+  // behind: GitHub's branch has commits the session doesn't; pull first.
+  | { ok: false; detail: string; behind?: true }
 
 class GithubError extends Error {
   constructor(
@@ -61,6 +62,8 @@ export async function pushCommits(input: {
   token: string
   repoFullName: string
   branch: string
+  // The commit the sandbox last saw on GitHub's branch.
+  upstreamSha: string
   commits: LocalCommit[]
   sandbox: CodeSandbox
 }): Promise<PushResult> {
@@ -81,10 +84,11 @@ export async function pushCommits(input: {
     })
     // An earlier push landed but the sandbox didn't record it.
     if (remote?.object.sha === last.sha) return { ok: true, headSha: last.sha }
-    if (remote && remote.object.sha !== first.parent) {
+    if (remote && remote.object.sha !== input.upstreamSha) {
       return {
         ok: false,
-        detail: `${branch} has new commits on GitHub. Pulling them into the session isn't supported yet`,
+        behind: true,
+        detail: `${branch} has new commits on GitHub. Pull them in first`,
       }
     }
 
@@ -130,7 +134,7 @@ export async function pushCommits(input: {
         {
           message: commit.message,
           tree: commit.tree,
-          parents: [commit.parent],
+          parents: commit.parents,
           author: commit.author,
           committer: commit.committer,
         }
@@ -161,9 +165,44 @@ export async function pushCommits(input: {
     if (err.status === 422 && /fast.forward/i.test(err.message)) {
       return {
         ok: false,
-        detail: `${branch} changed on GitHub while pushing. Nothing was overwritten`,
+        behind: true,
+        detail: `${branch} changed on GitHub while pushing. Pull the new commits in first`,
       }
     }
     return { ok: false, detail: `GitHub refused the push: ${err.message}` }
+  }
+}
+
+// After a push, like Zed's "Create Pull Request": the branch's open pull
+// request, or GitHub's page for a new one. Null on the default branch, which
+// has nothing to merge into. Best-effort.
+export async function pullRequestLink(input: {
+  token: string
+  repoFullName: string
+  branch: string
+}): Promise<{ url: string; open: boolean } | null> {
+  const repo = `/repos/${input.repoFullName}`
+  const owner = input.repoFullName.split("/")[0]
+  try {
+    const info = await github<{ default_branch: string }>(
+      input.token,
+      "GET",
+      repo
+    )
+    if (info.default_branch === input.branch) return null
+    const head = encodeURIComponent(`${owner}:${input.branch}`)
+    const [existing] = await github<{ html_url: string }[]>(
+      input.token,
+      "GET",
+      `${repo}/pulls?state=open&head=${head}&per_page=1`
+    )
+    if (existing) return { url: existing.html_url, open: true }
+    const branchPath = input.branch.split("/").map(encodeURIComponent).join("/")
+    return {
+      url: `https://github.com/${input.repoFullName}/pull/new/${branchPath}`,
+      open: false,
+    }
+  } catch {
+    return null
   }
 }

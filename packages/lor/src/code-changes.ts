@@ -2,8 +2,10 @@ import { shellQuote } from "@ai-sdk/harness/utils"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { generateText, Output } from "ai"
 import { z } from "zod"
+import { activeGithubInstallation } from "./github"
 import { logger } from "./logger"
 import { lorSmallModel, smallGatewayOptions } from "./models"
+import { getInstallationToken } from "./providers/github"
 import {
   attachSessionSandbox,
   SESSION_WORK_DIR,
@@ -44,6 +46,8 @@ export type CodeChanges = {
   commits: { sha: string; subject: string }[]
   files: ChangedFile[]
   truncated: boolean
+  // A pull's merge is waiting for its conflicts to be fixed and committed.
+  merging: boolean
 }
 
 export type FileDiff =
@@ -61,13 +65,15 @@ const SIGPIPE_EXIT = 141
 const LOG_MARKER = "__LOR_LOG__"
 const STAT_MARKER = "__LOR_STAT__"
 const NEW_MARKER = "__LOR_NEW__"
+const MERGE_MARKER = "__LOR_MERGE__"
 // Untracked files are counted one by one, so only the first ones are.
 const MAX_COUNTED_NEW_FILES = 300
 const GIT = "git --no-optional-locks --literal-pathspecs"
 
 export type CodeSandbox = {
   run(
-    command: string
+    command: string,
+    options?: { env?: Record<string, string> }
   ): Promise<{ exitCode: number; stdout: string; stderr: string }>
   close(): void
 }
@@ -81,9 +87,10 @@ export async function attachCodeSandbox(
   const workDir = piWorkDir(SESSION_WORK_DIR, sessionId)
   const session: SandboxSession = sandbox.session
   return {
-    run: async (command) => {
+    run: async (command, options) => {
       const result = await session.run({
         command: `cd ${shellQuote(workDir)} 2>/dev/null || exit ${NOT_A_CLONE}\n${command}`,
+        ...(options?.env ? { env: options.env } : {}),
       })
       if (result.exitCode === NOT_A_CLONE) throw new CodeSandboxMissingError()
       return result
@@ -195,6 +202,8 @@ export async function readChanges(
       `${GIT} diff HEAD --numstat -z --find-renames --no-color 2>/dev/null || true`,
       `printf '\\0${NEW_MARKER}\\0'`,
       countNewFiles,
+      `printf '\\0${MERGE_MARKER}\\0'`,
+      `[ -f "$(git rev-parse --git-path MERGE_HEAD)" ] && printf 1 || true`,
     ].join("\n")
   )
   if (result.exitCode !== 0) {
@@ -204,7 +213,10 @@ export async function readChanges(
     `\0${LOG_MARKER}\0`
   )
   const [log = "", afterLog = ""] = afterStatus.split(`\0${STAT_MARKER}\0`)
-  const [tracked = "", untracked = ""] = afterLog.split(`\0${NEW_MARKER}\0`)
+  const [tracked = "", afterTracked = ""] = afterLog.split(`\0${NEW_MARKER}\0`)
+  const [untracked = "", merging = ""] = afterTracked.split(
+    `\0${MERGE_MARKER}\0`
+  )
   const counts = new Map([...parseNumstat(tracked), ...parseNumstat(untracked)])
   const parsed = parseStatus(status)
   for (const file of parsed.files) {
@@ -222,6 +234,7 @@ export async function readChanges(
     commits,
     files: parsed.files.slice(0, MAX_FILES),
     truncated: parsed.files.length > MAX_FILES,
+    merging: merging.trim() === "1",
   }
 }
 
@@ -406,8 +419,9 @@ export type TreeChange = {
 export type LocalCommit = {
   sha: string
   tree: string
-  parent: string
-  // The parent's tree: the base this commit's changes apply to.
+  // Two for a pull's merge commit.
+  parents: string[]
+  // The first parent's tree: the base this commit's changes apply to.
   parentTree: string
   author: GitPerson
   committer: GitPerson
@@ -417,7 +431,13 @@ export type LocalCommit = {
 }
 
 export type UnpushedCommits =
-  | { ok: true; branch: string; commits: LocalCommit[] }
+  | {
+      ok: true
+      branch: string
+      // What the commits build on: GitHub's branch must still point here.
+      upstreamSha: string
+      commits: LocalCommit[]
+    }
   | { ok: false; detail: string }
 
 const MAX_PUSH_COMMITS = 50
@@ -467,18 +487,16 @@ function parseCommit(
   if (values.has("gpgsig")) return `Commit ${short} is signed`
   if (values.has("encoding")) return `Commit ${short} isn't UTF-8`
   const parents = values.get("parent") ?? []
-  if (parents.length !== 1) return `Commit ${short} is a merge commit`
   const tree = values.get("tree")?.[0]
   const author = parsePerson(values.get("author")?.[0] ?? "")
   const committer = parsePerson(values.get("committer")?.[0] ?? "")
-  const parent = parents[0]
-  if (!(tree && parent && author && committer)) {
+  if (!(tree && parents.length > 0 && author && committer)) {
     return `Commit ${short} couldn't be read`
   }
   return {
     sha,
     tree,
-    parent,
+    parents,
     parentTree,
     author,
     committer,
@@ -500,11 +518,12 @@ export async function readUnpushedCommits(
       `branch=$(git symbolic-ref --short -q HEAD) || exit ${DETACHED}`,
       `up="refs/remotes/origin/$branch"`,
       `git rev-parse -q --verify "$up" >/dev/null || up=${base}`,
-      `printf '%s\\0' "$branch"`,
-      `for c in $(git rev-list --reverse "$up"..HEAD | head -n ${MAX_PUSH_COMMITS + 1}); do`,
+      `printf '%s\\0%s\\0' "$branch" "$(git rev-parse "$up")"`,
+      // Parents before children; changes against the first parent.
+      `for c in $(git rev-list --topo-order --reverse "$up"..HEAD | head -n ${MAX_PUSH_COMMITS + 1}); do`,
       `  printf '${COMMIT_MARKER}%s\\0%s\\0' "$c" "$(git rev-parse "$c^^{tree}" 2>/dev/null)"`,
       `  git cat-file commit "$c"; printf '\\0'`,
-      `  git diff-tree -r -z --no-commit-id --no-renames "$c"; printf '\\0'`,
+      `  git diff-tree -r -z --no-renames "$c^" "$c"; printf '\\0'`,
       "done",
     ].join("\n")
   )
@@ -516,8 +535,9 @@ export async function readUnpushedCommits(
   }
   const tokens = result.stdout.split("\0")
   const branch = tokens[0] ?? ""
+  const upstreamSha = tokens[1] ?? ""
   const commits: LocalCommit[] = []
-  let i = 1
+  let i = 2
   while (i < tokens.length) {
     const head = tokens[i] ?? ""
     if (!head.startsWith(COMMIT_MARKER)) {
@@ -561,7 +581,7 @@ export async function readUnpushedCommits(
       detail: `More than ${MAX_PUSH_COMMITS} commits to push at once`,
     }
   }
-  return { ok: true, branch, commits }
+  return { ok: true, branch, upstreamSha, commits }
 }
 
 // Base64 contents of the blobs a push uploads, read in batches so one
@@ -622,6 +642,103 @@ export async function markPushed(
   )
   if (result.exitCode !== 0) {
     throw new Error(`git update-ref failed: ${result.stderr.slice(0, 300)}`)
+  }
+}
+
+const MERGE_IN_PROGRESS = 13
+const FETCH_FAILED = 14
+const MERGE_REFUSED = 15
+
+export type PullResult =
+  | { ok: true; outcome: "up_to_date" | "merged"; commitCount: number }
+  | {
+      ok: true
+      outcome: "conflicts"
+      commitCount: number
+      conflicts: string[]
+    }
+  | { ok: false; detail: string }
+
+// Brings the branch's new commits on GitHub into the session. The fetch uses
+// a read-only token for this one repo, in one command's env, like the clone
+// (code-session.ts); nothing that can write leaves the server. The merge
+// runs as the person. A conflict leaves the merge in progress: the files
+// show as conflicts, Lor can fix them, and Commit finishes the merge.
+export async function pullBranch(
+  sandbox: CodeSandbox,
+  input: {
+    workspaceId: string
+    repoFullName: string
+    name: string
+    email: string
+  }
+): Promise<PullResult> {
+  const repoName = input.repoFullName.split("/")[1]
+  const installationId = await activeGithubInstallation(input.workspaceId)
+  const token =
+    installationId && repoName
+      ? await getInstallationToken(installationId, {
+          repositories: [repoName],
+          permissions: { contents: "read" },
+        }).catch(() => null)
+      : null
+  if (!token) return { ok: false, detail: "Couldn't authenticate with GitHub" }
+  const q = shellQuote
+  const remote = `"refs/remotes/origin/$branch"`
+  const result = await sandbox.run(
+    [
+      `branch=$(git symbolic-ref --short -q HEAD) || exit ${DETACHED}`,
+      `[ -f "$(git rev-parse --git-path MERGE_HEAD)" ] && exit ${MERGE_IN_PROGRESS}`,
+      `git fetch --quiet "https://x-access-token:$GIT_TOKEN@github.com/${input.repoFullName}.git" "+refs/heads/$branch:refs/remotes/origin/$branch" || exit ${FETCH_FAILED}`,
+      `count=$(git rev-list --count HEAD..${remote})`,
+      `printf '%s\\0' "$count"`,
+      `[ "$count" -gt 0 ] || exit 0`,
+      `if TZ=UTC git -c user.name=${q(input.name)} -c user.email=${q(input.email)} merge --no-edit --quiet ${remote} >/dev/null; then printf 'merged\\0'`,
+      `elif [ -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then printf 'conflicts\\0'; git diff --name-only --diff-filter=U -z`,
+      `else exit ${MERGE_REFUSED}; fi`,
+    ].join("\n"),
+    { env: { GIT_TOKEN: token } }
+  )
+  const stderr = result.stderr.split(token).join("***").trim().slice(-500)
+  switch (result.exitCode) {
+    case 0:
+      break
+    case DETACHED:
+      return { ok: false, detail: "The session isn't on a branch" }
+    case MERGE_IN_PROGRESS:
+      return {
+        ok: false,
+        detail: "A pull is waiting on conflicts. Fix them and commit first",
+      }
+    case FETCH_FAILED:
+      // A branch that isn't on GitHub yet has nothing to pull.
+      return /couldn't find remote ref/i.test(stderr)
+        ? { ok: true, outcome: "up_to_date", commitCount: 0 }
+        : { ok: false, detail: `git fetch failed: ${stderr}` }
+    case MERGE_REFUSED:
+      return {
+        ok: false,
+        detail: /would be overwritten/i.test(stderr)
+          ? `Pulling would overwrite changes that aren't committed. Commit them first. ${stderr}`
+          : `Couldn't merge the new commits: ${stderr}`,
+      }
+    default:
+      return { ok: false, detail: `git pull failed: ${stderr}` }
+  }
+  const [count = "0", outcome = "", ...rest] = result.stdout.split("\0")
+  const commitCount = Number(count)
+  if (outcome === "conflicts") {
+    return {
+      ok: true,
+      outcome: "conflicts",
+      commitCount,
+      conflicts: rest.filter(Boolean),
+    }
+  }
+  return {
+    ok: true,
+    outcome: commitCount > 0 ? "merged" : "up_to_date",
+    commitCount,
   }
 }
 

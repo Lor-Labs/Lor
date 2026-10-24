@@ -18,6 +18,7 @@ import {
   commitSessionChangesResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  pullSessionChangesResponseSchema,
   pushSessionChangesResponseSchema,
   repoFileQuerySchema,
   repoFileResponseSchema,
@@ -210,11 +211,38 @@ export const pushSessionChanges = createRoute({
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    // GitHub's branch has commits the session doesn't: pull first.
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
   },
 })
 
 export type PushSessionChangesRoute = typeof pushSessionChanges
+
+export const pullSessionChanges = createRoute({
+  path: "/sessions/{sessionId}/changes/pull",
+  method: "post",
+  summary: "Pull a code session's branch from GitHub",
+  description:
+    "Fetches the branch's new commits with a read-only token and merges them as the caller. Conflicts leave the merge in progress for the session to fix and commit. Refused while Lor works in the session.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: pullSessionChangesResponseSchema,
+      description: "What was pulled and the changes after it",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type PullSessionChangesRoute = typeof pullSessionChanges
 
 export const getRepoTree = createRoute({
   path: "/sessions/{sessionId}/repo/tree",

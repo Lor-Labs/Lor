@@ -151,13 +151,24 @@ may lag web), a Lor-offered "Continue in Code" card.
     - Commits are made with `TZ=UTC` so their dates replay byte-for-byte.
       Not yet checked live: that GitHub stores the message and dates
       exactly as sent. A mismatch fails the push cleanly.
-    - Refused: merge or signed commits, more than 50 commits, files over
-      50 MB, and a branch with new commits on GitHub (no pull yet).
+    - Refused: signed commits, more than 50 commits, files over 50 MB.
     - A `session_pushed` event row (new enum value, additive `db:push`).
-  - [ ] **4d** Create PR as the person (only when the session's branch
-    isn't the repo's default branch), with its event row.
-  - [ ] Later: pull new commits from GitHub into the session (a read-only
-    installation token for one `git fetch`, like the clone).
+  - [x] **4d** Pull and the pull request offer (Jacob 2026-10-24: refusing
+    a push for good was a breaking bug; offer a PR like Zed's toast).
+    Built 2026-10-24:
+    - Pull (`pullBranch`, `POST …/changes/pull`; waits for Lor like
+      staging): a read-only installation token in one `git fetch`'s env,
+      like the clone, then `git merge` as the person (fast-forward when
+      possible). Conflicts leave the merge in progress: a note in the
+      panel, conflicted files stageable (staging marks them fixed), and
+      Commit makes the merge commit. Push replays merge commits (changes
+      against the first parent) and checks GitHub's branch still points
+      where the sandbox last saw it.
+    - A push refused because GitHub moved on returns 409; its toast offers
+      "Pull and push". A Pull button sits by the branch name.
+    - After a push, the toast offers "Create pull request" (GitHub's
+      `/pull/new/<branch>` page) or "View pull request" when one is open.
+      None on the repo's default branch.
 
 ## Stage 2 — before charging
 

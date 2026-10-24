@@ -831,11 +831,13 @@ export interface ServerToClientEvents {
   // A run in this thread became terminal (complete, failed, stopped). Thread
   // room; sent after the run row is updated, unlike message:stream's done.
   "run:settled": (payload: { threadRootId: string }) => void
-  // Someone staged or unstaged a code session's files. Thread room; ids only.
+  // Someone staged, committed, pushed or pulled in a code session. Thread
+  // room; ids only. filesChanged: a pull changed the files too.
   "session:changes:updated": (payload: {
     sessionId: string
     threadRootId: string
     byUserId: string
+    filesChanged?: boolean
   }) => void
   // A run parked on an approval gate. Channel room; ids only — the
   // durable card data comes from the channel approvals query this invalidates.

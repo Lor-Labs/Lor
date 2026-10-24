@@ -25,6 +25,7 @@ import {
   commitStaged,
   generateCommitMessage,
   markPushed,
+  pullBranch,
   readChanges,
   readFileDiff,
   readRepoFile,
@@ -37,7 +38,7 @@ import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
 import { githubAccountToken } from "@/lib/github-account"
-import { pushCommits } from "@/lib/github-push"
+import { pullRequestLink, pushCommits } from "@/lib/github-push"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
@@ -55,6 +56,7 @@ import type {
   GetSessionChangesRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
+  PullSessionChangesRoute,
   PushSessionChangesRoute,
   StageSessionChangesRoute,
   UpdateAgentSessionRoute,
@@ -537,18 +539,42 @@ export const stageSessionChanges: AppRouteHandler<
 }
 
 // Everyone else with the session open refetches its changes.
-function broadcastChangesUpdated(session: CodeSession, byUserId: string) {
+function broadcastChangesUpdated(
+  session: CodeSession,
+  byUserId: string,
+  options?: { filesChanged: boolean }
+) {
   void getEmitter()
     .then((io) =>
       io.to(threadRoom(session.threadRootId)).emit("session:changes:updated", {
         sessionId: session.id,
         threadRootId: session.threadRootId,
         byUserId,
+        ...(options?.filesChanged ? { filesChanged: true } : {}),
       })
     )
     .catch((err) =>
       logger.warn({ err, sessionId: session.id }, "Changes broadcast failed")
     )
+}
+
+function linkedGithubAccount(userId: string) {
+  return db
+    .select({
+      externalId: schema.personalAccount.externalId,
+      login: schema.personalAccount.login,
+      name: schema.personalAccount.name,
+      email: schema.personalAccount.email,
+    })
+    .from(schema.personalAccount)
+    .where(
+      and(
+        eq(schema.personalAccount.userId, userId),
+        eq(schema.personalAccount.provider, "github")
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
 }
 
 // Commits show as the person on GitHub through their email; the noreply
@@ -589,22 +615,7 @@ export const commitSessionChanges: AppRouteHandler<
       HttpStatusCodes.CONFLICT
     )
   }
-  const account = await db
-    .select({
-      externalId: schema.personalAccount.externalId,
-      login: schema.personalAccount.login,
-      name: schema.personalAccount.name,
-      email: schema.personalAccount.email,
-    })
-    .from(schema.personalAccount)
-    .where(
-      and(
-        eq(schema.personalAccount.userId, user.id),
-        eq(schema.personalAccount.provider, "github")
-      )
-    )
-    .limit(1)
-    .then((rows) => rows[0])
+  const account = await linkedGithubAccount(user.id)
   if (!account) return refuse("Link your GitHub account to commit as yourself")
 
   const result = await withCodeSandbox(sessionId, async (sandbox) => {
@@ -675,17 +686,22 @@ export const pushSessionChanges: AppRouteHandler<
 
   const result = await withCodeSandbox(sessionId, async (sandbox) => {
     const unpushed = await readUnpushedCommits(sandbox, session.baseBranch)
-    const failed = (error: string) => ({ ok: false as const, error })
+    const failed = (error: string, behind = false) => ({
+      ok: false as const,
+      error,
+      behind,
+    })
     if (!unpushed.ok) return failed(unpushed.detail)
     if (unpushed.commits.length === 0) return failed("Nothing to push")
     const pushed = await pushCommits({
       token: account.token,
       repoFullName: session.repoFullName,
       branch: unpushed.branch,
+      upstreamSha: unpushed.upstreamSha,
       commits: unpushed.commits,
       sandbox,
     })
-    if (!pushed.ok) return failed(pushed.detail)
+    if (!pushed.ok) return failed(pushed.detail, pushed.behind)
     await markPushed(sandbox, unpushed.branch, pushed.headSha)
     return {
       ok: true as const,
@@ -700,8 +716,21 @@ export const pushSessionChanges: AppRouteHandler<
   if (result === "gone") {
     return refuse("This session's sandbox no longer exists")
   }
-  if (!result.ok) return refuse(result.error)
+  if (!result.ok) {
+    // The client offers to pull, then push again.
+    return result.behind
+      ? c.json(
+          { success: false as const, message: result.error },
+          HttpStatusCodes.CONFLICT
+        )
+      : refuse(result.error)
+  }
 
+  const pullRequest = await pullRequestLink({
+    token: account.token,
+    repoFullName: session.repoFullName,
+    branch: result.pushed.branch,
+  })
   broadcastChangesUpdated(session, user.id)
   const author = eventAuthor(user)
   const eventPayload = {
@@ -720,7 +749,63 @@ export const pushSessionChanges: AppRouteHandler<
     })
   ).catch((err) => logger.error({ err, sessionId }, "Push event failed"))
   return c.json(
-    { pushed: result.pushed, changes: result.changes },
+    { pushed: result.pushed, pullRequest, changes: result.changes },
+    HttpStatusCodes.OK
+  )
+}
+
+// Changes files, so it waits for Lor like staging does.
+export const pullSessionChanges: AppRouteHandler<
+  PullSessionChangesRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const user = c.var.user
+  const session = await findCodeSession(sessionId, user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const refuse = (text: string) =>
+    c.json(
+      { success: false as const, message: text },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  if (await lorWorkingIn(session.threadRootId)) {
+    return c.json(
+      {
+        success: false as const,
+        message: "Lor is working in this session. Try again when it finishes.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  // A merge commit is made as the person, like Commit.
+  const account = await linkedGithubAccount(user.id)
+  if (!account) return refuse("Link your GitHub account to pull as yourself")
+
+  const result = await withCodeSandbox(sessionId, async (sandbox) => {
+    const pulled = await pullBranch(sandbox, {
+      workspaceId: session.workspaceId,
+      repoFullName: session.repoFullName,
+      ...commitIdentity(account),
+    })
+    if (!pulled.ok) return pulled
+    return {
+      ok: true as const,
+      pulled: {
+        outcome: pulled.outcome,
+        commitCount: pulled.commitCount,
+        conflicts: pulled.outcome === "conflicts" ? pulled.conflicts : [],
+      },
+      changes: await changesBody(session, sandbox),
+    }
+  })
+  if (result === "gone") {
+    return refuse("This session's sandbox no longer exists")
+  }
+  if (!result.ok) return refuse(result.detail)
+  if (result.pulled.commitCount > 0) {
+    broadcastChangesUpdated(session, user.id, { filesChanged: true })
+  }
+  return c.json(
+    { pulled: result.pulled, changes: result.changes },
     HttpStatusCodes.OK
   )
 }

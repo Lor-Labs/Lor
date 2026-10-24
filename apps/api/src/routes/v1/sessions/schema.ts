@@ -136,6 +136,8 @@ export const sessionChangesResponseSchema = z.discriminatedUnion("state", [
     commits: z.array(z.object({ sha: z.string(), subject: z.string() })),
     files: z.array(changedFileSchema),
     truncated: z.boolean(),
+    // A pull's merge waits for its conflicts to be fixed and committed.
+    merging: z.boolean(),
   }),
   // The sandbox or its repository folder no longer exists.
   z.object({ state: z.literal("gone") }),
@@ -185,6 +187,18 @@ export const pushSessionChangesResponseSchema = z.object({
     branch: z.string(),
     commitCount: z.number(),
     headSha: z.string(),
+  }),
+  // The branch's open pull request, or GitHub's page for a new one; null on
+  // the repo's default branch.
+  pullRequest: z.object({ url: z.string(), open: z.boolean() }).nullable(),
+  changes: sessionChangesResponseSchema,
+})
+
+export const pullSessionChangesResponseSchema = z.object({
+  pulled: z.object({
+    outcome: z.enum(["up_to_date", "merged", "conflicts"]),
+    commitCount: z.number(),
+    conflicts: z.array(z.string()),
   }),
   changes: sessionChangesResponseSchema,
 })

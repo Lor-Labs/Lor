@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
+import { openInNewTab } from "@/lib/open-external"
 
 // A code session's Changes panel: git state read from the session's sandbox
 // (reference/planned/code-sessions-runbook.md, chunk 3).
@@ -90,9 +91,13 @@ export function useLiveSessionChanges(
     const onSettled = (payload: { threadRootId: string }) => {
       if (payload.threadRootId === threadRootId) refresh(0)
     }
-    const onStaged = (payload: { sessionId: string; byUserId: string }) => {
+    const onStaged = (payload: {
+      sessionId: string
+      byUserId: string
+      filesChanged?: boolean
+    }) => {
       if (payload.sessionId === sessionId && payload.byUserId !== userId) {
-        invalidate(false)
+        invalidate(Boolean(payload.filesChanged))
       }
     }
     socket.on("lor:tool", onTool)
@@ -231,12 +236,7 @@ export function useCommitChanges(sessionId: string) {
       const res = await apiClient.v1.sessions[
         ":sessionId"
       ].changes.commit.$post({ param: { sessionId }, json: { message } })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          message?: string
-        } | null
-        throw new Error(body?.message ?? "Couldn't commit")
-      }
+      if (!res.ok) throw new Error(await errorMessage(res, "Couldn't commit"))
       return res.json()
     },
     onSuccess: ({ changes }) =>
@@ -245,25 +245,101 @@ export function useCommitChanges(sessionId: string) {
   })
 }
 
+async function errorMessage(res: Response, fallback: string) {
+  const body = (await res.json().catch(() => null)) as {
+    message?: string
+  } | null
+  return body?.message ?? fallback
+}
+
+// GitHub's branch moved on: the toast offers to pull, then push again.
+class BehindError extends Error {}
+
 // Pushes the session's commits to the same branch on GitHub, as the person.
+// Like Zed, the toast then offers the branch's pull request.
 export function usePushChanges(sessionId: string) {
   const queryClient = useQueryClient()
-  return useMutation({
+  const pull = usePullChanges(sessionId)
+  const push = useMutation({
     mutationFn: async () => {
       const res = await apiClient.v1.sessions[":sessionId"].changes.push.$post({
         param: { sessionId },
       })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          message?: string
-        } | null
-        throw new Error(body?.message ?? "Couldn't push")
+      if (res.status === 409) {
+        throw new BehindError(await errorMessage(res, "Pull first"))
       }
+      if (!res.ok) throw new Error(await errorMessage(res, "Couldn't push"))
       return res.json()
     },
-    onSuccess: ({ pushed, changes }) => {
+    onSuccess: ({ pushed, pullRequest, changes }) => {
       queryClient.setQueryData(sessionChangesKey(sessionId), changes)
-      toast.success(`Pushed to ${pushed.branch}`)
+      toast.success(
+        `Pushed ${pushed.branch} to GitHub`,
+        pullRequest
+          ? {
+              action: {
+                label: pullRequest.open
+                  ? "View pull request"
+                  : "Create pull request",
+                onClick: () => openInNewTab(pullRequest.url),
+              },
+            }
+          : undefined
+      )
+    },
+    onError: (err) => {
+      if (!(err instanceof BehindError)) {
+        toast.error(err.message)
+        return
+      }
+      toast.error(err.message, {
+        action: {
+          label: "Pull and push",
+          onClick: () =>
+            pull.mutate(undefined, {
+              onSuccess: ({ pulled }) => {
+                if (pulled.outcome !== "conflicts") push.mutate()
+              },
+            }),
+        },
+      })
+    },
+  })
+  return push
+}
+
+// Brings GitHub's new commits into the session. Conflicts stay in the files
+// for the session (or Lor) to fix, then Commit finishes the merge.
+export function usePullChanges(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].changes.pull.$post({
+        param: { sessionId },
+      })
+      if (!res.ok) throw new Error(await errorMessage(res, "Couldn't pull"))
+      return res.json()
+    },
+    onSuccess: ({ pulled, changes }) => {
+      queryClient.setQueryData(sessionChangesKey(sessionId), changes)
+      if (pulled.commitCount > 0) {
+        void queryClient.invalidateQueries({ queryKey: repoTreeKey(sessionId) })
+        void queryClient.invalidateQueries({
+          queryKey: ["repo-file", sessionId],
+        })
+      }
+      const commits = `${pulled.commitCount} ${pulled.commitCount === 1 ? "commit" : "commits"}`
+      if (pulled.outcome === "conflicts") {
+        toast.error(
+          `Pulled ${commits} with conflicts in ${pulled.conflicts.length} ${pulled.conflicts.length === 1 ? "file" : "files"}. Fix them, stage them, then commit.`
+        )
+      } else {
+        toast.success(
+          pulled.outcome === "up_to_date"
+            ? "Already up to date"
+            : `Pulled ${commits}`
+        )
+      }
     },
     onError: (err) => toast.error(err.message),
   })
