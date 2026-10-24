@@ -1,13 +1,14 @@
+import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { encryptSecret } from "@repo/utils/crypto"
+import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 
 // A person's own GitHub account ("Your accounts"), authorized through the
 // GitHub App's user authorization (OAuth web flow). Its token acts as the
 // person, limited to repos the App is installed on
 // (reference/planned/code-sessions-runbook.md, chunk 4).
 
-const GITHUB_API = "https://api.github.com"
-const GITHUB_HEADERS = {
+export const GITHUB_API = "https://api.github.com"
+export const GITHUB_HEADERS = {
   Accept: "application/vnd.github+json",
   "X-GitHub-Api-Version": "2022-11-28",
   "User-Agent": "lor",
@@ -90,6 +91,71 @@ export function refreshGithubToken(refreshToken: string) {
   return requestToken({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
+  })
+}
+
+// Refresh a little early so a push never starts on a token about to expire.
+const REFRESH_MARGIN_MS = 5 * 60 * 1000
+
+export type GithubAccountToken =
+  | { status: "ok"; token: string; login: string }
+  | { status: "missing" }
+  // The refresh token expired or was revoked: the person links GitHub again.
+  | { status: "expired" }
+
+// The person's current access token, refreshed when it is about to expire.
+// The row lock lets one refresh run at a time: GitHub rotates the refresh
+// token on use, so a second, parallel refresh would fail.
+export async function githubAccountToken(
+  userId: string
+): Promise<GithubAccountToken> {
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!key) return { status: "missing" }
+  return db.transaction(async (tx) => {
+    const [account] = await tx
+      .select()
+      .from(schema.personalAccount)
+      .where(
+        and(
+          eq(schema.personalAccount.userId, userId),
+          eq(schema.personalAccount.provider, "github")
+        )
+      )
+      .limit(1)
+      .for("update")
+    if (!account) return { status: "missing" as const }
+    const now = Date.now()
+    if (
+      !account.accessTokenExpiresAt ||
+      account.accessTokenExpiresAt.getTime() > now + REFRESH_MARGIN_MS
+    ) {
+      return {
+        status: "ok" as const,
+        token: decryptSecret(account.accessToken, key),
+        login: account.login,
+      }
+    }
+    if (
+      !account.refreshToken ||
+      (account.refreshTokenExpiresAt &&
+        account.refreshTokenExpiresAt.getTime() <= now)
+    ) {
+      return { status: "expired" as const }
+    }
+    const refreshed = await refreshGithubToken(
+      decryptSecret(account.refreshToken, key)
+    ).catch(() => null)
+    if (!refreshed) return { status: "expired" as const }
+    const { plainAccessToken, ...tokens } = refreshed
+    await tx
+      .update(schema.personalAccount)
+      .set(tokens)
+      .where(eq(schema.personalAccount.id, account.id))
+    return {
+      status: "ok" as const,
+      token: plainAccessToken,
+      login: account.login,
+    }
   })
 }
 

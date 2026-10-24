@@ -180,6 +180,15 @@ export const commitSessionChangesResponseSchema = z.object({
   changes: sessionChangesResponseSchema,
 })
 
+export const pushSessionChangesResponseSchema = z.object({
+  pushed: z.object({
+    branch: z.string(),
+    commitCount: z.number(),
+    headSha: z.string(),
+  }),
+  changes: sessionChangesResponseSchema,
+})
+
 export const repoTreeResponseSchema = z.discriminatedUnion("state", [
   z.object({
     state: z.literal("ready"),

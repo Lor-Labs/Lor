@@ -245,6 +245,30 @@ export function useCommitChanges(sessionId: string) {
   })
 }
 
+// Pushes the session's commits to the same branch on GitHub, as the person.
+export function usePushChanges(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].changes.push.$post({
+        param: { sessionId },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't push")
+      }
+      return res.json()
+    },
+    onSuccess: ({ pushed, changes }) => {
+      queryClient.setQueryData(sessionChangesKey(sessionId), changes)
+      toast.success(`Pushed to ${pushed.branch}`)
+    },
+    onError: (err) => toast.error(err.message),
+  })
+}
+
 export function useCommitMessage(sessionId: string) {
   return useMutation({
     mutationFn: async () => {

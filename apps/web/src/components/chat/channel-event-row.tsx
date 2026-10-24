@@ -49,6 +49,12 @@ type SessionCommittedPayload = {
   branch: string | null
   fileCount: number
 }
+type SessionPushedPayload = {
+  repoFullName: string
+  branch: string
+  commitCount: number
+  headSha: string
+}
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -470,6 +476,25 @@ function eventText(
           ) : null}
           : {p.subject}{" "}
           <span className="font-mono text-xs">{p.sha.slice(0, 7)}</span>
+        </>
+      )
+    }
+    case "session_pushed": {
+      if (!payload) break
+      const p = payload as SessionPushedPayload
+      return (
+        <>
+          {actor} pushed {p.commitCount}{" "}
+          {p.commitCount === 1 ? "commit" : "commits"} to{" "}
+          <Name>{p.branch}</Name>{" "}
+          <a
+            href={`https://github.com/${p.repoFullName}/commit/${p.headSha}`}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(HOVER_NAME_CLASS, "font-mono text-xs")}
+          >
+            {p.headSha.slice(0, 7)}
+          </a>
         </>
       )
     }

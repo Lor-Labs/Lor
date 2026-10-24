@@ -38,6 +38,7 @@ import {
   useChangeDiff,
   useCommitChanges,
   useCommitMessage,
+  usePushChanges,
   useSessionChanges,
   useStageChanges,
 } from "@/hooks/use-session-changes"
@@ -579,6 +580,7 @@ function CommitBox({
   const [message, setMessage] = useState("")
   const generate = useCommitMessage(sessionId)
   const commit = useCommitChanges(sessionId)
+  const push = usePushChanges(sessionId)
   const accounts = usePersonalAccounts()
   const connect = useConnectGithubAccount()
   // Undefined while loading; null when the person hasn't linked GitHub.
@@ -694,6 +696,25 @@ function CommitBox({
             </TooltipTrigger>
             <TooltipContent>
               {blocked ?? (account ? `Commit as @${account.login} (⌘↵)` : "")}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {account && unpushed > 0 && changes.branch && (
+          <Tooltip>
+            <TooltipTrigger render={<span className="shrink-0" />}>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={push.isPending}
+                onClick={() => push.mutate()}
+              >
+                {push.isPending && <Spinner className="size-3" />}
+                Push
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Push {unpushed} {unpushed === 1 ? "commit" : "commits"} to{" "}
+              {changes.branch} as @{account.login}
             </TooltipContent>
           </Tooltip>
         )}

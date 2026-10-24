@@ -46,6 +46,14 @@ export type ChannelEventContentInput =
       branch: string | null
       fileCount: number
     }
+  | {
+      eventType: "session_pushed"
+      actorName: string
+      repoFullName: string
+      branch: string
+      commitCount: number
+      headSha: string
+    }
 
 export function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ""
@@ -86,5 +94,7 @@ export function channelEventContent(input: ChannelEventContentInput): string {
       return `${input.actorName} continued this session in a new code session${input.repoFullName ? ` on ${input.repoFullName}` : ""} (message ${input.threadRootId})`
     case "session_committed":
       return `${input.actorName} committed ${input.fileCount} ${input.fileCount === 1 ? "file" : "files"}${input.branch ? ` to ${input.branch}` : ""}: "${input.subject}" (${input.sha.slice(0, 7)})`
+    case "session_pushed":
+      return `${input.actorName} pushed ${input.commitCount} ${input.commitCount === 1 ? "commit" : "commits"} to ${input.branch} on ${input.repoFullName} (${input.headSha.slice(0, 7)})`
   }
 }

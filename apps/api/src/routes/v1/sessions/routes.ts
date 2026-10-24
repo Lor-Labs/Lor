@@ -18,6 +18,7 @@ import {
   commitSessionChangesResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  pushSessionChangesResponseSchema,
   repoFileQuerySchema,
   repoFileResponseSchema,
   repoTreeResponseSchema,
@@ -190,6 +191,30 @@ export const commitSessionChanges = createRoute({
 })
 
 export type CommitSessionChangesRoute = typeof commitSessionChanges
+
+export const pushSessionChanges = createRoute({
+  path: "/sessions/{sessionId}/changes/push",
+  method: "post",
+  summary: "Push a code session's commits to GitHub",
+  description:
+    "Pushes the session's unpushed commits to the same branch on GitHub as the caller's linked GitHub account. The server replays them through GitHub's API; no token enters the sandbox.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: pushSessionChangesResponseSchema,
+      description: "What was pushed and the changes after it",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type PushSessionChangesRoute = typeof pushSessionChanges
 
 export const getRepoTree = createRoute({
   path: "/sessions/{sessionId}/repo/tree",

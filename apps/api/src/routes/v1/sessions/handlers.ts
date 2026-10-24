@@ -13,24 +13,31 @@ import {
   sql,
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import type {
+  SessionCommittedPayload,
+  SessionPushedPayload,
+} from "@repo/db/schema"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import {
   attachCodeSandbox,
   type CodeSandbox,
   CodeSandboxMissingError,
-  type CommitResult,
   commitStaged,
   generateCommitMessage,
+  markPushed,
   readChanges,
   readFileDiff,
   readRepoFile,
   readRepoTree,
+  readUnpushedCommits,
   stagePaths,
 } from "@repo/lor/code-changes"
 import { channelEventContent } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
+import { githubAccountToken } from "@/lib/github-account"
+import { pushCommits } from "@/lib/github-push"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
@@ -48,6 +55,7 @@ import type {
   GetSessionChangesRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
+  PushSessionChangesRoute,
   StageSessionChangesRoute,
   UpdateAgentSessionRoute,
 } from "@/routes/v1/sessions/routes"
@@ -615,9 +623,24 @@ export const commitSessionChanges: AppRouteHandler<
 
   const { commit, changes } = result
   broadcastChangesUpdated(session, user.id)
-  void postCommitEvent(session, user.id, commit).catch((err) =>
-    logger.error({ err, sessionId }, "Commit event post failed")
-  )
+  const author = eventAuthor(user)
+  const eventPayload = {
+    sessionId,
+    sha: commit.sha,
+    subject: commit.subject,
+    branch: commit.branch,
+    fileCount: commit.fileCount,
+  }
+  void postSessionEvent(
+    session,
+    author,
+    { eventType: "session_committed", eventPayload },
+    channelEventContent({
+      eventType: "session_committed",
+      actorName: author.name,
+      ...eventPayload,
+    })
+  ).catch((err) => logger.error({ err, sessionId }, "Commit event failed"))
   return c.json(
     {
       commit: { sha: commit.sha, subject: commit.subject },
@@ -627,42 +650,105 @@ export const commitSessionChanges: AppRouteHandler<
   )
 }
 
-// The commit as a line in the session, for its people and for Lor there.
-async function postCommitEvent(
-  session: CodeSession,
-  actorId: string,
-  commit: Extract<CommitResult, { ok: true }>
-) {
-  const author = await db
-    .select({
-      id: schema.user.id,
-      name: schema.user.name,
-      image: schema.user.image,
-    })
-    .from(schema.user)
-    .where(eq(schema.user.id, actorId))
-    .then((rows) => rows[0])
-  if (!author) return
-  const eventPayload = {
-    sessionId: session.id,
-    sha: commit.sha,
-    subject: commit.subject,
-    branch: commit.branch,
-    fileCount: commit.fileCount,
+// Pushing doesn't touch the working tree, so it may run while Lor works.
+export const pushSessionChanges: AppRouteHandler<
+  PushSessionChangesRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const user = c.var.user
+  const session = await findCodeSession(sessionId, user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const refuse = (text: string) =>
+    c.json(
+      { success: false as const, message: text },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  const account = await githubAccountToken(user.id)
+  if (account.status === "missing") {
+    return refuse("Link your GitHub account to push as yourself")
   }
-  const content = channelEventContent({
-    eventType: "session_committed",
-    actorName: author.name,
-    ...eventPayload,
+  if (account.status === "expired") {
+    return refuse(
+      "Your GitHub link expired. Link it again in Settings → Linked accounts"
+    )
+  }
+
+  const result = await withCodeSandbox(sessionId, async (sandbox) => {
+    const unpushed = await readUnpushedCommits(sandbox, session.baseBranch)
+    const failed = (error: string) => ({ ok: false as const, error })
+    if (!unpushed.ok) return failed(unpushed.detail)
+    if (unpushed.commits.length === 0) return failed("Nothing to push")
+    const pushed = await pushCommits({
+      token: account.token,
+      repoFullName: session.repoFullName,
+      branch: unpushed.branch,
+      commits: unpushed.commits,
+      sandbox,
+    })
+    if (!pushed.ok) return failed(pushed.detail)
+    await markPushed(sandbox, unpushed.branch, pushed.headSha)
+    return {
+      ok: true as const,
+      pushed: {
+        branch: unpushed.branch,
+        commitCount: unpushed.commits.length,
+        headSha: pushed.headSha,
+      },
+      changes: await changesBody(session, sandbox),
+    }
   })
+  if (result === "gone") {
+    return refuse("This session's sandbox no longer exists")
+  }
+  if (!result.ok) return refuse(result.error)
+
+  broadcastChangesUpdated(session, user.id)
+  const author = eventAuthor(user)
+  const eventPayload = {
+    sessionId,
+    repoFullName: session.repoFullName,
+    ...result.pushed,
+  }
+  void postSessionEvent(
+    session,
+    author,
+    { eventType: "session_pushed", eventPayload },
+    channelEventContent({
+      eventType: "session_pushed",
+      actorName: author.name,
+      ...eventPayload,
+    })
+  ).catch((err) => logger.error({ err, sessionId }, "Push event failed"))
+  return c.json(
+    { pushed: result.pushed, changes: result.changes },
+    HttpStatusCodes.OK
+  )
+}
+
+type EventAuthor = { id: string; name: string; image: string | null }
+
+const eventAuthor = (user: {
+  id: string
+  name: string
+  image?: string | null
+}): EventAuthor => ({ id: user.id, name: user.name, image: user.image ?? null })
+
+// A commit or push as a line in the session, for its people and for Lor there.
+async function postSessionEvent(
+  session: CodeSession,
+  author: EventAuthor,
+  event:
+    | { eventType: "session_committed"; eventPayload: SessionCommittedPayload }
+    | { eventType: "session_pushed"; eventPayload: SessionPushedPayload },
+  content: string
+) {
   const [row] = await db
     .insert(schema.message)
     .values({
       channelId: session.channelId,
-      authorId: actorId,
+      authorId: author.id,
       type: "event",
-      eventType: "session_committed",
-      eventPayload,
+      ...event,
       content,
       threadRootId: session.threadRootId,
       excludedFromMemory: true,
@@ -674,8 +760,7 @@ async function postCommitEvent(
     channelId: session.channelId,
     content,
     type: "event",
-    eventType: "session_committed",
-    eventPayload,
+    ...event,
     pinned: false,
     createdAt: row.createdAt.toISOString(),
     author,

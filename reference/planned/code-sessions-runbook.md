@@ -136,11 +136,28 @@ may lag web), a Lor-offered "Continue in Code" card.
     without a linked account to link GitHub; ⌘↵ commits. A
     `session_committed` event row (new enum value, additive `db:push`)
     goes into the session for its people and Lor.
-  - [ ] **4c** Push and Create PR through GitHub's API with the person's
-    token (refreshed under a row lock), replaying the sandbox's commits so
-    their SHAs match; no token enters the sandbox. Jacob 2026-10-24: commit
-    and push always go to the branch the session is on, the default branch
-    included; protecting a branch is the repo's job, not Lor's.
+  - [x] **4c** Push through GitHub's API with the person's token, refreshed
+    under a row lock (`githubAccountToken`); no token enters the sandbox.
+    Jacob 2026-10-24: commit and push always go to the branch the session
+    is on, the default branch included; protecting a branch is the repo's
+    job, not Lor's. Built 2026-10-24:
+    - `readUnpushedCommits` reads each commit not on the remote-tracking ref
+      raw (`git cat-file commit`, `git diff-tree`); `pushCommits`
+      (`apps/api/src/lib/github-push.ts`) recreates blobs, trees and
+      commits through the Git Data API and checks every SHA against the
+      sandbox's, then fast-forwards the branch (`force: false`). Nothing
+      moves on GitHub unless everything matched. `markPushed` moves
+      `origin/<branch>` in the sandbox.
+    - Commits are made with `TZ=UTC` so their dates replay byte-for-byte.
+      Not yet checked live: that GitHub stores the message and dates
+      exactly as sent. A mismatch fails the push cleanly.
+    - Refused: merge or signed commits, more than 50 commits, files over
+      50 MB, and a branch with new commits on GitHub (no pull yet).
+    - A `session_pushed` event row (new enum value, additive `db:push`).
+  - [ ] **4d** Create PR as the person (only when the session's branch
+    isn't the repo's default branch), with its event row.
+  - [ ] Later: pull new commits from GitHub into the session (a read-only
+    installation token for one `git fetch`, like the clone).
 
 ## Stage 2 — before charging
 

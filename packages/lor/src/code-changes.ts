@@ -357,7 +357,8 @@ export async function commitStaged(
     [
       `count=$(${GIT} diff --cached --name-only -z | tr -cd '\\0' | wc -c)`,
       `[ "$count" -gt 0 ] || exit ${NOTHING_STAGED}`,
-      `printf '%s' ${q(input.message)} | git -c user.name=${q(input.name)} -c user.email=${q(input.email)} commit -q -F - || exit ${COMMIT_FAILED}`,
+      // UTC dates (+0000) replay byte-for-byte through GitHub's API on push.
+      `printf '%s' ${q(input.message)} | TZ=UTC git -c user.name=${q(input.name)} -c user.email=${q(input.email)} commit -q -F - || exit ${COMMIT_FAILED}`,
       `printf '%s\\0' "$count"`,
       `git log -1 --format='%H%x00%s%x00'`,
       `git symbolic-ref --short -q HEAD || true`,
@@ -382,6 +383,245 @@ export async function commitStaged(
     subject,
     fileCount: Number(count),
     branch: branch.trim() || null,
+  }
+}
+
+// ── Push: what the sandbox has that its remote doesn't ──────────────────
+
+export type GitPerson = {
+  name: string
+  email: string
+  // ISO 8601 with the commit's own UTC offset.
+  date: string
+}
+
+export type TreeChange = {
+  path: string
+  mode: string
+  type: "blob" | "commit"
+  // Null deletes the path.
+  sha: string | null
+}
+
+export type LocalCommit = {
+  sha: string
+  tree: string
+  parent: string
+  // The parent's tree: the base this commit's changes apply to.
+  parentTree: string
+  author: GitPerson
+  committer: GitPerson
+  // Exactly as stored, trailing newline included, so the SHA reproduces.
+  message: string
+  changes: TreeChange[]
+}
+
+export type UnpushedCommits =
+  | { ok: true; branch: string; commits: LocalCommit[] }
+  | { ok: false; detail: string }
+
+const MAX_PUSH_COMMITS = 50
+const MAX_PUSH_BLOB_BYTES = 50 * 1024 * 1024
+const BLOB_BATCH_BYTES = 8 * 1024 * 1024
+const DETACHED = 11
+const COMMIT_MARKER = "__LOR_COMMIT__"
+const SHA = /^[0-9a-f]{40}$/
+
+// "1729700000 -0700" → "2024-10-23T09:13:20-07:00".
+function isoDate(seconds: string, offset: string): string {
+  const sign = offset.startsWith("-") ? -1 : 1
+  const minutes =
+    sign * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(3, 5)))
+  const local = new Date((Number(seconds) + minutes * 60) * 1000)
+    .toISOString()
+    .slice(0, 19)
+  return minutes === 0
+    ? `${local}Z`
+    : `${local}${offset.slice(0, 3)}:${offset.slice(3, 5)}`
+}
+
+function parsePerson(value: string): GitPerson | null {
+  const match = /^(.*) <(.*)> (\d+) ([+-]\d{4})$/.exec(value)
+  if (!match) return null
+  const [, name = "", email = "", seconds = "", offset = ""] = match
+  return { name, email, date: isoDate(seconds, offset) }
+}
+
+function parseCommit(
+  sha: string,
+  parentTree: string,
+  raw: string,
+  changes: TreeChange[]
+): LocalCommit | string {
+  const split = raw.indexOf("\n\n")
+  const headers = (split === -1 ? raw : raw.slice(0, split)).split("\n")
+  const values = new Map<string, string[]>()
+  for (const line of headers) {
+    // Continuation lines belong to a multi-line header (a signature).
+    if (line.startsWith(" ")) continue
+    const space = line.indexOf(" ")
+    const key = line.slice(0, space)
+    values.set(key, [...(values.get(key) ?? []), line.slice(space + 1)])
+  }
+  const short = sha.slice(0, 7)
+  if (values.has("gpgsig")) return `Commit ${short} is signed`
+  if (values.has("encoding")) return `Commit ${short} isn't UTF-8`
+  const parents = values.get("parent") ?? []
+  if (parents.length !== 1) return `Commit ${short} is a merge commit`
+  const tree = values.get("tree")?.[0]
+  const author = parsePerson(values.get("author")?.[0] ?? "")
+  const committer = parsePerson(values.get("committer")?.[0] ?? "")
+  const parent = parents[0]
+  if (!(tree && parent && author && committer)) {
+    return `Commit ${short} couldn't be read`
+  }
+  return {
+    sha,
+    tree,
+    parent,
+    parentTree,
+    author,
+    committer,
+    message: split === -1 ? "" : raw.slice(split + 2),
+    changes,
+  }
+}
+
+// The checked-out branch's commits that its remote-tracking ref doesn't
+// have (the base branch's when the branch is new), oldest first, with each
+// commit's raw content and changed paths.
+export async function readUnpushedCommits(
+  sandbox: CodeSandbox,
+  baseBranch: string
+): Promise<UnpushedCommits> {
+  const base = shellQuote(`refs/remotes/origin/${baseBranch}`)
+  const result = await sandbox.run(
+    [
+      `branch=$(git symbolic-ref --short -q HEAD) || exit ${DETACHED}`,
+      `up="refs/remotes/origin/$branch"`,
+      `git rev-parse -q --verify "$up" >/dev/null || up=${base}`,
+      `printf '%s\\0' "$branch"`,
+      `for c in $(git rev-list --reverse "$up"..HEAD | head -n ${MAX_PUSH_COMMITS + 1}); do`,
+      `  printf '${COMMIT_MARKER}%s\\0%s\\0' "$c" "$(git rev-parse "$c^^{tree}" 2>/dev/null)"`,
+      `  git cat-file commit "$c"; printf '\\0'`,
+      `  git diff-tree -r -z --no-commit-id --no-renames "$c"; printf '\\0'`,
+      "done",
+    ].join("\n")
+  )
+  if (result.exitCode === DETACHED) {
+    return { ok: false, detail: "The session isn't on a branch" }
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(`git log failed: ${result.stderr.slice(0, 300)}`)
+  }
+  const tokens = result.stdout.split("\0")
+  const branch = tokens[0] ?? ""
+  const commits: LocalCommit[] = []
+  let i = 1
+  while (i < tokens.length) {
+    const head = tokens[i] ?? ""
+    if (!head.startsWith(COMMIT_MARKER)) {
+      i++
+      continue
+    }
+    const sha = head.slice(COMMIT_MARKER.length)
+    const parentTree = tokens[i + 1] ?? ""
+    const raw = tokens[i + 2] ?? ""
+    i += 3
+    // ":<old mode> <new mode> <old sha> <new sha> <status>", then the path;
+    // an empty entry ends the commit.
+    const changes: TreeChange[] = []
+    while (i < tokens.length && tokens[i] !== "") {
+      const [oldMode = "", newMode = "", , newSha = "", status] = (
+        tokens[i] ?? ""
+      )
+        .slice(1)
+        .split(" ")
+      const path = tokens[i + 1] ?? ""
+      i += 2
+      const deleted = status === "D"
+      const mode = deleted ? oldMode : newMode
+      changes.push({
+        path,
+        mode,
+        type: mode === "160000" ? "commit" : "blob",
+        sha: deleted ? null : newSha,
+      })
+    }
+    i++
+    const commit = parseCommit(sha, parentTree, raw, changes)
+    if (typeof commit === "string") {
+      return { ok: false, detail: `${commit}; Lor can't push it yet` }
+    }
+    commits.push(commit)
+  }
+  if (commits.length > MAX_PUSH_COMMITS) {
+    return {
+      ok: false,
+      detail: `More than ${MAX_PUSH_COMMITS} commits to push at once`,
+    }
+  }
+  return { ok: true, branch, commits }
+}
+
+// Base64 contents of the blobs a push uploads, read in batches so one
+// sandbox command never returns too much.
+export async function readBlobs(
+  sandbox: CodeSandbox,
+  shas: string[]
+): Promise<Map<string, string>> {
+  const contents = new Map<string, string>()
+  const valid = shas.filter((sha) => SHA.test(sha))
+  if (valid.length === 0) return contents
+  const sizes = await sandbox.run(
+    `printf '%s\\n' ${valid.join(" ")} | git cat-file --batch-check='%(objectname) %(objectsize)'`
+  )
+  if (sizes.exitCode !== 0) {
+    throw new Error(`git cat-file failed: ${sizes.stderr.slice(0, 300)}`)
+  }
+  const batches: string[][] = [[]]
+  let batchBytes = 0
+  for (const line of sizes.stdout.trim().split("\n")) {
+    const [sha = "", size = "0"] = line.split(" ")
+    const bytes = Number(size)
+    if (bytes > MAX_PUSH_BLOB_BYTES) {
+      throw new Error("A file is larger than 50 MB")
+    }
+    if (batchBytes + bytes > BLOB_BATCH_BYTES && batchBytes > 0) {
+      batches.push([])
+      batchBytes = 0
+    }
+    batches.at(-1)?.push(sha)
+    batchBytes += bytes
+  }
+  for (const batch of batches) {
+    if (batch.length === 0) continue
+    const result = await sandbox.run(
+      `for s in ${batch.join(" ")}; do git cat-file blob "$s" | base64 -w0; printf '\\0'; done`
+    )
+    if (result.exitCode !== 0) {
+      throw new Error(`git cat-file failed: ${result.stderr.slice(0, 300)}`)
+    }
+    const parts = result.stdout.split("\0")
+    batch.forEach((sha, index) => {
+      contents.set(sha, parts[index] ?? "")
+    })
+  }
+  return contents
+}
+
+// After a push: the remote-tracking ref moves, so nothing shows unpushed.
+export async function markPushed(
+  sandbox: CodeSandbox,
+  branch: string,
+  sha: string
+): Promise<void> {
+  if (!SHA.test(sha)) throw new Error("Invalid commit SHA")
+  const result = await sandbox.run(
+    `git update-ref ${shellQuote(`refs/remotes/origin/${branch}`)} ${sha}`
+  )
+  if (result.exitCode !== 0) {
+    throw new Error(`git update-ref failed: ${result.stderr.slice(0, 300)}`)
   }
 }
 

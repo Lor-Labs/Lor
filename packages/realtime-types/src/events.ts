@@ -267,6 +267,7 @@ export type RealtimeChannelEventType =
   | "trigger_run"
   | "session_continued"
   | "session_committed"
+  | "session_pushed"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -287,6 +288,13 @@ export type RealtimeChannelEventPayload =
       subject: string
       branch: string | null
       fileCount: number
+    }
+  | {
+      sessionId: string
+      repoFullName: string
+      branch: string
+      commitCount: number
+      headSha: string
     }
   | null
 
