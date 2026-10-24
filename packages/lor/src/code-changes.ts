@@ -332,6 +332,59 @@ export async function stagePaths(
   }
 }
 
+const NOTHING_STAGED = 9
+const COMMIT_FAILED = 10
+
+export type CommitResult =
+  | {
+      ok: true
+      sha: string
+      subject: string
+      fileCount: number
+      branch: string | null
+    }
+  | { ok: false; reason: "nothing_staged" | "failed"; detail: string }
+
+// Commits the staged changes on the checked-out branch, authored and
+// committed as the person. The repo's own commit hooks run; their output
+// comes back as the failure detail. Nothing leaves the sandbox.
+export async function commitStaged(
+  sandbox: CodeSandbox,
+  input: { message: string; name: string; email: string }
+): Promise<CommitResult> {
+  const q = shellQuote
+  const result = await sandbox.run(
+    [
+      `count=$(${GIT} diff --cached --name-only -z | tr -cd '\\0' | wc -c)`,
+      `[ "$count" -gt 0 ] || exit ${NOTHING_STAGED}`,
+      `printf '%s' ${q(input.message)} | git -c user.name=${q(input.name)} -c user.email=${q(input.email)} commit -q -F - || exit ${COMMIT_FAILED}`,
+      `printf '%s\\0' "$count"`,
+      `git log -1 --format='%H%x00%s%x00'`,
+      `git symbolic-ref --short -q HEAD || true`,
+    ].join("\n")
+  )
+  if (result.exitCode === NOTHING_STAGED) {
+    return { ok: false, reason: "nothing_staged", detail: "Nothing is staged" }
+  }
+  if (result.exitCode !== 0) {
+    const detail = `${result.stderr}\n${result.stdout}`.trim().slice(-1_000)
+    return {
+      ok: false,
+      reason: "failed",
+      detail: detail || "git commit failed",
+    }
+  }
+  const [count = "0", sha = "", subject = "", branch = ""] =
+    result.stdout.split("\0")
+  return {
+    ok: true,
+    sha,
+    subject,
+    fileCount: Number(count),
+    branch: branch.trim() || null,
+  }
+}
+
 const messageSchema = z.object({
   subject: z.string().trim().min(1).max(200),
   body: z.string().trim().max(2_000),

@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
+  badRequestSchema,
   conflictSchema,
   forbiddenSchema,
   internalServerErrorSchema,
@@ -13,6 +14,8 @@ import {
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
   commitMessageResponseSchema,
+  commitSessionChangesRequestSchema,
+  commitSessionChangesResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
   repoFileQuerySchema,
@@ -156,6 +159,37 @@ export const stageSessionChanges = createRoute({
 })
 
 export type StageSessionChangesRoute = typeof stageSessionChanges
+
+export const commitSessionChanges = createRoute({
+  path: "/sessions/{sessionId}/changes/commit",
+  method: "post",
+  summary: "Commit a code session's staged files",
+  description:
+    "Commits the staged files on the session's checked-out branch, as the caller's linked GitHub account. Refused while Lor works in the session.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: commitSessionChangesRequestSchema,
+      description: "The commit message",
+    }),
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: commitSessionChangesResponseSchema,
+      description: "The commit and the changes after it",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type CommitSessionChangesRoute = typeof commitSessionChanges
 
 export const getRepoTree = createRoute({
   path: "/sessions/{sessionId}/repo/tree",

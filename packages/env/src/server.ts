@@ -133,6 +133,11 @@ const serverSchema = z.object({
   GITHUB_APP_PRIVATE_KEY: z.string().min(1).optional(),
   // The GitHub App's public slug (github.com/apps/<slug>), for the install link.
   GITHUB_APP_SLUG: z.string().min(1).optional(),
+  // The GitHub App's OAuth client, for people connecting their own GitHub
+  // account (commit and push as themselves). Optional: the connect button
+  // hides when unset.
+  GITHUB_APP_CLIENT_ID: z.string().min(1).optional(),
+  GITHUB_APP_CLIENT_SECRET: z.string().min(1).optional(),
   LINEAR_CLIENT_ID: z.string().min(1).optional(),
   LINEAR_CLIENT_SECRET: z.string().min(1).optional(),
   LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
@@ -230,6 +235,26 @@ const refinedServerSchema = serverSchema.superRefine((val, ctx) => {
       code: z.ZodIssueCode.custom,
       message:
         "INTEGRATION_ENCRYPTION_KEY is required when Notion (a token-persisting connector) is configured",
+      path: ["INTEGRATION_ENCRYPTION_KEY"],
+    })
+  }
+  if (!val.GITHUB_APP_CLIENT_ID !== !val.GITHUB_APP_CLIENT_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET must be set together",
+      path: [
+        val.GITHUB_APP_CLIENT_ID
+          ? "GITHUB_APP_CLIENT_SECRET"
+          : "GITHUB_APP_CLIENT_ID",
+      ],
+    })
+  }
+  if (val.GITHUB_APP_CLIENT_ID && !val.INTEGRATION_ENCRYPTION_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "INTEGRATION_ENCRYPTION_KEY is required when GitHub accounts (token-persisting) are configured",
       path: ["INTEGRATION_ENCRYPTION_KEY"],
     })
   }

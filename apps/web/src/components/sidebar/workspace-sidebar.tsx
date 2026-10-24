@@ -422,16 +422,20 @@ function WorkspaceSidebarInner() {
                       <DropdownMenuTrigger
                         render={
                           <Button
-                            variant="outline"
-                            size="icon-sm"
+                            variant="ghost"
+                            size="icon"
                             aria-label="Create"
-                            className="text-muted-foreground hover:text-foreground data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
+                            className="size-8 rounded-md border-border bg-background text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground sm:size-8 data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
                           />
                         }
                       />
                     }
                   >
-                    <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
+                    <HugeiconsIcon
+                      icon={PlusSignIcon}
+                      className="size-3.5 opacity-100"
+                      strokeWidth={1.75}
+                    />
                   </TooltipTrigger>
                   <TooltipContent>Create</TooltipContent>
                 </Tooltip>

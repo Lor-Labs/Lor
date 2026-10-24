@@ -28,10 +28,15 @@ import type {
 } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useDiffHighlighterReady } from "@/hooks/use-diff-highlighter"
 import {
+  useConnectGithubAccount,
+  usePersonalAccounts,
+} from "@/hooks/use-personal-accounts"
+import {
   type ChangedFile,
   type ReadyChanges,
   sessionChangesQueryOptions,
   useChangeDiff,
+  useCommitChanges,
   useCommitMessage,
   useSessionChanges,
   useStageChanges,
@@ -45,8 +50,8 @@ import {
 // A code session's changes, laid out like Zed's git panel: one row per file
 // with its line counts and a staging checkbox, a click opening its diff in a
 // tab beside the chat, and the commit box at the bottom
-// (reference/planned/code-sessions-runbook.md, chunk 3). Commit waits for
-// GitHub sign-in (chunk 4).
+// (reference/planned/code-sessions-runbook.md, chunks 3 and 4). Commits are
+// made as the person's linked GitHub account.
 
 const STATUS: Record<
   ChangedFile["status"],
@@ -573,12 +578,34 @@ function CommitBox({
 }) {
   const [message, setMessage] = useState("")
   const generate = useCommitMessage(sessionId)
+  const commit = useCommitChanges(sessionId)
+  const accounts = usePersonalAccounts()
+  const connect = useConnectGithubAccount()
+  // Undefined while loading; null when the person hasn't linked GitHub.
+  const account = accounts.data?.github.account
   const unpushed = changes.commits.length
+  const blocked = changes.lorWorking
+    ? "Lor is working. Commit when it finishes."
+    : stagedCount === 0
+      ? "Stage files to commit"
+      : !message.trim()
+        ? "Write a commit message"
+        : null
+  const submit = () => {
+    if (blocked || !account || commit.isPending) return
+    commit.mutate(message.trim(), { onSuccess: () => setMessage("") })
+  }
   return (
     <div className="shrink-0 border-border/70 border-t">
       <textarea
         value={message}
         onChange={(event) => setMessage(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault()
+            submit()
+          }
+        }}
         placeholder="Enter commit message"
         aria-label="Commit message"
         className="field-sizing-content block max-h-48 min-h-20 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[13px] leading-5 outline-none placeholder:text-muted-foreground"
@@ -631,18 +658,45 @@ function CommitBox({
               : "Write a message from the staged changes"}
           </TooltipContent>
         </Tooltip>
-        {/* Stub until chunk 4: commits are made under the person's GitHub
-            account, so they wait for GitHub sign-in. */}
-        <Tooltip>
-          <TooltipTrigger render={<span className="shrink-0" />}>
-            <Button size="xs" variant="outline" disabled>
-              {stagedCount > 0
-                ? `Commit ${stagedCount} ${stagedCount === 1 ? "file" : "files"}`
-                : "Commit"}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Committing comes with GitHub sign-in</TooltipContent>
-        </Tooltip>
+        {/* Commits are made as the person's own GitHub account. */}
+        {account === null ? (
+          <Tooltip>
+            <TooltipTrigger render={<span className="shrink-0" />}>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={!accounts.data?.github.available || connect.isPending}
+                onClick={() => connect.mutate()}
+              >
+                Link GitHub to commit
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {accounts.data?.github.available
+                ? "Commits are made as your own GitHub account"
+                : "GitHub accounts aren't set up on this server yet"}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger render={<span className="shrink-0" />}>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={Boolean(blocked) || !account || commit.isPending}
+                onClick={submit}
+              >
+                {commit.isPending && <Spinner className="size-3" />}
+                {stagedCount > 0
+                  ? `Commit ${stagedCount} ${stagedCount === 1 ? "file" : "files"}`
+                  : "Commit"}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {blocked ?? (account ? `Commit as @${account.login} (⌘↵)` : "")}
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </div>
   )

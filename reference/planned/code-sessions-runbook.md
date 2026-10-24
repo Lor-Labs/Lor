@@ -118,7 +118,29 @@ may lag web), a Lor-offered "Continue in Code" card.
     before the menu's Close Window: not yet checked in the app.
 - [ ] **4. Personal GitHub and shipping.** The GitHub App's user
   authorization, stored and refreshed tokens, a connect prompt; Push and
-  Create PR as the person, or as the Lor bot by setting.
+  Create PR as the person, or as the Lor bot by setting. Decided with Jacob
+  2026-10-23: personal GitHub is the first "linked account" (a person's own
+  account, never shared with the workspace; used only for turns they start
+  and actions they take); commits use the person's primary GitHub email
+  (noreply when GitHub doesn't share it); the Lor bot comes later.
+  - [x] **4a** Linked GitHub account: `personal_account` table (additive
+    `db:push`), `GITHUB_APP_CLIENT_ID`/`GITHUB_APP_CLIENT_SECRET`,
+    `/personal-accounts` routes (`apps/api/src/lib/github-account.ts`), the
+    `/accounts/github/callback` page and Settings → Linked accounts. Not
+    better-auth's linked accounts: those would make GitHub a way to sign in.
+    Setup steps: `reference/github-connector.md`.
+  - [x] **4b** Commit as the person: `POST /sessions/{id}/changes/commit`
+    runs `commitStaged` (`@repo/lor/code-changes`) in the sandbox with the
+    person's name and email, so no token is needed. The repo's commit hooks
+    run, and a failure shows their output. The commit bar asks people
+    without a linked account to link GitHub; ⌘↵ commits. A
+    `session_committed` event row (new enum value, additive `db:push`)
+    goes into the session for its people and Lor.
+  - [ ] **4c** Push and Create PR through GitHub's API with the person's
+    token (refreshed under a row lock), replaying the sandbox's commits so
+    their SHAs match; no token enters the sandbox. Jacob 2026-10-24: commit
+    and push always go to the branch the session is on, the default branch
+    included; protecting a branch is the repo's job, not Lor's.
 
 ## Stage 2 — before charging
 

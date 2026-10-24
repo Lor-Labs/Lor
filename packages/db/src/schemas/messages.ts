@@ -74,6 +74,8 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "trigger_run",
   // In a session: someone continued it in a new code session.
   "session_continued",
+  // In a code session: someone committed its staged files.
+  "session_committed",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Lor
@@ -300,6 +302,15 @@ export type SessionContinuedPayload = {
   repoFullName: string | null
 }
 
+export type SessionCommittedPayload = {
+  sessionId: string
+  sha: string
+  subject: string
+  // Null on a detached HEAD.
+  branch: string | null
+  fileCount: number
+}
+
 export type ChannelEventPayload =
   | ChannelCreatedPayload
   | ChannelRenamedPayload
@@ -308,6 +319,7 @@ export type ChannelEventPayload =
   | LoopEventPayload
   | TriggerRunPayload
   | SessionContinuedPayload
+  | SessionCommittedPayload
   | null
 
 // Type definitions for the JSONB fields

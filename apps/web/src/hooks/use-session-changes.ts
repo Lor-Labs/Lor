@@ -223,6 +223,28 @@ export function useStageChanges(sessionId: string) {
   })
 }
 
+// Commits the staged files as the person's linked GitHub account.
+export function useCommitChanges(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (message: string) => {
+      const res = await apiClient.v1.sessions[
+        ":sessionId"
+      ].changes.commit.$post({ param: { sessionId }, json: { message } })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't commit")
+      }
+      return res.json()
+    },
+    onSuccess: ({ changes }) =>
+      queryClient.setQueryData(sessionChangesKey(sessionId), changes),
+    onError: (err) => toast.error(err.message),
+  })
+}
+
 export function useCommitMessage(sessionId: string) {
   return useMutation({
     mutationFn: async () => {

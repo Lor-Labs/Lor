@@ -43,6 +43,12 @@ type SessionContinuedPayload = {
   sessionId: string
   repoFullName: string | null
 }
+type SessionCommittedPayload = {
+  sha: string
+  subject: string
+  branch: string | null
+  fileCount: number
+}
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -98,9 +104,6 @@ function LoopName({
   )
 }
 
-// A channel reference in event copy — 500ms hover previews the channel
-// (topic, private/archived state); click navigates to it. Shares the channel
-// page's ["channel", slug, id] query cache.
 // The code session a "Continue in Code" event points at.
 function SessionLink({
   sessionId,
@@ -122,6 +125,9 @@ function SessionLink({
   )
 }
 
+// A channel reference in event copy — 500ms hover previews the channel
+// (topic, private/archived state); click navigates to it. Shares the channel
+// page's ["channel", slug, id] query cache.
 function ChannelName({
   channelId,
   children,
@@ -447,6 +453,23 @@ function eventText(
           <SessionLink sessionId={p.sessionId}>
             a code session{p.repoFullName ? ` on ${p.repoFullName}` : ""}
           </SessionLink>
+        </>
+      )
+    }
+    case "session_committed": {
+      if (!payload) break
+      const p = payload as SessionCommittedPayload
+      return (
+        <>
+          {actor} committed {p.fileCount} {p.fileCount === 1 ? "file" : "files"}
+          {p.branch ? (
+            <>
+              {" "}
+              to <Name>{p.branch}</Name>
+            </>
+          ) : null}
+          : {p.subject}{" "}
+          <span className="font-mono text-xs">{p.sha.slice(0, 7)}</span>
         </>
       )
     }

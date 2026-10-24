@@ -1,0 +1,140 @@
+import { env } from "@repo/env/server"
+import { encryptSecret } from "@repo/utils/crypto"
+
+// A person's own GitHub account ("Your accounts"), authorized through the
+// GitHub App's user authorization (OAuth web flow). Its token acts as the
+// person, limited to repos the App is installed on
+// (reference/planned/code-sessions-runbook.md, chunk 4).
+
+const GITHUB_API = "https://api.github.com"
+const GITHUB_HEADERS = {
+  Accept: "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+  "User-Agent": "lor",
+}
+
+// Must match the App's Callback URL; used for both authorize and exchange.
+const redirectUri = () => `${env.APP_BASE_URL}/accounts/github/callback`
+
+export function githubAccountsAvailable(): boolean {
+  return Boolean(
+    env.GITHUB_APP_CLIENT_ID &&
+      env.GITHUB_APP_CLIENT_SECRET &&
+      env.INTEGRATION_ENCRYPTION_KEY
+  )
+}
+
+export function githubAuthorizeUrl(state: string): string | null {
+  if (!env.GITHUB_APP_CLIENT_ID) return null
+  const params = new URLSearchParams({
+    client_id: env.GITHUB_APP_CLIENT_ID,
+    redirect_uri: redirectUri(),
+    state,
+  })
+  return `https://github.com/login/oauth/authorize?${params.toString()}`
+}
+
+type TokenResponse = {
+  access_token?: string
+  expires_in?: number
+  refresh_token?: string
+  refresh_token_expires_in?: number
+  error?: string
+}
+
+// Expiry fields are absent when the App doesn't expire user tokens.
+function encryptedTokens(body: TokenResponse, key: string) {
+  if (!body.access_token) {
+    throw new Error(`GitHub token request failed: ${body.error ?? "no token"}`)
+  }
+  const now = Date.now()
+  return {
+    accessToken: encryptSecret(body.access_token, key),
+    accessTokenExpiresAt: body.expires_in
+      ? new Date(now + body.expires_in * 1000)
+      : null,
+    refreshToken: body.refresh_token
+      ? encryptSecret(body.refresh_token, key)
+      : null,
+    refreshTokenExpiresAt: body.refresh_token_expires_in
+      ? new Date(now + body.refresh_token_expires_in * 1000)
+      : null,
+    plainAccessToken: body.access_token,
+  }
+}
+
+async function requestToken(params: Record<string, string>) {
+  const { GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET } = env
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!(GITHUB_APP_CLIENT_ID && GITHUB_APP_CLIENT_SECRET && key)) {
+    throw new Error("GitHub accounts aren't configured")
+  }
+  const res = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: GITHUB_APP_CLIENT_ID,
+      client_secret: GITHUB_APP_CLIENT_SECRET,
+      ...params,
+    }),
+  })
+  if (!res.ok) throw new Error(`GitHub token request failed: ${res.status}`)
+  return encryptedTokens((await res.json()) as TokenResponse, key)
+}
+
+export function exchangeGithubCode(code: string) {
+  return requestToken({ code, redirect_uri: redirectUri() })
+}
+
+export function refreshGithubToken(refreshToken: string) {
+  return requestToken({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  })
+}
+
+// The person's GitHub identity. The email needs the App's "Email addresses"
+// read permission; without it the email stays null.
+export async function fetchGithubProfile(token: string) {
+  const headers = { ...GITHUB_HEADERS, Authorization: `Bearer ${token}` }
+  const res = await fetch(`${GITHUB_API}/user`, { headers })
+  if (!res.ok) throw new Error(`GitHub user request failed: ${res.status}`)
+  const user = (await res.json()) as {
+    id: number
+    login: string
+    name: string | null
+    avatar_url: string | null
+  }
+  const emails = await fetch(`${GITHUB_API}/user/emails`, { headers })
+    .then((r) =>
+      r.ok
+        ? (r.json() as Promise<
+            { email: string; primary: boolean; verified: boolean }[]
+          >)
+        : []
+    )
+    .catch(() => [])
+  return {
+    externalId: String(user.id),
+    login: user.login,
+    name: user.name,
+    avatarUrl: user.avatar_url,
+    email:
+      emails.find((entry) => entry.primary && entry.verified)?.email ?? null,
+  }
+}
+
+// Disconnecting revokes the token at GitHub too. Best-effort: the row is
+// gone either way.
+export async function revokeGithubToken(token: string) {
+  const { GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET } = env
+  if (!(GITHUB_APP_CLIENT_ID && GITHUB_APP_CLIENT_SECRET)) return
+  const basic = Buffer.from(
+    `${GITHUB_APP_CLIENT_ID}:${GITHUB_APP_CLIENT_SECRET}`
+  ).toString("base64")
+  await fetch(`${GITHUB_API}/applications/${GITHUB_APP_CLIENT_ID}/token`, {
+    method: "DELETE",
+    headers: { ...GITHUB_HEADERS, Authorization: `Basic ${basic}` },
+    body: JSON.stringify({ access_token: token }),
+  })
+}

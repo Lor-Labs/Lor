@@ -171,6 +171,15 @@ export const stageSessionChangesRequestSchema = z
     message: "Pass paths or all, not both",
   })
 
+export const commitSessionChangesRequestSchema = z.object({
+  message: z.string().trim().min(1).max(10_000),
+})
+
+export const commitSessionChangesResponseSchema = z.object({
+  commit: z.object({ sha: z.string(), subject: z.string() }),
+  changes: sessionChangesResponseSchema,
+})
+
 export const repoTreeResponseSchema = z.discriminatedUnion("state", [
   z.object({
     state: z.literal("ready"),

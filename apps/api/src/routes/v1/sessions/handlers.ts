@@ -18,6 +18,8 @@ import {
   attachCodeSandbox,
   type CodeSandbox,
   CodeSandboxMissingError,
+  type CommitResult,
+  commitStaged,
   generateCommitMessage,
   readChanges,
   readFileDiff,
@@ -25,6 +27,8 @@ import {
   readRepoTree,
   stagePaths,
 } from "@repo/lor/code-changes"
+import { channelEventContent } from "@repo/messaging"
+import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -35,6 +39,7 @@ import type { AppRouteHandler } from "@/lib/types/app-types"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
+  CommitSessionChangesRoute,
   GenerateSessionCommitMessageRoute,
   GetAgentSessionRoute,
   GetRepoFileRoute,
@@ -516,26 +521,176 @@ export const stageSessionChanges: AppRouteHandler<
     })
     return changesBody(session, sandbox)
   })
-  if (result !== "gone") {
-    // Everyone else with the session open sees the new staging.
-    void getEmitter()
-      .then((io) =>
-        io
-          .to(threadRoom(session.threadRootId))
-          .emit("session:changes:updated", {
-            sessionId,
-            threadRootId: session.threadRootId,
-            byUserId: c.var.user.id,
-          })
-      )
-      .catch((err) =>
-        logger.warn({ err, sessionId }, "Staging broadcast failed")
-      )
-  }
+  if (result !== "gone") broadcastChangesUpdated(session, c.var.user.id)
   return c.json(
     result === "gone" ? { state: "gone" as const } : result,
     HttpStatusCodes.OK
   )
+}
+
+// Everyone else with the session open refetches its changes.
+function broadcastChangesUpdated(session: CodeSession, byUserId: string) {
+  void getEmitter()
+    .then((io) =>
+      io.to(threadRoom(session.threadRootId)).emit("session:changes:updated", {
+        sessionId: session.id,
+        threadRootId: session.threadRootId,
+        byUserId,
+      })
+    )
+    .catch((err) =>
+      logger.warn({ err, sessionId: session.id }, "Changes broadcast failed")
+    )
+}
+
+// Commits show as the person on GitHub through their email; the noreply
+// address when GitHub didn't share one.
+function commitIdentity(account: {
+  externalId: string
+  login: string
+  name: string | null
+  email: string | null
+}) {
+  return {
+    name: account.name || account.login,
+    email:
+      account.email ??
+      `${account.externalId}+${account.login}@users.noreply.github.com`,
+  }
+}
+
+export const commitSessionChanges: AppRouteHandler<
+  CommitSessionChangesRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const { message } = c.req.valid("json")
+  const user = c.var.user
+  const session = await findCodeSession(sessionId, user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const refuse = (text: string) =>
+    c.json(
+      { success: false as const, message: text },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  if (await lorWorkingIn(session.threadRootId)) {
+    return c.json(
+      {
+        success: false as const,
+        message: "Lor is working in this session. Try again when it finishes.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  const account = await db
+    .select({
+      externalId: schema.personalAccount.externalId,
+      login: schema.personalAccount.login,
+      name: schema.personalAccount.name,
+      email: schema.personalAccount.email,
+    })
+    .from(schema.personalAccount)
+    .where(
+      and(
+        eq(schema.personalAccount.userId, user.id),
+        eq(schema.personalAccount.provider, "github")
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!account) return refuse("Link your GitHub account to commit as yourself")
+
+  const result = await withCodeSandbox(sessionId, async (sandbox) => {
+    const commit = await commitStaged(sandbox, {
+      message,
+      ...commitIdentity(account),
+    })
+    return commit.ok
+      ? { commit, changes: await changesBody(session, sandbox) }
+      : { commit, changes: null }
+  })
+  if (result === "gone") {
+    return refuse("This session's sandbox no longer exists")
+  }
+  if (!result.commit.ok) return refuse(result.commit.detail)
+
+  const { commit, changes } = result
+  broadcastChangesUpdated(session, user.id)
+  void postCommitEvent(session, user.id, commit).catch((err) =>
+    logger.error({ err, sessionId }, "Commit event post failed")
+  )
+  return c.json(
+    {
+      commit: { sha: commit.sha, subject: commit.subject },
+      changes: changes ?? { state: "gone" as const },
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+// The commit as a line in the session, for its people and for Lor there.
+async function postCommitEvent(
+  session: CodeSession,
+  actorId: string,
+  commit: Extract<CommitResult, { ok: true }>
+) {
+  const author = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      image: schema.user.image,
+    })
+    .from(schema.user)
+    .where(eq(schema.user.id, actorId))
+    .then((rows) => rows[0])
+  if (!author) return
+  const eventPayload = {
+    sessionId: session.id,
+    sha: commit.sha,
+    subject: commit.subject,
+    branch: commit.branch,
+    fileCount: commit.fileCount,
+  }
+  const content = channelEventContent({
+    eventType: "session_committed",
+    actorName: author.name,
+    ...eventPayload,
+  })
+  const [row] = await db
+    .insert(schema.message)
+    .values({
+      channelId: session.channelId,
+      authorId: actorId,
+      type: "event",
+      eventType: "session_committed",
+      eventPayload,
+      content,
+      threadRootId: session.threadRootId,
+      excludedFromMemory: true,
+    })
+    .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
+  if (!row) return
+  const message: RealtimeMessage = {
+    id: row.id,
+    channelId: session.channelId,
+    content,
+    type: "event",
+    eventType: "session_committed",
+    eventPayload,
+    pinned: false,
+    createdAt: row.createdAt.toISOString(),
+    author,
+    overrideName: null,
+    overrideAvatarUrl: null,
+    mentions: [],
+    reactions: [],
+    attachments: [],
+    embeds: [],
+    referencedMessage: null,
+    threadRootId: session.threadRootId,
+  }
+  const io = await getEmitter()
+  io.to(threadRoom(session.threadRootId)).emit("message:created", message)
+  notifyWorkspaceActivity(session.workspaceId)
 }
 
 export const getRepoTree: AppRouteHandler<GetRepoTreeRoute> = async (c) => {
