@@ -1,7 +1,6 @@
 import {
   ArrowDown01Icon,
   GitBranchIcon,
-  GitCommitIcon,
   RefreshIcon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons"
@@ -11,7 +10,6 @@ import { FileDiff } from "@pierre/diffs/react"
 import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
 import { Spinner } from "@repo/ui/components/spinner"
-import { Textarea } from "@repo/ui/components/textarea"
 import {
   Tooltip,
   TooltipContent,
@@ -283,32 +281,11 @@ function ChangesView({
           </>
         )}
       </div>
-      <div className="shrink-0 border-border/70 border-t">
-        <div className="flex h-9 items-center gap-1.5 px-3 text-[13px]">
-          <HugeiconsIcon
-            icon={GitBranchIcon}
-            className="size-3.5 shrink-0 text-muted-foreground"
-            strokeWidth={2}
-          />
-          <span className="min-w-0 truncate font-medium">
-            {changes.branch ?? "detached HEAD"}
-          </span>
-          <span className="shrink-0 text-muted-foreground text-xs">
-            from {changes.baseBranch}
-          </span>
-          {changes.commits.length > 0 && (
-            <span className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground text-xs">
-              <HugeiconsIcon
-                icon={GitCommitIcon}
-                className="size-3.5"
-                strokeWidth={2}
-              />
-              {changes.commits.length} unpushed
-            </span>
-          )}
-        </div>
-        <CommitBox sessionId={sessionId} stagedCount={stagedCount} />
-      </div>
+      <CommitBox
+        sessionId={sessionId}
+        stagedCount={stagedCount}
+        changes={changes}
+      />
     </div>
   )
 }
@@ -583,36 +560,58 @@ export function ChangeDiff({
   )
 }
 
+// Flat, like Zed's git panel: the message flush under a hairline, then one
+// quiet row with the branch, ✨ and Commit.
 function CommitBox({
   sessionId,
   stagedCount,
+  changes,
 }: {
   sessionId: string
   stagedCount: number
+  changes: ReadyChanges
 }) {
   const [message, setMessage] = useState("")
   const generate = useCommitMessage(sessionId)
+  const unpushed = changes.commits.length
   return (
-    <div className="px-3 pb-3">
-      <Textarea
+    <div className="shrink-0 border-border/70 border-t">
+      <textarea
         value={message}
         onChange={(event) => setMessage(event.target.value)}
-        placeholder="Commit message"
-        rows={3}
-        className="font-mono text-[13px]"
+        placeholder="Enter commit message"
+        aria-label="Commit message"
+        className="field-sizing-content block max-h-48 min-h-20 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[13px] leading-5 outline-none placeholder:text-muted-foreground"
       />
-      <div className="mt-2 flex items-center gap-2">
+      <div className="flex h-10 items-center gap-1.5 pr-2 pl-3 text-muted-foreground text-xs">
+        <HugeiconsIcon
+          icon={GitBranchIcon}
+          className="size-3.5 shrink-0"
+          strokeWidth={2}
+        />
+        <span className="min-w-0 truncate">
+          {changes.branch ?? "detached HEAD"}
+        </span>
+        {changes.branch !== changes.baseBranch && (
+          <span className="shrink-0">from {changes.baseBranch}</span>
+        )}
+        {unpushed > 0 && (
+          <span className="shrink-0">· {unpushed} unpushed</span>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={
               <button
                 type="button"
                 aria-label="Write a commit message"
-                disabled={stagedCount === 0 || generate.isPending}
+                // aria-disabled, not disabled: the tooltip still explains why.
+                aria-disabled={stagedCount === 0}
+                disabled={generate.isPending}
                 onClick={() =>
+                  stagedCount > 0 &&
                   generate.mutate(undefined, { onSuccess: setMessage })
                 }
-                className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-agent disabled:cursor-default disabled:opacity-50"
+                className="ml-auto flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-foreground/5 hover:text-agent aria-disabled:cursor-default aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground"
               />
             }
           >
@@ -627,14 +626,16 @@ function CommitBox({
             )}
           </TooltipTrigger>
           <TooltipContent>
-            Write a message from the staged changes
+            {stagedCount === 0
+              ? "Stage changes to write a message"
+              : "Write a message from the staged changes"}
           </TooltipContent>
         </Tooltip>
         {/* Stub until chunk 4: commits are made under the person's GitHub
             account, so they wait for GitHub sign-in. */}
         <Tooltip>
-          <TooltipTrigger render={<span className="ml-auto" />}>
-            <Button size="sm" disabled>
+          <TooltipTrigger render={<span className="shrink-0" />}>
+            <Button size="xs" variant="outline" disabled>
               {stagedCount > 0
                 ? `Commit ${stagedCount} ${stagedCount === 1 ? "file" : "files"}`
                 : "Commit"}

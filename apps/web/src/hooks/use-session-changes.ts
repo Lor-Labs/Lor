@@ -1,3 +1,4 @@
+import { authClient } from "@repo/auth/client"
 import type { LorToolEventPayload } from "@repo/realtime-types"
 import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -37,8 +38,10 @@ export type SessionChanges = NonNullable<
 export type ReadyChanges = Extract<SessionChanges, { state: "ready" }>
 export type ChangedFile = ReadyChanges["files"][number]
 
-// Files change while Lor works: refresh as its tool calls finish, and once
-// more when its reply ends. The session page runs it for the panel and tabs.
+// Live for everyone with the session open: files refresh as Lor's tool calls
+// finish and when its run ends; the "Lor is working" lock when a run starts
+// and ends; staging when someone else stages. The session page runs it for
+// the panel and tabs.
 export function useLiveSessionChanges(
   sessionId: string,
   threadRootId: string,
@@ -46,40 +49,64 @@ export function useLiveSessionChanges(
 ) {
   const socket = useSocket()
   const queryClient = useQueryClient()
+  const { data: auth } = authClient.useSession()
+  const userId = auth?.user.id
   useEffect(() => {
     if (!socket || !enabled) return
     let timer: ReturnType<typeof setTimeout> | null = null
+    const invalidate = (files: boolean) => {
+      void queryClient.invalidateQueries({
+        queryKey: sessionChangesKey(sessionId),
+      })
+      if (!files) return
+      void queryClient.invalidateQueries({ queryKey: repoTreeKey(sessionId) })
+      void queryClient.invalidateQueries({ queryKey: ["repo-file", sessionId] })
+    }
     const refresh = (delay: number) => {
       if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        for (const queryKey of [
-          sessionChangesKey(sessionId),
-          repoTreeKey(sessionId),
-          ["repo-file", sessionId],
-        ]) {
-          void queryClient.invalidateQueries({ queryKey })
-        }
-      }, delay)
+      timer = setTimeout(() => invalidate(true), delay)
     }
     const onTool = (payload: LorToolEventPayload) => {
       if (payload.threadRootId === threadRootId && payload.toolCall.status) {
         refresh(TOOL_REFRESH_MS)
       }
     }
+    // A reply's first frame means a run started: lock staging.
+    const started = new Set<string>()
     const onStream = (payload: {
       threadRootId: string | null
+      messageId: string
       done: boolean
     }) => {
-      if (payload.threadRootId === threadRootId && payload.done) refresh(0)
+      if (payload.threadRootId !== threadRootId) return
+      if (payload.done) {
+        refresh(0)
+      } else if (!started.has(payload.messageId)) {
+        started.add(payload.messageId)
+        invalidate(false)
+      }
+    }
+    // The run row is terminal only after the stream's done frame.
+    const onSettled = (payload: { threadRootId: string }) => {
+      if (payload.threadRootId === threadRootId) refresh(0)
+    }
+    const onStaged = (payload: { sessionId: string; byUserId: string }) => {
+      if (payload.sessionId === sessionId && payload.byUserId !== userId) {
+        invalidate(false)
+      }
     }
     socket.on("lor:tool", onTool)
     socket.on("message:stream", onStream)
+    socket.on("run:settled", onSettled)
+    socket.on("session:changes:updated", onStaged)
     return () => {
       socket.off("lor:tool", onTool)
       socket.off("message:stream", onStream)
+      socket.off("run:settled", onSettled)
+      socket.off("session:changes:updated", onStaged)
       if (timer) clearTimeout(timer)
     }
-  }, [socket, queryClient, sessionId, threadRootId, enabled])
+  }, [socket, queryClient, sessionId, threadRootId, enabled, userId])
 }
 
 // The file's changes against HEAD, staged and unstaged together.

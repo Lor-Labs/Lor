@@ -80,7 +80,10 @@ may lag web), a Lor-offered "Continue in Code" card.
   - Web: the `session-changes` right-panel view (Details | Changes | Files
     tabs): Tracked and Untracked lists with line counts and checkboxes,
     `@pierre/diffs` diffs (in tabs beside the chat since 3b), and a commit
-    box. It refreshes as Lor's tool calls finish.
+    box. Live for everyone with the session open: files refresh as Lor's
+    tool calls finish; the lock follows the run (`run:settled`, sent after
+    the run row is terminal, because `message:stream` done comes first);
+    staging by others arrives as `session:changes:updated`.
   - **Commit is a stub** (Jacob): commits wait for GitHub identity in
     chunk 4, which also adds the commit event row. No per-file discard.
 - [ ] **3b. Files tab and main-area tabs** (moved into launch scope by

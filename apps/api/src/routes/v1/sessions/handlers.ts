@@ -25,7 +25,7 @@ import {
   readRepoTree,
   stagePaths,
 } from "@repo/lor/code-changes"
-import { channelRoom } from "@repo/realtime-types/rooms"
+import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -516,6 +516,22 @@ export const stageSessionChanges: AppRouteHandler<
     })
     return changesBody(session, sandbox)
   })
+  if (result !== "gone") {
+    // Everyone else with the session open sees the new staging.
+    void getEmitter()
+      .then((io) =>
+        io
+          .to(threadRoom(session.threadRootId))
+          .emit("session:changes:updated", {
+            sessionId,
+            threadRootId: session.threadRootId,
+            byUserId: c.var.user.id,
+          })
+      )
+      .catch((err) =>
+        logger.warn({ err, sessionId }, "Staging broadcast failed")
+      )
+  }
   return c.json(
     result === "gone" ? { state: "gone" as const } : result,
     HttpStatusCodes.OK

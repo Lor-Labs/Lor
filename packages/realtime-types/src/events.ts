@@ -812,6 +812,15 @@ export interface ServerToClientEvents {
   "plan:updated": (payload: PlanUpdatedEvent) => void
   // Lor session row changed (title, archive, activity). Channel room.
   "session:updated": (payload: AgentSessionUpdatedEvent) => void
+  // A run in this thread became terminal (complete, failed, stopped). Thread
+  // room; sent after the run row is updated, unlike message:stream's done.
+  "run:settled": (payload: { threadRootId: string }) => void
+  // Someone staged or unstaged a code session's files. Thread room; ids only.
+  "session:changes:updated": (payload: {
+    sessionId: string
+    threadRootId: string
+    byUserId: string
+  }) => void
   // A run parked on an approval gate. Channel room; ids only — the
   // durable card data comes from the channel approvals query this invalidates.
   "approval:created": (payload: ApprovalCreatedEvent) => void

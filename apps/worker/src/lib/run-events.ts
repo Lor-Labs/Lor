@@ -5,7 +5,10 @@ import type {
   AgentRunStopReason,
 } from "@repo/db/schema"
 import { logger } from "@/lib/logger"
-import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
+import {
+  notifyRunSettled,
+  notifyWorkspaceActivity,
+} from "@/lib/workspace-activity"
 
 const FLUSH_MS = 1000
 const FLUSH_MAX_BUFFERED = 50
@@ -184,13 +187,17 @@ export function createRunEventWriter(args: {
           inArray(schema.agentRun.state, ["queued", "working", "finalizing"])
         )
       )
-      .returning({ workspaceId: schema.agentRun.workspaceId })
+      .returning({
+        workspaceId: schema.agentRun.workspaceId,
+        threadRootId: schema.agentRun.threadRootId,
+      })
       .then((r) => r[0] ?? null)
       .catch((err) => {
         logger.warn({ err, runId, state }, "Agent run transition failed")
         return null
       })
     if (row) notifyWorkspaceActivity(row.workspaceId)
+    if (row?.threadRootId && terminal) notifyRunSettled(row.threadRootId)
   }
 
   return {
