@@ -138,6 +138,12 @@ const serverSchema = z.object({
   // hides when unset.
   GITHUB_APP_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_APP_CLIENT_SECRET: z.string().min(1).optional(),
+  // Pierre Code Storage, the private Git host for code session checkpoints:
+  // the organization name (<org>.code.storage) and an ES256 private key in
+  // PKCS8 PEM form that signs short-lived tokens. The key never enters a
+  // sandbox. Optional: without them sessions keep no checkpoints.
+  CODE_STORAGE_ORG: z.string().min(1).optional(),
+  CODE_STORAGE_PRIVATE_KEY: z.string().min(1).optional(),
   LINEAR_CLIENT_ID: z.string().min(1).optional(),
   LINEAR_CLIENT_SECRET: z.string().min(1).optional(),
   LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
@@ -247,6 +253,16 @@ const refinedServerSchema = serverSchema.superRefine((val, ctx) => {
         val.GITHUB_APP_CLIENT_ID
           ? "GITHUB_APP_CLIENT_SECRET"
           : "GITHUB_APP_CLIENT_ID",
+      ],
+    })
+  }
+  if (!val.CODE_STORAGE_ORG !== !val.CODE_STORAGE_PRIVATE_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CODE_STORAGE_ORG and CODE_STORAGE_PRIVATE_KEY must be set together",
+      path: [
+        val.CODE_STORAGE_ORG ? "CODE_STORAGE_PRIVATE_KEY" : "CODE_STORAGE_ORG",
       ],
     })
   }

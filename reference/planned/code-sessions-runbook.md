@@ -191,6 +191,47 @@ may lag web), a Lor-offered "Continue in Code" card.
     in regular use open at once.
   - Staging is not in a checkpoint: after a restore every change is
     unstaged.
+
+  Plan, 2026-10-24 (Pierre docs and `@pierre/storage` 1.17.1 read):
+  - **Layout:** one Code Storage repo per workspace and GitHub repo
+    (`<workspaceId>/<owner>/<repo>`; repo IDs may contain `/`), so sessions
+    on the same repo share the base's objects; one ephemeral branch per
+    session (`session/<sessionId>`). Ephemeral refs stay until deleted,
+    never reach GitHub, and a normal clone doesn't show them. Deleting a
+    session deletes its branch (`DELETE /repos/branches`, `ephemeral`);
+    deleting a workspace deletes its repos (`DELETE /repos/delete`, async).
+  - **Cold repos:** Code Storage thaws an archived repo before a read; API
+    calls may return 503 for 5–10 seconds meanwhile, so reads retry.
+  - **A checkpoint** is a commit whose tree is the work folder (tracked and
+    untracked files, ignored ones left out, built with a temporary index) and
+    whose parents are the previous checkpoint and the session's HEAD. So the
+    session's own commits keep their SHAs (Push still works after a
+    restore), and the branch only fast-forwards. A `session_checkpoint` row
+    keeps the SHA, HEAD, branch, upstream SHA and run.
+  - **Written from the sandbox:** only the sandbox has the files, and the
+    base must get into Code Storage once. The worker mints a token for one
+    repo: read and write, its session branch only, no force-push, a
+    10-minute lifetime, in one `git push`'s env (like the clone). The org's
+    private key never enters a sandbox (Pierre's rule too). This is our own
+    storage, not the customer's GitHub, where "no token in the sandbox"
+    still holds.
+  - **Egress:** the sandbox allowlist gains `POST` git upload-pack and
+    receive-pack to `<org>.code.storage` (bump `EGRESS_VERSION`).
+  - **When:** after each completed code-session turn, and after Commit and
+    Pull. A Postgres advisory lock per session serializes checkpoints and
+    restores.
+  - **Restore:** `git init`, fetch the checkpoint with a read-only token,
+    check out the branch at the saved HEAD, set the work tree to the
+    checkpoint's tree with nothing staged, point `origin/<branch>` at the
+    saved upstream SHA.
+  - **Env:** `CODE_STORAGE_ORG`, `CODE_STORAGE_PRIVATE_KEY` (PKCS8 PEM;
+    one line with `\n` or base64 also works).
+  - **Spike first** (not in Pierre's docs): a push from a depth-1 clone, a
+    fetch of it into a fresh repo, checkpoint push time at real sizes, and
+    reading a repo after it went cold.
+  - **Parts:** 5a client, table, egress and a checkpoint after each turn;
+    5b restore on demand (worker and panel, "Restoring…"); 5c checkpoints
+    after Commit and Pull, and deleting the session branch with the session.
 - [ ] **6. Rewind and native fork** (Pi first): files and harness state at
   turn N; fork into a new session; the UI for both.
 - [ ] **7. Claude Code** on the session contract: native state per turn,
