@@ -254,8 +254,35 @@ may lag web), a Lor-offered "Continue in Code" card.
     `respond` (best-effort: a failure is logged, the turn stands). An
     unchanged tree and HEAD writes nothing. No `EGRESS_VERSION` bump, so
     live sandboxes keep their work; they skip checkpoints until replaced.
-  - [ ] **5b** restore on demand.
-  - [ ] **5c** checkpoints after Commit and Pull; branch cleanup.
+  - [x] **5b** restore on demand, built 2026-10-24:
+    - `restoreWorkFolder` (`@repo/lor/code-checkpoints`) under the
+      session's checkpoint lock: builds the repo in `<workDir>.restore-<pid>`
+      and moves it into place last, so an interrupted restore (say, a run's
+      fence stopping it) leaves no half-built folder.
+    - Worker: `prepareCodeWorkFolder` restores before it would clone; a
+      `sandbox_restore` tool event shows it. A failed restore falls back to
+      the clone and the lost-changes note.
+    - Panels: `withCodeSandbox` answers `restoring` and starts
+      `restoreSessionFiles` in the background (`attachOrCreateSessionSandbox`
+      creates the sandbox; it never fences or replaces). Its end broadcasts
+      `session:changes:updated` with `filesChanged`, so every open panel
+      refetches. A failure answers `restore_failed` for 30 seconds, then
+      tries again. Changes, Files, diffs and file tabs show "Restoring the
+      session's files…". Commit, Push, Pull and staging refuse with a
+      message meanwhile.
+    - Archived sessions restore too when their panel opens; the new
+      sandbox idles out after 7 days.
+  - [ ] **5c** checkpoints after Commit and Pull; branch cleanup;
+    `Lor-Session` / `Lor-Run` trailers on checkpoint commits; a
+    `session_commit` table (commit SHA → session, person, repo, branch,
+    the turn before it). Decided with Jacob 2026-10-24 for line-level
+    attribution ("which session and turn wrote this line", a Lor blame view,
+    an `explain_line` tool): GitHub blame → commit SHA → `session_commit`;
+    Code Storage blame on `session/<id>` → checkpoint → trailers. Checkpoint
+    parents stay [previous checkpoint, HEAD] so blame follows turns. No git
+    notes: GitHub doesn't show them and the trailers and table cover it.
+    Squash merges need the PR-merge link (graph work, from GitHub's PR
+    events).
 - [ ] **6. Rewind and native fork** (Pi first): files and harness state at
   turn N; fork into a new session; the UI for both.
 - [ ] **7. Claude Code** on the session contract: native state per turn,

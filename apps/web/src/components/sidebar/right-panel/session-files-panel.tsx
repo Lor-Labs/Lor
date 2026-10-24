@@ -12,6 +12,7 @@ import { useMemo, useState } from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { SessionFilesSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import {
+  FolderGapNote,
   PanelNote,
   SessionPanelTabs,
   StatusMark,
@@ -101,10 +102,8 @@ export function SessionFilesPanel({ view }: { view: SessionFilesSidebarView }) {
         Try again
       </Button>
     </PanelNote>
-  ) : tree.data.state === "gone" ? (
-    <PanelNote>
-      This session's sandbox no longer exists, so its files are gone.
-    </PanelNote>
+  ) : tree.data.state !== "ready" ? (
+    <FolderGapNote gap={tree.data.state} onRetry={() => void tree.refetch()} />
   ) : (
     <FileTree
       paths={tree.data.paths}

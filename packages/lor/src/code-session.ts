@@ -1,7 +1,9 @@
 import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
+import { restoreWorkFolder } from "./code-checkpoints"
 import { activeGithubInstallation } from "./github"
+import { logger } from "./logger"
 import { getInstallationToken } from "./providers/github"
 
 // A code session's repo is its work folder, cloned before the turn when it
@@ -30,7 +32,13 @@ const NOT_A_CLONE = 3
 export type RepoInstructions = { path: string; content: string }
 
 export type CodeWorkFolder =
-  | { status: "ready"; cloned: boolean; instructions: RepoInstructions | null }
+  | {
+      status: "ready"
+      cloned: boolean
+      // Rebuilt from the newest checkpoint into a new sandbox.
+      restored: boolean
+      instructions: RepoInstructions | null
+    }
   | { status: "failed"; error: string }
 
 // The token is expanded by the shell from the command's env, so it is never
@@ -82,6 +90,7 @@ async function readInstructions(
 export async function prepareCodeWorkFolder(input: {
   sandbox: SandboxSession
   workDir: string
+  sessionId: string
   workspaceId: string
   code: RunCodeContext
   abortSignal?: AbortSignal
@@ -92,7 +101,31 @@ export async function prepareCodeWorkFolder(input: {
     return {
       status: "ready",
       cloned: false,
+      restored: false,
       instructions: existing.instructions,
+    }
+  }
+
+  // A lost sandbox comes back from the newest checkpoint; a clone is only
+  // for sessions without one (or a failed restore).
+  const restore = await restoreWorkFolder(
+    sandbox,
+    { sessionId: input.sessionId, workDir, repoFullName: code.repoFullName },
+    abortSignal
+  ).catch((err: unknown) => {
+    logger.warn(
+      { err, sessionId: input.sessionId },
+      "Checkpoint restore failed"
+    )
+    return "none" as const
+  })
+  if (restore !== "none") {
+    const restored = await readInstructions(sandbox, workDir, abortSignal)
+    return {
+      status: "ready",
+      cloned: false,
+      restored: restore === "restored",
+      instructions: restored.present ? restored.instructions : null,
     }
   }
 
@@ -126,6 +159,7 @@ export async function prepareCodeWorkFolder(input: {
   return {
     status: "ready",
     cloned: true,
+    restored: false,
     instructions: cloned.present ? cloned.instructions : null,
   }
 }

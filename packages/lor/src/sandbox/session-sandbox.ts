@@ -249,6 +249,22 @@ export async function attachSessionSandbox(
   }
 }
 
+// A code session's restore from the Changes panel: the sandbox as it is, or a
+// new one when it is gone. Like attachSessionSandbox it never stops a run's
+// commands or replaces an unhealthy sandbox; the worker does that.
+export async function attachOrCreateSessionSandbox(
+  owner: HarnessOwner
+): Promise<SessionSandbox | null> {
+  const existing = await attachSessionSandbox(owner)
+  if (existing || !blaxelConfigured()) return existing
+  const created = await createSessionSandbox(sessionSandboxName(owner))
+  return {
+    session: blaxelSandboxSession(created),
+    fresh: true,
+    close: () => closeConnection(created),
+  }
+}
+
 // The conversation's files go with it; Pi's saved state and shared files
 // live in Postgres and R2. A sandbox that is already gone counts as deleted.
 export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {

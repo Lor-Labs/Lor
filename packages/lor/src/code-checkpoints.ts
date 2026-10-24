@@ -1,8 +1,15 @@
+import { shellQuote } from "@ai-sdk/harness/utils"
 import { GitStorage, OP_NO_FORCE_PUSH, OP_NO_PUSH } from "@pierre/storage"
 import { db, desc, eq, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
+import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import type { CodeSandbox } from "./code-changes"
 import { normalizePrivateKey } from "./providers/github"
+import {
+  attachOrCreateSessionSandbox,
+  SESSION_WORK_DIR,
+} from "./sandbox/session-sandbox"
+import { piWorkDir } from "./session-core/work-dir"
 
 // Code session checkpoints in Pierre Code Storage
 // (reference/planned/code-sessions-runbook.md, chunk 5). One repo per
@@ -93,6 +100,109 @@ async function readWorkFolder(
   }
 }
 
+const lockSession = (tx: Pick<typeof db, "execute">, sessionId: string) =>
+  tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`checkpoint:${sessionId}`}))`
+  )
+
+function newestCheckpoint(tx: Pick<typeof db, "select">, sessionId: string) {
+  return tx
+    .select()
+    .from(schema.sessionCheckpoint)
+    .where(eq(schema.sessionCheckpoint.sessionId, sessionId))
+    .orderBy(desc(schema.sessionCheckpoint.createdAt))
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+}
+
+export async function hasCheckpoint(sessionId: string): Promise<boolean> {
+  return (
+    codeStorage() !== null && (await newestCheckpoint(db, sessionId)) !== null
+  )
+}
+
+const RESTORE_FAILED = 30
+
+export type RestoreResult = "restored" | "present" | "none"
+
+// Rebuilds a session's work folder from its newest checkpoint: the branch at
+// the saved HEAD (people's own commits included), the work tree as saved,
+// nothing staged, and origin/<branch> where GitHub last was. It builds in a
+// temporary folder and moves it into place last, so an interrupted restore
+// leaves no half-built work folder. Under the session's checkpoint lock, so a
+// restore never overlaps another restore or a checkpoint.
+export async function restoreWorkFolder(
+  session: SandboxSession,
+  input: { sessionId: string; workDir: string; repoFullName: string },
+  abortSignal?: AbortSignal
+): Promise<RestoreResult> {
+  const store = codeStorage()
+  if (!store) return "none"
+  return db.transaction(async (tx) => {
+    await lockSession(tx, input.sessionId)
+    const checkpoint = await newestCheckpoint(tx, input.sessionId)
+    if (!checkpoint) return "none"
+    const { sha, headSha, branch, upstreamSha } = checkpoint
+    if (![sha, headSha].every((value) => SHA.test(value))) {
+      throw new Error("checkpoint row has an invalid SHA")
+    }
+    const remote = await store
+      .repo({ id: checkpoint.storageRepo })
+      .getRemoteURL({ permissions: ["git:read"], ttl: TOKEN_TTL_SECONDS })
+    const token = new URL(remote).password
+    const q = shellQuote
+    const checkout = branch ? `-B ${q(branch)}` : "--detach"
+    const result = await session.run({
+      command: [
+        `dir=${q(input.workDir)}`,
+        `if [ "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" = "$dir" ]; then printf present; exit 0; fi`,
+        // A folder left without a repo (or partly removed) can't be restored into.
+        `if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then exit ${RESTORE_FAILED}; fi`,
+        `rm -rf "$dir".restore-*`,
+        `tmp="$dir.restore-$$"`,
+        `mkdir -p "$tmp" && cd "$tmp" && git init -q || exit ${RESTORE_FAILED}`,
+        `git fetch -q --update-shallow "$LOR_CHECKPOINT_REMOTE" ${q(`refs/heads/${sessionBranch(input.sessionId)}:refs/lor/checkpoint`)} || exit ${RESTORE_FAILED}`,
+        `git checkout -q -f ${checkout} ${sha} && git reset -q --soft ${headSha} && git reset -q || exit ${RESTORE_FAILED}`,
+        `git remote add origin ${q(`https://github.com/${input.repoFullName}.git`)}`,
+        branch && upstreamSha && SHA.test(upstreamSha)
+          ? `git update-ref ${q(`refs/remotes/origin/${branch}`)} ${upstreamSha} || true`
+          : "",
+        `cd / && rmdir "$dir" 2>/dev/null; mv "$tmp" "$dir" || exit ${RESTORE_FAILED}`,
+        "printf restored",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      env: { LOR_CHECKPOINT_REMOTE: remote },
+      ...(abortSignal ? { abortSignal } : {}),
+    })
+    if (result.exitCode !== 0) {
+      const detail = result.stderr.split(token).join("***").slice(-300)
+      throw new Error(`checkpoint restore failed: ${detail}`)
+    }
+    return result.stdout.trim() === "present" ? "present" : "restored"
+  })
+}
+
+// The Changes panel's restore: the session's sandbox (created when gone),
+// then its work folder from the newest checkpoint.
+export async function restoreSessionFiles(input: {
+  sessionId: string
+  repoFullName: string
+}): Promise<RestoreResult> {
+  const sandbox = await attachOrCreateSessionSandbox({
+    sessionId: input.sessionId,
+  })
+  if (!sandbox) return "none"
+  try {
+    return await restoreWorkFolder(sandbox.session, {
+      ...input,
+      workDir: piWorkDir(SESSION_WORK_DIR, input.sessionId),
+    })
+  } finally {
+    sandbox.close()
+  }
+}
+
 export type CheckpointResult = "written" | "unchanged" | "disabled"
 
 // Saves the work folder after a completed turn (or a person's Commit or
@@ -114,20 +224,8 @@ export async function writeCheckpoint(
   const abortSignal = AbortSignal.timeout(CHECKPOINT_TIMEOUT_MS)
 
   return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${`checkpoint:${input.sessionId}`}))`
-    )
-    const [previous] = await tx
-      .select({
-        sha: schema.sessionCheckpoint.sha,
-        treeSha: schema.sessionCheckpoint.treeSha,
-        headSha: schema.sessionCheckpoint.headSha,
-        storageRepo: schema.sessionCheckpoint.storageRepo,
-      })
-      .from(schema.sessionCheckpoint)
-      .where(eq(schema.sessionCheckpoint.sessionId, input.sessionId))
-      .orderBy(desc(schema.sessionCheckpoint.createdAt))
-      .limit(1)
+    await lockSession(tx, input.sessionId)
+    const previous = await newestCheckpoint(tx, input.sessionId)
     const state = await readWorkFolder(sandbox, abortSignal)
     if (previous?.treeSha === state.tree && previous.headSha === state.head) {
       return "unchanged"

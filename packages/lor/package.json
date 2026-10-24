@@ -13,6 +13,7 @@
     "./meeting-insights": "./src/meeting-insights.ts",
     "./capabilities": "./src/capabilities.ts",
     "./code-changes": "./src/code-changes.ts",
+    "./code-checkpoints": "./src/code-checkpoints.ts",
     "./code-repo": "./src/code-repo.ts",
     "./company-site": "./src/company-site.ts",
     "./connector-search": "./src/connector-search.ts",

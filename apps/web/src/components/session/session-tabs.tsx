@@ -25,6 +25,7 @@ import {
   ChangeDiff,
   changeTotals,
   DIFF_CSS,
+  FolderGapNote,
   LineCounts,
   PanelNote,
   StageCheckbox,
@@ -328,7 +329,8 @@ export function SessionTabView({
   )
 }
 
-// Loading, failed, or the sandbox is gone: the note shown instead.
+// Loading, failed, or no work folder (gone or restoring): the note shown
+// instead.
 function changesNote(changes: ReturnType<typeof useSessionChanges>) {
   if (changes.isPending) {
     return (
@@ -338,8 +340,13 @@ function changesNote(changes: ReturnType<typeof useSessionChanges>) {
     )
   }
   if (changes.isError) return <PanelNote>Couldn't load the changes.</PanelNote>
-  if (changes.data.state === "gone") {
-    return <PanelNote>The sandbox no longer exists.</PanelNote>
+  if (changes.data.state !== "ready") {
+    return (
+      <FolderGapNote
+        gap={changes.data.state}
+        onRetry={() => void changes.refetch()}
+      />
+    )
   }
   return null
 }
@@ -573,8 +580,14 @@ function RepoFileView({
   if (file.data.kind === "missing") {
     return <PanelNote>This file no longer exists.</PanelNote>
   }
-  if (file.data.kind === "gone") {
-    return <PanelNote>The sandbox no longer exists.</PanelNote>
+  if (
+    file.data.kind === "gone" ||
+    file.data.kind === "restoring" ||
+    file.data.kind === "restore_failed"
+  ) {
+    return (
+      <FolderGapNote gap={file.data.kind} onRetry={() => void file.refetch()} />
+    )
   }
   return (
     <div className="m-3 overflow-hidden rounded-lg border border-border/70 bg-card py-1.5">

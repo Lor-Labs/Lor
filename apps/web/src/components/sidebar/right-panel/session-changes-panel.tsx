@@ -148,10 +148,11 @@ export function SessionChangesPanel({
         Try again
       </Button>
     </PanelNote>
-  ) : changes.data.state === "gone" ? (
-    <PanelNote>
-      This session's sandbox no longer exists, so its changes are gone.
-    </PanelNote>
+  ) : changes.data.state !== "ready" ? (
+    <FolderGapNote
+      gap={changes.data.state}
+      onRetry={() => void changes.refetch()}
+    />
   ) : (
     <ChangesView sessionId={view.sessionId} changes={changes.data} />
   )
@@ -188,6 +189,41 @@ export function PanelNote({ children }: { children: ReactNode }) {
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
       {children}
     </div>
+  )
+}
+
+// No work folder to read: gone for good (no checkpoint), being rebuilt from
+// the last checkpoint (a broadcast refetches when it ends), or that failed.
+export function FolderGapNote({
+  gap,
+  onRetry,
+}: {
+  gap: "gone" | "restoring" | "restore_failed"
+  onRetry: () => void
+}) {
+  if (gap === "restoring") {
+    return (
+      <PanelNote>
+        <Spinner className="size-4" />
+        Restoring the session's files…
+      </PanelNote>
+    )
+  }
+  if (gap === "restore_failed") {
+    return (
+      <PanelNote>
+        Couldn't restore the session's files.
+        <Button size="xs" variant="outline" onClick={onRetry}>
+          Try again
+        </Button>
+      </PanelNote>
+    )
+  }
+  return (
+    <PanelNote>
+      This session's sandbox no longer exists, and it has no checkpoint to
+      restore its files from.
+    </PanelNote>
   )
 }
 
@@ -540,8 +576,14 @@ export function ChangeDiff({
   if (diff.data.kind === "too_large") {
     return <PanelNote>This diff is too large to show.</PanelNote>
   }
-  if (diff.data.kind === "gone") {
-    return <PanelNote>The sandbox no longer exists.</PanelNote>
+  if (
+    diff.data.kind === "gone" ||
+    diff.data.kind === "restoring" ||
+    diff.data.kind === "restore_failed"
+  ) {
+    return (
+      <FolderGapNote gap={diff.data.kind} onRetry={() => void diff.refetch()} />
+    )
   }
   if (!patch?.trim()) {
     return <PanelNote>No changes to the file's text.</PanelNote>

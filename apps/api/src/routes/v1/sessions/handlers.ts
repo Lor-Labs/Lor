@@ -33,6 +33,7 @@ import {
   readUnpushedCommits,
   stagePaths,
 } from "@repo/lor/code-changes"
+import { hasCheckpoint, restoreSessionFiles } from "@repo/lor/code-checkpoints"
 import { channelEventContent } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
@@ -436,21 +437,71 @@ async function lorWorkingIn(threadRootId: string): Promise<boolean> {
   return Boolean(run)
 }
 
-// "gone" when the sandbox or its repository folder no longer exists.
-async function withCodeSandbox<T>(
-  sessionId: string,
-  use: (sandbox: CodeSandbox) => Promise<T>
-): Promise<T | "gone"> {
-  const sandbox = await attachCodeSandbox(sessionId)
-  if (!sandbox) return "gone"
-  try {
-    return await use(sandbox)
-  } catch (err) {
-    if (err instanceof CodeSandboxMissingError) return "gone"
-    throw err
-  } finally {
-    sandbox.close()
+// Why there is no work folder to use: gone for good (no checkpoint), being
+// rebuilt from the newest checkpoint, or that rebuild just failed.
+type FolderGap = "gone" | "restoring" | "restore_failed"
+const FOLDER_GAPS: ReadonlySet<unknown> = new Set([
+  "gone",
+  "restoring",
+  "restore_failed",
+])
+const isGap = (value: unknown): value is FolderGap => FOLDER_GAPS.has(value)
+
+const gapMessage: Record<FolderGap, string> = {
+  gone: "This session's sandbox no longer exists",
+  restoring: "The session's files are being restored. Try again in a moment",
+  restore_failed: "Couldn't restore the session's files. Try again shortly",
+}
+
+// Restores this API process started, so repeated panel loads start one.
+const restoring = new Map<string, Promise<void>>()
+const restoreFailedAt = new Map<string, number>()
+const RESTORE_RETRY_MS = 30_000
+
+// A gone sandbox or work folder comes back from the newest checkpoint in the
+// background (code-sessions-runbook.md chunk 5): callers answer "restoring"
+// now, and a changes broadcast refetches every open panel when it ends.
+async function startRestore(session: CodeSession): Promise<FolderGap> {
+  if (restoring.has(session.id)) return "restoring"
+  const failedAt = restoreFailedAt.get(session.id)
+  if (failedAt && Date.now() - failedAt < RESTORE_RETRY_MS) {
+    return "restore_failed"
   }
+  if (!(await hasCheckpoint(session.id))) return "gone"
+  const job = restoreSessionFiles({
+    sessionId: session.id,
+    repoFullName: session.repoFullName,
+  })
+    .then(() => {
+      restoreFailedAt.delete(session.id)
+    })
+    .catch((err) => {
+      logger.error({ err, sessionId: session.id }, "Session restore failed")
+      restoreFailedAt.set(session.id, Date.now())
+    })
+    .finally(() => {
+      restoring.delete(session.id)
+      broadcastChangesUpdated(session, "", { filesChanged: true })
+    })
+  restoring.set(session.id, job)
+  return "restoring"
+}
+
+async function withCodeSandbox<T>(
+  session: CodeSession,
+  use: (sandbox: CodeSandbox) => Promise<T>
+): Promise<T | FolderGap> {
+  const sandbox = await attachCodeSandbox(session.id)
+  if (sandbox) {
+    try {
+      return await use(sandbox)
+    } catch (err) {
+      if (!(err instanceof CodeSandboxMissingError)) throw err
+    } finally {
+      sandbox.close()
+    }
+  }
+  return startRestore(session)
 }
 
 async function changesBody(session: CodeSession, sandbox: CodeSandbox) {
@@ -478,13 +529,10 @@ export const getSessionChanges: AppRouteHandler<
   const { sessionId } = c.req.valid("param")
   const session = await findCodeSession(sessionId, c.var.user.id)
   if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
-  const body = await withCodeSandbox(sessionId, (sandbox) =>
+  const body = await withCodeSandbox(session, (sandbox) =>
     changesBody(session, sandbox)
   )
-  return c.json(
-    body === "gone" ? { state: "gone" as const } : body,
-    HttpStatusCodes.OK
-  )
+  return c.json(isGap(body) ? { state: body } : body, HttpStatusCodes.OK)
 }
 
 export const getSessionChangeDiff: AppRouteHandler<
@@ -494,17 +542,14 @@ export const getSessionChangeDiff: AppRouteHandler<
   const query = c.req.valid("query")
   const session = await findCodeSession(sessionId, c.var.user.id)
   if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
-  const diff = await withCodeSandbox(sessionId, (sandbox) =>
+  const diff = await withCodeSandbox(session, (sandbox) =>
     readFileDiff(
       sandbox,
       { path: query.path, oldPath: query.oldPath ?? null },
       query.untracked === "true"
     )
   )
-  return c.json(
-    diff === "gone" ? { kind: "gone" as const } : diff,
-    HttpStatusCodes.OK
-  )
+  return c.json(isGap(diff) ? { kind: diff } : diff, HttpStatusCodes.OK)
 }
 
 export const stageSessionChanges: AppRouteHandler<
@@ -524,18 +569,16 @@ export const stageSessionChanges: AppRouteHandler<
       HttpStatusCodes.CONFLICT
     )
   }
-  const result = await withCodeSandbox(sessionId, async (sandbox) => {
+  const result = await withCodeSandbox(session, async (sandbox) => {
     await stagePaths(sandbox, {
       paths: body.all ? "all" : (body.paths ?? []),
       staged: body.staged,
     })
     return changesBody(session, sandbox)
   })
-  if (result !== "gone") broadcastChangesUpdated(session, c.var.user.id)
-  return c.json(
-    result === "gone" ? { state: "gone" as const } : result,
-    HttpStatusCodes.OK
-  )
+  if (isGap(result)) return c.json({ state: result }, HttpStatusCodes.OK)
+  broadcastChangesUpdated(session, c.var.user.id)
+  return c.json(result, HttpStatusCodes.OK)
 }
 
 // Everyone else with the session open refetches its changes.
@@ -618,7 +661,7 @@ export const commitSessionChanges: AppRouteHandler<
   const account = await linkedGithubAccount(user.id)
   if (!account) return refuse("Link your GitHub account to commit as yourself")
 
-  const result = await withCodeSandbox(sessionId, async (sandbox) => {
+  const result = await withCodeSandbox(session, async (sandbox) => {
     const commit = await commitStaged(sandbox, {
       message,
       ...commitIdentity(account),
@@ -627,9 +670,7 @@ export const commitSessionChanges: AppRouteHandler<
       ? { commit, changes: await changesBody(session, sandbox) }
       : { commit, changes: null }
   })
-  if (result === "gone") {
-    return refuse("This session's sandbox no longer exists")
-  }
+  if (isGap(result)) return refuse(gapMessage[result])
   if (!result.commit.ok) return refuse(result.commit.detail)
 
   const { commit, changes } = result
@@ -684,7 +725,7 @@ export const pushSessionChanges: AppRouteHandler<
     )
   }
 
-  const result = await withCodeSandbox(sessionId, async (sandbox) => {
+  const result = await withCodeSandbox(session, async (sandbox) => {
     const unpushed = await readUnpushedCommits(sandbox, session.baseBranch)
     const failed = (error: string, behind = false) => ({
       ok: false as const,
@@ -713,9 +754,7 @@ export const pushSessionChanges: AppRouteHandler<
       changes: await changesBody(session, sandbox),
     }
   })
-  if (result === "gone") {
-    return refuse("This session's sandbox no longer exists")
-  }
+  if (isGap(result)) return refuse(gapMessage[result])
   if (!result.ok) {
     // The client offers to pull, then push again.
     return result.behind
@@ -780,7 +819,7 @@ export const pullSessionChanges: AppRouteHandler<
   const account = await linkedGithubAccount(user.id)
   if (!account) return refuse("Link your GitHub account to pull as yourself")
 
-  const result = await withCodeSandbox(sessionId, async (sandbox) => {
+  const result = await withCodeSandbox(session, async (sandbox) => {
     const pulled = await pullBranch(sandbox, {
       workspaceId: session.workspaceId,
       repoFullName: session.repoFullName,
@@ -797,9 +836,7 @@ export const pullSessionChanges: AppRouteHandler<
       changes: await changesBody(session, sandbox),
     }
   })
-  if (result === "gone") {
-    return refuse("This session's sandbox no longer exists")
-  }
+  if (isGap(result)) return refuse(gapMessage[result])
   if (!result.ok) return refuse(result.detail)
   if (result.pulled.commitCount > 0) {
     broadcastChangesUpdated(session, user.id, { filesChanged: true })
@@ -867,11 +904,9 @@ export const getRepoTree: AppRouteHandler<GetRepoTreeRoute> = async (c) => {
   const { sessionId } = c.req.valid("param")
   const session = await findCodeSession(sessionId, c.var.user.id)
   if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
-  const tree = await withCodeSandbox(sessionId, readRepoTree)
+  const tree = await withCodeSandbox(session, readRepoTree)
   return c.json(
-    tree === "gone"
-      ? { state: "gone" as const }
-      : { state: "ready" as const, ...tree },
+    isGap(tree) ? { state: tree } : { state: "ready" as const, ...tree },
     HttpStatusCodes.OK
   )
 }
@@ -881,13 +916,10 @@ export const getRepoFile: AppRouteHandler<GetRepoFileRoute> = async (c) => {
   const { path } = c.req.valid("query")
   const session = await findCodeSession(sessionId, c.var.user.id)
   if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
-  const file = await withCodeSandbox(sessionId, (sandbox) =>
+  const file = await withCodeSandbox(session, (sandbox) =>
     readRepoFile(sandbox, path)
   )
-  return c.json(
-    file === "gone" ? { kind: "gone" as const } : file,
-    HttpStatusCodes.OK
-  )
+  return c.json(isGap(file) ? { kind: file } : file, HttpStatusCodes.OK)
 }
 
 export const generateSessionCommitMessage: AppRouteHandler<
@@ -896,7 +928,7 @@ export const generateSessionCommitMessage: AppRouteHandler<
   const { sessionId } = c.req.valid("param")
   const session = await findCodeSession(sessionId, c.var.user.id)
   if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
-  const message = await withCodeSandbox(sessionId, (sandbox) =>
+  const message = await withCodeSandbox(session, (sandbox) =>
     generateCommitMessage(
       sandbox,
       { workspaceId: session.workspaceId, sessionTitle: session.title },
@@ -904,7 +936,7 @@ export const generateSessionCommitMessage: AppRouteHandler<
     )
   )
   return c.json(
-    { message: message === "gone" ? null : message },
+    { message: isGap(message) ? null : message },
     HttpStatusCodes.OK
   )
 }

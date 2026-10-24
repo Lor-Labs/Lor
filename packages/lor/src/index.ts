@@ -2963,6 +2963,7 @@ export async function respond(
         ? await prepareCodeWorkFolder({
             sandbox: sandbox.session,
             workDir: piWorkDir(SESSION_WORK_DIR, conversationId),
+            sessionId: conversationId,
             workspaceId: ctx.workspaceId,
             code: ctx.code,
             ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
@@ -2983,6 +2984,15 @@ export async function respond(
           label: ctx.code
             ? "Cloned the repository again; changes from earlier turns are gone"
             : "Started a new sandbox; files from earlier turns are gone",
+          at: 0,
+          status: "ok",
+        })
+      }
+      if (workFolder?.status === "ready" && workFolder.restored) {
+        onToolEvent?.({
+          toolCallId: `sandbox-restore-${run.runId}`,
+          toolName: "sandbox_restore",
+          label: "Restored the session's files from its last checkpoint",
           at: 0,
           status: "ok",
         })

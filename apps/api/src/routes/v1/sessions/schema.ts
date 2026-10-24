@@ -141,6 +141,9 @@ export const sessionChangesResponseSchema = z.discriminatedUnion("state", [
   }),
   // The sandbox or its repository folder no longer exists.
   z.object({ state: z.literal("gone") }),
+  // Rebuilding from the newest checkpoint; a changes broadcast follows.
+  z.object({ state: z.literal("restoring") }),
+  z.object({ state: z.literal("restore_failed") }),
 ])
 
 const pathSchema = z
@@ -160,6 +163,8 @@ export const sessionChangeDiffResponseSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("binary") }),
   z.object({ kind: z.literal("too_large") }),
   z.object({ kind: z.literal("gone") }),
+  z.object({ kind: z.literal("restoring") }),
+  z.object({ kind: z.literal("restore_failed") }),
 ])
 
 export const stageSessionChangesRequestSchema = z
@@ -211,6 +216,9 @@ export const repoTreeResponseSchema = z.discriminatedUnion("state", [
     truncated: z.boolean(),
   }),
   z.object({ state: z.literal("gone") }),
+  // Rebuilding from the newest checkpoint; a changes broadcast follows.
+  z.object({ state: z.literal("restoring") }),
+  z.object({ state: z.literal("restore_failed") }),
 ])
 
 export const repoFileQuerySchema = z.object({ path: pathSchema })
@@ -222,6 +230,8 @@ export const repoFileResponseSchema = z.discriminatedUnion("kind", [
   // Not a file in the repo, or it resolves outside it.
   z.object({ kind: z.literal("missing") }),
   z.object({ kind: z.literal("gone") }),
+  z.object({ kind: z.literal("restoring") }),
+  z.object({ kind: z.literal("restore_failed") }),
 ])
 
 export const commitMessageResponseSchema = z.object({
