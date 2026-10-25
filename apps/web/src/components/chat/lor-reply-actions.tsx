@@ -79,7 +79,9 @@ export function LorReplyActions({
   return (
     <div
       className={cn(
-        "-ml-1.5 mt-1.5 flex items-center gap-0.5 transition-opacity duration-100",
+        // The buttons' own padding is the gap: no extra margin above, and
+        // the next row tucks under their bottom padding.
+        "-ml-1.5 -mb-1 mt-0.5 flex items-center gap-0.5 transition-opacity duration-100",
         !shown &&
           "pointer-events-none opacity-0 focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
       )}
@@ -229,12 +231,10 @@ function ForkAction({
           strokeWidth={1.5}
         />
       </TooltipTrigger>
-      <PopoverContent side="bottom" align="start" className="w-72">
+      <PopoverContent side="bottom" align="start" className="w-64">
         <PopoverTitle className="text-sm">Fork from this reply?</PopoverTitle>
-        <PopoverDescription className="mt-1.5 text-xs leading-relaxed">
-          A new session starts here, with Lor's conversation up to this reply
-          and, in a code session, its files as they were. This session stays as
-          it is.
+        <PopoverDescription className="mt-1.5 text-xs">
+          Starts a new session from here. This one won't change.
         </PopoverDescription>
         <div className="mt-3 flex justify-end gap-2">
           <Button

@@ -370,7 +370,8 @@ may lag web), a Lor-offered "Continue in Code" card.
     like ChatGPT's and Claude's (`LorReplyActions`: Copy, React, Reply,
     Forward to chat, Fork last, then the time; ⋯ only for Pin). Fork is a
     visible icon, not in a menu (Jacob: forking is a launch emphasis). It
-    asks first in a popover ("Fork from this reply?", Cancel / Fork), and
+    asks first in a short popover ("Fork from this reply?" / "Starts a new
+    session from here. This one won't change.", Cancel / Fork), and
     the Fork button spins until the new session opens. The row always shows on
     the newest reply and on hover on older ones. People's messages and
     channel chat keep the floating bar.

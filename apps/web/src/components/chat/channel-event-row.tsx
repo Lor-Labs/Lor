@@ -681,7 +681,7 @@ function SessionEventRow({
     />
   )
   return (
-    <div className="group/event mt-3 flex items-center gap-3 px-4 py-1">
+    <div className="group/event mt-1 flex items-center gap-3 px-4 py-0.5">
       {/* Empty gutter: the row starts on the message-content axis. */}
       <div className="w-7 shrink-0" />
       <div className="flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
