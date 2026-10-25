@@ -83,6 +83,14 @@ export function LorReplyActions({
           }}
         />
       )}
+      {onFork && (
+        <RowAction
+          handle={tooltipHandle}
+          label="Fork from here"
+          icon={GitForkIcon}
+          onClick={onFork}
+        />
+      )}
       <EmojiReactionPicker
         tooltipHandle={tooltipHandle}
         onSelect={onReact}
@@ -103,7 +111,7 @@ export function LorReplyActions({
           onClick={onForward}
         />
       )}
-      {(onFork || onTogglePin) && (
+      {onTogglePin && (
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <TooltipTrigger
             handle={tooltipHandle}
@@ -130,21 +138,13 @@ export function LorReplyActions({
             />
           </TooltipTrigger>
           <DropdownMenuContent side="bottom" align="start">
-            {onFork && (
-              <DropdownMenuItem onClick={onFork}>
-                <HugeiconsIcon icon={GitForkIcon} size={14} />
-                Fork from here
-              </DropdownMenuItem>
-            )}
-            {onTogglePin && (
-              <DropdownMenuItem onClick={onTogglePin}>
-                <HugeiconsIcon
-                  icon={isPinned ? PinOffIcon : Pin02Icon}
-                  size={14}
-                />
-                {isPinned ? "Unpin message" : "Pin message"}
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem onClick={onTogglePin}>
+              <HugeiconsIcon
+                icon={isPinned ? PinOffIcon : Pin02Icon}
+                size={14}
+              />
+              {isPinned ? "Unpin message" : "Pin message"}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       )}

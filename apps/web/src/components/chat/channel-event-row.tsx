@@ -1,6 +1,15 @@
-import { HashtagIcon, Infinity01Icon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  ArrowUp02Icon,
+  GitCommitIcon,
+  GitForkIcon,
+  HashtagIcon,
+  Infinity01Icon,
+  SourceCodeIcon,
+  ZapIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
+import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import {
   HoverCard,
   HoverCardContent,
@@ -8,12 +17,14 @@ import {
 } from "@repo/ui/components/preview-card"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateTime, formatTime, timeAgo } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
+import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
 import { channelLoopsQueryOptions } from "@/hooks/use-channel-loops"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
@@ -129,6 +140,23 @@ function SessionLink({
     >
       {children}
     </Link>
+  )
+}
+
+// Another session by its current title (renames and Lor's generated title
+// show), shared with that session's page cache.
+function SessionTitleLink({
+  sessionId,
+  fallback,
+}: {
+  sessionId: string
+  fallback: string
+}) {
+  const { data } = useQuery(agentSessionQueryOptions(sessionId))
+  return (
+    <SessionLink sessionId={sessionId}>
+      {data?.session.title ?? fallback}
+    </SessionLink>
   )
 }
 
@@ -457,9 +485,10 @@ function eventText(
       return (
         <>
           {actor} continued this in{" "}
-          <SessionLink sessionId={p.sessionId}>
-            a code session{p.repoFullName ? ` on ${p.repoFullName}` : ""}
-          </SessionLink>
+          <SessionTitleLink
+            sessionId={p.sessionId}
+            fallback={`a code session${p.repoFullName ? ` on ${p.repoFullName}` : ""}`}
+          />
         </>
       )
     }
@@ -506,7 +535,7 @@ function eventText(
       return (
         <>
           {actor} forked this session into{" "}
-          <SessionLink sessionId={p.sessionId}>a new session</SessionLink>
+          <SessionTitleLink sessionId={p.sessionId} fallback="a new session" />
         </>
       )
     }
@@ -602,6 +631,66 @@ interface ChannelEventRowProps {
   layout?: "chat" | "document"
 }
 
+// Session events (Jacob 2026-10-24): an icon on the avatar axis, and the
+// person's avatar before their name. Channel chat keeps the iconless row.
+const SESSION_EVENT_ICONS: Partial<
+  Record<NonNullable<Message["eventType"]>, IconSvgElement>
+> = {
+  session_continued: SourceCodeIcon,
+  session_committed: GitCommitIcon,
+  session_pushed: ArrowUp02Icon,
+  session_forked: GitForkIcon,
+  loop_run: Infinity01Icon,
+  trigger_run: ZapIcon,
+}
+
+// The events whose sentence starts with the person who did it.
+const ACTOR_EVENTS: ReadonlySet<string> = new Set([
+  "session_continued",
+  "session_committed",
+  "session_pushed",
+  "session_forked",
+])
+
+function SessionEventRow({
+  message,
+  icon,
+  text,
+}: {
+  message: Message
+  icon: IconSvgElement
+  text: ReactNode
+}) {
+  const { author } = message
+  return (
+    <div className="group/event mt-3 flex items-center gap-3 px-4 py-1">
+      <div className="flex w-7 shrink-0 justify-center">
+        <span className="flex size-6 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <HugeiconsIcon icon={icon} size={13} strokeWidth={2} />
+        </span>
+      </div>
+      <div className="min-w-0 text-[13px] text-muted-foreground">
+        {message.eventType && ACTOR_EVENTS.has(message.eventType) && (
+          <Avatar className="mr-1.5 inline-flex size-4 align-[-3px]">
+            {author.image && <AvatarImage src={author.image} alt="" />}
+            <AvatarFallback
+              avatarColor={author.avatarColor}
+              fallbackSeed={author.name}
+              className="font-semibold text-[7px]"
+            >
+              {getAvatarInitials(author.name)}
+            </AvatarFallback>
+          </Avatar>
+        )}
+        {text}
+        <span className="ml-1.5 text-[11px] text-muted-foreground/50 opacity-0 transition-opacity group-hover/event:opacity-100">
+          {formatTime(message.createdAt)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function ChannelEventRow({
   events,
   resolveUserName,
@@ -610,6 +699,19 @@ export function ChannelEventRow({
   const [expanded, setExpanded] = useState(false)
   const first = events[0]
   if (!first) return null
+
+  const sessionIcon = first.eventType
+    ? SESSION_EVENT_ICONS[first.eventType]
+    : undefined
+  if (layout === "document" && sessionIcon && events.length === 1) {
+    return (
+      <SessionEventRow
+        message={first}
+        icon={sessionIcon}
+        text={eventText(first, resolveUserName)}
+      />
+    )
+  }
 
   const collapsed = events.length > 1 && !expanded
   const rows = collapsed ? [events] : events.map((event) => [event])
