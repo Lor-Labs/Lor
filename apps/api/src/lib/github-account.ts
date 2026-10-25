@@ -1,6 +1,8 @@
-import { and, db, eq, schema } from "@repo/db"
+import { auth } from "@repo/auth"
+import { and, db, eq, isNull, or, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
+import { logger } from "@/lib/logger"
 
 // A person's own GitHub account ("Your accounts"), authorized through the
 // GitHub App's user authorization (OAuth web flow). Its token acts as the
@@ -187,6 +189,32 @@ export async function fetchGithubProfile(token: string) {
     avatarUrl: user.avatar_url,
     email:
       emails.find((entry) => entry.primary && entry.verified)?.email ?? null,
+  }
+}
+
+export async function fillMissingGithubAvatar(
+  user: { id: string; image?: string | null },
+  avatarUrl: string | null | undefined
+) {
+  if (user.image || !avatarUrl) return
+  try {
+    // Check in SQL too: connecting GitHub must not replace a concurrent upload.
+    await db
+      .update(schema.user)
+      .set({ image: avatarUrl })
+      .where(
+        and(
+          eq(schema.user.id, user.id),
+          or(isNull(schema.user.image), eq(schema.user.image, ""))
+        )
+      )
+
+    // Refresh Better Auth's Redis sessions from the current row without
+    // writing the image again. Also repairs a stale session on the next load.
+    const { internalAdapter } = await auth.$context
+    await internalAdapter.updateUser(user.id, { updatedAt: new Date() })
+  } catch (err) {
+    logger.warn({ err, userId: user.id }, "GitHub avatar fallback failed")
   }
 }
 

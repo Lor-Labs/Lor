@@ -4,6 +4,7 @@ import { decryptSecret } from "@repo/utils/crypto"
 import {
   exchangeGithubCode,
   fetchGithubProfile,
+  fillMissingGithubAvatar,
   githubAccountsAvailable,
   githubAuthorizeUrl,
   revokeGithubToken,
@@ -45,6 +46,7 @@ export const getPersonalAccounts: AppRouteHandler<
     .where(isGithubAccount(c.var.user.id))
     .limit(1)
     .then((rows) => rows[0] ?? null)
+  await fillMissingGithubAvatar(c.var.user, account?.avatarUrl)
   return c.json(
     { github: { available: githubAccountsAvailable(), account } },
     HttpStatusCodes.OK
@@ -102,6 +104,7 @@ export const connectGithubAccount: AppRouteHandler<
     })
     .returning(accountColumns)
   if (!account) throw new Error("GitHub account upsert returned no row")
+  await fillMissingGithubAvatar(c.var.user, account.avatarUrl)
   return c.json({ account }, HttpStatusCodes.OK)
 }
 

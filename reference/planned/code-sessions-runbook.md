@@ -129,6 +129,10 @@ may lag web), a Lor-offered "Continue in Code" card.
     `/accounts/github/callback` page and Settings → Linked accounts. Not
     better-auth's linked accounts: those would make GitHub a way to sign in.
     Setup steps: `reference/github-connector.md`.
+    GitHub's avatar fills an empty profile picture on connect and when
+    existing linked accounts load. A conditional update preserves custom
+    pictures; Better Auth's Redis sessions and the client's cookie cache
+    refresh so the fallback appears in web and desktop.
   - [x] **4b** Commit as the person: `POST /sessions/{id}/changes/commit`
     runs `commitStaged` (`@repo/lor/code-changes`) in the sandbox with the
     person's name and email, so no token is needed. The repo's commit hooks

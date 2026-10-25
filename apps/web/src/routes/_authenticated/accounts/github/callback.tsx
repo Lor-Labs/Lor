@@ -1,3 +1,4 @@
+import { authClient } from "@repo/auth/client"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
@@ -34,6 +35,7 @@ function GithubAccountCallback() {
   const { code, state, error } = Route.useSearch()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { refetch: refreshSession } = authClient.useSession()
   const ranRef = useRef(false)
 
   useEffect(() => {
@@ -54,7 +56,10 @@ function GithubAccountCallback() {
           ok ? "GitHub connected" : "Couldn't connect GitHub"
         )
         if (ok) {
-          await queryClient.invalidateQueries({ queryKey: personalAccountsKey })
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+            refreshSession({ query: { disableCookieCache: true } }),
+          ])
         }
       }
       let back: string | null = null
@@ -64,7 +69,7 @@ function GithubAccountCallback() {
       } catch {}
       router.history.replace(back ?? "/")
     })()
-  }, [code, state, error, router, queryClient])
+  }, [code, state, error, router, queryClient, refreshSession])
 
   return (
     <div className="flex h-full flex-1 flex-col items-center justify-center gap-4">

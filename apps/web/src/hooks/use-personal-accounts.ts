@@ -1,5 +1,7 @@
+import { authClient } from "@repo/auth/client"
 import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useEffect } from "react"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
 
@@ -13,7 +15,8 @@ export const personalAccountsKey = ["personal-accounts"] as const
 export const GITHUB_CONNECT_RETURN_KEY = "lor:github-connect-return"
 
 export function usePersonalAccounts() {
-  return useQuery({
+  const { data: session, refetch: refreshSession } = authClient.useSession()
+  const accounts = useQuery({
     queryKey: personalAccountsKey,
     queryFn: async () => {
       const res = await apiClient.v1["personal-accounts"].$get()
@@ -21,6 +24,17 @@ export function usePersonalAccounts() {
       return res.json()
     },
   })
+  useEffect(() => {
+    if (!accounts.data?.github.account?.avatarUrl || session?.user.image) return
+    // Covers existing connections and returning to desktop after browser OAuth.
+    void refreshSession({ query: { disableCookieCache: true } })
+  }, [
+    accounts.dataUpdatedAt,
+    accounts.data,
+    session?.user.image,
+    refreshSession,
+  ])
+  return accounts
 }
 
 export function useConnectGithubAccount() {
