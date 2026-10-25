@@ -86,10 +86,13 @@ export function SessionDocument({
   heading,
   archivedBar,
   cover,
+  onFork,
 }: {
   workspaceSlug: string
   channelId: string
   threadRootId: string
+  // "Fork from here" on Lor's finished replies.
+  onFork?: (message: Message) => void
   // Message to center and highlight on open (search result, citation).
   targetMessageId?: string
   // headingVisible: the header shows the title once the heading is gone.
@@ -524,6 +527,7 @@ export function SessionDocument({
                       onJumpToMessage: scroll.jumpToMessage,
                       mentionCandidates,
                       onForward: setForwarding,
+                      onFork,
                     }}
                   />
                   {/* Inline input line: the document's last line, reached by

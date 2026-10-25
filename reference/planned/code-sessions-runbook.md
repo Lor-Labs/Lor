@@ -364,6 +364,13 @@ may lag web), a Lor-offered "Continue in Code" card.
       still names the old path).
     - Not yet checked live: Code Storage's branch create with a commit SHA
       as its base (the docs allow it).
+  - [x] **6b** fork in the web, built 2026-10-24: "Fork from here" in the
+    More menu of Lor's finished replies in a session (`useForkSession`).
+    The new session joins the sidebar and opens. The heading says "Forked
+    from X", and it and the Context section open the source at that reply
+    (`?msgId=`). The source's event row: "Jacob forked this session into a
+    new session". Mobile still shows the event's plain text, like the other
+    session events.
 - [ ] **7. Claude Code** on the session contract: native state per turn,
   approvals and Lor's sandbox policy, sign-in, usage.
 - [ ] **8. Codex**, the same way.

@@ -1,4 +1,8 @@
-import { BubbleChatIcon, HashtagIcon } from "@hugeicons/core-free-icons"
+import {
+  BubbleChatIcon,
+  GitForkIcon,
+  HashtagIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "@repo/ui/components/toast"
 import {
@@ -150,10 +154,19 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
                   workspaceSlug: view.workspaceSlug,
                   sessionId: detail.source.id,
                 }}
+                search={
+                  detail.session.forkedFromMessageId
+                    ? { msgId: detail.session.forkedFromMessageId }
+                    : {}
+                }
                 className="flex items-center gap-1.5 rounded-md px-1 py-0.5 text-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               >
                 <HugeiconsIcon
-                  icon={BubbleChatIcon}
+                  icon={
+                    detail.session.forkedFromMessageId
+                      ? GitForkIcon
+                      : BubbleChatIcon
+                  }
                   className="size-3.5 shrink-0"
                   strokeWidth={2}
                 />

@@ -70,6 +70,8 @@ interface MessageItemProps {
   onAskLor?: (message: Message) => void
   // Session: forward a message into the channel chat.
   onForward?: (message: Message) => void
+  // Session: a new session from one of Lor's finished replies.
+  onFork?: (message: Message) => void
   onOpenThread?: (rootMessageId: string) => void
   onDelete?: (messageId: string) => void
   onEdit?: (messageId: string, content: string) => void
@@ -310,6 +312,7 @@ export const MessageItem = memo(function MessageItem({
   onReplyInThread,
   onAskLor,
   onForward,
+  onFork,
   onOpenThread,
   onDelete,
   onEdit,
@@ -391,6 +394,17 @@ export const MessageItem = memo(function MessageItem({
     message.status === "complete" &&
     !message.streaming &&
     Boolean(message.content?.trim())
+
+  const handleFork = useCallback(() => {
+    onFork?.(message)
+  }, [message, onFork])
+  // The API checks the turn saved; this only hides it where it can't apply.
+  const canFork =
+    Boolean(onFork) &&
+    message.authorId === LOR_USER_ID &&
+    (message.type === "default" || message.type === "reply") &&
+    message.status === "complete" &&
+    !message.streaming
 
   const handleOpenThread = useCallback(() => {
     onOpenThread?.(message.id)
@@ -600,6 +614,7 @@ export const MessageItem = memo(function MessageItem({
           onReplyInThread={canStartThread ? handleReplyInThread : undefined}
           onAskLor={onAskLor ? handleAskLor : undefined}
           onForward={canForward ? handleForward : undefined}
+          onFork={canFork ? handleFork : undefined}
           onCopyText={handleCopyText}
           onEdit={isOwnMessage && onEdit ? handleEditRequest : undefined}
           onDelete={isOwnMessage && onDelete ? handleDeleteRequest : undefined}

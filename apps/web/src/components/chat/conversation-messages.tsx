@@ -27,6 +27,7 @@ type ItemProps = Pick<
   | "onJumpToMessage"
   | "mentionCandidates"
   | "onForward"
+  | "onFork"
 >
 
 // A thread's or session's replies inside a MessageScrollerContent: the

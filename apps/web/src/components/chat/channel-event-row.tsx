@@ -55,6 +55,7 @@ type SessionPushedPayload = {
   commitCount: number
   headSha: string
 }
+type SessionForkedPayload = { sessionId: string; fromMessageId: string }
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -495,6 +496,17 @@ function eventText(
           >
             {p.headSha.slice(0, 7)}
           </a>
+        </>
+      )
+    }
+    // The fork's heading links back to the reply it was forked at.
+    case "session_forked": {
+      if (!payload) break
+      const p = payload as SessionForkedPayload
+      return (
+        <>
+          {actor} forked this session into{" "}
+          <SessionLink sessionId={p.sessionId}>a new session</SessionLink>
         </>
       )
     }

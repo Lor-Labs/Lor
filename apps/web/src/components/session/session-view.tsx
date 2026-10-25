@@ -50,6 +50,7 @@ import {
   prefetchSession,
   useAgentSession,
   useAgentSessionUpdates,
+  useForkSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
@@ -177,6 +178,7 @@ function SessionConversation({
 
   useAgentSessionUpdates(session.id)
   const updateSession = useUpdateAgentSession()
+  const fork = useForkSession(workspaceSlug)
   const navigate = useNavigate()
   const change = {
     workspaceId: session.workspaceId,
@@ -206,6 +208,11 @@ function SessionConversation({
       channelId={session.channelId}
       threadRootId={session.threadRootId}
       targetMessageId={targetMessageId}
+      onFork={(message) => {
+        if (!fork.isPending) {
+          fork.mutate({ sessionId: session.id, messageId: message.id })
+        }
+      }}
       header={({ lorRunning, headingVisible }) => (
         <SessionStrip
           session={session}
@@ -424,7 +431,7 @@ function SessionHeading({
 }: {
   session: RealtimeAgentSession
   channelName: string
-  // "Continue in Code": the session this one continues.
+  // "Continue in Code" or a fork: the session this one comes from.
   source: { id: string; title: string } | null
   startedBy: string
   // The person who started it; null for loops and automations.
@@ -469,9 +476,15 @@ function SessionHeading({
             <Link
               to="/$workspaceSlug/session/$sessionId"
               params={{ workspaceSlug, sessionId: source.id }}
+              // A fork opens its source at the reply it was forked from.
+              search={
+                session.forkedFromMessageId
+                  ? { msgId: session.forkedFromMessageId }
+                  : {}
+              }
               className="inline-flex min-w-0 items-center gap-1 transition-colors hover:text-foreground"
             >
-              Continued from
+              {session.forkedFromMessageId ? "Forked from" : "Continued from"}
               <span className="max-w-64 truncate font-medium">
                 {source.title}
               </span>

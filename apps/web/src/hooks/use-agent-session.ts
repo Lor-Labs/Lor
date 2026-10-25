@@ -10,6 +10,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
 import {
@@ -168,6 +169,48 @@ export function useWorkspaceSessionUpdates(workspaceId: string | undefined) {
       socket.off("session:updated", onUpdated)
     }
   }, [socket, queryClient, workspaceId])
+}
+
+// "Fork from here" (code-sessions-runbook.md chunk 6): the server makes the
+// session, then it joins your sidebar and opens.
+export function useForkSession(workspaceSlug: string) {
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  return useMutation({
+    mutationFn: async (fork: { sessionId: string; messageId: string }) => {
+      const res = await apiClient.v1.sessions[":sessionId"].fork.$post({
+        param: { sessionId: fork.sessionId },
+        json: { messageId: fork.messageId },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't fork the session")
+      }
+      return res.json()
+    },
+    onSuccess: async ({ session }) => {
+      await cancelSidebarFetch(queryClient, session.workspaceId)
+      patchSidebarSession(
+        queryClient,
+        {
+          workspaceId: session.workspaceId,
+          channelId: session.channelId,
+          sessionId: session.id,
+        },
+        { show: sidebarRowFor(session) }
+      )
+      void queryClient.invalidateQueries({
+        queryKey: channelSessionsKey(session.channelId),
+      })
+      void navigate({
+        to: "/$workspaceSlug/session/$sessionId",
+        params: { workspaceSlug, sessionId: session.id },
+      })
+    },
+    onError: (err) => toast.error(err.message),
+  })
 }
 
 async function patchAgentSession(
