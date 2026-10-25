@@ -1,0 +1,20 @@
+diff --git a/dist/bridge/index.mjs b/dist/bridge/index.mjs
+index e21cffa448869313e6b9a136c91b69c60850cb26..e7ad9c9e9c207afe7c0168a2b7f3f8db85ad957f 100644
+--- a/dist/bridge/index.mjs
++++ b/dist/bridge/index.mjs
+@@ -1461,9 +1461,15 @@ const mcpModule = mcpServerModule;
+ * so the latest observation is the one a later resume must name.
+ */
+ let lastClaudeSessionId;
++// Lor patch: Claude Code (and so the model's Bash) inherits this process's
++// env, where the channel token would let sandbox code drive the bridge and
++// answer its own approvals. Take it out before the first turn.
++const bridgeChannelToken = env.BRIDGE_CHANNEL_TOKEN ?? "";
++delete env.BRIDGE_CHANNEL_TOKEN;
+ await runBridge({
+ 	bridgeType: "claude-code",
+ 	bridgeStateDir,
++	token: bridgeChannelToken,
+ 	onStart: runTurn,
+ 	onStop: () => lastClaudeSessionId == null ? {} : { claudeSessionId: lastClaudeSessionId }
+ });

@@ -1,6 +1,8 @@
 import {
   Archive02Icon,
+  BubbleChatIcon,
   GitBranchIcon,
+  GitForkIcon,
   HashtagIcon,
   Link01Icon,
   MoreHorizontalIcon,
@@ -426,7 +428,7 @@ function SessionStrip({
   )
 }
 
-// The document's opening: the title, then one quiet line of context.
+// The document's opening: title and metadata, with the source on its own row.
 function SessionHeading({
   session,
   channelName,
@@ -463,7 +465,7 @@ function SessionHeading({
         onEditingChange={onRenamingChange}
         onRename={onRename}
       />
-      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-muted-foreground text-sm">
+      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground text-sm">
         {workspaceSlug ? (
           <Link
             to="/$workspaceSlug/$channelId"
@@ -478,27 +480,6 @@ function SessionHeading({
             {channelName}
           </Link>
         ) : null}
-        {source && workspaceSlug && (
-          <>
-            <span aria-hidden="true">·</span>
-            <Link
-              to="/$workspaceSlug/session/$sessionId"
-              params={{ workspaceSlug, sessionId: source.id }}
-              // A fork opens its source at the reply it was forked from.
-              search={
-                session.forkedFromMessageId
-                  ? { msgId: session.forkedFromMessageId }
-                  : {}
-              }
-              className="inline-flex min-w-0 items-center gap-1 transition-colors hover:text-foreground"
-            >
-              {session.forkedFromMessageId ? "Forked from" : "Continued from"}
-              <span className="max-w-64 truncate font-medium">
-                {source.title}
-              </span>
-            </Link>
-          </>
-        )}
         {session.repoFullName && session.baseBranch && (
           <>
             <span aria-hidden="true">·</span>
@@ -544,6 +525,33 @@ function SessionHeading({
         <span aria-hidden="true">·</span>
         <span>{timeAgo(session.createdAt)}</span>
       </p>
+      {source && workspaceSlug && (
+        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+          <HugeiconsIcon
+            icon={session.forkedFromMessageId ? GitForkIcon : BubbleChatIcon}
+            className="size-3.5 shrink-0"
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+          <span className="shrink-0">
+            {session.forkedFromMessageId ? "Forked from" : "Continued from"}
+          </span>
+          <Link
+            to="/$workspaceSlug/session/$sessionId"
+            params={{ workspaceSlug, sessionId: source.id }}
+            // A fork opens its source at the reply it was forked from.
+            search={
+              session.forkedFromMessageId
+                ? { msgId: session.forkedFromMessageId }
+                : {}
+            }
+            title={source.title}
+            className="min-w-0 truncate font-medium transition-colors hover:text-foreground"
+          >
+            {source.title}
+          </Link>
+        </div>
+      )}
       <div className="mt-6 border-border/50 border-t" />
     </div>
   )

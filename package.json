@@ -40,7 +40,8 @@
     },
     "patchedDependencies": {
       "react-native-enriched-markdown@0.7.4": "patches/react-native-enriched-markdown@0.7.4.patch",
-      "@ai-sdk/harness-pi@1.0.160": "patches/@ai-sdk__harness-pi@1.0.160.patch"
+      "@ai-sdk/harness-pi@1.0.160": "patches/@ai-sdk__harness-pi@1.0.160.patch",
+      "@ai-sdk/harness-claude-code@1.0.162": "patches/@ai-sdk__harness-claude-code@1.0.162.patch"
     }
   },
   "engines": {

@@ -327,8 +327,8 @@ may lag web), a Lor-offered "Continue in Code" card.
   - Rewind in a code session puts back the full state of that turn: files,
     branch and commits. What was pushed stays on GitHub; the next push asks
     to pull first.
-  - After a rewind, the later turns stay in the transcript, collapsed under
-    a row ("Jacob rewound to here · 6 messages · Show"), and Lor no longer
+  - After a rewind, the later turns stay in the transcript, collapsed into
+    a "Previous history" panel with the actor and message count, and Lor no longer
     sees them. A collapsed Lor reply can still be forked, so nothing is
     lost. Not hidden: in a shared session everyone sees who rewound and
     what was undone.
@@ -429,10 +429,12 @@ may lag web), a Lor-offered "Continue in Code" card.
       reply for everyone. Later messages fold away.", which also names the
       files in a code session). Its button spins until the server answers.
     - The `session_rewound` row folds what came after the reply, right
-      under it: "(avatar) Jacob ↺ rewound to here · 6 messages · Show"
-      (`rewound-turns.tsx`). Show unfolds them dimmed; their Lor replies
-      keep Fork. Overlapping rewinds fold together. The row arrives like
-      any message, so everyone's transcript folds at once.
+      under it (`rewound-turns.tsx`). Updated 2026-10-25: a bordered, tinted
+      "Previous history" panel with a rewind icon, message count, actor and
+      View/Hide control. Expanded messages keep normal contrast inside the
+      shared surface, and their Lor replies keep Fork. Each message stays a
+      direct scroller item for navigation. Overlapping rewinds fold together.
+      The row arrives like any message, so everyone's transcript folds at once.
   - Times (Jacob 2026-10-24): Lor's reply row ends with the reply's time;
     a person's follow-up line shows its time in the gutter on hover; a date
     divider (channel chat's) marks each new day in the transcript, but not
@@ -484,8 +486,49 @@ may lag web), a Lor-offered "Continue in Code" card.
       filled `{{SECRET:name}}` both in a header it injects and in a header
       the sandbox sent, so code in the sandbox can use the secret while the
       rule exists: add it for the owner's turn only.
-    - Part 2 (needs a Claude token): Claude Code 2.1.290 through the proxy
-      with the token as a placeholder.
+  - [x] **7a spike, parts 2 and 3** (2026-10-25, Jacob's `setup-token`
+    token, throwaway sandboxes, deleted):
+    - Claude Code 2.1.290 (`npm i`, 4 s) answered on Jacob's subscription
+      with `CLAUDE_CODE_OAUTH_TOKEN='{{SECRET:claude}}'` and a routing rule
+      for `api.anthropic.com` holding the token: "pong" in 1.7 s (Sonnet
+      5.5). Without the proxy the same placeholder got "401 Invalid bearer
+      token", so the token never was in the sandbox. Node needs
+      `NODE_EXTRA_CA_CERTS="$SSL_CERT_FILE"` for the proxy's CA.
+    - Egress: reads anywhere plus POST to `api.anthropic.com/*` was enough;
+      `--debug` showed no blocked calls, with or without
+      `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+    - Bypass mode refuses root unless `IS_SANDBOX=1` (then it works); as a
+      normal user it works too.
+    - The model's Bash saw `BRIDGE_CHANNEL_TOKEN` (patch the bridge to drop
+      it) but not `CLAUDE_CODE_OAUTH_TOKEN`: Claude Code keeps its own
+      sign-in variable out of its shell.
+    - A `setup-token` token printed wraps over lines in the terminal; a
+      pasted copy must be joined (108 characters).
+  - [x] **7b** sandbox groundwork, built 2026-10-25:
+    - The image (`sandbox/workbench:latest`, pushed with `bl push`) has
+      pnpm 10.34.8 and the bridge's packages (Claude Code 2.1.290, Agent
+      SDK 0.3.290) where the adapter's bootstrap puts them, so a new
+      sandbox's bootstrap finds them in place.
+    - `@ai-sdk/harness-claude-code` 1.0.162 in `@repo/lor`, patched
+      (`patches/@ai-sdk__harness-claude-code@1.0.162.patch`): the bridge
+      takes `BRIDGE_CHANNEL_TOKEN` out of its env before Claude Code
+      inherits it. A root shell could still read the bridge's original env
+      in `/proc`; running Claude Code as its own user would close that.
+    - Session sandbox (`session-sandbox.ts`): the bridge spawns as
+      `bridge-*` with no keepAlive or time limit, `IS_SANDBOX=1`, the
+      proxy CA, and no auto-updater or nonessential traffic. Its output
+      streams end after `bridge-ready`, so nothing polls the sandbox while
+      the bridge waits. Leftover bridges are stopped unless a run continues
+      a parked turn (`openSessionSandbox(owner, { keepBridges })`).
+      `grantClaudeAccess` / `revokeClaudeAccess` add and remove the POST
+      rule and the token routing rule; `claudeCodeBridgeEndpoint` gives the
+      private preview URL with a per-turn token header.
+    - Checked live with the real adapter in a throwaway session sandbox:
+      sandbox 7.6 s, bootstrap and bridge 9.1 s, a turn with two tool calls
+      6.6 s, answered on the subscription; the model's shell found no
+      `BRIDGE_CHANNEL_TOKEN`; nothing left running after the session
+      ended. Not yet checked: a bridge parked on an approval across real
+      standby (needs 7d's approvals).
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

@@ -1,6 +1,6 @@
 name = "workbench"
 type = "sandbox"
-description = "Lor workbench: Pi coding agent + Python data toolchain (pandas, matplotlib, openpyxl, pdfplumber)"
+description = "Lor workbench: Pi coding agent, Claude Code bridge, Python data toolchain (pandas, matplotlib, openpyxl, pdfplumber)"
 
 [runtime]
 generation = "mk3"
