@@ -1,7 +1,6 @@
 import {
   ArrowTurnBackwardIcon,
   ArrowTurnForwardIcon,
-  GitForkIcon,
   MessageMultiple01Icon,
   MoreHorizontalIcon,
   Pin02Icon,
@@ -33,8 +32,6 @@ interface MessageActionBarProps {
   onAskLor?: () => void
   // A session message: forward it into the channel chat.
   onForward?: () => void
-  // Lor's finished reply in a session: a new session from its turn.
-  onFork?: () => void
   onCopyText?: () => void
   onEdit?: () => void
   onDelete?: () => void
@@ -51,7 +48,6 @@ export function MessageActionBar({
   onReplyInThread,
   onAskLor,
   onForward,
-  onFork,
   onCopyText,
   onEdit,
   onDelete,
@@ -207,15 +203,6 @@ export function MessageActionBar({
         </TooltipTrigger>
 
         <DropdownMenuContent side="top" align="end">
-          {onFork && (
-            <>
-              <DropdownMenuItem onClick={onFork}>
-                <HugeiconsIcon icon={GitForkIcon} size={14} />
-                Fork from here
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          )}
           {canManageMessage && (
             <DropdownMenuItem onClick={onEdit} disabled={!onEdit}>
               Edit message

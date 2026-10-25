@@ -1,3 +1,4 @@
+import { LOR_USER_ID } from "@repo/db/constants"
 import { MessageScrollerItem } from "@repo/ui/components/message-scroller"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { Spinner } from "@repo/ui/components/spinner"
@@ -58,6 +59,16 @@ export function ConversationMessages({
   itemProps: ItemProps
 }) {
   const isDocument = layout === "document"
+  const latestLorReplyId = isDocument
+    ? replies
+        .slice()
+        .reverse()
+        .find(
+          (msg) =>
+            msg.authorId === LOR_USER_ID &&
+            (msg.type === "default" || msg.type === "reply")
+        )?.id
+    : undefined
   const olderSentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const sentinel = olderSentinelRef.current
@@ -163,6 +174,7 @@ export function ConversationMessages({
                 wrapContentAroundAvatar={!isDocument}
                 layout={layout}
                 isReplyTarget={replyingToId === msg.id}
+                isLatestLorReply={msg.id === latestLorReplyId}
               />
             </MessageScrollerItem>
           )

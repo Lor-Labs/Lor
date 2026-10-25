@@ -365,7 +365,12 @@ may lag web), a Lor-offered "Continue in Code" card.
     - Not yet checked live: Code Storage's branch create with a commit SHA
       as its base (the docs allow it).
   - [x] **6b** fork in the web, built 2026-10-24: "Fork from here" in the
-    More menu of Lor's finished replies in a session (`useForkSession`).
+    ⋯ menu of Lor's finished replies in a session (`useForkSession`). Jacob
+    2026-10-24: Lor's replies in a session get an action row under them,
+    like ChatGPT's and Claude's (`LorReplyActions`: Copy, React, Reply,
+    Forward to chat, ⋯ with Fork and Pin; Rewind joins it in 6d). It always
+    shows on the newest reply and on hover on older ones. People's messages
+    and channel chat keep the floating bar.
     The new session joins the sidebar and opens. The heading says "Forked
     from X", and it and the Context section open the source at that reply
     (`?msgId=`). The source's event row: "Jacob forked this session into a

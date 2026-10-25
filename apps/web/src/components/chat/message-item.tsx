@@ -34,6 +34,7 @@ import { LoopCard } from "@/components/chat/loop-card"
 import { LorFailureNotice } from "@/components/chat/lor-failure-notice"
 import { LorMessageBody } from "@/components/chat/lor-message-body"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
+import { LorReplyActions } from "@/components/chat/lor-reply-actions"
 import {
   isAttioRecording,
   MeetingRecordingCard,
@@ -72,6 +73,8 @@ interface MessageItemProps {
   onForward?: (message: Message) => void
   // Session: a new session from one of Lor's finished replies.
   onFork?: (message: Message) => void
+  // Session: the newest Lor reply keeps its action row in view.
+  isLatestLorReply?: boolean
   onOpenThread?: (rootMessageId: string) => void
   onDelete?: (messageId: string) => void
   onEdit?: (messageId: string, content: string) => void
@@ -313,6 +316,7 @@ export const MessageItem = memo(function MessageItem({
   onAskLor,
   onForward,
   onFork,
+  isLatestLorReply = false,
   onOpenThread,
   onDelete,
   onEdit,
@@ -405,6 +409,10 @@ export const MessageItem = memo(function MessageItem({
     (message.type === "default" || message.type === "reply") &&
     message.status === "complete" &&
     !message.streaming
+  // Lor's replies in a session get an action row under them instead of the
+  // floating bar, once the reply is finished.
+  const lorReplyRow = isDocument && message.authorId === LOR_USER_ID
+  const replyFinished = !message.streaming && message.status !== "pending"
 
   const handleOpenThread = useCallback(() => {
     onOpenThread?.(message.id)
@@ -601,30 +609,33 @@ export const MessageItem = memo(function MessageItem({
             : !canWrapUnderAvatar && !isDocument && "hover:bg-muted/30"
       )}
     >
-      <div
-        className={cn(
-          "absolute top-0 right-4 z-20 -translate-y-1/2 opacity-0 transition-opacity duration-100",
-          "pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100",
-          isActionBarPinned && "pointer-events-auto opacity-100"
-        )}
-      >
-        <MessageActionBar
-          onReact={handleReact}
-          onReply={handleReply}
-          onReplyInThread={canStartThread ? handleReplyInThread : undefined}
-          onAskLor={onAskLor ? handleAskLor : undefined}
-          onForward={canForward ? handleForward : undefined}
-          onFork={canFork ? handleFork : undefined}
-          onCopyText={handleCopyText}
-          onEdit={isOwnMessage && onEdit ? handleEditRequest : undefined}
-          onDelete={isOwnMessage && onDelete ? handleDeleteRequest : undefined}
-          onTogglePin={canPin ? handleTogglePin : undefined}
-          isPinned={message.pinned}
-          canManageMessage={isOwnMessage}
-          canPin={canPin}
-          onOverlayOpenChange={setIsActionBarPinned}
-        />
-      </div>
+      {!lorReplyRow && (
+        <div
+          className={cn(
+            "absolute top-0 right-4 z-20 -translate-y-1/2 opacity-0 transition-opacity duration-100",
+            "pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100",
+            isActionBarPinned && "pointer-events-auto opacity-100"
+          )}
+        >
+          <MessageActionBar
+            onReact={handleReact}
+            onReply={handleReply}
+            onReplyInThread={canStartThread ? handleReplyInThread : undefined}
+            onAskLor={onAskLor ? handleAskLor : undefined}
+            onForward={canForward ? handleForward : undefined}
+            onCopyText={handleCopyText}
+            onEdit={isOwnMessage && onEdit ? handleEditRequest : undefined}
+            onDelete={
+              isOwnMessage && onDelete ? handleDeleteRequest : undefined
+            }
+            onTogglePin={canPin ? handleTogglePin : undefined}
+            isPinned={message.pinned}
+            canManageMessage={isOwnMessage}
+            canPin={canPin}
+            onOverlayOpenChange={setIsActionBarPinned}
+          />
+        </div>
+      )}
       {message.pinned && (
         <div
           className={cn(
@@ -889,6 +900,18 @@ export const MessageItem = memo(function MessageItem({
               reactions={message.reactions}
               currentUserId={currentUserId}
               onReact={handleReact}
+            />
+          )}
+          {lorReplyRow && replyFinished && !isEditing && (
+            <LorReplyActions
+              alwaysVisible={isLatestLorReply}
+              onCopyText={message.content ? handleCopyText : undefined}
+              onReact={handleReact}
+              onReply={handleReply}
+              onForward={canForward ? handleForward : undefined}
+              onFork={canFork ? handleFork : undefined}
+              onTogglePin={canPin ? handleTogglePin : undefined}
+              isPinned={message.pinned}
             />
           )}
           {message.threadSummary && message.threadSummary.replyCount > 0 && (
