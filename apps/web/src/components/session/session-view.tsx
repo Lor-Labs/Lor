@@ -51,6 +51,7 @@ import {
   useAgentSession,
   useAgentSessionUpdates,
   useForkSession,
+  useRewindSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
@@ -179,6 +180,7 @@ function SessionConversation({
   useAgentSessionUpdates(session.id)
   const updateSession = useUpdateAgentSession()
   const fork = useForkSession(workspaceSlug)
+  const rewind = useRewindSession(session.id)
   const navigate = useNavigate()
   const change = {
     workspaceId: session.workspaceId,
@@ -211,6 +213,12 @@ function SessionConversation({
       onFork={(message) =>
         fork.mutateAsync({ sessionId: session.id, messageId: message.id })
       }
+      onRewind={
+        session.archivedAt
+          ? undefined
+          : (message) => rewind.mutateAsync(message.id)
+      }
+      rewindRestoresFiles={code}
       header={({ lorRunning, headingVisible }) => (
         <SessionStrip
           session={session}

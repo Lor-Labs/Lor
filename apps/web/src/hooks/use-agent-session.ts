@@ -183,10 +183,7 @@ export function useForkSession(workspaceSlug: string) {
         json: { messageId: fork.messageId },
       })
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          message?: string
-        } | null
-        throw new Error(body?.message ?? "Couldn't fork the session")
+        throw new Error(await refusal(res, "Couldn't fork the session"))
       }
       return res.json()
     },
@@ -211,6 +208,32 @@ export function useForkSession(workspaceSlug: string) {
     },
     onError: (err) => toast.error(err.message),
   })
+}
+
+// "Rewind to here": the server moves Lor back; its event row, arriving like
+// any message, folds the later turns for everyone.
+export function useRewindSession(sessionId: string) {
+  return useMutation({
+    mutationFn: async (messageId: string) => {
+      const res = await apiClient.v1.sessions[":sessionId"].rewind.$post({
+        param: { sessionId },
+        json: { messageId },
+      })
+      if (!res.ok) {
+        throw new Error(await refusal(res, "Couldn't rewind the session"))
+      }
+      return res.json()
+    },
+    onError: (err) => toast.error(err.message),
+  })
+}
+
+// The server's reason for a refused fork or rewind.
+async function refusal(res: Response, fallback: string) {
+  const body = (await res.json().catch(() => null)) as {
+    message?: string
+  } | null
+  return body?.message ?? fallback
 }
 
 async function patchAgentSession(

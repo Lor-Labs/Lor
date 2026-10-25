@@ -5,6 +5,7 @@ import {
   HashtagIcon,
   Infinity01Icon,
   SourceCodeIcon,
+  Undo02Icon,
   ZapIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -544,6 +545,10 @@ function eventText(
         </>
       )
     }
+    // Sessions show it right under the reply it went back to, folding the
+    // turns after it (rewound-turns.tsx).
+    case "session_rewound":
+      return <>{actor} rewound to here</>
     // Content is the event payload Lor reads, never shown as the line.
     case "trigger_run": {
       const p = payload as TriggerRunPayload | null
@@ -646,6 +651,7 @@ const SESSION_EVENT_ICONS: Partial<
   session_committed: GitCommitIcon,
   session_pushed: ArrowUp02Icon,
   session_forked: GitForkIcon,
+  session_rewound: Undo02Icon,
   loop_run: Infinity01Icon,
   trigger_run: ZapIcon,
 }
@@ -656,30 +662,34 @@ const ACTOR_EVENTS: ReadonlySet<string> = new Set([
   "session_committed",
   "session_pushed",
   "session_forked",
+  "session_rewound",
 ])
 
-function SessionEventRow({
+export function SessionEventRow({
   message,
-  icon,
+  icon = message.eventType ? SESSION_EVENT_ICONS[message.eventType] : undefined,
   resolveUserName,
+  trailing,
 }: {
   message: Message
-  icon: IconSvgElement
+  icon?: IconSvgElement
   resolveUserName?: ResolveUserName
+  // After the sentence, before the time (the folded turns' "Show").
+  trailing?: ReactNode
 }) {
   const { author } = message
   const byPerson = Boolean(
     message.eventType && ACTOR_EVENTS.has(message.eventType)
   )
   // After a name the sentence's own space follows; leading, it needs one.
-  const inlineIcon = (
+  const inlineIcon = icon ? (
     <HugeiconsIcon
       icon={icon}
       size={13}
       strokeWidth={2}
       className={cn("inline align-[-2px]", byPerson ? "ml-1" : "mr-1")}
     />
-  )
+  ) : null
   return (
     <div className="group/event mt-1 flex items-center gap-3 px-4 py-0.5">
       {/* Empty gutter: the row starts on the message-content axis. */}
@@ -704,6 +714,7 @@ function SessionEventRow({
             resolveUserName,
             byPerson ? inlineIcon : undefined
           )}
+          {trailing}
           <span className="ml-1.5 text-[11px] text-muted-foreground/50 opacity-0 transition-opacity group-hover/event:opacity-100">
             {formatTime(message.createdAt)}
           </span>

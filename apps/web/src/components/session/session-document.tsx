@@ -87,6 +87,8 @@ export function SessionDocument({
   archivedBar,
   cover,
   onFork,
+  onRewind,
+  rewindRestoresFiles,
 }: {
   workspaceSlug: string
   channelId: string
@@ -94,6 +96,10 @@ export function SessionDocument({
   // "Fork from here" on Lor's finished replies; settles when the fork opens
   // or fails.
   onFork?: (message: Message) => Promise<unknown>
+  // "Rewind to here" between turns; unset where the session can't rewind.
+  onRewind?: (message: Message) => Promise<unknown>
+  // A code session's rewind also puts back the turn's files.
+  rewindRestoresFiles?: boolean
   // Message to center and highlight on open (search result, citation).
   targetMessageId?: string
   // headingVisible: the header shows the title once the heading is gone.
@@ -529,6 +535,8 @@ export function SessionDocument({
                       mentionCandidates,
                       onForward: setForwarding,
                       onFork,
+                      onRewind,
+                      rewindRestoresFiles,
                     }}
                   />
                   {/* Inline input line: the document's last line, reached by

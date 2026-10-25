@@ -298,7 +298,7 @@ may lag web), a Lor-offered "Continue in Code" card.
     notes: GitHub doesn't show them and the trailers and table cover it.
     Squash merges need the PR-merge link (graph work, from GitHub's PR
     events).
-- [ ] **6. Rewind and native fork** (Pi first): files and harness state at
+- [x] **6. Rewind and native fork** (Pi first): files and harness state at
   turn N; fork into a new session; the UI for both. Decided with Jacob
   2026-10-24:
   - Both act on Lor's replies. **Fork from here:** a new session from that
@@ -401,6 +401,20 @@ may lag web), a Lor-offered "Continue in Code" card.
       turns said. In chat sessions it says the sandbox files stay. The
       next turn's prompt starts at that row, so messages from the rewound
       turns never reach Lor again.
+  - [x] **6d** rewind in the web, built 2026-10-24. Jacob: not a button in
+    the reply row but a marker between turns, like Cursor's restore point.
+    - Hovering one of Lor's finished replies shows a line with a "Rewind to
+      here" pill across the gap under it (`RewindDivider`). It shows only on
+      the current line, never on Lor's newest turn, not while Lor works, and
+      not in archived sessions.
+    - A short popover asks first ("Rewind to here?" / "Lor goes back to this
+      reply for everyone. Later messages fold away.", which also names the
+      files in a code session). Its button spins until the server answers.
+    - The `session_rewound` row folds what came after the reply, right
+      under it: "(avatar) Jacob ↺ rewound to here · 6 messages · Show"
+      (`rewound-turns.tsx`). Show unfolds them dimmed; their Lor replies
+      keep Fork. Overlapping rewinds fold together. The row arrives like
+      any message, so everyone's transcript folds at once.
   - Times (Jacob 2026-10-24): Lor's reply row ends with the reply's time;
     a person's follow-up line shows its time in the gutter on hover; a date
     divider (channel chat's) marks each new day in the transcript, but not

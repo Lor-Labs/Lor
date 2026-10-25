@@ -45,6 +45,7 @@ import { MessageEditInput } from "@/components/chat/message-edit-input"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { PlanCard } from "@/components/chat/plan-card"
 import { ProposalCard } from "@/components/chat/proposal-card"
+import { RewindDivider } from "@/components/chat/rewind-divider"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import type { Message } from "@/lib/api-types"
@@ -75,6 +76,11 @@ interface MessageItemProps {
   onFork?: (message: Message) => Promise<unknown>
   // Session: the newest Lor reply keeps its action row in view.
   isLatestLorReply?: boolean
+  // Session: "Rewind to here" under the reply. `canRewind` (set per message)
+  // when it is on the current line, not the newest turn, and Lor is idle.
+  onRewind?: (message: Message) => Promise<unknown>
+  canRewind?: boolean
+  rewindRestoresFiles?: boolean
   onOpenThread?: (rootMessageId: string) => void
   onDelete?: (messageId: string) => void
   onEdit?: (messageId: string, content: string) => void
@@ -317,6 +323,9 @@ export const MessageItem = memo(function MessageItem({
   onForward,
   onFork,
   isLatestLorReply = false,
+  onRewind,
+  canRewind = false,
+  rewindRestoresFiles = false,
   onOpenThread,
   onDelete,
   onEdit,
@@ -402,6 +411,10 @@ export const MessageItem = memo(function MessageItem({
   const handleFork = useCallback(
     () => onFork?.(message) ?? Promise.resolve(),
     [message, onFork]
+  )
+  const handleRewind = useCallback(
+    () => onRewind?.(message) ?? Promise.resolve(),
+    [message, onRewind]
   )
   // The API checks the turn saved; this only hides it where it can't apply.
   const canFork =
@@ -931,6 +944,12 @@ export const MessageItem = memo(function MessageItem({
           )}
         </div>
       </div>
+      {lorReplyRow && replyFinished && canRewind && onRewind && (
+        <RewindDivider
+          restoresFiles={rewindRestoresFiles}
+          onRewind={handleRewind}
+        />
+      )}
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
