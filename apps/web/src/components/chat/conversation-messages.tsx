@@ -6,6 +6,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { differenceInMinutes, isSameDay } from "@repo/utils/date"
 import { type ComponentProps, type RefObject, useEffect, useRef } from "react"
 import { ChannelEventRow } from "@/components/chat/channel-event-row"
+import { DateDivider } from "@/components/chat/date-divider"
 import { MessageItem } from "@/components/chat/message-item"
 import type { Message } from "@/lib/api-types"
 
@@ -145,12 +146,21 @@ export function ConversationMessages({
             !!prev &&
             differenceInMinutes(msg.createdAt, prev.createdAt) <=
               MESSAGE_GROUP_WINDOW_MINUTES
+          // A session marks each new day like channel chat. Not above its
+          // first message: the heading says when it started.
+          const dayDivider =
+            isDocument && prev && isDateBoundary ? (
+              <div className="px-4">
+                <DateDivider date={msg.createdAt} />
+              </div>
+            ) : null
           // Events (a loop's "ran on schedule" line) are muted rows that
           // break the author group, so Lor's reply after one keeps its
           // avatar.
           if (msg.type === "event") {
             return (
               <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                {dayDivider}
                 <ChannelEventRow events={[msg]} layout={layout} />
               </MessageScrollerItem>
             )
@@ -167,6 +177,7 @@ export function ConversationMessages({
               messageId={msg.id}
               scrollAnchor={anchorIds.has(msg.id)}
             >
+              {dayDivider}
               <MessageItem
                 {...itemProps}
                 message={msg}

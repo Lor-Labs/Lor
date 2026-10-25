@@ -357,15 +357,20 @@ function memberNames(
 // content for unknown kinds / missing payloads (forward compat).
 function eventText(
   message: Message,
-  resolveUserName?: ResolveUserName
+  resolveUserName?: ResolveUserName,
+  // Session rows: the event's icon, between the person and the verb.
+  afterActor?: ReactNode
 ): ReactNode {
   const actor = (
-    <UserName
-      userId={message.authorId}
-      avatarColor={message.author.avatarColor}
-    >
-      {message.author.name}
-    </UserName>
+    <>
+      <UserName
+        userId={message.authorId}
+        avatarColor={message.author.avatarColor}
+      >
+        {message.author.name}
+      </UserName>
+      {afterActor}
+    </>
   )
   const payload = message.eventPayload
 
@@ -631,8 +636,9 @@ interface ChannelEventRowProps {
   layout?: "chat" | "document"
 }
 
-// Session events (Jacob 2026-10-24): an icon on the avatar axis, and the
-// person's avatar before their name. Channel chat keeps the iconless row.
+// Session events (Jacob 2026-10-24): the person's avatar before their name
+// and the event's icon inline before the verb ("tester ⑂ forked…"). Channel
+// chat keeps the iconless row.
 const SESSION_EVENT_ICONS: Partial<
   Record<NonNullable<Message["eventType"]>, IconSvgElement>
 > = {
@@ -655,23 +661,32 @@ const ACTOR_EVENTS: ReadonlySet<string> = new Set([
 function SessionEventRow({
   message,
   icon,
-  text,
+  resolveUserName,
 }: {
   message: Message
   icon: IconSvgElement
-  text: ReactNode
+  resolveUserName?: ResolveUserName
 }) {
   const { author } = message
+  const byPerson = Boolean(
+    message.eventType && ACTOR_EVENTS.has(message.eventType)
+  )
+  // After a name the sentence's own space follows; leading, it needs one.
+  const inlineIcon = (
+    <HugeiconsIcon
+      icon={icon}
+      size={13}
+      strokeWidth={2}
+      className={cn("inline align-[-2px]", byPerson ? "ml-1" : "mr-1")}
+    />
+  )
   return (
     <div className="group/event mt-3 flex items-center gap-3 px-4 py-1">
-      <div className="flex w-7 shrink-0 justify-center">
-        <span className="flex size-6 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <HugeiconsIcon icon={icon} size={13} strokeWidth={2} />
-        </span>
-      </div>
-      <div className="min-w-0 text-[13px] text-muted-foreground">
-        {message.eventType && ACTOR_EVENTS.has(message.eventType) && (
-          <Avatar className="mr-1.5 inline-flex size-4 align-[-3px]">
+      {/* Empty gutter: the row starts on the message-content axis. */}
+      <div className="w-7 shrink-0" />
+      <div className="flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+        {byPerson && (
+          <Avatar className="size-4 shrink-0">
             {author.image && <AvatarImage src={author.image} alt="" />}
             <AvatarFallback
               avatarColor={author.avatarColor}
@@ -682,9 +697,16 @@ function SessionEventRow({
             </AvatarFallback>
           </Avatar>
         )}
-        {text}
-        <span className="ml-1.5 text-[11px] text-muted-foreground/50 opacity-0 transition-opacity group-hover/event:opacity-100">
-          {formatTime(message.createdAt)}
+        <span className="min-w-0">
+          {!byPerson && inlineIcon}
+          {eventText(
+            message,
+            resolveUserName,
+            byPerson ? inlineIcon : undefined
+          )}
+          <span className="ml-1.5 text-[11px] text-muted-foreground/50 opacity-0 transition-opacity group-hover/event:opacity-100">
+            {formatTime(message.createdAt)}
+          </span>
         </span>
       </div>
     </div>
@@ -708,7 +730,7 @@ export function ChannelEventRow({
       <SessionEventRow
         message={first}
         icon={sessionIcon}
-        text={eventText(first, resolveUserName)}
+        resolveUserName={resolveUserName}
       />
     )
   }

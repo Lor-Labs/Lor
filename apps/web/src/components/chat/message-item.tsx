@@ -470,6 +470,13 @@ export const MessageItem = memo(function MessageItem({
   // the gutter (Lor's too) instead of a name row; name and time on hover.
   const documentGutter = (
     <div className="w-7 shrink-0">
+      {/* A person's follow-up line shows its time on hover, like channel
+          chat; Lor's replies carry theirs in the action row. */}
+      {!showHeader && !lorReplyRow && (
+        <div className="flex justify-end whitespace-nowrap text-[10px] text-muted-foreground leading-6 opacity-0 transition-opacity duration-100 group-hover:opacity-100">
+          {formatTime(message.createdAt)}
+        </div>
+      )}
       {showHeader && (
         <Avatar
           className="-mt-0.5 size-7"
@@ -905,6 +912,7 @@ export const MessageItem = memo(function MessageItem({
           {lorReplyRow && replyFinished && !isEditing && (
             <LorReplyActions
               alwaysVisible={isLatestLorReply}
+              time={formatTime(message.createdAt)}
               onCopyText={message.content ? handleCopyText : undefined}
               onReact={handleReact}
               onReply={handleReply}

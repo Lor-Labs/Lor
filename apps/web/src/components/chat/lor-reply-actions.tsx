@@ -36,6 +36,7 @@ const COPIED_MS = 1500
 // floating bar (message-action-bar.tsx).
 export function LorReplyActions({
   alwaysVisible,
+  time,
   onCopyText,
   onReact,
   onReply,
@@ -45,6 +46,8 @@ export function LorReplyActions({
   isPinned,
 }: {
   alwaysVisible: boolean
+  // When the reply was sent; date dividers carry the day.
+  time: string
   onCopyText?: () => void
   onReact: (emoji: string) => void
   onReply: () => void
@@ -81,14 +84,6 @@ export function LorReplyActions({
             onCopyText()
             setCopied(true)
           }}
-        />
-      )}
-      {onFork && (
-        <RowAction
-          handle={tooltipHandle}
-          label="Fork from here"
-          icon={GitForkIcon}
-          onClick={onFork}
         />
       )}
       <EmojiReactionPicker
@@ -148,6 +143,18 @@ export function LorReplyActions({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+      {/* Last icon in the row (Jacob 2026-10-24). */}
+      {onFork && (
+        <RowAction
+          handle={tooltipHandle}
+          label="Fork from here"
+          icon={GitForkIcon}
+          onClick={onFork}
+        />
+      )}
+      <span className="ml-1.5 text-muted-foreground/70 text-xs tabular-nums">
+        {time}
+      </span>
       <Tooltip handle={tooltipHandle}>
         {({ payload }) => (
           <TooltipContent side="bottom">{payload}</TooltipContent>
