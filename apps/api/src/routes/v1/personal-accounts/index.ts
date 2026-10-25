@@ -7,5 +7,7 @@ const personalAccountsRouter = createRouter()
   .openapi(routes.startGithubAccountConnect, handlers.startGithubAccountConnect)
   .openapi(routes.connectGithubAccount, handlers.connectGithubAccount)
   .openapi(routes.disconnectGithubAccount, handlers.disconnectGithubAccount)
+  .openapi(routes.connectClaudeAccount, handlers.connectClaudeAccount)
+  .openapi(routes.disconnectClaudeAccount, handlers.disconnectClaudeAccount)
 
 export default personalAccountsRouter

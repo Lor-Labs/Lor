@@ -529,6 +529,18 @@ may lag web), a Lor-offered "Continue in Code" card.
       `BRIDGE_CHANNEL_TOKEN`; nothing left running after the session
       ended. Not yet checked: a bridge parked on an approval across real
       standby (needs 7d's approvals).
+  - [x] **7c-1** Claude subscription in Linked accounts, built 2026-10-25:
+    - `personal_account_provider` gains `claude` (additive `db:push`).
+      `POST /personal-accounts/claude` takes the pasted token (spaces and
+      line breaks removed, `sk-ant-oat01-` only), checks it with
+      Anthropic's free model list (a bad token gets 401), and stores it
+      encrypted with an estimated one-year expiry. `DELETE` removes it;
+      Anthropic has no revoke endpoint for setup tokens.
+    - Setup tokens can run models but not read the profile (403), so the
+      row shows "Token ending in ABCD · connected Oct 25", not an email.
+    - Settings → Linked accounts: a "Claude subscription" row with a
+      neutral icon and a connect
+      dialog modeled on Amp's three steps.
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
