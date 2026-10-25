@@ -25,6 +25,8 @@ import {
   repoFileQuerySchema,
   repoFileResponseSchema,
   repoTreeResponseSchema,
+  rewindAgentSessionRequestSchema,
+  rewindAgentSessionResponseSchema,
   sessionChangeDiffQuerySchema,
   sessionChangeDiffResponseSchema,
   sessionChangesResponseSchema,
@@ -276,6 +278,37 @@ export const forkAgentSession = createRoute({
 })
 
 export type ForkAgentSessionRoute = typeof forkAgentSession
+
+export const rewindAgentSession = createRoute({
+  path: "/sessions/{sessionId}/rewind",
+  method: "post",
+  summary: "Rewind a Lor session to one of Lor's replies",
+  description:
+    "Moves Lor's conversation back to that reply's turn and, in a code session, puts back that turn's files, branch and commits (in the background). Later turns stay in the transcript and can be forked. Refused while Lor works or waits on an approval.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: rewindAgentSessionRequestSchema,
+      description: "The reply to rewind to",
+    }),
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: rewindAgentSessionResponseSchema,
+      description: "The session was rewound",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type RewindAgentSessionRoute = typeof rewindAgentSession
 
 export const getRepoTree = createRoute({
   path: "/sessions/{sessionId}/repo/tree",

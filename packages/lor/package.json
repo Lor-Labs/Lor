@@ -29,7 +29,7 @@
     "./project-archive": "./src/project-archive.ts",
     "./providers": "./src/providers/index.ts",
     "./session-core": "./src/session-core/index.ts",
-    "./session-fork": "./src/session-fork.ts",
+    "./session-branches": "./src/session-branches.ts",
     "./sources": "./src/sources.ts",
     "./touches": "./src/touches.ts",
     "./voice-entities": "./src/voice-entities.ts",

@@ -380,6 +380,27 @@ may lag web), a Lor-offered "Continue in Code" card.
     event's icon inline before the verb ("tester ⑂ forked this session
     into …"; fork, commit, push, continue, loop, automation). Fork and Continue rows name the other session
     by its current title. Channel chat keeps its iconless event rows.
+  - [x] **6c** rewind on the server, built 2026-10-24:
+    - `POST /sessions/{id}/rewind` with the reply's message id
+      (`rewindSession`; fork and rewind now share
+      `@repo/lor/session-branches`). Refused while Lor works or waits on an
+      approval, on an archived session, for a reply an earlier rewind set
+      aside (fork it instead), and for Lor's newest turn.
+    - Pi's log gets one `label` entry under the turn's end
+      (`rewindPiLog`), appended only if the saved head is unchanged. A log
+      saved by an older Pi is refused until its next turn converts it.
+    - Code sessions: `rewindWorkFolder` holds the session's checkpoint lock
+      throughout, builds the turn's checkpoint aside and swaps it in. It
+      keeps the live `origin/<branch>` (GitHub is not rewound), then writes
+      a checkpoint of the result. It runs in the background like a restore:
+      panels show "Restoring…" and refuse commits meanwhile. Every code
+      turn now waits for that lock before it reads the work folder
+      (`waitForCheckpoints`).
+    - A `session_rewound` event row (additive `db:push`). Its text is the
+      next turn's first line for Lor: what happened, never what the later
+      turns said. In chat sessions it says the sandbox files stay. The
+      next turn's prompt starts at that row, so messages from the rewound
+      turns never reach Lor again.
   - Times (Jacob 2026-10-24): Lor's reply row ends with the reply's time;
     a person's follow-up line shows its time in the gutter on hover; a date
     divider (channel chat's) marks each new day in the transcript, but not

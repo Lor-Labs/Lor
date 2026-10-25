@@ -80,6 +80,9 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "session_pushed",
   // In a session: someone forked it at one of Lor's replies.
   "session_forked",
+  // In a session: someone rewound it to one of Lor's replies. The messages
+  // between that reply and this row are the rewound turns.
+  "session_rewound",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Lor
@@ -330,6 +333,12 @@ export type SessionForkedPayload = {
   fromMessageId: string
 }
 
+export type SessionRewoundPayload = {
+  sessionId: string
+  // The Lor reply the session went back to.
+  toMessageId: string
+}
+
 export type ChannelEventPayload =
   | ChannelCreatedPayload
   | ChannelRenamedPayload
@@ -341,6 +350,7 @@ export type ChannelEventPayload =
   | SessionCommittedPayload
   | SessionPushedPayload
   | SessionForkedPayload
+  | SessionRewoundPayload
   | null
 
 // Type definitions for the JSONB fields

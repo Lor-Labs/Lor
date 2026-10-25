@@ -269,6 +269,7 @@ export type RealtimeChannelEventType =
   | "session_committed"
   | "session_pushed"
   | "session_forked"
+  | "session_rewound"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -298,6 +299,7 @@ export type RealtimeChannelEventPayload =
       headSha: string
     }
   | { sessionId: string; fromMessageId: string }
+  | { sessionId: string; toMessageId: string }
   | null
 
 export type RealtimeAuthor = {

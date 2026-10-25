@@ -114,6 +114,17 @@ export const forkAgentSessionResponseSchema = z.object({
   session: agentSessionSchema,
 })
 
+export const rewindAgentSessionRequestSchema = z.object({
+  // The Lor reply whose turn the session goes back to.
+  messageId: z.string().uuid(),
+})
+
+export const rewindAgentSessionResponseSchema = z.object({
+  toMessageId: z.string().uuid(),
+  // A code session's files are being put back; its panels say so meanwhile.
+  restoringFiles: z.boolean(),
+})
+
 // ── Code session Changes panel ─────────────────────────
 
 const changedFileSchema = z.object({

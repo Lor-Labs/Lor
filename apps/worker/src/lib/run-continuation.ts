@@ -285,9 +285,24 @@ export async function buildTurnDelta(args: {
     chain.push(earliest)
   }
   const since = earliest.startedAt ?? earliest.createdAt
+  // A rewind since then: what was said before it belongs to the turns it set
+  // aside, so the prompt starts with the rewind's own line
+  // (code-sessions-runbook.md chunk 6).
+  const [rewind] = await db
+    .select({ createdAt: schema.message.createdAt })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.threadRootId, args.scopeKey),
+        eq(schema.message.eventType, "session_rewound"),
+        gt(schema.message.createdAt, since)
+      )
+    )
+    .orderBy(desc(schema.message.createdAt))
+    .limit(1)
   const delta = await loadDelta({
     predecessorRunIds: chain.map((run) => run.id),
-    since,
+    since: rewind ? new Date(rewind.createdAt.getTime() - 1) : since,
     covered: chain.flatMap((run) => run.context.coveredMessageIds ?? []),
     triggerMessageId: args.triggerMessageId,
     scopeKey: args.scopeKey,

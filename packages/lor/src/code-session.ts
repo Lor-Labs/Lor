@@ -1,7 +1,7 @@
 import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
-import { restoreWorkFolder } from "./code-checkpoints"
+import { restoreWorkFolder, waitForCheckpoints } from "./code-checkpoints"
 import { activeGithubInstallation } from "./github"
 import { logger } from "./logger"
 import { getInstallationToken } from "./providers/github"
@@ -96,6 +96,8 @@ export async function prepareCodeWorkFolder(input: {
   abortSignal?: AbortSignal
 }): Promise<CodeWorkFolder> {
   const { sandbox, workDir, code, abortSignal } = input
+  // A rewind may be putting a turn's files back: start on them, not before.
+  await waitForCheckpoints(input.sessionId)
   const existing = await readInstructions(sandbox, workDir, abortSignal)
   if (existing.present) {
     return {

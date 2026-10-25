@@ -20,5 +20,6 @@ const sessionsRouter = createRouter()
   .openapi(routes.listChannelSessions, handlers.listChannelSessions)
   .openapi(routes.updateAgentSession, handlers.updateAgentSession)
   .openapi(routes.forkAgentSession, handlers.forkAgentSession)
+  .openapi(routes.rewindAgentSession, handlers.rewindAgentSession)
 
 export default sessionsRouter

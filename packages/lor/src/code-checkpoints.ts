@@ -4,7 +4,7 @@ import { GitStorage, OP_NO_FORCE_PUSH, OP_NO_PUSH } from "@pierre/storage"
 import { and, db, desc, eq, inArray, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
-import type { CodeSandbox } from "./code-changes"
+import { type CodeSandbox, codeSandboxIn } from "./code-changes"
 import { normalizePrivateKey } from "./providers/github"
 import {
   attachOrCreateSessionSandbox,
@@ -143,44 +143,135 @@ export async function restoreWorkFolder(
     await lockSession(tx, input.sessionId)
     const checkpoint = await newestCheckpoint(tx, input.sessionId)
     if (!checkpoint) return "none"
-    const { sha, headSha, branch, upstreamSha } = checkpoint
-    if (![sha, headSha].every((value) => SHA.test(value))) {
-      throw new Error("checkpoint row has an invalid SHA")
-    }
-    const remote = await store
-      .repo({ id: checkpoint.storageRepo })
-      .getRemoteURL({ permissions: ["git:read"], ttl: TOKEN_TTL_SECONDS })
-    const token = new URL(remote).password
-    const q = shellQuote
-    const checkout = branch ? `-B ${q(branch)}` : "--detach"
-    const result = await session.run({
-      command: [
-        `dir=${q(input.workDir)}`,
-        `if [ "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" = "$dir" ]; then printf present; exit 0; fi`,
-        // A folder left without a repo (or partly removed) can't be restored into.
-        `if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then exit ${RESTORE_FAILED}; fi`,
-        `rm -rf "$dir".restore-*`,
-        `tmp="$dir.restore-$$"`,
-        `mkdir -p "$tmp" && cd "$tmp" && git init -q || exit ${RESTORE_FAILED}`,
-        `git fetch -q --update-shallow "$LOR_CHECKPOINT_REMOTE" ${q(`refs/heads/${sessionBranch(input.sessionId)}:refs/lor/checkpoint`)} || exit ${RESTORE_FAILED}`,
-        `git checkout -q -f ${checkout} ${sha} && git reset -q --soft ${headSha} && git reset -q || exit ${RESTORE_FAILED}`,
-        `git remote add origin ${q(`https://github.com/${input.repoFullName}.git`)}`,
-        branch && upstreamSha && SHA.test(upstreamSha)
-          ? `git update-ref ${q(`refs/remotes/origin/${branch}`)} ${upstreamSha} || true`
-          : "",
-        `cd / && rmdir "$dir" 2>/dev/null; mv "$tmp" "$dir" || exit ${RESTORE_FAILED}`,
-        "printf restored",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      env: { LOR_CHECKPOINT_REMOTE: remote },
-      ...(abortSignal ? { abortSignal } : {}),
+    return runRestore(
+      store,
+      session,
+      { ...input, checkpoint, replace: false },
+      abortSignal
+    )
+  })
+}
+
+// Builds the checkpoint's repo in <workDir>.restore-<pid> and moves it into
+// place. `replace` (rewind) swaps out the live folder and keeps the live
+// origin/<branch>: what GitHub has is not rewound. Otherwise it fills a
+// missing folder and leaves an existing one alone ("present").
+async function runRestore(
+  store: GitStorage,
+  session: SandboxSession,
+  input: {
+    sessionId: string
+    workDir: string
+    repoFullName: string
+    checkpoint: SessionCheckpointRow
+    replace: boolean
+  },
+  abortSignal?: AbortSignal
+): Promise<"present" | "restored"> {
+  const { sha, headSha, branch, upstreamSha, storageRepo } = input.checkpoint
+  if (![sha, headSha].every((value) => SHA.test(value))) {
+    throw new Error("checkpoint row has an invalid SHA")
+  }
+  const remote = await store
+    .repo({ id: storageRepo })
+    .getRemoteURL({ permissions: ["git:read"], ttl: TOKEN_TTL_SECONDS })
+  const token = new URL(remote).password
+  const q = shellQuote
+  const checkout = branch ? `-B ${q(branch)}` : "--detach"
+  const upstreamRef = branch ? q(`refs/remotes/origin/${branch}`) : null
+  const savedUpstream = upstreamSha && SHA.test(upstreamSha) ? upstreamSha : ""
+  const result = await session.run({
+    command: [
+      `dir=${q(input.workDir)}`,
+      ...(input.replace
+        ? []
+        : [
+            `if [ "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" = "$dir" ]; then printf present; exit 0; fi`,
+            // A folder left without a repo (or partly removed) can't be restored into.
+            `if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then exit ${RESTORE_FAILED}; fi`,
+          ]),
+      `rm -rf "$dir".restore-* "$dir".old-*`,
+      `tmp="$dir.restore-$$"`,
+      `mkdir -p "$tmp" && cd "$tmp" && git init -q || exit ${RESTORE_FAILED}`,
+      `git fetch -q --update-shallow "$LOR_CHECKPOINT_REMOTE" ${q(`refs/heads/${sessionBranch(input.sessionId)}:refs/lor/checkpoint`)} || exit ${RESTORE_FAILED}`,
+      `git checkout -q -f ${checkout} ${sha} && git reset -q --soft ${headSha} && git reset -q || exit ${RESTORE_FAILED}`,
+      `git remote add origin ${q(`https://github.com/${input.repoFullName}.git`)}`,
+      ...(upstreamRef
+        ? [
+            `up=${savedUpstream}`,
+            input.replace
+              ? `live=$(git -C "$dir" rev-parse -q --verify ${upstreamRef} 2>/dev/null) && git cat-file -e "$live^{commit}" 2>/dev/null && up=$live`
+              : "",
+            `[ -z "$up" ] || git update-ref ${upstreamRef} "$up" || true`,
+          ]
+        : []),
+      input.replace
+        ? `cd / && { [ ! -e "$dir" ] || mv "$dir" "$dir.old-$$"; } && mv "$tmp" "$dir" || exit ${RESTORE_FAILED}`
+        : `cd / && rmdir "$dir" 2>/dev/null; mv "$tmp" "$dir" || exit ${RESTORE_FAILED}`,
+      input.replace ? `rm -rf "$dir.old-$$"` : "",
+      "printf restored",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    env: { LOR_CHECKPOINT_REMOTE: remote },
+    ...(abortSignal ? { abortSignal } : {}),
+  })
+  if (result.exitCode !== 0) {
+    const detail = result.stderr.split(token).join("***").slice(-300)
+    throw new Error(`checkpoint restore failed: ${detail}`)
+  }
+  return result.stdout.trim() === "present" ? "present" : "restored"
+}
+
+// Rewind's files (code-sessions-runbook.md chunk 6): the turn's checkpoint
+// replaces the work folder, holding the session's checkpoint lock from the
+// start, so a turn starting meanwhile waits for it (waitForCheckpoints).
+// Then a checkpoint of the result: its parents are the branch tip and the
+// turn's HEAD, so the session branch still only fast-forwards.
+export async function rewindWorkFolder(input: {
+  sessionId: string
+  workspaceId: string
+  repoFullName: string
+  checkpoint: SessionCheckpointRow
+}): Promise<void> {
+  const store = codeStorage()
+  if (!store) throw new Error("Code Storage is not configured")
+  const workDir = piWorkDir(SESSION_WORK_DIR, input.sessionId)
+  await db.transaction(async (tx) => {
+    await lockSession(tx, input.sessionId)
+    const sandbox = await attachOrCreateSessionSandbox({
+      sessionId: input.sessionId,
     })
-    if (result.exitCode !== 0) {
-      const detail = result.stderr.split(token).join("***").slice(-300)
-      throw new Error(`checkpoint restore failed: ${detail}`)
+    if (!sandbox) throw new Error("The session has no sandbox")
+    try {
+      await runRestore(
+        store,
+        sandbox.session,
+        { ...input, workDir, replace: true },
+        AbortSignal.timeout(CHECKPOINT_TIMEOUT_MS)
+      )
+    } finally {
+      sandbox.close()
     }
-    return result.stdout.trim() === "present" ? "present" : "restored"
+  })
+  const sandbox = await attachOrCreateSessionSandbox({
+    sessionId: input.sessionId,
+  })
+  if (!sandbox) return
+  try {
+    await writeCheckpoint(codeSandboxIn(sandbox.session, workDir), {
+      ...input,
+      runId: null,
+    })
+  } finally {
+    sandbox.close()
+  }
+}
+
+// Returns once no restore, rewind or checkpoint holds the session's lock.
+export function waitForCheckpoints(sessionId: string): Promise<void> {
+  return db.transaction(async (tx) => {
+    await lockSession(tx, sessionId)
   })
 }
 

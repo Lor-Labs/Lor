@@ -62,6 +62,12 @@ export type ChannelEventContentInput =
       fromMessageId: string
       threadRootId: string
     }
+  | {
+      eventType: "session_rewound"
+      actorName: string
+      toMessageId: string
+      code: boolean
+    }
 
 export function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ""
@@ -106,5 +112,9 @@ export function channelEventContent(input: ChannelEventContentInput): string {
       return `${input.actorName} pushed ${input.commitCount} ${input.commitCount === 1 ? "commit" : "commits"} to ${input.branch} on ${input.repoFullName} (${input.headSha.slice(0, 7)})`
     case "session_forked":
       return `${input.actorName} forked this session at Lor's reply ${input.fromMessageId} into a new session (message ${input.threadRootId})`
+    // Lor reads this as the next turn's first line: it says what happened,
+    // never what the rewound turns said.
+    case "session_rewound":
+      return `${input.actorName} rewound this session to Lor's reply ${input.toMessageId}: Lor continues from that reply, and what came after it is set aside${input.code ? "; the work folder is back to that turn's files, branch and commits" : "; files in Lor's sandbox stay as they are"}. Anything already pushed to GitHub or sent elsewhere stays as it is.`
   }
 }

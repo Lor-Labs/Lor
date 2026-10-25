@@ -18,6 +18,7 @@ import type {
   SessionCommittedPayload,
   SessionForkedPayload,
   SessionPushedPayload,
+  SessionRewoundPayload,
 } from "@repo/db/schema"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import {
@@ -38,9 +39,15 @@ import {
 import {
   hasCheckpoint,
   restoreSessionFiles,
+  rewindWorkFolder,
+  type SessionCheckpointRow,
   writeCheckpoint,
 } from "@repo/lor/code-checkpoints"
-import { ForkRefusedError, forkSession } from "@repo/lor/session-fork"
+import {
+  BranchRefusedError,
+  forkSession,
+  rewindSession,
+} from "@repo/lor/session-branches"
 import { channelEventContent } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
@@ -67,6 +74,7 @@ import type {
   ListSessionFilesRoute,
   PullSessionChangesRoute,
   PushSessionChangesRoute,
+  RewindAgentSessionRoute,
   StageSessionChangesRoute,
   UpdateAgentSessionRoute,
 } from "@/routes/v1/sessions/routes"
@@ -407,42 +415,51 @@ export const updateAgentSession: AppRouteHandler<
   return c.json({ session: realtimeSession }, HttpStatusCodes.OK)
 }
 
+// Fork and rewind: anyone who can write in the session's channel.
+async function writableSession(
+  sessionId: string,
+  userId: string
+): Promise<AgentSession | "not_found" | "forbidden"> {
+  const session = await db
+    .select()
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.id, sessionId))
+    .limit(1)
+    .then((rows) => rows[0])
+  const access = session
+    ? await resolveChannelAccess(userId, session.channelId)
+    : null
+  if (!session || !access?.ok) return "not_found"
+  return access.access.canWrite ? session : "forbidden"
+}
+
+const sessionNotFound = {
+  success: false as const,
+  message: "Session not found",
+}
+const forbidden = { success: false as const, message: "Forbidden" }
+
 // A new session from one of Lor's replies (code-sessions-runbook.md chunk 6);
-// this one is unchanged. Anyone who can write in the channel.
+// this one is unchanged.
 export const forkAgentSession: AppRouteHandler<ForkAgentSessionRoute> = async (
   c
 ) => {
   const user = c.var.user
   const { sessionId } = c.req.valid("param")
   const { messageId } = c.req.valid("json")
-
-  const source = await db
-    .select()
-    .from(schema.agentSession)
-    .where(eq(schema.agentSession.id, sessionId))
-    .limit(1)
-    .then((rows) => rows[0])
-  const access = source
-    ? await resolveChannelAccess(user.id, source.channelId)
-    : null
-  if (!source || !access?.ok) {
-    return c.json(
-      { success: false as const, message: "Session not found" },
-      HttpStatusCodes.NOT_FOUND
-    )
+  const source = await writableSession(sessionId, user.id)
+  if (source === "not_found") {
+    return c.json(sessionNotFound, HttpStatusCodes.NOT_FOUND)
   }
-  if (!access.access.canWrite) {
-    return c.json(
-      { success: false as const, message: "Forbidden" },
-      HttpStatusCodes.FORBIDDEN
-    )
+  if (source === "forbidden") {
+    return c.json(forbidden, HttpStatusCodes.FORBIDDEN)
   }
 
   let fork: AgentSession
   try {
     fork = await forkSession({ source, messageId, userId: user.id })
   } catch (err) {
-    if (!(err instanceof ForkRefusedError)) throw err
+    if (!(err instanceof BranchRefusedError)) throw err
     return c.json(
       { success: false as const, message: err.message },
       HttpStatusCodes.BAD_REQUEST
@@ -475,6 +492,65 @@ export const forkAgentSession: AppRouteHandler<ForkAgentSessionRoute> = async (
     })
   ).catch((err) => logger.error({ err, sessionId }, "Fork event failed"))
   return c.json({ session: realtimeSession }, HttpStatusCodes.CREATED)
+}
+
+// The session goes back to one of Lor's replies, for everyone in it
+// (code-sessions-runbook.md chunk 6). Lor's conversation moves back now; a
+// code session's files come back in the background like a restore, and
+// Lor's next turn waits for them.
+export const rewindAgentSession: AppRouteHandler<
+  RewindAgentSessionRoute
+> = async (c) => {
+  const user = c.var.user
+  const { sessionId } = c.req.valid("param")
+  const { messageId } = c.req.valid("json")
+  const session = await writableSession(sessionId, user.id)
+  if (session === "not_found") {
+    return c.json(sessionNotFound, HttpStatusCodes.NOT_FOUND)
+  }
+  if (session === "forbidden") {
+    return c.json(forbidden, HttpStatusCodes.FORBIDDEN)
+  }
+  const refuse = (message: string) =>
+    c.json({ success: false as const, message }, HttpStatusCodes.BAD_REQUEST)
+  if (restoring.has(session.id)) return refuse(gapMessage.restoring)
+
+  let checkpoint: SessionCheckpointRow | null
+  try {
+    checkpoint = (await rewindSession({ session, messageId })).checkpoint
+  } catch (err) {
+    if (!(err instanceof BranchRefusedError)) throw err
+    return refuse(err.message)
+  }
+
+  const code =
+    checkpoint && session.repoFullName && session.baseBranch
+      ? {
+          ...session,
+          repoFullName: session.repoFullName,
+          baseBranch: session.baseBranch,
+        }
+      : null
+  if (code && checkpoint) startRewindFiles(code, checkpoint)
+  const author = eventAuthor(user)
+  void postSessionEvent(
+    session,
+    author,
+    {
+      eventType: "session_rewound",
+      eventPayload: { sessionId, toMessageId: messageId },
+    },
+    channelEventContent({
+      eventType: "session_rewound",
+      actorName: author.name,
+      toMessageId: messageId,
+      code: Boolean(code),
+    })
+  ).catch((err) => logger.error({ err, sessionId }, "Rewind event failed"))
+  return c.json(
+    { toMessageId: messageId, restoringFiles: Boolean(code) },
+    HttpStatusCodes.OK
+  )
 }
 
 // ── Code session Changes panel ─────────────────────────
@@ -565,10 +641,39 @@ async function startRestore(session: CodeSession): Promise<FolderGap> {
   return "restoring"
 }
 
+// A rewind puts back a turn's files over the live folder, the same way.
+function startRewindFiles(
+  session: CodeSession,
+  checkpoint: SessionCheckpointRow
+) {
+  const job = rewindWorkFolder({
+    sessionId: session.id,
+    workspaceId: session.workspaceId,
+    repoFullName: session.repoFullName,
+    checkpoint,
+  })
+    .then(() => {
+      restoreFailedAt.delete(session.id)
+    })
+    .catch((err) => {
+      logger.error({ err, sessionId: session.id }, "Session rewind failed")
+      restoreFailedAt.set(session.id, Date.now())
+    })
+    .finally(() => {
+      restoring.delete(session.id)
+      broadcastChangesUpdated(session, "", { filesChanged: true })
+    })
+  restoring.set(session.id, job)
+  broadcastChangesUpdated(session, "", { filesChanged: true })
+}
+
 async function withCodeSandbox<T>(
   session: CodeSession,
   use: (sandbox: CodeSandbox) => Promise<T>
 ): Promise<T | FolderGap> {
+  // The live folder is about to be replaced (a rewind, or a restore this
+  // process started).
+  if (restoring.has(session.id)) return "restoring"
   const sandbox = await attachCodeSandbox(session.id)
   if (sandbox) {
     try {
@@ -992,7 +1097,8 @@ async function postSessionEvent(
   event:
     | { eventType: "session_committed"; eventPayload: SessionCommittedPayload }
     | { eventType: "session_pushed"; eventPayload: SessionPushedPayload }
-    | { eventType: "session_forked"; eventPayload: SessionForkedPayload },
+    | { eventType: "session_forked"; eventPayload: SessionForkedPayload }
+    | { eventType: "session_rewound"; eventPayload: SessionRewoundPayload },
   content: string
 ) {
   const [row] = await db
