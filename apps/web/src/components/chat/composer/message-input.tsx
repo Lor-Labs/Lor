@@ -71,6 +71,10 @@ import {
 } from "@/components/chat/composer/mention-suggestion-list"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import {
+  insertRepoFileReference,
+  RepoFileChip,
+} from "@/components/chat/composer/repo-file-chip"
+import {
   type SlashCommandItem,
   SlashCommandList,
   type SlashCommandListProps,
@@ -88,6 +92,7 @@ import {
   toStoredMarkdown,
   whenEditorMounted,
 } from "@/lib/editor-utils"
+import type { ComposerFileReference } from "@/lib/repo-file-reference"
 
 const MAX_MENTION_RESULTS = 8
 const MAX_SLASH_RESULTS = 8
@@ -124,6 +129,8 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
 interface MessageInputProps {
   composerDraft?: { id: string; text: string }
   onComposerDraftConsumed?: (id: string) => void
+  composerFileReference?: ComposerFileReference
+  onComposerFileReferenceConsumed?: (id: string) => void
   context: ChatContext
   // Enables connector attachments — omitted in DMs, which have no workspace.
   channelId?: string
@@ -547,6 +554,8 @@ function resolveRouting({
 export function MessageInput({
   composerDraft,
   onComposerDraftConsumed,
+  composerFileReference,
+  onComposerFileReferenceConsumed,
   context,
   channelId,
   contextScopeKey,
@@ -699,6 +708,7 @@ export function MessageInput({
           suggestion: mentionSuggestion,
         }),
         ConnectorChip,
+        RepoFileChip,
         slashCommandExtension,
       ],
       editorProps: {
@@ -833,6 +843,25 @@ export function MessageInput({
       editor.off("mount", applyDraft)
     }
   }, [editor, composerDraft, onComposerDraftConsumed, destination])
+
+  const appliedFileReferenceRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!editor || !composerFileReference || disabled) return
+    const applyReference = () => {
+      if (appliedFileReferenceRef.current === composerFileReference.id) return
+      if (insertRepoFileReference(editor, composerFileReference)) {
+        appliedFileReferenceRef.current = composerFileReference.id
+        onComposerFileReferenceConsumed?.(composerFileReference.id)
+      }
+    }
+    if (editor.isInitialized) applyReference()
+    editor.on("create", applyReference)
+    editor.on("mount", applyReference)
+    return () => {
+      editor.off("create", applyReference)
+      editor.off("mount", applyReference)
+    }
+  }, [editor, composerFileReference, onComposerFileReferenceConsumed, disabled])
 
   const handleSend = useCallback(
     (stay = false) => {

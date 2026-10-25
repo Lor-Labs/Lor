@@ -110,7 +110,7 @@ may lag web), a Lor-offered "Continue in Code" card.
       jumped down when tabs opened.) The active tab is `?open=file:<path>`
       or `diff:<path>` (`?tab=` is the settings dialog's). The tab covers
       the transcript, which stays mounted but inert; type-to-focus and file
-      drops pause. A double click keeps a preview tab. The Changes and Files
+      uploads pause. A double click keeps a preview tab. The Changes and Files
       lists went back to rail width.
     - "All changes" (`?open=changes`, the Changes list's View all): one
       card per file with a sticky header and its stage checkbox; each diff
@@ -122,6 +122,14 @@ may lag web), a Lor-offered "Continue in Code" card.
     to Chat. Ctrl+Tab, Ctrl+Shift+Tab and Cmd+W only in the Mac app
     (browsers keep them). Cmd+W relies on WKWebView giving the page the key
     before the menu's Close Window: not yet checked in the app.
+  - [x] **F4** Files tree → composer: drag a file from the tree or filtered
+    results into its session to insert an atomic file-reference chip. Entering
+    the document with a file drag returns to Chat and reveals the composer;
+    the existing draft survives. A drop inside the editor inserts at the drop
+    position, elsewhere appends. References serialize as ordinary Markdown
+    links with the full repo-relative path and session file-tab URL; sent chips
+    open that file in the app. No upload or content snapshot is made. Folders,
+    archived sessions and references from other sessions are not accepted.
 - [ ] **4. Personal GitHub and shipping.** The GitHub App's user
   authorization, stored and refreshed tokens, a connect prompt; Push and
   Create PR as the person, or as the Lor bot by setting. Decided with Jacob
@@ -435,7 +443,49 @@ may lag web), a Lor-offered "Continue in Code" card.
     new session". Mobile still shows the event's plain text, like the other
     session events.
 - [ ] **7. Claude Code** on the session contract: native state per turn,
-  approvals and Lor's sandbox policy, sign-in, usage.
+  approvals and Lor's sandbox policy, sign-in, usage. Decided with Jacob
+  2026-10-24 (terms read the same day, under Research):
+  - **Subscription only for now:** each person pastes their own Claude Code
+    token once (from `claude setup-token`, as Amp does), in Linked
+    accounts. No API-key option yet. Jacob's call against the terms' "may
+    not collect, store, or intermediate" line, pending his question to
+    Anthropic's sales.
+  - **Only that person's own messages use it:** never Act or Loop runs,
+    never someone else's turn. In a Claude Code session, a teammate's
+    message during a running turn queues as its own turn instead of
+    steering it. The token stays out of the sandbox: Blaxel's proxy adds it
+    to Anthropic requests only while its owner's turn runs (to be proven in
+    the spike), and it is encrypted at rest.
+  - **No Lor credits for Claude Code turns** (the terms forbid paying for
+    users' Claude usage; supersedes the 2026-10-21 plan). Someone without a
+    token sees "Connect your Claude subscription" and "Continue with Lor":
+    a new Lor session (Lor credits) with this one as its context.
+  - **Claude Code's own permission modes:** Default (asks), Accept edits,
+    Plan, Auto (classifier) and Bypass, picked in the composer per message
+    like Shift+Tab; prompts become Lor's approval cards. Needs a patch: the
+    adapter only maps three coarse modes.
+  - Adapter 1.0.162 (see Research). Parts: 7a Blaxel spike (bridge over a
+    private preview WebSocket, standby, proxy-injected token, Claude Code
+    through our egress); 7b sandbox groundwork (image, port, bridge
+    lifetime, egress, bridge-token patch); 7c the harness choice and the
+    Claude account; 7d the Claude Code turn (native state per turn, Lor's
+    tools, modes and approvals, events, usage); 7e fork and rewind for
+    Claude Code (later).
+  - **7a spike, part 1** (2026-10-25, throwaway sandbox, our image, deleted):
+    - A `ws` server on `0.0.0.0` was reachable through a private preview
+      (`previews.createIfNotExists({ spec: { port, public: false } })`,
+      token in `?bl_preview_token=`): about 38 ms per round trip from a Mac.
+      The preview URL is `spec.url`.
+    - The same process (same pid) answered after 1 and after 3 minutes with
+      no connection. The sandbox status stayed `DEPLOYED`, so it is not
+      proven that it went to standby. Reconnecting took about 0.5 s.
+    - `SandboxInstance.updateNetwork` on the running sandbox added a POST
+      rule and a routing rule without stopping the process. The proxy
+      filled `{{SECRET:name}}` both in a header it injects and in a header
+      the sandbox sent, so code in the sandbox can use the secret while the
+      rule exists: add it for the owner's turn only.
+    - Part 2 (needs a Claude token): Claude Code 2.1.290 through the proxy
+      with the token as a placeholder.
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

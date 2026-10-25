@@ -209,6 +209,8 @@ function SessionConversation({
       workspaceSlug={workspaceSlug}
       channelId={session.channelId}
       threadRootId={session.threadRootId}
+      repoSessionId={code ? session.id : undefined}
+      onShowChat={() => tabs.select(null)}
       targetMessageId={targetMessageId}
       onFork={(message) =>
         fork.mutateAsync({ sessionId: session.id, messageId: message.id })

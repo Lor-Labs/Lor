@@ -24,6 +24,7 @@ import {
   useSessionChanges,
 } from "@/hooks/use-session-changes"
 import { fileTabId, useSessionTabs } from "@/hooks/use-session-tabs"
+import { writeRepoFileDrag } from "@/lib/repo-file-reference"
 
 // A code session's repository files: the tree read from the sandbox, changed
 // files marked, and a click opening the file read-only in a tab beside the
@@ -106,6 +107,8 @@ export function SessionFilesPanel({ view }: { view: SessionFilesSidebarView }) {
     <FolderGapNote gap={tree.data.state} onRetry={() => void tree.refetch()} />
   ) : (
     <FileTree
+      workspaceSlug={view.workspaceSlug}
+      sessionId={view.sessionId}
       paths={tree.data.paths}
       truncated={tree.data.truncated}
       statusByPath={statusByPath}
@@ -128,12 +131,16 @@ export function SessionFilesPanel({ view }: { view: SessionFilesSidebarView }) {
 }
 
 function FileTree({
+  workspaceSlug,
+  sessionId,
   paths,
   truncated,
   statusByPath,
   activeTab,
   onOpen,
 }: {
+  workspaceSlug: string
+  sessionId: string
   paths: string[]
   truncated: boolean
   statusByPath: Map<string, Status>
@@ -183,6 +190,17 @@ function FileTree({
         <div key={child.path}>
           <button
             type="button"
+            draggable={!isFolder}
+            onDragStart={
+              isFolder
+                ? undefined
+                : (event) =>
+                    writeRepoFileDrag(event.dataTransfer, {
+                      workspaceSlug,
+                      sessionId,
+                      path: child.path,
+                    })
+            }
             // A click opens a preview tab, a double click keeps it.
             onClick={() =>
               isFolder ? toggle(child.path) : onOpen(child.path, true)
@@ -257,6 +275,14 @@ function FileTree({
                 <button
                   key={path}
                   type="button"
+                  draggable
+                  onDragStart={(event) =>
+                    writeRepoFileDrag(event.dataTransfer, {
+                      workspaceSlug,
+                      sessionId,
+                      path,
+                    })
+                  }
                   onClick={() => onOpen(path, true)}
                   onDoubleClick={() => onOpen(path, false)}
                   className={cn(

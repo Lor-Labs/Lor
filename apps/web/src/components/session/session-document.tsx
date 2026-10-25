@@ -10,6 +10,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  type DragEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -68,6 +69,12 @@ import {
 } from "@/hooks/use-workspace-activity"
 import type { Message } from "@/lib/api-types"
 import { channelQueryOptions } from "@/lib/channel-query"
+import {
+  acceptsRepoFileDrag,
+  type ComposerFileReference,
+  hasRepoFileDrag,
+  readRepoFileDrag,
+} from "@/lib/repo-file-reference"
 
 // How long a local Lor turn waits for the server's before it goes.
 const LOR_TURN_TIMEOUT_MS = 20_000
@@ -86,6 +93,8 @@ export function SessionDocument({
   heading,
   archivedBar,
   cover,
+  repoSessionId,
+  onShowChat,
   onFork,
   onRewind,
   rewindRestoresFiles,
@@ -112,6 +121,8 @@ export function SessionDocument({
   // A code session's open tab (a file or diff): covers the transcript and the
   // composer, which stay mounted so the scroll position and draft survive.
   cover?: ReactNode
+  repoSessionId?: string
+  onShowChat?: () => void
 }) {
   const queryClient = useQueryClient()
   const socket = useSocket()
@@ -373,6 +384,54 @@ export function SessionDocument({
     ensureMessage,
   })
   const { scrollRef, scrollToEndRef } = scroll
+  const [isRepoDragActive, setIsRepoDragActive] = useState(false)
+  const [fileReference, setFileReference] = useState<ComposerFileReference>()
+  const canReferenceFiles = Boolean(
+    repoSessionId && !archivedBar && !isAwaitingReplies
+  )
+  const onRepoDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasRepoFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.stopPropagation()
+    const accepted =
+      canReferenceFiles &&
+      acceptsRepoFileDrag(event.dataTransfer, repoSessionId)
+    event.dataTransfer.dropEffect = accepted ? "copy" : "none"
+    setIsRepoDragActive(accepted)
+    if (accepted && cover) onShowChat?.()
+  }
+  const onRepoDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasRepoFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.stopPropagation()
+    setIsRepoDragActive(false)
+    const reference = readRepoFileDrag(event.dataTransfer)
+    if (
+      !canReferenceFiles ||
+      reference?.sessionId !== repoSessionId ||
+      reference?.workspaceSlug !== workspaceSlug
+    )
+      return
+    setFileReference({
+      id: crypto.randomUUID(),
+      reference,
+      point: cover ? undefined : { left: event.clientX, top: event.clientY },
+    })
+    if (cover) onShowChat?.()
+  }
+  useEffect(() => {
+    const clearDrag = () => setIsRepoDragActive(false)
+    window.addEventListener("dragend", clearDrag)
+    return () => window.removeEventListener("dragend", clearDrag)
+  }, [])
+  useEffect(() => {
+    setFileReference(undefined)
+    setIsRepoDragActive(false)
+  }, [repoSessionId])
+  useEffect(() => {
+    if (cover || (!isRepoDragActive && !fileReference)) return
+    scrollToEndRef.current?.({ behavior: "auto" })
+  }, [cover, isRepoDragActive, fileReference, scrollToEndRef])
   // The bar under the document the inline composer's tools render into.
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
     null
@@ -415,6 +474,16 @@ export function SessionDocument({
         context={CHANNEL_CONTEXT}
         channelId={channelId}
         contextScopeKey={threadRootId}
+        composerFileReference={
+          !cover && fileReference?.reference.sessionId === repoSessionId
+            ? fileReference
+            : undefined
+        }
+        onComposerFileReferenceConsumed={(id) =>
+          setFileReference((current) =>
+            current?.id === id ? undefined : current
+          )
+        }
         placeholder="Reply…"
         destination="session"
         subscribers={otherSubscribers}
@@ -470,9 +539,31 @@ export function SessionDocument({
   return (
     <div
       {...getRootProps()}
+      onDragEnterCapture={onRepoDragOver}
+      onDragOverCapture={onRepoDragOver}
+      onDragLeaveCapture={(event) => {
+        if (!hasRepoFileDrag(event.dataTransfer)) return
+        event.stopPropagation()
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        ) {
+          setIsRepoDragActive(false)
+        }
+      }}
+      onDropCapture={onRepoDrop}
       className="@container relative flex h-full w-full flex-col"
     >
       <DropZoneOverlay isDragActive={isDragActive} />
+      {isRepoDragActive && (
+        <div className="pointer-events-none absolute inset-0 z-40 rounded-lg border-2 border-dashed border-primary/40">
+          <div className="absolute inset-x-0 bottom-16 flex justify-center">
+            <span className="rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm">
+              Drop to reference this file
+            </span>
+          </div>
+        </div>
+      )}
       <ForwardDialog
         message={forwarding}
         workspaceSlug={workspaceSlug}
