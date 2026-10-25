@@ -208,11 +208,9 @@ function SessionConversation({
       channelId={session.channelId}
       threadRootId={session.threadRootId}
       targetMessageId={targetMessageId}
-      onFork={(message) => {
-        if (!fork.isPending) {
-          fork.mutate({ sessionId: session.id, messageId: message.id })
-        }
-      }}
+      onFork={(message) =>
+        fork.mutateAsync({ sessionId: session.id, messageId: message.id })
+      }
       header={({ lorRunning, headingVisible }) => (
         <SessionStrip
           session={session}

@@ -91,8 +91,9 @@ export function SessionDocument({
   workspaceSlug: string
   channelId: string
   threadRootId: string
-  // "Fork from here" on Lor's finished replies.
-  onFork?: (message: Message) => void
+  // "Fork from here" on Lor's finished replies; settles when the fork opens
+  // or fails.
+  onFork?: (message: Message) => Promise<unknown>
   // Message to center and highlight on open (search result, citation).
   targetMessageId?: string
   // headingVisible: the header shows the title once the heading is gone.

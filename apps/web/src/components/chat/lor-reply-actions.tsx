@@ -17,6 +17,13 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@repo/ui/components/popover"
+import {
   Tooltip,
   TooltipContent,
   TooltipCreateHandle,
@@ -52,20 +59,22 @@ export function LorReplyActions({
   onReact: (emoji: string) => void
   onReply: () => void
   onForward?: () => void
-  onFork?: () => void
+  // Settles when the fork opens or fails (the hook's toast says why).
+  onFork?: () => Promise<unknown>
   onTogglePin?: () => void
   isPinned: boolean
 }) {
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const [menuOpen, setMenuOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [forkOpen, setForkOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
     const timer = setTimeout(() => setCopied(false), COPIED_MS)
     return () => clearTimeout(timer)
   }, [copied])
-  const shown = alwaysVisible || menuOpen || emojiOpen
+  const shown = alwaysVisible || menuOpen || emojiOpen || forkOpen
 
   return (
     <div
@@ -145,11 +154,10 @@ export function LorReplyActions({
       )}
       {/* Last icon in the row (Jacob 2026-10-24). */}
       {onFork && (
-        <RowAction
+        <ForkAction
           handle={tooltipHandle}
-          label="Fork from here"
-          icon={GitForkIcon}
-          onClick={onFork}
+          onFork={onFork}
+          onOpenChange={setForkOpen}
         />
       )}
       <span className="ml-1.5 text-muted-foreground/70 text-xs tabular-nums">
@@ -161,6 +169,88 @@ export function LorReplyActions({
         )}
       </Tooltip>
     </div>
+  )
+}
+
+// Forking makes a new session, so it asks first; the button spins until the
+// fork opens.
+function ForkAction({
+  handle,
+  onFork,
+  onOpenChange,
+}: {
+  handle: TooltipPrimitive.Handle<string>
+  onFork: () => Promise<unknown>
+  onOpenChange: (open: boolean) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [forking, setForking] = useState(false)
+  const changeOpen = (next: boolean) => {
+    if (forking) return
+    setOpen(next)
+    onOpenChange(next)
+  }
+  const confirm = async () => {
+    setForking(true)
+    try {
+      await onFork()
+      setOpen(false)
+      onOpenChange(false)
+    } catch {
+      // The fork hook's toast says why.
+    } finally {
+      setForking(false)
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={changeOpen}>
+      <TooltipTrigger
+        handle={handle}
+        payload="Fork from here"
+        disabled={open}
+        render={
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className={ACTION_CLASS}
+                aria-label="Fork from here"
+              />
+            }
+          />
+        }
+      >
+        <HugeiconsIcon
+          icon={GitForkIcon}
+          className="size-4"
+          strokeWidth={1.5}
+        />
+      </TooltipTrigger>
+      <PopoverContent side="bottom" align="start" className="w-72">
+        <PopoverTitle className="text-sm">Fork from this reply?</PopoverTitle>
+        <PopoverDescription className="mt-1.5 text-xs leading-relaxed">
+          A new session starts here, with Lor's conversation up to this reply
+          and, in a code session, its files as they were. This session stays as
+          it is.
+        </PopoverDescription>
+        <div className="mt-3 flex justify-end gap-2">
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={forking}
+            onClick={() => changeOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button size="xs" loading={forking} onClick={() => void confirm()}>
+            Fork
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 

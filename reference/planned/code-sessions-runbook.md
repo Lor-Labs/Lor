@@ -369,7 +369,9 @@ may lag web), a Lor-offered "Continue in Code" card.
     2026-10-24: Lor's replies in a session get an action row under them,
     like ChatGPT's and Claude's (`LorReplyActions`: Copy, React, Reply,
     Forward to chat, Fork last, then the time; ⋯ only for Pin). Fork is a
-    visible icon, not in a menu (Jacob: forking is a launch emphasis). The row always shows on
+    visible icon, not in a menu (Jacob: forking is a launch emphasis). It
+    asks first in a popover ("Fork from this reply?", Cancel / Fork), and
+    the Fork button spins until the new session opens. The row always shows on
     the newest reply and on hover on older ones. People's messages and
     channel chat keep the floating bar.
   - Session event rows (Jacob 2026-10-24): on the message-content axis,

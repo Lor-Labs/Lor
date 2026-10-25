@@ -72,7 +72,7 @@ interface MessageItemProps {
   // Session: forward a message into the channel chat.
   onForward?: (message: Message) => void
   // Session: a new session from one of Lor's finished replies.
-  onFork?: (message: Message) => void
+  onFork?: (message: Message) => Promise<unknown>
   // Session: the newest Lor reply keeps its action row in view.
   isLatestLorReply?: boolean
   onOpenThread?: (rootMessageId: string) => void
@@ -399,9 +399,10 @@ export const MessageItem = memo(function MessageItem({
     !message.streaming &&
     Boolean(message.content?.trim())
 
-  const handleFork = useCallback(() => {
-    onFork?.(message)
-  }, [message, onFork])
+  const handleFork = useCallback(
+    () => onFork?.(message) ?? Promise.resolve(),
+    [message, onFork]
+  )
   // The API checks the turn saved; this only hides it where it can't apply.
   const canFork =
     Boolean(onFork) &&
