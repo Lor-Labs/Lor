@@ -13,6 +13,7 @@ const sessionsRouter = createRouter()
   .openapi(routes.pullSessionChanges, handlers.pullSessionChanges)
   .openapi(routes.getRepoTree, handlers.getRepoTree)
   .openapi(routes.getRepoFile, handlers.getRepoFile)
+  .openapi(routes.getRepoImage, handlers.getRepoImage)
   .openapi(
     routes.generateSessionCommitMessage,
     handlers.generateSessionCommitMessage

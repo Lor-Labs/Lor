@@ -7,7 +7,6 @@ import {
   GitCompareIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
-import { File as CodeFile } from "@pierre/diffs/react"
 import { Button } from "@repo/ui/components/button"
 import {
   ContextMenu,
@@ -18,13 +17,12 @@ import {
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
-import { useTheme } from "next-themes"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
+import { RepoFileView } from "@/components/session/repo-file-view"
 import {
   ChangeDiff,
   changeTotals,
-  DIFF_CSS,
   FolderGapNote,
   LineCounts,
   PanelNote,
@@ -32,10 +30,8 @@ import {
   StatusMark,
   splitPath,
 } from "@/components/sidebar/right-panel/session-changes-panel"
-import { useDiffHighlighterReady } from "@/hooks/use-diff-highlighter"
 import {
   type ChangedFile,
-  useRepoFile,
   useSessionChanges,
   useStageChanges,
 } from "@/hooks/use-session-changes"
@@ -549,57 +545,5 @@ function TabStageCheckbox({
         })
       }
     />
-  )
-}
-
-function RepoFileView({
-  sessionId,
-  path,
-}: {
-  sessionId: string
-  path: string
-}) {
-  const { resolvedTheme } = useTheme()
-  const file = useRepoFile(sessionId, path)
-  const highlighterReady = useDiffHighlighterReady(path)
-
-  if (file.isPending || !highlighterReady) {
-    return (
-      <PanelNote>
-        <Spinner className="size-4" />
-      </PanelNote>
-    )
-  }
-  if (file.isError) return <PanelNote>Couldn't load the file.</PanelNote>
-  if (file.data.kind === "binary") {
-    return <PanelNote>Binary file: no text to show.</PanelNote>
-  }
-  if (file.data.kind === "too_large") {
-    return <PanelNote>This file is too large to show.</PanelNote>
-  }
-  if (file.data.kind === "missing") {
-    return <PanelNote>This file no longer exists.</PanelNote>
-  }
-  if (
-    file.data.kind === "gone" ||
-    file.data.kind === "restoring" ||
-    file.data.kind === "restore_failed"
-  ) {
-    return (
-      <FolderGapNote gap={file.data.kind} onRetry={() => void file.refetch()} />
-    )
-  }
-  return (
-    <div className="m-3 overflow-hidden rounded-lg border border-border/70 bg-card py-1.5">
-      <CodeFile
-        file={{ name: path, contents: file.data.content }}
-        options={{
-          themeType: resolvedTheme === "dark" ? "dark" : "light",
-          overflow: "scroll",
-          disableFileHeader: true,
-          unsafeCSS: DIFF_CSS,
-        }}
-      />
-    </div>
   )
 }

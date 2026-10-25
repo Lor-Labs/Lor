@@ -27,7 +27,7 @@ import type {
   SessionFilesSidebarView,
   SessionWorkSidebarView,
 } from "@/components/sidebar/right-panel/right-sidebar-types"
-import { useDiffHighlighterReady } from "@/hooks/use-diff-highlighter"
+import { useDiffHighlighter } from "@/hooks/use-diff-highlighter"
 import {
   useConnectGithubAccount,
   usePersonalAccounts,
@@ -549,18 +549,18 @@ export function ChangeDiff({
 }) {
   const { resolvedTheme } = useTheme()
   const diff = useChangeDiff(sessionId, file, version)
-  const highlighterReady = useDiffHighlighterReady(file.path)
+  const { ready: highlighterReady, language } = useDiffHighlighter(file.path)
   const patch = diff.data?.kind === "patch" ? diff.data.patch : null
   // A patch with no hunks (a mode change) or one the parser rejects shows
   // as text instead.
   const fileDiff = useMemo(() => {
     if (!patch?.trim()) return null
     try {
-      return getSingularPatch(patch)
+      return { ...getSingularPatch(patch), lang: language }
     } catch {
       return null
     }
-  }, [patch])
+  }, [patch, language])
 
   if (diff.isPending || !highlighterReady) {
     return (

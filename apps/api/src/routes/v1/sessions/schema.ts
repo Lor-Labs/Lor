@@ -247,6 +247,7 @@ export const repoFileQuerySchema = z.object({ path: pathSchema })
 
 export const repoFileResponseSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text"), content: z.string() }),
+  z.object({ kind: z.literal("image"), mime: z.string(), size: z.number() }),
   z.object({ kind: z.literal("binary") }),
   z.object({ kind: z.literal("too_large") }),
   // Not a file in the repo, or it resolves outside it.

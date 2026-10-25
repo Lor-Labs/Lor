@@ -1,6 +1,7 @@
 import { authClient } from "@repo/auth/client"
 import type { LorToolEventPayload } from "@repo/realtime-types"
 import { toast } from "@repo/ui/components/toast"
+import { MAX_PREVIEW_BYTES } from "@repo/utils/file-preview"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
@@ -175,6 +176,26 @@ export function useRepoFile(sessionId: string, path: string) {
       })
       if (!res.ok) throw new Error("Failed to load the file")
       return res.json()
+    },
+  })
+}
+
+export function useRepoImage(sessionId: string, path: string) {
+  return useQuery({
+    queryKey: ["repo-file", sessionId, path, "image"],
+    gcTime: 60_000,
+    queryFn: async ({ signal }) => {
+      const res = await apiClient.v1.sessions[":sessionId"].repo.image.$get(
+        { param: { sessionId }, query: { path } },
+        { init: { signal } }
+      )
+      if (!res.ok) throw new Error("Couldn't load the image")
+      const blob = await res.blob()
+      const source =
+        blob.type === "image/svg+xml" && blob.size <= MAX_PREVIEW_BYTES
+          ? await blob.text()
+          : null
+      return { blob, source }
     },
   })
 }

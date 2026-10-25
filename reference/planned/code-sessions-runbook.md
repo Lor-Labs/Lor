@@ -91,8 +91,14 @@ may lag web), a Lor-offered "Continue in Code" card.
   full-screen):
   - [x] **F1** Files tab: `/sessions/{id}/repo/tree` (`git ls-files`,
     tracked and untracked, at most 20,000 paths) and `/repo/file` (text up
-    to 1 MB; binary, too large, and paths resolving outside the repo
-    reported). Tree with folders, a filter, change marks.
+    to 1 MB; image metadata; unsupported binary, too large, and paths
+    resolving outside the repo reported). Tree with folders, a filter,
+    change marks. `/repo/image` serves private image bytes up to 10 MiB
+    through the authenticated client, including desktop. PNG, JPEG, GIF,
+    WebP, AVIF, BMP, ICO and SVG render as images; SVG has Preview/Source
+    tabs (source up to 2 MiB). Blob URLs are released on replacement/close.
+    File and diff views preload each requested language; Rust, JS module
+    extensions and SVG/XML use explicit language mappings.
   - [x] **F2** Tabs beside the chat: Chat (fixed) plus file, diff and "All
     changes" tabs; the chat stays mounted. Preview tabs (single click
     reuses one); open tabs per person per session in local storage, the
@@ -506,6 +512,41 @@ may lag web), a Lor-offered "Continue in Code" card.
     previews for the bridge WebSocket, proxy header injection, process
     lifetime across standby); then the shared harness infrastructure; then
     Claude Code (about 1–1.5× Pi's harness work); then Codex (about 2×).
+- [x] Claude Code before chunk 7 (read 2026-10-24: adapter source,
+  vendor terms, Blaxel docs):
+  - **Terms.** Anthropic (code.claude.com legal-and-compliance, modified
+    2026-10-05): a product running Claude Code in hosted sandboxes may not
+    pay for, resell or intermediate its users' Claude usage. Each person
+    uses their own Anthropic API key, their own subscription through
+    Anthropic's own sign-in in the unmodified CLI (Lor may not store or
+    relay that token), or their own Bedrock, Vertex or Foundry account.
+    This rules out workspace credits through the Gateway for Claude Code
+    (the 2026-10-21 plan for teammates without a subscription). OpenAI:
+    Lor's key or the Gateway is fine for Codex, as is a person's own API
+    key; ChatGPT-plan sign-in for hosted apps needs OpenAI's partner
+    approval.
+  - **Adapter.** Use `@ai-sdk/harness-claude-code` 1.0.162 (it matches our
+    harness 1.0.158). 1.0.163–1.0.168 ship without the bridge's
+    `pnpm-lock.yaml`, so their bootstrap fails. The bridge (Agent SDK
+    0.3.290, Claude Code 2.1.290) runs in the sandbox and talks to the
+    worker over a WebSocket on a sandbox port. Lor's tools reach it as an
+    in-bridge MCP server. Approvals come from permission modes
+    (`allow-all` = no gating; `allow-edits` gates Bash; `allow-reads` gates
+    edits and Bash), answered through the harness's continue flow. It loads
+    all setting sources (the repo's CLAUDE.md, settings and hooks); the
+    system prompt is Claude Code's with Lor's text appended. Usage comes
+    per step and per turn (with the CLI's cost estimate). No fork or rewind
+    API: the session JSONL (under `$HOME/.claude/projects`, outside the
+    volume) must be saved per turn, and fork would copy it.
+  - **Blaxel.** The worker can reach the bridge through a private preview
+    URL with a token header (WebSocket works; 15-minute idle timeout).
+    Standby keeps running processes, so a bridge parked on an approval can
+    survive. Lor's `spawn` (keepAlive, 30-minute timeout, leftover-process
+    cleanup) would kill it. The image lacks pnpm: bake the CLI and the
+    bridge's packages into it. The proxy can inject a secret per
+    destination (`{{SECRET:name}}`, public preview), so a key need not be
+    readable in the sandbox. The bridge's own token is probably readable
+    by the model's Bash (patch).
 - [x] boat.dev as a cheaper sandbox provider for code sessions (read
   2026-10-22). Cheaper (about $20–100/month for 1,000 one-hour sessions vs an
   estimated $370–1,000 on Blaxel) with real disks (12–50 GB) and Docker, but
