@@ -592,7 +592,40 @@ may lag web), a Lor-offered "Continue in Code" card.
     - Open: steered and teammate messages are not taken mid-turn (they wait
       for the next turn's delta; queuing is 7d-4). A retried attempt after
       its save delivers an empty answer (`savedTurnText` reads Pi's format
-      only). Claude Code's tools show with generic labels (7d-3).
+      only).
+  - [x] **7d-3** Lor's tools, prompt and trail, built 2026-10-26 (not yet
+    run live in Lor):
+    - **Spike** (one turn, throwaway sandbox, deleted): tool inputs reach
+      the stream with paths relative to the work folder. `read`, `write`,
+      `edit` and `bash` keep Pi's names and input fields, but their results
+      are Claude Code's structured tool results: bash `{ stdout, stderr }`,
+      write `{ type: "create" | "update", content, structuredPatch }`, edit
+      `{ structuredPatch }` (hunks with context lines), read `{ file }`,
+      WebFetch `{ result }`. A failed command is a `tool-error` with text
+      ("Error: Exit code 2 …"). Lor's tools keep their own names in the
+      stream (`providerExecuted: false`); Claude Code defers them and loads
+      them with `ToolSearch` before the first call. Per-step usage counts
+      the whole context (cache reads included); the finish part has
+      `costUsd`; a raw `rate_limit_event` carries the plan's five-hour and
+      weekly use. The model id is empty and the context window is not sent.
+    - Lor's tools in Claude Code turns, except its web tools and plans
+      (Claude Code has WebSearch, WebFetch and its own task list) and the
+      approval-gated tools (a gated call pauses the turn: 7d-4). The
+      connector lines can still name a gated tool the turn does not have.
+    - The prompt appended to Claude Code's own: the shared session, Lor's
+      knowledge tools and citations, the connector lines, saving to memory,
+      mentions, workspace instructions and the code rules (CLAUDE.md is
+      loaded by Claude Code; an AGENTS.md is read on demand). No Lor
+      persona.
+    - Switched off: worktrees, schedules and remote triggers, push
+      notifications, questions and plan mode (7d-4), and the tools that
+      publish outside Lor (Artifact, DesignSync, SendUserFile,
+      ShareOnboardingGuide).
+    - Trail: labels for Claude Code's own tools; bash output, diffs from
+      `structuredPatch`, WebFetch's answer.
+    - Usage: the context meter stays hidden for Claude Code sessions (no
+      context usage is saved); what to show instead is open (plan use from
+      `rate_limit_event`, or tokens).
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

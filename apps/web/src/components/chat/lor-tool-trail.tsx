@@ -74,6 +74,9 @@ export function toolIcon(toolName: string): TrailIcon {
       return SearchGlyph
     case "search_web":
     case "fetch_web":
+    // Claude Code's own web tools.
+    case "webSearch":
+    case "WebFetch":
       return GlobeMark
     case "fetch_source":
     case "export_tool_result":
@@ -87,6 +90,7 @@ export function toolIcon(toolName: string): TrailIcon {
       return TerminalGlyph
     case "write":
     case "edit":
+    case "NotebookEdit":
     case "share_file":
     case "memory_write":
     case "memory_edit":

@@ -166,6 +166,8 @@ import {
 import { sandboxRequest } from "./sandbox/classifier-context"
 import { jevSandboxClassifier } from "./sandbox/jev-classifier"
 import {
+  claudeCodeToolDetail,
+  claudeCodeToolLabel,
   deniedReason,
   notRunDetail,
   piToolLabel,
@@ -306,11 +308,15 @@ const SANDBOX_TOOL_NAMES: ReadonlySet<string> = new Set(SANDBOX_BUILTIN_TOOLS)
 // one that is switched off.
 function sandboxPromptLine(
   builtins: readonly string[],
-  canShare: boolean
+  canShare: boolean,
+  // Claude Code brings its own file and shell tools.
+  claudeCode = false
 ): string | null {
-  if (builtins.length === 0 && !canShare) return null
-  const tools =
-    builtins.length === SANDBOX_BUILTIN_TOOLS.length
+  if (builtins.length === 0 && !canShare && !claudeCode) return null
+  const shell = claudeCode || builtins.includes("bash")
+  const tools = claudeCode
+    ? ""
+    : builtins.length === SANDBOX_BUILTIN_TOOLS.length
       ? "bash runs commands; read, write and edit work on files; grep, glob and ls find them. "
       : builtins.length > 0
         ? `Its tools here: ${builtins.join(", ")}. `
@@ -318,10 +324,10 @@ function sandboxPromptLine(
   const share = canShare
     ? "Nobody else can see its files until you call share_file with a file's path; the file then appears in the session's Files panel and you get its link to put in your answer. "
     : "Its files stay private to the sandbox. "
-  const download = builtins.includes("bash")
+  const download = shell
     ? "Files people share appear in the conversation as [file: name — type, size — url] lines; download a url into your sandbox when the work needs the file. "
     : ""
-  const network = builtins.includes("bash")
+  const network = shell
     ? "Its internet access reads from any site (GET and HEAD) but sends nothing out: other requests get HTTP 403 with a Proxy-Error: firewall_blocked header, except git clone and fetch from GitHub, GitLab and Bitbucket. The 403 message names the host, but only the method is blocked: reads from that host still work. Do not retry a blocked request or work around it; say what could not be sent. "
     : ""
   return `- Your sandbox: a private Linux computer for this session, with Python (pandas, matplotlib, openpyxl) and Node. ${tools}Files in your working folder stay between turns of this session. Use it to run code, work with data and make files: reports, cleaned or analyzed data, documents, charts. ${share}${download}${network}The sandbox holds no credentials for the team's services: reach those only through your other tools.`
@@ -465,6 +471,15 @@ function withNotes(
         content: [{ type: "text", text: head }, ...prompt.content],
       }
 }
+
+// Appended to Claude Code's own system prompt, which it keeps: where it works
+// and the team's knowledge through Lor's tools, without Lor's persona
+// (code-sessions-runbook.md chunk 7d-3).
+const CLAUDE_CODE_PROMPT_HEAD = `You are working in a shared session in Lor, a workspace where a team works with agents. Several teammates can write in this session, and each message names its sender. A message addressed to someone else is context, not a request to you. Your replies and reactions stay in the session. Do not use emojis in your replies.
+
+Lor's tools (mcp__harness-tools__…) reach the team's own knowledge. Use them when the work needs the team's context: an earlier decision, the issue or pull request behind a change, who owns what.
+- The team's memory: notes Lor keeps about this workspace. memory_ls lists pages and memory_read reads one.
+- The team's history: search covers chat in every channel, past calls, items from connected services and earlier sessions. read_thread, read_call and fetch_source read a hit in full. Cite a message as [[msg:…]], a call as [[call:…@time]] and a source as [[src:…]] by id.`
 
 // Answer phase only; background write-back handles routine note-keeping.
 // Only appended when the roster below is non-empty; teaches Lor the exact
@@ -1672,7 +1687,7 @@ export function toolLabel(toolName: string, input: unknown): string {
     case "glob":
       return piToolLabel("find", input)
     default:
-      return `Working (${toolName})`
+      return claudeCodeToolLabel(toolName, input) ?? `Working (${toolName})`
   }
 }
 
@@ -2580,11 +2595,13 @@ export async function respond(
       ...(ctx.channelId && ctx.threadRootId && !ctx.voice
         ? messageActionTools
         : {}),
-      ...(env.EXA_API_KEY ? webTools : {}),
+      // Claude Code brings its own web tools and task list, so a Claude Code
+      // turn has neither Lor's web tools nor plans.
+      ...(env.EXA_API_KEY && !ctx.claudeCode ? webTools : {}),
       ...(github ? githubTools : {}),
       ...(github && cloneRepoEnabled ? cloneRepoTool : {}),
       ...(shareFileEnabled ? shareFileTool : {}),
-      ...(ctx.plan || ctx.threadRootId ? planTools : {}),
+      ...((ctx.plan || ctx.threadRootId) && !ctx.claudeCode ? planTools : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
@@ -2847,7 +2864,7 @@ export async function respond(
 
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
-      sandboxPromptLine(sandboxBuiltins, shareFileEnabled),
+      sandboxPromptLine(sandboxBuiltins, shareFileEnabled, !!ctx.claudeCode),
       hasToolGroup(webTools) ? WEB_PROMPT_LINE : null,
       hasToolGroup(githubTools) ? GITHUB_PROMPT_LINE : null,
       hasToolGroup(cloneRepoTool) ? CODE_PROMPT_LINE : null,
@@ -2888,7 +2905,12 @@ export async function respond(
     )
     // Per-session inputs only, so the prompt stays byte-stable across turns
     // (reference/planned/pi-harness-runbook.md §4.8).
-    const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code)}` : ""}`
+    const workspaceSection = workspaceInstructions
+      ? `\n\n${formatInstructionsBlock(workspaceInstructions)}`
+      : ""
+    const instructions = ctx.claudeCode
+      ? `${[CLAUDE_CODE_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, "claude_code")}` : ""}`
+      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code)}` : ""}`
 
     // The turn's request. A retried attempt sends the saved one again. A run
     // that only finishes a paused turn sends none; its empty request still
@@ -3344,9 +3366,11 @@ export async function respond(
           const resolved =
             denied !== null
               ? notRunDetail(denied)
-              : SANDBOX_TOOL_NAMES.has(part.toolName)
-                ? sandboxToolDetail(part.toolName, part.input, part.output)
-                : toolDetail(part.toolName, part.output)
+              : ctx.claudeCode && part.providerExecuted
+                ? claudeCodeToolDetail(part.toolName, part.input, part.output)
+                : SANDBOX_TOOL_NAMES.has(part.toolName)
+                  ? sandboxToolDetail(part.toolName, part.input, part.output)
+                  : toolDetail(part.toolName, part.output)
           if (resolved.status === "error") {
             logger.warn(
               { tool: part.toolName, error: resolved.detail?.summary },
@@ -3361,7 +3385,8 @@ export async function respond(
             ...resolved,
           })
         } else if (part.type === "tool-error") {
-          // Pi's sandbox tools report failures here, not as a result.
+          // Pi's and Claude Code's own tools report failures here, not as a
+          // result.
           const error =
             part.error instanceof Error
               ? part.error.message
@@ -3392,10 +3417,17 @@ export async function respond(
               endpoint: await claudeCodeBridgeEndpoint(harness.owner),
             },
             tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
-            instructions: ctx.code ? codeSessionPromptSection(ctx.code) : "",
+            instructions,
             ...(prompt ? { prompt } : {}),
-            // Lor's tools join in chunk 7d-3, with their approvals.
-            tools: {},
+            // A gated call would pause the turn, which needs chunk 7d-4; until
+            // then those tools stay out of Claude Code turns.
+            tools: Object.fromEntries(
+              Object.entries(guarded.tools).filter(
+                ([name]) => !Object.hasOwn(toolApproval, name)
+              )
+            ),
+            toolsContext,
+            toolApproval: limitedToolApproval,
             abortSignal,
             onPart,
           })

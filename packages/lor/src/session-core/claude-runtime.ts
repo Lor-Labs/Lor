@@ -39,6 +39,29 @@ export const CLAUDE_CODE_BINDING: HarnessBinding = {
   formatVersion: 1,
 }
 
+// Claude Code's own tools that Lor switches off: worktrees leave the work
+// folder that checkpoints and the Changes panel read; schedules and
+// notifications would outlive the turn's process (Loops do this in Lor);
+// questions and plan mode need the approval cards of chunk 7d-4; the rest
+// publish outside Lor.
+const CLAUDE_CODE_INACTIVE_TOOLS = [
+  "EnterWorktree",
+  "ExitWorktree",
+  "CronCreate",
+  "CronDelete",
+  "CronList",
+  "ScheduleWakeup",
+  "RemoteTrigger",
+  "PushNotification",
+  "askUserQuestions",
+  "EnterPlanMode",
+  "ExitPlanMode",
+  "Artifact",
+  "DesignSync",
+  "SendUserFile",
+  "ShareOnboardingGuide",
+]
+
 function sha256(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex")
 }
@@ -126,6 +149,7 @@ export async function runClaudeCodeTurn(
       ? { toolsContext: input.toolsContext as never }
       : {}),
     ...(input.toolApproval ? { toolApproval: input.toolApproval } : {}),
+    inactiveTools: CLAUDE_CODE_INACTIVE_TOOLS as never,
     // Claude Code's own modes come in chunk 7d-4; until then it works freely
     // in its sandbox, as it does with Bypass permissions.
     permissionMode: "allow-all",

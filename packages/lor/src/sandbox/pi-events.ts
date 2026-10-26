@@ -151,6 +151,112 @@ export function notRunDetail(
   }
 }
 
+// Claude Code's own tools beyond the ones it shares with Pi (read, write,
+// edit, bash, grep, glob). Null for a name it does not have.
+export function claudeCodeToolLabel(
+  name: string,
+  input: unknown
+): string | null {
+  const args = asRecord(input)
+  switch (name) {
+    case "webSearch": {
+      const query = asString(args?.query)
+      return query ? `Searched the web for “${query}”` : "Searched the web"
+    }
+    case "WebFetch": {
+      const url = asString(args?.url)
+      return url ? `Fetched ${url}` : "Fetched a page"
+    }
+    case "NotebookEdit": {
+      const path = asString(args?.notebook_path)
+      return path ? `Edited ${path}` : "Edited a notebook"
+    }
+    case "TodoWrite":
+    case "TaskCreate":
+    case "TaskUpdate":
+      return "Updated the task list"
+    case "TaskGet":
+    case "TaskList":
+      return "Read the task list"
+    case "TaskOutput":
+      return "Checked a background command"
+    case "TaskStop":
+      return "Stopped a background command"
+    case "Monitor":
+      return "Watched a command"
+    case "Agent": {
+      const description = asString(args?.description)
+      return description ? `Ran a subagent: ${description}` : "Ran a subagent"
+    }
+    case "ToolSearch":
+      return "Loaded tools"
+    case "Skill": {
+      const skill = asString(args?.skill)
+      return skill ? `Used the ${skill} skill` : "Used a skill"
+    }
+    case "LSP":
+      return "Queried the language server"
+    default:
+      return null
+  }
+}
+
+type ClaudeCodePatchHunk = {
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  lines: string[]
+}
+
+function hunkPatch(path: string, hunks: unknown): PiFileDiff | undefined {
+  if (!Array.isArray(hunks) || hunks.length === 0) return undefined
+  const patch = (hunks as ClaudeCodePatchHunk[])
+    .flatMap((hunk) => [
+      `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
+      ...hunk.lines,
+    ])
+    .join("\n")
+  return { path, ...countPatchLines(patch), ...boundPatch(patch) }
+}
+
+// Trail detail for one of Claude Code's own tools that ran. Its results are
+// Claude Code's structured tool results (checked in the 7d-3 spike): bash
+// `{ stdout, stderr }`, write `{ type, content, structuredPatch }`, edit
+// `{ structuredPatch }`, WebFetch `{ result }`. Failures arrive as tool-error.
+export function claudeCodeToolDetail(
+  toolName: string,
+  input: unknown,
+  output: unknown
+): Pick<LorToolCall, "detail" | "status" | "diff"> {
+  const result = asRecord(output)
+  const path = asString(asRecord(input)?.file_path)
+  if (toolName === "write" || toolName === "edit") {
+    const diff =
+      (path && result?.type !== "create"
+        ? hunkPatch(path, result?.structuredPatch)
+        : undefined) ?? sandboxCallDiff(toolName, input)
+    return { status: "ok", ...(diff ? { diff } : {}) }
+  }
+  if (toolName === "read" || toolName === "ToolSearch") return { status: "ok" }
+  const text =
+    typeof output === "string"
+      ? output
+      : toolName === "bash"
+        ? [result?.stdout, result?.stderr]
+            .filter((part) => typeof part === "string" && part)
+            .join("\n")
+        : (asString(result?.result) ?? asString(result?.content) ?? "")
+  if (!text) return { status: "ok" }
+  const summary =
+    text.length <= MAX_OUTPUT_CHARS
+      ? text
+      : toolName === "bash"
+        ? `…${text.slice(-MAX_OUTPUT_CHARS)}`
+        : `${text.slice(0, MAX_OUTPUT_CHARS)}…`
+  return { status: "ok", detail: { summary } }
+}
+
 // Trail detail for one of Pi's sandbox tools that ran, whose results arrive
 // as text.
 export function sandboxToolDetail(
