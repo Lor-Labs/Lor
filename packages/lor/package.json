@@ -12,6 +12,7 @@
     "./attio": "./src/attio.ts",
     "./meeting-insights": "./src/meeting-insights.ts",
     "./capabilities": "./src/capabilities.ts",
+    "./claude-account": "./src/claude-account.ts",
     "./code-changes": "./src/code-changes.ts",
     "./code-checkpoints": "./src/code-checkpoints.ts",
     "./code-repo": "./src/code-repo.ts",

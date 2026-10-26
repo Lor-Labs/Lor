@@ -555,8 +555,44 @@ may lag web), a Lor-offered "Continue in Code" card.
       anyone's plan. Above their reply line: "Connect your Claude
       subscription" and "Continue with Lor" (New session with
       `continueFrom` and `harness=pi`). The heading shows "Claude Code".
-    - Until 7d, a Claude Code turn ends with "Claude Code sessions can't
-      run turns yet". Fork and rewind refuse Claude Code sessions (7e).
+    - Fork and rewind refuse Claude Code sessions (7e).
+  - [x] **7d-1 spike** (2026-10-25, three turns through the adapter in a
+    throwaway session sandbox, then deleted):
+    - A conversation is one append-only file,
+      `~/.claude/projects/<cwd with / as ->/<claude session id>.jsonl`
+      (about 90 KB after a short first turn, a few KB per short turn
+      after). `session.stop()` returns `{ claudeSessionId }` (the finish
+      part's metadata did not carry it); resuming with it keeps the same id
+      and appends to the same file. Without it, every turn starts a new
+      conversation.
+    - After deleting `~/.claude/projects` and writing the saved file back,
+      the next turn remembered the earlier turns. So Claude Code's state is
+      stored like Pi's log: `harness_state` and `harness_log` chunks with
+      kind `claude_code`, written back before each turn. Subagent side
+      files (`<id>/subagents/`) are not saved yet.
+    - The adapter's work folder is `<pwd>/claude-code-<sessionId>`; Lor
+      sets the harness `workDir` to the session's existing work folder, so
+      clone, checkpoints, restore and the Changes panel need no change.
+  - [x] **7d-2** the Claude Code turn, built 2026-10-25 (not yet run live):
+    - `session-core/claude-runtime.ts` (`runClaudeCodeTurn`): writes the
+      saved conversation file back when its sha differs, runs the turn
+      through `HarnessAgent` + `createClaudeCode` (bridge over the private
+      preview, token placeholder, `allow-all`, the session's work folder),
+      resumes by `claudeSessionId`, and saves the file after the turn as an
+      append (or a replace when Claude Code rewrote it). Same result shape
+      as `runPiTurn`, so `respond()` keeps one save, checkpoint and stop
+      path.
+    - `respond()` takes `claudeCode: { token }`: grants the token to the
+      proxy for the turn, revokes it after, and charges no Lor credits (no
+      usage events, no spend limit; the wall-clock limit stays). Prompt for
+      now: the code-session section only; no Lor tools yet (7d-3).
+    - Worker: loads the sender's token (`@repo/lor/claude-account`). A Loop
+      fire, an Act event or a sender without a subscription fails the turn
+      with a message saying why. No credit gate for Claude Code turns.
+    - Open: steered and teammate messages are not taken mid-turn (they wait
+      for the next turn's delta; queuing is 7d-4). A retried attempt after
+      its save delivers an empty answer (`savedTurnText` reads Pi's format
+      only). Claude Code's tools show with generic labels (7d-3).
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

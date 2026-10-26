@@ -30,6 +30,7 @@ import {
   writeBack,
 } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
+import { claudeSubscriptionToken } from "@repo/lor/claude-account"
 import type { ProposeLoopExecutor } from "@repo/lor/loops"
 import type { StartPlanInput } from "@repo/lor/plans"
 import { toRealtimePlan } from "@repo/lor/plans"
@@ -551,25 +552,6 @@ export function createLorRespondProcessor(
                   .then((rows) => rows[0])
               : undefined
             if (!session) throw new Error("This Lor run has no session")
-            // Claude Code turns run from code-sessions-runbook.md chunk 7d;
-            // until then a Claude Code session's turn says so instead of
-            // running on Lor's own agent.
-            if (session.harness === "claude_code") {
-              const notYet =
-                "Claude Code sessions can't run turns yet. Start a Lor session to work on this now."
-              await db
-                .update(schema.message)
-                .set({ content: notYet, status: "failed" })
-                .where(eq(schema.message.id, lorMessageId))
-                .catch(() => {})
-              emit(notYet, true, "failed")
-              await runWriter.transition("failed", { stopReason: "error" })
-              execution.stop()
-              await settlePlan("failed")
-              await emitThreadSummary()
-              drainQueue()
-              return
-            }
             const owner = { sessionId: session.id }
             const harnessState = await loadHarnessState(
               owner,
@@ -743,7 +725,11 @@ export function createLorRespondProcessor(
 
             // Pre-flight credit gate. Autumn failures never land here — the
             // check fails open inside @repo/billing (serve, log, skip debit).
-            const gate = await checkCredits(workspaceId)
+            // Claude Code turns run on the sender's subscription instead.
+            const gate =
+              session.harness === "claude_code"
+                ? { allowed: true }
+                : await checkCredits(workspaceId)
             if (!gate.allowed) {
               logger.info(
                 { workspaceId, lorMessageId },
@@ -783,6 +769,33 @@ export function createLorRespondProcessor(
               messageId: lorMessageId,
               channelId,
               userId: triggerUserId,
+            }
+
+            // A Claude Code turn runs only on its sender's own subscription:
+            // never a Loop fire, an Act event or someone else's message.
+            const claudeToken =
+              session.harness === "claude_code" &&
+              !automated &&
+              triggerUserId &&
+              triggerUserId !== LOR_USER_ID
+                ? await claudeSubscriptionToken(triggerUserId)
+                : null
+            if (session.harness === "claude_code" && !claudeToken) {
+              const noSubscription = automated
+                ? "Claude Code sessions only run on a person's own messages."
+                : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
+              await db
+                .update(schema.message)
+                .set({ content: noSubscription, status: "failed" })
+                .where(eq(schema.message.id, lorMessageId))
+                .catch(() => {})
+              emit(noSubscription, true, "failed")
+              await runWriter.transition("failed", { stopReason: "error" })
+              execution.stop()
+              await settlePlan("failed")
+              await emitThreadSummary()
+              drainQueue()
+              return
             }
 
             // A paused turn finishes first, or is dropped (stopped, or saved
@@ -933,6 +946,7 @@ export function createLorRespondProcessor(
                       },
                     }
                   : {}),
+                ...(claudeToken ? { claudeCode: { token: claudeToken } } : {}),
                 ...(loopRun && threadRootId
                   ? {
                       loop: loopRunContext(

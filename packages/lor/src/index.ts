@@ -37,6 +37,7 @@ import {
   isStepCount,
   type LanguageModelUsage,
   type ModelMessage,
+  type TextStreamPart,
   type ToolApprovalResponse,
   type ToolApprovalStatus,
   type ToolSet,
@@ -174,8 +175,17 @@ import {
   sandboxAskDescription,
   sandboxToolApproval,
 } from "./sandbox/sandbox-approval"
-import { openSessionSandbox, SESSION_WORK_DIR } from "./sandbox/session-sandbox"
+import {
+  CLAUDE_CODE_BRIDGE_PORT,
+  CLAUDE_TOKEN_PLACEHOLDER,
+  claudeCodeBridgeEndpoint,
+  grantClaudeAccess,
+  openSessionSandbox,
+  revokeClaudeAccess,
+  SESSION_WORK_DIR,
+} from "./sandbox/session-sandbox"
 import type { HarnessOwner } from "./session-core"
+import { runClaudeCodeTurn } from "./session-core/claude-runtime"
 import {
   PI_BUILTIN_NAMES,
   type PiCompaction,
@@ -543,6 +553,10 @@ export type RespondContext = {
   voice?: RunVoiceContext
   // Set on every run in a code session: its repo is the work folder.
   code?: RunCodeContext
+  // A Claude Code session's turn (code-sessions-runbook.md chunk 7d): the
+  // turn starter's own Claude subscription token. Claude Code runs the turn
+  // instead of Pi, and Lor credits are not charged.
+  claudeCode?: { token: string }
   // "Continue in Code": names the session whose messages are the background.
   continuesSession?: { title: string }
   // A fork's first turn: the session it was forked from.
@@ -3168,11 +3182,15 @@ export async function respond(
       // Set by the first finish-step of an assistant message, cleared when
       // the next message ends.
       let stepBilled = false
+      // A Claude Code turn runs on its starter's own subscription: no Lor
+      // credits, no spend limit.
+      const billed = !ctx.claudeCode
       const record = async (
         usage: RunStepRecord,
         kind: "step" | "compaction",
         reasoningTokens: number
       ) => {
+        if (!billed) return
         addTo(recorded, usage, reasoningTokens)
         addToModel(usage, reasoningTokens)
         const { creditsSpent } = await harness.recordUsage(usage, kind)
@@ -3183,7 +3201,7 @@ export async function respond(
       }
       let charged = false
       const chargeTurn = (extra: RunStepRecord | null) => {
-        if (charged) return
+        if (charged || !billed) return
         charged = true
         if (extra) addToModel(extra, 0)
         let first = true
@@ -3276,130 +3294,164 @@ export async function respond(
             ? `${PLAN_AFTER_COMPACTION}${planStateSection(planContextSnapshot(planRef.current))}`
             : null,
       }
-      const turn = await runPiTurn({
-        sessionId: conversationId,
-        sessionKey: conversationId,
-        saved: harness.saved,
-        sandbox: sandbox.session,
-        systemPrompt: instructions,
-        ...(workFolder?.status === "ready" && workFolder.instructions
-          ? { contextFiles: [workFolder.instructions] }
-          : {}),
-        ...(decisions ? { decisions } : {}),
-        ...(harness.pausedDropped ? { dropPaused: true } : {}),
-        ...(prompt ? { prompt } : {}),
-        tools: guarded.tools,
-        toolsContext,
-        toolApproval: limitedToolApproval,
-        inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
-          (name) => !selectedBuiltinTools.has(name)
-        ),
-        builtinToolApproval: (call) => sandboxApproval.decide(call),
-        onPrompt: () => {
-          if (!finishingPaused) return
-          activeSandboxMode = harness.sandboxMode
-          sandboxApproval = makeSandboxApproval(requestSandboxContext)
-        },
-        model: {
-          id: LOR_MODEL,
-          fallbacks: LOR_FALLBACK_MODELS,
-          contextWindow: env.LOR_CONTEXT_WINDOW,
-        },
-        gatewayAuth: piGatewayAuth(),
-        gatewayOptions: mainGatewayOptions,
-        abortSignal,
-        onAssistantModel: (model) => {
-          stepModel = billedModel(model)
-          stepBilled = false
-        },
-        toolBlock,
-        compaction,
-        onBoundary,
-        onPart: async (part) => {
-          if (!firstPartLogged) {
-            firstPartLogged = true
-            logger.info(
-              {
-                ms: Math.round(performance.now() - streamStart),
-                partType: part.type,
-              },
-              "Lor time to first stream part"
+      const onPart = async (part: TextStreamPart<ToolSet>) => {
+        if (!firstPartLogged) {
+          firstPartLogged = true
+          logger.info(
+            {
+              ms: Math.round(performance.now() - streamStart),
+              partType: part.type,
+            },
+            "Lor time to first stream part"
+          )
+        }
+        if (part.type === "text-delta") {
+          text += part.text
+          await onDelta(part.text)
+        } else if (part.type === "reasoning-delta") {
+          await onReasoning?.(part.text, text.length)
+        } else if (part.type === "finish-step") {
+          // Billed at its first finish-step. The adapter sends an early
+          // copy, with the same usage, while Pi waits on a Lor tool result
+          // or an approval; a paused turn never sends the regular one, and
+          // its replay on resume carries zero usage.
+          if (!stepBilled) {
+            stepBilled = true
+            await finishStep(usageTokens(part.usage))
+          }
+        } else if (part.type === "tool-call") {
+          toolCallCount++
+          if (!SANDBOX_TOOL_NAMES.has(part.toolName)) {
+            sandboxApproval.observe(part.toolName, parseToolInput(part.input))
+          }
+          onToolEvent?.({
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            label: toolLabel(part.toolName, part.input),
+            at: text.length,
+          })
+        } else if (part.type === "tool-approval-response" && !part.approved) {
+          // A finished paused turn sends no result for a denied call.
+          onToolEvent?.({
+            toolCallId: part.toolCall.toolCallId,
+            toolName: part.toolCall.toolName,
+            label: toolLabel(part.toolCall.toolName, part.toolCall.input),
+            at: text.length,
+            ...notRunDetail(part.reason),
+          })
+        } else if (part.type === "tool-result") {
+          const denied = deniedReason(part.output)
+          const resolved =
+            denied !== null
+              ? notRunDetail(denied)
+              : SANDBOX_TOOL_NAMES.has(part.toolName)
+                ? sandboxToolDetail(part.toolName, part.input, part.output)
+                : toolDetail(part.toolName, part.output)
+          if (resolved.status === "error") {
+            logger.warn(
+              { tool: part.toolName, error: resolved.detail?.summary },
+              "Lor tool returned an error"
             )
           }
-          if (part.type === "text-delta") {
-            text += part.text
-            await onDelta(part.text)
-          } else if (part.type === "reasoning-delta") {
-            await onReasoning?.(part.text, text.length)
-          } else if (part.type === "finish-step") {
-            // Billed at its first finish-step. The adapter sends an early
-            // copy, with the same usage, while Pi waits on a Lor tool result
-            // or an approval; a paused turn never sends the regular one, and
-            // its replay on resume carries zero usage.
-            if (!stepBilled) {
-              stepBilled = true
-              await finishStep(usageTokens(part.usage))
-            }
-          } else if (part.type === "tool-call") {
-            toolCallCount++
-            if (!SANDBOX_TOOL_NAMES.has(part.toolName)) {
-              sandboxApproval.observe(part.toolName, parseToolInput(part.input))
-            }
-            onToolEvent?.({
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              label: toolLabel(part.toolName, part.input),
-              at: text.length,
-            })
-          } else if (part.type === "tool-approval-response" && !part.approved) {
-            // A finished paused turn sends no result for a denied call.
-            onToolEvent?.({
-              toolCallId: part.toolCall.toolCallId,
-              toolName: part.toolCall.toolName,
-              label: toolLabel(part.toolCall.toolName, part.toolCall.input),
-              at: text.length,
-              ...notRunDetail(part.reason),
-            })
-          } else if (part.type === "tool-result") {
-            const denied = deniedReason(part.output)
-            const resolved =
-              denied !== null
-                ? notRunDetail(denied)
-                : SANDBOX_TOOL_NAMES.has(part.toolName)
-                  ? sandboxToolDetail(part.toolName, part.input, part.output)
-                  : toolDetail(part.toolName, part.output)
-            if (resolved.status === "error") {
-              logger.warn(
-                { tool: part.toolName, error: resolved.detail?.summary },
-                "Lor tool returned an error"
-              )
-            }
-            onToolEvent?.({
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              label: toolLabel(part.toolName, part.input),
-              at: text.length,
-              ...resolved,
-            })
-          } else if (part.type === "tool-error") {
-            // Pi's sandbox tools report failures here, not as a result.
-            const error =
-              part.error instanceof Error
-                ? part.error.message
-                : String(part.error)
-            onToolEvent?.({
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              label: toolLabel(part.toolName, part.input),
-              at: text.length,
-              status: "error",
-              detail: { summary: error.slice(0, 4_000) },
-            })
-          } else if (part.type === "error") {
-            throw part.error
-          }
-        },
-      }).catch((err: unknown) => {
+          onToolEvent?.({
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            label: toolLabel(part.toolName, part.input),
+            at: text.length,
+            ...resolved,
+          })
+        } else if (part.type === "tool-error") {
+          // Pi's sandbox tools report failures here, not as a result.
+          const error =
+            part.error instanceof Error
+              ? part.error.message
+              : String(part.error)
+          onToolEvent?.({
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            label: toolLabel(part.toolName, part.input),
+            at: text.length,
+            status: "error",
+            detail: { summary: error.slice(0, 4_000) },
+          })
+        } else if (part.type === "error") {
+          throw part.error
+        }
+      }
+      // The proxy adds the turn starter's Claude token to Anthropic requests
+      // for this turn only (code-sessions-runbook.md chunk 7).
+      const claudeCodeTurn = async (token: string) => {
+        await grantClaudeAccess(harness.owner, token)
+        try {
+          return await runClaudeCodeTurn({
+            sessionId: conversationId,
+            saved: harness.saved,
+            sandbox: sandbox.session,
+            bridge: {
+              port: CLAUDE_CODE_BRIDGE_PORT,
+              endpoint: await claudeCodeBridgeEndpoint(harness.owner),
+            },
+            tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
+            instructions: ctx.code ? codeSessionPromptSection(ctx.code) : "",
+            ...(prompt ? { prompt } : {}),
+            // Lor's tools join in chunk 7d-3, with their approvals.
+            tools: {},
+            abortSignal,
+            onPart,
+          })
+        } finally {
+          await revokeClaudeAccess(harness.owner).catch((err) =>
+            logger.error(
+              { err, sessionId: conversationId },
+              "Removing the Claude token from the sandbox proxy failed"
+            )
+          )
+        }
+      }
+      const turn = await (ctx.claudeCode
+        ? claudeCodeTurn(ctx.claudeCode.token)
+        : runPiTurn({
+            sessionId: conversationId,
+            sessionKey: conversationId,
+            saved: harness.saved,
+            sandbox: sandbox.session,
+            systemPrompt: instructions,
+            ...(workFolder?.status === "ready" && workFolder.instructions
+              ? { contextFiles: [workFolder.instructions] }
+              : {}),
+            ...(decisions ? { decisions } : {}),
+            ...(harness.pausedDropped ? { dropPaused: true } : {}),
+            ...(prompt ? { prompt } : {}),
+            tools: guarded.tools,
+            toolsContext,
+            toolApproval: limitedToolApproval,
+            inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
+              (name) => !selectedBuiltinTools.has(name)
+            ),
+            builtinToolApproval: (call) => sandboxApproval.decide(call),
+            onPrompt: () => {
+              if (!finishingPaused) return
+              activeSandboxMode = harness.sandboxMode
+              sandboxApproval = makeSandboxApproval(requestSandboxContext)
+            },
+            model: {
+              id: LOR_MODEL,
+              fallbacks: LOR_FALLBACK_MODELS,
+              contextWindow: env.LOR_CONTEXT_WINDOW,
+            },
+            gatewayAuth: piGatewayAuth(),
+            gatewayOptions: mainGatewayOptions,
+            abortSignal,
+            onAssistantModel: (model) => {
+              stepModel = billedModel(model)
+              stepBilled = false
+            },
+            toolBlock,
+            compaction,
+            onBoundary,
+            onPart,
+          })
+      ).catch((err: unknown) => {
         // A failed turn still charges the steps that finished.
         chargeTurn(null)
         throw err
@@ -3475,9 +3527,8 @@ export async function respond(
       // Only a finished turn has a total. Charged before the save, since the
       // tokens are spent either way: a retry that finds the turn saved
       // delivers it without charging again.
-      const extraUsage = turn.usage
-        ? extraTurnUsage(turn.usage, recorded)
-        : null
+      const extraUsage =
+        turn.usage && billed ? extraTurnUsage(turn.usage, recorded) : null
       chargeTurn(extraUsage)
       await harness.saveTurn({
         save: turn.save,

@@ -80,7 +80,7 @@ function hostStateRoot(sessionId: string): string {
 
 export { piWorkDir } from "./work-dir"
 
-async function sandboxHome(sandbox: SandboxSession): Promise<string> {
+export async function sandboxHome(sandbox: SandboxSession): Promise<string> {
   const result = await sandbox.run({ command: 'printf %s "$HOME"' })
   const home = result.stdout.trim()
   if (result.exitCode !== 0 || !home) {
@@ -127,7 +127,7 @@ function gatewayModels(ids: string[], contextWindow: number) {
 // tool's context). Resolve it the way streamText does. Sorted by name: the
 // tool section heads the cached prompt, so an unchanged list must keep its
 // order (MCP and custom tools arrive in server and database order).
-function prepareTools(
+export function prepareTools(
   tools: ToolSet,
   toolsContext: Record<string, unknown> | undefined,
   sandbox: SandboxSession
