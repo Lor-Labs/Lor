@@ -1,11 +1,4 @@
-import {
-  DEFAULT_THEMES,
-  getFiletypeFromFileName,
-  getHighlighterOptions,
-  isHighlighterLoaded,
-  parseDiffFromFile,
-  preloadHighlighter,
-} from "@pierre/diffs"
+import { parseDiffFromFile } from "@pierre/diffs"
 import { FileDiff } from "@pierre/diffs/react"
 import { Button } from "@repo/ui/components/button"
 import { Spinner } from "@repo/ui/components/spinner"
@@ -24,6 +17,7 @@ import {
   SettingsGroup,
   SettingsSection,
 } from "@/components/workspace/settings-group"
+import { useDiffHighlighterReady } from "@/hooks/use-diff-highlighter"
 import { apiClient } from "@/lib/api-client"
 import type {
   InstructionsResponse as InstructionsData,
@@ -57,36 +51,9 @@ function formatWhen(iso: string) {
   })
 }
 
-// FileDiff paints nothing if it mounts before the shared Shiki highlighter
-// has ever loaded (its lazy init doesn't repaint this instance), so gate the
-// first mount on an explicit preload — later mounts find it warm and skip.
-function useDiffHighlighterReady() {
-  const [ready, setReady] = useState(isHighlighterLoaded)
-  useEffect(() => {
-    if (ready) return
-    let cancelled = false
-    void preloadHighlighter(
-      getHighlighterOptions(getFiletypeFromFileName("LOR.md"), {
-        theme: DEFAULT_THEMES,
-      })
-    )
-      .catch(() => {
-        // Failed preload: render the diff unhighlighted instead of spinning
-        // forever.
-      })
-      .then(() => {
-        if (!cancelled) setReady(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [ready])
-  return ready
-}
-
 function DiffView({ before, after }: { before: string; after: string }) {
   const { resolvedTheme } = useTheme()
-  const highlighterReady = useDiffHighlighterReady()
+  const highlighterReady = useDiffHighlighterReady("LOR.md")
   // An empty base means "no instructions yet" — render as a new file rather
   // than a modification of an empty one.
   const fileDiff = useMemo(

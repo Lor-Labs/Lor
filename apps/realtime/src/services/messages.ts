@@ -15,6 +15,7 @@ import type { AgentSession, ForwardedMessage } from "@repo/db/schema"
 import { type CreateSessionArgs, createSession } from "@repo/lor/agent-sessions"
 import {
   buildReactionNotification,
+  channelEventContent,
   type PresenceRedisClient,
   syncMessageMentions,
 } from "@repo/messaging"
@@ -53,10 +54,15 @@ export type NewSessionInput = Pick<
   | "id"
   | "threadRootId"
   | "origin"
+  | "code"
+  | "sourceSessionId"
   | "title"
   | "contextMessageIds"
   | "subscriberIds"
->
+> & {
+  // "Continue in Code": the source session's thread, which gets the event.
+  sourceThreadRootId?: string
+}
 
 type DeleteMessageInput = {
   userId: string
@@ -87,6 +93,8 @@ export type CreateMessageResult = {
   deduplicated?: boolean
   // Set when this send started a Lor session.
   session?: AgentSession
+  // "Continue in Code": the event row posted in the source session.
+  continuedEvent?: RealtimeMessage
 }
 
 async function loadReferencedMessage(
@@ -360,7 +368,9 @@ async function workspaceAvatarColor(
     .then((rows) => rows[0]?.avatarColor ?? null)
 }
 
-export async function createMessage(input: CreateMessageInput) {
+export async function createMessage(
+  input: CreateMessageInput
+): Promise<CreateMessageResult> {
   if (input.accessibleChannel.id !== input.payload.channelId) {
     throw new Error("Channel mismatch")
   }
@@ -594,7 +604,36 @@ export async function createMessage(input: CreateMessageInput) {
         throw new Error("Failed to fetch created message")
       }
 
-      return { ...createdMessageWithAuthor, session }
+      // "Continue in Code": a row in the source session says where the work
+      // went, for its people and for Lor there. Nobody is subscribed by it.
+      const sourceThreadRootId = input.newSession?.sourceThreadRootId
+      const continuedEvent =
+        session && sourceThreadRootId
+          ? await tx
+              .insert(schema.message)
+              .values({
+                channelId: input.payload.channelId,
+                authorId: input.userId,
+                type: "event",
+                eventType: "session_continued",
+                eventPayload: {
+                  sessionId: session.id,
+                  repoFullName: session.repoFullName,
+                },
+                content: channelEventContent({
+                  eventType: "session_continued",
+                  actorName: createdMessageWithAuthor.authorName,
+                  repoFullName: session.repoFullName,
+                  threadRootId: session.threadRootId,
+                }),
+                threadRootId: sourceThreadRootId,
+                excludedFromMemory: true,
+              })
+              .returning()
+              .then((rows) => rows[0])
+          : undefined
+
+      return { ...createdMessageWithAuthor, session, continuedEvent }
     })
 
   let messageWithAuthor: Awaited<ReturnType<typeof runInsertTransaction>>
@@ -657,10 +696,35 @@ export async function createMessage(input: CreateMessageInput) {
     createdMessage.nonce = input.payload.nonce
   }
 
+  const event = messageWithAuthor.continuedEvent
+  const continuedEvent: RealtimeMessage | undefined = event
+    ? {
+        id: event.id,
+        channelId: event.channelId,
+        content: event.content,
+        type: "event",
+        eventType: event.eventType,
+        eventPayload: event.eventPayload,
+        status: event.status,
+        pinned: false,
+        createdAt: event.createdAt.toISOString(),
+        author: createdMessage.author,
+        mentions: [],
+        reactions: [],
+        attachments: [],
+        embeds: [],
+        referencedMessage: null,
+        forwarded: null,
+        threadRootId: event.threadRootId,
+        routedToLor: null,
+      }
+    : undefined
+
   return {
     message: createdMessage,
     channel: channelRecord,
     session: messageWithAuthor.session ?? undefined,
+    ...(continuedEvent ? { continuedEvent } : {}),
   } satisfies CreateMessageResult
 }
 

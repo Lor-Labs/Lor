@@ -8,6 +8,8 @@ type SessionSearchParams = {
   upload?: string
   // A search result or citation: centers and highlights that message.
   msgId?: string
+  // A code session's active tab beside the chat (use-session-tabs.ts).
+  open?: string
 }
 
 export const Route = createFileRoute(
@@ -19,6 +21,7 @@ export const Route = createFileRoute(
       typeof search.artifactId === "string" ? search.artifactId : undefined,
     upload: typeof search.upload === "string" ? search.upload : undefined,
     msgId: typeof search.msgId === "string" ? search.msgId : undefined,
+    open: typeof search.open === "string" ? search.open : undefined,
   }),
 })
 

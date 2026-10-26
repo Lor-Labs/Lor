@@ -22,6 +22,7 @@ import {
 import { Tabs, TabsList, TabsTab } from "@repo/ui/components/tabs"
 import { anchoredToastManager, toast } from "@repo/ui/components/toast"
 import { formatDateTime } from "@repo/utils/date"
+import { isChannelFeatureEnabled } from "@repo/utils/features"
 import {
   type InfiniteData,
   useQuery,
@@ -125,6 +126,34 @@ function messageToMarkdown(message: Message): string {
 // A human thread or a call chat in the right panel. Lor sessions render on
 // their own page (SessionDocument) and never open here.
 export function ThreadPanel({ view }: { view: ThreadSidebarView }) {
+  const { clearView } = useRightSidebar()
+  const { data: channel, isPending } = useQuery(
+    channelQueryOptions(view.workspaceSlug, view.channelId)
+  )
+  const hidden = channel && !isChannelFeatureEnabled(channel)
+  useEffect(() => {
+    if (hidden) clearView()
+  }, [hidden, clearView])
+  if (hidden) return null
+  if (!channel) {
+    return (
+      <>
+        <RightPanelHeader
+          title="Thread"
+          workspaceSlug={view.workspaceSlug}
+          channelId={view.channelId}
+          hideBack
+        />
+        <p className="p-4 text-sm text-muted-foreground">
+          {isPending ? "Loading…" : "Could not load this thread."}
+        </p>
+      </>
+    )
+  }
+  return <EnabledThreadPanel view={view} />
+}
+
+function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
   const { consumeComposerDraft, setView, clearView } = useRightSidebar()
   const { call } = useVoiceCall()
   const queryClient = useQueryClient()

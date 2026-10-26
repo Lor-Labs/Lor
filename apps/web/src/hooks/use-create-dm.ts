@@ -1,4 +1,5 @@
 import { toast } from "@repo/ui/components/toast"
+import { features } from "@repo/utils/features"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { apiClient } from "@/lib/api-client"
@@ -12,6 +13,8 @@ export function useCreateDM() {
 
   return useMutation({
     mutationFn: async (userIds: string[]) => {
+      if (!features.directMessages)
+        throw new Error("Direct messages are unavailable")
       const res = await apiClient.v1.dms.$post({
         json: { userIds },
       })
@@ -42,6 +45,7 @@ export function useOpenDM() {
   const createDM = useCreateDM()
 
   const openDM = (userId: string) => {
+    if (!features.directMessages) return
     const existing = queryClient
       .getQueryData<ListDMsResponse>(["dms"])
       ?.data.find(

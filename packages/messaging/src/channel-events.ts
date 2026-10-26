@@ -31,6 +31,43 @@ export type ChannelEventContentInput =
     }
   | { eventType: "loop_completed"; actorName: string; loopName: string }
   | { eventType: "loop_run"; loopName: string }
+  | {
+      eventType: "session_continued"
+      actorName: string
+      repoFullName: string | null
+      // The new session's anchor: Lor reads it with read_thread.
+      threadRootId: string
+    }
+  | {
+      eventType: "session_committed"
+      actorName: string
+      sha: string
+      subject: string
+      branch: string | null
+      fileCount: number
+    }
+  | {
+      eventType: "session_pushed"
+      actorName: string
+      repoFullName: string
+      branch: string
+      commitCount: number
+      headSha: string
+    }
+  | {
+      eventType: "session_forked"
+      actorName: string
+      // The reply it was forked at, and the new session's anchor (Lor reads
+      // it with read_thread).
+      fromMessageId: string
+      threadRootId: string
+    }
+  | {
+      eventType: "session_rewound"
+      actorName: string
+      toMessageId: string
+      code: boolean
+    }
 
 export function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ""
@@ -67,5 +104,17 @@ export function channelEventContent(input: ChannelEventContentInput): string {
       return `${input.actorName} completed the loop "${input.loopName}"`
     case "loop_run":
       return `The loop "${input.loopName}" ran on schedule`
+    case "session_continued":
+      return `${input.actorName} continued this session in a new code session${input.repoFullName ? ` on ${input.repoFullName}` : ""} (message ${input.threadRootId})`
+    case "session_committed":
+      return `${input.actorName} committed ${input.fileCount} ${input.fileCount === 1 ? "file" : "files"}${input.branch ? ` to ${input.branch}` : ""}: "${input.subject}" (${input.sha.slice(0, 7)})`
+    case "session_pushed":
+      return `${input.actorName} pushed ${input.commitCount} ${input.commitCount === 1 ? "commit" : "commits"} to ${input.branch} on ${input.repoFullName} (${input.headSha.slice(0, 7)})`
+    case "session_forked":
+      return `${input.actorName} forked this session at Lor's reply ${input.fromMessageId} into a new session (message ${input.threadRootId})`
+    // Lor reads this as the next turn's first line: it says what happened,
+    // never what the rewound turns said.
+    case "session_rewound":
+      return `${input.actorName} rewound this session to Lor's reply ${input.toMessageId}: Lor continues from that reply, and what came after it is set aside${input.code ? "; the work folder is back to that turn's files, branch and commits" : "; files in Lor's sandbox stay as they are"}. Anything already pushed to GitHub or sent elsewhere stays as it is.`
   }
 }

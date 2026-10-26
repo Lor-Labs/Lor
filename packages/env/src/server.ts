@@ -86,6 +86,9 @@ const serverSchema = z.object({
   // BL_* names are fixed — @blaxel/core reads them from process.env directly.
   BL_API_KEY: z.string().min(1).optional(),
   BL_WORKSPACE: z.string().min(1).optional(),
+  // Where session sandboxes are created. It must offer ephemeral volumes and
+  // the egress proxy (us-pdx-1 checked 2026-10-23).
+  BL_REGION: defaultedString("us-pdx-1"),
   // Custom sandbox image (pushed via `bl push` from packages/lor/sandbox-image).
   LOR_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
@@ -130,6 +133,17 @@ const serverSchema = z.object({
   GITHUB_APP_PRIVATE_KEY: z.string().min(1).optional(),
   // The GitHub App's public slug (github.com/apps/<slug>), for the install link.
   GITHUB_APP_SLUG: z.string().min(1).optional(),
+  // The GitHub App's OAuth client, for people connecting their own GitHub
+  // account (commit and push as themselves). Optional: the connect button
+  // hides when unset.
+  GITHUB_APP_CLIENT_ID: z.string().min(1).optional(),
+  GITHUB_APP_CLIENT_SECRET: z.string().min(1).optional(),
+  // Pierre Code Storage, the private Git host for code session checkpoints:
+  // the organization name (<org>.code.storage) and an ES256 private key in
+  // PKCS8 PEM form that signs short-lived tokens. The key never enters a
+  // sandbox. Optional: without them sessions keep no checkpoints.
+  CODE_STORAGE_ORG: z.string().min(1).optional(),
+  CODE_STORAGE_PRIVATE_KEY: z.string().min(1).optional(),
   LINEAR_CLIENT_ID: z.string().min(1).optional(),
   LINEAR_CLIENT_SECRET: z.string().min(1).optional(),
   LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
@@ -227,6 +241,36 @@ const refinedServerSchema = serverSchema.superRefine((val, ctx) => {
       code: z.ZodIssueCode.custom,
       message:
         "INTEGRATION_ENCRYPTION_KEY is required when Notion (a token-persisting connector) is configured",
+      path: ["INTEGRATION_ENCRYPTION_KEY"],
+    })
+  }
+  if (!val.GITHUB_APP_CLIENT_ID !== !val.GITHUB_APP_CLIENT_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET must be set together",
+      path: [
+        val.GITHUB_APP_CLIENT_ID
+          ? "GITHUB_APP_CLIENT_SECRET"
+          : "GITHUB_APP_CLIENT_ID",
+      ],
+    })
+  }
+  if (!val.CODE_STORAGE_ORG !== !val.CODE_STORAGE_PRIVATE_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CODE_STORAGE_ORG and CODE_STORAGE_PRIVATE_KEY must be set together",
+      path: [
+        val.CODE_STORAGE_ORG ? "CODE_STORAGE_PRIVATE_KEY" : "CODE_STORAGE_ORG",
+      ],
+    })
+  }
+  if (val.GITHUB_APP_CLIENT_ID && !val.INTEGRATION_ENCRYPTION_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "INTEGRATION_ENCRYPTION_KEY is required when GitHub accounts (token-persisting) are configured",
       path: ["INTEGRATION_ENCRYPTION_KEY"],
     })
   }

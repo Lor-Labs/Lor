@@ -71,11 +71,15 @@ merges ("human wins, machine reconciles").
   (`bash`, `read`, `write`, `edit`, `grep`, `glob`, `ls`) run there through
   the adapter; Pi itself runs in the worker, so the sandbox holds no Gateway
   key and no credentials for the team's services.
-- **Egress limits** (`SESSION_NETWORK`, proxy firewall set at creation,
-  marked with the `lor-egress` label): reads (`GET`/`HEAD`/`OPTIONS`) to any
-  host, plus git fetch from GitHub, GitLab and Bitbucket and `npm audit`.
-  Other requests get HTTP 403 with `Proxy-Error: firewall_blocked`. A
-  sandbox without the current limits is replaced. See
+- **Egress limits** (`SESSION_NETWORK`, set at creation, marked with the
+  `lor-egress` label): reads (`GET`/`HEAD`/`OPTIONS`) to any host, plus git
+  fetch from GitHub, GitLab and Bitbucket and `npm audit`. Other requests
+  get HTTP 403 with `Proxy-Error: firewall_blocked`. A sandbox without the
+  current limits is replaced. The limits bind clients that use
+  `HTTP(S)_PROXY` (Node through `NODE_USE_ENV_PROXY`); the firewall ruleset
+  that would bind all traffic is off since 2026-10-23, because Blaxel's
+  ephemeral volumes now need Carbon, which has no firewalling. Sandboxes are
+  created in `BL_REGION` (default `us-pdx-1`). See
   [sandbox-safety-research.md](planned/sandbox-safety-research.md) §7.
 - **Health and loss:** an existing sandbox is probed; one that answers
   unhealthy is replaced, and a probe error fails the run instead of deleting

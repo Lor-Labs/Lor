@@ -1,9 +1,11 @@
 import {
   Archive02Icon,
+  GitBranchIcon,
   HashtagIcon,
   Link01Icon,
   MoreHorizontalIcon,
   PencilEdit02Icon,
+  SourceCodeIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
@@ -30,11 +32,15 @@ import { timeAgo } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
 import { SessionDocument } from "@/components/session/session-document"
+import {
+  SessionTabBar,
+  SessionTabView,
+} from "@/components/session/session-tabs"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
@@ -44,11 +50,19 @@ import {
   prefetchSession,
   useAgentSession,
   useAgentSessionUpdates,
+  useForkSession,
+  useRewindSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { useChannelProposals } from "@/hooks/use-proposals"
+import { useLiveSessionChanges } from "@/hooks/use-session-changes"
+import {
+  parseTabId,
+  sessionTabLink,
+  useSessionTabs,
+} from "@/hooks/use-session-tabs"
 import {
   findSidebarSession,
   patchSidebarSession,
@@ -104,7 +118,7 @@ export function SessionView({
 
 function SessionConversation({
   workspaceSlug,
-  detail: { session, channel },
+  detail: { session, channel, source },
   targetMessageId,
 }: {
   workspaceSlug: string
@@ -156,8 +170,17 @@ function SessionConversation({
     return () => clearView()
   }, [workView, isMobile, setView, clearView])
 
+  // Code sessions: files and diffs open in tabs beside the chat.
+  const code = session.mode === "code"
+  useLiveSessionChanges(session.id, session.threadRootId, code)
+  const tabs = useSessionTabs(session.id)
+  const activeTab = code && tabs.active ? parseTabId(tabs.active) : null
+  const showTabs = code && (tabs.ids.length > 0 || activeTab !== null)
+
   useAgentSessionUpdates(session.id)
   const updateSession = useUpdateAgentSession()
+  const fork = useForkSession(workspaceSlug)
+  const rewind = useRewindSession(session.id)
   const navigate = useNavigate()
   const change = {
     workspaceId: session.workspaceId,
@@ -187,12 +210,30 @@ function SessionConversation({
       channelId={session.channelId}
       threadRootId={session.threadRootId}
       targetMessageId={targetMessageId}
+      onFork={(message) =>
+        fork.mutateAsync({ sessionId: session.id, messageId: message.id })
+      }
+      onRewind={
+        session.archivedAt
+          ? undefined
+          : (message) => rewind.mutateAsync(message.id)
+      }
+      rewindRestoresFiles={code}
       header={({ lorRunning, headingVisible }) => (
         <SessionStrip
           session={session}
           workView={workView}
           lorRunning={lorRunning}
           showTitle={!headingVisible}
+          tabBar={
+            showTabs ? (
+              <SessionTabBar
+                workspaceSlug={workspaceSlug}
+                sessionId={session.id}
+                tabs={tabs}
+              />
+            ) : null
+          }
           onRename={() => setRenaming(true)}
           onArchive={() => {
             updateSession.mutate({ ...change, archived: true })
@@ -208,12 +249,23 @@ function SessionConversation({
         <SessionHeading
           session={session}
           channelName={channel.name ?? "channel"}
+          source={source}
           startedBy={startedBy}
           starter={starter}
           renaming={renaming}
           onRenamingChange={setRenaming}
           onRename={(title) => updateSession.mutate({ ...change, title })}
         />
+      }
+      cover={
+        activeTab ? (
+          <SessionTabView
+            key={activeTab.id}
+            sessionId={session.id}
+            tab={activeTab}
+            onOpen={tabs.open}
+          />
+        ) : undefined
       }
       archivedBar={
         session.archivedAt ? (
@@ -249,6 +301,7 @@ function SessionStrip({
   workView,
   lorRunning,
   showTitle,
+  tabBar,
   onRename,
   onArchive,
 }: {
@@ -256,23 +309,28 @@ function SessionStrip({
   workView: SessionWorkSidebarView
   lorRunning: boolean
   showTitle: boolean
+  // A code session's open tabs take the title's place.
+  tabBar: ReactNode
   onRename: () => void
   onArchive: () => void
 }) {
   const { workspaceSlug, channelId } = workView
+  const navigate = useNavigate()
   const archived = session.archivedAt !== null
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const [confirmArchive, setConfirmArchive] = useState(false)
+  // The session itself, without an open tab or highlighted message.
   const copyLink = () =>
     void navigator.clipboard
-      .writeText(window.location.href)
+      .writeText(sessionTabLink(workspaceSlug, session.id, null))
       .then(() => toast.success("Link copied"))
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-1 px-3">
       <HeaderNavControls className="-ml-1" />
+      {tabBar}
       <AnimatePresence initial={false}>
-        {showTitle && (
+        {showTitle && !tabBar && (
           <motion.span
             key="title"
             initial={{ opacity: 0 }}
@@ -316,6 +374,21 @@ function SessionStrip({
                 Rename
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem
+              onClick={() =>
+                void navigate({
+                  to: "/$workspaceSlug/session/new",
+                  params: { workspaceSlug },
+                  search: {
+                    channelId: session.channelId,
+                    continueFrom: session.id,
+                  },
+                })
+              }
+            >
+              <HugeiconsIcon icon={SourceCodeIcon} strokeWidth={2} />
+              Continue in Code
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={copyLink}>
               <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
               Copy link
@@ -355,6 +428,7 @@ function SessionStrip({
 function SessionHeading({
   session,
   channelName,
+  source,
   startedBy,
   starter,
   renaming,
@@ -363,6 +437,8 @@ function SessionHeading({
 }: {
   session: RealtimeAgentSession
   channelName: string
+  // "Continue in Code" or a fork: the session this one comes from.
+  source: { id: string; title: string } | null
   startedBy: string
   // The person who started it; null for loops and automations.
   starter: {
@@ -400,6 +476,51 @@ function SessionHeading({
             {channelName}
           </Link>
         ) : null}
+        {source && workspaceSlug && (
+          <>
+            <span aria-hidden="true">·</span>
+            <Link
+              to="/$workspaceSlug/session/$sessionId"
+              params={{ workspaceSlug, sessionId: source.id }}
+              // A fork opens its source at the reply it was forked from.
+              search={
+                session.forkedFromMessageId
+                  ? { msgId: session.forkedFromMessageId }
+                  : {}
+              }
+              className="inline-flex min-w-0 items-center gap-1 transition-colors hover:text-foreground"
+            >
+              {session.forkedFromMessageId ? "Forked from" : "Continued from"}
+              <span className="max-w-64 truncate font-medium">
+                {source.title}
+              </span>
+            </Link>
+          </>
+        )}
+        {session.repoFullName && session.baseBranch && (
+          <>
+            <span aria-hidden="true">·</span>
+            <a
+              href={`https://github.com/${session.repoFullName}/tree/${session.baseBranch}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+            >
+              <HugeiconsIcon
+                icon={SourceCodeIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              {session.repoFullName}
+              <HugeiconsIcon
+                icon={GitBranchIcon}
+                className="ml-1 size-3.5"
+                strokeWidth={2}
+              />
+              {session.baseBranch}
+            </a>
+          </>
+        )}
         <span aria-hidden="true">·</span>
         <span className="inline-flex items-center gap-1.5">
           {starter && (

@@ -31,6 +31,12 @@
       "skillPath": "skills/ask-sonner/SKILL.md",
       "computedHash": "8bd257b845985f4b35b603b510a126604176521094af79c4b7347ffeb8a8f7ab"
     },
+    "code-storage": {
+      "source": "pierrecomputer/sdk",
+      "sourceType": "github",
+      "skillPath": "skills/code-storage/SKILL.md",
+      "computedHash": "a3d641e859931258301e15ae667010b2f0ec031cdef1e2f6d5d93ad1b7e021df"
+    },
     "design-taste-frontend": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",

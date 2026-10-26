@@ -16,6 +16,7 @@ import {
   type SubscribedNotification,
   type UnreadNotification,
 } from "@repo/realtime-types"
+import { features, isChannelFeatureEnabled } from "@repo/utils/features"
 
 // A push for someone mentioned from a live call they aren't in.
 export type CallMentionPush = Omit<UnreadNotification, "messageId">
@@ -96,6 +97,29 @@ type ExpoPushMessage = {
 
 // Chunked delivery + dead-token cleanup shared by all push kinds.
 async function deliverExpoPush(messages: ExpoPushMessage[]) {
+  // Background pushes render outside the app, so client visibility gates cannot suppress them.
+  if (!features.directMessages || !features.voiceChannels) {
+    const channelIds = [
+      ...new Set(
+        messages.flatMap(({ data }) =>
+          typeof data.channelId === "string" ? [data.channelId] : []
+        )
+      ),
+    ]
+    if (channelIds.length > 0) {
+      const channels = await db
+        .select({ id: schema.channel.id, type: schema.channel.type })
+        .from(schema.channel)
+        .where(inArray(schema.channel.id, channelIds))
+      const visibleIds = new Set(
+        channels.filter(isChannelFeatureEnabled).map((channel) => channel.id)
+      )
+      messages = messages.filter(
+        ({ data }) =>
+          typeof data.channelId !== "string" || visibleIds.has(data.channelId)
+      )
+    }
+  }
   const deadTokens: string[] = []
   for (let index = 0; index < messages.length; index += EXPO_PUSH_BATCH_SIZE) {
     const chunk = messages.slice(index, index + EXPO_PUSH_BATCH_SIZE)

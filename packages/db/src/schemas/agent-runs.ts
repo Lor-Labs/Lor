@@ -381,6 +381,9 @@ export type AgentRunContext = {
   conversation: AgentRunContextTurn[]
   // Nearby channel messages are reference material, outside the active thread.
   backgroundConversation?: AgentRunContextTurn[]
+  // "Continue in Code": the background is this session's newest messages,
+  // the work being continued rather than reference material.
+  continuesSession?: { title: string }
   threadRootId?: string
   triggerMessageId?: string
   // Injected brain pages; only snapshots from before memory moved into

@@ -2,6 +2,7 @@ import {
   ComputerTerminal01Icon,
   GlobeIcon,
   KeyboardIcon,
+  Link01Icon,
   Message01Icon,
   Notification01Icon,
   PaintBrush01Icon,
@@ -38,6 +39,7 @@ import {
 import { listen } from "@tauri-apps/api/event"
 import { useEffect, useMemo, useState } from "react"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
+import { LinkedAccountsSettings } from "@/components/settings/linked-accounts-settings"
 import { MyAccountSettings } from "@/components/settings/my-account-settings"
 import { NotificationSettings } from "@/components/settings/notification-settings"
 import { SandboxSettings } from "@/components/settings/sandbox-settings"
@@ -54,6 +56,7 @@ const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
 const settingsNav = [
   { id: "account", name: "My Account", icon: UserIcon },
+  { id: "linked-accounts", name: "Linked accounts", icon: Link01Icon },
   { id: "appearance", name: "Appearance", icon: PaintBrush01Icon },
   { id: "notifications", name: "Notifications", icon: Notification01Icon },
   { id: "sandbox", name: "Sandbox", icon: ComputerTerminal01Icon },
@@ -175,6 +178,8 @@ export function SettingsDialog() {
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
               {activeItem.id === "account" ? (
                 <MyAccountSettings />
+              ) : activeItem.id === "linked-accounts" ? (
+                <LinkedAccountsSettings />
               ) : activeItem.id === "appearance" ? (
                 <AppearanceSettings />
               ) : activeItem.id === "notifications" ? (

@@ -87,6 +87,14 @@ import {
 } from "./citations"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { cloneRepoTool } from "./code"
+import { codeSandboxIn } from "./code-changes"
+import { writeCheckpoint } from "./code-checkpoints"
+import {
+  type CodeWorkFolder,
+  codeSessionPromptSection,
+  prepareCodeWorkFolder,
+  type RunCodeContext,
+} from "./code-session"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage } from "./embeddings"
@@ -181,7 +189,11 @@ import { generateSmallObject } from "./structured"
 import { chooseThreadWindow } from "./thread-window"
 import { guardTools } from "./tool-guard"
 import { itemsInText, sessionsTouching, withTouchHints } from "./touches"
-import { formatSpeakerLine, sanitizeRosterLabel } from "./transcript"
+import {
+  formatSpeakerLine,
+  sanitizeInlineLabel,
+  sanitizeRosterLabel,
+} from "./transcript"
 import {
   completeLoopTool,
   loopSessionPromptSection,
@@ -309,6 +321,8 @@ const RETRY_NOTE =
   "An earlier attempt at this turn was interrupted. It may already have changed files in your sandbox or data in connected services, so check before you repeat an action."
 const LOST_FILES_NOTE =
   "Your sandbox was replaced, so files from earlier turns of this session are gone. Recreate what you still need."
+const LOST_CHANGES_NOTE =
+  "Your work folder was lost, so the repository was cloned again from its base branch and your changes from earlier turns are gone. Redo what the session still needs."
 const NO_CALL_APPROVER_REASON =
   "This action needs approval, and no one in this call can approve it. Say so in Lor's window; someone who can approve can join the call, or it can be done from chat."
 const TOOL_GONE_REASON =
@@ -385,6 +399,18 @@ function extraTurnUsage(
 }
 // A dropped paused turn: Pi reads its calls as "No result provided", so the
 // model is told they never ran and why.
+// The fork's own work folder has a new path; the forked conversation still
+// names the old one.
+function forkNote(
+  forkedFrom: { sessionId: string; title: string },
+  workDirs: { now: string; before: string } | null
+): string {
+  const files = workDirs
+    ? ` Your work folder holds that turn's files at ${workDirs.now}; paths under ${workDirs.before} in the conversation above are the same files here.`
+    : ""
+  return `This session is a fork of "${sanitizeInlineLabel(forkedFrom.title)}", made at one of your replies there: the conversation above is that session's up to that reply. Work done there after it is not part of this session.${files}`
+}
+
 function droppedTurnNote(drop: PausedTurnDrop): string {
   return drop.reason === "stopped"
     ? `${drop.by} pressed Stop while your last turn waited for approval. The actions waiting for approval did not run, and that turn ended. Do not retry them unless someone asks again.`
@@ -515,6 +541,12 @@ export type RespondContext = {
   // Set on a request spoken in a voice call: binds show_in_call and the call
   // framing. Results go to Lor's window, never the chat.
   voice?: RunVoiceContext
+  // Set on every run in a code session: its repo is the work folder.
+  code?: RunCodeContext
+  // "Continue in Code": names the session whose messages are the background.
+  continuesSession?: { title: string }
+  // A fork's first turn: the session it was forked from.
+  forkedFrom?: { sessionId: string; title: string }
   // Binds propose_loop (the worker owns the card posting + draft loop row
   // insert). Never set on the run that answers a loop fire or an Act event —
   // automations must not schedule more loops.
@@ -2323,6 +2355,7 @@ async function buildRunContext(ctx: RespondContext): Promise<AgentRunContext> {
     ...(ctx.backgroundConversation?.length
       ? { backgroundConversation: ctx.backgroundConversation }
       : {}),
+    ...(ctx.continuesSession ? { continuesSession: ctx.continuesSession } : {}),
     ...(ctx.threadRootId ? { threadRootId: ctx.threadRootId } : {}),
     ...(ctx.triggerMessageId ? { triggerMessageId: ctx.triggerMessageId } : {}),
     rosterText,
@@ -2496,9 +2529,11 @@ export async function respond(
     const shareFileEnabled = Boolean(
       ctx.channelId && sandboxWorkDir && selectedBuiltinTools.has("share_file")
     )
-    // A clone is only useful when Lor can read it with its sandbox tools.
+    // A clone is only useful when Lor can read it with its sandbox tools. A
+    // code session's repo is already its work folder.
     const cloneRepoEnabled = Boolean(
       sandboxWorkDir &&
+        !ctx.code &&
         sandboxBuiltins.some((name) => name === "read" || name === "bash")
     )
     const reservedConnectorNames = new Set([
@@ -2839,7 +2874,7 @@ export async function respond(
     )
     // Per-session inputs only, so the prompt stays byte-stable across turns
     // (reference/planned/pi-harness-runbook.md §4.8).
-    const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}`
+    const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code)}` : ""}`
 
     // The turn's request. A retried attempt sends the saved one again. A run
     // that only finishes a paused turn sends none; its empty request still
@@ -2941,18 +2976,68 @@ export async function respond(
 
     const sandbox = await openSessionSandbox(harness.owner)
     try {
+      const conversationId = conversationIdOf(harness.owner)
+      const workFolder: CodeWorkFolder | null = ctx.code
+        ? await prepareCodeWorkFolder({
+            sandbox: sandbox.session,
+            workDir: piWorkDir(SESSION_WORK_DIR, conversationId),
+            sessionId: conversationId,
+            workspaceId: ctx.workspaceId,
+            code: ctx.code,
+            ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
+          })
+        : null
       const notes = run.resume ? [RETRY_NOTE] : []
+      if (ctx.forkedFrom) {
+        notes.push(
+          forkNote(
+            ctx.forkedFrom,
+            workFolder?.status === "ready" && !workFolder.cloned
+              ? {
+                  now: piWorkDir(SESSION_WORK_DIR, conversationId),
+                  before: piWorkDir(SESSION_WORK_DIR, ctx.forkedFrom.sessionId),
+                }
+              : null
+          )
+        )
+      }
       if (harness.pausedDropped) {
         notes.push(droppedTurnNote(harness.pausedDropped))
       }
-      if (sandbox.fresh && harness.saved) {
-        notes.push(LOST_FILES_NOTE)
+      // A code session's repo can also be missing without a new sandbox
+      // (the folder was deleted); either way it is a fresh clone.
+      const recloned = workFolder?.status === "ready" && workFolder.cloned
+      if (harness.saved && (ctx.code ? recloned : sandbox.fresh)) {
+        notes.push(ctx.code ? LOST_CHANGES_NOTE : LOST_FILES_NOTE)
         onToolEvent?.({
           toolCallId: `sandbox-reset-${run.runId}`,
           toolName: "sandbox_reset",
-          label: "Started a new sandbox; files from earlier turns are gone",
+          label: ctx.code
+            ? "Cloned the repository again; changes from earlier turns are gone"
+            : "Started a new sandbox; files from earlier turns are gone",
           at: 0,
           status: "ok",
+        })
+      }
+      if (workFolder?.status === "ready" && workFolder.restored) {
+        onToolEvent?.({
+          toolCallId: `sandbox-restore-${run.runId}`,
+          toolName: "sandbox_restore",
+          label: "Restored the session's files from its last checkpoint",
+          at: 0,
+          status: "ok",
+        })
+      }
+      if (ctx.code && workFolder?.status === "failed") {
+        notes.push(
+          `The repository ${ctx.code.repoFullName} could not be cloned into your work folder (${workFolder.error}). Tell the people in this session; you can't work on its code until this is fixed.`
+        )
+        onToolEvent?.({
+          toolCallId: `repo-clone-${run.runId}`,
+          toolName: "repo_clone",
+          label: `Couldn't clone ${ctx.code.repoFullName}`,
+          at: 0,
+          status: "error",
         })
       }
       const prompt = harness.continueOnly
@@ -2964,7 +3049,6 @@ export async function respond(
             notes
           )
 
-      const conversationId = conversationIdOf(harness.owner)
       const deadline = AbortSignal.timeout(
         Math.max(30_000, budgets.deadlineAt.getTime() - Date.now())
       )
@@ -3198,6 +3282,9 @@ export async function respond(
         saved: harness.saved,
         sandbox: sandbox.session,
         systemPrompt: instructions,
+        ...(workFolder?.status === "ready" && workFolder.instructions
+          ? { contextFiles: [workFolder.instructions] }
+          : {}),
         ...(decisions ? { decisions } : {}),
         ...(harness.pausedDropped ? { dropPaused: true } : {}),
         ...(prompt ? { prompt } : {}),
@@ -3406,6 +3493,24 @@ export async function respond(
         coveredMessageIds: coveredAmbient,
         contextUsage: turn.contextUsage,
       })
+      // A failed checkpoint never fails the turn: the files are still in the
+      // sandbox, and the next turn tries again.
+      if (ctx.code && workFolder?.status === "ready") {
+        await writeCheckpoint(
+          codeSandboxIn(
+            sandbox.session,
+            piWorkDir(SESSION_WORK_DIR, conversationId)
+          ),
+          {
+            sessionId: conversationId,
+            workspaceId: ctx.workspaceId,
+            repoFullName: ctx.code.repoFullName,
+            runId: run.runId,
+          }
+        ).catch((err) =>
+          logger.warn({ err, sessionId: conversationId }, "Checkpoint failed")
+        )
+      }
       if (approvals.length > 0) {
         if (planRef.current) {
           await updatePlan(

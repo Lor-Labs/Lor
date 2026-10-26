@@ -1,9 +1,11 @@
+import { features } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 
 export function useDMs() {
   const query = useQuery({
     queryKey: ["dms"],
+    enabled: features.directMessages,
     queryFn: async () => {
       const response = await api.v1.dms.$get({ query: {} })
       if (!response.ok) throw new Error("Could not load conversations")
@@ -12,7 +14,7 @@ export function useDMs() {
   })
 
   return {
-    dms: query.data?.data ?? [],
+    dms: features.directMessages ? (query.data?.data ?? []) : [],
     isLoading: query.isPending,
     error: query.data ? null : (query.error?.message ?? null),
     refetch: query.refetch,
@@ -20,7 +22,7 @@ export function useDMs() {
 }
 
 export function useDM(dmId: string) {
-  const enabled = Boolean(dmId)
+  const enabled = features.directMessages && Boolean(dmId)
   const query = useQuery({
     queryKey: ["dms", dmId],
     enabled,

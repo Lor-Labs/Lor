@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "exports": {
+    "./features": "./src/features.ts",
     "./slug": "./src/slug.ts",
     "./date": "./src/date.ts",
     "./lor": "./src/lor.ts",

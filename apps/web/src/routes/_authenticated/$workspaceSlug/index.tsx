@@ -20,15 +20,20 @@ function WorkspaceHome() {
   const { status: setupStatus } = useWorkspaceSetup(workspaceSlug)
   const lastSessionId = readLastSessionId(workspaceSlug)
   const lastChannelId = readLastChannelId(workspaceSlug)
-  const { data: channels } = useQuery({
-    ...workspaceChannelsQueryOptions(workspaceSlug),
-    enabled: !lastChannelId,
-  })
+  const { data: channels } = useQuery(
+    workspaceChannelsQueryOptions(workspaceSlug)
+  )
 
   // First visit (invite accept, new device): no remembered channel, so land
   // in the first text channel rather than an empty page.
+  const rememberedChannel =
+    channels &&
+    [
+      ...channels.uncategorized,
+      ...channels.categories.flatMap((category) => category.channels),
+    ].find((channel) => channel.id === lastChannelId)
   const targetChannelId =
-    lastChannelId ?? (channels ? firstTextChannelId(channels) : null)
+    rememberedChannel?.id ?? (channels ? firstTextChannelId(channels) : null)
 
   // Connector callbacks return with only ?connector=<id>, so nothing opens on
   // this page: unfinished setup shows the checklist, otherwise the

@@ -9,6 +9,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { ProjectArchiveProgressEvent } from "@repo/realtime-types/events"
 import { Badge } from "@repo/ui/components/badge"
+import { isChannelFeatureEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
@@ -273,7 +274,7 @@ function ProjectOverview() {
             Channels
           </h2>
           <div className="mt-2 overflow-hidden rounded-xl border border-border">
-            {data.channels.map((ch) => (
+            {data.channels.filter(isChannelFeatureEnabled).map((ch) => (
               <Link
                 key={ch.id}
                 to="/$workspaceSlug/$channelId"

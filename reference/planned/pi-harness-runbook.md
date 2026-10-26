@@ -831,7 +831,7 @@ Each item is verified in P/C source unless marked.
 | Host-tool name set change rebuilds the session with an empty journal | Silent loss of conversation, but only within one live adapter session | Not reachable: each turn is a fresh session, whose first build restores the saved file; the load check catches a miss (§4.3 item 6) |
 | Missing restored journal creates a fresh session | Silent loss of conversation | Postgres restore + load check (§4.3) |
 | Without an `auth` record, Pi reads every `*_API_KEY`, `*_BASE_URL` and `VERCEL_OIDC_TOKEN` in the worker env and `~/.pi/agent/auth.json` | Worker credentials reach the runtime | Always pass an explicit request-scoped `auth` record |
-| Context files: `noContextFiles` is not set, so AGENTS.md/CLAUDE.md are read from the working directory upward | Host files above the workspace mount reach the prompt | Disabled with the patched `contextFiles: false` (1.3a); repository instruction files are never workspace instructions (`agent-harness.md`) |
+| Context files: `noContextFiles` is not set, so AGENTS.md/CLAUDE.md are read from the working directory upward | Host files above the workspace mount reach the prompt | Disabled with the patched `contextFiles: false` (1.3a); repository instruction files are never workspace instructions (`agent-harness.md`). Code sessions pass a list instead: Lor reads the repo's file from the sandbox and the patch hands it to Pi's `agentsFilesOverride` (code-sessions-runbook.md, chunk 1) |
 | No settings record: P uses `SettingsManager.inMemory()`; passing `agentDir` loads global settings **and** `<workspace>/.pi/settings.json` | A settings folder would let the model change Pi's settings by writing a workspace file | Phase 1 changes no settings, so never pass `agentDir`. If a setting must change later: `pnpm patch` the adapter to pass a settings record (`SettingsManager.inMemory(settings)` already accepts one) and send the same change upstream |
 | `cacheWarming: "streaming"` default | Background requests (1-token replays near the cache expiry) | Keep the default. Evaluated 2026-10-20: C `CacheWarmer` warms only when the model has a cache lifetime (`promptCache`) and the expected saving is at least $0.05, and stops when the run settles. No Gateway model in pi-ai 1.3.0 has `promptCache`, so it stays inactive for Lor's models. Count `cache_warm` usage if it ever appears |
 | Pi's system prompt opens as a coding assistant and lists the worker's Pi doc paths | Wrong role for team chat; worker paths in every prompt | Replace it with Lor's prompt through a patched `systemPromptOverride` option (§4.8) |
@@ -1583,6 +1583,13 @@ moved here from 1.4, because nothing runs without a sandbox.
       clone` of a public repo; `npm install`, `pip install`; DNS (`dig`,
       `nslookup`); `ssh -T git@github.com` and raw TCP; `curl
       169.254.169.254`; what the proxy's identity token can reach.
+    - **Changed 2026-10-23 (Jacob):** the firewall ruleset is off. Blaxel's
+      ephemeral volumes now need Carbon, which has no firewalling, so every
+      new session sandbox failed (`EPHEMERAL_VOLUME_CONFLICT`). The allow
+      list stays and binds proxy-aware clients; `NODE_USE_ENV_PROXY=1` makes
+      Node's `fetch` one of them. Sandboxes are pinned to `BL_REGION`
+      (default `us-pdx-1`). The curl/wget flag stays removed: the proxy
+      already blocks their writes. Probes and results: research §7.
 - [x] **1.3g Turn controls and eval**, in four chunks agreed with Jacob
   2026-10-21:
   - [x] **1.3g-1 Spend inside a turn and the real model** (2026-10-21; no

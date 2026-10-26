@@ -170,6 +170,9 @@ interface MessageInputProps {
     }
   ) => void
   isSending?: boolean
+  // Holds the send (keeping the draft) until a choice outside the editor is
+  // made, e.g. a code session's repo.
+  sendBlocked?: boolean
   currentUserId?: string
   mentionCandidates?: MentionCandidate[]
   replyingTo?: Message | null
@@ -561,6 +564,7 @@ export function MessageInput({
   disabledReason,
   onSend,
   isSending,
+  sendBlocked = false,
   currentUserId,
   mentionCandidates = [],
   replyingTo,
@@ -841,7 +845,7 @@ export function MessageInput({
       const hasAttachments = uploadedAttachments.length > 0
       const hasContent = trimmed.length > 0
 
-      if ((!hasContent && !hasAttachments) || isSending) return
+      if ((!hasContent && !hasAttachments) || isSending || sendBlocked) return
 
       const mentionCandidatesById = new Map(
         normalizedMentionCandidates.map((candidate) => [
@@ -891,6 +895,7 @@ export function MessageInput({
     [
       editor,
       isSending,
+      sendBlocked,
       isUploading,
       getUploadedAttachments,
       clearAttachments,
@@ -988,6 +993,7 @@ export function MessageInput({
   const canSend =
     (trimmedValue.length > 0 || pendingAttachments.length > 0) &&
     !isSending &&
+    !sendBlocked &&
     !isUploading
   const isStopMode =
     Boolean(onStop) &&

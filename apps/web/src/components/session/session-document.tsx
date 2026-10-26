@@ -7,6 +7,7 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@repo/ui/components/message-scroller"
+import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ReactNode,
@@ -84,10 +85,21 @@ export function SessionDocument({
   header,
   heading,
   archivedBar,
+  cover,
+  onFork,
+  onRewind,
+  rewindRestoresFiles,
 }: {
   workspaceSlug: string
   channelId: string
   threadRootId: string
+  // "Fork from here" on Lor's finished replies; settles when the fork opens
+  // or fails.
+  onFork?: (message: Message) => Promise<unknown>
+  // "Rewind to here" between turns; unset where the session can't rewind.
+  onRewind?: (message: Message) => Promise<unknown>
+  // A code session's rewind also puts back the turn's files.
+  rewindRestoresFiles?: boolean
   // Message to center and highlight on open (search result, citation).
   targetMessageId?: string
   // headingVisible: the header shows the title once the heading is gone.
@@ -97,6 +109,9 @@ export function SessionDocument({
   heading?: ReactNode
   // An archived session is read-only: this replaces its input line and tools.
   archivedBar?: ReactNode
+  // A code session's open tab (a file or diff): covers the transcript and the
+  // composer, which stay mounted so the scroll position and draft survive.
+  cover?: ReactNode
 }) {
   const queryClient = useQueryClient()
   const socket = useSocket()
@@ -218,6 +233,7 @@ export function SessionDocument({
     onDrop,
     noClick: true,
     noKeyboard: true,
+    noDrag: Boolean(cover),
   })
 
   const { typingUsers, emitTyping } = useTypingIndicator({
@@ -404,8 +420,10 @@ export function SessionDocument({
         subscribers={otherSubscribers}
         variant="inline"
         toolbarTarget={toolbarTarget}
-        onTypeToFocus={() =>
-          scrollToEndRef.current?.({ behavior: jumpScrollBehavior() })
+        onTypeToFocus={
+          cover
+            ? undefined
+            : () => scrollToEndRef.current?.({ behavior: jumpScrollBehavior() })
         }
         gutter={
           <UserAvatar
@@ -474,72 +492,83 @@ export function SessionDocument({
           register={scroll.registerScrollCommand}
           registerScrollToEnd={scroll.registerScrollToEnd}
         />
-        <MessageScroller className="min-h-0 flex-1">
-          <MessageScrollerViewport
-            ref={scrollRef}
-            onPointerDown={scroll.onReaderPointerDown}
-            reconcileFollowOutput
-            followOutputThreshold={64}
-            className="[overflow-anchor:none]"
-            aria-label="Session messages"
-          >
-            <MessageScrollerContent
-              aria-busy={Boolean(pendingLorMessage)}
-              className="mx-auto w-full max-w-3xl pt-4"
-            >
-              {heading && !hasOlder && (
-                <MessageScrollerItem className="px-4 pt-6 pb-3">
-                  <div ref={setHeadingElement}>{heading}</div>
-                </MessageScrollerItem>
-              )}
-              <ConversationMessages
-                layout="document"
-                replies={orderedReplies}
-                isAwaitingReplies={isAwaitingReplies}
-                hasOlder={hasOlder}
-                isFetchingOlder={isFetchingOlder}
-                fetchOlder={fetchOlder}
-                scrollRef={scrollRef}
-                anchorIds={scroll.openingLorTriggerMessageIds}
-                replyingToId={replyingTo?.id}
-                itemProps={{
-                  currentUserId,
-                  onReact: handleReact,
-                  onReply: setReplyingTo,
-                  onDelete: handleDelete,
-                  onEdit: handleEdit,
-                  onJumpToMessage: scroll.jumpToMessage,
-                  mentionCandidates,
-                  onForward: setForwarding,
-                }}
-              />
-              {/* Inline input line: the document's last line, reached by
-                  scrolling to the end like any document (never pinned). */}
-              {!archivedBar && !isAwaitingReplies && (
-                <div className="pt-3">{composer}</div>
-              )}
-            </MessageScrollerContent>
-          </MessageScrollerViewport>
-          <MessageScrollerJumpToLatest
-            newestMessageId={
-              orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null
-            }
-            viewportRef={scrollRef}
-            isLorResponding={Boolean(pendingLorMessage)}
-          />
-          <SessionTurnRail messages={orderedReplies} />
-        </MessageScroller>
-
-        {archivedBar ? (
-          <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2 pb-3">
-            {archivedBar}
-          </div>
-        ) : (
+        <div className="relative flex min-h-0 flex-1 flex-col">
           <div
-            ref={setToolbarTarget}
-            className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
-          />
-        )}
+            inert={Boolean(cover)}
+            className={cn("flex min-h-0 flex-1 flex-col", cover && "invisible")}
+          >
+            <MessageScroller className="min-h-0 flex-1">
+              <MessageScrollerViewport
+                ref={scrollRef}
+                onPointerDown={scroll.onReaderPointerDown}
+                reconcileFollowOutput
+                followOutputThreshold={64}
+                className="[overflow-anchor:none]"
+                aria-label="Session messages"
+              >
+                <MessageScrollerContent
+                  aria-busy={Boolean(pendingLorMessage)}
+                  className="mx-auto w-full max-w-3xl pt-4"
+                >
+                  {heading && !hasOlder && (
+                    <MessageScrollerItem className="px-4 pt-6 pb-3">
+                      <div ref={setHeadingElement}>{heading}</div>
+                    </MessageScrollerItem>
+                  )}
+                  <ConversationMessages
+                    layout="document"
+                    replies={orderedReplies}
+                    isAwaitingReplies={isAwaitingReplies}
+                    hasOlder={hasOlder}
+                    isFetchingOlder={isFetchingOlder}
+                    fetchOlder={fetchOlder}
+                    scrollRef={scrollRef}
+                    anchorIds={scroll.openingLorTriggerMessageIds}
+                    replyingToId={replyingTo?.id}
+                    itemProps={{
+                      currentUserId,
+                      onReact: handleReact,
+                      onReply: setReplyingTo,
+                      onDelete: handleDelete,
+                      onEdit: handleEdit,
+                      onJumpToMessage: scroll.jumpToMessage,
+                      mentionCandidates,
+                      onForward: setForwarding,
+                      onFork,
+                      onRewind,
+                      rewindRestoresFiles,
+                    }}
+                  />
+                  {/* Inline input line: the document's last line, reached by
+                  scrolling to the end like any document (never pinned). */}
+                  {!archivedBar && !isAwaitingReplies && (
+                    <div className="pt-3">{composer}</div>
+                  )}
+                </MessageScrollerContent>
+              </MessageScrollerViewport>
+              <MessageScrollerJumpToLatest
+                newestMessageId={
+                  orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null
+                }
+                viewportRef={scrollRef}
+                isLorResponding={Boolean(pendingLorMessage)}
+              />
+              <SessionTurnRail messages={orderedReplies} />
+            </MessageScroller>
+
+            {archivedBar ? (
+              <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2 pb-3">
+                {archivedBar}
+              </div>
+            ) : (
+              <div
+                ref={setToolbarTarget}
+                className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
+              />
+            )}
+          </div>
+          {cover && <div className="absolute inset-0">{cover}</div>}
+        </div>
       </MessageScrollerProvider>
     </div>
   )

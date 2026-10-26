@@ -36,20 +36,35 @@ const WAIT_MAX_MS = 1000
 export const SESSION_WORK_DIR = WORKSPACE_MOUNT
 
 // Egress limits (reference/planned/sandbox-safety-research.md §7): reads to
-// any host, writes only for git fetch and npm audit. The `proxy` firewall
-// ruleset forces every connection through Blaxel's proxy and can only be set
-// when a sandbox is created, so the label marks sandboxes that have it; bump
-// the version to replace older ones.
+// any host, writes only for git fetch and npm audit. They bind tools that use
+// HTTP_PROXY/HTTPS_PROXY (curl, git, npm, pip, Python, and Node with
+// NODE_USE_ENV_PROXY); raw sockets get past them. The `proxy` firewall
+// ruleset that would force all traffic through is off: since 2026-10-23
+// Blaxel puts ephemeral volumes only on Carbon, which has no firewalling yet.
+// The network is fixed at creation, so the label marks sandboxes with the
+// current limits; bump the version to replace older ones.
 const EGRESS_LABEL = "lor-egress"
 const EGRESS_VERSION = "1"
+// Code session checkpoints push and fetch Lor's own Code Storage org with a
+// token for one session branch (code-checkpoints.ts). Added without a version
+// bump: a bump would replace live sandboxes and lose their work, so older
+// sandboxes skip checkpoints until they are replaced.
+const checkpointHost = env.CODE_STORAGE_ORG
+  ? `${env.CODE_STORAGE_ORG}.code.storage`
+  : null
 const SESSION_NETWORK = {
-  firewall: { rulesets: ["proxy"] },
   allowedDomains: [
     "GET:HEAD:OPTIONS:*",
     "POST:github.com/*git-upload-pack",
     "POST:gitlab.com/*git-upload-pack",
     "POST:bitbucket.org/*git-upload-pack",
     "POST:registry.npmjs.org/-/npm/v1/security/",
+    ...(checkpointHost
+      ? [
+          `POST:${checkpointHost}/*git-upload-pack`,
+          `POST:${checkpointHost}/*git-receive-pack`,
+        ]
+      : []),
   ],
   proxy: { routing: [] },
 }
@@ -213,6 +228,43 @@ export async function openSessionSandbox(
   }
 }
 
+// People's actions on a session's files (the Changes panel) use the sandbox
+// as it is: never create one, and never stop a run's commands. Null when it
+// is gone.
+export async function attachSessionSandbox(
+  owner: HarnessOwner
+): Promise<SessionSandbox | null> {
+  if (!blaxelConfigured()) return null
+  const existing = await SandboxInstance.get(sessionSandboxName(owner)).catch(
+    (err: unknown) => {
+      if (isNotFound(err)) return null
+      throw err
+    }
+  )
+  if (!existing) return null
+  return {
+    session: blaxelSandboxSession(existing),
+    fresh: false,
+    close: () => closeConnection(existing),
+  }
+}
+
+// A code session's restore from the Changes panel: the sandbox as it is, or a
+// new one when it is gone. Like attachSessionSandbox it never stops a run's
+// commands or replaces an unhealthy sandbox; the worker does that.
+export async function attachOrCreateSessionSandbox(
+  owner: HarnessOwner
+): Promise<SessionSandbox | null> {
+  const existing = await attachSessionSandbox(owner)
+  if (existing || !blaxelConfigured()) return existing
+  const created = await createSessionSandbox(sessionSandboxName(owner))
+  return {
+    session: blaxelSandboxSession(created),
+    fresh: true,
+    close: () => closeConnection(created),
+  }
+}
+
 // The conversation's files go with it; Pi's saved state and shared files
 // live in Postgres and R2. A sandbox that is already gone counts as deleted.
 export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
@@ -224,8 +276,12 @@ export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
   logger.info({ sandbox: name }, "Sandbox: session sandbox deleted")
 }
 
+// SANDBOX_PROCESS_ENV points TMPDIR at the workspace disk, which starts
+// without that folder; mktemp and others fail until it exists.
+const ENSURE_TMPDIR = 'mkdir -p "$TMPDIR" 2>/dev/null; '
+
 function inShell(command: string): string {
-  return `bash -c ${shellQuote(GIT_PROXY_CA + command)}`
+  return `bash -c ${shellQuote(GIT_PROXY_CA + ENSURE_TMPDIR + command)}`
 }
 
 function bytesStream(bytes: Uint8Array): ReadableStream<Uint8Array> {

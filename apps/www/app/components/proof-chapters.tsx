@@ -10,6 +10,7 @@ import { DatadogLogo } from "@repo/ui/components/logos/datadog"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { LinearLogo } from "@repo/ui/components/logos/linear"
 import { NotionLogo } from "@repo/ui/components/logos/notion"
+import { features } from "@repo/utils/features"
 import type { ReactNode } from "react"
 import { Chapter } from "@/app/components/chapter"
 import {
@@ -166,14 +167,27 @@ function MemoryMock() {
     <MockShell>
       <div aria-hidden className="px-5 pt-1 pb-5 text-left md:px-6">
         <Turn avatar={<PersonAvatar src={ZOE} />}>
-          What did Paygrove push back on in last week&rsquo;s call?
+          {features.voiceChannels
+            ? "What did Paygrove push back on in last week’s call?"
+            : "What did Paygrove push back on in last week’s discussion?"}
         </Turn>
         <Turn avatar={<LorAvatar />}>
-          <WorkLog label="Worked" detail="searched calls, chat, and Attio" />
+          <WorkLog
+            label="Worked"
+            detail={
+              features.voiceChannels
+                ? "searched calls, chat, and Attio"
+                : "searched chat, sessions, and Attio"
+            }
+          />
           <p className="mt-2">
             Price. Their founder said $40 a seat is a lot for a team of 12 and
             asked about annual billing.
-            <Citation>#gtm call · 14:32</Citation>
+            <Citation>
+              {features.voiceChannels
+                ? "#gtm call · 14:32"
+                : "#customers thread"}
+            </Citation>
           </p>
           <p className="mt-2">
             Rafael offered a 30-day pilot in the follow-up thread.
@@ -199,13 +213,19 @@ export function MemoryChapter() {
           lead: "Context it doesn't have to ask for.",
           body: "Lor reads team chat, past sessions, and connected tools, so it starts every job with what your team already knows.",
         },
-        {
-          lead: "Calls count too.",
-          body: "Voice channels are transcribed and summarized, so decisions made out loud are searchable like everything else.",
-        },
+        ...(features.voiceChannels
+          ? [
+              {
+                lead: "Calls count too.",
+                body: "Voice channels are transcribed and summarized, so decisions made out loud are searchable like everything else.",
+              },
+            ]
+          : []),
         {
           lead: "Every claim has a source.",
-          body: "Answers link to the message, the moment in the call, or the record they came from. One click to check.",
+          body: features.voiceChannels
+            ? "Answers link to the message, the moment in the call, or the record they came from. One click to check."
+            : "Answers link to the message, session, or record they came from. One click to check.",
         },
       ]}
     />

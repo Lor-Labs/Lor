@@ -1,12 +1,15 @@
 import { Infinity01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { features } from "@repo/utils/features"
 import { ArrowUpRight, Check } from "lucide-react"
 import { PersonAvatar, ZOE } from "@/app/components/mock-parts"
 import { Reveal } from "@/app/components/reveal"
 import { SIGNUP_URL } from "@/app/lib/urls"
 
 const CLOUD_FEATURES = [
-  "Unlimited channels, sessions, and voice",
+  features.voiceChannels
+    ? "Unlimited channels, sessions, and voice"
+    : "Unlimited channels and sessions",
   "An agent in every channel, on demand or on a schedule",
   "Approvals, custom roles, and permissions",
   "Your own OpenAI or Anthropic plan for the sessions you start",

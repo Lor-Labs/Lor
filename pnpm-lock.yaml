@@ -10,7 +10,7 @@ overrides:
 
 patchedDependencies:
   '@ai-sdk/harness-pi@1.0.160':
-    hash: 54mca5sqlxby3lcdvbiojrrwk4
+    hash: mrxhvwiivs5ryqhb7jmpu5kpwi
     path: patches/@ai-sdk__harness-pi@1.0.160.patch
   react-native-enriched-markdown@0.7.4:
     hash: ccjrlruxecxxvybasbukcumgxy
@@ -755,6 +755,9 @@ importers:
       '@repo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@repo/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@tailwindcss/postcss':
         specifier: ^4.1.18
         version: 4.1.18
@@ -993,7 +996,7 @@ importers:
         version: 1.0.158(ws@8.22.0)(zod@4.3.6)
       '@ai-sdk/harness-pi':
         specifier: 1.0.160
-        version: 1.0.160(patch_hash=54mca5sqlxby3lcdvbiojrrwk4)(@aws-sdk/credential-provider-node@3.972.87)(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6))(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6)
+        version: 1.0.160(patch_hash=mrxhvwiivs5ryqhb7jmpu5kpwi)(@aws-sdk/credential-provider-node@3.972.87)(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6))(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6)
       '@ai-sdk/mcp':
         specifier: ^2.0.80
         version: 2.0.80(zod@4.3.6)
@@ -1027,6 +1030,9 @@ importers:
       '@notionhq/client':
         specifier: ^5.24.0
         version: 5.24.0
+      '@pierre/storage':
+        specifier: 1.17.1
+        version: 1.17.1
       '@repo/connectors':
         specifier: workspace:^
         version: link:../connectors
@@ -1112,6 +1118,9 @@ importers:
       '@repo/realtime-types':
         specifier: workspace:*
         version: link:../realtime-types
+      '@repo/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
@@ -4313,6 +4322,9 @@ packages:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
 
+  '@pierre/storage@1.17.1':
+    resolution: {integrity: sha512-YSQE8Xo3pAGh2/8E18/N7JtRrqAQntteSVJowYWt8/x7ERiCayjW7etBUWWdUXRjLZcRkHoSQX9KavOwNtm0gw==}
+
   '@pierre/theme@2.0.0':
     resolution: {integrity: sha512-yNDd9GYLQl1mEUJR8AneJ5e4ohLIHQd/wZLWr4fagt78vS2RwwZNW530vVgHqXFAyFVcFlRmGUD5ramXH46OXw==}
     engines: {vscode: ^1.0.0}
@@ -7355,6 +7367,9 @@ packages:
     resolution: {integrity: sha512-2uNTXIuTTxk7ciZgAU1BQcgnchcG0xXnrs6jzkQfj9SsRa9M2s5zE8WT96hS6KmG4MzWHSrvH43DF1m4XRkrFg==}
     engines: {node: '>=22'}
 
+  change-case@5.4.4:
+    resolution: {integrity: sha512-HRQyTk2/YPEkt9TnUPbOpr64Uw3KOicFWPVBb+xiHvd6eBx/qPr9xqfBFDT8P2vWsvvz4jbEkfDe71W3VyNu2w==}
+
   character-entities-html4@2.1.0:
     resolution: {integrity: sha512-1v7fgQRj6hnSwFpq1Eu0ynr/CDEw0rXo2B61qXrLNdHZmPKgb7fqS1a2JwF0rISo9q77jDI8VMEHoApn8qDoZA==}
 
@@ -10235,6 +10250,10 @@ packages:
     engines: {node: '>=12.0.0'}
     hasBin: true
 
+  map-obj@5.0.2:
+    resolution: {integrity: sha512-K6K2NgKnTXimT3779/4KxSvobxOtMmx1LBZ3NwRxT/MDIR3Br/fQ4Q+WCX5QxjyUR8zg5+RV9Tbf2c5pAWTD2A==}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+
   markdown-it@14.1.1:
     resolution: {integrity: sha512-BuU2qnTti9YKgK5N+IeMubp14ZUKUUw7yeJbkjtosvHiP0AZ5c8IAgEMk79D0eC8F23r4Ac/q8cAIFdm2FtyoA==}
     hasBin: true
@@ -12129,6 +12148,10 @@ packages:
     resolution: {integrity: sha512-vZ7rfeehZui7wQs438JXBckYLkIIdfHOXsaVEUMyS5fHo1483l1bMdo0EDSWYclY0yZKFOipDy4KHuKs6ssvdg==}
     engines: {node: '>=8.0.0'}
 
+  snakecase-keys@9.0.2:
+    resolution: {integrity: sha512-Tr4gONsDj1Pa6HJH9D3b411r6tuRyCGgb1l7YpzDFp/thjVSWs7rcbNjyTyRqJi5SUV23sFpzf9epIJRbLR6Yw==}
+    engines: {node: '>=22'}
+
   socket.io-adapter@2.5.6:
     resolution: {integrity: sha512-DkkO/dz7MGln0dHn5bmN3pPy+JmywNICWrJqVWiVOyvXjWQFIv9c2h24JrQLLFJ2aQVQf/Cvl1vblnd4r2apLQ==}
 
@@ -13335,7 +13358,7 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.3.6
 
-  '@ai-sdk/harness-pi@1.0.160(patch_hash=54mca5sqlxby3lcdvbiojrrwk4)(@aws-sdk/credential-provider-node@3.972.87)(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6))(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6)':
+  '@ai-sdk/harness-pi@1.0.160(patch_hash=mrxhvwiivs5ryqhb7jmpu5kpwi)(@aws-sdk/credential-provider-node@3.972.87)(@modelcontextprotocol/sdk@1.26.0(zod@4.3.6))(@smithy/hash-node@4.2.11)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.3.6)':
     dependencies:
       '@ai-sdk/harness': 1.0.158(ws@8.22.0)(zod@4.3.6)
       '@ai-sdk/provider-utils': 5.0.64(zod@4.3.6)
@@ -17463,6 +17486,12 @@ snapshots:
     transitivePeerDependencies:
       - '@shikijs/themes'
 
+  '@pierre/storage@1.17.1':
+    dependencies:
+      jose: 5.10.0
+      snakecase-keys: 9.0.2
+      zod: 3.25.76
+
   '@pierre/theme@2.0.0': {}
 
   '@pierre/theming@1.0.0(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(shiki@3.23.0)':
@@ -21056,6 +21085,8 @@ snapshots:
 
   chalk@6.0.0: {}
 
+  change-case@5.4.4: {}
+
   character-entities-html4@2.1.0: {}
 
   character-entities-legacy@3.0.0: {}
@@ -24317,6 +24348,8 @@ snapshots:
       underscore: 1.13.8
       xmlbuilder: 10.1.1
 
+  map-obj@5.0.2: {}
+
   markdown-it@14.1.1:
     dependencies:
       argparse: 2.0.1
@@ -27180,6 +27213,12 @@ snapshots:
       is-fullwidth-code-point: 5.1.0
 
   slugify@1.6.9: {}
+
+  snakecase-keys@9.0.2:
+    dependencies:
+      change-case: 5.4.4
+      map-obj: 5.0.2
+      type-fest: 4.41.0
 
   socket.io-adapter@2.5.6:
     dependencies:

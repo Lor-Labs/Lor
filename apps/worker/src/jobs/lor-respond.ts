@@ -537,7 +537,14 @@ export function createLorRespondProcessor(
             if (!execution) throw new Error("A Lor turn needs a durable run")
             const session = threadRootId
               ? await db
-                  .select({ id: schema.agentSession.id })
+                  .select({
+                    id: schema.agentSession.id,
+                    repoFullName: schema.agentSession.repoFullName,
+                    baseBranch: schema.agentSession.baseBranch,
+                    sourceSessionId: schema.agentSession.sourceSessionId,
+                    forkedFromMessageId:
+                      schema.agentSession.forkedFromMessageId,
+                  })
                   .from(schema.agentSession)
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
                   .then((rows) => rows[0])
@@ -554,6 +561,32 @@ export function createLorRespondProcessor(
               execution.resume && harnessState?.lastRunId === execution.runId
                 ? await savedTurnText(execution.runId)
                 : null
+            // "Continue in Code": the first turn's background is the source
+            // session's messages, labeled as the work being continued.
+            const continuesSession =
+              session.sourceSessionId && !harnessState
+                ? await db
+                    .select({ title: schema.agentSession.title })
+                    .from(schema.agentSession)
+                    .where(eq(schema.agentSession.id, session.sourceSessionId))
+                    .then((rows) => rows[0])
+                : undefined
+            // A fork's first turn: its saved state is the source's, up to the
+            // fork point, and no run of its own has saved yet.
+            const forkedFrom =
+              session.forkedFromMessageId &&
+              session.sourceSessionId &&
+              harnessState &&
+              !harnessState.lastRunId
+                ? await db
+                    .select({
+                      sessionId: schema.agentSession.id,
+                      title: schema.agentSession.title,
+                    })
+                    .from(schema.agentSession)
+                    .where(eq(schema.agentSession.id, session.sourceSessionId))
+                    .then((rows) => rows[0])
+                : undefined
             // Another adapter version saved the paused turn: it is dropped.
             const upgraded = harnessState
               ? pausedTurnExpired(harnessState)
@@ -870,6 +903,16 @@ export function createLorRespondProcessor(
                 // files proposals.
                 ...(automated ? {} : { proposeLoop, proposeChange }),
                 ...(triggerRun ? { trigger: triggerRun.context } : {}),
+                ...(continuesSession ? { continuesSession } : {}),
+                ...(forkedFrom ? { forkedFrom } : {}),
+                ...(session.repoFullName && session.baseBranch
+                  ? {
+                      code: {
+                        repoFullName: session.repoFullName,
+                        baseBranch: session.baseBranch,
+                      },
+                    }
+                  : {}),
                 ...(loopRun && threadRootId
                   ? {
                       loop: loopRunContext(

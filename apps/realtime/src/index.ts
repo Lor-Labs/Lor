@@ -11,6 +11,7 @@ import {
 import { env } from "@repo/env/server"
 import { enterContext, flushErrorReports } from "@repo/logger"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
+import { setRepoCacheStore } from "@repo/lor/github"
 import { settleAbandonedRunPlan, toRealtimePlan } from "@repo/lor/plans"
 import {
   buildMessageFanout,
@@ -657,6 +658,19 @@ io.on("connection", (socket) => {
         // (optimistic start), and Lor's first frames must reach them even
         // if their page joins the room late or not at all (Cmd+Enter).
         await socket.join(threadRoom(realtimeSession.threadRootId))
+      }
+      // "Continue in Code": the source session shows where the work went, and
+      // its subscribers' sidebar rows turn unread.
+      const continuedEvent = createdMessage.continuedEvent
+      if (continuedEvent?.threadRootId && session) {
+        io.to(threadRoom(continuedEvent.threadRootId)).emit(
+          "message:created",
+          continuedEvent
+        )
+        io.to(workspaceRoom(session.workspaceId)).emit(
+          "workspace:activity:updated",
+          { workspaceId: session.workspaceId }
+        )
       }
       // A new session or a post in one changes subscribers' sidebar rows. A
       // message Lor is about to answer waits for its run (emitted below: the
@@ -1354,6 +1368,15 @@ async function bootstrap() {
   ])
 
   io.adapter(createAdapter(redisPubClient, redisSubClient))
+
+  // Code session starts check the repo against the GitHub repo list; share
+  // the worker's and API's cached copy.
+  setRepoCacheStore({
+    get: (key) => redisPresenceClient.get(key),
+    set: async (key, value, ttlSeconds) => {
+      await redisPresenceClient.set(key, value, { EX: ttlSeconds })
+    },
+  })
 
   // Periodically clean up stale presence entries (crashed servers)
   setInterval(() => {

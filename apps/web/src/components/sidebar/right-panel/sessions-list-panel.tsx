@@ -184,7 +184,8 @@ function SessionListRow({
             {session.title}
           </div>
           <div className="truncate text-muted-foreground text-xs">
-            {byline} · {when}
+            {byline}
+            {session.repoFullName && ` · ${session.repoFullName}`} · {when}
           </div>
         </div>
         {session.running && (

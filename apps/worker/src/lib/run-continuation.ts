@@ -89,16 +89,19 @@ async function loadDelta(args: {
 }) {
   // Queue rows cover guaranteed steers. The saved context IDs cover the
   // messages the predecessors' requests rendered.
-  const consumed = await db
-    .select({ messageId: schema.agentRunQueue.messageId })
-    .from(schema.agentRunQueue)
-    .where(
-      and(
-        inArray(schema.agentRunQueue.runId, args.predecessorRunIds),
-        eq(schema.agentRunQueue.state, "consumed"),
-        isNotNull(schema.agentRunQueue.consumedAtStep)
-      )
-    )
+  const consumed =
+    args.predecessorRunIds.length === 0
+      ? []
+      : await db
+          .select({ messageId: schema.agentRunQueue.messageId })
+          .from(schema.agentRunQueue)
+          .where(
+            and(
+              inArray(schema.agentRunQueue.runId, args.predecessorRunIds),
+              eq(schema.agentRunQueue.state, "consumed"),
+              isNotNull(schema.agentRunQueue.consumedAtStep)
+            )
+          )
   const alreadyCovered = new Set([
     ...args.covered,
     ...consumed.map((c) => c.messageId),
@@ -253,6 +256,24 @@ export async function buildTurnDelta(args: {
   channelId: string
   lorMessageId: string
 }): Promise<TurnDelta> {
+  // A fork's first turn: Pi's saved state ends at the fork point and no run
+  // of this session saved yet, so the prompt is everything said here.
+  if (!args.predecessorRunId) {
+    const delta = await loadDelta({
+      predecessorRunIds: [],
+      since: new Date(0),
+      covered: [],
+      triggerMessageId: args.triggerMessageId,
+      scopeKey: args.scopeKey,
+      channelId: args.channelId,
+      lorMessageId: args.lorMessageId,
+    })
+    return {
+      text: formatDelta(delta.turns, undefined, delta.omitted) ?? NOTHING_NEW,
+      turns: delta.turns,
+      coveredMessageIds: delta.coveredMessageIds,
+    }
+  }
   const predecessor = await loadPredecessorRun(args.predecessorRunId)
   // A run that only finished a paused turn sent no prompt: what was said
   // while that turn waited still dates from the paused run, so the bound and
@@ -264,9 +285,24 @@ export async function buildTurnDelta(args: {
     chain.push(earliest)
   }
   const since = earliest.startedAt ?? earliest.createdAt
+  // A rewind since then: what was said before it belongs to the turns it set
+  // aside, so the prompt starts with the rewind's own line
+  // (code-sessions-runbook.md chunk 6).
+  const [rewind] = await db
+    .select({ createdAt: schema.message.createdAt })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.threadRootId, args.scopeKey),
+        eq(schema.message.eventType, "session_rewound"),
+        gt(schema.message.createdAt, since)
+      )
+    )
+    .orderBy(desc(schema.message.createdAt))
+    .limit(1)
   const delta = await loadDelta({
     predecessorRunIds: chain.map((run) => run.id),
-    since,
+    since: rewind ? new Date(rewind.createdAt.getTime() - 1) : since,
     covered: chain.flatMap((run) => run.context.coveredMessageIds ?? []),
     triggerMessageId: args.triggerMessageId,
     scopeKey: args.scopeKey,

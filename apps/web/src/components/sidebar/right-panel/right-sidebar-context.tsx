@@ -98,7 +98,13 @@ function sizeClassFor(
 ): PanelSizeClass {
   if (file) return "file"
   if (view?.type === "thread" || view?.type === "loop") return "wide"
-  return view?.type === "session-work" ? "rail" : "compact"
+  // A code session's files and diffs open in tabs beside the chat, so its
+  // Changes and Files lists stay rail-width.
+  return view?.type === "session-work" ||
+    view?.type === "session-changes" ||
+    view?.type === "session-files"
+    ? "rail"
+    : "compact"
 }
 
 function defaultWidth(

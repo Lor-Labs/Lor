@@ -26,6 +26,7 @@ import {
   workspaceRoom,
 } from "@repo/realtime-types"
 import { normalizeDomain } from "@repo/utils/domain"
+import { features } from "@repo/utils/features"
 import { workspaceKey } from "@repo/utils/short-code"
 import { asc } from "drizzle-orm"
 import { HTTPException } from "hono/http-exception"
@@ -682,7 +683,10 @@ export const searchMessages: AppRouteHandler<SearchMessagesRoute> = async (
       .where(
         and(
           eq(schema.channel.workspaceId, workspace.id),
-          inArray(schema.channel.type, ["text", "voice"])
+          inArray(
+            schema.channel.type,
+            features.voiceChannels ? ["text", "voice"] : ["text"]
+          )
         )
       ),
     listAccessibleChannelIds(currentUser.id, workspace.id),

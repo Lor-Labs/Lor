@@ -1,6 +1,16 @@
-import { HashtagIcon, Infinity01Icon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  ArrowUp02Icon,
+  GitCommitIcon,
+  GitForkIcon,
+  HashtagIcon,
+  Infinity01Icon,
+  SourceCodeIcon,
+  Undo02Icon,
+  ZapIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
+import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import {
   HoverCard,
   HoverCardContent,
@@ -8,12 +18,14 @@ import {
 } from "@repo/ui/components/preview-card"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { cn } from "@repo/ui/lib/utils"
+import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateTime, formatTime, timeAgo } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
+import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
 import { channelLoopsQueryOptions } from "@/hooks/use-channel-loops"
 import { apiClient } from "@/lib/api-client"
 import type { Message } from "@/lib/api-types"
@@ -39,6 +51,23 @@ type LoopPayload = {
   via?: "proposal"
 }
 type TriggerRunPayload = { triggerId: string; label: string }
+type SessionContinuedPayload = {
+  sessionId: string
+  repoFullName: string | null
+}
+type SessionCommittedPayload = {
+  sha: string
+  subject: string
+  branch: string | null
+  fileCount: number
+}
+type SessionPushedPayload = {
+  repoFullName: string
+  branch: string
+  commitCount: number
+  headSha: string
+}
+type SessionForkedPayload = { sessionId: string; fromMessageId: string }
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -91,6 +120,44 @@ function LoopName({
         <LoopHoverContent channelId={channelId} loopId={loopId} />
       </HoverCardContent>
     </HoverCard>
+  )
+}
+
+// The code session a "Continue in Code" event points at.
+function SessionLink({
+  sessionId,
+  children,
+}: {
+  sessionId: string
+  children: ReactNode
+}) {
+  const { workspaceSlug } = useParams({ strict: false })
+  if (!workspaceSlug) return <Name>{children}</Name>
+  return (
+    <Link
+      to="/$workspaceSlug/session/$sessionId"
+      params={{ workspaceSlug, sessionId }}
+      className={HOVER_NAME_CLASS}
+    >
+      {children}
+    </Link>
+  )
+}
+
+// Another session by its current title (renames and Lor's generated title
+// show), shared with that session's page cache.
+function SessionTitleLink({
+  sessionId,
+  fallback,
+}: {
+  sessionId: string
+  fallback: string
+}) {
+  const { data } = useQuery(agentSessionQueryOptions(sessionId))
+  return (
+    <SessionLink sessionId={sessionId}>
+      {data?.session.title ?? fallback}
+    </SessionLink>
   )
 }
 
@@ -291,15 +358,20 @@ function memberNames(
 // content for unknown kinds / missing payloads (forward compat).
 function eventText(
   message: Message,
-  resolveUserName?: ResolveUserName
+  resolveUserName?: ResolveUserName,
+  // Session rows: the event's icon, between the person and the verb.
+  afterActor?: ReactNode
 ): ReactNode {
   const actor = (
-    <UserName
-      userId={message.authorId}
-      avatarColor={message.author.avatarColor}
-    >
-      {message.author.name}
-    </UserName>
+    <>
+      <UserName
+        userId={message.authorId}
+        avatarColor={message.author.avatarColor}
+      >
+        {message.author.name}
+      </UserName>
+      {afterActor}
+    </>
   )
   const payload = message.eventPayload
 
@@ -413,6 +485,70 @@ function eventText(
         </>
       )
     }
+    case "session_continued": {
+      if (!payload) break
+      const p = payload as SessionContinuedPayload
+      return (
+        <>
+          {actor} continued this in{" "}
+          <SessionTitleLink
+            sessionId={p.sessionId}
+            fallback={`a code session${p.repoFullName ? ` on ${p.repoFullName}` : ""}`}
+          />
+        </>
+      )
+    }
+    case "session_committed": {
+      if (!payload) break
+      const p = payload as SessionCommittedPayload
+      return (
+        <>
+          {actor} committed {p.fileCount} {p.fileCount === 1 ? "file" : "files"}
+          {p.branch ? (
+            <>
+              {" "}
+              to <Name>{p.branch}</Name>
+            </>
+          ) : null}
+          : {p.subject}{" "}
+          <span className="font-mono text-xs">{p.sha.slice(0, 7)}</span>
+        </>
+      )
+    }
+    case "session_pushed": {
+      if (!payload) break
+      const p = payload as SessionPushedPayload
+      return (
+        <>
+          {actor} pushed {p.commitCount}{" "}
+          {p.commitCount === 1 ? "commit" : "commits"} to{" "}
+          <Name>{p.branch}</Name>{" "}
+          <a
+            href={`https://github.com/${p.repoFullName}/commit/${p.headSha}`}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(HOVER_NAME_CLASS, "font-mono text-xs")}
+          >
+            {p.headSha.slice(0, 7)}
+          </a>
+        </>
+      )
+    }
+    // The fork's heading links back to the reply it was forked at.
+    case "session_forked": {
+      if (!payload) break
+      const p = payload as SessionForkedPayload
+      return (
+        <>
+          {actor} forked this session into{" "}
+          <SessionTitleLink sessionId={p.sessionId} fallback="a new session" />
+        </>
+      )
+    }
+    // Sessions show it right under the reply it went back to, folding the
+    // turns after it (rewound-turns.tsx).
+    case "session_rewound":
+      return <>{actor} rewound to here</>
     // Content is the event payload Lor reads, never shown as the line.
     case "trigger_run": {
       const p = payload as TriggerRunPayload | null
@@ -505,6 +641,89 @@ interface ChannelEventRowProps {
   layout?: "chat" | "document"
 }
 
+// Session events (Jacob 2026-10-24): the person's avatar before their name
+// and the event's icon inline before the verb ("tester ⑂ forked…"). Channel
+// chat keeps the iconless row.
+const SESSION_EVENT_ICONS: Partial<
+  Record<NonNullable<Message["eventType"]>, IconSvgElement>
+> = {
+  session_continued: SourceCodeIcon,
+  session_committed: GitCommitIcon,
+  session_pushed: ArrowUp02Icon,
+  session_forked: GitForkIcon,
+  session_rewound: Undo02Icon,
+  loop_run: Infinity01Icon,
+  trigger_run: ZapIcon,
+}
+
+// The events whose sentence starts with the person who did it.
+const ACTOR_EVENTS: ReadonlySet<string> = new Set([
+  "session_continued",
+  "session_committed",
+  "session_pushed",
+  "session_forked",
+  "session_rewound",
+])
+
+export function SessionEventRow({
+  message,
+  icon = message.eventType ? SESSION_EVENT_ICONS[message.eventType] : undefined,
+  resolveUserName,
+  trailing,
+}: {
+  message: Message
+  icon?: IconSvgElement
+  resolveUserName?: ResolveUserName
+  // After the sentence, before the time (the folded turns' "Show").
+  trailing?: ReactNode
+}) {
+  const { author } = message
+  const byPerson = Boolean(
+    message.eventType && ACTOR_EVENTS.has(message.eventType)
+  )
+  // After a name the sentence's own space follows; leading, it needs one.
+  const inlineIcon = icon ? (
+    <HugeiconsIcon
+      icon={icon}
+      size={13}
+      strokeWidth={2}
+      className={cn("inline align-[-2px]", byPerson ? "ml-1" : "mr-1")}
+    />
+  ) : null
+  return (
+    <div className="group/event mt-1 flex items-center gap-3 px-4 py-0.5">
+      {/* Empty gutter: the row starts on the message-content axis. */}
+      <div className="w-7 shrink-0" />
+      <div className="flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+        {byPerson && (
+          <Avatar className="size-4 shrink-0">
+            {author.image && <AvatarImage src={author.image} alt="" />}
+            <AvatarFallback
+              avatarColor={author.avatarColor}
+              fallbackSeed={author.name}
+              className="font-semibold text-[7px]"
+            >
+              {getAvatarInitials(author.name)}
+            </AvatarFallback>
+          </Avatar>
+        )}
+        <span className="min-w-0">
+          {!byPerson && inlineIcon}
+          {eventText(
+            message,
+            resolveUserName,
+            byPerson ? inlineIcon : undefined
+          )}
+          {trailing}
+          <span className="ml-1.5 text-[11px] text-muted-foreground/50 opacity-0 transition-opacity group-hover/event:opacity-100">
+            {formatTime(message.createdAt)}
+          </span>
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function ChannelEventRow({
   events,
   resolveUserName,
@@ -513,6 +732,19 @@ export function ChannelEventRow({
   const [expanded, setExpanded] = useState(false)
   const first = events[0]
   if (!first) return null
+
+  const sessionIcon = first.eventType
+    ? SESSION_EVENT_ICONS[first.eventType]
+    : undefined
+  if (layout === "document" && sessionIcon && events.length === 1) {
+    return (
+      <SessionEventRow
+        message={first}
+        icon={sessionIcon}
+        resolveUserName={resolveUserName}
+      />
+    )
+  }
 
   const collapsed = events.length > 1 && !expanded
   const rows = collapsed ? [events] : events.map((event) => [event])

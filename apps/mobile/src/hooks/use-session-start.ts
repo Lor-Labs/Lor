@@ -94,6 +94,11 @@ export function useSessionStart(
       threadRootId: start.threadRootId,
       creatorId: user.id,
       origin: start.origin,
+      mode: "chat",
+      repoFullName: null,
+      baseBranch: null,
+      sourceSessionId: null,
+      forkedFromMessageId: null,
       title: start.title,
       titleEditedAt: null,
       loopId: null,
@@ -106,7 +111,7 @@ export function useSessionStart(
     }
     queryClient.setQueryData<SessionDetail>(
       agentSessionKey(start.id),
-      { session, channel, context: [], pending: true },
+      { session, channel, context: [], source: null, pending: true },
       { updatedAt: Date.now() + PENDING_MS }
     )
     // No refetch when it's confirmed: Lor's run row commits after the ack,

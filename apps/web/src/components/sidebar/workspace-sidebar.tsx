@@ -43,6 +43,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
+import { features } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -377,24 +378,30 @@ function WorkspaceSidebarInner() {
                 </DropdownMenuSub>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Direct messages"
-                    onClick={() => {
-                      void navigate({ to: "/dms" })
-                    }}
-                    className="text-muted-foreground hover:text-foreground"
+            {features.directMessages && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Direct messages"
+                      onClick={() => {
+                        void navigate({ to: "/dms" })
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    />
+                  }
+                >
+                  <HugeiconsIcon
+                    icon={Message01Icon}
+                    size={18}
+                    strokeWidth={2}
                   />
-                }
-              >
-                <HugeiconsIcon icon={Message01Icon} size={18} strokeWidth={2} />
-              </TooltipTrigger>
-              <TooltipContent>Direct messages</TooltipContent>
-            </Tooltip>
+                </TooltipTrigger>
+                <TooltipContent>Direct messages</TooltipContent>
+              </Tooltip>
+            )}
           </SidebarMenuItem>
         </SidebarMenu>
 
@@ -415,16 +422,20 @@ function WorkspaceSidebarInner() {
                       <DropdownMenuTrigger
                         render={
                           <Button
-                            variant="outline"
-                            size="icon-sm"
+                            variant="ghost"
+                            size="icon"
                             aria-label="Create"
-                            className="text-muted-foreground hover:text-foreground data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
+                            className="size-8 rounded-md border-border bg-background text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground sm:size-8 data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
                           />
                         }
                       />
                     }
                   >
-                    <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
+                    <HugeiconsIcon
+                      icon={PlusSignIcon}
+                      className="size-3.5 opacity-100"
+                      strokeWidth={1.75}
+                    />
                   </TooltipTrigger>
                   <TooltipContent>Create</TooltipContent>
                 </Tooltip>

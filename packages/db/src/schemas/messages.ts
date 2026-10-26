@@ -72,6 +72,17 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   // The connector event that started an Act session. Content is the event
   // payload Lor reads; clients show the label.
   "trigger_run",
+  // In a session: someone continued it in a new code session.
+  "session_continued",
+  // In a code session: someone committed its staged files.
+  "session_committed",
+  // In a code session: someone pushed its commits to GitHub.
+  "session_pushed",
+  // In a session: someone forked it at one of Lor's replies.
+  "session_forked",
+  // In a session: someone rewound it to one of Lor's replies. The messages
+  // between that reply and this row are the rewound turns.
+  "session_rewound",
 ])
 
 // Lifecycle of a message row. Everything is "complete" except a Lor
@@ -292,6 +303,42 @@ export type TriggerRunPayload = {
   label: string
 }
 
+export type SessionContinuedPayload = {
+  // The new code session.
+  sessionId: string
+  repoFullName: string | null
+}
+
+export type SessionCommittedPayload = {
+  sessionId: string
+  sha: string
+  subject: string
+  // Null on a detached HEAD.
+  branch: string | null
+  fileCount: number
+}
+
+export type SessionPushedPayload = {
+  sessionId: string
+  repoFullName: string
+  branch: string
+  commitCount: number
+  headSha: string
+}
+
+export type SessionForkedPayload = {
+  // The new session.
+  sessionId: string
+  // The Lor reply it was forked at.
+  fromMessageId: string
+}
+
+export type SessionRewoundPayload = {
+  sessionId: string
+  // The Lor reply the session went back to.
+  toMessageId: string
+}
+
 export type ChannelEventPayload =
   | ChannelCreatedPayload
   | ChannelRenamedPayload
@@ -299,6 +346,11 @@ export type ChannelEventPayload =
   | MemberRemovedPayload
   | LoopEventPayload
   | TriggerRunPayload
+  | SessionContinuedPayload
+  | SessionCommittedPayload
+  | SessionPushedPayload
+  | SessionForkedPayload
+  | SessionRewoundPayload
   | null
 
 // Type definitions for the JSONB fields

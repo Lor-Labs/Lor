@@ -24,6 +24,7 @@ import mcpServersRouter from "@/routes/v1/mcp-servers/index"
 import mobileRouter from "@/routes/v1/mobile/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
 import onboardingRouter from "@/routes/v1/onboarding/index"
+import personalAccountsRouter from "@/routes/v1/personal-accounts/index"
 import plansRouter from "@/routes/v1/plans/index"
 import projectsRouter from "@/routes/v1/projects/index"
 import proposalsRouter from "@/routes/v1/proposals/index"
@@ -83,6 +84,7 @@ const routes = app
   .route("/v1", invitesRouter)
   .route("/v1", notificationSettingsRouter)
   .route("/v1", sandboxSettingsRouter)
+  .route("/v1", personalAccountsRouter)
   .route("/v1", pushTokensRouter)
   .route("/v1", channelMutesRouter)
   .route("/v1", hintsRouter)

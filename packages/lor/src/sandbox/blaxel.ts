@@ -22,11 +22,18 @@ export const SANDBOX_PROCESS_ENV = {
   XDG_CACHE_HOME: `${WORKSPACE_MOUNT}/.cache`,
   XDG_DATA_HOME: `${WORKSPACE_MOUNT}/.local/share`,
   YARN_CACHE_FOLDER: `${WORKSPACE_MOUNT}/.cache/yarn`,
+  // Node's fetch ignores HTTP_PROXY without this, so it would get past the
+  // egress limits; its "experimental" warning would clutter tool output.
+  NODE_USE_ENV_PROXY: "1",
+  NODE_OPTIONS: "--disable-warning=UNDICI-EHPA",
 }
 
 export function baseConfig(name: string, diskMb: number) {
   return {
     name,
+    // Pinned: Blaxel's default region can move, and features differ by
+    // region and generation.
+    region: env.BL_REGION,
     image: env.LOR_WORKBENCH_IMAGE,
     memory: env.LOR_WORKBENCH_MEMORY_MB,
     volumes: [

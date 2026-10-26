@@ -1,3 +1,4 @@
+import { features } from "@repo/utils/features"
 import { useQueryClient } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { useCallback, useRef, useState } from "react"
@@ -11,7 +12,7 @@ export function useOpenDM() {
 
   const openDM = useCallback(
     async (userId: string) => {
-      if (openingRef.current) return
+      if (!features.directMessages || openingRef.current) return
       openingRef.current = true
       setIsOpening(true)
       try {

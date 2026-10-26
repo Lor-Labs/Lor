@@ -261,6 +261,17 @@ export const connectorFilesQuerySchema = connectorSearchQuerySchema.extend({
   scope: z.string().min(1),
 })
 
+export const codeBranchesQuerySchema = z.object({
+  repo: z.string().min(3).max(200),
+  q: z.string().max(200).optional(),
+})
+
+export const codeBranchesResponseSchema = z.object({
+  defaultBranch: z.string().nullable(),
+  // The default branch first when it matches, then by name.
+  branches: z.array(z.string()),
+})
+
 export const connectorSearchResponseSchema = z.object({
   results: z.array(
     z.object({

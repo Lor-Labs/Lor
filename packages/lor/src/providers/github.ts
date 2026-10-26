@@ -25,7 +25,11 @@ function rewrapPem(key: string): string {
 }
 
 // Accept multi-line, escaped-newline, single-line, or base64-encoded PEMs.
-function normalizePrivateKey(raw: string | undefined): string | undefined {
+// PEM from env: real newlines, "\n" escapes, or base64. Also used for the
+// Code Storage key (code-checkpoints.ts).
+export function normalizePrivateKey(
+  raw: string | undefined
+): string | undefined {
   if (!raw) return undefined
   let key = raw.trim()
   if (!key.includes("-----BEGIN")) {
@@ -156,6 +160,66 @@ export async function listInstallationRepos(
       "Failed to list installation repos"
     )
     return []
+  }
+}
+
+export type RepoBranches = { defaultBranch: string | null; branches: string[] }
+
+const BRANCH_PAGE_SIZE = 50
+
+// Branches for the code session picker. GitHub filters by name, so a repo with
+// thousands of branches still finds the one being typed. REST has no name
+// search; GraphQL `refs(query:)` does.
+export async function listRepoBranches(
+  installationId: string,
+  repoFullName: string,
+  query: string
+): Promise<RepoBranches | null> {
+  const app = getApp()
+  if (!app) return null
+  const id = Number(installationId)
+  if (!Number.isFinite(id)) return null
+  const [owner, name] = repoFullName.split("/")
+  if (!(owner && name)) return null
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    const { repository } = await octokit.graphql<{
+      repository: {
+        defaultBranchRef: { name: string } | null
+        refs: { nodes: { name: string }[] } | null
+      } | null
+    }>(
+      `query ($owner: String!, $name: String!, $filter: String, $first: Int!) {
+        repository(owner: $owner, name: $name) {
+          defaultBranchRef { name }
+          refs(refPrefix: "refs/heads/", query: $filter, first: $first, orderBy: { field: ALPHABETICAL, direction: ASC }) {
+            nodes { name }
+          }
+        }
+      }`,
+      {
+        owner,
+        name,
+        // "query" is reserved by @octokit/graphql (it carries the document).
+        filter: query.trim() || undefined,
+        first: BRANCH_PAGE_SIZE,
+        request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      }
+    )
+    if (!repository) return null
+    const defaultBranch = repository.defaultBranchRef?.name ?? null
+    const names = (repository.refs?.nodes ?? []).map((ref) => ref.name)
+    // The default branch leads when it matches, and always with no query (it
+    // can sort past the first page).
+    const lead =
+      defaultBranch && (!query.trim() || names.includes(defaultBranch))
+        ? defaultBranch
+        : null
+    const branches = lead ? [lead, ...names.filter((n) => n !== lead)] : names
+    return { defaultBranch, branches }
+  } catch (err) {
+    logger.error({ err, repoFullName }, "GitHub branch list failed")
+    return null
   }
 }
 

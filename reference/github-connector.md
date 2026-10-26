@@ -59,6 +59,33 @@ An App has one Setup URL, so dev needs its own App. Checklist:
    App. Existing dev rows hold prod-App installation ids, and the dev App's
    key cannot mint tokens for them.
 
+### Personal GitHub accounts (user authorization)
+
+People link their own GitHub account (Settings → Linked accounts) to commit
+and push as themselves in code sessions
+([code-sessions-runbook.md](planned/code-sessions-runbook.md) chunk 4). This
+uses the same App's user authorization, not the install flow. Per App (prod
+and dev):
+
+1. Redirect URI (the "Identifying and authorizing users" section; GitHub
+   used to call it Callback URL): the web origin plus
+   `/accounts/github/callback`, for example
+   `https://app.lor.chat/accounts/github/callback`. Leave wildcard
+   matching, "Request user authorization (OAuth) during installation" and
+   Device Flow off.
+2. User-to-server token expiration (Optional features): opted in, so tokens
+   last 8 hours and Lor refreshes them.
+3. Generate a client secret. Set `GITHUB_APP_CLIENT_ID` (the App's Client
+   ID, not its App ID) and `GITHUB_APP_CLIENT_SECRET` in the API env;
+   `INTEGRATION_ENCRYPTION_KEY` must be set too.
+4. Account permissions → Email addresses: read-only, so commits can use
+   the person's primary email. Repository permissions → Contents and Pull
+   requests: read and write, for push and pull requests. Installation
+   owners must approve changed permissions on GitHub.
+
+A user token acts as the person, limited to repositories the App is
+installed on. Disconnecting deletes the tokens and revokes them at GitHub.
+
 ## How it works today (as-built)
 
 The flow: Lor calls `clone_repo(repo, branch)` → the repo is shallow-cloned

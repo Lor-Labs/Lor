@@ -20,12 +20,15 @@ interface EmojiReactionPickerProps {
   tooltipHandle: TooltipPrimitive.Handle<string>
   onSelect?: (emoji: string) => void
   onOpenChange?: (open: boolean) => void
+  // Replaces the floating bar's trigger styling (Lor's reply row).
+  triggerClassName?: string
 }
 
 export function EmojiReactionPicker({
   tooltipHandle,
   onSelect,
   onOpenChange,
+  triggerClassName,
 }: EmojiReactionPickerProps) {
   const [open, setOpen] = useState(false)
   const [showFullPicker, setShowFullPicker] = useState(false)
@@ -63,7 +66,10 @@ export function EmojiReactionPicker({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-7 pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-0.5"
+                className={
+                  triggerClassName ??
+                  "size-7 pointer-fine:after:absolute pointer-fine:after:left-full pointer-fine:after:h-full pointer-fine:after:w-0.5"
+                }
                 aria-label="Add reaction"
               />
             }

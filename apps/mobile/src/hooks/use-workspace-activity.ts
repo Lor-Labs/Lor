@@ -111,6 +111,7 @@ export function sidebarRowFor(session: RealtimeAgentSession): SidebarSession {
     titleEdited: session.titleEditedAt !== null,
     state: "idle",
     loop: session.loopId !== null,
+    code: session.mode === "code",
     lastActivityAt: session.lastActivityAt,
   }
 }

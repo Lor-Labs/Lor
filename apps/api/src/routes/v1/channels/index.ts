@@ -22,5 +22,6 @@ const channelsRouter = createRouter()
   .openapi(routes.searchChannelConnector, handlers.searchChannelConnector)
   .openapi(routes.listConnectorScopes, handlers.listConnectorScopes)
   .openapi(routes.searchConnectorFiles, handlers.searchConnectorFiles)
+  .openapi(routes.listCodeBranches, handlers.listCodeBranches)
 
 export default channelsRouter

@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm"
 import {
+  type AnyPgColumn,
   index,
   pgEnum,
   pgTable,
@@ -22,6 +23,12 @@ export const agentSessionOriginEnum = pgEnum("agent_session_origin", [
   "new",
   "loop",
   "trigger",
+])
+
+// Fixed when the session starts (reference/planned/code-channels.md §2).
+export const agentSessionModeEnum = pgEnum("agent_session_mode", [
+  "chat",
+  "code",
 ])
 
 // A Lor session: one place where Lor works on one thing, next to the channel
@@ -51,6 +58,23 @@ export const agentSession = pgTable(
       onDelete: "set null",
     }),
     origin: agentSessionOriginEnum("origin").notNull(),
+    mode: agentSessionModeEnum("mode").notNull().default("chat"),
+    // Code sessions: the GitHub repo (owner/repo) cloned as the work folder
+    // and the branch it starts from. Null in chat sessions.
+    repoFullName: text("repo_full_name"),
+    baseBranch: text("base_branch"),
+    // "Continue in Code": the session this one continues, whose messages are
+    // its starting context.
+    sourceSessionId: uuid("source_session_id").references(
+      (): AnyPgColumn => agentSession.id,
+      { onDelete: "set null" }
+    ),
+    // A fork: the Lor reply in the source session whose turn it starts from
+    // (code-sessions-runbook.md chunk 6).
+    forkedFromMessageId: uuid("forked_from_message_id").references(
+      () => message.id,
+      { onDelete: "set null" }
+    ),
     title: text("title").notNull(),
     // Set when a person renames the session; generated titles stop then.
     titleEditedAt: timestamp("title_edited_at"),

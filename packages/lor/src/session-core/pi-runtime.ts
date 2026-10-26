@@ -44,6 +44,7 @@ import {
   type SaveHarnessStateInput,
   SessionCoreError,
 } from "./harness-state"
+import { headOf } from "./pi-branch"
 
 // One Pi turn through Vercel's adapter: restore the saved log into the
 // sandbox, run the turn, and return what to save. The caller saves inside its
@@ -77,11 +78,7 @@ function hostStateRoot(sessionId: string): string {
   )
 }
 
-// The conversation's work folder: the harness default `<pwd>/pi-<sessionId>`
-// (sessionWorkDir in @ai-sdk/harness 1.0.158), never a shared fixed folder.
-export function piWorkDir(sandboxPwd: string, sessionId: string): string {
-  return `${sandboxPwd}/pi-${encodeURIComponent(sessionId)}`
-}
+export { piWorkDir } from "./work-dir"
 
 async function sandboxHome(sandbox: SandboxSession): Promise<string> {
   const result = await sandbox.run({ command: 'printf %s "$HOME"' })
@@ -424,22 +421,6 @@ function lorPiExtension(input: {
   }
 }
 
-function headOf(text: string, logFileName: string): HarnessHead | null {
-  const lines = text.split("\n").filter((line) => line.trim() !== "")
-  if (lines.length < 2) return null
-  const header = JSON.parse(lines[0] ?? "") as { id?: unknown }
-  const last = JSON.parse(lines[lines.length - 1] ?? "") as { id?: unknown }
-  if (typeof header.id !== "string" || typeof last.id !== "string") return null
-  return {
-    harnessSessionId: header.id,
-    logFileName,
-    entryCount: lines.length - 1,
-    headEntryId: last.id,
-    byteLength: Buffer.byteLength(text, "utf8"),
-    sha256: sha256(text),
-  }
-}
-
 export type PiTurnSave = Omit<
   SaveHarnessStateInput,
   "owner" | "workspaceId" | "claim"
@@ -516,6 +497,9 @@ export type PiTurnInput = {
   saved: SavedHarnessState | null
   sandbox: SandboxSession
   systemPrompt: string
+  // Repository instruction files, read from the sandbox by the host. Pi's
+  // own discovery reads the worker's disk, so it stays off.
+  contextFiles?: { path: string; content: string }[]
   // A paused turn in `saved` continues first, with one decision per pending
   // approval. Then `prompt`, when given, starts a new turn in the same session.
   decisions?: ToolApprovalResponse[]
@@ -626,7 +610,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         },
       },
       systemPrompt: () => input.systemPrompt,
-      contextFiles: false,
+      contextFiles: input.contextFiles ?? false,
       skills: false,
       fileToolPathPolicy: { deniedRoots: [sandboxStateRoot(home)] },
       ...(input.builtinToolApproval

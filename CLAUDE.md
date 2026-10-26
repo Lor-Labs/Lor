@@ -112,6 +112,15 @@ there; update them as steps land.
 
 Loops work is executed phase-by-phase from the runbook at `reference/loops.md` — locked architecture decisions, per-phase file lists, and status checkboxes live there. Update its checkboxes and deviations log as phases land.
 
+### Launch feature flags
+
+`packages/utils/src/features.ts` is the shared launch configuration. DMs and
+voice channels are hidden by default. Re-enable each independently and rebuild
+web/desktop, mobile, and the marketing site; redeploy API/auth and notification
+senders for search, workspace templates, and push visibility. Existing code and
+data are retained. These are product visibility flags, not API authorization:
+DM and voice endpoints remain implemented and accessible to authorized clients.
+
 ### Voice channels and memory
 
 The guiding feature spec lives in `reference/voice-channels.md`: voice channels

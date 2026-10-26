@@ -1,9 +1,13 @@
+import { features } from "@repo/utils/features"
+import { useQueries } from "@tanstack/react-query"
 import { NativeTabs } from "expo-router/unstable-native-tabs"
 
 import { useTabAvatarIcon } from "@/components/tab-avatar-icon"
 import { useUnread } from "@/context/unread-context"
+import { useWorkspace } from "@/context/workspace-context"
 import { useDMs } from "@/hooks/use-dms"
 import { useTheme } from "@/hooks/use-theme"
+import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels"
 
 function tabBadge(count: number) {
   return count > 99 ? "99+" : String(count)
@@ -11,7 +15,13 @@ function tabBadge(count: number) {
 
 export default function AppTabs() {
   const colors = useTheme()
-  const { getMentionCount, getUnreadCount, totalMentionCount } = useUnread()
+  const { getMentionCount, getUnreadCount } = useUnread()
+  const { workspaces } = useWorkspace()
+  const channelLists = useQueries({
+    queries: workspaces.map((workspace) =>
+      workspaceChannelsQueryOptions(workspace.slug)
+    ),
+  })
   const { dms } = useDMs()
   const { source: avatarSource, canvas: avatarCanvas } = useTabAvatarIcon()
 
@@ -19,11 +29,16 @@ export default function AppTabs() {
     (total, dm) => total + (getUnreadCount(dm.id) || getMentionCount(dm.id)),
     0
   )
-  const dmMentionCount = dms.reduce(
-    (total, dm) => total + getMentionCount(dm.id),
-    0
-  )
-  const homeMentionCount = Math.max(0, totalMentionCount - dmMentionCount)
+  const homeMentionCount = channelLists.reduce((total, { data }) => {
+    if (!data) return total
+    return (
+      total +
+      [
+        ...data.uncategorized,
+        ...data.categories.flatMap((category) => category.channels),
+      ].reduce((count, channel) => count + getMentionCount(channel.id), 0)
+    )
+  }, 0)
 
   return (
     <>
@@ -48,7 +63,7 @@ export default function AppTabs() {
           />
         </NativeTabs.Trigger>
 
-        <NativeTabs.Trigger name="dms">
+        <NativeTabs.Trigger name="dms" hidden={!features.directMessages}>
           <NativeTabs.Trigger.Label>Messages</NativeTabs.Trigger.Label>
           {dmUnreadCount > 0 ? (
             <NativeTabs.Trigger.Badge>
