@@ -184,6 +184,7 @@ export function useRepoImage(sessionId: string, path: string) {
   return useQuery({
     queryKey: ["repo-file", sessionId, path, "image"],
     gcTime: 60_000,
+    refetchOnWindowFocus: false,
     queryFn: async ({ signal }) => {
       const res = await apiClient.v1.sessions[":sessionId"].repo.image.$get(
         { param: { sessionId }, query: { path } },

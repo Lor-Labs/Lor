@@ -193,7 +193,8 @@ function SessionConversation({
   const rewind = useRewindSession(session.id)
   const navigate = useNavigate()
   useEffect(() => {
-    if (!targetFolder || !code || !isHydrated || isMobile !== false) return
+    // On mobile the files panel opens as the right sheet.
+    if (!targetFolder || !code || !isHydrated || isMobile === undefined) return
     openView({
       ...workView,
       type: "session-files",

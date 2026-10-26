@@ -229,7 +229,8 @@ function NewSessionComposer({
   const claudeCode = mode === "code" && harness === "claude_code"
   const claudeMode = useClaudeCodeMode()
   const { data: accounts } = usePersonalAccounts()
-  const needsClaude = claudeCode && accounts?.claude.account == null
+  // Unknown while the accounts load.
+  const needsClaude = claudeCode && accounts?.claude.account === null
   const [connectingClaude, setConnectingClaude] = useState(false)
   const sessionStart = useSessionStart({ workspaceSlug, channel })
   const { handleSend } = useMessageSending({

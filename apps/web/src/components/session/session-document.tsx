@@ -301,7 +301,12 @@ export function SessionDocument({
     )
     const agentSession = cachedSessionForThread(queryClient, threadRootId)
     if (!agentSession || agentSession.archivedAt) return
-    const toLor = !options?.toPeople && !pendingLorMessage
+    // Without the sender's Claude subscription the server sends a Claude
+    // Code session's message to its people only.
+    const toLor =
+      !options?.toPeople &&
+      !pendingLorMessage &&
+      (agentSession.harness !== "claude_code" || claudeCode)
     if (toLor) {
       const lorAuthor = messages.find((m) => m.authorId === LOR_USER_ID)
         ?.author ?? { id: LOR_USER_ID, name: "Lor", image: null }
