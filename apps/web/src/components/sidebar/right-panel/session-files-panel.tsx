@@ -2,6 +2,7 @@ import {
   ArrowRight01Icon,
   File01Icon,
   Folder01Icon,
+  Folder02Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -228,7 +229,7 @@ function FileTree({
               <span className="size-3 shrink-0" />
             )}
             <HugeiconsIcon
-              icon={isFolder ? Folder01Icon : File01Icon}
+              icon={open ? Folder02Icon : isFolder ? Folder01Icon : File01Icon}
               className="size-3.5 shrink-0 text-muted-foreground"
               strokeWidth={2}
             />
