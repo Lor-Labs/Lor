@@ -420,6 +420,10 @@ export type AgentRunContext = {
   // The run only finished a paused turn and sent no prompt; the next delta
   // walks back through it (continuedFromRunId) to the paused run.
   continueOnly?: boolean
+  // A Claude Code turn: the person whose subscription it runs on. A run that
+  // continues its paused turn reads it here (the resume's trigger is Lor's
+  // own message, and the approver may be someone else).
+  claudeCodeUserId?: string
   // Pi's own count of the conversation's context after the turn, for the
   // context meter.
   contextUsage?: AgentRunContextUsage

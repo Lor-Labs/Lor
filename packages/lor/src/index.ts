@@ -186,9 +186,17 @@ import {
   revokeClaudeAccess,
   SESSION_WORK_DIR,
 } from "./sandbox/session-sandbox"
-import type { HarnessOwner } from "./session-core"
-import { runClaudeCodeTurn } from "./session-core/claude-runtime"
 import {
+  checkCompatibility,
+  type HarnessOwner,
+  type SavedHarnessState,
+} from "./session-core"
+import {
+  CLAUDE_CODE_BINDING,
+  runClaudeCodeTurn,
+} from "./session-core/claude-runtime"
+import {
+  PI_BINDING,
   PI_BUILTIN_NAMES,
   type PiCompaction,
   type PiTurnUsage,
@@ -430,7 +438,9 @@ function forkNote(
 function droppedTurnNote(drop: PausedTurnDrop): string {
   return drop.reason === "stopped"
     ? `${drop.by} pressed Stop while your last turn waited for approval. The actions waiting for approval did not run, and that turn ended. Do not retry them unless someone asks again.`
-    : "Lor was updated while your last turn waited for approval, so that turn ended. The actions waiting for approval did not run. If they are still needed, say so and ask again."
+    : drop.reason === "lost"
+      ? "Your last turn waited for approval, but its process ended before it could continue, so the actions it waited on did not run. If they are still needed, call them again; they ask for approval again."
+      : "Lor was updated while your last turn waited for approval, so that turn ended. The actions waiting for approval did not run. If they are still needed, say so and ask again."
 }
 
 const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
@@ -569,9 +579,11 @@ export type RespondContext = {
   // Set on every run in a code session: its repo is the work folder.
   code?: RunCodeContext
   // A Claude Code session's turn (code-sessions-runbook.md chunk 7d): the
-  // turn starter's own Claude subscription token. Claude Code runs the turn
-  // instead of Pi, and Lor credits are not charged.
-  claudeCode?: { token: string }
+  // turn starter's own Claude subscription token, and who that is (saved
+  // with the request, so a paused turn continues on the same person's
+  // subscription). Claude Code runs the turn instead of Pi, and Lor credits
+  // are not charged.
+  claudeCode?: { token: string; userId: string }
   // "Continue in Code": names the session whose messages are the background.
   continuesSession?: { title: string }
   // A fork's first turn: the session it was forked from.
@@ -645,7 +657,16 @@ export {
   deleteSessionSandbox,
   SandboxCapacityError,
 } from "./sandbox/session-sandbox"
-export { pausedTurnExpired } from "./session-core/pi-runtime"
+// A paused turn saved by another adapter version cannot continue: its
+// approvals expire and the turn is dropped (pi-harness-runbook.md §4.3).
+export function pausedTurnExpired(saved: SavedHarnessState): boolean {
+  const binding =
+    saved.binding.kind === "claude_code" ? CLAUDE_CODE_BINDING : PI_BINDING
+  return (
+    saved.continuation !== null &&
+    checkCompatibility(saved, binding).continuation === "expire"
+  )
+}
 export { generateSessionTitle } from "./session-title"
 export { formatSpeakerLine } from "./transcript"
 export type {
@@ -2926,6 +2947,7 @@ export async function respond(
         ...context,
         toolSchemaBytes,
         ...(harness.continueOnly ? { continueOnly: true } : {}),
+        ...(ctx.claudeCode ? { claudeCodeUserId: ctx.claudeCode.userId } : {}),
         sandboxMode: harness.sandboxMode,
         sandboxContext: harness.continueOnly
           ? (harness.pausedSandboxContext ?? { request: "" })
@@ -3010,8 +3032,18 @@ export async function respond(
       "Lor pre-stream setup timing"
     )
 
-    const sandbox = await openSessionSandbox(harness.owner)
+    // A paused Claude Code turn waits in its bridge process, which this run
+    // keeps; when the process is gone the turn is dropped (7d-4a).
+    const claudePaused = Boolean(
+      ctx.claudeCode && harness.saved?.continuation && !harness.pausedDropped
+    )
+    const sandbox = await openSessionSandbox(harness.owner, {
+      keepBridges: claudePaused,
+    })
     try {
+      const claudeTurnLost = claudePaused && !sandbox.bridgeRunning
+      const pausedDropped: PausedTurnDrop | null =
+        harness.pausedDropped ?? (claudeTurnLost ? { reason: "lost" } : null)
       const conversationId = conversationIdOf(harness.owner)
       const workFolder: CodeWorkFolder | null = ctx.code
         ? await prepareCodeWorkFolder({
@@ -3037,8 +3069,8 @@ export async function respond(
           )
         )
       }
-      if (harness.pausedDropped) {
-        notes.push(droppedTurnNote(harness.pausedDropped))
+      if (pausedDropped) {
+        notes.push(droppedTurnNote(pausedDropped))
       }
       // A code session's repo can also be missing without a new sandbox
       // (the folder was deleted); either way it is a fresh clone.
@@ -3076,8 +3108,15 @@ export async function respond(
           status: "error",
         })
       }
-      const prompt = harness.continueOnly
-        ? null
+      // A lost Claude Code turn has nothing to finish, so a run that only
+      // continued it tells Claude Code what happened instead.
+      const prompt: UserModelMessage | null = harness.continueOnly
+        ? claudeTurnLost
+          ? {
+              role: "user",
+              content: notes.map((note) => `[${note}]`).join("\n"),
+            }
+          : null
         : withNotes(
             request.continuationDelta !== undefined
               ? { role: "user", content: request.continuationDelta }
@@ -3418,14 +3457,10 @@ export async function respond(
             },
             tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
             instructions,
+            ...(decisions && !pausedDropped ? { decisions } : {}),
+            ...(pausedDropped ? { dropPaused: true } : {}),
             ...(prompt ? { prompt } : {}),
-            // A gated call would pause the turn, which needs chunk 7d-4; until
-            // then those tools stay out of Claude Code turns.
-            tools: Object.fromEntries(
-              Object.entries(guarded.tools).filter(
-                ([name]) => !Object.hasOwn(toolApproval, name)
-              )
-            ),
+            tools: guarded.tools,
             toolsContext,
             toolApproval: limitedToolApproval,
             abortSignal,

@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto"
-import { HarnessAgent } from "@ai-sdk/harness/agent"
+import { posix } from "node:path"
+import {
+  HarnessAgent,
+  type HarnessAgentContinueTurnState,
+} from "@ai-sdk/harness/agent"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
   VERSION as CLAUDE_CODE_ADAPTER_VERSION,
@@ -8,17 +12,20 @@ import {
 import type {
   Experimental_SandboxSession as SandboxSession,
   TextStreamPart,
+  ToolApprovalResponse,
   ToolApprovalStatus,
   ToolSet,
   UserModelMessage,
 } from "ai"
 import {
+  checkCompatibility,
   type HarnessBinding,
   type HarnessHead,
   type SavedHarnessState,
   SessionCoreError,
 } from "./harness-state"
 import {
+  missingToolStubs,
   type PiContextUsage,
   type PiTurnResult,
   type PiTurnSave,
@@ -106,6 +113,14 @@ export type ClaudeCodeTurnInput = {
   tokenPlaceholder: string
   // Appended to Claude Code's own system prompt (it cannot be replaced).
   instructions: string
+  // A paused turn in `saved` continues first, through its bridge process,
+  // with one decision per pending approval. Then `prompt`, when given, starts
+  // a new turn in the same conversation.
+  decisions?: ToolApprovalResponse[]
+  // Drop the paused turn instead (stopped, saved by another adapter version,
+  // or its bridge is gone): the conversation goes on from its file, where
+  // Claude Code reads the waiting calls as interrupted (7d-4a spike).
+  dropPaused?: boolean
   prompt?: UserModelMessage
   tools: ToolSet
   toolsContext?: Record<string, unknown>
@@ -118,15 +133,41 @@ export async function runClaudeCodeTurn(
   input: ClaudeCodeTurnInput
 ): Promise<PiTurnResult> {
   const { saved, sandbox } = input
-  if (saved && saved.binding.kind !== "claude_code") {
+  const compatibility = saved
+    ? checkCompatibility(saved, CLAUDE_CODE_BINDING)
+    : null
+  if (compatibility?.continuation === "expire" && !input.dropPaused) {
     throw new SessionCoreError(
       "incompatible_state",
-      `This conversation runs on ${saved.binding.kind}, not claude_code`
+      "The paused turn was saved by another adapter version"
     )
   }
+  const paused =
+    compatibility?.continuation === "resume" && !input.dropPaused
+      ? (saved?.continuation as HarnessAgentContinueTurnState)
+      : null
+  const notStarted: PiTurnResult = {
+    aborted: true,
+    usage: null,
+    modelId: null,
+    responseMessages: [],
+    save: null,
+    pendingApprovals: [],
+    contextUsage: null,
+  }
+  // A dropped paused turn with no new prompt has nothing to run: only its
+  // saved continuation is cleared.
+  if (!paused && !input.prompt) {
+    return {
+      ...notStarted,
+      aborted: false,
+      save: withContinuation(null, saved, null),
+    }
+  }
   const claudeHome = `${await sandboxHome(sandbox)}/.claude`
-  // Postgres is the authority: put the saved file back unless it matches.
-  if (saved) {
+  // Postgres is the authority: put the saved file back unless it matches. A
+  // paused turn's bridge still holds the file and appends to it, so it stays.
+  if (saved && !paused) {
     const path = `${claudeHome}/${saved.head.logFileName}`
     const current = await sandbox.run({
       command: `sha256sum ${shellQuote(path)} 2>/dev/null | cut -d' ' -f1`,
@@ -143,7 +184,11 @@ export async function runClaudeCodeTurn(
       portEndpoint: input.bridge.endpoint,
     }),
     instructions: input.instructions,
-    tools: prepareTools(input.tools, input.toolsContext, sandbox),
+    tools: prepareTools(
+      { ...missingToolStubs(paused, input.tools), ...input.tools },
+      input.toolsContext,
+      sandbox
+    ),
     // The core takes a generic ToolSet; respond() builds the matching
     // per-tool context, so the inferred type is bridged here.
     ...(input.toolsContext
@@ -164,94 +209,144 @@ export async function runClaudeCodeTurn(
     .createSession({
       sessionId: input.sessionId,
       sandboxSession: sandbox,
-      ...(saved
-        ? {
-            resumeFrom: {
-              type: "resume-session" as const,
-              harnessId: "claude-code",
-              specificationVersion: "harness-v1" as const,
-              data: { claudeSessionId: saved.head.harnessSessionId },
-            },
-          }
-        : {}),
+      // A paused turn reattaches to its waiting bridge (respond() checks it
+      // still runs; through a dead one the continue never settles).
+      ...(paused
+        ? { continueFrom: paused }
+        : saved
+          ? {
+              resumeFrom: {
+                type: "resume-session" as const,
+                harnessId: "claude-code",
+                specificationVersion: "harness-v1" as const,
+                data: { claudeSessionId: saved.head.harnessSessionId },
+              },
+            }
+          : {}),
       ...abort,
     })
     .catch((err: unknown) => {
       if (input.abortSignal?.aborted) return null
       throw err
     })
-  if (!session) {
-    return {
-      aborted: true,
-      usage: null,
-      modelId: null,
-      responseMessages: [],
-      save: null,
-      pendingApprovals: [],
-      contextUsage: null,
-    }
-  }
+  if (!session) return notStarted
 
-  let stopped = false
+  // Set once stop() or suspendTurn() ran; otherwise the session is destroyed.
+  let settled = false
   try {
     let aborted = false
     let contextUsage: PiContextUsage | null = null
-    const result = input.prompt
-      ? await agent.stream({ session, messages: [input.prompt], ...abort })
-      : null
-    if (result) {
+    const results: Awaited<ReturnType<typeof agent.stream>>[] = []
+    const drain = async (result: Awaited<ReturnType<typeof agent.stream>>) => {
+      results.push(result)
       for await (const part of result.stream) {
         if (part.type === "abort") aborted = true
         if (part.type === "finish") {
           // The harness sets it on finish; the AI SDK type does not declare it.
-          contextUsage = claudeContextUsage(
-            (part as { providerMetadata?: unknown }).providerMetadata
-          )
+          contextUsage =
+            claudeContextUsage(
+              (part as { providerMetadata?: unknown }).providerMetadata
+            ) ?? contextUsage
         }
         await input.onPart(part)
       }
     }
-    aborted ||= Boolean(input.abortSignal?.aborted)
-    if (!aborted && session.hasUnfinishedTurn()) {
-      throw new Error("Claude Code paused for an approval, which needs 7d-4")
+    if (paused) {
+      await drain(
+        await agent.continueStream({
+          session,
+          toolApprovalContinuations: input.decisions ?? [],
+          ...abort,
+        })
+      )
     }
-    const [usage, response, responseMessages] = result
-      ? await Promise.all([
+    // A continued turn that paused again leaves the prompt for a later turn.
+    if (input.prompt && !aborted && !session.hasUnfinishedTurn()) {
+      await drain(
+        await agent.stream({ session, messages: [input.prompt], ...abort })
+      )
+    }
+    aborted ||= Boolean(input.abortSignal?.aborted)
+    const totals = await Promise.all(
+      results.map((result) =>
+        Promise.all([
           Promise.resolve(result.totalUsage).catch(() => null),
           Promise.resolve(result.response).catch(() => null),
           Promise.resolve(result.responseMessages).catch(() => []),
         ])
-      : [null, null, []]
+      )
+    )
+    const usage = totals.every(([turnUsage]) => turnUsage)
+      ? totals.reduce(
+          (total, [turnUsage]) => ({
+            inputTokens: total.inputTokens + (turnUsage?.inputTokens ?? 0),
+            cachedInputTokens:
+              total.cachedInputTokens +
+              (turnUsage?.inputTokenDetails?.cacheReadTokens ?? 0),
+            outputTokens: total.outputTokens + (turnUsage?.outputTokens ?? 0),
+            reasoningTokens:
+              total.reasoningTokens +
+              (turnUsage?.outputTokenDetails?.reasoningTokens ?? 0),
+          }),
+          {
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+          }
+        )
+      : null
 
-    // stop() returns the conversation's id; a turn resumed by id keeps it.
-    const state = await session.stop()
-    stopped = true
-    const claudeSessionId =
-      (state.data as { claudeSessionId?: unknown } | null)?.claudeSessionId ??
-      saved?.head.harnessSessionId
-    const save =
-      typeof claudeSessionId === "string"
-        ? await readConversation(sandbox, claudeHome, claudeSessionId, saved)
-        : null
+    // A turn waiting on approvals parks in its bridge: suspendTurn() keeps
+    // the process and returns how to reattach. Otherwise stop() returns the
+    // conversation's id; a turn resumed by id keeps it.
+    const waiting = !aborted && session.hasUnfinishedTurn()
+    const continuation = waiting ? await session.suspendTurn() : null
+    const state = continuation ?? (await session.stop())
+    settled = true
+    const named = (state.data as { claudeSessionId?: unknown } | null)
+      ?.claudeSessionId
+    const log = await readConversation(
+      sandbox,
+      claudeHome,
+      typeof named === "string"
+        ? named
+        : (saved?.head.harnessSessionId ?? null),
+      input.sessionId,
+      saved
+    )
     return {
       aborted,
-      usage: usage
-        ? {
-            inputTokens: usage.inputTokens ?? 0,
-            cachedInputTokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
-            outputTokens: usage.outputTokens ?? 0,
-            reasoningTokens: usage.outputTokenDetails?.reasoningTokens ?? 0,
-          }
-        : null,
-      modelId: response?.modelId ?? null,
-      responseMessages,
-      save,
-      pendingApprovals: [],
+      usage,
+      modelId: totals.at(-1)?.[1]?.modelId ?? null,
+      responseMessages: totals.flatMap(([, , messages]) => messages),
+      save: withContinuation(log, saved, continuation),
+      pendingApprovals: [...(continuation?.pendingToolApprovals ?? [])],
       contextUsage,
     }
   } finally {
     // Lor supplies the sandbox, so neither leaves it running down.
-    if (!stopped) await session.destroy().catch(() => {})
+    if (!settled) await session.destroy().catch(() => {})
+  }
+}
+
+// A turn that pauses, or finishes or drops a paused turn, saves its
+// continuation even with no new conversation bytes.
+function withContinuation(
+  log: Omit<PiTurnSave, "continuation"> | null,
+  saved: SavedHarnessState | null,
+  continuation: HarnessAgentContinueTurnState | null
+): PiTurnSave | null {
+  if (log) return { ...log, continuation }
+  if (!saved || (saved.continuation === null && continuation === null)) {
+    return null
+  }
+  return {
+    binding: CLAUDE_CODE_BINDING,
+    expected: saved.head,
+    head: saved.head,
+    log: { kind: "append", text: "" },
+    continuation,
   }
 }
 
@@ -294,37 +389,44 @@ function claudeContextUsage(metadata: unknown): PiContextUsage | null {
 }
 
 // The conversation file after the turn, as the bytes to save: appended to
-// the saved file, or the whole file when Claude Code rewrote it.
+// the saved file, or the whole file when Claude Code rewrote it. A new
+// conversation's first turn that paused has no id yet (the adapter learns it
+// at the turn's end): its file is the newest in the session's project folder,
+// named by the id (7d-4a spike).
 async function readConversation(
   sandbox: SandboxSession,
   claudeHome: string,
-  claudeSessionId: string,
+  claudeSessionId: string | null,
+  sessionId: string,
   saved: SavedHarnessState | null
-): Promise<PiTurnSave | null> {
+): Promise<Omit<PiTurnSave, "continuation"> | null> {
+  const find = claudeSessionId
+    ? `find projects -maxdepth 2 -name ${shellQuote(`${claudeSessionId}.jsonl`)} | head -1`
+    : `ls -t projects/*${shellQuote(sessionWorkFolder(sessionId))}/*.jsonl 2>/dev/null | head -1`
   const logFileName =
-    saved?.head.harnessSessionId === claudeSessionId
+    claudeSessionId && saved?.head.harnessSessionId === claudeSessionId
       ? saved.head.logFileName
       : (
           await sandbox.run({
-            command: `cd ${shellQuote(claudeHome)} && find projects -maxdepth 2 -name ${shellQuote(`${claudeSessionId}.jsonl`)} | head -1`,
+            command: `cd ${shellQuote(claudeHome)} && ${find}`,
           })
         ).stdout.trim()
-  if (!logFileName) {
-    throw new SessionCoreError(
-      "corrupt_state",
-      "Claude Code's conversation file is missing after the turn"
-    )
-  }
-  const text = await sandbox.readTextFile({
-    path: `${claudeHome}/${logFileName}`,
-  })
+  const text = logFileName
+    ? await sandbox.readTextFile({ path: `${claudeHome}/${logFileName}` })
+    : null
   if (text === null) {
+    // Claude Code never wrote: a turn stopped before it started.
+    if (!saved) return null
     throw new SessionCoreError(
       "corrupt_state",
       "Claude Code's conversation file is missing after the turn"
     )
   }
-  const head = claudeHeadOf(text, logFileName, claudeSessionId)
+  const head = claudeHeadOf(
+    text,
+    logFileName,
+    claudeSessionId ?? posix.basename(logFileName, ".jsonl")
+  )
   if (!head) return null
   if (saved && text === saved.log) return null
   const appended = saved !== null && text.startsWith(saved.log)
@@ -337,6 +439,5 @@ async function readConversation(
       : saved
         ? { kind: "replace", text }
         : { kind: "append", text },
-    continuation: null,
   }
 }

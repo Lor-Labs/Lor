@@ -96,6 +96,9 @@ export type ApprovalDecision = {
 export type PausedTurnDrop =
   | { reason: "stopped"; by: string }
   | { reason: "upgraded" }
+  // A Claude Code turn's bridge process ended while it waited (the sandbox
+  // was replaced or restarted); respond() finds this, not the worker.
+  | { reason: "lost" }
 
 // One model call of a turn, priced at the model that answered.
 export type RunStepRecord = {

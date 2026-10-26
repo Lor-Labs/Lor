@@ -9,6 +9,7 @@ import {
   ne,
   or,
   schema,
+  sql,
 } from "@repo/db"
 import {
   EMPTY_LOR_RUN_SCOPE,
@@ -772,14 +773,28 @@ export function createLorRespondProcessor(
             }
 
             // A Claude Code turn runs only on its sender's own subscription:
-            // never a Loop fire, an Act event or someone else's message.
-            const claudeToken =
-              session.harness === "claude_code" &&
-              !automated &&
-              triggerUserId &&
-              triggerUserId !== LOR_USER_ID
-                ? await claudeSubscriptionToken(triggerUserId)
-                : null
+            // never a Loop fire, an Act event or someone else's message. A
+            // run that continues a paused turn uses that turn's sender,
+            // whoever decided its approvals.
+            const claudeUserId =
+              session.harness !== "claude_code" || automated
+                ? null
+                : continueOnly && harnessState?.lastRunId
+                  ? await db
+                      .select({
+                        userId: sql<
+                          string | null
+                        >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
+                      })
+                      .from(schema.agentRun)
+                      .where(eq(schema.agentRun.id, harnessState.lastRunId))
+                      .then((rows) => rows[0]?.userId ?? null)
+                  : triggerUserId !== LOR_USER_ID
+                    ? triggerUserId
+                    : null
+            const claudeToken = claudeUserId
+              ? await claudeSubscriptionToken(claudeUserId)
+              : null
             if (session.harness === "claude_code" && !claudeToken) {
               const noSubscription = automated
                 ? "Claude Code sessions only run on a person's own messages."
@@ -946,7 +961,9 @@ export function createLorRespondProcessor(
                       },
                     }
                   : {}),
-                ...(claudeToken ? { claudeCode: { token: claudeToken } } : {}),
+                ...(claudeToken && claudeUserId
+                  ? { claudeCode: { token: claudeToken, userId: claudeUserId } }
+                  : {}),
                 ...(loopRun && threadRootId
                   ? {
                       loop: loopRunContext(

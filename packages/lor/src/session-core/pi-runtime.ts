@@ -157,7 +157,7 @@ export function prepareTools(
 // A paused turn continues with the tool list it started with, and the harness
 // throws when one is missing. A tool Lor no longer binds (removed connector,
 // changed profile) answers as unavailable instead.
-function missingToolStubs(
+export function missingToolStubs(
   paused: HarnessAgentContinueTurnState | null,
   tools: ToolSet
 ): ToolSet {
@@ -176,15 +176,6 @@ function missingToolStubs(
           }),
         }),
       ])
-  )
-}
-
-// A paused turn saved by another adapter version cannot continue: its
-// approvals expire and the turn is dropped (pi-harness-runbook.md §4.3).
-export function pausedTurnExpired(saved: SavedHarnessState): boolean {
-  return (
-    saved.continuation !== null &&
-    checkCompatibility(saved, PI_BINDING).continuation === "expire"
   )
 }
 

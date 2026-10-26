@@ -1,63 +1,94 @@
 # Positioning
 
-**Current direction — 2026-10-19:** Lor is the team workspace for the AI era.
-The www headline is "Work with AI, together." Keep "A workspace for your whole
-team" above it. Teams can use Lor alongside their current chat; the copy should
-not imply that switching chat apps is required. Show the broader workspace vision
-through the product examples. The earlier direction is retained as history.
+**Current direction — 2026-10-25:** Lor is the team workspace for the AI era.
+Keep “A workspace for your whole team” above “Work with AI, together.” The
+promise underneath is concrete: shared AI sessions bring the team's
+conversations, tools and knowledge into work that teammates can join and
+continue. Teams can start with one project alongside their existing chat.
 
 ## Current www story
 
-The reason Lor matters comes before the infrastructure: as more work happens
-through conversations with AI, team chat becomes the team's workspace. People
-join the work itself, rather than receiving pasted outputs from private AI chats.
+The team shares the work itself: context, decisions, files and next steps.
+A pasted answer leaves out how the team got there. Show someone starting the
+work, another person adding context, and someone else picking it up.
 
-The hero starts with ordinary team chat in #launch: the team needs a shared view
-of Friday's launch, Theo builds a checklist, and everyone can update their part.
-Engineering's QA sign-off clears the customer email for marketing. Someone later
-asks why that handoff exists. Channel know-how appears through an account-research
-example. Knowledge retention appears through a customer handover. Bring-your-own
-harness supports the story rather than leading it.
+Hero copy: “Research, build, and make decisions with AI in a shared workspace.
+Your team can join in and pick up where you left off.”
 
-**Copy correction:** Describe the reader's experience. Do not narrate the roadmap
-with "we're building toward," "the foundation," or lists of internal feature
-categories. Show the ambition through examples. Keep the small "Product preview"
-label on the interactive example; early-access signup remains the call to action.
-These illustrative scenarios are not customer testimonials or a release checklist.
+The hero follows one customer problem through six scenes:
 
-Product illustrations follow the real app's document-style session layout:
-avatar gutters without author-name rows, inline replies, channel sessions in the
-sidebar, and a separate Details/file panel. Use the app's shared Lor tokens and
-components rather than inventing different chrome for the marketing site.
+1. **Discuss:** Paygrove clicks Export repeatedly because the button looks
+   idle. Zoe raises it in #product; Rafael adds customer notes.
+2. **Investigate:** Zoe starts a Lor session. Lor reads the customer notes
+   and export code. Theo joins and adds the requirement to preserve retries.
+3. **Fork:** Theo uses the fork icon on Lor’s reply. The confirmation opens
+   a new chat with “Forked from” provenance. “Continue in Code” stays in the
+   session menu, matching the app’s separate fork and continue actions.
+4. **Build:** Theo continues the fork into a code session in the same channel,
+   with the investigation attached. Lor changes the export state; Zoe helps with
+   the wording.
+5. **Review:** show the changed files and a selectable diff, with the team
+   present. A person reviews, commits and pushes under their own GitHub identity.
+6. **Remember:** Rafael asks why the export behavior changed. Lor refers to
+   the customer feedback and investigation.
 
-Vary the work on screen: people in channel chat, Codex when engineering joins,
-an actual shared launch checklist inside #launch, and a saved account-research
-routine running in #gtm. Apps and routines should look like things the team uses,
-not more chat transcripts describing them. Keep these as interactive product
-previews, with local-only example data.
+Keep the previews free of explanatory “Product preview”, “Example team” and
+“Example only” labels (Jacob, 2026-10-25). All interactions still use fictional,
+local-only data and never call connected services.
+The main preview shows Lor, not unfinished agent integrations or generated
+shared apps. Voice presence stays out while voice is hidden for launch.
 
-Show everyday communication inside the hero's workspace, with voice presence
-in the sidebar. Do not put a call stage inside a channel conversation or add a
-separate mock chat/call section. Channels are people talking to people; agent
-work opens in its own session.
+## Page sequence
 
-The tool-building point is distribution: the checklist lives in the team's channel,
-and everyone there can use it without extra accounts or setup. Show this in the
-hero; do not add a generic "make any tool" section. The interactive QA handoff
-shows a process tailored to this team, beyond a generic task list. Its email
-status is illustrative; the preview does not send anything.
+- Hero and connected product story.
+- “A pasted answer leaves a lot out”: join the session and keep the context.
+  Explicitly say Lor works alongside existing team chat.
+- “Take the conversation into code”: repositories, files, diffs, personal
+  GitHub commits and pushes. Show a fork exploring a background export while
+  the original approach stays intact. Rewind restores code and conversation
+  together in code sessions.
+- “Work out the process once. Put it to work every week”: recurring account
+  research in #gtm, a downloadable shortlist, and an Attio write with an
+  example approval policy. Approval updates local preview state only.
+  Connectors and per-tool approvals support the story.
+- Team memory through an account handover, answered by Lor.
+- Agent choice: Lor in early access, Claude Code in development, Codex
+  planned. Do not claim arbitrary custom agents are available.
+- “Bring your next piece of work”: start with one project and its people;
+  early-access signup remains the call to action.
 
-The launch app shows the work itself: landing-page and help-doc previews, an
-editable customer email, and engineering's QA sign-off. Keep the live teammate
-presence and ownership visible beside those artifacts. The surrounding workspace
-chrome stays consistent with Lor; the artifacts can have their own visual style.
+## Copy and presentation
 
-The hero cycles through its four scenes every four seconds, with a fill across
-the active tab. Hovering the tabs keeps the countdown running; hovering the
-preview itself pauses it. Also pause offscreen or in a background tab. Keyboard
-navigation and interacting with a scene stop rotation until the visitor resumes
-it; reduced-motion visitors get manual tabs. Keep panels mounted so edits survive
-switching scenes, and keep the preview height stable as the scenes advance.
+Describe the reader's experience with concrete jobs and examples. Do not
+make infrastructure categories the headline. Keep ambition grounded in the
+current implementation; planned agent integrations retain their status labels. Check the code and detailed runbook
+checkboxes before changing agent availability. Some document summaries
+still say code sessions, fork/rewind or Attio writes are unbuilt.
+
+Product illustrations follow the app's document-style sessions: avatar
+gutters, inline replies, sessions under their channel, a separate Details/file
+panel, and files and diffs beside the chat. Match the app’s title size,
+starter avatar, relative time, repository/branch metadata, and separate source
+row with its fork or conversation icon. Lor replies include the fork action.
+Code sessions show the real Details / Changes / Files panel: tracked files,
+staging checkboxes, counts, and the commit box at the bottom. Opening a file
+puts its tab beside Chat and replaces the document with the file or diff.
+Channels contain human chat;
+Lor works in sessions. Use the shared Lor tokens and components.
+
+Keep the existing carousel behavior: advance every four seconds with a fill
+across the active tab; pause over the preview, offscreen and in a background
+tab. Keyboard navigation or scene interaction stops rotation until resumed.
+Reduced-motion visitors use manual tabs. Keep panels mounted and the preview
+height stable. The review scene's file buttons work with local state. The
+Files panel shows an expandable fictional repository with complete source
+previews and path filtering. Code and diffs use the app's Pierre renderer,
+theme and font metrics. Code turns show a compact review summary, not a TSX
+artifact attachment; its counts match the sample diff.
+
+The broader ambition remains a workspace where teams can create and evolve
+their own tools. Generated shared apps are a future direction, not the
+homepage's current product demonstration.
 
 ## Earlier direction — 2026-10-12 (historical)
 

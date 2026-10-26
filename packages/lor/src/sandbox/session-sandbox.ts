@@ -192,6 +192,8 @@ export type SessionSandbox = {
   // missing or unhealthy. When earlier turns are saved, the caller tells the
   // model and the session that earlier files are gone.
   fresh: boolean
+  // With keepBridges: a Claude Code bridge still runs, holding a paused turn.
+  bridgeRunning?: boolean
   // Ends our connection so Blaxel can put the sandbox in standby.
   close(): void
 }
@@ -232,24 +234,25 @@ async function createSessionSandbox(name: string): Promise<SandboxInstance> {
 // processes whose command finished are not named records and keep running.
 // Claude Code bridges (bridge-*) go too, unless this run continues the turn
 // one of them is parked on.
+// Returns whether a kept bridge is still running. A failed list reads as no
+// bridge: continuing a paused turn through a dead bridge never settles.
 async function stopLeftoverCommands(
   sandbox: SandboxInstance,
   name: string,
   keepBridges: boolean
-): Promise<void> {
+): Promise<boolean> {
   const fenced = keepBridges ? /^(run|spawn)-/ : /^(run|spawn|bridge)-/
-  const leftover = await sandbox.process
+  const running = await sandbox.process
     .list()
-    .then((records) =>
-      records.filter(
-        (record) => record.status === "running" && fenced.test(record.name)
-      )
-    )
+    .then((records) => records.filter((record) => record.status === "running"))
     .catch((err: unknown) => {
       logger.warn({ err, sandbox: name }, "Sandbox: process list failed")
       return []
     })
-  if (leftover.length === 0) return
+  const bridgeRunning =
+    keepBridges && running.some((record) => record.name.startsWith("bridge-"))
+  const leftover = running.filter((record) => fenced.test(record.name))
+  if (leftover.length === 0) return bridgeRunning
   await Promise.all(
     leftover.map((record) =>
       sandbox.process.kill(record.name).catch((err: unknown) => {
@@ -264,6 +267,7 @@ async function stopLeftoverCommands(
     { sandbox: name, processes: leftover.map((record) => record.name) },
     "Sandbox: stopped commands left by an earlier attempt"
   )
+  return bridgeRunning
 }
 
 export async function openSessionSandbox(
@@ -289,10 +293,15 @@ export async function openSessionSandbox(
           })
         : null
     if (health?.healthy) {
-      await stopLeftoverCommands(existing, name, options.keepBridges ?? false)
+      const bridgeRunning = await stopLeftoverCommands(
+        existing,
+        name,
+        options.keepBridges ?? false
+      )
       return {
         session: blaxelSandboxSession(existing),
         fresh: false,
+        bridgeRunning,
         close: () => closeConnection(existing),
       }
     }

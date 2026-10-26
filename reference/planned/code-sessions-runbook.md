@@ -645,6 +645,46 @@ may lag web), a Lor-offered "Continue in Code" card.
       rows: System prompt, System tools, MCP tools, Skills, Messages, …).
       The meter shows those rows in place of Pi's three estimates, and no
       Cost row (`creditsSpent: null`: no Lor credits).
+  - **7d-4 decisions** (Jacob, 2026-10-26):
+    - Only the turn's sender answers Claude Code's own prompts (permission
+      requests, plan approval, questions); teammates see the card waiting
+      on them. Lor's gated tools keep Lor's approval policy.
+    - A new message starts in the person's last-used Claude Code mode,
+      first Auto.
+    - Parts: 7d-4a pause and continue; 7d-4b Claude Code's own modes and
+      their prompts as cards (patch for Plan and Auto, the picker); 7d-4c
+      questions. Queuing needs no work: a session is a thread scope, and
+      thread scopes always queue (`routeToActiveRun`), each queued message
+      later running as its sender's own turn.
+  - [x] **7d-4a** pause and continue, built 2026-10-26 (not yet run live in
+    Lor):
+    - **Spike** (throwaway sandboxes, deleted): a turn paused on a Lor
+      tool's approval; `suspendTurn()` keeps the bridge waiting and returns
+      its port and channel token. A new run reattached in 1.2 s
+      (`continueFrom` + `continueStream`), ran the approved tool and
+      finished. With the bridge killed, the continue never settled (the
+      script exited with it pending). Resuming the conversation from its
+      file after a kill worked: Claude Code read the waiting call as
+      interrupted. During a new conversation's first paused turn, the
+      paused state has no Claude session id, but the file is already
+      `~/.claude/projects/-workspace-pi-<id>/<claude session id>.jsonl`.
+    - `runClaudeCodeTurn` continues a paused turn with its decisions, or
+      drops it; a turn that waits saves the conversation file with the
+      continuation (as Pi does), and a dropped turn with nothing to run
+      only clears it. `pausedTurnExpired` checks each harness's own
+      binding.
+    - `respond()` keeps the bridge when a paused Claude Code turn exists
+      (`openSessionSandbox(owner, { keepBridges })` now reports
+      `bridgeRunning`). No running bridge drops the turn with a "lost"
+      note; a run that only continued it sends the note as its prompt.
+      Lor's gated tools are back in Claude Code turns.
+    - The continuation runs on the paused turn's sender's subscription,
+      saved as `claudeCodeUserId` in the run's context (a resume's trigger
+      is Lor's own message, and the approver can be someone else).
+    - Open: a bridge parked across real standby (unproven either way: a
+      dead bridge drops the turn). Stop on a paused Claude Code turn drops
+      it; that run has no prompt, so the stop note does not reach Claude
+      Code.
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
