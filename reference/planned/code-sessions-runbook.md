@@ -99,6 +99,9 @@ may lag web), a Lor-offered "Continue in Code" card.
     tabs (source up to 2 MiB). Blob URLs are released on replacement/close.
     File and diff views preload each requested language; Rust, JS module
     extensions and SVG/XML use explicit language mappings.
+    Sandbox commands read full process logs after completion; truncated
+    process summaries must not become file paths, diffs or preview content.
+    A log retrieval failure surfaces as an error instead of empty output.
   - [x] **F2** Tabs beside the chat: Chat (fixed) plus file, diff and "All
     changes" tabs; the chat stays mounted. Preview tabs (single click
     reuses one); open tabs per person per session in local storage, the

@@ -491,14 +491,17 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
       if (abortSignal?.aborted) onAbort()
       const result = await waitForProcess(name)
       abortSignal?.throwIfAborted()
+      // Process summaries can contain truncation notices. Read the full logs
+      // so file lists, diffs and previews receive the actual command output.
+      const [stdout, stderr] = await Promise.all([
+        sandbox.process.logs(name, "stdout"),
+        sandbox.process.logs(name, "stderr"),
+      ])
+      abortSignal?.throwIfAborted()
       return {
         exitCode: result.exitCode ?? -1,
-        stdout:
-          result.stdout ||
-          (await sandbox.process.logs(name, "stdout").catch(() => "")),
-        stderr:
-          result.stderr ||
-          (await sandbox.process.logs(name, "stderr").catch(() => "")),
+        stdout,
+        stderr,
       }
     } finally {
       abortSignal?.removeEventListener("abort", onAbort)
