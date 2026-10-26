@@ -1,11 +1,24 @@
 "use client"
 
-import { PauseIcon, PlayIcon } from "@hugeicons/core-free-icons"
+import {
+  GitForkIcon,
+  PauseIcon,
+  PlayIcon,
+  SourceCodeIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react"
-import { LaunchChecklist } from "@/app/components/launch-checklist"
-import { Citation, FileCard, WorkLog } from "@/app/components/mock-parts"
+import { CodeReviewPreview } from "@/app/components/code-review-preview"
+import {
+  Citation,
+  ReviewChangesCard,
+  WorkLog,
+} from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
+import {
+  PREVIEW_CHANGE_TOTALS,
+  PREVIEW_CHANGED_FILES,
+} from "@/app/components/preview-repo"
 import { TeamChatPreview } from "@/app/components/team-chat-preview"
 import {
   PreviewDetails,
@@ -16,96 +29,194 @@ import {
 
 const SCENES = [
   {
-    label: "Talk to your team",
-    title: "launch",
-    channel: "launch",
-    active: "launch",
+    label: "Discuss",
+    title: "product",
+    channel: "product",
+    active: "product",
     caption:
-      "Friday’s launch starts in #launch. The team works out what they need, together.",
+      "A customer gets stuck. Zoe brings the question to #product, and Rafael adds what he knows.",
     plan: [],
     files: [],
   },
   {
-    label: "Ask an engineer",
-    title: "Build our launch checklist",
-    channel: "engineering",
-    active: "Build our launch checklist",
+    label: "Investigate",
+    title: "Why do exports feel stuck?",
+    channel: "product",
+    active: "Investigate exports",
     caption:
-      "Theo takes the conversation into code. He already knows what Zoe needs and why.",
-    plan: ["Read the launch plan", "Build the checklist", "Add the QA handoff"],
-    files: ["launch-checklist.tsx", "launch-plan.md"],
+      "Zoe and Theo investigate together. Fork from Lor’s reply to take it further.",
+    plan: [
+      "Read the customer notes",
+      "Trace the export flow",
+      "Suggest a change",
+    ],
+    files: ["export-findings.md"],
   },
   {
-    label: "Use it together",
-    title: "Friday’s launch",
-    channel: "launch",
-    active: "Launch checklist",
+    label: "Fork",
+    title: "Export fix (fork)",
+    channel: "product",
+    active: "Export fix (fork)",
+    caption: "Theo forks the investigation, then takes his branch into code.",
+    plan: ["Keep the original research", "Explore the export fix"],
+    files: ["export-findings.md"],
+  },
+  {
+    label: "Build",
+    title: "Fix export feedback",
+    channel: "product",
+    active: "Fix export feedback",
     caption:
-      "One place to see who’s ready. Built for this team, right in #launch. No extra accounts or setup.",
+      "The fork becomes a code session, with the investigation attached.",
+    plan: [
+      "Read the investigation",
+      "Add the export state",
+      "Handle a failed download",
+    ],
+    files: ["export-button.tsx", "export-panel.tsx"],
+  },
+  {
+    label: "Review",
+    title: "Fix export feedback",
+    channel: "product",
+    active: "Fix export feedback",
+    caption:
+      "Review the diff, stage the files, and commit with your own GitHub account.",
     plan: [],
     files: [],
   },
   {
-    label: "Come back to it",
-    title: "Why isn’t the email on a timer?",
-    channel: "launch",
-    active: "Launch decisions",
-    caption: "Months later, the reason behind the decision is still there.",
-    plan: ["Find the original discussion", "Read the decisions"],
-    files: ["launch-plan.md"],
+    label: "Remember",
+    title: "Why did we change exports?",
+    channel: "product",
+    active: "The export decision",
+    caption:
+      "The next person can find both the change and the reason behind it, without another handover.",
+    plan: ["Find the customer feedback", "Read the investigation"],
+    files: ["export-findings.md"],
   },
 ] as const
 
 const SCENE_DURATION_MS = 4_000
 
-function Conversation({ scene }: { scene: number }) {
+function Conversation({
+  scene,
+  onFork,
+  onContinueInCode,
+  onReview,
+}: {
+  scene: number
+  onFork?: () => void
+  onContinueInCode?: () => void
+  onReview?: () => void
+}) {
   if (scene === 1)
     return (
       <>
-        <PreviewTurn person="Theo">
-          Make a launch checklist from this conversation. Give each item an
-          owner, and keep the customer email on hold until I sign off on QA.
-          Everyone in #launch should be able to update their part.
+        <PreviewTurn person="Zoe">
+          Why does Paygrove think exports are stuck? Read the customer notes and
+          look at how the export works.
         </PreviewTurn>
-        <PreviewTurn person="Codex">
-          <WorkLog label="Worked" detail="Read the repo · Created 2 files" />
-          <p className="mt-3">
-            It&rsquo;s in #launch. When you mark QA ready, Rafael will see the
-            email is clear to go. Everyone in the channel already has access.
-          </p>
-          <FileCard
-            name="launch-checklist.tsx"
-            detail="Owners, readiness, and the QA handoff"
+        <PreviewTurn person="Lor" onFork={onFork}>
+          <WorkLog
+            label="Worked"
+            detail="Read Notion notes · Traced the export flow"
           />
-        </PreviewTurn>
-        <PreviewTurn person="Zoe" aside>
-          Can we reuse it next Friday too? Same owners, fresh checklist.
+          <p className="mt-3">
+            The download is still preparing, but the button keeps saying
+            &ldquo;Export CSV.&rdquo; Each click starts another request.
+            <Citation>Export flow</Citation>
+          </p>
+          <p className="mt-3">
+            Show that it&rsquo;s preparing and disable the button until it
+            finishes.
+          </p>
         </PreviewTurn>
         <PreviewTurn person="Theo" aside>
-          Yep, adding that.
+          Keep the retry if a download fails. I&rsquo;ll fork this and work on
+          the fix.
         </PreviewTurn>
+      </>
+    )
+  if (scene === 2)
+    return (
+      <>
+        <PreviewTurn person="Theo">
+          Let&rsquo;s start with the smaller fix. We can explore background
+          exports separately.
+        </PreviewTurn>
+        <PreviewTurn person="Lor">
+          Show &ldquo;Preparing…&rdquo; while the request runs, then restore the
+          button on success or failure. The export itself can stay as it is.
+        </PreviewTurn>
+        <div className="mt-5 flex items-center gap-1.5 pl-10 text-xs text-lor-text-tertiary-dark">
+          <HugeiconsIcon icon={SourceCodeIcon} size={14} />
+          <span>Theo continued this in</span>
+          <button
+            type="button"
+            onClick={onContinueInCode}
+            className="cursor-pointer font-medium text-lor-text-secondary-dark hover:underline focus-visible:outline-2 focus-visible:outline-agent"
+          >
+            Fix export feedback
+          </button>
+        </div>
       </>
     )
   if (scene === 3)
     return (
       <>
-        <PreviewTurn person="Rafael">
-          Why do we wait for Theo instead of scheduling the launch email for 10?
+        <PreviewTurn person="Theo">
+          Make the change we discussed in the fork. Keep the button usable again
+          if the download fails.
         </PreviewTurn>
         <PreviewTurn person="Lor">
-          <WorkLog label="Worked" detail="Read the original conversation" />
+          <WorkLog
+            label="Worked"
+            detail="Read the investigation · Edited 2 files"
+          />
           <p className="mt-3">
-            The last launch slipped after the email was already scheduled.
-            Customers got the announcement before the feature was live.
+            The button now shows &ldquo;Preparing…&rdquo; during an export and
+            ignores repeat clicks. It resets when the request finishes or fails.
+          </p>
+          <ReviewChangesCard
+            {...PREVIEW_CHANGE_TOTALS}
+            files={PREVIEW_CHANGED_FILES.length}
+            onClick={onReview}
+          />
+        </PreviewTurn>
+        <PreviewTurn person="Zoe" aside>
+          &ldquo;Preparing&rdquo; is exactly what was missing. Let&rsquo;s keep
+          that wording in the help docs too.
+        </PreviewTurn>
+        <PreviewTurn person="Theo" aside>
+          Agreed. I&rsquo;ll review the diff before I push it.
+        </PreviewTurn>
+      </>
+    )
+  if (scene === 5)
+    return (
+      <>
+        <PreviewTurn person="Rafael">
+          Why did we disable Export while a download is preparing?
+        </PreviewTurn>
+        <PreviewTurn person="Lor">
+          <WorkLog
+            label="Worked"
+            detail="Read the customer notes and investigation"
+          />
+          <p className="mt-3">
+            Paygrove couldn&rsquo;t tell whether its export had started.
+            Clicking again created duplicate downloads.
+            <Citation>Paygrove notes</Citation>
           </p>
           <p className="mt-3">
-            Zoe and Theo agreed to make QA sign-off the go-ahead for the email,
-            so Rafael wouldn&rsquo;t have to chase an update on launch day.
-            <Citation>Launch discussion</Citation>
+            Zoe and Theo chose a &ldquo;Preparing…&rdquo; state. The button
+            resets after success or failure, so people can still retry.
+            <Citation>Export investigation</Citation>
           </p>
         </PreviewTurn>
         <PreviewTurn person="Rafael">
-          Got it. We&rsquo;ll keep that for the next one.
+          Got it. I can explain that in the next customer handover.
         </PreviewTurn>
       </>
     )
@@ -194,9 +305,15 @@ export function WorkspaceStory() {
   }, [active, automatic, reducedMotion])
 
   function selectScene(index: number) {
+    setPaused(true)
     setAutomatic(false)
     setActive(index)
     setCycle((current) => current + 1)
+  }
+
+  function openScene(index: number) {
+    selectScene(index)
+    requestAnimationFrame(() => panels.current[index]?.focus())
   }
 
   function handleKeyDown(
@@ -232,7 +349,7 @@ export function WorkspaceStory() {
         <div
           role="tablist"
           aria-label="A team working in Lor"
-          className="grid w-full grid-cols-2 gap-1 rounded-xl bg-lor-sidebar-dark/80 p-1 ring-1 ring-inset ring-foreground/[0.08] sm:w-auto sm:grid-cols-4"
+          className="grid w-full grid-cols-3 gap-1 rounded-xl bg-lor-sidebar-dark/80 p-1 ring-1 ring-inset ring-foreground/[0.08] sm:w-auto sm:grid-cols-6"
         >
           {SCENES.map((item, index) => (
             <button
@@ -258,14 +375,16 @@ export function WorkspaceStory() {
                   style={{ transform: "scaleX(0)" }}
                 />
               ) : null}
-              <span className="relative">{item.label}</span>
+              <span className="relative inline-flex items-center gap-1.5">
+                {item.label === "Fork" ? (
+                  <HugeiconsIcon icon={GitForkIcon} size={14} />
+                ) : null}
+                {item.label}
+              </span>
             </button>
           ))}
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <span className="text-[11px] text-muted-foreground">
-            Product preview
-          </span>
           {!reducedMotion ? (
             <button
               ref={playbackControl}
@@ -310,38 +429,70 @@ export function WorkspaceStory() {
             className={`col-start-1 row-start-1 min-w-0 rounded-3xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent ${active === index ? "" : "invisible pointer-events-none"}`}
           >
             <MockShell className="h-full" innerClassName="h-full">
-              <div className="flex h-full max-h-[700px] min-h-[650px] overflow-y-auto overscroll-y-contain bg-lor-sidebar-dark text-left">
+              <div className="flex h-[560px] min-h-0 overflow-hidden bg-lor-sidebar-dark text-left sm:h-[650px]">
                 <PreviewSidebar active={item.active} />
-                <div className="flex min-w-0 flex-1 flex-col lg:flex-row">
-                  <div className="m-2 flex min-w-0 flex-1 overflow-hidden rounded-xl border border-lor-border-dark/60 md:ml-0">
-                    {index === 0 ? (
-                      <TeamChatPreview />
-                    ) : index === 2 ? (
-                      <LaunchChecklist headingLevel={2} />
-                    ) : (
-                      <PreviewDocument
-                        title={item.title}
-                        channel={item.channel}
-                        headingLevel={2}
-                        starter={index === 1 ? "Theo" : "Rafael"}
-                        agent={index === 1 ? "Codex" : "Lor"}
-                      >
-                        <Conversation scene={index} />
-                      </PreviewDocument>
+                {index === 3 || index === 4 ? (
+                  <CodeReviewPreview initialView={index === 4 ? "all" : "chat"}>
+                    {(reviewChanges) => (
+                      <Conversation scene={3} onReview={reviewChanges} />
                     )}
+                  </CodeReviewPreview>
+                ) : (
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
+                    <div className="m-2 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-lor-border-dark/60 md:ml-0">
+                      {index === 0 ? (
+                        <TeamChatPreview />
+                      ) : (
+                        <PreviewDocument
+                          title={item.title}
+                          channel={item.channel}
+                          headingLevel={2}
+                          starter={
+                            index === 1
+                              ? "Zoe"
+                              : index === 2
+                                ? "Theo"
+                                : "Rafael"
+                          }
+                          source={
+                            index === 2
+                              ? { title: "Investigate exports", kind: "fork" }
+                              : undefined
+                          }
+                          onContinueInCode={
+                            index === 2 ? () => openScene(3) : undefined
+                          }
+                        >
+                          <Conversation
+                            scene={index}
+                            onFork={
+                              index === 1 ? () => openScene(2) : undefined
+                            }
+                            onContinueInCode={() => openScene(3)}
+                          />
+                        </PreviewDocument>
+                      )}
+                    </div>
+                    {item.plan.length > 0 ? (
+                      <PreviewDetails
+                        plan={[...item.plan]}
+                        files={[...item.files]}
+                        context={
+                          index === 1
+                            ? "product · 4 messages"
+                            : "Investigate exports"
+                        }
+                        sourceKind={
+                          index === 2
+                            ? "fork"
+                            : index === 5
+                              ? "continue"
+                              : undefined
+                        }
+                      />
+                    ) : null}
                   </div>
-                  {index === 1 || index === 3 ? (
-                    <PreviewDetails
-                      plan={[...item.plan]}
-                      files={[...item.files]}
-                      context={
-                        index === 1
-                          ? "launch · 4 messages"
-                          : "launch · Friday launch"
-                      }
-                    />
-                  ) : null}
-                </div>
+                )}
               </div>
             </MockShell>
           </div>

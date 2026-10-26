@@ -226,6 +226,58 @@ export function FileCard({
   )
 }
 
+export function ReviewChangesCard({
+  added,
+  removed,
+  files,
+  onClick,
+}: {
+  added: number
+  removed: number
+  files: number
+  onClick?: () => void
+}) {
+  const className =
+    "mt-3 flex w-64 max-w-full flex-col gap-2 rounded-lg border border-lor-border-dark bg-lor-surface-dark px-3.5 py-3 text-left"
+  const content = (
+    <>
+      <span className="flex items-center justify-between gap-3 font-medium text-[13px] text-lor-text-dark leading-5">
+        Review changes
+        {onClick ? (
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            size={14}
+            className="shrink-0 text-lor-text-tertiary-dark"
+          />
+        ) : null}
+      </span>
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5">
+        <span className="font-mono tabular-nums text-lor-success-dark">
+          +{added}
+        </span>
+        <span className="font-mono tabular-nums text-lor-danger-dark">
+          −{removed}
+        </span>
+        <span className="ml-1 text-lor-text-tertiary-dark">
+          {files} {files === 1 ? "file" : "files"} changed
+        </span>
+      </span>
+    </>
+  )
+
+  return onClick ? (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${className} cursor-pointer touch-manipulation hover:bg-foreground/[0.06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-agent`}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className={className}>{content}</div>
+  )
+}
+
 // A person's message in channel chat: avatar, name and time, then the body.
 export function ChatLine({
   avatar,
