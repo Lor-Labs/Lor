@@ -11,6 +11,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { agentRun } from "./agent-runs"
+import { claudeCodeModeEnum } from "./messages"
 import { plan } from "./plans"
 import { user } from "./users"
 import { workspace } from "./workspaces"
@@ -77,6 +78,9 @@ export const approval = pgTable(
     // Rejected because someone sent a new message instead of deciding, not
     // by a person's explicit reject.
     steered: boolean("steered").notNull().default(false),
+    // An approved Claude Code plan (ExitPlanMode): the mode the turn goes on
+    // in, acceptEdits or default, as in Claude Code's own plan dialog.
+    claudeCodeMode: claudeCodeModeEnum("claude_code_mode"),
     // The run handed this approved call to the harness. A later run, or a
     // retry of that run, may find it already ran, so it never runs it again.
     consumedByRunId: uuid("consumed_by_run_id").references(() => agentRun.id, {

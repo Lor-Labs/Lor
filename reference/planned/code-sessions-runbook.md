@@ -707,10 +707,26 @@ may lag web), a Lor-offered "Continue in Code" card.
       them, the owner included; the list sends `onlyUserId` and names the
       sender, so others see "Waiting on <name>". `ExitPlanMode` is back
       on; `EnterPlanMode` stays off (Plan is the sender's pick).
-  - [ ] **7d-4b-2** the composer's mode picker (last used, first Auto) and
-    the plan card. Jacob 2026-10-26: the plan card offers the CLI's
-    choices, "Approve and accept edits", "Approve, ask for edits" and "Keep
-    planning" (the bridge's allow sets the mode for the rest of the turn).
+  - [x] **7d-4b-2** the composer's mode picker and the plan card, built
+    2026-10-26 (not yet run live in Lor). Jacob: the plan card offers the
+    CLI's choices, "Approve and accept edits", "Approve, ask for edits" and
+    "Keep planning".
+    - Picker (`claude-code-mode-picker.tsx`): Auto, Ask before edits,
+      Accept edits, Plan, Bypass permissions, with tooltips; in the
+      session's tool bar and in New session once Claude Code is picked;
+      Shift+Tab in the editor cycles it. One remembered mode per browser
+      (localStorage), first Auto; each send carries it.
+    - Plan card: the plan's Markdown (`plan` on the approvals list, from
+      ExitPlanMode's input) and the three choices. "Keep planning" rejects.
+      Approving calls `POST /approvals/{id}/approve-plan` with `{ mode }`,
+      saved as `approval.claude_code_mode` (additive `db:push`); the paused
+      turn's decision carries it as the approval's `reason`, and the bridge
+      patch turns an approved ExitPlanMode's reason into Claude Code's
+      `setMode` for the session. Spike: approved with acceptEdits, the next
+      write ran without a prompt. Approving also sets the sender's picker
+      to that mode, so the next message does not plan again.
+    - Mobile shows Claude Code prompts with the sender-only rule, but a
+      plan there is a plain Approve (Claude Code goes on in Default).
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

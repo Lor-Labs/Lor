@@ -9,6 +9,8 @@ import { Button } from "@repo/ui/components/button"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
+import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { rememberClaudeCodeMode } from "@/components/session/claude-code-mode-picker"
 import {
   type ApprovalResolverSpec,
   resolverLabel,
@@ -28,9 +30,13 @@ export type ApprovalCardData = {
   resolverUserName: string | null
   // A Claude Code prompt: only the turn's sender decides it.
   onlyUserId?: string | null
+  // A Claude Code plan waiting for approval: its Markdown.
+  plan?: string | null
   status: "pending" | "approved" | "rejected" | "expired"
   resolvedBy: string | null
 }
+
+type PlanMode = "acceptEdits" | "default"
 
 // The gate cards under a paused run's own message, one per gated call.
 // Renders nothing unless this message's run paused on approvals. In a session
@@ -111,7 +117,7 @@ export function ApprovalGateCard({
     approval.onlyUserId
   )
 
-  const onResolve = (resolution: "approve" | "reject") => {
+  const onResolve = (resolution: "approve" | "reject", planMode?: PlanMode) => {
     if (!activeMember) return
     resolve.mutate({
       approvalId: approval.id,
@@ -119,7 +125,10 @@ export function ApprovalGateCard({
       userId: activeMember.userId,
       planId: approval.planId,
       threadRootId,
+      ...(planMode ? { claudeCodeMode: planMode } : {}),
     })
+    // The sender's next message goes on in that mode too, not in Plan.
+    if (planMode) rememberClaudeCodeMode(planMode)
   }
 
   const resolvedByName =
@@ -158,9 +167,20 @@ export function ApprovalGateView({
   approval: ApprovalCardData
   canResolve: boolean
   pending: boolean
-  onResolve: (resolution: "approve" | "reject") => void
+  onResolve: (resolution: "approve" | "reject", planMode?: PlanMode) => void
   resolvedByName: string | null
 }) {
+  if (approval.status === "pending" && approval.plan) {
+    return (
+      <PlanApprovalView
+        approval={approval}
+        plan={approval.plan}
+        canResolve={canResolve}
+        pending={pending}
+        onResolve={onResolve}
+      />
+    )
+  }
   if (approval.status !== "pending") {
     const approved = approval.status === "approved"
     return (
@@ -232,6 +252,77 @@ export function ApprovalGateView({
             onClick={() => onResolve("approve")}
           >
             Approve
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// A Claude Code plan (ExitPlanMode): the plan itself and the choices of
+// Claude Code's own plan dialog. Keep planning rejects, so Claude Code goes
+// on planning.
+function PlanApprovalView({
+  approval,
+  plan,
+  canResolve,
+  pending,
+  onResolve,
+}: {
+  approval: ApprovalCardData
+  plan: string
+  canResolve: boolean
+  pending: boolean
+  onResolve: (resolution: "approve" | "reject", planMode?: PlanMode) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-card p-3 dark:bg-foreground/[0.025]">
+      <div className="flex items-center gap-3">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning-foreground">
+          <HugeiconsIcon
+            icon={LockKeyIcon}
+            className="size-3.5"
+            strokeWidth={2}
+          />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium leading-5">
+            {approval.description}
+          </p>
+          <p className="truncate text-muted-foreground text-xs leading-4">
+            {canResolve
+              ? "Needs your approval"
+              : resolverLabel(approval.resolver, approval.resolverUserName)}
+          </p>
+        </div>
+      </div>
+      <div className="max-h-80 overflow-y-auto rounded-lg border border-border/50 bg-muted/30 px-3 py-2">
+        <MessageMarkdown content={plan} mentions={[]} className="text-sm" />
+      </div>
+      {canResolve && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={() => onResolve("reject")}
+          >
+            Keep planning
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            onClick={() => onResolve("approve", "default")}
+          >
+            Approve, ask for edits
+          </Button>
+          <Button
+            size="sm"
+            disabled={pending}
+            onClick={() => onResolve("approve", "acceptEdits")}
+          >
+            Approve and accept edits
           </Button>
         </div>
       )}

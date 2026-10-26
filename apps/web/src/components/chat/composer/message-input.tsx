@@ -196,6 +196,10 @@ interface MessageInputProps {
   canSteerQueued?: boolean
   onSteerQueued?: () => void
   isSteeringQueued?: boolean
+  // Extra controls before the send button, e.g. a Claude Code session's mode.
+  tools?: ReactNode
+  // Shift+Tab in the editor, like Claude Code's mode cycle.
+  onShiftTab?: () => void
 }
 
 interface SuggestionPopupListRef {
@@ -590,6 +594,8 @@ export function MessageInput({
   canSteerQueued = false,
   onSteerQueued,
   isSteeringQueued = false,
+  tools,
+  onShiftTab,
 }: MessageInputProps) {
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
   const mentionCandidatesRef = useRef<MentionCandidate[]>([])
@@ -597,6 +603,8 @@ export function MessageInput({
   const handleSubmitRef = useRef<(stay: boolean) => void>(() => undefined)
   const addFilesRef = useRef(addFiles)
   addFilesRef.current = addFiles
+  const onShiftTabRef = useRef(onShiftTab)
+  onShiftTabRef.current = onShiftTab
   const onTypingRef = useRef(onTyping)
   onTypingRef.current = onTyping
 
@@ -717,6 +725,11 @@ export function MessageInput({
             "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
         },
         handleKeyDown: (_view, event) => {
+          if (event.key === "Tab" && event.shiftKey && onShiftTabRef.current) {
+            event.preventDefault()
+            onShiftTabRef.current()
+            return true
+          }
           if (event.key !== "Enter" || event.shiftKey) return false
           if (event.isComposing) return false
           if (document.querySelector(SUGGESTION_MENU_SELECTOR)) return false
@@ -1466,6 +1479,7 @@ export function MessageInput({
               </div>
             )}
             <div className="flex shrink-0 items-center gap-1">
+              {tools}
               {/* onStop is only supplied while a run is stoppable, so it doubles
                 as "Lor is working here right now". */}
               <ContextMeter

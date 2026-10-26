@@ -12,6 +12,7 @@ import {
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   approvalParamsSchema,
+  approvePlanBodySchema,
   channelApprovalsParamsSchema,
   channelApprovalsQuerySchema,
   listChannelApprovalsResponseSchema,
@@ -75,6 +76,38 @@ export const approveApproval = createRoute({
 })
 
 export type ApproveApprovalRoute = typeof approveApproval
+
+export const approvePlanApproval = createRoute({
+  path: "/approvals/{approvalId}/approve-plan",
+  method: "post",
+  summary: "Approve a Claude Code plan",
+  description:
+    "Approves a Claude Code plan (ExitPlanMode) and sets the mode its turn goes on in, as in Claude Code's own plan dialog. Only the turn's sender may approve it.",
+  tags: ["Approvals"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: approvalParamsSchema,
+    body: jsonContent({
+      schema: approvePlanBodySchema,
+      description: "The mode the turn goes on in",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: resolveApprovalResponseSchema,
+      description: "Plan approved",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ApprovePlanApprovalRoute = typeof approvePlanApproval
 
 export const rejectApproval = createRoute({
   path: "/approvals/{approvalId}/reject",

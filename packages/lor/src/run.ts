@@ -1,6 +1,7 @@
 import type {
   AgentRunContext,
   ApprovalKind,
+  ClaudeCodeMode,
   TurnSandboxMode,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -91,6 +92,8 @@ export type ApprovalDecision = {
   kind: ApprovalKind
   target: string | null
   inputSha256: string | null
+  // An approved Claude Code plan: the mode the turn goes on in.
+  claudeCodeMode?: ClaudeCodeMode | null
 }
 
 export type PausedTurnDrop =

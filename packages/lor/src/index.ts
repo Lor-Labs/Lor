@@ -3026,6 +3026,11 @@ export async function respond(
             type: "tool-approval-response",
             approvalId: pending.approvalId,
             approved: true,
+            // An approved Claude Code plan: the patched bridge reads the
+            // reason as the mode the turn goes on in.
+            ...(decision.kind === "claude_code" && decision.claudeCodeMode
+              ? { reason: decision.claudeCodeMode }
+              : {}),
           }
         })
       : undefined

@@ -126,6 +126,7 @@ export async function loadPausedDecisions(
       resolverName: schema.user.name,
       steered: schema.approval.steered,
       consumedByRunId: schema.approval.consumedByRunId,
+      claudeCodeMode: schema.approval.claudeCodeMode,
     })
     .from(schema.approval)
     .innerJoin(schema.agentRun, eq(schema.agentRun.id, schema.approval.runId))
@@ -171,6 +172,7 @@ export async function loadPausedDecisions(
         kind: row.kind,
         target: row.target,
         inputSha256: row.inputSha256,
+        claudeCodeMode: row.claudeCodeMode,
       }
     })
   )

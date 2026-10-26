@@ -37,6 +37,7 @@ import { findConnectedParticipant } from "@/lib/voice/sessions"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import type {
   ApproveApprovalRoute,
+  ApprovePlanApprovalRoute,
   ListChannelApprovalsRoute,
   RejectApprovalRoute,
 } from "@/routes/v1/approvals/routes"
@@ -154,11 +155,22 @@ export const listChannelApprovals: AppRouteHandler<
               ? row.resolverUserName
               : null,
           onlyUserId,
+          plan:
+            row.approval.kind === "claude_code" &&
+            row.approval.toolName === "ExitPlanMode"
+              ? planText(row.approval.payload)
+              : null,
         }
       }),
     },
     HttpStatusCodes.OK
   )
+}
+
+// ExitPlanMode's input carries the plan as Markdown (7d-4b spike).
+function planText(payload: unknown): string | null {
+  const plan = (payload as { plan?: unknown } | null)?.plan
+  return typeof plan === "string" && plan.trim() ? plan : null
 }
 
 type ResolveOutcome =
@@ -207,7 +219,8 @@ function approvalScope(
 async function resolveApproval(
   approvalId: string,
   userId: string,
-  resolution: "approved" | "rejected"
+  resolution: "approved" | "rejected",
+  planMode?: "acceptEdits" | "default"
 ): Promise<ResolveOutcome> {
   const row = await db
     .select({
@@ -312,6 +325,13 @@ async function resolveApproval(
         status: resolution,
         resolvedBy: userId,
         resolvedAt: new Date(),
+        // An approved Claude Code plan goes on in the mode the sender chose.
+        ...(resolution === "approved" &&
+        row.approval.kind === "claude_code" &&
+        row.approval.toolName === "ExitPlanMode" &&
+        planMode
+          ? { claudeCodeMode: planMode }
+          : {}),
       })
       .where(
         and(
@@ -496,12 +516,17 @@ async function resolveApproval(
 
 // Approve and reject share identical route shapes; one handler body maps each
 // ResolveOutcome to its response so new variants can't drift between the two.
-function resolveHandler(resolution: "approved" | "rejected") {
+function resolveHandler(
+  resolution: "approved" | "rejected",
+  // A Claude Code plan's approval names the mode its turn goes on in.
+  planMode?: "acceptEdits" | "default"
+) {
   return async (c: Parameters<AppRouteHandler<ApproveApprovalRoute>>[0]) => {
     const outcome = await resolveApproval(
       c.req.valid("param").approvalId,
       c.var.user.id,
-      resolution
+      resolution,
+      planMode
     )
     switch (outcome.kind) {
       case "not_found":
@@ -552,6 +577,10 @@ function resolveHandler(resolution: "approved" | "rejected") {
 
 export const approveApproval: AppRouteHandler<ApproveApprovalRoute> =
   resolveHandler("approved")
+
+export const approvePlanApproval: AppRouteHandler<ApprovePlanApprovalRoute> = (
+  c
+) => resolveHandler("approved", c.req.valid("json").mode)(c)
 
 export const rejectApproval: AppRouteHandler<RejectApprovalRoute> =
   resolveHandler("rejected")

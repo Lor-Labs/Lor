@@ -62,6 +62,14 @@ export const channelApprovalSchema = approvalSchema.extend({
   // A Claude Code prompt: only this person, the turn's sender, decides it
   // (the workspace owner too waits on them).
   onlyUserId: z.string().uuid().nullable(),
+  // A Claude Code plan waiting for approval (ExitPlanMode): its Markdown.
+  plan: z.string().nullable(),
+})
+
+// Approving a Claude Code plan: the mode the turn goes on in, as in Claude
+// Code's own plan dialog ("accept edits" or "ask for edits").
+export const approvePlanBodySchema = z.object({
+  mode: z.enum(["acceptEdits", "default"]),
 })
 
 export const listChannelApprovalsResponseSchema = z.object({

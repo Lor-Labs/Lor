@@ -1,5 +1,5 @@
 diff --git a/dist/bridge/index.mjs b/dist/bridge/index.mjs
-index e21cffa448869313e6b9a136c91b69c60850cb26..4fd2892101685a399e50c6448ab40f553e24db78 100644
+index e21cffa448869313e6b9a136c91b69c60850cb26..08289314e9dd0241ed69226f6e532eedb15cb24b 100644
 --- a/dist/bridge/index.mjs
 +++ b/dist/bridge/index.mjs
 @@ -1461,25 +1461,35 @@ const mcpModule = mcpServerModule;
@@ -51,7 +51,27 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..4fd2892101685a399e50c6448ab40f55
  				nativeName: toolName,
  				permissionMode
  			})) return {
-@@ -1770,6 +1780,7 @@ async function runTurn(start, turn) {
+@@ -1520,10 +1530,18 @@ function createPermissionOptions(input) {
+ 			});
+ 			input.markWaitingOnHostInput(approvalId);
+ 			const decision = await decisionPromise.finally(() => input.clearWaitingOnHostInput(approvalId));
++			// Lor patch: an approved plan names the mode the turn goes on in,
++			// like Claude Code's own plan dialog (accept edits or ask for edits).
++			const planMode = toolName === "ExitPlanMode" && (decision.reason === "acceptEdits" || decision.reason === "default") ? decision.reason : void 0;
+ 			return decision.approved ? {
+ 				behavior: "allow",
+ 				updatedInput: toolInput,
+-				toolUseID: approvalId
++				toolUseID: approvalId,
++				...planMode ? { updatedPermissions: [{
++					type: "setMode",
++					mode: planMode,
++					destination: "session"
++				}] } : {}
+ 			} : {
+ 				behavior: "deny",
+ 				message: decision.reason ?? "Denied",
+@@ -1770,6 +1788,7 @@ async function runTurn(start, turn) {
  	};
  	let turnUsage;
  	let totalCostUsd;
@@ -59,7 +79,7 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..4fd2892101685a399e50c6448ab40f55
  	let emittedTerminalError = false;
  	let emittedTerminalFinish = false;
  	const emitTerminalError = (message) => {
-@@ -1838,6 +1849,7 @@ async function runTurn(start, turn) {
+@@ -1838,6 +1857,7 @@ async function runTurn(start, turn) {
  					if (!queryInput.answersSentMessage(msg)) continue;
  					queryInput.observeResult();
  					if (!queryInput.hasActiveUserMessages()) {
@@ -67,7 +87,7 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..4fd2892101685a399e50c6448ab40f55
  						queryInput.close();
  						break;
  					}
-@@ -1845,6 +1857,7 @@ async function runTurn(start, turn) {
+@@ -1845,6 +1865,7 @@ async function runTurn(start, turn) {
  				continue;
  			}
  			if (queryInput.hasObservedResult && !queryInput.hasActiveUserMessages()) {
@@ -75,7 +95,7 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..4fd2892101685a399e50c6448ab40f55
  				queryInput.close();
  				break;
  			}
-@@ -1873,12 +1886,40 @@ async function runTurn(start, turn) {
+@@ -1873,12 +1894,40 @@ async function runTurn(start, turn) {
  			raw: "stop"
  		},
  		totalUsage: turnUsage ?? streamEventState.stepUsage ?? defaultUsage(),

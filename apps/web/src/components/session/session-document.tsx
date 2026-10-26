@@ -30,6 +30,10 @@ import {
 } from "@/components/chat/message-scroller-controls"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { DocumentTypingIndicator } from "@/components/chat/typing-indicator"
+import {
+  ClaudeCodeModePicker,
+  useClaudeCodeMode,
+} from "@/components/session/claude-code-mode-picker"
 import { SessionTurnRail } from "@/components/session/session-turn-rail"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
@@ -99,6 +103,7 @@ export function SessionDocument({
   onRewind,
   rewindRestoresFiles,
   composerNote,
+  claudeCode = false,
 }: {
   workspaceSlug: string
   channelId: string
@@ -106,6 +111,9 @@ export function SessionDocument({
   // Above the reply line: why the agent won't answer this person (a Claude
   // Code session without their Claude subscription).
   composerNote?: ReactNode
+  // A Claude Code session this person can run turns in: each message carries
+  // the Claude Code mode picked in the composer.
+  claudeCode?: boolean
   // "Fork from here" on Lor's finished replies; settles when the fork opens
   // or fails.
   onFork?: (message: Message) => Promise<unknown>
@@ -440,6 +448,7 @@ export function SessionDocument({
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
     null
   )
+  const claudeMode = useClaudeCodeMode()
 
   // The heading renders once the oldest page is loaded; until then, and once
   // it scrolls away, the header carries the title.
@@ -511,8 +520,21 @@ export function SessionDocument({
             className="size-7"
           />
         }
+        tools={
+          claudeCode ? (
+            <ClaudeCodeModePicker
+              value={claudeMode.mode}
+              onChange={claudeMode.setMode}
+            />
+          ) : undefined
+        }
+        onShiftTab={claudeCode ? claudeMode.cycle : undefined}
         onSend={(content, options) => {
-          const nonce = handleSend(content, options)
+          const nonce = handleSend(content, {
+            mentions: [],
+            ...options,
+            ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
+          })
           if (nonce) showSendEffects(nonce, options)
           scroll.scrollAfterSend()
           // Lor is mid-answer, so a message for Lor will queue — show it in

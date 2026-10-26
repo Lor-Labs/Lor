@@ -23,6 +23,10 @@ import { type CSSProperties, type ReactNode, useState } from "react"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import {
+  ClaudeCodeModePicker,
+  useClaudeCodeMode,
+} from "@/components/session/claude-code-mode-picker"
+import {
   CodeTargetPicker,
   SessionModeSwitch,
   useCodeTarget,
@@ -223,6 +227,7 @@ function NewSessionComposer({
   // one the start waits for a connect (code-sessions-runbook.md chunk 7).
   const [harness, setHarness] = useSessionHarness(startHarness)
   const claudeCode = mode === "code" && harness === "claude_code"
+  const claudeMode = useClaudeCodeMode()
   const { data: accounts } = usePersonalAccounts()
   const needsClaude = claudeCode && accounts?.claude.account == null
   const [connectingClaude, setConnectingClaude] = useState(false)
@@ -353,6 +358,15 @@ function NewSessionComposer({
               : "Ask Lor…"
         }
         sendBlocked={(mode === "code" && !code.target) || needsClaude}
+        tools={
+          claudeCode ? (
+            <ClaudeCodeModePicker
+              value={claudeMode.mode}
+              onChange={claudeMode.setMode}
+            />
+          ) : undefined
+        }
+        onShiftTab={claudeCode ? claudeMode.cycle : undefined}
         onSend={(content, options) =>
           handleSend(content, {
             mentions: [],
@@ -362,6 +376,7 @@ function NewSessionComposer({
             ...(mode === "code" && code.target
               ? { code: code.target, harness }
               : {}),
+            ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
             ...(continueFromSessionId
               ? {
                   continueFrom: {

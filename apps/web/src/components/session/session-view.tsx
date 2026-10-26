@@ -221,6 +221,7 @@ function SessionConversation({
 
   return (
     <SessionDocument
+      claudeCode={session.harness === "claude_code" && !withoutClaude}
       composerNote={
         withoutClaude ? (
           <>

@@ -1,6 +1,7 @@
 import { LOR_USER_ID } from "@repo/db/constants"
 import {
   type RealtimeMessageEmbedsUpdated,
+  type SendMessagePayload,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
@@ -186,6 +187,8 @@ export function useMessageSending({
         code?: { repo: string; branch: string }
         // With code: Claude Code runs it instead of Lor's own agent.
         harness?: "pi" | "claude_code"
+        // A Claude Code session: the mode for the turn this message starts.
+        claudeCodeMode?: SendMessagePayload["claudeCodeMode"]
         // With startSession: "Continue in Code" from this session.
         continueFrom?: { id: string; title: string }
         // "Ask Lor about this": the message the new session starts with.
@@ -282,6 +285,7 @@ export function useMessageSending({
           startSession: options?.startSession || undefined,
           code,
           harness,
+          claudeCodeMode: options?.claudeCodeMode,
           continueFrom: source?.id,
           newSession: start
             ? { id: start.id, threadRootId: start.threadRootId }
