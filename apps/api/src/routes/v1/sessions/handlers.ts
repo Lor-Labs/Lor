@@ -56,7 +56,6 @@ import { githubAccountToken } from "@/lib/github-account"
 import { pullRequestLink, pushCommits } from "@/lib/github-push"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
-import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
@@ -96,14 +95,10 @@ async function findAccessibleSession(sessionId: string, userId: string) {
     .where(eq(schema.agentSession.id, sessionId))
     .limit(1)
     .then((rows) => rows[0])
-  if (
-    !row ||
-    row.channelWorkspaceId !== row.session.workspaceId ||
-    !(await userCanAccessChannel(row.session.channelId, userId))
-  ) {
-    return null
-  }
-  return row
+  if (!row || row.channelWorkspaceId !== row.session.workspaceId) return null
+  const access = await resolveChannelAccess(userId, row.session.channelId)
+  if (!access.ok) return null
+  return { ...row, canWrite: access.access.canWrite }
 }
 
 export const getAgentSession: AppRouteHandler<GetAgentSessionRoute> = async (
@@ -557,9 +552,7 @@ export const rewindAgentSession: AppRouteHandler<
 
 const LOR_ACTIVE_RUN_STATES = ["queued", "working", "finalizing"] as const
 
-// A code session the caller can see. Null otherwise, like findAccessibleSession.
-async function findCodeSession(sessionId: string, userId: string) {
-  const session = (await findAccessibleSession(sessionId, userId))?.session
+function toCodeSession(session: AgentSession | undefined) {
   if (
     !session ||
     session.mode !== "code" ||
@@ -573,6 +566,26 @@ async function findCodeSession(sessionId: string, userId: string) {
     repoFullName: session.repoFullName,
     baseBranch: session.baseBranch,
   }
+}
+
+// A code session the caller can see. Null otherwise, like findAccessibleSession.
+async function findCodeSession(sessionId: string, userId: string) {
+  return toCodeSession(
+    (await findAccessibleSession(sessionId, userId))?.session
+  )
+}
+
+// Staging, Commit, Push, Pull and the commit message change the session's
+// shared folder or bill the workspace: like fork and rewind, they need write
+// access to the channel.
+async function findWritableCodeSession(
+  sessionId: string,
+  userId: string
+): Promise<CodeSession | "not_found" | "forbidden"> {
+  const row = await findAccessibleSession(sessionId, userId)
+  const session = toCodeSession(row?.session)
+  if (!(row && session)) return "not_found"
+  return row.canWrite ? session : "forbidden"
 }
 
 type CodeSession = NonNullable<Awaited<ReturnType<typeof findCodeSession>>>
@@ -740,8 +753,13 @@ export const stageSessionChanges: AppRouteHandler<
 > = async (c) => {
   const { sessionId } = c.req.valid("param")
   const body = c.req.valid("json")
-  const session = await findCodeSession(sessionId, c.var.user.id)
-  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const session = await findWritableCodeSession(sessionId, c.var.user.id)
+  if (session === "not_found") {
+    return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  }
+  if (session === "forbidden") {
+    return c.json(forbidden, HttpStatusCodes.FORBIDDEN)
+  }
   // Lor's own edits and git would race a person's staging.
   if (await lorWorkingIn(session.threadRootId)) {
     return c.json(
@@ -870,8 +888,13 @@ export const commitSessionChanges: AppRouteHandler<
   const { sessionId } = c.req.valid("param")
   const { message } = c.req.valid("json")
   const user = c.var.user
-  const session = await findCodeSession(sessionId, user.id)
-  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const session = await findWritableCodeSession(sessionId, user.id)
+  if (session === "not_found") {
+    return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  }
+  if (session === "forbidden") {
+    return c.json(forbidden, HttpStatusCodes.FORBIDDEN)
+  }
   const refuse = (text: string) =>
     c.json(
       { success: false as const, message: text },
@@ -940,8 +963,13 @@ export const pushSessionChanges: AppRouteHandler<
 > = async (c) => {
   const { sessionId } = c.req.valid("param")
   const user = c.var.user
-  const session = await findCodeSession(sessionId, user.id)
-  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const session = await findWritableCodeSession(sessionId, user.id)
+  if (session === "not_found") {
+    return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  }
+  if (session === "forbidden") {
+    return c.json(forbidden, HttpStatusCodes.FORBIDDEN)
+  }
   const refuse = (text: string) =>
     c.json(
       { success: false as const, message: text },
@@ -1032,8 +1060,13 @@ export const pullSessionChanges: AppRouteHandler<
 > = async (c) => {
   const { sessionId } = c.req.valid("param")
   const user = c.var.user
-  const session = await findCodeSession(sessionId, user.id)
-  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const session = await findWritableCodeSession(sessionId, user.id)
+  if (session === "not_found") {
+    return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  }
+  if (session === "forbidden") {
+    return c.json(forbidden, HttpStatusCodes.FORBIDDEN)
+  }
   const refuse = (text: string) =>
     c.json(
       { success: false as const, message: text },
@@ -1163,8 +1196,13 @@ export const generateSessionCommitMessage: AppRouteHandler<
   GenerateSessionCommitMessageRoute
 > = async (c) => {
   const { sessionId } = c.req.valid("param")
-  const session = await findCodeSession(sessionId, c.var.user.id)
-  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const session = await findWritableCodeSession(sessionId, c.var.user.id)
+  if (session === "not_found") {
+    return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  }
+  if (session === "forbidden") {
+    return c.json(forbidden, HttpStatusCodes.FORBIDDEN)
+  }
   const message = await withCodeSandbox(session, (sandbox) =>
     generateCommitMessage(
       sandbox,

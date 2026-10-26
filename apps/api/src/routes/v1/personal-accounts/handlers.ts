@@ -117,9 +117,11 @@ export const disconnectGithubAccount: AppRouteHandler<
     .returning({ accessToken: schema.personalAccount.accessToken })
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (removed && key) {
-    void revokeGithubToken(decryptSecret(removed.accessToken, key)).catch(
-      (err) => logger.warn({ err }, "GitHub token revoke failed")
-    )
+    // Inside the chain: a token that fails to decrypt must not fail the
+    // disconnect, which already happened.
+    void Promise.resolve()
+      .then(() => revokeGithubToken(decryptSecret(removed.accessToken, key)))
+      .catch((err) => logger.warn({ err }, "GitHub token revoke failed"))
   }
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }

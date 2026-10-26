@@ -107,9 +107,12 @@ export function usePushNotifications() {
           return
         }
         try {
-          const channel = await queryClient.ensureQueryData(
-            channelDetailQueryOptions(destination.slug, target.channelId)
-          )
+          // Retried here: nothing reruns this effect after a failed lookup,
+          // so the tap would wait for an unrelated change.
+          const channel = await queryClient.ensureQueryData({
+            ...channelDetailQueryOptions(destination.slug, target.channelId),
+            retry: 3,
+          })
           if (!isChannelFeatureEnabled(channel)) {
             clearResponse()
             return

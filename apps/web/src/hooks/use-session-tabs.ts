@@ -20,6 +20,7 @@ export const diffTabId = (path: string) => `diff:${path}`
 export function parseTabId(id: string): SessionTab | null {
   if (id === CHANGES_TAB_ID) return { id, kind: "changes" }
   const colon = id.indexOf(":")
+  if (colon < 0) return null
   const kind = id.slice(0, colon)
   const path = id.slice(colon + 1)
   if (!path || (kind !== "file" && kind !== "diff")) return null
