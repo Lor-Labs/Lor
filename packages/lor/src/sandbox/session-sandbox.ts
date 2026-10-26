@@ -427,7 +427,11 @@ function logStream(
   })
 }
 
-export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
+// defaultWorkingDirectory is the harness's own field (its network sandbox
+// session): with it, every turn's start skips a `pwd` in the sandbox.
+export function blaxelSandboxSession(
+  sandbox: SandboxInstance
+): SandboxSession & { defaultWorkingDirectory: string } {
   const readBytes = async (path: string): Promise<Uint8Array | null> => {
     try {
       const blob = await sandbox.fs.readBinary(path)
@@ -551,16 +555,12 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
     const handle: SandboxProcess = {
       stdout: logStream(sandbox, name, "stdout", readyIn),
       stderr: logStream(sandbox, name, "stderr", () => bridgeReady),
+      // The adapter waits on this after stopping a bridge, at every turn's end.
       wait() {
-        done ??= sandbox.process
-          .wait(name, {
-            maxWait: (RUN_TIMEOUT_SEC + 60) * 1000,
-            interval: 1000,
-          })
-          .then((result) => {
-            abortSignal?.throwIfAborted()
-            return { exitCode: result.exitCode ?? -1 }
-          })
+        done ??= waitForProcess(name).then((result) => {
+          abortSignal?.throwIfAborted()
+          return { exitCode: result.exitCode ?? -1 }
+        })
         return done
       },
       kill,
@@ -570,6 +570,7 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
 
   return {
     description: `Lor's sandbox for this conversation: a Linux machine with Python and Node. Files under ${WORKSPACE_MOUNT} persist between turns. No credentials for Lor's services are present.`,
+    defaultWorkingDirectory: WORKSPACE_MOUNT,
     run,
     spawn,
     readBinaryFile: ({ path }) => readBytes(path),

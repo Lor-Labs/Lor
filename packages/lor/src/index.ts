@@ -3080,6 +3080,12 @@ export async function respond(
       keepBridges: claudePaused,
     })
     try {
+      // The Claude Code bridge's preview link is made while the work folder
+      // is prepared; claudeCodeTurn awaits it.
+      const bridgeEndpoint = ctx.claudeCode
+        ? claudeCodeBridgeEndpoint(harness.owner)
+        : null
+      bridgeEndpoint?.catch(() => {})
       const claudeTurnLost = claudePaused && !sandbox.bridgeRunning
       const pausedDropped: PausedTurnDrop | null =
         harness.pausedDropped ?? (claudeTurnLost ? { reason: "lost" } : null)
@@ -3487,16 +3493,17 @@ export async function respond(
         token: string
         mode: ClaudeCodeMode
       }) => {
-        await grantClaudeAccess(harness.owner, claude.token)
+        const access = grantClaudeAccess(harness.owner, claude.token)
         try {
+          const [, endpoint] = await Promise.all([
+            access,
+            bridgeEndpoint ?? claudeCodeBridgeEndpoint(harness.owner),
+          ])
           return await runClaudeCodeTurn({
             sessionId: conversationId,
             saved: harness.saved,
             sandbox: sandbox.session,
-            bridge: {
-              port: CLAUDE_CODE_BRIDGE_PORT,
-              endpoint: await claudeCodeBridgeEndpoint(harness.owner),
-            },
+            bridge: { port: CLAUDE_CODE_BRIDGE_PORT, endpoint },
             tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
             mode: claude.mode,
             instructions,

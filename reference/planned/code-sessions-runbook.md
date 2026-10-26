@@ -781,6 +781,30 @@ may lag web), a Lor-offered "Continue in Code" card.
       in the sandbox, outlived rewinds and were shared by everyone's turns;
       Lor keeps the team's memory. Checked: asked to remember something,
       Claude Code said it had no memory tool and wrote no memory files.
+  - [x] **7f** first-turn speed, built 2026-10-26 (image push owed):
+    - Measured with the real adapter in throwaway sandboxes, timing each
+      sandbox call. A new session's first turn reached its first text at
+      18.3 s: sandbox 4.7 s, the adapter's bootstrap 7.0 s (`pnpm install`
+      took 6.1 s although the image had the packages; it ran because the
+      bootstrap's marker file was not in the image), bridge link 1.2 s,
+      bridge start 2.0 s, Claude Code to first text 2.1 s. Every turn also
+      waited 1.2 s at its end: the bridge process wait slept one full
+      second.
+    - The image now holds the bootstrap as done: `claude-code-bootstrap.ts`
+      writes the bridge as Lor's patch leaves it plus the marker (through
+      the harness's own `createHarnessSandboxTemplate`), and the
+      Dockerfile installs the packages next to them. Run it after any
+      change to the adapter or its patch, then `bl push`. An image with an
+      older marker still works: the adapter runs the bootstrap itself.
+    - Per turn: the Blaxel session reports `defaultWorkingDirectory`
+      (one `pwd` fewer, Pi too); a spawned process's wait polls with
+      backoff (stop took 0.3 s, not 1.2 s); the bridge link is made while
+      the work folder is prepared, and the token grant runs beside it.
+    - Checked with the bootstrap written into a new sandbox as the image
+      will have it: the adapter skipped the bootstrap, and the first text
+      came 5.7 s after the sandbox was ready (13.6 s before); a later turn
+      took 4.4 s in all (6.5 s before). Sandbox creation varied from 1.3 s
+      to 5.8 s; it is the same for Pi.
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

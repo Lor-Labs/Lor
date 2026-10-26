@@ -1,7 +1,8 @@
 # Lor workbench image for Blaxel sandboxes: the Pi coding agent (node 22),
-# Claude Code's harness bridge, and the Python data toolchain. Push with
-# `bl push` from this directory;
-# sandboxes reference it via LOR_WORKBENCH_IMAGE.
+# Claude Code's harness bridge, and the Python data toolchain. Run
+# claude-code-bootstrap.ts first, then `bl push` from this directory (never
+# from the repo root: bl reads the .env it finds and prints it when parsing
+# fails); sandboxes reference it via LOR_WORKBENCH_IMAGE.
 ARG SANDBOX_VERSION=latest
 FROM ghcr.io/blaxel-ai/sandbox:${SANDBOX_VERSION} AS sandbox-api
 
@@ -21,22 +22,20 @@ RUN npm install -g @earendil-works/pi-coding-agent@0.84.1
 RUN pip install --no-cache-dir pandas matplotlib openpyxl pdfplumber
 
 # Claude Code sessions (reference/planned/code-sessions-runbook.md chunk 7):
-# the packages of @ai-sdk/harness-claude-code's sandbox bridge (Claude Code
-# CLI and Agent SDK), installed where the adapter's bootstrap puts them. A new
-# sandbox's bootstrap then finds them ("Already up to date", about 2 s)
-# instead of downloading about 500 MB. Keep the version equal to packages/lor's;
-# pnpm 10 honors the bridge's allowBuilds (Claude Code's postinstall).
-ARG CLAUDE_CODE_ADAPTER=1.0.162
-RUN npm install -g pnpm@10.34.8 \
-    && dir=/root/.ai-sdk-harness/.harness-bootstrap/claude-code \
-    && mkdir -p "$dir" && cd /tmp \
-    && npm pack "@ai-sdk/harness-claude-code@${CLAUDE_CODE_ADAPTER}" --silent \
-    && tar -xzf ai-sdk-harness-claude-code-*.tgz \
-    && cp package/dist/bridge/package.json package/dist/bridge/pnpm-lock.yaml \
-    package/dist/bridge/pnpm-workspace.yaml "$dir"/ \
-    && rm -rf package ai-sdk-harness-claude-code-*.tgz \
-    && cd "$dir" && pnpm install --frozen-lockfile --store-dir .pnpm-store \
+# @ai-sdk/harness-claude-code's bootstrap, done ahead. claude-code/ (from
+# claude-code-bootstrap.ts) holds the sandbox bridge as Lor's patch leaves it
+# and the marker that makes a new sandbox skip the bootstrap; this installs
+# the bridge's packages (Claude Code CLI and Agent SDK, about 500 MB) with
+# the adapter's own commands. pnpm 10 honors the bridge's allowBuilds
+# (Claude Code's postinstall).
+ARG CLAUDE_CODE_BOOTSTRAP=/root/.ai-sdk-harness/.harness-bootstrap/claude-code
+RUN npm install -g pnpm@10.34.8
+COPY claude-code/package.json claude-code/pnpm-lock.yaml \
+    claude-code/pnpm-workspace.yaml ${CLAUDE_CODE_BOOTSTRAP}/
+RUN cd ${CLAUDE_CODE_BOOTSTRAP} \
+    && pnpm install --frozen-lockfile --store-dir .pnpm-store \
     && ./node_modules/.bin/claude --version
+COPY claude-code/ ${CLAUDE_CODE_BOOTSTRAP}/
 
 RUN mkdir -p /workspace/in /workspace/out /workspace/.pi-sessions /root/.pi/agent
 
