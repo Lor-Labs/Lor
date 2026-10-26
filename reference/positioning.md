@@ -76,11 +76,15 @@ puts its tab beside Chat and replaces the document with the file or diff.
 Channels contain human chat;
 Lor works in sessions. Use the shared Lor tokens and components.
 
-Keep the existing carousel behavior: advance every four seconds with a fill
-across the active tab; pause over the preview, offscreen and in a background
-tab. Keyboard navigation or scene interaction stops rotation until resumed.
-Reduced-motion visitors use manual tabs. Keep panels mounted and the preview
-height stable. The review scene's file buttons work with local state. The
+The hero plays a guided sequence with 5.2–10.4 second chapters and a progress
+fill across the active tab. Messages arrive, Lor works, the plan progresses,
+and cursor cues lead into the fork and code review. The review chapter opens
+folders and source, stages changes, and demonstrates a local commit and push.
+Pause freezes the timeline; playback also pauses offscreen and in a background
+tab. Hover leaves playback running. Pointer, scroll or keyboard interaction
+hands control to the visitor; Play demo restarts that chapter. Reduced-motion
+visitors use the complete, static previews with manual tabs. Keep panels mounted
+and the preview height stable. The review scene's file buttons work with local state. The
 Files panel shows an expandable fictional repository with complete source
 previews and path filtering. Code and diffs use the app's Pierre renderer,
 theme and font metrics. Code turns show a compact review summary, not a TSX

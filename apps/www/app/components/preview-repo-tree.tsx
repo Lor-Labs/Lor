@@ -94,6 +94,13 @@ export function PreviewRepoTree({
           <li key={child.path}>
             <button
               type="button"
+              data-preview-target={
+                child.path === "src/components"
+                  ? "folder"
+                  : child.path === "src/components/export-button.tsx"
+                    ? "source"
+                    : undefined
+              }
               onClick={() => (isFolder ? onToggle(child.path) : onOpen(index))}
               aria-expanded={isFolder ? open : undefined}
               aria-controls={isFolder ? `${id}-${child.path}` : undefined}

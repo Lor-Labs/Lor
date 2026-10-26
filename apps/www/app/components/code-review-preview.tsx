@@ -17,8 +17,11 @@ import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
 import { SidebarToggleIcon } from "@repo/ui/components/unlumen-ui/sidebar-toggle-icon"
 import dynamic from "next/dynamic"
-import { type ReactNode, useId, useRef, useState } from "react"
-import { PlanStep } from "@/app/components/mock-parts"
+import { type ReactNode, useEffect, useId, useRef, useState } from "react"
+import {
+  PreviewPlan,
+  usePreviewPlayback,
+} from "@/app/components/preview-playback"
 import { PREVIEW_REPO as FILES } from "@/app/components/preview-repo"
 import { PreviewRepoTree } from "@/app/components/preview-repo-tree"
 import {
@@ -52,6 +55,7 @@ export function CodeReviewPreview({
   children: ReactNode | ((reviewChanges: () => void) => ReactNode)
   initialView?: "chat" | "all"
 }) {
+  const { guided, beat, scene } = usePreviewPlayback()
   const [view, setView] = useState<View>(initialView)
   const [panel, setPanel] = useState<Panel>("Changes")
   const [panelOpen, setPanelOpen] = useState(false)
@@ -67,6 +71,47 @@ export function CodeReviewPreview({
   const [expandedFolders, setExpandedFolders] = useState(
     () => new Set(["src", "src/components"])
   )
+  useEffect(() => {
+    if (!guided) return
+    if (beat === 0) {
+      setView(initialView)
+      setPanel("Changes")
+      setPanelOpen(false)
+      setSelected(0)
+      setStaged([])
+      setMessage("")
+      setCommittedFiles([])
+      setUnpushed(0)
+      setFilter("")
+      setExpandedFolders(new Set(["src"]))
+    }
+    if (scene !== 4) return
+    if (beat === 1) {
+      setPanel("Files")
+      setPanelOpen(true)
+    }
+    if (beat === 2) setExpandedFolders(new Set(["src", "src/components"]))
+    if (beat === 3) {
+      setView("file")
+      setPanelOpen(false)
+    }
+    if (beat === 4) {
+      setPanel("Changes")
+      setPanelOpen(true)
+      setView("all")
+    }
+    if (beat === 5) setStaged([0, 1])
+    if (beat === 6)
+      setMessage("Show export progress and prevent repeat downloads")
+    if (beat === 7) {
+      setCommittedFiles([0, 1])
+      setStaged([])
+      setMessage("")
+      setUnpushed(1)
+      setView("file")
+    }
+    if (beat === 8) setUnpushed(0)
+  }, [guided, beat, scene, initialView])
   const id = useId()
   const pending = FILES.flatMap((file, index) =>
     file.previousContents !== undefined && !committedFiles.includes(index)
@@ -203,7 +248,10 @@ export function CodeReviewPreview({
                 : children}
             </PreviewDocument>
           ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+            <div
+              data-preview-scroll
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
+            >
               {(view === "all" ? pending : [selected]).map((index) => {
                 const current = FILES[index] ?? FILES[0]
                 const diff = view !== "file"
@@ -259,6 +307,7 @@ export function CodeReviewPreview({
                 ref={panel === tab ? panelTab : undefined}
                 type="button"
                 aria-pressed={panel === tab}
+                data-preview-target={tab}
                 onClick={() => setPanel(tab)}
                 className={`flex min-h-9 cursor-pointer touch-manipulation items-center gap-1 rounded-md px-1.5 py-1 text-[13px] @min-[680px]/code-preview:min-h-0 @min-[680px]/code-preview:gap-1.5 @min-[680px]/code-preview:px-2 @min-[680px]/code-preview:text-sm focus-visible:outline-2 focus-visible:outline-agent ${panel === tab ? "bg-foreground/[0.06] font-medium text-lor-text-dark" : "text-lor-text-tertiary-dark hover:text-lor-text-dark"}`}
               >
@@ -315,6 +364,7 @@ export function CodeReviewPreview({
                     </button>
                     <button
                       type="button"
+                      data-preview-target="stage"
                       onClick={() =>
                         setStaged(
                           staged.length === pending.length ? [] : pending
@@ -335,7 +385,11 @@ export function CodeReviewPreview({
                     role="status"
                     className="px-3 py-8 text-center text-xs text-lor-text-tertiary-dark"
                   >
-                    No changes yet.
+                    {committedFiles.length
+                      ? unpushed
+                        ? "Changes committed."
+                        : "Up to date with fix/exports."
+                      : "No changes yet."}
                   </p>
                 ) : (
                   <>
@@ -413,6 +467,7 @@ export function CodeReviewPreview({
                   <Button
                     size="xs"
                     variant="outline"
+                    data-preview-target="commit"
                     disabled={staged.length === 0 || !message.trim()}
                     onClick={() => {
                       setCommittedFiles((current) => [...current, ...staged])
@@ -430,6 +485,7 @@ export function CodeReviewPreview({
                     <Button
                       size="xs"
                       variant="outline"
+                      data-preview-target="push"
                       onClick={() => setUnpushed(0)}
                     >
                       Push
@@ -491,18 +547,13 @@ export function CodeReviewPreview({
                 <p className="mb-3 text-xs font-medium text-lor-text-tertiary-dark">
                   Plan
                 </p>
-                {[
-                  "Read the investigation",
-                  "Add the export state",
-                  "Handle a failed download",
-                ].map((label, index, plan) => (
-                  <PlanStep
-                    key={label}
-                    label={label}
-                    status="done"
-                    last={index === plan.length - 1}
-                  />
-                ))}
+                <PreviewPlan
+                  plan={[
+                    "Read the investigation",
+                    "Add the export state",
+                    "Handle a failed download",
+                  ]}
+                />
               </div>
               <div>
                 <p className="mb-2 font-medium text-lor-text-tertiary-dark">

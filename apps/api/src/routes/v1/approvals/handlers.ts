@@ -9,6 +9,7 @@ import {
   isNull,
   notExists,
   schema,
+  sql,
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
@@ -61,6 +62,9 @@ export const listChannelApprovals: AppRouteHandler<
       messageId: schema.agentRun.messageId,
       threadRootId: schema.agentRun.threadRootId,
       resolverUserName: schema.user.name,
+      claudeCodeUserId: sql<
+        string | null
+      >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
     })
     .from(schema.approval)
     .innerJoin(schema.agentRun, eq(schema.approval.runId, schema.agentRun.id))
@@ -107,11 +111,35 @@ export const listChannelApprovals: AppRouteHandler<
         rows.map((r) => r.approval)
       )
     : new Map()
+  // Claude Code prompts wait on the turn's sender, named on the card.
+  const senderIds = [
+    ...new Set(
+      rows.flatMap((row) =>
+        row.approval.kind === "claude_code" && row.claudeCodeUserId
+          ? [row.claudeCodeUserId]
+          : []
+      )
+    ),
+  ]
+  const senderNames = new Map(
+    senderIds.length > 0
+      ? (
+          await db
+            .select({ id: schema.user.id, name: schema.user.name })
+            .from(schema.user)
+            .where(inArray(schema.user.id, senderIds))
+        ).map((user) => [user.id, user.name])
+      : []
+  )
 
   return c.json(
     {
       approvals: rows.map((row) => {
-        const resolver = resolvers.get(row.approval.id) ?? null
+        const onlyUserId =
+          row.approval.kind === "claude_code" ? row.claudeCodeUserId : null
+        const resolver = onlyUserId
+          ? { kind: "user" as const, userId: onlyUserId }
+          : (resolvers.get(row.approval.id) ?? null)
         return {
           ...serializeApproval(row.approval),
           channelId,
@@ -120,8 +148,12 @@ export const listChannelApprovals: AppRouteHandler<
           resolver,
           // The joined name is only meaningful for a user resolver — never
           // surface a stale resolver_user_id's name for other kinds.
-          resolverUserName:
-            resolver?.kind === "user" ? row.resolverUserName : null,
+          resolverUserName: onlyUserId
+            ? (senderNames.get(onlyUserId) ?? null)
+            : resolver?.kind === "user"
+              ? row.resolverUserName
+              : null,
+          onlyUserId,
         }
       }),
     },
@@ -186,6 +218,9 @@ async function resolveApproval(
         threadRootId: schema.agentRun.threadRootId,
         scopeKey: schema.agentRun.scopeKey,
         messageId: schema.agentRun.messageId,
+        claudeCodeUserId: sql<
+          string | null
+        >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
       },
       plan: schema.plan,
     })
@@ -249,9 +284,15 @@ async function resolveApproval(
     row.approval.workspaceId,
     row.approval.target
   )
-  const allowed = spec
-    ? canResolveApproval(authority, spec, userId)
-    : authority.isOwner
+  // A Claude Code prompt is the turn's sender's own, as at their terminal:
+  // no owner override (code-sessions-runbook.md chunk 7d-4).
+  const allowed =
+    row.approval.kind === "claude_code"
+      ? Boolean(row.run?.claudeCodeUserId) &&
+        row.run?.claudeCodeUserId === userId
+      : spec
+        ? canResolveApproval(authority, spec, userId)
+        : authority.isOwner
   if (!allowed) return { kind: "forbidden" }
 
   // CAS: only one resolver wins; a second click reads as already resolved.

@@ -269,6 +269,7 @@ export function ReviewChangesCard({
     <button
       type="button"
       onClick={onClick}
+      data-preview-target="review"
       className={`${className} cursor-pointer touch-manipulation hover:bg-foreground/[0.06] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-agent`}
     >
       {content}
@@ -352,10 +353,12 @@ export function PlanStep({
   status,
   label,
   last = false,
+  paused = false,
 }: {
   status: PlanStepStatus
   label: string
   last?: boolean
+  paused?: boolean
 }) {
   return (
     <div className="relative flex items-start gap-2.5 pb-2.5">
@@ -373,7 +376,10 @@ export function PlanStep({
         </span>
       ) : status === "active" ? (
         <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-primary/25 bg-lor-bg-dark shadow-[0_0_0_3px_--theme(--color-primary/8%)]">
-          <span className="size-3 rounded-full border-[1.5px] border-primary/20 border-t-primary motion-safe:animate-spin" />
+          <span
+            style={{ animationPlayState: paused ? "paused" : undefined }}
+            className="size-3 rounded-full border-[1.5px] border-primary/20 border-t-primary motion-safe:animate-spin"
+          />
         </span>
       ) : (
         <span className="size-5 shrink-0 rounded-full border border-lor-border-dark bg-lor-bg-dark" />

@@ -16,6 +16,7 @@ import {
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
 import type {
+  ClaudeCodeMode,
   Loop,
   LorMemory,
   LorReasoningSegment,
@@ -772,11 +773,12 @@ export function createLorRespondProcessor(
               userId: triggerUserId,
             }
 
-            // A Claude Code turn runs only on its sender's own subscription:
-            // never a Loop fire, an Act event or someone else's message. A
-            // run that continues a paused turn uses that turn's sender,
-            // whoever decided its approvals.
-            const claudeUserId =
+            // A Claude Code turn runs only on its sender's own subscription,
+            // in the mode they picked: never a Loop fire, an Act event or
+            // someone else's message. A run that continues a paused turn
+            // keeps that turn's sender and mode, whoever decided its
+            // approvals.
+            const claudeTurn =
               session.harness !== "claude_code" || automated
                 ? null
                 : continueOnly && harnessState?.lastRunId
@@ -785,13 +787,25 @@ export function createLorRespondProcessor(
                         userId: sql<
                           string | null
                         >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
+                        mode: sql<ClaudeCodeMode | null>`${schema.agentRun.context} ->> 'claudeCodeMode'`,
                       })
                       .from(schema.agentRun)
                       .where(eq(schema.agentRun.id, harnessState.lastRunId))
-                      .then((rows) => rows[0]?.userId ?? null)
-                  : triggerUserId !== LOR_USER_ID
-                    ? triggerUserId
+                      .then((rows) => rows[0] ?? null)
+                  : triggerUserId && triggerUserId !== LOR_USER_ID
+                    ? {
+                        userId: triggerUserId,
+                        mode: triggerMessageId
+                          ? await db
+                              .select({ mode: schema.message.claudeCodeMode })
+                              .from(schema.message)
+                              .where(eq(schema.message.id, triggerMessageId))
+                              .then((rows) => rows[0]?.mode ?? null)
+                          : null,
+                      }
                     : null
+            const claudeUserId = claudeTurn?.userId ?? null
+            const claudeCodeMode: ClaudeCodeMode = claudeTurn?.mode ?? "auto"
             const claudeToken = claudeUserId
               ? await claudeSubscriptionToken(claudeUserId)
               : null
@@ -962,7 +976,13 @@ export function createLorRespondProcessor(
                     }
                   : {}),
                 ...(claudeToken && claudeUserId
-                  ? { claudeCode: { token: claudeToken, userId: claudeUserId } }
+                  ? {
+                      claudeCode: {
+                        token: claudeToken,
+                        userId: claudeUserId,
+                        mode: claudeCodeMode,
+                      },
+                    }
                   : {}),
                 ...(loopRun && threadRootId
                   ? {

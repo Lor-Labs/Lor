@@ -26,6 +26,7 @@ import {
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
   AgentRunContext,
+  ClaudeCodeMode,
   LorToolCall,
   LorToolCallUpdate,
   SandboxTurnContext,
@@ -174,6 +175,7 @@ import {
   sandboxToolDetail,
 } from "./sandbox/pi-events"
 import {
+  claudeCodeAskDescription,
   sandboxAskDescription,
   sandboxToolApproval,
 } from "./sandbox/sandbox-approval"
@@ -579,11 +581,11 @@ export type RespondContext = {
   // Set on every run in a code session: its repo is the work folder.
   code?: RunCodeContext
   // A Claude Code session's turn (code-sessions-runbook.md chunk 7d): the
-  // turn starter's own Claude subscription token, and who that is (saved
-  // with the request, so a paused turn continues on the same person's
-  // subscription). Claude Code runs the turn instead of Pi, and Lor credits
-  // are not charged.
-  claudeCode?: { token: string; userId: string }
+  // turn starter's own Claude subscription token, who that is and the mode
+  // they picked (saved with the request, so a paused turn continues on the
+  // same person's subscription and mode). Claude Code runs the turn instead
+  // of Pi, and Lor credits are not charged.
+  claudeCode?: { token: string; userId: string; mode: ClaudeCodeMode }
   // "Continue in Code": names the session whose messages are the background.
   continuesSession?: { title: string }
   // A fork's first turn: the session it was forked from.
@@ -2947,7 +2949,12 @@ export async function respond(
         ...context,
         toolSchemaBytes,
         ...(harness.continueOnly ? { continueOnly: true } : {}),
-        ...(ctx.claudeCode ? { claudeCodeUserId: ctx.claudeCode.userId } : {}),
+        ...(ctx.claudeCode
+          ? {
+              claudeCodeUserId: ctx.claudeCode.userId,
+              claudeCodeMode: ctx.claudeCode.mode,
+            }
+          : {}),
         sandboxMode: harness.sandboxMode,
         sandboxContext: harness.continueOnly
           ? (harness.pausedSandboxContext ?? { request: "" })
@@ -3002,12 +3009,15 @@ export async function respond(
           })
           if (!decision) return deny(NO_DECISION_REASON)
           if (!decision.approved) return deny(decision.reason)
+          // Claude Code's own tools are always bound.
           const stillBound =
-            decision.kind === "sandbox"
-              ? sandboxBuiltins.some((name) => name === pending.toolName)
-              : Object.hasOwn(tools, pending.toolName) &&
-                (decision.kind !== "policy" ||
-                  toolTargets.targetFor(pending.toolName) === decision.target)
+            decision.kind === "claude_code"
+              ? true
+              : decision.kind === "sandbox"
+                ? sandboxBuiltins.some((name) => name === pending.toolName)
+                : Object.hasOwn(tools, pending.toolName) &&
+                  (decision.kind !== "policy" ||
+                    toolTargets.targetFor(pending.toolName) === decision.target)
           if (!stillBound) return deny(TOOL_GONE_REASON)
           if (decision.inputSha256 !== sha256(pending.input)) {
             return deny(INPUT_CHANGED_REASON)
@@ -3444,8 +3454,11 @@ export async function respond(
       }
       // The proxy adds the turn starter's Claude token to Anthropic requests
       // for this turn only (code-sessions-runbook.md chunk 7).
-      const claudeCodeTurn = async (token: string) => {
-        await grantClaudeAccess(harness.owner, token)
+      const claudeCodeTurn = async (claude: {
+        token: string
+        mode: ClaudeCodeMode
+      }) => {
+        await grantClaudeAccess(harness.owner, claude.token)
         try {
           return await runClaudeCodeTurn({
             sessionId: conversationId,
@@ -3456,6 +3469,7 @@ export async function respond(
               endpoint: await claudeCodeBridgeEndpoint(harness.owner),
             },
             tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
+            mode: claude.mode,
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(pausedDropped ? { dropPaused: true } : {}),
@@ -3476,7 +3490,7 @@ export async function respond(
         }
       }
       const turn = await (ctx.claudeCode
-        ? claudeCodeTurn(ctx.claudeCode.token)
+        ? claudeCodeTurn(ctx.claudeCode)
         : runPiTurn({
             sessionId: conversationId,
             sessionKey: conversationId,
@@ -3548,6 +3562,21 @@ export async function respond(
       const approvals = turn.pendingApprovals.map(
         (pending): PendingApproval => {
           const payload = parseToolInput(pending.input)
+          // A prompt from Claude Code's own permission mode: only the
+          // turn's sender decides it (the approvals API checks).
+          if (pending.kind === "builtin" && ctx.claudeCode) {
+            return {
+              harnessApprovalId: pending.approvalId,
+              toolCallId: pending.toolCallId,
+              toolName: pending.toolName,
+              kind: "claude_code",
+              target: null,
+              action: pending.toolName,
+              description: claudeCodeAskDescription(pending.toolName, payload),
+              payload,
+              inputSha256: sha256(pending.input),
+            }
+          }
           // A Pi sandbox tool the turn's sandbox mode asked about.
           if (pending.kind === "builtin") {
             return {

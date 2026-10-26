@@ -59,6 +59,9 @@ export const channelApprovalSchema = approvalSchema.extend({
   messageId: z.string().uuid().nullable(),
   resolver: approvalResolverSchema.nullable(),
   resolverUserName: z.string().nullable(),
+  // A Claude Code prompt: only this person, the turn's sender, decides it
+  // (the workspace owner too waits on them).
+  onlyUserId: z.string().uuid().nullable(),
 })
 
 export const listChannelApprovalsResponseSchema = z.object({

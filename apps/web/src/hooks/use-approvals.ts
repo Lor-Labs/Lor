@@ -114,10 +114,13 @@ export function useCanResolveApproval(
   workspaceId: string | undefined,
   member: { userId: string; role: string } | null,
   ownerId: string | undefined,
-  resolver: ApprovalResolverSpec | null
+  resolver: ApprovalResolverSpec | null,
+  // A Claude Code prompt: only the turn's sender, the owner included.
+  onlyUserId?: string | null
 ): boolean {
   const { data: customRoles } = useWorkspaceRoles(workspaceId)
   if (!member || !ownerId) return false
+  if (onlyUserId) return member.userId === onlyUserId
   const authority = {
     role: member.role,
     isOwner: ownerId === member.userId,

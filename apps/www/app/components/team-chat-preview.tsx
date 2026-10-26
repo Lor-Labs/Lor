@@ -18,19 +18,22 @@ import {
   THEO,
   ZOE,
 } from "@/app/components/mock-parts"
+import { PreviewReveal } from "@/app/components/preview-playback"
 
 function ChannelMessage({
   person,
   time,
   children,
+  revealAt,
 }: {
   person: "Zoe" | "Theo" | "Rafael"
   time: string
   children: ReactNode
+  revealAt: number
 }) {
   const avatars = { Zoe: ZOE, Theo: THEO, Rafael: RAFAEL }
   return (
-    <div className="flex gap-3 py-2.5">
+    <PreviewReveal at={revealAt} className="flex gap-3 py-2.5">
       <PersonAvatar src={avatars[person]} size="size-9" className="mt-0.5" />
       <div className="min-w-0 flex-1">
         <p className="flex items-baseline gap-2">
@@ -45,7 +48,7 @@ function ChannelMessage({
           {children}
         </div>
       </div>
-    </div>
+    </PreviewReveal>
   )
 }
 
@@ -76,18 +79,21 @@ export function TeamChatPreview() {
           <HugeiconsIcon icon={MoreHorizontalIcon} size={17} />
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-6 pb-3 sm:px-6">
+      <div
+        data-preview-scroll
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-6 pb-3 sm:px-6"
+      >
         <div className="relative my-3 flex items-center">
           <div className="h-px w-full bg-lor-border-dark/60" />
           <span className="absolute left-1/2 -translate-x-1/2 rounded-full border border-lor-border-dark/60 bg-lor-bg-dark px-2.5 py-0.5 text-[11px] font-medium text-lor-text-tertiary-dark">
             Today
           </span>
         </div>
-        <ChannelMessage person="Zoe" time="10:42 AM">
+        <ChannelMessage person="Zoe" time="10:42 AM" revealAt={0}>
           Paygrove clicked Export three times because nothing seemed to happen.
           They ended up with three downloads. Can we make the status clearer?
         </ChannelMessage>
-        <ChannelMessage person="Rafael" time="10:44 AM">
+        <ChannelMessage person="Rafael" time="10:44 AM" revealAt={1}>
           Came up in their onboarding too. I added the details to the customer
           notes.
           <FileCard
@@ -95,11 +101,11 @@ export function TeamChatPreview() {
             detail="Customer feedback · Export experience"
           />
         </ChannelMessage>
-        <ChannelMessage person="Zoe" time="10:45 AM">
+        <ChannelMessage person="Zoe" time="10:45 AM" revealAt={2}>
           <Mention>@Theo</Mention> I&rsquo;ll ask Lor to look at the notes and
           the export flow. Join me in the session?
         </ChannelMessage>
-        <ChannelMessage person="Theo" time="10:47 AM">
+        <ChannelMessage person="Theo" time="10:47 AM" revealAt={3}>
           Yep. Let&rsquo;s find where they get stuck, then I can take it into
           code.
         </ChannelMessage>

@@ -685,6 +685,30 @@ may lag web), a Lor-offered "Continue in Code" card.
       dead bridge drops the turn). Stop on a paused Claude Code turn drops
       it; that run has no prompt, so the stop note does not reach Claude
       Code.
+  - [x] **7d-4b-1** Claude Code's own modes, server side, built 2026-10-26
+    (not yet run live in Lor; no picker yet, so every turn runs in Auto):
+    - **Spike** (one turn per mode, throwaway sandbox, deleted): Auto works
+      on a subscription. Auto, Default and Accept edits all ran `ls`/`cat`
+      without a prompt (Claude Code allows read-only commands itself);
+      Accept edits wrote a file without one. Plan wrote its plan to
+      `~/.claude/plans/*.md`, then `ExitPlanMode` came as an approval with
+      the plan text; after approval Claude Code worked in Default, so its
+      first edit asked again.
+    - Adapter patch: `createClaudeCode({ nativePermissionMode })` puts the
+      mode on the start message; the bridge then runs Claude Code in that
+      mode and sends every prompt it raises to the host (Lor's tools stay
+      host-approved). Bypass keeps the adapter's allow-all path.
+    - The mode travels with the message: `message.claude_code_mode`
+      (`claude_code_mode` enum, additive `db:push`), set from the send
+      payload's `claudeCodeMode`, default Auto. A run that continues a
+      paused turn reads the mode saved in that run's context.
+    - Claude Code's prompts are approvals of kind `claude_code` (enum value,
+      additive `db:push`): only the run's `claudeCodeUserId` may resolve
+      them, the owner included; the list sends `onlyUserId` and names the
+      sender, so others see "Waiting on <name>". `ExitPlanMode` is back
+      on; `EnterPlanMode` stays off (Plan is the sender's pick).
+  - [ ] **7d-4b-2** the composer's mode picker (last used, first Auto) and
+    the plan card.
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

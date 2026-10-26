@@ -40,6 +40,14 @@ import { sessionWorkFolder } from "./work-dir"
 // ~/.claude/projects; like Pi's log it is saved to Postgres per turn and
 // written back before the next, so a lost sandbox keeps the conversation.
 
+// Claude Code's own permission modes (SDK permissionMode values).
+export type ClaudeCodeMode =
+  | "auto"
+  | "default"
+  | "acceptEdits"
+  | "plan"
+  | "bypassPermissions"
+
 export const CLAUDE_CODE_BINDING: HarnessBinding = {
   kind: "claude_code",
   adapterVersion: CLAUDE_CODE_ADAPTER_VERSION,
@@ -50,8 +58,9 @@ export const CLAUDE_CODE_BINDING: HarnessBinding = {
 // Claude Code's own tools that Lor switches off: worktrees leave the work
 // folder that checkpoints and the Changes panel read; schedules and
 // notifications would outlive the turn's process (Loops do this in Lor);
-// questions and plan mode need the approval cards of chunk 7d-4; the rest
-// publish outside Lor.
+// questions need their card (chunk 7d-4c); plan mode is the sender's pick in
+// the composer, so the model does not enter it itself; the rest publish
+// outside Lor.
 const CLAUDE_CODE_INACTIVE_TOOLS = [
   "EnterWorktree",
   "ExitWorktree",
@@ -63,7 +72,6 @@ const CLAUDE_CODE_INACTIVE_TOOLS = [
   "PushNotification",
   "askUserQuestions",
   "EnterPlanMode",
-  "ExitPlanMode",
   "Artifact",
   "DesignSync",
   "SendUserFile",
@@ -111,6 +119,9 @@ export type ClaudeCodeTurnInput = {
   // The turn starter's token reaches Anthropic through the sandbox proxy;
   // Claude Code only ever sees this placeholder.
   tokenPlaceholder: string
+  // Claude Code's own permission mode. Its prompts pause the turn as builtin
+  // approvals; Bypass raises none.
+  mode: ClaudeCodeMode
   // Appended to Claude Code's own system prompt (it cannot be replaced).
   instructions: string
   // A paused turn in `saved` continues first, through its bridge process,
@@ -182,6 +193,10 @@ export async function runClaudeCodeTurn(
       auth: { CLAUDE_CODE_OAUTH_TOKEN: input.tokenPlaceholder },
       port: input.bridge.port,
       portEndpoint: input.bridge.endpoint,
+      // Lor's adapter patch: Claude Code decides what to ask in its own mode.
+      ...(input.mode === "bypassPermissions"
+        ? {}
+        : { nativePermissionMode: input.mode }),
     }),
     instructions: input.instructions,
     tools: prepareTools(
@@ -196,9 +211,10 @@ export async function runClaudeCodeTurn(
       : {}),
     ...(input.toolApproval ? { toolApproval: input.toolApproval } : {}),
     inactiveTools: CLAUDE_CODE_INACTIVE_TOOLS as never,
-    // Claude Code's own modes come in chunk 7d-4; until then it works freely
-    // in its sandbox, as it does with Bypass permissions.
-    permissionMode: "allow-all",
+    // With a native mode the bridge ignores this; a value other than
+    // allow-all keeps the harness's builtin-approval check on.
+    permissionMode:
+      input.mode === "bypassPermissions" ? "allow-all" : "allow-reads",
     // The session's own work folder, shared with clone, checkpoints and the
     // Changes panel.
     sandboxConfig: { workDir: sessionWorkFolder(input.sessionId) },

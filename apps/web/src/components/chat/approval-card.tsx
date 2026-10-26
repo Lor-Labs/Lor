@@ -26,6 +26,8 @@ export type ApprovalCardData = {
   toolName: string | null
   resolver: ApprovalResolverSpec | null
   resolverUserName: string | null
+  // A Claude Code prompt: only the turn's sender decides it.
+  onlyUserId?: string | null
   status: "pending" | "approved" | "rejected" | "expired"
   resolvedBy: string | null
 }
@@ -105,7 +107,8 @@ export function ApprovalGateCard({
     membersData?.workspaceId,
     activeMember ?? null,
     membersData?.ownerId,
-    approval.resolver
+    approval.resolver,
+    approval.onlyUserId
   )
 
   const onResolve = (resolution: "approve" | "reject") => {

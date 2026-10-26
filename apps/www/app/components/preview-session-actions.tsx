@@ -55,6 +55,7 @@ export function PreviewReplyActions({ onFork }: { onFork?: () => void }) {
                 size="icon-xs"
                 className="size-7"
                 aria-label="Fork from here"
+                data-preview-target="fork"
                 title="Fork from here"
               />
             }

@@ -16,6 +16,12 @@ import {
 } from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
 import {
+  PREVIEW_TIMELINES,
+  PreviewPlayback,
+  PreviewPointer,
+  PreviewReveal,
+} from "@/app/components/preview-playback"
+import {
   PREVIEW_CHANGE_TOTALS,
   PREVIEW_CHANGED_FILES,
 } from "@/app/components/preview-repo"
@@ -97,8 +103,6 @@ const SCENES = [
   },
 ] as const
 
-const SCENE_DURATION_MS = 4_000
-
 function Conversation({
   scene,
   onFork,
@@ -117,7 +121,13 @@ function Conversation({
           Why does Paygrove think exports are stuck? Read the customer notes and
           look at how the export works.
         </PreviewTurn>
-        <PreviewTurn person="Lor" onFork={onFork}>
+        <PreviewTurn
+          person="Lor"
+          onFork={onFork}
+          revealAt={1}
+          answerAt={3}
+          workingDetail="Reading customer notes · Tracing the export flow"
+        >
           <WorkLog
             label="Worked"
             detail="Read Notion notes · Traced the export flow"
@@ -132,7 +142,7 @@ function Conversation({
             finishes.
           </p>
         </PreviewTurn>
-        <PreviewTurn person="Theo" aside>
+        <PreviewTurn person="Theo" aside revealAt={4}>
           Keep the retry if a download fails. I&rsquo;ll fork this and work on
           the fix.
         </PreviewTurn>
@@ -145,21 +155,25 @@ function Conversation({
           Let&rsquo;s start with the smaller fix. We can explore background
           exports separately.
         </PreviewTurn>
-        <PreviewTurn person="Lor">
+        <PreviewTurn person="Lor" revealAt={1}>
           Show &ldquo;Preparing…&rdquo; while the request runs, then restore the
           button on success or failure. The export itself can stay as it is.
         </PreviewTurn>
-        <div className="mt-5 flex items-center gap-1.5 pl-10 text-xs text-lor-text-tertiary-dark">
+        <PreviewReveal
+          at={2}
+          className="mt-5 flex items-center gap-1.5 pl-10 text-xs text-lor-text-tertiary-dark"
+        >
           <HugeiconsIcon icon={SourceCodeIcon} size={14} />
           <span>Theo continued this in</span>
           <button
             type="button"
             onClick={onContinueInCode}
+            data-preview-target="continue"
             className="cursor-pointer font-medium text-lor-text-secondary-dark hover:underline focus-visible:outline-2 focus-visible:outline-agent"
           >
             Fix export feedback
           </button>
-        </div>
+        </PreviewReveal>
       </>
     )
   if (scene === 3)
@@ -169,7 +183,12 @@ function Conversation({
           Make the change we discussed in the fork. Keep the button usable again
           if the download fails.
         </PreviewTurn>
-        <PreviewTurn person="Lor">
+        <PreviewTurn
+          person="Lor"
+          revealAt={1}
+          answerAt={3}
+          workingDetail="Reading the investigation · Editing the export controls"
+        >
           <WorkLog
             label="Worked"
             detail="Read the investigation · Edited 2 files"
@@ -178,17 +197,19 @@ function Conversation({
             The button now shows &ldquo;Preparing…&rdquo; during an export and
             ignores repeat clicks. It resets when the request finishes or fails.
           </p>
-          <ReviewChangesCard
-            {...PREVIEW_CHANGE_TOTALS}
-            files={PREVIEW_CHANGED_FILES.length}
-            onClick={onReview}
-          />
+          <PreviewReveal at={4}>
+            <ReviewChangesCard
+              {...PREVIEW_CHANGE_TOTALS}
+              files={PREVIEW_CHANGED_FILES.length}
+              onClick={onReview}
+            />
+          </PreviewReveal>
         </PreviewTurn>
-        <PreviewTurn person="Zoe" aside>
+        <PreviewTurn person="Zoe" aside revealAt={5}>
           &ldquo;Preparing&rdquo; is exactly what was missing. Let&rsquo;s keep
           that wording in the help docs too.
         </PreviewTurn>
-        <PreviewTurn person="Theo" aside>
+        <PreviewTurn person="Theo" aside revealAt={6}>
           Agreed. I&rsquo;ll review the diff before I push it.
         </PreviewTurn>
       </>
@@ -199,7 +220,12 @@ function Conversation({
         <PreviewTurn person="Rafael">
           Why did we disable Export while a download is preparing?
         </PreviewTurn>
-        <PreviewTurn person="Lor">
+        <PreviewTurn
+          person="Lor"
+          revealAt={1}
+          answerAt={2}
+          workingDetail="Finding the customer feedback and original decision"
+        >
           <WorkLog
             label="Worked"
             detail="Read the customer notes and investigation"
@@ -215,7 +241,7 @@ function Conversation({
             <Citation>Export investigation</Citation>
           </p>
         </PreviewTurn>
-        <PreviewTurn person="Rafael">
+        <PreviewTurn person="Rafael" revealAt={3}>
           Got it. I can explain that in the next customer handover.
         </PreviewTurn>
       </>
@@ -227,11 +253,11 @@ export function WorkspaceStory() {
   const [active, setActive] = useState(0)
   const [cycle, setCycle] = useState(0)
   const [paused, setPaused] = useState(false)
-  const [hovered, setHovered] = useState(false)
+  const [guided, setGuided] = useState(true)
+  const [beat, setBeat] = useState(0)
   const [inView, setInView] = useState(false)
   const [pageVisible, setPageVisible] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(true)
-  const [automatic, setAutomatic] = useState(false)
   const id = useId()
   const root = useRef<HTMLDivElement>(null)
   const tabs = useRef<(HTMLButtonElement | null)[]>([])
@@ -240,7 +266,7 @@ export function WorkspaceStory() {
   const progressAnimation = useRef<Animation | null>(null)
   const playbackControl = useRef<HTMLButtonElement>(null)
   const scene = SCENES[active] ?? SCENES[0]
-  const running = !paused && !hovered && inView && pageVisible && !reducedMotion
+  const running = guided && !paused && inView && pageVisible && !reducedMotion
 
   useEffect(() => {
     const element = root.current
@@ -253,8 +279,8 @@ export function WorkspaceStory() {
     media.addEventListener("change", updateMotion)
     document.addEventListener("visibilitychange", updateVisibility)
     const observer = new IntersectionObserver(
-      ([entry]) => setInView(!!entry && entry.intersectionRatio >= 0.35),
-      { threshold: 0.35 }
+      ([entry]) => setInView(!!entry && entry.intersectionRatio >= 0.2),
+      { threshold: 0.2 }
     )
     observer.observe(element)
     return () => {
@@ -267,16 +293,17 @@ export function WorkspaceStory() {
   // One compositor animation drives both the visible countdown and advancement.
   useEffect(() => {
     const element = progress.current
-    if (!element || reducedMotion) return
+    if (!element || reducedMotion || !guided) return
+    const timeline = PREVIEW_TIMELINES[active] ?? PREVIEW_TIMELINES[0]
     const animation = element.animate(
       [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
-      { duration: SCENE_DURATION_MS, easing: "linear", fill: "forwards" }
+      { duration: timeline.duration, easing: "linear", fill: "forwards" }
     )
     animation.pause()
     progressAnimation.current = animation
     animation.onfinish = () => {
       if (progressAnimation.current !== animation) return
-      setAutomatic(true)
+      setBeat(0)
       setActive((current) => (current + 1) % SCENES.length)
     }
     return () => {
@@ -284,29 +311,78 @@ export function WorkspaceStory() {
       animation.cancel()
       progressAnimation.current = null
     }
-  }, [active, cycle, reducedMotion])
+  }, [active, cycle, reducedMotion, guided])
 
   useEffect(() => {
     const animation = progressAnimation.current
-    if (running) animation?.play()
-    else animation?.pause()
-  }, [active, cycle, reducedMotion, running])
+    if (!animation || !running) {
+      animation?.pause()
+      return
+    }
+    animation.play()
+    const elapsed = Number(animation.currentTime ?? 0)
+    const timeline = PREVIEW_TIMELINES[active] ?? PREVIEW_TIMELINES[0]
+    const timers = timeline.beats.flatMap((time, index) =>
+      time > elapsed
+        ? [window.setTimeout(() => setBeat(index), time - elapsed)]
+        : []
+    )
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer)
+    }
+  }, [active, cycle, reducedMotion, guided, running])
 
   useEffect(() => {
     const panel = panels.current[active]
-    if (!panel || !automatic || reducedMotion) return
-    const animation = panel.animate([{ opacity: 0.6 }, { opacity: 1 }], {
-      duration: 180,
-      easing: getComputedStyle(document.documentElement)
-        .getPropertyValue("--ease-out")
-        .trim(),
-    })
+    if (!panel || !guided || reducedMotion) return
+    for (const scroll of panel.querySelectorAll<HTMLElement>(
+      "[data-preview-scroll]"
+    ))
+      scroll.scrollTop = 0
+    const animation = panel.animate(
+      [
+        { opacity: 0.6, transform: "translateX(8px)" },
+        { opacity: 1, transform: "translateX(0)" },
+      ],
+      {
+        duration: 250,
+        easing: getComputedStyle(document.documentElement)
+          .getPropertyValue("--ease-out")
+          .trim(),
+      }
+    )
     return () => animation.cancel()
-  }, [active, automatic, reducedMotion])
+  }, [active, cycle, guided, reducedMotion])
+
+  useEffect(() => {
+    if (!guided || reducedMotion || !running) return
+    const frame = requestAnimationFrame(() => {
+      const panel = panels.current[active]
+      const targets = panel?.querySelectorAll<HTMLElement>(
+        `[data-preview-beat="${beat}"]`
+      )
+      const target = targets?.[targets.length - 1]
+      const scroll = target?.closest<HTMLElement>("[data-preview-scroll]")
+      if (!target || !scroll) return
+      const bounds = scroll.getBoundingClientRect()
+      const rect = target.getBoundingClientRect()
+      if (rect.bottom > bounds.bottom - 16) {
+        scroll.scrollTo({
+          top: scroll.scrollTop + rect.top - bounds.top - 16,
+          behavior: "smooth",
+        })
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [active, beat, guided, reducedMotion, running])
+
+  function takeControl() {
+    setGuided(false)
+    setPaused(true)
+  }
 
   function selectScene(index: number) {
-    setPaused(true)
-    setAutomatic(false)
+    takeControl()
     setActive(index)
     setCycle((current) => current + 1)
   }
@@ -341,7 +417,7 @@ export function WorkspaceStory() {
           !playbackControl.current?.contains(event.target) &&
           event.target.matches(":focus-visible")
         ) {
-          setPaused(true)
+          takeControl()
         }
       }}
     >
@@ -389,113 +465,125 @@ export function WorkspaceStory() {
             <button
               ref={playbackControl}
               type="button"
-              aria-label={
-                paused ? "Resume automatic preview" : "Pause automatic preview"
-              }
-              title={
-                paused ? "Resume automatic preview" : "Pause automatic preview"
-              }
-              onClick={() => setPaused((current) => !current)}
-              className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-foreground/5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-agent"
+              aria-label={paused ? "Play demo" : "Pause demo"}
+              title={paused ? "Play demo" : "Pause demo"}
+              onClick={() => {
+                if (!guided) {
+                  setGuided(true)
+                  setBeat(0)
+                  setCycle((current) => current + 1)
+                  setPaused(false)
+                } else setPaused((current) => !current)
+              }}
+              className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-3 text-xs text-muted-foreground transition-colors duration-150 hover:bg-foreground/5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-agent"
             >
               <HugeiconsIcon icon={paused ? PlayIcon : PauseIcon} size={16} />
+              {paused ? "Play demo" : "Pause demo"}
             </button>
           ) : null}
         </div>
       </div>
       <div
         className="grid"
-        onPointerEnter={(event) => {
-          if (event.pointerType === "mouse") setHovered(true)
-        }}
-        onPointerLeave={(event) => {
-          if (event.pointerType === "mouse") setHovered(false)
-        }}
-        onClick={() => setPaused(true)}
-        onFocusCapture={() => setPaused(true)}
+        onPointerDownCapture={takeControl}
+        onWheelCapture={takeControl}
+        onClick={takeControl}
+        onFocusCapture={takeControl}
       >
         {SCENES.map((item, index) => (
-          <div
+          <PreviewPlayback.Provider
             key={item.label}
-            ref={(element) => {
-              panels.current[index] = element
+            value={{
+              guided: guided && !reducedMotion && active === index,
+              running: running && active === index,
+              beat,
+              scene: index,
             }}
-            id={`${id}-panel-${index}`}
-            role="tabpanel"
-            aria-labelledby={`${id}-tab-${index}`}
-            tabIndex={active === index ? 0 : -1}
-            aria-hidden={active !== index}
-            inert={active !== index}
-            className={`col-start-1 row-start-1 min-w-0 rounded-3xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent ${active === index ? "" : "invisible pointer-events-none"}`}
           >
-            <MockShell className="h-full" innerClassName="h-full">
-              <div className="flex h-[560px] min-h-0 overflow-hidden bg-lor-sidebar-dark text-left sm:h-[650px]">
-                <PreviewSidebar active={item.active} />
-                {index === 3 || index === 4 ? (
-                  <CodeReviewPreview initialView={index === 4 ? "all" : "chat"}>
-                    {(reviewChanges) => (
-                      <Conversation scene={3} onReview={reviewChanges} />
-                    )}
-                  </CodeReviewPreview>
-                ) : (
-                  <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
-                    <div className="m-2 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-lor-border-dark/60 md:ml-0">
-                      {index === 0 ? (
-                        <TeamChatPreview />
-                      ) : (
-                        <PreviewDocument
-                          title={item.title}
-                          channel={item.channel}
-                          headingLevel={2}
-                          starter={
-                            index === 1
-                              ? "Zoe"
-                              : index === 2
-                                ? "Theo"
-                                : "Rafael"
-                          }
-                          source={
-                            index === 2
-                              ? { title: "Investigate exports", kind: "fork" }
-                              : undefined
-                          }
-                          onContinueInCode={
-                            index === 2 ? () => openScene(3) : undefined
-                          }
-                        >
-                          <Conversation
-                            scene={index}
-                            onFork={
-                              index === 1 ? () => openScene(2) : undefined
-                            }
-                            onContinueInCode={() => openScene(3)}
-                          />
-                        </PreviewDocument>
+            <div
+              ref={(element) => {
+                panels.current[index] = element
+              }}
+              id={`${id}-panel-${index}`}
+              role="tabpanel"
+              aria-labelledby={`${id}-tab-${index}`}
+              tabIndex={active === index ? 0 : -1}
+              aria-hidden={active !== index}
+              inert={active !== index}
+              className={`relative col-start-1 row-start-1 min-w-0 rounded-3xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent ${active === index ? "" : "invisible pointer-events-none"}`}
+            >
+              <MockShell className="h-full" innerClassName="h-full">
+                <div className="flex h-[560px] min-h-0 overflow-hidden bg-lor-sidebar-dark text-left sm:h-[650px]">
+                  <PreviewSidebar active={item.active} />
+                  {index === 3 || index === 4 ? (
+                    <CodeReviewPreview
+                      initialView={index === 4 ? "all" : "chat"}
+                    >
+                      {(reviewChanges) => (
+                        <Conversation scene={3} onReview={reviewChanges} />
                       )}
+                    </CodeReviewPreview>
+                  ) : (
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
+                      <div className="m-2 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-lor-border-dark/60 md:ml-0">
+                        {index === 0 ? (
+                          <TeamChatPreview />
+                        ) : (
+                          <PreviewDocument
+                            title={item.title}
+                            channel={item.channel}
+                            headingLevel={2}
+                            starter={
+                              index === 1
+                                ? "Zoe"
+                                : index === 2
+                                  ? "Theo"
+                                  : "Rafael"
+                            }
+                            source={
+                              index === 2
+                                ? { title: "Investigate exports", kind: "fork" }
+                                : undefined
+                            }
+                            onContinueInCode={
+                              index === 2 ? () => openScene(3) : undefined
+                            }
+                          >
+                            <Conversation
+                              scene={index}
+                              onFork={
+                                index === 1 ? () => openScene(2) : undefined
+                              }
+                              onContinueInCode={() => openScene(3)}
+                            />
+                          </PreviewDocument>
+                        )}
+                      </div>
+                      {item.plan.length > 0 ? (
+                        <PreviewDetails
+                          plan={[...item.plan]}
+                          files={[...item.files]}
+                          context={
+                            index === 1
+                              ? "product · 4 messages"
+                              : "Investigate exports"
+                          }
+                          sourceKind={
+                            index === 2
+                              ? "fork"
+                              : index === 5
+                                ? "continue"
+                                : undefined
+                          }
+                        />
+                      ) : null}
                     </div>
-                    {item.plan.length > 0 ? (
-                      <PreviewDetails
-                        plan={[...item.plan]}
-                        files={[...item.files]}
-                        context={
-                          index === 1
-                            ? "product · 4 messages"
-                            : "Investigate exports"
-                        }
-                        sourceKind={
-                          index === 2
-                            ? "fork"
-                            : index === 5
-                              ? "continue"
-                              : undefined
-                        }
-                      />
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            </MockShell>
-          </div>
+                  )}
+                </div>
+              </MockShell>
+              <PreviewPointer />
+            </div>
+          </PreviewPlayback.Provider>
         ))}
       </div>
       <p

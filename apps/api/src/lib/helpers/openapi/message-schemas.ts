@@ -153,8 +153,14 @@ export const threadSummarySchema = z
 
 export const messageWithAuthorSchema = selectMessageSchema
   // Raw memory column is reshaped into `remembered` below; the memory
-  // exclusion flag and send-idempotency key are plumbing the client never needs.
-  .omit({ lorMemories: true, excludedFromMemory: true, clientKey: true })
+  // exclusion flag, send-idempotency key and Claude Code mode are plumbing
+  // the client never needs.
+  .omit({
+    lorMemories: true,
+    excludedFromMemory: true,
+    clientKey: true,
+    claudeCodeMode: true,
+  })
   .extend({
     author: messageAuthorSchema,
     // Typed passthrough — keeps the inferred client type as the payload union

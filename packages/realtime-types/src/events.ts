@@ -182,6 +182,11 @@ export const sendMessagePayloadSchema = z
     // With startSession and code: the harness that runs the session. Claude
     // Code needs the sender's own Claude subscription.
     harness: z.enum(["pi", "claude_code"]).optional(),
+    // In a Claude Code session: the Claude Code mode for the turn this
+    // message starts (the composer's picker). Default: auto.
+    claudeCodeMode: z
+      .enum(["auto", "default", "acceptEdits", "plan", "bypassPermissions"])
+      .optional(),
     // Ids the sender chose for the session this send starts (New session or
     // @Lor), so it can show the session before the ack. Ignored when the
     // send starts none.

@@ -562,6 +562,10 @@ export async function createMessage(
           forwarded,
           threadRootId: session?.threadRootId ?? threadRootId,
           routedToLor,
+          // Read only by a Claude Code session's turn.
+          claudeCodeMode: isPersonInSession
+            ? (input.payload.claudeCodeMode ?? null)
+            : null,
           attachments: input.payload.attachments ?? [],
           status: input.status,
           clientKey: input.payload.nonce ?? null,

@@ -24,11 +24,13 @@ export const approvalStatusEnum = pgEnum("approval_status", [
 
 // policy: a workspace approval gate on a tool. request: Lor asked itself
 // (request_approval). sandbox: a `bash`, `write` or `edit` call the turn's
-// sandbox mode asks about (user_sandbox_settings).
+// sandbox mode asks about (user_sandbox_settings). claude_code: a prompt from
+// Claude Code's own permission mode; only the turn's sender decides it.
 export const approvalKindEnum = pgEnum("approval_kind", [
   "policy",
   "request",
   "sandbox",
+  "claude_code",
 ])
 
 // A consequential action an agent wants a human to authorize. A Pi turn

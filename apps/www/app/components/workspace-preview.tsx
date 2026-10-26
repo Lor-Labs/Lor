@@ -23,12 +23,16 @@ import type { ReactNode } from "react"
 import {
   LorAvatar,
   PersonAvatar,
-  PlanStep,
   RAFAEL,
   THEO,
   ZOE,
 } from "@/app/components/mock-parts"
 import { MockShell } from "@/app/components/mock-shell"
+import {
+  PreviewPlan,
+  PreviewResponse,
+  PreviewReveal,
+} from "@/app/components/preview-playback"
 import {
   PreviewReplyActions,
   PreviewSessionMenu,
@@ -41,15 +45,21 @@ export function PreviewTurn({
   children,
   aside = false,
   onFork,
+  revealAt = 0,
+  answerAt,
+  workingDetail = "Working…",
 }: {
   person: "Zoe" | "Theo" | "Rafael" | "Lor" | "Claude Code" | "Codex"
   children: ReactNode
   aside?: boolean
   onFork?: () => void
+  revealAt?: number
+  answerAt?: number
+  workingDetail?: string
 }) {
   const avatars = { Zoe: ZOE, Theo: THEO, Rafael: RAFAEL }
   return (
-    <div className="flex gap-3 pt-5">
+    <PreviewReveal at={revealAt} className="flex gap-3 pt-5">
       <span className="shrink-0" title={person}>
         {person === "Lor" ? (
           <LorAvatar />
@@ -70,13 +80,17 @@ export function PreviewTurn({
         className={`min-w-0 flex-1 pt-0.5 text-[13.5px] leading-[1.65] ${aside ? "text-lor-text-secondary-dark" : "text-lor-text-dark/90"}`}
       >
         <span className="sr-only">{person}: </span>
-        {children}
-        {!aside &&
-        (person === "Lor" || person === "Claude Code" || person === "Codex") ? (
-          <PreviewReplyActions onFork={onFork} />
-        ) : null}
+        <PreviewResponse at={answerAt} detail={workingDetail}>
+          {children}
+          {!aside &&
+          (person === "Lor" ||
+            person === "Claude Code" ||
+            person === "Codex") ? (
+            <PreviewReplyActions onFork={onFork} />
+          ) : null}
+        </PreviewResponse>
       </div>
-    </div>
+    </PreviewReveal>
   )
 }
 
@@ -178,7 +192,10 @@ export function PreviewDocument({
       {!hideStrip ? (
         <PreviewSessionStrip onContinueInCode={onContinueInCode} />
       ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div
+        data-preview-scroll
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      >
         <div className="mx-auto w-full max-w-3xl px-4 pt-10 pb-6">
           <Heading className="py-0.5 text-[26px] font-semibold leading-tight tracking-tight text-lor-text-dark">
             {title}
@@ -417,14 +434,7 @@ export function PreviewDetails({
           <p className="mb-3 text-xs font-medium text-lor-text-tertiary-dark">
             Plan
           </p>
-          {plan.map((label, i) => (
-            <PlanStep
-              key={label}
-              label={label}
-              status="done"
-              last={i === plan.length - 1}
-            />
-          ))}
+          <PreviewPlan plan={plan} />
         </div>
         <div>
           <p className="mb-3 text-xs font-medium text-lor-text-tertiary-dark">
