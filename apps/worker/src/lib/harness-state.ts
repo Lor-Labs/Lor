@@ -23,7 +23,9 @@ function ownerColumns(owner: HarnessOwner) {
 // its own log chunks. Null when the run saved nothing. Pi's log has
 // {type: "message"} lines; Claude Code's has {type: "user" | "assistant"},
 // where tool results are user lines too, and meta, compaction summary and
-// subagent lines are not the conversation's own turns.
+// subagent lines are not the conversation's own turns. Codex's rollout has
+// {type: "response_item", payload: {type: "message", role, content}}, its
+// text parts typed input_text and output_text.
 export async function savedTurnText(runId: string): Promise<string | null> {
   const chunks = await db
     .select({ content: schema.harnessLog.content })
@@ -37,12 +39,14 @@ export async function savedTurnText(runId: string): Promise<string | null> {
     .join("")
     .split("\n")) {
     if (!line.trim()) continue
+    type Message = { role?: unknown; content?: unknown }
     const entry = JSON.parse(line) as {
       type?: unknown
       isMeta?: unknown
       isSidechain?: unknown
       isCompactSummary?: unknown
-      message?: { role?: unknown; content?: unknown }
+      message?: Message
+      payload?: Message & { type?: unknown }
     }
     const pi = entry.type === "message"
     const claudeCode =
@@ -50,8 +54,11 @@ export async function savedTurnText(runId: string): Promise<string | null> {
       !entry.isMeta &&
       !entry.isSidechain &&
       !entry.isCompactSummary
-    if (!(pi || claudeCode)) continue
-    const content = entry.message?.content
+    const codex =
+      entry.type === "response_item" && entry.payload?.type === "message"
+    if (!(pi || claudeCode || codex)) continue
+    const message = codex ? entry.payload : entry.message
+    const content = message?.content
     const parts = (
       Array.isArray(content)
         ? content
@@ -59,15 +66,17 @@ export async function savedTurnText(runId: string): Promise<string | null> {
           ? [{ type: "text", text: content }]
           : []
     ) as { type?: unknown; text?: unknown }[]
-    if (entry.message?.role === "user") {
-      if (pi || parts.some((part) => part.type === "text")) text = ""
+    const textOf = (part: { type?: unknown }) =>
+      part.type === "text" ||
+      part.type === "input_text" ||
+      part.type === "output_text"
+    if (message?.role === "user") {
+      if (pi || parts.some(textOf)) text = ""
       continue
     }
-    if (entry.message?.role !== "assistant") continue
+    if (message?.role !== "assistant") continue
     for (const part of parts) {
-      if (part.type === "text" && typeof part.text === "string") {
-        text += part.text
-      }
+      if (textOf(part) && typeof part.text === "string") text += part.text
     }
   }
   return text

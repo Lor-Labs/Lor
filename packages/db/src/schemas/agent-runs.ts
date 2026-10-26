@@ -16,7 +16,7 @@ import { approval } from "./approvals"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
-import type { ClaudeCodeMode, LorToolCall } from "./messages"
+import type { ClaudeCodeMode, CodexModel, LorToolCall } from "./messages"
 import { message } from "./messages"
 import type { PlanStatus, PlanStep } from "./plans"
 import { triggerDelivery } from "./trigger-deliveries"
@@ -426,6 +426,8 @@ export type AgentRunContext = {
   // someone else).
   claudeCodeUserId?: string
   claudeCodeMode?: ClaudeCodeMode
+  // A Codex turn: the model its sender picked, read the same way.
+  codexModel?: CodexModel
   // Pi's own count of the conversation's context after the turn, for the
   // context meter.
   contextUsage?: AgentRunContextUsage

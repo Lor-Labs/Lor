@@ -38,7 +38,9 @@ export async function releaseParkedBridge(
     })
     .from(schema.agentSession)
     .where(eq(schema.agentSession.threadRootId, data.threadRootId))
-  if (session?.harness !== "claude_code") return
+  if (session?.harness !== "claude_code" && session?.harness !== "codex") {
+    return
+  }
   const stopped = await db.transaction(async (tx) => {
     await tx
       .select({ id: schema.agentRun.id })
@@ -79,7 +81,7 @@ export async function releaseParkedBridge(
   if (stopped > 0) {
     logger.info(
       { runId: data.runId, sessionId: session.id, stopped },
-      "Stopped a parked Claude Code bridge after its live window"
+      "Stopped a parked harness bridge after its live window"
     )
   }
 }

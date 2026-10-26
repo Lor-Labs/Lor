@@ -169,13 +169,16 @@ export async function prepareCodeWorkFolder(input: {
 // Per-session inputs only, so the system prompt stays byte-stable.
 export function codeSessionPromptSection(
   code: RunCodeContext,
-  harness: "pi" | "claude_code" = "pi"
+  harness: "pi" | "claude_code" | "codex" = "pi"
 ): string {
-  // Claude Code loads CLAUDE.md on its own; Pi gets the file Lor found.
+  // Claude Code loads CLAUDE.md and Codex AGENTS.md on their own; Pi gets
+  // the file Lor found.
   const instructionFile =
     harness === "claude_code"
       ? "The repository's CLAUDE.md, when it has one, is loaded for you; when it has an AGENTS.md instead, read it before you change code."
-      : "The repository's instruction file, when it has one, is in the project context section."
+      : harness === "codex"
+        ? "The repository's AGENTS.md, when it has one, is loaded for you; when it has a CLAUDE.md instead, read it before you change code."
+        : "The repository's instruction file, when it has one, is in the project context section."
   return `Code session: this session works on the GitHub repository ${code.repoFullName}, cloned from its ${code.baseBranch} branch. Your sandbox work folder is the repository root, and your sandbox tools start there.
 - Change files and run the project's own checks freely.
 - Leave your changes uncommitted on the checked-out branch. The people in this session review your changes, commit them and push from the session's Changes panel, so never commit, push, or create or switch branches yourself.

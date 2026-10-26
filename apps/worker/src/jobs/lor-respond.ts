@@ -17,6 +17,7 @@ import {
 } from "@repo/db/queries/channel-access"
 import type {
   ClaudeCodeMode,
+  CodexModel,
   Loop,
   LorMemory,
   LorReasoningSegment,
@@ -810,16 +811,32 @@ export function createLorRespondProcessor(
             const claudeToken = claudeUserId
               ? await claudeSubscriptionToken(claudeUserId)
               : null
-            // Codex turns come with code-sessions-runbook.md 8d; until then a
-            // Codex session's message fails instead of running on Pi.
             const refusal =
               session.harness === "claude_code" && !claudeToken
                 ? automated
                   ? "Claude Code sessions only run on a person's own messages."
                   : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
-                : session.harness === "codex"
-                  ? "Codex sessions can't run turns yet."
-                  : null
+                : null
+            // A Codex turn runs on the model its sender picked; a run that
+            // continues a paused turn keeps that turn's model.
+            const codexModel: CodexModel | null =
+              session.harness !== "codex"
+                ? null
+                : continueOnly && harnessState?.lastRunId
+                  ? await db
+                      .select({
+                        model: sql<CodexModel | null>`${schema.agentRun.context} ->> 'codexModel'`,
+                      })
+                      .from(schema.agentRun)
+                      .where(eq(schema.agentRun.id, harnessState.lastRunId))
+                      .then((rows) => rows[0]?.model ?? null)
+                  : triggerMessageId
+                    ? await db
+                        .select({ model: schema.message.codexModel })
+                        .from(schema.message)
+                        .where(eq(schema.message.id, triggerMessageId))
+                        .then((rows) => rows[0]?.model ?? null)
+                    : null
             if (refusal) {
               await db
                 .update(schema.message)
@@ -991,6 +1008,9 @@ export function createLorRespondProcessor(
                         mode: claudeCodeMode,
                       },
                     }
+                  : {}),
+                ...(session.harness === "codex"
+                  ? { codex: { model: codexModel ?? "gpt-6.1-sol" } }
                   : {}),
                 ...(loopRun && threadRootId
                   ? {

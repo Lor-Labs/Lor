@@ -902,9 +902,37 @@ may lag web), a Lor-offered "Continue in Code" card.
       (default), GPT-6 Astra, GPT-6 Luna, remembered per person. Each
       message carries its pick (`codexModel` in the send payload, kept on
       the message like the Claude Code mode).
-    - Until 8d a Codex session's message fails with "Codex sessions can't
+    - Until 8d a Codex session's message failed with "Codex sessions can't
       run turns yet" instead of running on Pi, whose saved state a Codex
-      session could not read.
+      session could not read (removed in 8d-1).
+  - [x] **8d-1** the Codex turn, built 2026-10-26 (`db:seed` owed for the
+    model rates; not yet run live in Lor):
+    - **Spike** (throwaway sandboxes, deleted): turns append to one rollout
+      file, a paused turn's lines included. A new sandbox given only the
+      saved rollout (none of Codex's state databases) resumed the thread by
+      its id, and a dropped paused turn's waiting call read as not run.
+    - `session-core/codex-runtime.ts` (`runCodexTurn`, `CODEX_BINDING`),
+      shaped like Claude Code's: the saved rollout is written back unless
+      its hash matches; a paused turn continues through its bridge, or is
+      dropped; the save is the rollout's new bytes, its path relative to
+      `~/.codex` and its head the thread id.
+    - `respond()`: `ctx.codex = { model }`. Claude Code and Codex share the
+      prompt head (Claude Code's text unchanged); Codex keeps Lor's web
+      tools (its own web search is off) and drops Lor's plan tools (it has
+      its own). The proxy adds Lor's Gateway key for the turn. Parked
+      bridges and lost turns work as for Claude Code. Usage is charged at
+      the turn's end at `openai/<model>`; the model is saved with the
+      request, so a continued turn keeps it.
+    - The worker picks the model: the paused run's for a continuation,
+      else the message's, else GPT-6.1 Sol. Rates for the three models in
+      `seeds/model-rates.ts` (standard tier; requests past 272k input
+      tokens cost about twice as much).
+    - `savedTurnText` reads Codex's rollout messages, and the 30-minute
+      release covers Codex bridges.
+    - Checked `runCodexTurn` itself in throwaway sandboxes, with saves
+      carried between calls: a turn, a turn paused on a gated Lor tool, its
+      continuation after the approval, then a resume in a new sandbox from
+      the saved rollout, which still knew both earlier turns.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
 

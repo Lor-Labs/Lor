@@ -27,6 +27,7 @@ import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-acce
 import type {
   AgentRunContext,
   ClaudeCodeMode,
+  CodexModel,
   LorToolCall,
   LorToolCallUpdate,
   SandboxTurnContext,
@@ -183,6 +184,7 @@ import {
 } from "./sandbox/sandbox-approval"
 import {
   CLAUDE_TOKEN_PLACEHOLDER,
+  GATEWAY_KEY_PLACEHOLDER,
   grantHarnessAccess,
   HARNESS_BRIDGE_PORT,
   harnessBridgeEndpoint,
@@ -199,6 +201,7 @@ import {
   CLAUDE_CODE_BINDING,
   runClaudeCodeTurn,
 } from "./session-core/claude-runtime"
+import { CODEX_BINDING, runCodexTurn } from "./session-core/codex-runtime"
 import {
   PI_BINDING,
   PI_BUILTIN_NAMES,
@@ -322,12 +325,12 @@ const SANDBOX_TOOL_NAMES: ReadonlySet<string> = new Set(SANDBOX_BUILTIN_TOOLS)
 function sandboxPromptLine(
   builtins: readonly string[],
   canShare: boolean,
-  // Claude Code brings its own file and shell tools.
-  claudeCode = false
+  // Claude Code and Codex bring their own file and shell tools.
+  ownTools = false
 ): string | null {
-  if (builtins.length === 0 && !canShare && !claudeCode) return null
-  const shell = claudeCode || builtins.includes("bash")
-  const tools = claudeCode
+  if (builtins.length === 0 && !canShare && !ownTools) return null
+  const shell = ownTools || builtins.includes("bash")
+  const tools = ownTools
     ? ""
     : builtins.length === SANDBOX_BUILTIN_TOOLS.length
       ? "bash runs commands; read, write and edit work on files; grep, glob and ls find them. "
@@ -411,13 +414,14 @@ function conversationUpdateText(update: ConversationUpdate): string | null {
 // compaction summaries report: the part beyond them, at the requested model.
 function extraTurnUsage(
   total: PiTurnUsage,
-  recorded: PiTurnUsage
+  recorded: PiTurnUsage,
+  model: string
 ): RunStepRecord | null {
   const inputTokens = Math.max(0, total.inputTokens - recorded.inputTokens)
   const outputTokens = Math.max(0, total.outputTokens - recorded.outputTokens)
   if (inputTokens === 0 && outputTokens === 0) return null
   return {
-    model: LOR_MODEL,
+    model,
     inputTokens,
     cachedInputTokens: Math.min(
       inputTokens,
@@ -487,14 +491,18 @@ function withNotes(
       }
 }
 
-// Appended to Claude Code's own system prompt, which it keeps: where it works
-// and the team's knowledge through Lor's tools, without Lor's persona
-// (code-sessions-runbook.md chunk 7d-3).
-const CLAUDE_CODE_PROMPT_HEAD = `You are working in a shared session in Lor, a workspace where a team works with agents. Several teammates can write in this session, and each message names its sender. A message addressed to someone else is context, not a request to you. Your replies and reactions stay in the session. Do not use emojis in your replies.
+// Appended to Claude Code's and Codex's own system prompts, which they keep:
+// where they work and the team's knowledge through Lor's tools, without
+// Lor's persona (code-sessions-runbook.md chunks 7d-3 and 8d).
+const agentPromptHead = (
+  toolNames: string
+) => `You are working in a shared session in Lor, a workspace where a team works with agents. Several teammates can write in this session, and each message names its sender. A message addressed to someone else is context, not a request to you. Your replies and reactions stay in the session. Do not use emojis in your replies.
 
-Lor's tools (mcp__harness-tools__…) reach the team's own knowledge. Use them when the work needs the team's context: an earlier decision, the issue or pull request behind a change, who owns what.
+Lor's tools${toolNames} reach the team's own knowledge. Use them when the work needs the team's context: an earlier decision, the issue or pull request behind a change, who owns what.
 - The team's memory: notes Lor keeps about this workspace. memory_ls lists pages and memory_read reads one.
 - The team's history: search covers chat in every channel, past calls, items from connected services and earlier sessions. read_thread, read_call and fetch_source read a hit in full. Cite a message as [[msg:…]], a call as [[call:…@time]] and a source as [[src:…]] by id.`
+const CLAUDE_CODE_PROMPT_HEAD = agentPromptHead(" (mcp__harness-tools__…)")
+const CODEX_PROMPT_HEAD = agentPromptHead("")
 
 // Answer phase only; background write-back handles routine note-keeping.
 // Only appended when the roster below is non-empty; teaches Lor the exact
@@ -589,6 +597,10 @@ export type RespondContext = {
   // same person's subscription and mode). Claude Code runs the turn instead
   // of Pi, and Lor credits are not charged.
   claudeCode?: { token: string; userId: string; mode: ClaudeCodeMode }
+  // A Codex session's turn (chunk 8d): the model the sender picked, saved
+  // with the request so a paused turn continues on it. Codex runs the turn
+  // instead of Pi, on Lor credits.
+  codex?: { model: CodexModel }
   // "Continue in Code": names the session whose messages are the background.
   continuesSession?: { title: string }
   // A fork's first turn: the session it was forked from.
@@ -667,7 +679,11 @@ export {
 // approvals expire and the turn is dropped (pi-harness-runbook.md §4.3).
 export function pausedTurnExpired(saved: SavedHarnessState): boolean {
   const binding =
-    saved.binding.kind === "claude_code" ? CLAUDE_CODE_BINDING : PI_BINDING
+    saved.binding.kind === "claude_code"
+      ? CLAUDE_CODE_BINDING
+      : saved.binding.kind === "codex"
+        ? CODEX_BINDING
+        : PI_BINDING
   return (
     saved.continuation !== null &&
     checkCompatibility(saved, binding).continuation === "expire"
@@ -2628,7 +2644,11 @@ export async function respond(
       ...(github ? githubTools : {}),
       ...(github && cloneRepoEnabled ? cloneRepoTool : {}),
       ...(shareFileEnabled ? shareFileTool : {}),
-      ...((ctx.plan || ctx.threadRootId) && !ctx.claudeCode ? planTools : {}),
+      // Codex has its own plan tool too; its web search is off, so it keeps
+      // Lor's web tools.
+      ...((ctx.plan || ctx.threadRootId) && !ctx.claudeCode && !ctx.codex
+        ? planTools
+        : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
@@ -2891,7 +2911,11 @@ export async function respond(
 
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
-      sandboxPromptLine(sandboxBuiltins, shareFileEnabled, !!ctx.claudeCode),
+      sandboxPromptLine(
+        sandboxBuiltins,
+        shareFileEnabled,
+        Boolean(ctx.claudeCode || ctx.codex)
+      ),
       hasToolGroup(webTools) ? WEB_PROMPT_LINE : null,
       hasToolGroup(githubTools) ? GITHUB_PROMPT_LINE : null,
       hasToolGroup(cloneRepoTool) ? CODE_PROMPT_LINE : null,
@@ -2935,8 +2959,13 @@ export async function respond(
     const workspaceSection = workspaceInstructions
       ? `\n\n${formatInstructionsBlock(workspaceInstructions)}`
       : ""
-    const instructions = ctx.claudeCode
-      ? `${[CLAUDE_CODE_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, "claude_code")}` : ""}`
+    const agentHarness = ctx.claudeCode
+      ? "claude_code"
+      : ctx.codex
+        ? "codex"
+        : null
+    const instructions = agentHarness
+      ? `${[agentHarness === "claude_code" ? CLAUDE_CODE_PROMPT_HEAD : CODEX_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, agentHarness)}` : ""}`
       : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code)}` : ""}`
 
     // The turn's request. A retried attempt sends the saved one again. A run
@@ -2959,6 +2988,7 @@ export async function respond(
               claudeCodeMode: ctx.claudeCode.mode,
             }
           : {}),
+        ...(ctx.codex ? { codexModel: ctx.codex.model } : {}),
         sandboxMode: harness.sandboxMode,
         sandboxContext: harness.continueOnly
           ? (harness.pausedSandboxContext ?? { request: "" })
@@ -3072,24 +3102,24 @@ export async function respond(
       "Lor pre-stream setup timing"
     )
 
-    // A paused Claude Code turn waits in its bridge process, which this run
-    // keeps; when the process is gone the turn is dropped (7d-4a).
-    const claudePaused = Boolean(
-      ctx.claudeCode && harness.saved?.continuation && !harness.pausedDropped
+    // A paused Claude Code or Codex turn waits in its bridge process, which
+    // this run keeps; when the process is gone the turn is dropped (7d-4a).
+    const bridgePaused = Boolean(
+      agentHarness && harness.saved?.continuation && !harness.pausedDropped
     )
     const sandbox = await openSessionSandbox(harness.owner, {
-      keepBridges: claudePaused,
+      keepBridges: bridgePaused,
     })
     try {
-      // The Claude Code bridge's preview link is made while the work folder
-      // is prepared; claudeCodeTurn awaits it.
-      const bridgeEndpoint = ctx.claudeCode
+      // The bridge's preview link is made while the work folder is prepared;
+      // the Claude Code or Codex turn awaits it.
+      const bridgeEndpoint = agentHarness
         ? harnessBridgeEndpoint(harness.owner)
         : null
       bridgeEndpoint?.catch(() => {})
-      const claudeTurnLost = claudePaused && !sandbox.bridgeRunning
+      const bridgeTurnLost = bridgePaused && !sandbox.bridgeRunning
       const pausedDropped: PausedTurnDrop | null =
-        harness.pausedDropped ?? (claudeTurnLost ? { reason: "lost" } : null)
+        harness.pausedDropped ?? (bridgeTurnLost ? { reason: "lost" } : null)
       const conversationId = conversationIdOf(harness.owner)
       const workFolder: CodeWorkFolder | null = ctx.code
         ? await prepareCodeWorkFolder({
@@ -3154,10 +3184,10 @@ export async function respond(
           status: "error",
         })
       }
-      // A lost Claude Code turn has nothing to finish, so a run that only
-      // continued it tells Claude Code what happened instead.
+      // A lost Claude Code or Codex turn has nothing to finish, so a run that
+      // only continued it tells the harness what happened instead.
       const prompt: UserModelMessage | null = harness.continueOnly
-        ? claudeTurnLost
+        ? bridgeTurnLost
           ? {
               role: "user",
               content: notes.map((note) => `[${note}]`).join("\n"),
@@ -3290,8 +3320,10 @@ export async function respond(
       // the next message ends.
       let stepBilled = false
       // A Claude Code turn runs on its starter's own subscription: no Lor
-      // credits, no spend limit.
+      // credits, no spend limit. A Codex turn's usage comes whole at its end
+      // (extraTurnUsage), at its own model's rate.
       const billed = !ctx.claudeCode
+      const answeringModel = ctx.codex ? `openai/${ctx.codex.model}` : LOR_MODEL
       const record = async (
         usage: RunStepRecord,
         kind: "step" | "compaction",
@@ -3318,7 +3350,7 @@ export async function respond(
             workspaceId: ctx.workspaceId,
             tool: "lor.respond",
             model,
-            requestedModel: LOR_MODEL,
+            requestedModel: answeringModel,
             ...usage,
             ...(first
               ? {
@@ -3453,9 +3485,11 @@ export async function respond(
               ? notRunDetail(denied)
               : ctx.claudeCode && part.providerExecuted
                 ? claudeCodeToolDetail(part.toolName, part.input, part.output)
-                : SANDBOX_TOOL_NAMES.has(part.toolName)
-                  ? sandboxToolDetail(part.toolName, part.input, part.output)
-                  : toolDetail(part.toolName, part.output)
+                : ctx.codex && part.providerExecuted
+                  ? toolDetail(part.toolName, part.output)
+                  : SANDBOX_TOOL_NAMES.has(part.toolName)
+                    ? sandboxToolDetail(part.toolName, part.input, part.output)
+                    : toolDetail(part.toolName, part.output)
           if (resolved.status === "error") {
             logger.warn(
               { tool: part.toolName, error: resolved.detail?.summary },
@@ -3529,49 +3563,88 @@ export async function respond(
           )
         }
       }
-      const turn = await (ctx.claudeCode
-        ? claudeCodeTurn(ctx.claudeCode)
-        : runPiTurn({
+      // Codex reaches the AI Gateway on Lor's key, which the proxy adds for
+      // this turn only (code-sessions-runbook.md chunk 8).
+      const codexTurn = async (codex: { model: CodexModel }) => {
+        const access = grantHarnessAccess(harness.owner, {
+          gatewayKey: piGatewayAuth().AI_GATEWAY_API_KEY ?? "",
+        })
+        try {
+          const [, endpoint] = await Promise.all([
+            access,
+            bridgeEndpoint ?? harnessBridgeEndpoint(harness.owner),
+          ])
+          return await runCodexTurn({
             sessionId: conversationId,
-            sessionKey: conversationId,
             saved: harness.saved,
             sandbox: sandbox.session,
-            systemPrompt: instructions,
-            ...(workFolder?.status === "ready" && workFolder.instructions
-              ? { contextFiles: [workFolder.instructions] }
-              : {}),
-            ...(decisions ? { decisions } : {}),
-            ...(harness.pausedDropped ? { dropPaused: true } : {}),
+            bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
+            keyPlaceholder: GATEWAY_KEY_PLACEHOLDER,
+            model: codex.model,
+            instructions,
+            ...(decisions && !pausedDropped ? { decisions } : {}),
+            ...(pausedDropped ? { dropPaused: true } : {}),
             ...(prompt ? { prompt } : {}),
             tools: guarded.tools,
             toolsContext,
             toolApproval: limitedToolApproval,
-            inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
-              (name) => !selectedBuiltinTools.has(name)
-            ),
-            builtinToolApproval: (call) => sandboxApproval.decide(call),
-            onPrompt: () => {
-              if (!finishingPaused) return
-              activeSandboxMode = harness.sandboxMode
-              sandboxApproval = makeSandboxApproval(requestSandboxContext)
-            },
-            model: {
-              id: LOR_MODEL,
-              fallbacks: LOR_FALLBACK_MODELS,
-              contextWindow: env.LOR_CONTEXT_WINDOW,
-            },
-            gatewayAuth: piGatewayAuth(),
-            gatewayOptions: mainGatewayOptions,
             abortSignal,
-            onAssistantModel: (model) => {
-              stepModel = billedModel(model)
-              stepBilled = false
-            },
-            toolBlock,
-            compaction,
-            onBoundary,
             onPart,
           })
+        } finally {
+          await revokeHarnessAccess(harness.owner).catch((err) =>
+            logger.error(
+              { err, sessionId: conversationId },
+              "Removing the Gateway key from the sandbox proxy failed"
+            )
+          )
+        }
+      }
+      const turn = await (ctx.claudeCode
+        ? claudeCodeTurn(ctx.claudeCode)
+        : ctx.codex
+          ? codexTurn(ctx.codex)
+          : runPiTurn({
+              sessionId: conversationId,
+              sessionKey: conversationId,
+              saved: harness.saved,
+              sandbox: sandbox.session,
+              systemPrompt: instructions,
+              ...(workFolder?.status === "ready" && workFolder.instructions
+                ? { contextFiles: [workFolder.instructions] }
+                : {}),
+              ...(decisions ? { decisions } : {}),
+              ...(harness.pausedDropped ? { dropPaused: true } : {}),
+              ...(prompt ? { prompt } : {}),
+              tools: guarded.tools,
+              toolsContext,
+              toolApproval: limitedToolApproval,
+              inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
+                (name) => !selectedBuiltinTools.has(name)
+              ),
+              builtinToolApproval: (call) => sandboxApproval.decide(call),
+              onPrompt: () => {
+                if (!finishingPaused) return
+                activeSandboxMode = harness.sandboxMode
+                sandboxApproval = makeSandboxApproval(requestSandboxContext)
+              },
+              model: {
+                id: LOR_MODEL,
+                fallbacks: LOR_FALLBACK_MODELS,
+                contextWindow: env.LOR_CONTEXT_WINDOW,
+              },
+              gatewayAuth: piGatewayAuth(),
+              gatewayOptions: mainGatewayOptions,
+              abortSignal,
+              onAssistantModel: (model) => {
+                stepModel = billedModel(model)
+                stepBilled = false
+              },
+              toolBlock,
+              compaction,
+              onBoundary,
+              onPart,
+            })
       ).catch((err: unknown) => {
         // A failed turn still charges the steps that finished.
         chargeTurn(null)
@@ -3681,7 +3754,9 @@ export async function respond(
       // tokens are spent either way: a retry that finds the turn saved
       // delivers it without charging again.
       const extraUsage =
-        turn.usage && billed ? extraTurnUsage(turn.usage, recorded) : null
+        turn.usage && billed
+          ? extraTurnUsage(turn.usage, recorded, answeringModel)
+          : null
       chargeTurn(extraUsage)
       await harness.saveTurn({
         save: turn.save,
