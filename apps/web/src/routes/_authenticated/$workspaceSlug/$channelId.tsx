@@ -107,14 +107,21 @@ export const Route = createFileRoute(
 })
 
 // Resolve the channel type before mounting chat effects for a hidden feature.
+// A channel the sidebar list knows as an open text channel mounts at once,
+// so its messages load alongside the channel's details.
 function ChannelRoute() {
   const { workspaceSlug, channelId } = Route.useParams()
   const { threadId, threadMessageId, callAt } = Route.useSearch()
   const { data, isPending, refetch } = useQuery(
     channelQueryOptions(workspaceSlug, channelId)
   )
+  const { data: listedAsText = false } = useQuery({
+    ...workspaceChannelsQueryOptions(workspaceSlug),
+    select: (channels) =>
+      openTextChannels(channels).some((channel) => channel.id === channelId),
+  })
 
-  if (isPending) return <ChatSkeleton />
+  if (isPending) return listedAsText ? <ChannelView /> : <ChatSkeleton />
   if (!data) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">

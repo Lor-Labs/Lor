@@ -46,7 +46,7 @@ export type ChangedFile = {
 
 export type CodeChanges = {
   branch: string | null
-  // Commits made in the sandbox since the base, newest first.
+  // Commits made in the sandbox and not pushed yet, newest first.
   commits: { sha: string; subject: string }[]
   files: ChangedFile[]
   truncated: boolean
@@ -209,6 +209,13 @@ export async function readChanges(
   baseBranch: string
 ): Promise<CodeChanges> {
   const base = shellQuote(`refs/remotes/origin/${baseBranch}`)
+  // Unpushed commits count against the branch's remote-tracking ref, like
+  // readUnpushedCommits and markPushed; the base's for a new branch.
+  const upstream = [
+    `branch=$(git symbolic-ref --short -q HEAD || true)`,
+    `up="refs/remotes/origin/$branch"`,
+    `[ -n "$branch" ] && git rev-parse -q --verify "$up" >/dev/null || up=${base}`,
+  ]
   // Untracked files have no diff to count: their lines are all added, and a
   // file grep calls binary has no count.
   const countNewFiles = `${GIT} ls-files --others --exclude-standard -z | head -z -n ${MAX_COUNTED_NEW_FILES} | while IFS= read -r -d '' f; do if [ ! -s "$f" ]; then printf '0\\t0\\t%s\\0' "$f"; elif grep -Iq '' "$f"; then printf '%s\\t0\\t%s\\0' "$(grep -c '' "$f")" "$f"; else printf -- '-\\t-\\t%s\\0' "$f"; fi; done`
@@ -216,7 +223,8 @@ export async function readChanges(
     [
       `${GIT} status --porcelain=v2 -z --branch --untracked-files=all || exit 4`,
       `printf '\\0${LOG_MARKER}\\0'`,
-      `${GIT} log -n ${MAX_COMMITS} --format='%H%x1f%s' ${base}..HEAD 2>/dev/null || true`,
+      ...upstream,
+      `${GIT} log -n ${MAX_COMMITS} --format='%H%x1f%s' "$up"..HEAD 2>/dev/null || true`,
       `printf '\\0${STAT_MARKER}\\0'`,
       `${GIT} diff HEAD --numstat -z --find-renames --no-color 2>/dev/null || true`,
       `printf '\\0${NEW_MARKER}\\0'`,
@@ -394,11 +402,10 @@ export async function stagePaths(
 ): Promise<void> {
   const paths =
     input.paths === "all" ? null : input.paths.map((p) => shellQuote(p))
+  // Unstaging uses restore, not reset: reset also ends a pull's merge.
   const command = input.staged
     ? `${GIT} add -A -- ${paths ? paths.join(" ") : "."}`
-    : paths
-      ? `${GIT} restore --staged -- ${paths.join(" ")}`
-      : `${GIT} reset -q`
+    : `${GIT} restore --staged -- ${paths ? paths.join(" ") : "."}`
   const result = await sandbox.run(command)
   if (result.exitCode !== 0) {
     throw new Error(`git staging failed: ${result.stderr.slice(0, 300)}`)

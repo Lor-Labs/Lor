@@ -66,12 +66,15 @@ function encryptedTokens(body: TokenResponse, key: string) {
   }
 }
 
+const TOKEN_REQUEST_TIMEOUT_MS = 15_000
+
 async function requestToken(params: Record<string, string>) {
   const { GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET } = env
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!(GITHUB_APP_CLIENT_ID && GITHUB_APP_CLIENT_SECRET && key)) {
     throw new Error("GitHub accounts aren't configured")
   }
+  // A refresh runs inside githubAccountToken's row lock.
   const res = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -80,6 +83,7 @@ async function requestToken(params: Record<string, string>) {
       client_secret: GITHUB_APP_CLIENT_SECRET,
       ...params,
     }),
+    signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
   })
   if (!res.ok) throw new Error(`GitHub token request failed: ${res.status}`)
   return encryptedTokens((await res.json()) as TokenResponse, key)
