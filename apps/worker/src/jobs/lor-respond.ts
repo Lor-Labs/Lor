@@ -63,6 +63,7 @@ import { claimAgentRun, delayJobUntil, LeaseLostError } from "@/lib/agent-run"
 import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
+  scheduleParkedBridgeRelease,
 } from "@/lib/approval-notify"
 import { createProposalCard } from "@/lib/change-proposal"
 import { loadHarnessState, savedTurnText } from "@/lib/harness-state"
@@ -1474,6 +1475,17 @@ export function createLorRespondProcessor(
                 logger.error(
                   { err, approvalId: parkedApproval.id },
                   "Approval notification fan-out failed"
+                )
+              }
+              if (threadRootId) {
+                await scheduleParkedBridgeRelease({
+                  runId: job.data.runId,
+                  threadRootId,
+                }).catch((err) =>
+                  logger.error(
+                    { err, runId: job.data.runId },
+                    "Parked bridge release scheduling failed"
+                  )
                 )
               }
             }

@@ -15,6 +15,11 @@ import { userRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
+import {
+  PARKED_BRIDGE_LIVE_MS,
+  RELEASE_PARKED_BRIDGE_JOB,
+  type ReleaseParkedBridgeJobData,
+} from "@/lib/session-sandboxes"
 
 // Approval fan-out (LOR-83). Who hears about a parked run, and when:
 // - The person whose message triggered the run (R) hears immediately — as the
@@ -70,6 +75,19 @@ export async function scheduleApprovalEscalation(
       removeOnFail: true,
     }
   )
+}
+
+// A parked Claude Code turn's bridge stops after its live window; the job
+// re-checks that the turn still waits (session-sandboxes.ts).
+export async function scheduleParkedBridgeRelease(
+  data: ReleaseParkedBridgeJobData
+): Promise<void> {
+  await getMaintenanceQueue().add(RELEASE_PARKED_BRIDGE_JOB, data, {
+    delay: PARKED_BRIDGE_LIVE_MS,
+    attempts: 2,
+    removeOnComplete: true,
+    removeOnFail: true,
+  })
 }
 
 type PresenceRedisClient = {

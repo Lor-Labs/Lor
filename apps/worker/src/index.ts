@@ -61,7 +61,12 @@ import {
 } from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { awaitInflightDrains } from "@/lib/run-queue"
-import { deleteArchivedSessionSandbox } from "@/lib/session-sandboxes"
+import {
+  deleteArchivedSessionSandbox,
+  RELEASE_PARKED_BRIDGE_JOB,
+  type ReleaseParkedBridgeJobData,
+  releaseParkedBridge,
+} from "@/lib/session-sandboxes"
 import { installVoiceNotifier } from "@/lib/voice-notify"
 import { setWorkspaceActivityEmitter } from "@/lib/workspace-activity"
 
@@ -405,6 +410,8 @@ async function bootstrap() {
         await deleteArchivedSessionSandbox(
           job.data as DeleteSessionSandboxJobData
         )
+      } else if (job.name === RELEASE_PARKED_BRIDGE_JOB) {
+        await releaseParkedBridge(job.data as ReleaseParkedBridgeJobData)
       } else if (job.name === "audit-voice-sessions") await auditVoiceSessions()
       else if (job.name === NOTIFY_APPROVAL_JOB) {
         const { approvalId } = job.data as { approvalId: string }

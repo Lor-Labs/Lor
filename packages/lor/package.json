@@ -53,6 +53,7 @@
     "@ai-sdk/gateway": "^4.0.120",
     "@ai-sdk/harness": "1.0.158",
     "@ai-sdk/harness-claude-code": "1.0.162",
+    "@ai-sdk/harness-codex": "1.0.160",
     "@ai-sdk/harness-pi": "1.0.160",
     "@ai-sdk/mcp": "^2.0.80",
     "@aws-sdk/client-cloudwatch": "^3.1004.0",

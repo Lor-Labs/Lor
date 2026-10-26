@@ -361,6 +361,33 @@ export async function attachOrCreateSessionSandbox(
   }
 }
 
+// A turn parked on an approval keeps its sandbox out of standby (billed as
+// running) while its bridge waits (code-sessions-runbook.md 7d-4a). Past its
+// live window the bridge stops; the next decision finds none and drops the
+// turn with a note. Never creates a sandbox. Returns how many were stopped.
+export async function stopParkedBridges(owner: HarnessOwner): Promise<number> {
+  if (!blaxelConfigured()) return 0
+  const sandbox = await SandboxInstance.get(sessionSandboxName(owner)).catch(
+    (err: unknown) => {
+      if (isNotFound(err)) return null
+      throw err
+    }
+  )
+  if (!sandbox) return 0
+  try {
+    const bridges = (await sandbox.process.list()).filter(
+      (record) =>
+        record.status === "running" && record.name.startsWith("bridge-")
+    )
+    await Promise.all(
+      bridges.map((record) => sandbox.process.kill(record.name))
+    )
+    return bridges.length
+  } finally {
+    closeConnection(sandbox)
+  }
+}
+
 // The conversation's files go with it; Pi's saved state and shared files
 // live in Postgres and R2. A sandbox that is already gone counts as deleted.
 export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {

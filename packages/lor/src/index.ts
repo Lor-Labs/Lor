@@ -661,6 +661,7 @@ export {
 export {
   deleteSessionSandbox,
   SandboxCapacityError,
+  stopParkedBridges,
 } from "./sandbox/session-sandbox"
 // A paused turn saved by another adapter version cannot continue: its
 // approvals expire and the turn is dropped (pi-harness-runbook.md §4.3).

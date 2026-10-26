@@ -20,7 +20,10 @@ function ownerColumns(owner: HarnessOwner) {
 
 // The answer of a turn this run already saved, for an attempt retried after
 // the save committed: the assistant text after the run's last user prompt in
-// its own log chunks. Null when the run saved nothing.
+// its own log chunks. Null when the run saved nothing. Pi's log has
+// {type: "message"} lines; Claude Code's has {type: "user" | "assistant"},
+// where tool results are user lines too, and meta, compaction summary and
+// subagent lines are not the conversation's own turns.
 export async function savedTurnText(runId: string): Promise<string | null> {
   const chunks = await db
     .select({ content: schema.harnessLog.content })
@@ -36,15 +39,32 @@ export async function savedTurnText(runId: string): Promise<string | null> {
     if (!line.trim()) continue
     const entry = JSON.parse(line) as {
       type?: unknown
+      isMeta?: unknown
+      isSidechain?: unknown
+      isCompactSummary?: unknown
       message?: { role?: unknown; content?: unknown }
     }
-    if (entry.type !== "message") continue
-    if (entry.message?.role === "user") text = ""
+    const pi = entry.type === "message"
+    const claudeCode =
+      (entry.type === "user" || entry.type === "assistant") &&
+      !entry.isMeta &&
+      !entry.isSidechain &&
+      !entry.isCompactSummary
+    if (!(pi || claudeCode)) continue
+    const content = entry.message?.content
+    const parts = (
+      Array.isArray(content)
+        ? content
+        : typeof content === "string"
+          ? [{ type: "text", text: content }]
+          : []
+    ) as { type?: unknown; text?: unknown }[]
+    if (entry.message?.role === "user") {
+      if (pi || parts.some((part) => part.type === "text")) text = ""
+      continue
+    }
     if (entry.message?.role !== "assistant") continue
-    const parts = Array.isArray(entry.message.content)
-      ? entry.message.content
-      : []
-    for (const part of parts as { type?: unknown; text?: unknown }[]) {
+    for (const part of parts) {
       if (part.type === "text" && typeof part.text === "string") {
         text += part.text
       }
