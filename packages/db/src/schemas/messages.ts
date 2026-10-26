@@ -97,6 +97,16 @@ export const claudeCodeModeEnum = pgEnum("claude_code_mode", [
 
 export type ClaudeCodeMode = (typeof claudeCodeModeEnum.enumValues)[number]
 
+// The models a Codex session's composer offers, on the AI Gateway
+// (code-sessions-runbook.md chunk 8). GPT-6.1 Sol is the default.
+export const codexModelEnum = pgEnum("codex_model", [
+  "gpt-6.1-sol",
+  "gpt-6-astra",
+  "gpt-6-luna",
+])
+
+export type CodexModel = (typeof codexModelEnum.enumValues)[number]
+
 // Lifecycle of a message row. Everything is "complete" except a Lor
 // placeholder, which lands as "pending" and flips to "complete"/"failed" when
 // the worker finishes — so the thinking indicator survives a reload/late join.
@@ -152,6 +162,8 @@ export const message = pgTable(
     // picked for the turn it starts. It stays with the message while it waits
     // in the session's queue.
     claudeCodeMode: claudeCodeModeEnum("claude_code_mode"),
+    // Likewise in a Codex session: the model the sender picked.
+    codexModel: codexModelEnum("codex_model"),
 
     // file attachments as JSON array
     // [{ url, filename, size, contentType, width?, height? }]

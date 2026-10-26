@@ -893,6 +893,18 @@ may lag web), a Lor-offered "Continue in Code" card.
       bridge ran as `bridge-*`, a second turn with another tool list and
       changed instructions kept the thread and its context, and `~/.codex`
       stayed about 4 MB (95 MB before).
+  - [x] **8c** picking Codex, built 2026-10-26 (additive `db:push`: `codex`
+    in `harness_kind`, the `codex_model` enum and `message.codex_model`):
+    - The New session picker offers Codex ("OpenAI's coding agent, on Lor
+      credits"), for code sessions only, like Claude Code; no linked
+      account. The session header shows the harness's name.
+    - The composer's model picker (`codex-model-picker.tsx`): GPT-6.1 Sol
+      (default), GPT-6 Astra, GPT-6 Luna, remembered per person. Each
+      message carries its pick (`codexModel` in the send payload, kept on
+      the message like the Claude Code mode).
+    - Until 8d a Codex session's message fails with "Codex sessions can't
+      run turns yet" instead of running on Pi, whose saved state a Codex
+      session could not read.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
 

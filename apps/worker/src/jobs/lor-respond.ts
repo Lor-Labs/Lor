@@ -810,16 +810,23 @@ export function createLorRespondProcessor(
             const claudeToken = claudeUserId
               ? await claudeSubscriptionToken(claudeUserId)
               : null
-            if (session.harness === "claude_code" && !claudeToken) {
-              const noSubscription = automated
-                ? "Claude Code sessions only run on a person's own messages."
-                : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
+            // Codex turns come with code-sessions-runbook.md 8d; until then a
+            // Codex session's message fails instead of running on Pi.
+            const refusal =
+              session.harness === "claude_code" && !claudeToken
+                ? automated
+                  ? "Claude Code sessions only run on a person's own messages."
+                  : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
+                : session.harness === "codex"
+                  ? "Codex sessions can't run turns yet."
+                  : null
+            if (refusal) {
               await db
                 .update(schema.message)
-                .set({ content: noSubscription, status: "failed" })
+                .set({ content: refusal, status: "failed" })
                 .where(eq(schema.message.id, lorMessageId))
                 .catch(() => {})
-              emit(noSubscription, true, "failed")
+              emit(refusal, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution.stop()
               await settlePlan("failed")

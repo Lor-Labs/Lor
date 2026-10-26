@@ -34,6 +34,10 @@ import {
   ClaudeCodeModePicker,
   useClaudeCodeMode,
 } from "@/components/session/claude-code-mode-picker"
+import {
+  CodexModelPicker,
+  useCodexModel,
+} from "@/components/session/codex-model-picker"
 import { SessionTurnRail } from "@/components/session/session-turn-rail"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
@@ -104,6 +108,7 @@ export function SessionDocument({
   rewindRestoresFiles,
   composerNote,
   claudeCode = false,
+  codex = false,
 }: {
   workspaceSlug: string
   channelId: string
@@ -114,6 +119,8 @@ export function SessionDocument({
   // A Claude Code session this person can run turns in: each message carries
   // the Claude Code mode picked in the composer.
   claudeCode?: boolean
+  // A Codex session: each message carries the model picked in the composer.
+  codex?: boolean
   // "Fork from here" on Lor's finished replies; settles when the fork opens
   // or fails.
   onFork?: (message: Message) => Promise<unknown>
@@ -454,6 +461,7 @@ export function SessionDocument({
     null
   )
   const claudeMode = useClaudeCodeMode()
+  const codexModel = useCodexModel()
 
   // The heading renders once the oldest page is loaded; until then, and once
   // it scrolls away, the header carries the title.
@@ -531,6 +539,11 @@ export function SessionDocument({
               value={claudeMode.mode}
               onChange={claudeMode.setMode}
             />
+          ) : codex ? (
+            <CodexModelPicker
+              value={codexModel.model}
+              onChange={codexModel.setModel}
+            />
           ) : undefined
         }
         onShiftTab={claudeCode ? claudeMode.cycle : undefined}
@@ -539,6 +552,7 @@ export function SessionDocument({
             mentions: [],
             ...options,
             ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
+            ...(codex ? { codexModel: codexModel.model } : {}),
           })
           if (nonce) showSendEffects(nonce, options)
           scroll.scrollAfterSend()

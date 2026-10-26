@@ -134,11 +134,15 @@ export async function sessionStartFor(args: {
     const source = payload.continueFrom
       ? await continuedSession(payload.continueFrom, payload.channelId)
       : null
-    // Claude Code: code sessions only for now, on the starter's own Claude
-    // subscription (code-sessions-runbook.md chunk 7).
+    // Claude Code and Codex: code sessions only for now; Claude Code on the
+    // starter's own Claude subscription (code-sessions-runbook.md chunks 7
+    // and 8).
     const claudeCode = payload.harness === "claude_code"
-    if (claudeCode && !code) {
-      throw new Error("Claude Code sessions need a repository")
+    const codex = payload.harness === "codex"
+    if ((claudeCode || codex) && !code) {
+      throw new Error(
+        `${claudeCode ? "Claude Code" : "Codex"} sessions need a repository`
+      )
     }
     if (claudeCode && !(await hasPersonalAccount(args.senderId, "claude"))) {
       throw new Error(
@@ -150,6 +154,7 @@ export async function sessionStartFor(args: {
       origin: "new",
       ...(code ? { code } : {}),
       ...(claudeCode ? { harness: "claude_code" as const } : {}),
+      ...(codex ? { harness: "codex" as const } : {}),
       ...(source
         ? {
             sourceSessionId: source.id,

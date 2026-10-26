@@ -185,10 +185,12 @@ export function useMessageSending({
         startSession?: boolean
         // With startSession: start it in Code mode on this repo and branch.
         code?: { repo: string; branch: string }
-        // With code: Claude Code runs it instead of Lor's own agent.
-        harness?: "pi" | "claude_code"
+        // With code: Claude Code or Codex runs it instead of Lor's own agent.
+        harness?: SendMessagePayload["harness"]
         // A Claude Code session: the mode for the turn this message starts.
         claudeCodeMode?: SendMessagePayload["claudeCodeMode"]
+        // A Codex session: the model for the turn this message starts.
+        codexModel?: SendMessagePayload["codexModel"]
         // With startSession: "Continue in Code" from this session.
         continueFrom?: { id: string; title: string }
         // "Ask Lor about this": the message the new session starts with.
@@ -286,6 +288,7 @@ export function useMessageSending({
           code,
           harness,
           claudeCodeMode: options?.claudeCodeMode,
+          codexModel: options?.codexModel,
           continueFrom: source?.id,
           newSession: start
             ? { id: start.id, threadRootId: start.threadRootId }

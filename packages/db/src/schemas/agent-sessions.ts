@@ -33,9 +33,13 @@ export const agentSessionModeEnum = pgEnum("agent_session_mode", [
 
 // Harnesses that can run a conversation (reference/planned/harness-sessions.md
 // §3). Claude Code runs on the turn starter's own Claude subscription
-// (code-sessions-runbook.md chunk 7). Defined here, not in harness-states.ts,
-// which imports this file.
-export const harnessKindEnum = pgEnum("harness_kind", ["pi", "claude_code"])
+// (code-sessions-runbook.md chunk 7); Codex on Lor credits (chunk 8).
+// Defined here, not in harness-states.ts, which imports this file.
+export const harnessKindEnum = pgEnum("harness_kind", [
+  "pi",
+  "claude_code",
+  "codex",
+])
 
 // A Lor session: one place where Lor works on one thing, next to the channel
 // chat (reference/workspace-model.md). Its anchor message (type
