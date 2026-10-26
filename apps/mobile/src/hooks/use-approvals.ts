@@ -110,7 +110,9 @@ export function usePausedLorMessageId(
 // Client-side mirror of the server's resolver check, for showing/hiding the
 // buttons only — the resolve endpoint re-checks with real authority.
 export function useCanResolveApproval(
-  resolver: ApprovalResolverSpec | null
+  resolver: ApprovalResolverSpec | null,
+  // A Claude Code prompt: only the turn's sender, the owner included.
+  onlyUserId?: string | null
 ): boolean {
   const { workspace } = useWorkspace()
   const member = useActiveMember(workspace?.id)
@@ -119,6 +121,7 @@ export function useCanResolveApproval(
   const role = member.data?.role
   const userId = member.data?.userId
   if (!workspace?.ownerId || typeof role !== "string" || !userId) return false
+  if (onlyUserId) return userId === onlyUserId
   const authority = {
     role,
     isOwner: workspace.ownerId === userId,

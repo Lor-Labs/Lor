@@ -11,6 +11,7 @@ import { FileTypeIcon } from "@repo/ui/components/file-type-icon"
 import { Spinner } from "@repo/ui/components/spinner"
 import {
   csvDelimiterForMime,
+  filePreviewMime,
   isCsvMime,
   MAX_PREVIEW_BYTES,
 } from "@repo/utils/file-preview"
@@ -181,16 +182,16 @@ function FileView({
     strict: false,
   })
   const close = useCloseFile()
-  const csv = Boolean(file && isCsvMime(file.mime))
+  const mime = file ? filePreviewMime(file.name, file.mime) : null
+  const csv = Boolean(mime && isCsvMime(mime))
   // Mirrors useArtifactContent's enabled guard: a CSV it won't fetch shows
   // the fallback instead of waiting forever.
   const csvPreviewable = csv && (file?.size ?? 0) <= MAX_PREVIEW_BYTES
   const content = useArtifactContent({
     url: file?.url ?? null,
-    mime: file?.mime ?? null,
+    mime,
     size: file?.size ?? null,
   })
-  const mime = file?.mime ?? null
   const parsed = useMemo(
     () =>
       csv && mime && content.data !== undefined

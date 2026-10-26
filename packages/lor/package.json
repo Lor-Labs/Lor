@@ -12,6 +12,7 @@
     "./attio": "./src/attio.ts",
     "./meeting-insights": "./src/meeting-insights.ts",
     "./capabilities": "./src/capabilities.ts",
+    "./claude-account": "./src/claude-account.ts",
     "./code-changes": "./src/code-changes.ts",
     "./code-checkpoints": "./src/code-checkpoints.ts",
     "./code-repo": "./src/code-repo.ts",
@@ -51,6 +52,7 @@
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.120",
     "@ai-sdk/harness": "1.0.158",
+    "@ai-sdk/harness-claude-code": "1.0.162",
     "@ai-sdk/harness-pi": "1.0.160",
     "@ai-sdk/mcp": "^2.0.80",
     "@aws-sdk/client-cloudwatch": "^3.1004.0",

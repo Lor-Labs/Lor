@@ -15,6 +15,9 @@ import { user } from "./users"
 // session. Workspace-wide connections live in integration_connection.
 export const personalAccountProviderEnum = pgEnum("personal_account_provider", [
   "github",
+  // A Claude subscription for the person's own Claude Code turns: the token
+  // `claude setup-token` prints (code-sessions-runbook.md chunk 7).
+  "claude",
 ])
 
 export const personalAccount = pgTable(
@@ -30,8 +33,10 @@ export const personalAccount = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     provider: personalAccountProviderEnum("provider").notNull(),
-    // The provider's user id (GitHub's numeric id).
+    // The provider's user id (GitHub's numeric id). Claude: a fingerprint of
+    // the token, which carries no account identity.
     externalId: text("external_id").notNull(),
+    // Claude: the token's last four characters, to tell tokens apart.
     login: text("login").notNull(),
     name: text("name"),
     // The primary verified email, for commit authorship; null when the
@@ -40,6 +45,7 @@ export const personalAccount = pgTable(
     avatarUrl: text("avatar_url"),
     // Encrypted at rest (AES-256-GCM, INTEGRATION_ENCRYPTION_KEY). GitHub App
     // user tokens expire after 8 hours; the refresh token rotates on use.
+    // Claude setup tokens last a year and have no refresh token.
     accessToken: text("access_token").notNull(),
     accessTokenExpiresAt: timestamp("access_token_expires_at"),
     refreshToken: text("refresh_token"),

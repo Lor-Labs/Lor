@@ -114,10 +114,13 @@ export function useCanResolveApproval(
   workspaceId: string | undefined,
   member: { userId: string; role: string } | null,
   ownerId: string | undefined,
-  resolver: ApprovalResolverSpec | null
+  resolver: ApprovalResolverSpec | null,
+  // A Claude Code prompt: only the turn's sender, the owner included.
+  onlyUserId?: string | null
 ): boolean {
   const { data: customRoles } = useWorkspaceRoles(workspaceId)
   if (!member || !ownerId) return false
+  if (onlyUserId) return member.userId === onlyUserId
   const authority = {
     role: member.role,
     isOwner: ownerId === member.userId,
@@ -147,14 +150,27 @@ export function useResolveChannelApproval(channelId: string) {
       userId: string
       planId?: string | null
       threadRootId?: string | null
+      // Approving a Claude Code plan: the mode its turn goes on in.
+      claudeCodeMode?: "acceptEdits" | "default"
+      // Answering a Claude Code question.
+      answers?: NonNullable<ChannelApproval["answers"]>
     }) => {
-      const endpoint =
-        apiClient.v1.approvals[":approvalId"][
-          args.resolution === "approve" ? "approve" : "reject"
-        ]
-      const res = await endpoint.$post({
-        param: { approvalId: args.approvalId },
-      })
+      const approval = apiClient.v1.approvals[":approvalId"]
+      const param = { approvalId: args.approvalId }
+      const res =
+        args.resolution === "reject"
+          ? await approval.reject.$post({ param })
+          : args.answers
+            ? await approval.answer.$post({
+                param,
+                json: { answers: args.answers },
+              })
+            : args.claudeCodeMode
+              ? await approval["approve-plan"].$post({
+                  param,
+                  json: { mode: args.claudeCodeMode },
+                })
+              : await approval.approve.$post({ param })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           message?: string

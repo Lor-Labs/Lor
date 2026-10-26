@@ -76,6 +76,7 @@ export type SessionFilesSidebarView = {
   channelId: string
   sessionId: string
   threadRootId: string
+  revealFolder?: { id: string; path: string }
 }
 
 export type RightSidebarView =

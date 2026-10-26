@@ -11,6 +11,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { agentRun } from "./agent-runs"
+import { claudeCodeModeEnum } from "./messages"
 import { plan } from "./plans"
 import { user } from "./users"
 import { workspace } from "./workspaces"
@@ -24,11 +25,13 @@ export const approvalStatusEnum = pgEnum("approval_status", [
 
 // policy: a workspace approval gate on a tool. request: Lor asked itself
 // (request_approval). sandbox: a `bash`, `write` or `edit` call the turn's
-// sandbox mode asks about (user_sandbox_settings).
+// sandbox mode asks about (user_sandbox_settings). claude_code: a prompt from
+// Claude Code's own permission mode; only the turn's sender decides it.
 export const approvalKindEnum = pgEnum("approval_kind", [
   "policy",
   "request",
   "sandbox",
+  "claude_code",
 ])
 
 // A consequential action an agent wants a human to authorize. A Pi turn
@@ -75,6 +78,12 @@ export const approval = pgTable(
     // Rejected because someone sent a new message instead of deciding, not
     // by a person's explicit reject.
     steered: boolean("steered").notNull().default(false),
+    // An approved Claude Code plan (ExitPlanMode): the mode the turn goes on
+    // in, acceptEdits or default, as in Claude Code's own plan dialog.
+    claudeCodeMode: claudeCodeModeEnum("claude_code_mode"),
+    // A Claude Code question (askUserQuestions) the sender answered: per
+    // question id, the options picked and any written answer.
+    answers: jsonb("answers").$type<ClaudeCodeAnswers>(),
     // The run handed this approved call to the harness. A later run, or a
     // retry of that run, may find it already ran, so it never runs it again.
     consumedByRunId: uuid("consumed_by_run_id").references(() => agentRun.id, {
@@ -105,6 +114,12 @@ export const approvalRelations = relations(approval, ({ one }) => ({
     references: [plan.id],
   }),
 }))
+
+// The harness's answer shape for its questions tool (harness-v1).
+export type ClaudeCodeAnswers = Record<
+  string,
+  { optionIds: string[]; freeform?: string }
+>
 
 export type Approval = typeof approval.$inferSelect
 export type NewApproval = typeof approval.$inferInsert

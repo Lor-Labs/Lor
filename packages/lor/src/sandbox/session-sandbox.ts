@@ -72,6 +72,89 @@ const SESSION_NETWORK = {
 const GIT_PROXY_CA =
   'if [ -n "$SSL_CERT_FILE" ]; then export GIT_SSL_CAINFO="$SSL_CERT_FILE"; fi; '
 
+// Claude Code's sandbox bridge (@ai-sdk/harness-claude-code), started by the
+// adapter as `node <bootstrap>/bridge.mjs …`; Claude Code inherits its env.
+// The sandbox runs as root, where Claude Code refuses Bypass permissions
+// unless IS_SANDBOX=1; Node trusts the proxy's CA only through
+// NODE_EXTRA_CA_CERTS (code-sessions-runbook.md chunk 7a). Claude Code's
+// auto memory is off: its notes live only in the sandbox, outlive rewinds
+// and are shared by everyone's turns, and Lor keeps the team's memory.
+const CLAUDE_CODE_BRIDGE_SCRIPT = ".harness-bootstrap/claude-code/bridge.mjs"
+const CLAUDE_CODE_SHELL =
+  'if [ -n "$SSL_CERT_FILE" ]; then export NODE_EXTRA_CA_CERTS="$SSL_CERT_FILE"; fi; '
+const CLAUDE_CODE_ENV = {
+  IS_SANDBOX: "1",
+  DISABLE_AUTOUPDATER: "1",
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+}
+
+// A Claude Code turn (code-sessions-runbook.md chunk 7): the sandbox may
+// POST to Anthropic's API, and the proxy fills in the turn owner's
+// subscription token wherever Claude Code sends this placeholder, so the
+// token never enters the sandbox. Sandbox code can use the placeholder too
+// while the rule exists: grant it for the owner's own turn and revoke it
+// when the turn ends. Network changes apply to a running sandbox.
+export const CLAUDE_TOKEN_PLACEHOLDER = "{{SECRET:claude}}"
+const CLAUDE_API_HOST = "api.anthropic.com"
+
+export async function grantClaudeAccess(
+  owner: HarnessOwner,
+  token: string
+): Promise<void> {
+  await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
+    network: {
+      allowedDomains: [
+        ...SESSION_NETWORK.allowedDomains,
+        `POST:${CLAUDE_API_HOST}/*`,
+      ],
+      proxy: {
+        routing: [
+          {
+            destinations: [CLAUDE_API_HOST],
+            headers: {},
+            secrets: { claude: token },
+          },
+        ],
+      },
+    },
+  })
+}
+
+export async function revokeClaudeAccess(owner: HarnessOwner): Promise<void> {
+  await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
+    network: SESSION_NETWORK,
+  })
+}
+
+// The worker reaches a sandbox's Claude Code bridge through a private
+// preview on this port (8080 is Blaxel's sandbox API), with a token per turn.
+export const CLAUDE_CODE_BRIDGE_PORT = 8790
+const BRIDGE_PREVIEW_TOKEN_TTL_MS = 60 * 60 * 1000
+
+export async function claudeCodeBridgeEndpoint(
+  owner: HarnessOwner
+): Promise<{ url: string; headers: Record<string, string> }> {
+  const sandbox = await SandboxInstance.get(sessionSandboxName(owner))
+  try {
+    const preview = await sandbox.previews.createIfNotExists({
+      metadata: { name: "claude-code-bridge" },
+      spec: { port: CLAUDE_CODE_BRIDGE_PORT, public: false },
+    })
+    const url = (preview.spec as { url?: string }).url
+    if (!url) throw new Error("The Claude Code bridge preview has no URL")
+    const token = await preview.tokens.create(
+      new Date(Date.now() + BRIDGE_PREVIEW_TOKEN_TTL_MS)
+    )
+    return {
+      url: url.replace(/^http/, "ws"),
+      headers: { "X-Blaxel-Preview-Token": token.value },
+    }
+  } finally {
+    closeConnection(sandbox)
+  }
+}
+
 function hasEgressLimits(sandbox: SandboxInstance): boolean {
   return sandbox.metadata.labels?.[EGRESS_LABEL] === EGRESS_VERSION
 }
@@ -112,6 +195,8 @@ export type SessionSandbox = {
   // missing or unhealthy. When earlier turns are saved, the caller tells the
   // model and the session that earlier files are gone.
   fresh: boolean
+  // With keepBridges: a Claude Code bridge still runs, holding a paused turn.
+  bridgeRunning?: boolean
   // Ends our connection so Blaxel can put the sandbox in standby.
   close(): void
 }
@@ -150,23 +235,27 @@ async function createSessionSandbox(name: string): Promise<SandboxInstance> {
 // sandbox belong to an attempt that crashed, was stopped or lost its lease.
 // Stop them before this run writes to the same disk. Detached background
 // processes whose command finished are not named records and keep running.
+// Claude Code bridges (bridge-*) go too, unless this run continues the turn
+// one of them is parked on.
+// Returns whether a kept bridge is still running. A failed list reads as no
+// bridge: continuing a paused turn through a dead bridge never settles.
 async function stopLeftoverCommands(
   sandbox: SandboxInstance,
-  name: string
-): Promise<void> {
-  const leftover = await sandbox.process
+  name: string,
+  keepBridges: boolean
+): Promise<boolean> {
+  const fenced = keepBridges ? /^(run|spawn)-/ : /^(run|spawn|bridge)-/
+  const running = await sandbox.process
     .list()
-    .then((records) =>
-      records.filter(
-        (record) =>
-          record.status === "running" && /^(run|spawn)-/.test(record.name)
-      )
-    )
+    .then((records) => records.filter((record) => record.status === "running"))
     .catch((err: unknown) => {
       logger.warn({ err, sandbox: name }, "Sandbox: process list failed")
       return []
     })
-  if (leftover.length === 0) return
+  const bridgeRunning =
+    keepBridges && running.some((record) => record.name.startsWith("bridge-"))
+  const leftover = running.filter((record) => fenced.test(record.name))
+  if (leftover.length === 0) return bridgeRunning
   await Promise.all(
     leftover.map((record) =>
       sandbox.process.kill(record.name).catch((err: unknown) => {
@@ -181,10 +270,12 @@ async function stopLeftoverCommands(
     { sandbox: name, processes: leftover.map((record) => record.name) },
     "Sandbox: stopped commands left by an earlier attempt"
   )
+  return bridgeRunning
 }
 
 export async function openSessionSandbox(
-  owner: HarnessOwner
+  owner: HarnessOwner,
+  options: { keepBridges?: boolean } = {}
 ): Promise<SessionSandbox> {
   const name = sessionSandboxName(owner)
   const existing = await SandboxInstance.get(name).catch((err: unknown) => {
@@ -205,10 +296,15 @@ export async function openSessionSandbox(
           })
         : null
     if (health?.healthy) {
-      await stopLeftoverCommands(existing, name)
+      const bridgeRunning = await stopLeftoverCommands(
+        existing,
+        name,
+        options.keepBridges ?? false
+      )
       return {
         session: blaxelSandboxSession(existing),
         fresh: false,
+        bridgeRunning,
         close: () => closeConnection(existing),
       }
     }
@@ -294,16 +390,23 @@ function bytesStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
 }
 
 // Live output is polled from the process record: Blaxel's push log stream
-// drops lines under load (see execToCompletion in blaxel.ts).
+// drops lines under load (see execToCompletion in blaxel.ts). `ended` closes
+// the stream while the process keeps running.
 function logStream(
   sandbox: SandboxInstance,
   name: string,
-  type: "stdout" | "stderr"
+  type: "stdout" | "stderr",
+  ended: (text: string) => boolean = () => false
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
   let seen = 0
+  let closing = false
   return new ReadableStream({
     async pull(controller) {
+      if (closing) {
+        controller.close()
+        return
+      }
       for (;;) {
         // Status first: output written before the process ended is then in logs.
         const proc = await sandbox.process.get(name).catch(() => null)
@@ -311,9 +414,10 @@ function logStream(
         if (text.length > seen) {
           controller.enqueue(encoder.encode(text.slice(seen)))
           seen = text.length
+          closing = ended(text)
           return
         }
-        if (!proc || proc.status !== "running") {
+        if (ended(text) || !proc || proc.status !== "running") {
           controller.close()
           return
         }
@@ -323,7 +427,11 @@ function logStream(
   })
 }
 
-export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
+// defaultWorkingDirectory is the harness's own field (its network sandbox
+// session): with it, every turn's start skips a `pwd` in the sandbox.
+export function blaxelSandboxSession(
+  sandbox: SandboxInstance
+): SandboxSession & { defaultWorkingDirectory: string } {
   const readBytes = async (path: string): Promise<Uint8Array | null> => {
     try {
       const blob = await sandbox.fs.readBinary(path)
@@ -390,14 +498,17 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
       if (abortSignal?.aborted) onAbort()
       const result = await waitForProcess(name)
       abortSignal?.throwIfAborted()
+      // Process summaries can contain truncation notices. Read the full logs
+      // so file lists, diffs and previews receive the actual command output.
+      const [stdout, stderr] = await Promise.all([
+        sandbox.process.logs(name, "stdout"),
+        sandbox.process.logs(name, "stderr"),
+      ])
+      abortSignal?.throwIfAborted()
       return {
         exitCode: result.exitCode ?? -1,
-        stdout:
-          result.stdout ||
-          (await sandbox.process.logs(name, "stdout").catch(() => "")),
-        stderr:
-          result.stderr ||
-          (await sandbox.process.logs(name, "stderr").catch(() => "")),
+        stdout,
+        stderr,
       }
     } finally {
       abortSignal?.removeEventListener("abort", onAbort)
@@ -411,14 +522,20 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
     abortSignal,
   }) => {
     abortSignal?.throwIfAborted()
-    const name = `spawn-${randomUUID().slice(0, 8)}`
+    const bridge = command.includes(CLAUDE_CODE_BRIDGE_SCRIPT)
+    const name = `${bridge ? "bridge" : "spawn"}-${randomUUID().slice(0, 8)}`
     await sandbox.process.exec({
       name,
-      command: inShell(command),
+      command: inShell(bridge ? `${CLAUDE_CODE_SHELL}${command}` : command),
       workingDir: workingDirectory ?? WORKSPACE_MOUNT,
-      env: { ...SANDBOX_PROCESS_ENV, ...env },
-      keepAlive: true,
-      timeout: RUN_TIMEOUT_SEC,
+      env: {
+        ...SANDBOX_PROCESS_ENV,
+        ...(bridge ? CLAUDE_CODE_ENV : {}),
+        ...env,
+      },
+      // A bridge outlives its turn while it waits on an approval: no time
+      // limit, and no keepAlive, so the sandbox can go to standby meanwhile.
+      ...(bridge ? {} : { keepAlive: true, timeout: RUN_TIMEOUT_SEC }),
     })
     const kill = async () => {
       await sandbox.process.kill(name).catch(() => {})
@@ -426,20 +543,24 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
     abortSignal?.addEventListener("abort", () => void kill(), { once: true })
     // An abort during exec fired before the process existed.
     if (abortSignal?.aborted) void kill()
+    // The adapter reads a bridge's output for as long as it runs. Once it
+    // printed bridge-ready, both streams end, so nothing polls the sandbox
+    // (and keeps it awake) while the bridge waits.
+    let bridgeReady = false
+    const readyIn = (text: string) => {
+      if (bridge && text.includes('"bridge-ready"')) bridgeReady = true
+      return bridgeReady
+    }
     let done: Promise<{ exitCode: number }> | null = null
     const handle: SandboxProcess = {
-      stdout: logStream(sandbox, name, "stdout"),
-      stderr: logStream(sandbox, name, "stderr"),
+      stdout: logStream(sandbox, name, "stdout", readyIn),
+      stderr: logStream(sandbox, name, "stderr", () => bridgeReady),
+      // The adapter waits on this after stopping a bridge, at every turn's end.
       wait() {
-        done ??= sandbox.process
-          .wait(name, {
-            maxWait: (RUN_TIMEOUT_SEC + 60) * 1000,
-            interval: 1000,
-          })
-          .then((result) => {
-            abortSignal?.throwIfAborted()
-            return { exitCode: result.exitCode ?? -1 }
-          })
+        done ??= waitForProcess(name).then((result) => {
+          abortSignal?.throwIfAborted()
+          return { exitCode: result.exitCode ?? -1 }
+        })
         return done
       },
       kill,
@@ -449,6 +570,7 @@ export function blaxelSandboxSession(sandbox: SandboxInstance): SandboxSession {
 
   return {
     description: `Lor's sandbox for this conversation: a Linux machine with Python and Node. Files under ${WORKSPACE_MOUNT} persist between turns. No credentials for Lor's services are present.`,
+    defaultWorkingDirectory: WORKSPACE_MOUNT,
     run,
     spawn,
     readBinaryFile: ({ path }) => readBytes(path),

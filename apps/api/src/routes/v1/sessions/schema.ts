@@ -1,5 +1,9 @@
 import { z } from "@hono/zod-openapi"
-import { agentSessionModeEnum, agentSessionOriginEnum } from "@repo/db/schema"
+import {
+  agentSessionModeEnum,
+  agentSessionOriginEnum,
+  harnessKindEnum,
+} from "@repo/db/schema"
 
 export const sessionParamsSchema = z.object({
   sessionId: z
@@ -19,6 +23,7 @@ export const agentSessionSchema = z
     creatorId: z.string().uuid().nullable(),
     origin: z.enum(agentSessionOriginEnum.enumValues),
     mode: z.enum(agentSessionModeEnum.enumValues),
+    harness: z.enum(harnessKindEnum.enumValues),
     repoFullName: z.string().nullable(),
     baseBranch: z.string().nullable(),
     sourceSessionId: z.string().uuid().nullable(),
@@ -247,6 +252,7 @@ export const repoFileQuerySchema = z.object({ path: pathSchema })
 
 export const repoFileResponseSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text"), content: z.string() }),
+  z.object({ kind: z.literal("image"), mime: z.string(), size: z.number() }),
   z.object({ kind: z.literal("binary") }),
   z.object({ kind: z.literal("too_large") }),
   // Not a file in the repo, or it resolves outside it.

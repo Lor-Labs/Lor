@@ -1,4 +1,4 @@
-import { createRoute } from "@hono/zod-openapi"
+import { createRoute, z } from "@hono/zod-openapi"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
@@ -7,6 +7,7 @@ import {
   forbiddenSchema,
   internalServerErrorSchema,
   notFoundSchema,
+  payloadTooLargeSchema,
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
@@ -342,7 +343,7 @@ export const getRepoFile = createRoute({
   method: "get",
   summary: "Read one file in a code session's repository",
   description:
-    "The file's text as it is now in the sandbox. Binary and large files are reported, not returned; a path outside the repository reads as missing.",
+    "The file's text or image metadata as it is now in the sandbox. Unsupported binary and large files are reported, not returned; a path outside the repository reads as missing.",
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema, query: repoFileQuerySchema },
@@ -350,7 +351,7 @@ export const getRepoFile = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: repoFileResponseSchema,
-      description: "The file's text, or why there is none",
+      description: "Text, image metadata, or why the file cannot be previewed",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
@@ -359,6 +360,34 @@ export const getRepoFile = createRoute({
 })
 
 export type GetRepoFileRoute = typeof getRepoFile
+
+export const getRepoImage = createRoute({
+  path: "/sessions/{sessionId}/repo/image",
+  method: "get",
+  summary: "Preview an image in a code session's repository",
+  description:
+    "Private image bytes, up to 10 MiB, read from the session's repository with the same access and path checks as its Files tab.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema, query: repoFileQuerySchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: {
+      description: "Image bytes",
+      content: {
+        "image/*": { schema: z.string().openapi({ format: "binary" }) },
+      },
+    },
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.REQUEST_TOO_LONG]: payloadTooLargeSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetRepoImageRoute = typeof getRepoImage
 
 export const generateSessionCommitMessage = createRoute({
   path: "/sessions/{sessionId}/changes/message",

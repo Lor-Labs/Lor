@@ -15,7 +15,11 @@ import {
 import { ChannelEventRow } from "@/components/chat/channel-event-row"
 import { DateDivider } from "@/components/chat/date-divider"
 import { MessageItem } from "@/components/chat/message-item"
-import { RewoundTurnsRow, rewoundGroups } from "@/components/chat/rewound-turns"
+import {
+  type RewoundGroup,
+  RewoundTurnsRow,
+  rewoundGroups,
+} from "@/components/chat/rewound-turns"
 import type { Message } from "@/lib/api-types"
 
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
@@ -110,8 +114,16 @@ export function ConversationMessages({
     isLorReply(msg) &&
     msg.status === "complete" &&
     !setAside(index)
-  // `setAsideShown`: an unfolded message of a rewind's fold, dimmed.
-  const renderReply = (msg: Message, i: number, setAsideShown: boolean) => {
+  const renderReply = (msg: Message, i: number, history?: RewoundGroup) => {
+    // Keep items as direct scroller children so message jumps still work.
+    // Joined borders give the expanded history one continuous surface.
+    const historyClassName = history
+      ? cn(
+          "mx-4 border-border/70 border-x bg-muted/35",
+          i === history.start && "pt-1",
+          i === history.end - 1 && "mb-3 rounded-b-xl border-b pb-3"
+        )
+      : undefined
     const prev = replies[i - 1]
     const isDateBoundary = !prev || !isSameDay(msg.createdAt, prev.createdAt)
     const isWithinGroupWindow =
@@ -133,7 +145,7 @@ export function ConversationMessages({
         <MessageScrollerItem
           key={msg.id}
           messageId={msg.id}
-          className={cn(setAsideShown && "opacity-60")}
+          className={historyClassName}
         >
           {dayDivider}
           <ChannelEventRow events={[msg]} layout={layout} />
@@ -151,7 +163,7 @@ export function ConversationMessages({
         key={msg.id}
         messageId={msg.id}
         scrollAnchor={anchorIds.has(msg.id)}
-        className={cn(setAsideShown && "opacity-60")}
+        className={historyClassName}
       >
         {dayDivider}
         <MessageItem
@@ -237,16 +249,20 @@ export function ConversationMessages({
       ) : (
         replies.flatMap((msg, i) => {
           const group = groups.find((g) => i >= g.start && i <= g.end)
-          if (!group) return [renderReply(msg, i, false)]
+          if (!group) return [renderReply(msg, i)]
           // The fold's row sits under the reply rewound to; the rewind event
           // itself is that row.
-          const open = unfolded.has(group.event.id)
+          const open = group.count > 0 && unfolded.has(group.event.id)
           return [
             ...(i === group.start
               ? [
                   <MessageScrollerItem
                     key={`rewound-${group.event.id}`}
                     messageId={group.event.id}
+                    className={cn(
+                      "mx-4 mt-3 border border-border/70 bg-muted/35",
+                      open ? "rounded-t-xl" : "mb-3 rounded-xl"
+                    )}
                   >
                     <RewoundTurnsRow
                       group={group}
@@ -256,7 +272,7 @@ export function ConversationMessages({
                   </MessageScrollerItem>,
                 ]
               : []),
-            ...(open && i < group.end ? [renderReply(msg, i, true)] : []),
+            ...(open && i < group.end ? [renderReply(msg, i, group)] : []),
           ]
         })
       )}

@@ -8,6 +8,8 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
+  connectClaudeAccountBodySchema,
+  connectClaudeAccountResponseSchema,
   connectGithubAccountBodySchema,
   connectGithubAccountResponseSchema,
   disconnectGithubAccountResponseSchema,
@@ -20,7 +22,7 @@ export const getPersonalAccounts = createRoute({
   method: "get",
   summary: "List your accounts",
   description:
-    "The current user's own accounts (GitHub), used only for turns they start and actions they take. Never shared with the workspace.",
+    "The current user's own accounts (GitHub, a Claude subscription), used only for turns they start and actions they take. Never shared with the workspace.",
   tags: ["Personal Accounts"],
   middleware: [sessionAuthMiddleware] as const,
   responses: {
@@ -100,3 +102,48 @@ export const disconnectGithubAccount = createRoute({
 })
 
 export type DisconnectGithubAccountRoute = typeof disconnectGithubAccount
+
+export const connectClaudeAccount = createRoute({
+  path: "/personal-accounts/claude",
+  method: "post",
+  summary: "Connect your Claude subscription",
+  description:
+    "Stores the token `claude setup-token` printed, encrypted, after checking it with Anthropic. Used only for Claude Code turns started by the caller's own messages.",
+  tags: ["Personal Accounts"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    body: jsonContent({
+      schema: connectClaudeAccountBodySchema,
+      description: "The pasted token",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectClaudeAccountResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+  },
+})
+
+export type ConnectClaudeAccountRoute = typeof connectClaudeAccount
+
+export const disconnectClaudeAccount = createRoute({
+  path: "/personal-accounts/claude",
+  method: "delete",
+  summary: "Disconnect your Claude subscription",
+  description:
+    "Deletes the stored token. It stays valid at Anthropic until it expires or is revoked there.",
+  tags: ["Personal Accounts"],
+  middleware: [sessionAuthMiddleware] as const,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: disconnectGithubAccountResponseSchema,
+      description: "Disconnected",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+  },
+})
+
+export type DisconnectClaudeAccountRoute = typeof disconnectClaudeAccount

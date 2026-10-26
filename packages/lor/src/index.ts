@@ -26,6 +26,7 @@ import {
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import type {
   AgentRunContext,
+  ClaudeCodeMode,
   LorToolCall,
   LorToolCallUpdate,
   SandboxTurnContext,
@@ -37,8 +38,10 @@ import {
   isStepCount,
   type LanguageModelUsage,
   type ModelMessage,
+  type TextStreamPart,
   type ToolApprovalResponse,
   type ToolApprovalStatus,
+  type ToolResultPart,
   type ToolSet,
   tool,
   type UserModelMessage,
@@ -165,22 +168,44 @@ import {
 import { sandboxRequest } from "./sandbox/classifier-context"
 import { jevSandboxClassifier } from "./sandbox/jev-classifier"
 import {
+  claudeCodeToolDetail,
+  claudeCodeToolLabel,
   deniedReason,
   notRunDetail,
   piToolLabel,
   sandboxToolDetail,
 } from "./sandbox/pi-events"
 import {
+  claudeCodeAskDescription,
+  claudeCodeQuestionDescription,
   sandboxAskDescription,
   sandboxToolApproval,
 } from "./sandbox/sandbox-approval"
-import { openSessionSandbox, SESSION_WORK_DIR } from "./sandbox/session-sandbox"
-import type { HarnessOwner } from "./session-core"
 import {
+  CLAUDE_CODE_BRIDGE_PORT,
+  CLAUDE_TOKEN_PLACEHOLDER,
+  claudeCodeBridgeEndpoint,
+  grantClaudeAccess,
+  openSessionSandbox,
+  revokeClaudeAccess,
+  SESSION_WORK_DIR,
+} from "./sandbox/session-sandbox"
+import {
+  checkCompatibility,
+  type HarnessOwner,
+  type SavedHarnessState,
+} from "./session-core"
+import {
+  CLAUDE_CODE_BINDING,
+  runClaudeCodeTurn,
+} from "./session-core/claude-runtime"
+import {
+  PI_BINDING,
   PI_BUILTIN_NAMES,
   type PiCompaction,
   type PiTurnUsage,
   pausedApprovals,
+  pausedToolResults,
   piWorkDir,
   runPiTurn,
 } from "./session-core/pi-runtime"
@@ -296,11 +321,15 @@ const SANDBOX_TOOL_NAMES: ReadonlySet<string> = new Set(SANDBOX_BUILTIN_TOOLS)
 // one that is switched off.
 function sandboxPromptLine(
   builtins: readonly string[],
-  canShare: boolean
+  canShare: boolean,
+  // Claude Code brings its own file and shell tools.
+  claudeCode = false
 ): string | null {
-  if (builtins.length === 0 && !canShare) return null
-  const tools =
-    builtins.length === SANDBOX_BUILTIN_TOOLS.length
+  if (builtins.length === 0 && !canShare && !claudeCode) return null
+  const shell = claudeCode || builtins.includes("bash")
+  const tools = claudeCode
+    ? ""
+    : builtins.length === SANDBOX_BUILTIN_TOOLS.length
       ? "bash runs commands; read, write and edit work on files; grep, glob and ls find them. "
       : builtins.length > 0
         ? `Its tools here: ${builtins.join(", ")}. `
@@ -308,10 +337,10 @@ function sandboxPromptLine(
   const share = canShare
     ? "Nobody else can see its files until you call share_file with a file's path; the file then appears in the session's Files panel and you get its link to put in your answer. "
     : "Its files stay private to the sandbox. "
-  const download = builtins.includes("bash")
+  const download = shell
     ? "Files people share appear in the conversation as [file: name — type, size — url] lines; download a url into your sandbox when the work needs the file. "
     : ""
-  const network = builtins.includes("bash")
+  const network = shell
     ? "Its internet access reads from any site (GET and HEAD) but sends nothing out: other requests get HTTP 403 with a Proxy-Error: firewall_blocked header, except git clone and fetch from GitHub, GitLab and Bitbucket. The 403 message names the host, but only the method is blocked: reads from that host still work. Do not retry a blocked request or work around it; say what could not be sent. "
     : ""
   return `- Your sandbox: a private Linux computer for this session, with Python (pandas, matplotlib, openpyxl) and Node. ${tools}Files in your working folder stay between turns of this session. Use it to run code, work with data and make files: reports, cleaned or analyzed data, documents, charts. ${share}${download}${network}The sandbox holds no credentials for the team's services: reach those only through your other tools.`
@@ -414,7 +443,9 @@ function forkNote(
 function droppedTurnNote(drop: PausedTurnDrop): string {
   return drop.reason === "stopped"
     ? `${drop.by} pressed Stop while your last turn waited for approval. The actions waiting for approval did not run, and that turn ended. Do not retry them unless someone asks again.`
-    : "Lor was updated while your last turn waited for approval, so that turn ended. The actions waiting for approval did not run. If they are still needed, say so and ask again."
+    : drop.reason === "lost"
+      ? "Your last turn waited for approval, but its process ended before it could continue, so the actions it waited on did not run. If they are still needed, call them again; they ask for approval again."
+      : "Lor was updated while your last turn waited for approval, so that turn ended. The actions waiting for approval did not run. If they are still needed, say so and ask again."
 }
 
 const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
@@ -455,6 +486,15 @@ function withNotes(
         content: [{ type: "text", text: head }, ...prompt.content],
       }
 }
+
+// Appended to Claude Code's own system prompt, which it keeps: where it works
+// and the team's knowledge through Lor's tools, without Lor's persona
+// (code-sessions-runbook.md chunk 7d-3).
+const CLAUDE_CODE_PROMPT_HEAD = `You are working in a shared session in Lor, a workspace where a team works with agents. Several teammates can write in this session, and each message names its sender. A message addressed to someone else is context, not a request to you. Your replies and reactions stay in the session. Do not use emojis in your replies.
+
+Lor's tools (mcp__harness-tools__…) reach the team's own knowledge. Use them when the work needs the team's context: an earlier decision, the issue or pull request behind a change, who owns what.
+- The team's memory: notes Lor keeps about this workspace. memory_ls lists pages and memory_read reads one.
+- The team's history: search covers chat in every channel, past calls, items from connected services and earlier sessions. read_thread, read_call and fetch_source read a hit in full. Cite a message as [[msg:…]], a call as [[call:…@time]] and a source as [[src:…]] by id.`
 
 // Answer phase only; background write-back handles routine note-keeping.
 // Only appended when the roster below is non-empty; teaches Lor the exact
@@ -543,6 +583,12 @@ export type RespondContext = {
   voice?: RunVoiceContext
   // Set on every run in a code session: its repo is the work folder.
   code?: RunCodeContext
+  // A Claude Code session's turn (code-sessions-runbook.md chunk 7d): the
+  // turn starter's own Claude subscription token, who that is and the mode
+  // they picked (saved with the request, so a paused turn continues on the
+  // same person's subscription and mode). Claude Code runs the turn instead
+  // of Pi, and Lor credits are not charged.
+  claudeCode?: { token: string; userId: string; mode: ClaudeCodeMode }
   // "Continue in Code": names the session whose messages are the background.
   continuesSession?: { title: string }
   // A fork's first turn: the session it was forked from.
@@ -616,7 +662,16 @@ export {
   deleteSessionSandbox,
   SandboxCapacityError,
 } from "./sandbox/session-sandbox"
-export { pausedTurnExpired } from "./session-core/pi-runtime"
+// A paused turn saved by another adapter version cannot continue: its
+// approvals expire and the turn is dropped (pi-harness-runbook.md §4.3).
+export function pausedTurnExpired(saved: SavedHarnessState): boolean {
+  const binding =
+    saved.binding.kind === "claude_code" ? CLAUDE_CODE_BINDING : PI_BINDING
+  return (
+    saved.continuation !== null &&
+    checkCompatibility(saved, binding).continuation === "expire"
+  )
+}
 export { generateSessionTitle } from "./session-title"
 export { formatSpeakerLine } from "./transcript"
 export type {
@@ -1658,7 +1713,7 @@ export function toolLabel(toolName: string, input: unknown): string {
     case "glob":
       return piToolLabel("find", input)
     default:
-      return `Working (${toolName})`
+      return claudeCodeToolLabel(toolName, input) ?? `Working (${toolName})`
   }
 }
 
@@ -2566,11 +2621,13 @@ export async function respond(
       ...(ctx.channelId && ctx.threadRootId && !ctx.voice
         ? messageActionTools
         : {}),
-      ...(env.EXA_API_KEY ? webTools : {}),
+      // Claude Code brings its own web tools and task list, so a Claude Code
+      // turn has neither Lor's web tools nor plans.
+      ...(env.EXA_API_KEY && !ctx.claudeCode ? webTools : {}),
       ...(github ? githubTools : {}),
       ...(github && cloneRepoEnabled ? cloneRepoTool : {}),
       ...(shareFileEnabled ? shareFileTool : {}),
-      ...(ctx.plan || ctx.threadRootId ? planTools : {}),
+      ...((ctx.plan || ctx.threadRootId) && !ctx.claudeCode ? planTools : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
@@ -2833,7 +2890,7 @@ export async function respond(
 
     // Only describe the connectors actually bound for this channel.
     const connectorPromptLines = [
-      sandboxPromptLine(sandboxBuiltins, shareFileEnabled),
+      sandboxPromptLine(sandboxBuiltins, shareFileEnabled, !!ctx.claudeCode),
       hasToolGroup(webTools) ? WEB_PROMPT_LINE : null,
       hasToolGroup(githubTools) ? GITHUB_PROMPT_LINE : null,
       hasToolGroup(cloneRepoTool) ? CODE_PROMPT_LINE : null,
@@ -2874,7 +2931,12 @@ export async function respond(
     )
     // Per-session inputs only, so the prompt stays byte-stable across turns
     // (reference/planned/pi-harness-runbook.md §4.8).
-    const instructions = `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceInstructions ? `\n\n${formatInstructionsBlock(workspaceInstructions)}` : ""}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code)}` : ""}`
+    const workspaceSection = workspaceInstructions
+      ? `\n\n${formatInstructionsBlock(workspaceInstructions)}`
+      : ""
+    const instructions = ctx.claudeCode
+      ? `${[CLAUDE_CODE_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, "claude_code")}` : ""}`
+      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code)}` : ""}`
 
     // The turn's request. A retried attempt sends the saved one again. A run
     // that only finishes a paused turn sends none; its empty request still
@@ -2890,6 +2952,12 @@ export async function respond(
         ...context,
         toolSchemaBytes,
         ...(harness.continueOnly ? { continueOnly: true } : {}),
+        ...(ctx.claudeCode
+          ? {
+              claudeCodeUserId: ctx.claudeCode.userId,
+              claudeCodeMode: ctx.claudeCode.mode,
+            }
+          : {}),
         sandboxMode: harness.sandboxMode,
         sandboxContext: harness.continueOnly
           ? (harness.pausedSandboxContext ?? { request: "" })
@@ -2944,12 +3012,15 @@ export async function respond(
           })
           if (!decision) return deny(NO_DECISION_REASON)
           if (!decision.approved) return deny(decision.reason)
+          // Claude Code's own tools are always bound.
           const stillBound =
-            decision.kind === "sandbox"
-              ? sandboxBuiltins.some((name) => name === pending.toolName)
-              : Object.hasOwn(tools, pending.toolName) &&
-                (decision.kind !== "policy" ||
-                  toolTargets.targetFor(pending.toolName) === decision.target)
+            decision.kind === "claude_code"
+              ? true
+              : decision.kind === "sandbox"
+                ? sandboxBuiltins.some((name) => name === pending.toolName)
+                : Object.hasOwn(tools, pending.toolName) &&
+                  (decision.kind !== "policy" ||
+                    toolTargets.targetFor(pending.toolName) === decision.target)
           if (!stillBound) return deny(TOOL_GONE_REASON)
           if (decision.inputSha256 !== sha256(pending.input)) {
             return deny(INPUT_CHANGED_REASON)
@@ -2958,6 +3029,32 @@ export async function respond(
             type: "tool-approval-response",
             approvalId: pending.approvalId,
             approved: true,
+            // An approved Claude Code plan: the patched bridge reads the
+            // reason as the mode the turn goes on in.
+            ...(decision.kind === "claude_code" && decision.claudeCodeMode
+              ? { reason: decision.claudeCodeMode }
+              : {}),
+          }
+        })
+      : undefined
+    // A paused Claude Code turn's questions: the sender's answers, or why
+    // there are none (skipped, or someone wrote instead).
+    const answers = harness.pausedDecisions
+      ? pausedToolResults(harness.saved).map((pending): ToolResultPart => {
+          const decision = harness.pausedDecisions?.find(
+            (d) => d.harnessApprovalId === pending.toolCallId
+          )
+          return {
+            type: "tool-result",
+            toolCallId: pending.toolCallId,
+            toolName: pending.toolName,
+            output: {
+              type: "json",
+              value:
+                decision?.approved && decision.answers
+                  ? { action: "answered", answers: decision.answers }
+                  : { action: decision?.steered ? "cancelled" : "declined" },
+            },
           }
         })
       : undefined
@@ -2974,8 +3071,24 @@ export async function respond(
       "Lor pre-stream setup timing"
     )
 
-    const sandbox = await openSessionSandbox(harness.owner)
+    // A paused Claude Code turn waits in its bridge process, which this run
+    // keeps; when the process is gone the turn is dropped (7d-4a).
+    const claudePaused = Boolean(
+      ctx.claudeCode && harness.saved?.continuation && !harness.pausedDropped
+    )
+    const sandbox = await openSessionSandbox(harness.owner, {
+      keepBridges: claudePaused,
+    })
     try {
+      // The Claude Code bridge's preview link is made while the work folder
+      // is prepared; claudeCodeTurn awaits it.
+      const bridgeEndpoint = ctx.claudeCode
+        ? claudeCodeBridgeEndpoint(harness.owner)
+        : null
+      bridgeEndpoint?.catch(() => {})
+      const claudeTurnLost = claudePaused && !sandbox.bridgeRunning
+      const pausedDropped: PausedTurnDrop | null =
+        harness.pausedDropped ?? (claudeTurnLost ? { reason: "lost" } : null)
       const conversationId = conversationIdOf(harness.owner)
       const workFolder: CodeWorkFolder | null = ctx.code
         ? await prepareCodeWorkFolder({
@@ -3001,8 +3114,8 @@ export async function respond(
           )
         )
       }
-      if (harness.pausedDropped) {
-        notes.push(droppedTurnNote(harness.pausedDropped))
+      if (pausedDropped) {
+        notes.push(droppedTurnNote(pausedDropped))
       }
       // A code session's repo can also be missing without a new sandbox
       // (the folder was deleted); either way it is a fresh clone.
@@ -3040,8 +3153,15 @@ export async function respond(
           status: "error",
         })
       }
-      const prompt = harness.continueOnly
-        ? null
+      // A lost Claude Code turn has nothing to finish, so a run that only
+      // continued it tells Claude Code what happened instead.
+      const prompt: UserModelMessage | null = harness.continueOnly
+        ? claudeTurnLost
+          ? {
+              role: "user",
+              content: notes.map((note) => `[${note}]`).join("\n"),
+            }
+          : null
         : withNotes(
             request.continuationDelta !== undefined
               ? { role: "user", content: request.continuationDelta }
@@ -3168,11 +3288,15 @@ export async function respond(
       // Set by the first finish-step of an assistant message, cleared when
       // the next message ends.
       let stepBilled = false
+      // A Claude Code turn runs on its starter's own subscription: no Lor
+      // credits, no spend limit.
+      const billed = !ctx.claudeCode
       const record = async (
         usage: RunStepRecord,
         kind: "step" | "compaction",
         reasoningTokens: number
       ) => {
+        if (!billed) return
         addTo(recorded, usage, reasoningTokens)
         addToModel(usage, reasoningTokens)
         const { creditsSpent } = await harness.recordUsage(usage, kind)
@@ -3183,7 +3307,7 @@ export async function respond(
       }
       let charged = false
       const chargeTurn = (extra: RunStepRecord | null) => {
-        if (charged) return
+        if (charged || !billed) return
         charged = true
         if (extra) addToModel(extra, 0)
         let first = true
@@ -3276,137 +3400,184 @@ export async function respond(
             ? `${PLAN_AFTER_COMPACTION}${planStateSection(planContextSnapshot(planRef.current))}`
             : null,
       }
-      const turn = await runPiTurn({
-        sessionId: conversationId,
-        sessionKey: conversationId,
-        saved: harness.saved,
-        sandbox: sandbox.session,
-        systemPrompt: instructions,
-        ...(workFolder?.status === "ready" && workFolder.instructions
-          ? { contextFiles: [workFolder.instructions] }
-          : {}),
-        ...(decisions ? { decisions } : {}),
-        ...(harness.pausedDropped ? { dropPaused: true } : {}),
-        ...(prompt ? { prompt } : {}),
-        tools: guarded.tools,
-        toolsContext,
-        toolApproval: limitedToolApproval,
-        inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
-          (name) => !selectedBuiltinTools.has(name)
-        ),
-        builtinToolApproval: (call) => sandboxApproval.decide(call),
-        onPrompt: () => {
-          if (!finishingPaused) return
-          activeSandboxMode = harness.sandboxMode
-          sandboxApproval = makeSandboxApproval(requestSandboxContext)
-        },
-        model: {
-          id: LOR_MODEL,
-          fallbacks: LOR_FALLBACK_MODELS,
-          contextWindow: env.LOR_CONTEXT_WINDOW,
-        },
-        gatewayAuth: piGatewayAuth(),
-        gatewayOptions: mainGatewayOptions,
-        abortSignal,
-        onAssistantModel: (model) => {
-          stepModel = billedModel(model)
-          stepBilled = false
-        },
-        toolBlock,
-        compaction,
-        onBoundary,
-        onPart: async (part) => {
-          if (!firstPartLogged) {
-            firstPartLogged = true
-            logger.info(
-              {
-                ms: Math.round(performance.now() - streamStart),
-                partType: part.type,
-              },
-              "Lor time to first stream part"
-            )
+      const onPart = async (part: TextStreamPart<ToolSet>) => {
+        if (!firstPartLogged) {
+          firstPartLogged = true
+          logger.info(
+            {
+              ms: Math.round(performance.now() - streamStart),
+              partType: part.type,
+            },
+            "Lor time to first stream part"
+          )
+        }
+        if (part.type === "text-delta") {
+          text += part.text
+          await onDelta(part.text)
+        } else if (part.type === "reasoning-delta") {
+          await onReasoning?.(part.text, text.length)
+        } else if (part.type === "finish-step") {
+          // Billed at its first finish-step. The adapter sends an early
+          // copy, with the same usage, while Pi waits on a Lor tool result
+          // or an approval; a paused turn never sends the regular one, and
+          // its replay on resume carries zero usage.
+          if (!stepBilled) {
+            stepBilled = true
+            await finishStep(usageTokens(part.usage))
           }
-          if (part.type === "text-delta") {
-            text += part.text
-            await onDelta(part.text)
-          } else if (part.type === "reasoning-delta") {
-            await onReasoning?.(part.text, text.length)
-          } else if (part.type === "finish-step") {
-            // Billed at its first finish-step. The adapter sends an early
-            // copy, with the same usage, while Pi waits on a Lor tool result
-            // or an approval; a paused turn never sends the regular one, and
-            // its replay on resume carries zero usage.
-            if (!stepBilled) {
-              stepBilled = true
-              await finishStep(usageTokens(part.usage))
-            }
-          } else if (part.type === "tool-call") {
-            toolCallCount++
-            if (!SANDBOX_TOOL_NAMES.has(part.toolName)) {
-              sandboxApproval.observe(part.toolName, parseToolInput(part.input))
-            }
-            onToolEvent?.({
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              label: toolLabel(part.toolName, part.input),
-              at: text.length,
-            })
-          } else if (part.type === "tool-approval-response" && !part.approved) {
-            // A finished paused turn sends no result for a denied call.
-            onToolEvent?.({
-              toolCallId: part.toolCall.toolCallId,
-              toolName: part.toolCall.toolName,
-              label: toolLabel(part.toolCall.toolName, part.toolCall.input),
-              at: text.length,
-              ...notRunDetail(part.reason),
-            })
-          } else if (part.type === "tool-result") {
-            const denied = deniedReason(part.output)
-            const resolved =
-              denied !== null
-                ? notRunDetail(denied)
+        } else if (part.type === "tool-call") {
+          toolCallCount++
+          if (!SANDBOX_TOOL_NAMES.has(part.toolName)) {
+            sandboxApproval.observe(part.toolName, parseToolInput(part.input))
+          }
+          onToolEvent?.({
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            label: toolLabel(part.toolName, part.input),
+            at: text.length,
+          })
+        } else if (part.type === "tool-approval-response" && !part.approved) {
+          // A finished paused turn sends no result for a denied call.
+          onToolEvent?.({
+            toolCallId: part.toolCall.toolCallId,
+            toolName: part.toolCall.toolName,
+            label: toolLabel(part.toolCall.toolName, part.toolCall.input),
+            at: text.length,
+            ...notRunDetail(part.reason),
+          })
+        } else if (part.type === "tool-result") {
+          const denied = deniedReason(part.output)
+          const resolved =
+            denied !== null
+              ? notRunDetail(denied)
+              : ctx.claudeCode && part.providerExecuted
+                ? claudeCodeToolDetail(part.toolName, part.input, part.output)
                 : SANDBOX_TOOL_NAMES.has(part.toolName)
                   ? sandboxToolDetail(part.toolName, part.input, part.output)
                   : toolDetail(part.toolName, part.output)
-            if (resolved.status === "error") {
-              logger.warn(
-                { tool: part.toolName, error: resolved.detail?.summary },
-                "Lor tool returned an error"
-              )
-            }
-            onToolEvent?.({
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              label: toolLabel(part.toolName, part.input),
-              at: text.length,
-              ...resolved,
-            })
-          } else if (part.type === "tool-error") {
-            // Pi's sandbox tools report failures here, not as a result.
-            const error =
-              part.error instanceof Error
-                ? part.error.message
-                : String(part.error)
-            onToolEvent?.({
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              label: toolLabel(part.toolName, part.input),
-              at: text.length,
-              status: "error",
-              detail: { summary: error.slice(0, 4_000) },
-            })
-          } else if (part.type === "error") {
-            throw part.error
+          if (resolved.status === "error") {
+            logger.warn(
+              { tool: part.toolName, error: resolved.detail?.summary },
+              "Lor tool returned an error"
+            )
           }
-        },
-      }).catch((err: unknown) => {
+          onToolEvent?.({
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            label: toolLabel(part.toolName, part.input),
+            at: text.length,
+            ...resolved,
+          })
+        } else if (part.type === "tool-error") {
+          // Pi's and Claude Code's own tools report failures here, not as a
+          // result.
+          const error =
+            part.error instanceof Error
+              ? part.error.message
+              : String(part.error)
+          onToolEvent?.({
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            label: toolLabel(part.toolName, part.input),
+            at: text.length,
+            status: "error",
+            detail: { summary: error.slice(0, 4_000) },
+          })
+        } else if (part.type === "error") {
+          throw part.error
+        }
+      }
+      // The proxy adds the turn starter's Claude token to Anthropic requests
+      // for this turn only (code-sessions-runbook.md chunk 7).
+      const claudeCodeTurn = async (claude: {
+        token: string
+        mode: ClaudeCodeMode
+      }) => {
+        const access = grantClaudeAccess(harness.owner, claude.token)
+        try {
+          const [, endpoint] = await Promise.all([
+            access,
+            bridgeEndpoint ?? claudeCodeBridgeEndpoint(harness.owner),
+          ])
+          return await runClaudeCodeTurn({
+            sessionId: conversationId,
+            saved: harness.saved,
+            sandbox: sandbox.session,
+            bridge: { port: CLAUDE_CODE_BRIDGE_PORT, endpoint },
+            tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
+            mode: claude.mode,
+            instructions,
+            ...(decisions && !pausedDropped ? { decisions } : {}),
+            ...(answers && !pausedDropped ? { answers } : {}),
+            ...(pausedDropped ? { dropPaused: true } : {}),
+            ...(prompt ? { prompt } : {}),
+            tools: guarded.tools,
+            toolsContext,
+            toolApproval: limitedToolApproval,
+            abortSignal,
+            onPart,
+          })
+        } finally {
+          await revokeClaudeAccess(harness.owner).catch((err) =>
+            logger.error(
+              { err, sessionId: conversationId },
+              "Removing the Claude token from the sandbox proxy failed"
+            )
+          )
+        }
+      }
+      const turn = await (ctx.claudeCode
+        ? claudeCodeTurn(ctx.claudeCode)
+        : runPiTurn({
+            sessionId: conversationId,
+            sessionKey: conversationId,
+            saved: harness.saved,
+            sandbox: sandbox.session,
+            systemPrompt: instructions,
+            ...(workFolder?.status === "ready" && workFolder.instructions
+              ? { contextFiles: [workFolder.instructions] }
+              : {}),
+            ...(decisions ? { decisions } : {}),
+            ...(harness.pausedDropped ? { dropPaused: true } : {}),
+            ...(prompt ? { prompt } : {}),
+            tools: guarded.tools,
+            toolsContext,
+            toolApproval: limitedToolApproval,
+            inactiveBuiltinTools: SANDBOX_BUILTIN_TOOLS.filter(
+              (name) => !selectedBuiltinTools.has(name)
+            ),
+            builtinToolApproval: (call) => sandboxApproval.decide(call),
+            onPrompt: () => {
+              if (!finishingPaused) return
+              activeSandboxMode = harness.sandboxMode
+              sandboxApproval = makeSandboxApproval(requestSandboxContext)
+            },
+            model: {
+              id: LOR_MODEL,
+              fallbacks: LOR_FALLBACK_MODELS,
+              contextWindow: env.LOR_CONTEXT_WINDOW,
+            },
+            gatewayAuth: piGatewayAuth(),
+            gatewayOptions: mainGatewayOptions,
+            abortSignal,
+            onAssistantModel: (model) => {
+              stepModel = billedModel(model)
+              stepBilled = false
+            },
+            toolBlock,
+            compaction,
+            onBoundary,
+            onPart,
+          })
+      ).catch((err: unknown) => {
         // A failed turn still charges the steps that finished.
         chargeTurn(null)
         throw err
       })
 
       const stoppedFor: RunStopCause | undefined =
-        turn.pendingApprovals.length > 0
+        turn.pendingApprovals.length > 0 ||
+        (turn.pendingToolResults?.length ?? 0) > 0
           ? "awaiting_approval"
           : harness.continueOnly && harness.pausedDropped?.reason === "stopped"
             ? "stopped_by_user"
@@ -3429,6 +3600,21 @@ export async function respond(
       const approvals = turn.pendingApprovals.map(
         (pending): PendingApproval => {
           const payload = parseToolInput(pending.input)
+          // A prompt from Claude Code's own permission mode: only the
+          // turn's sender decides it (the approvals API checks).
+          if (pending.kind === "builtin" && ctx.claudeCode) {
+            return {
+              harnessApprovalId: pending.approvalId,
+              toolCallId: pending.toolCallId,
+              toolName: pending.toolName,
+              kind: "claude_code",
+              target: null,
+              action: pending.toolName,
+              description: claudeCodeAskDescription(pending.toolName, payload),
+              payload,
+              inputSha256: sha256(pending.input),
+            }
+          }
           // A Pi sandbox tool the turn's sandbox mode asked about.
           if (pending.kind === "builtin") {
             return {
@@ -3471,13 +3657,28 @@ export async function respond(
           }
         }
       )
+      // Claude Code's questions wait on the sender too, filed like its
+      // prompts; the tool call id stands in for an approval id.
+      for (const pending of turn.pendingToolResults ?? []) {
+        const payload = parseToolInput(pending.input)
+        approvals.push({
+          harnessApprovalId: pending.toolCallId,
+          toolCallId: pending.toolCallId,
+          toolName: pending.toolName,
+          kind: "claude_code",
+          target: null,
+          action: pending.toolName,
+          description: claudeCodeQuestionDescription(payload),
+          payload,
+          inputSha256: sha256(pending.input),
+        })
+      }
 
       // Only a finished turn has a total. Charged before the save, since the
       // tokens are spent either way: a retry that finds the turn saved
       // delivers it without charging again.
-      const extraUsage = turn.usage
-        ? extraTurnUsage(turn.usage, recorded)
-        : null
+      const extraUsage =
+        turn.usage && billed ? extraTurnUsage(turn.usage, recorded) : null
       chargeTurn(extraUsage)
       await harness.saveTurn({
         save: turn.save,

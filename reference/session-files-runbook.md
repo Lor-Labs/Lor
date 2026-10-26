@@ -77,6 +77,10 @@ Tick each step's boxes as it lands and record departures in "Deviations".
   rows × columns or version · size, version select, Open session (only for
   another session's file), Copy, Download. Body reuses `CsvGrid` and
   `ArtifactBody`.
+- Web/desktop image previews share `ImagePreview` with repository tabs;
+  SVG offers Preview/Source and renders through an image element. Shared
+  MIME/language mappings include Rust and JS/TS module extensions, with
+  filename inference for older artifacts stored as generic binary files.
 - `useOpenFile` / `useCloseFile` are the only way files open and close.
 - Deleted `ArtifactOverlay`, `use-artifact-conversation.ts`, the CSV
   preview card (and with it the `layoutId` morph), and the channel route's

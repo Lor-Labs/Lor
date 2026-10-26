@@ -1,8 +1,4 @@
-import {
-  ChatGptIcon,
-  ClaudeIcon,
-  ComputerTerminal01Icon,
-} from "@hugeicons/core-free-icons"
+import { ChatGptIcon, ClaudeIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { LorMark } from "@/app/components/lor-mark"
 import { PersonAvatar, RAFAEL, THEO, ZOE } from "@/app/components/mock-parts"
@@ -10,21 +6,24 @@ import { Reveal } from "@/app/components/reveal"
 
 const AGENTS = [
   {
+    name: "Lor",
+    icon: null,
+    status: "Early access",
+    surface: "bg-[#292724] text-[#c8c1b8]",
+    tilt: "sm:-rotate-6",
+  },
+  {
     name: "Claude Code",
     icon: ClaudeIcon,
+    status: "In development",
     surface: "bg-[#e5d0bc] text-[#9b5033]",
-    tilt: "sm:-rotate-6",
+    tilt: "sm:-translate-y-3",
   },
   {
     name: "Codex",
     icon: ChatGptIcon,
+    status: "Planned",
     surface: "bg-[#d8ddd2] text-[#29332c]",
-    tilt: "sm:-translate-y-3",
-  },
-  {
-    name: "Your own",
-    icon: ComputerTerminal01Icon,
-    surface: "bg-[#292724] text-[#c8c1b8]",
     tilt: "sm:rotate-6",
   },
 ]
@@ -45,9 +44,7 @@ export function AgentChoice() {
             />
             <div className="grid items-center gap-10 px-6 pt-9 pb-8 sm:px-10 sm:py-12 lg:grid-cols-[1fr_1.05fr] lg:gap-8 lg:p-14">
               <div>
-                <p className="mb-5 text-[11px] font-medium uppercase tracking-[0.16em] text-foreground/45">
-                  Work your way
-                </p>
+                <p className="mb-5 text-sm text-foreground/45">Agent choice</p>
                 <h2
                   id="agent-choice-title"
                   className="text-[clamp(2.5rem,4.6vw,3.5rem)] font-medium leading-[1.06] tracking-[-0.045em]"
@@ -57,13 +54,18 @@ export function AgentChoice() {
                   <span className="text-foreground/50">With your team.</span>
                 </h2>
                 <p className="mt-6 max-w-[34ch] text-[16px] leading-relaxed text-foreground/60">
-                  Bring Claude Code, Codex, or your own setup. Your teammates
-                  can join you in the work, using the tools you already know.
+                  Start with Lor for research, connected tools, files, and code.
+                  The workspace keeps the people and context around the work,
+                  whichever agent you use.
+                </p>
+                <p className="mt-4 max-w-[36ch] text-sm leading-relaxed text-foreground/45">
+                  Claude Code support is in development, with Codex planned
+                  next. More ways to work in the same shared space.
                 </p>
               </div>
               <div
                 role="img"
-                aria-label="Claude Code, Codex, and your own agent connect to Lor, where your whole team can work together."
+                aria-label="Lor is in early access. Claude Code support is in development. Codex is planned. All share the team's workspace."
                 className="relative mx-auto w-full max-w-[430px] pt-3 sm:pt-5"
               >
                 <div aria-hidden="true">
@@ -79,15 +81,22 @@ export function AgentChoice() {
                           <div
                             className={`flex aspect-square items-center justify-center rounded-[18px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_8px_24px_-16px_rgba(0,0,0,0.8)] ${agent.surface}`}
                           >
-                            <HugeiconsIcon
-                              icon={agent.icon}
-                              className="size-10 sm:size-12"
-                              strokeWidth={1.5}
-                            />
+                            {agent.icon ? (
+                              <HugeiconsIcon
+                                icon={agent.icon}
+                                className="size-10 sm:size-12"
+                                strokeWidth={1.5}
+                              />
+                            ) : (
+                              <LorMark className="size-10 sm:size-12" />
+                            )}
                           </div>
                         </div>
                         <p className="mt-4 whitespace-nowrap text-[12px] font-medium text-foreground/70 sm:text-[13px]">
                           {agent.name}
+                        </p>
+                        <p className="mt-1 text-center text-[10px] text-foreground/45 sm:text-[11px]">
+                          {agent.status}
                         </p>
                       </div>
                     ))}

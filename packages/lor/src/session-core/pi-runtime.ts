@@ -6,6 +6,7 @@ import {
   HarnessAgent,
   type HarnessAgentContinueTurnState,
   type HarnessAgentPendingToolApproval,
+  type HarnessAgentPendingToolResult,
 } from "@ai-sdk/harness/agent"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
@@ -80,7 +81,7 @@ function hostStateRoot(sessionId: string): string {
 
 export { piWorkDir } from "./work-dir"
 
-async function sandboxHome(sandbox: SandboxSession): Promise<string> {
+export async function sandboxHome(sandbox: SandboxSession): Promise<string> {
   const result = await sandbox.run({ command: 'printf %s "$HOME"' })
   const home = result.stdout.trim()
   if (result.exitCode !== 0 || !home) {
@@ -127,7 +128,7 @@ function gatewayModels(ids: string[], contextWindow: number) {
 // tool's context). Resolve it the way streamText does. Sorted by name: the
 // tool section heads the cached prompt, so an unchanged list must keep its
 // order (MCP and custom tools arrive in server and database order).
-function prepareTools(
+export function prepareTools(
   tools: ToolSet,
   toolsContext: Record<string, unknown> | undefined,
   sandbox: SandboxSession
@@ -157,7 +158,7 @@ function prepareTools(
 // A paused turn continues with the tool list it started with, and the harness
 // throws when one is missing. A tool Lor no longer binds (removed connector,
 // changed profile) answers as unavailable instead.
-function missingToolStubs(
+export function missingToolStubs(
   paused: HarnessAgentContinueTurnState | null,
   tools: ToolSet
 ): ToolSet {
@@ -179,21 +180,20 @@ function missingToolStubs(
   )
 }
 
-// A paused turn saved by another adapter version cannot continue: its
-// approvals expire and the turn is dropped (pi-harness-runbook.md §4.3).
-export function pausedTurnExpired(saved: SavedHarnessState): boolean {
-  return (
-    saved.continuation !== null &&
-    checkCompatibility(saved, PI_BINDING).continuation === "expire"
-  )
-}
-
 // The approvals a saved paused turn waits on.
 export function pausedApprovals(
   saved: SavedHarnessState | null
 ): HarnessAgentPendingToolApproval[] {
   const paused = saved?.continuation as HarnessAgentContinueTurnState | null
   return [...(paused?.pendingToolApprovals ?? [])]
+}
+
+// The questions a saved paused Claude Code turn waits on.
+export function pausedToolResults(
+  saved: SavedHarnessState | null
+): HarnessAgentPendingToolResult[] {
+  const paused = saved?.continuation as HarnessAgentContinueTurnState | null
+  return [...(paused?.pendingToolResults ?? [])]
 }
 
 function withGatewayOptions(
@@ -222,6 +222,8 @@ export type PiContextUsage = {
   windowTokens: number
   compactAtTokens: number
   compacted: boolean
+  // Set by Claude Code turns only (claude-runtime.ts).
+  categories?: { name: string; tokens: number }[]
 }
 
 type TurnProbe = {
@@ -559,6 +561,9 @@ export type PiTurnResult = {
   save: PiTurnSave | null
   // Set when the turn paused; the save carries its continuation.
   pendingApprovals: HarnessAgentPendingToolApproval[]
+  // Claude Code only: questions (askUserQuestions) the paused turn waits
+  // on, answered as tool results.
+  pendingToolResults?: HarnessAgentPendingToolResult[]
   // Null when Pi never reported one (it did not start, or no model answered).
   contextUsage: PiContextUsage | null
 }

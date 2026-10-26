@@ -2,40 +2,11 @@ import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import { LOR_USER_ID } from "@repo/db"
 import { env } from "@repo/env/server"
+import { fileContentType } from "@repo/utils/file-preview"
 import { tool } from "ai"
 import { z } from "zod"
 import { WORKSPACE_MOUNT } from "../sandbox/blaxel"
 import { writeArtifactVersion } from "./service"
-
-const CONTENT_TYPES: Record<string, string> = {
-  md: "text/markdown",
-  txt: "text/plain",
-  csv: "text/csv",
-  tsv: "text/tab-separated-values",
-  json: "application/json",
-  html: "text/html",
-  py: "text/x-python",
-  js: "text/javascript",
-  ts: "text/plain",
-  sql: "text/plain",
-  patch: "text/x-diff",
-  diff: "text/x-diff",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  svg: "image/svg+xml",
-  pdf: "application/pdf",
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  zip: "application/zip",
-}
-
-function contentTypeFor(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? ""
-  return CONTENT_TYPES[ext] ?? "application/octet-stream"
-}
 
 const shareFileContext = z.object({
   workspaceId: z.string(),
@@ -96,7 +67,7 @@ export const shareFileTool = {
         threadRootId: context.threadRootId,
         planId: context.getPlan()?.id ?? null,
         path: logicalPath,
-        contentType: contentTypeFor(logicalPath),
+        contentType: fileContentType(logicalPath),
         bytes,
         authorType: "agent",
         authorId: LOR_USER_ID,

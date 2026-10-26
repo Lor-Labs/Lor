@@ -1,4 +1,8 @@
 import { shellQuote } from "@ai-sdk/harness/utils"
+import {
+  imageMimeForPath,
+  MAX_IMAGE_PREVIEW_BYTES,
+} from "@repo/utils/file-preview"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { generateText, Output } from "ai"
 import { z } from "zod"
@@ -75,6 +79,7 @@ export type CodeSandbox = {
     command: string,
     options?: { env?: Record<string, string>; abortSignal?: AbortSignal }
   ): Promise<{ exitCode: number; stdout: string; stderr: string }>
+  readBinaryFile(path: string): Promise<Uint8Array | null>
   close(): void
 }
 
@@ -95,6 +100,7 @@ export function codeSandboxIn(
       if (result.exitCode === NOT_A_CLONE) throw new CodeSandboxMissingError()
       return result
     },
+    readBinaryFile: async (path) => session.readBinaryFile({ path }),
     close,
   }
 }
@@ -291,12 +297,13 @@ export async function readFileDiff(
   return { kind: "patch", patch: result.stdout }
 }
 
-// ── Files tab: the repo's tree and one file's text ─────
+// ── Files tab: the repo's tree and file previews ─────
 
 export type RepoTree = { paths: string[]; truncated: boolean }
 
 export type RepoFile =
   | { kind: "text"; content: string }
+  | { kind: "image"; mime: string; size: number }
   | { kind: "binary" }
   | { kind: "too_large" }
   | { kind: "missing" }
@@ -307,6 +314,26 @@ const FILE_OUTSIDE = 5
 const FILE_MISSING = 6
 const FILE_TOO_LARGE = 7
 const FILE_BINARY = 8
+
+function repoFileProbe(path: string, maxBytes: number): string[] {
+  return [
+    `p=$(realpath -e -- ${shellQuote(path)} 2>/dev/null) || exit ${FILE_MISSING}`,
+    `case "$p" in "$(pwd -P)"/*) ;; *) exit ${FILE_OUTSIDE};; esac`,
+    `[ -f "$p" ] || exit ${FILE_MISSING}`,
+    `[ "$(stat -c %s -- "$p")" -le ${maxBytes} ] || exit ${FILE_TOO_LARGE}`,
+  ]
+}
+
+function repoFileFailure(result: { exitCode: number; stderr: string }): {
+  kind: "missing" | "too_large" | "binary"
+} {
+  if (result.exitCode === FILE_OUTSIDE || result.exitCode === FILE_MISSING) {
+    return { kind: "missing" }
+  }
+  if (result.exitCode === FILE_TOO_LARGE) return { kind: "too_large" }
+  if (result.exitCode === FILE_BINARY) return { kind: "binary" }
+  throw new Error(`reading the file failed: ${result.stderr.slice(0, 300)}`)
+}
 
 // Tracked and untracked files, without ignored ones (node_modules, builds).
 export async function readRepoTree(sandbox: CodeSandbox): Promise<RepoTree> {
@@ -329,24 +356,44 @@ export async function readRepoFile(
   sandbox: CodeSandbox,
   path: string
 ): Promise<RepoFile> {
+  const mime = imageMimeForPath(path)
+  if (mime) {
+    const result = await sandbox.run(
+      [
+        ...repoFileProbe(path, MAX_IMAGE_PREVIEW_BYTES),
+        `stat -c %s -- "$p"`,
+      ].join("\n")
+    )
+    if (result.exitCode !== 0) return repoFileFailure(result)
+    return { kind: "image", mime, size: Number(result.stdout.trim()) }
+  }
   const result = await sandbox.run(
     [
-      `p=$(realpath -e -- ${shellQuote(path)} 2>/dev/null) || exit ${FILE_MISSING}`,
-      `case "$p" in "$(pwd -P)"/*) ;; *) exit ${FILE_OUTSIDE};; esac`,
-      `[ -f "$p" ] || exit ${FILE_MISSING}`,
-      `[ "$(stat -c %s -- "$p")" -le ${MAX_FILE_BYTES} ] || exit ${FILE_TOO_LARGE}`,
+      ...repoFileProbe(path, MAX_FILE_BYTES),
       `[ -s "$p" ] || exit 0`,
       `grep -Iq '' -- "$p" || exit ${FILE_BINARY}`,
       `cat -- "$p"`,
     ].join("\n")
   )
   if (result.exitCode === 0) return { kind: "text", content: result.stdout }
-  if (result.exitCode === FILE_OUTSIDE || result.exitCode === FILE_MISSING) {
-    return { kind: "missing" }
-  }
-  if (result.exitCode === FILE_TOO_LARGE) return { kind: "too_large" }
-  if (result.exitCode === FILE_BINARY) return { kind: "binary" }
-  throw new Error(`reading the file failed: ${result.stderr.slice(0, 300)}`)
+  return repoFileFailure(result)
+}
+
+export async function readRepoImage(sandbox: CodeSandbox, path: string) {
+  const mime = imageMimeForPath(path)
+  if (!mime) return { kind: "binary" as const }
+  const result = await sandbox.run(
+    [...repoFileProbe(path, MAX_IMAGE_PREVIEW_BYTES), `printf '%s' "$p"`].join(
+      "\n"
+    )
+  )
+  if (result.exitCode !== 0) return repoFileFailure(result)
+  const bytes = await sandbox.readBinaryFile(result.stdout)
+  if (!bytes) return { kind: "missing" as const }
+  // A file can grow while Lor is writing it, between the probe and the read.
+  if (bytes.byteLength > MAX_IMAGE_PREVIEW_BYTES)
+    return { kind: "too_large" as const }
+  return { kind: "image" as const, mime, bytes }
 }
 
 export async function stagePaths(

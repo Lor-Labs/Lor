@@ -11,7 +11,9 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
+  answerApprovalBodySchema,
   approvalParamsSchema,
+  approvePlanBodySchema,
   channelApprovalsParamsSchema,
   channelApprovalsQuerySchema,
   listChannelApprovalsResponseSchema,
@@ -75,6 +77,70 @@ export const approveApproval = createRoute({
 })
 
 export type ApproveApprovalRoute = typeof approveApproval
+
+export const approvePlanApproval = createRoute({
+  path: "/approvals/{approvalId}/approve-plan",
+  method: "post",
+  summary: "Approve a Claude Code plan",
+  description:
+    "Approves a Claude Code plan (ExitPlanMode) and sets the mode its turn goes on in, as in Claude Code's own plan dialog. Only the turn's sender may approve it.",
+  tags: ["Approvals"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: approvalParamsSchema,
+    body: jsonContent({
+      schema: approvePlanBodySchema,
+      description: "The mode the turn goes on in",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: resolveApprovalResponseSchema,
+      description: "Plan approved",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ApprovePlanApprovalRoute = typeof approvePlanApproval
+
+export const answerApproval = createRoute({
+  path: "/approvals/{approvalId}/answer",
+  method: "post",
+  summary: "Answer a Claude Code question",
+  description:
+    "Answers a Claude Code question (AskUserQuestion) and continues its turn with the answers. Only the turn's sender may answer it.",
+  tags: ["Approvals"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: approvalParamsSchema,
+    body: jsonContent({
+      schema: answerApprovalBodySchema,
+      description: "The answers, per question id",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: resolveApprovalResponseSchema,
+      description: "Question answered",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type AnswerApprovalRoute = typeof answerApproval
 
 export const rejectApproval = createRoute({
   path: "/approvals/{approvalId}/reject",

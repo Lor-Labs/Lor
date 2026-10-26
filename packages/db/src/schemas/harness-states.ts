@@ -4,7 +4,6 @@ import {
   index,
   integer,
   jsonb,
-  pgEnum,
   pgTable,
   primaryKey,
   text,
@@ -13,13 +12,9 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { agentRun } from "./agent-runs"
-import { agentSession } from "./agent-sessions"
+import { agentSession, harnessKindEnum } from "./agent-sessions"
 import { voiceSession } from "./voice"
 import { workspace } from "./workspaces"
-
-// Harnesses that can run a conversation. Claude Code and Codex join in
-// phase 2 (reference/planned/harness-sessions.md).
-export const harnessKindEnum = pgEnum("harness_kind", ["pi"])
 
 // The harness's state for one conversation: a Lor session or a voice call.
 // Postgres is the authority for the harness log Pi resumes from; sandbox and

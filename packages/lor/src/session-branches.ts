@@ -17,21 +17,53 @@ import {
   type SessionCheckpointRow,
   turnCheckpoint,
 } from "./code-checkpoints"
-import { loadHarnessState, turnEndEntryId } from "./harness-store"
+import { loadHarnessState, turnEndChunk, turnEndEntryId } from "./harness-store"
 import { SESSION_WORK_DIR } from "./sandbox/session-sandbox"
+import type { SavedHarnessState } from "./session-core"
+import {
+  branchClaudeLog,
+  lastEntryUuid,
+  rewindClaudeLog,
+} from "./session-core/claude-branch"
 import { branchPiLog, rewindPiLog } from "./session-core/pi-branch"
 import { piWorkDir } from "./session-core/work-dir"
 
 // Fork and rewind at one of Lor's replies, on the same harness with its
-// native state (code-sessions-runbook.md chunk 6): Pi's log up to that turn
-// and, in a code session, that turn's files.
+// native state (code-sessions-runbook.md chunks 6 and 7e): Pi's log or
+// Claude Code's conversation file up to that turn and, in a code session,
+// that turn's files.
 
 export class BranchRefusedError extends Error {}
 
 const ACTIVE_RUN_STATES = ["queued", "working", "finalizing"] as const
 
-// Where one of Lor's replies left the session: the saved conversation, Pi's
-// entry at the turn's end and, in a code session, the turn's checkpoint.
+// Where a turn ended in the saved conversation: Pi's entry, or Claude Code's
+// last entry and the save's last byte.
+type TurnPoint =
+  | { harness: "pi"; entryId: string }
+  | { harness: "claude_code"; entryUuid: string; endOffset: number }
+
+async function turnPoint(
+  session: AgentSession,
+  runId: string
+): Promise<TurnPoint | null> {
+  if (session.harness === "pi") {
+    const entryId = await turnEndEntryId(session.id, runId)
+    return entryId ? { harness: "pi", entryId } : null
+  }
+  const chunk = await turnEndChunk(session.id, runId)
+  const entryUuid = chunk ? lastEntryUuid(chunk.content) : null
+  if (!chunk || !entryUuid) return null
+  return {
+    harness: "claude_code",
+    entryUuid,
+    endOffset: chunk.byteOffset + Buffer.byteLength(chunk.content, "utf8"),
+  }
+}
+
+// Where one of Lor's replies left the session: the saved conversation, the
+// point in it where the turn ended and, in a code session, the turn's
+// checkpoint.
 async function turnEnd(
   session: AgentSession,
   messageId: string,
@@ -61,11 +93,11 @@ async function turnEnd(
     )
   }
 
-  const [saved, entryId] = await Promise.all([
+  const [saved, point] = await Promise.all([
     loadHarnessState({ sessionId: session.id }, session.workspaceId),
-    turnEndEntryId(session.id, run.id),
+    turnPoint(session, run.id),
   ])
-  if (!saved || !entryId) {
+  if (!saved || !point) {
     throw new BranchRefusedError(
       `That reply has no saved conversation to ${action}`
     )
@@ -80,7 +112,27 @@ async function turnEnd(
       `That turn's files weren't saved, so it can't be ${action === "fork" ? "forked" : "rewound to"}`
     )
   }
-  return { saved, entryId, code, checkpoint }
+  return { saved, point, code, checkpoint }
+}
+
+// A Claude Code fork's file and its saved format.
+function forkClaudeLog(
+  saved: SavedHarnessState,
+  endOffset: number,
+  sourceSessionId: string,
+  forkSessionId: string
+) {
+  const branched = branchClaudeLog({
+    log: saved.log,
+    endOffset,
+    head: saved.head,
+    sourceSessionId,
+    forkSessionId,
+  })
+  if (!branched) {
+    throw new BranchRefusedError("That reply's conversation can't be forked")
+  }
+  return { ...branched, formatVersion: saved.binding.formatVersion }
 }
 
 // A new session from that turn; the source session is unchanged, and Lor may
@@ -92,7 +144,7 @@ export async function forkSession(input: {
   userId: string
 }): Promise<AgentSession> {
   const { source } = input
-  const { saved, entryId, code, checkpoint } = await turnEnd(
+  const { saved, point, code, checkpoint } = await turnEnd(
     source,
     input.messageId,
     "fork"
@@ -112,11 +164,14 @@ export async function forkSession(input: {
   const title = `${source.title} (fork${forks > 0 ? ` ${forks + 1}` : ""})`
 
   const id = randomUUID()
-  const branched = await branchPiLog(
-    saved.log,
-    entryId,
-    piWorkDir(SESSION_WORK_DIR, id)
-  )
+  const branched =
+    point.harness === "pi"
+      ? await branchPiLog(
+          saved.log,
+          point.entryId,
+          piWorkDir(SESSION_WORK_DIR, id)
+        )
+      : forkClaudeLog(saved, point.endOffset, source.id, id)
   // Before the rows: a failed transaction leaves only a branch, which the
   // daily checkpoint sweep deletes.
   if (checkpoint) await branchCheckpoint(checkpoint, id)
@@ -130,6 +185,7 @@ export async function forkSession(input: {
       creatorId: input.userId,
       origin: "new",
       ...(code ? { code } : {}),
+      harness: source.harness,
       sourceSessionId: source.id,
       forkedFromMessageId: input.messageId,
       title,
@@ -182,7 +238,7 @@ export async function rewindSession(input: {
   if (session.archivedAt) {
     throw new BranchRefusedError("Unarchive the session to rewind it")
   }
-  const { saved, entryId, checkpoint } = await turnEnd(
+  const { saved, point, checkpoint } = await turnEnd(
     session,
     input.messageId,
     "rewind"
@@ -192,10 +248,15 @@ export async function rewindSession(input: {
       "Lor is waiting on an approval. Answer it or stop the turn first"
     )
   }
-  const rewound = await rewindPiLog(saved.log, entryId, {
-    logFileName: saved.head.logFileName,
-    formatVersion: saved.binding.formatVersion,
-  })
+  // Claude Code's file is unchanged: only the entry its next turn resumes
+  // from moves.
+  const rewound =
+    point.harness === "pi"
+      ? await rewindPiLog(saved.log, point.entryId, {
+          logFileName: saved.head.logFileName,
+          formatVersion: saved.binding.formatVersion,
+        })
+      : rewindClaudeLog(saved.log, point.entryUuid, saved.head)
   if (rewound.kind === "off_branch") {
     throw new BranchRefusedError(
       "That reply was already rewound. Fork from it instead"
@@ -227,7 +288,9 @@ export async function rewindSession(input: {
         "Lor is working in this session. Try again when it finishes"
       )
     }
-    // Only from the head this was built on; a turn's save in between wins.
+    // Only from the head this was built on; a turn's save or another rewind
+    // in between wins.
+    const appended = rewound.appended
     const [state] = await tx
       .update(schema.harnessState)
       .set({
@@ -235,13 +298,16 @@ export async function rewindSession(input: {
         headEntryId: rewound.head.headEntryId,
         byteLength: rewound.head.byteLength,
         sha256: rewound.head.sha256,
-        chunkCount: sql`${schema.harnessState.chunkCount} + 1`,
+        ...(appended !== null
+          ? { chunkCount: sql`${schema.harnessState.chunkCount} + 1` }
+          : {}),
       })
       .where(
         and(
           eq(schema.harnessState.sessionId, session.id),
           eq(schema.harnessState.sha256, expected.sha256),
           eq(schema.harnessState.byteLength, expected.byteLength),
+          eq(schema.harnessState.headEntryId, expected.headEntryId),
           isNull(schema.harnessState.continuation)
         )
       )
@@ -252,13 +318,15 @@ export async function rewindSession(input: {
     if (!state) {
       throw new BranchRefusedError("Lor's conversation just changed. Try again")
     }
-    await tx.insert(schema.harnessLog).values({
-      harnessStateId: state.id,
-      seq: state.chunkCount - 1,
-      byteOffset: expected.byteLength,
-      content: rewound.appended,
-      runId: null,
-    })
+    if (appended !== null) {
+      await tx.insert(schema.harnessLog).values({
+        harnessStateId: state.id,
+        seq: state.chunkCount - 1,
+        byteOffset: expected.byteLength,
+        content: appended,
+        runId: null,
+      })
+    }
   })
   return { checkpoint }
 }

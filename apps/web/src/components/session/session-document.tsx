@@ -10,6 +10,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  type DragEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -29,6 +30,10 @@ import {
 } from "@/components/chat/message-scroller-controls"
 import { RunQueuePill } from "@/components/chat/run-queue-pill"
 import { DocumentTypingIndicator } from "@/components/chat/typing-indicator"
+import {
+  ClaudeCodeModePicker,
+  useClaudeCodeMode,
+} from "@/components/session/claude-code-mode-picker"
 import { SessionTurnRail } from "@/components/session/session-turn-rail"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
@@ -68,6 +73,12 @@ import {
 } from "@/hooks/use-workspace-activity"
 import type { Message } from "@/lib/api-types"
 import { channelQueryOptions } from "@/lib/channel-query"
+import {
+  acceptsRepoFileDrag,
+  type ComposerFileReference,
+  hasRepoFileDrag,
+  readRepoFileDrag,
+} from "@/lib/repo-file-reference"
 
 // How long a local Lor turn waits for the server's before it goes.
 const LOR_TURN_TIMEOUT_MS = 20_000
@@ -86,13 +97,23 @@ export function SessionDocument({
   heading,
   archivedBar,
   cover,
+  repoSessionId,
+  onShowChat,
   onFork,
   onRewind,
   rewindRestoresFiles,
+  composerNote,
+  claudeCode = false,
 }: {
   workspaceSlug: string
   channelId: string
   threadRootId: string
+  // Above the reply line: why the agent won't answer this person (a Claude
+  // Code session without their Claude subscription).
+  composerNote?: ReactNode
+  // A Claude Code session this person can run turns in: each message carries
+  // the Claude Code mode picked in the composer.
+  claudeCode?: boolean
   // "Fork from here" on Lor's finished replies; settles when the fork opens
   // or fails.
   onFork?: (message: Message) => Promise<unknown>
@@ -112,6 +133,8 @@ export function SessionDocument({
   // A code session's open tab (a file or diff): covers the transcript and the
   // composer, which stay mounted so the scroll position and draft survive.
   cover?: ReactNode
+  repoSessionId?: string
+  onShowChat?: () => void
 }) {
   const queryClient = useQueryClient()
   const socket = useSocket()
@@ -278,7 +301,12 @@ export function SessionDocument({
     )
     const agentSession = cachedSessionForThread(queryClient, threadRootId)
     if (!agentSession || agentSession.archivedAt) return
-    const toLor = !options?.toPeople && !pendingLorMessage
+    // Without the sender's Claude subscription the server sends a Claude
+    // Code session's message to its people only.
+    const toLor =
+      !options?.toPeople &&
+      !pendingLorMessage &&
+      (agentSession.harness !== "claude_code" || claudeCode)
     if (toLor) {
       const lorAuthor = messages.find((m) => m.authorId === LOR_USER_ID)
         ?.author ?? { id: LOR_USER_ID, name: "Lor", image: null }
@@ -373,10 +401,59 @@ export function SessionDocument({
     ensureMessage,
   })
   const { scrollRef, scrollToEndRef } = scroll
+  const [isRepoDragActive, setIsRepoDragActive] = useState(false)
+  const [fileReference, setFileReference] = useState<ComposerFileReference>()
+  const canReferenceFiles = Boolean(
+    repoSessionId && !archivedBar && !isAwaitingReplies
+  )
+  const onRepoDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasRepoFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.stopPropagation()
+    const accepted =
+      canReferenceFiles &&
+      acceptsRepoFileDrag(event.dataTransfer, repoSessionId)
+    event.dataTransfer.dropEffect = accepted ? "copy" : "none"
+    setIsRepoDragActive(accepted)
+    if (accepted && cover) onShowChat?.()
+  }
+  const onRepoDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasRepoFileDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.stopPropagation()
+    setIsRepoDragActive(false)
+    const reference = readRepoFileDrag(event.dataTransfer)
+    if (
+      !canReferenceFiles ||
+      reference?.sessionId !== repoSessionId ||
+      reference?.workspaceSlug !== workspaceSlug
+    )
+      return
+    setFileReference({
+      id: crypto.randomUUID(),
+      reference,
+      point: cover ? undefined : { left: event.clientX, top: event.clientY },
+    })
+    if (cover) onShowChat?.()
+  }
+  useEffect(() => {
+    const clearDrag = () => setIsRepoDragActive(false)
+    window.addEventListener("dragend", clearDrag)
+    return () => window.removeEventListener("dragend", clearDrag)
+  }, [])
+  useEffect(() => {
+    setFileReference(undefined)
+    setIsRepoDragActive(false)
+  }, [repoSessionId])
+  useEffect(() => {
+    if (cover || (!isRepoDragActive && !fileReference)) return
+    scrollToEndRef.current?.({ behavior: "auto" })
+  }, [cover, isRepoDragActive, fileReference, scrollToEndRef])
   // The bar under the document the inline composer's tools render into.
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
     null
   )
+  const claudeMode = useClaudeCodeMode()
 
   // The heading renders once the oldest page is loaded; until then, and once
   // it scrolls away, the header carries the title.
@@ -410,11 +487,22 @@ export function SessionDocument({
       />
       {/* Right above the reply line, like other people's draft lines. */}
       <DocumentTypingIndicator people={typingPeople} />
+      {composerNote}
       <MessageInput
         key={threadRootId}
         context={CHANNEL_CONTEXT}
         channelId={channelId}
         contextScopeKey={threadRootId}
+        composerFileReference={
+          !cover && fileReference?.reference.sessionId === repoSessionId
+            ? fileReference
+            : undefined
+        }
+        onComposerFileReferenceConsumed={(id) =>
+          setFileReference((current) =>
+            current?.id === id ? undefined : current
+          )
+        }
         placeholder="Reply…"
         destination="session"
         subscribers={otherSubscribers}
@@ -437,8 +525,21 @@ export function SessionDocument({
             className="size-7"
           />
         }
+        tools={
+          claudeCode ? (
+            <ClaudeCodeModePicker
+              value={claudeMode.mode}
+              onChange={claudeMode.setMode}
+            />
+          ) : undefined
+        }
+        onShiftTab={claudeCode ? claudeMode.cycle : undefined}
         onSend={(content, options) => {
-          const nonce = handleSend(content, options)
+          const nonce = handleSend(content, {
+            mentions: [],
+            ...options,
+            ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
+          })
           if (nonce) showSendEffects(nonce, options)
           scroll.scrollAfterSend()
           // Lor is mid-answer, so a message for Lor will queue — show it in
@@ -470,9 +571,31 @@ export function SessionDocument({
   return (
     <div
       {...getRootProps()}
+      onDragEnterCapture={onRepoDragOver}
+      onDragOverCapture={onRepoDragOver}
+      onDragLeaveCapture={(event) => {
+        if (!hasRepoFileDrag(event.dataTransfer)) return
+        event.stopPropagation()
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        ) {
+          setIsRepoDragActive(false)
+        }
+      }}
+      onDropCapture={onRepoDrop}
       className="@container relative flex h-full w-full flex-col"
     >
       <DropZoneOverlay isDragActive={isDragActive} />
+      {isRepoDragActive && (
+        <div className="pointer-events-none absolute inset-0 z-40 rounded-lg border-2 border-dashed border-primary/40">
+          <div className="absolute inset-x-0 bottom-16 flex justify-center">
+            <span className="rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm">
+              Drop to reference this file or folder
+            </span>
+          </div>
+        </div>
+      )}
       <ForwardDialog
         message={forwarding}
         workspaceSlug={workspaceSlug}

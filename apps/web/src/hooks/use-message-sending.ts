@@ -1,6 +1,7 @@
 import { LOR_USER_ID } from "@repo/db/constants"
 import {
   type RealtimeMessageEmbedsUpdated,
+  type SendMessagePayload,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
@@ -184,6 +185,10 @@ export function useMessageSending({
         startSession?: boolean
         // With startSession: start it in Code mode on this repo and branch.
         code?: { repo: string; branch: string }
+        // With code: Claude Code runs it instead of Lor's own agent.
+        harness?: "pi" | "claude_code"
+        // A Claude Code session: the mode for the turn this message starts.
+        claudeCodeMode?: SendMessagePayload["claudeCodeMode"]
         // With startSession: "Continue in Code" from this session.
         continueFrom?: { id: string; title: string }
         // "Ask Lor about this": the message the new session starts with.
@@ -220,12 +225,14 @@ export function useMessageSending({
           ? { id: crypto.randomUUID(), threadRootId: crypto.randomUUID() }
           : null
       const code = options?.startSession ? options.code : undefined
+      const harness = code ? options?.harness : undefined
       const source = options?.startSession ? options.continueFrom : undefined
       const start: SessionStart | null = startIds
         ? {
             ...startIds,
             origin: options?.startSession ? "new" : "chat",
             ...(code ? { code } : {}),
+            ...(harness ? { harness } : {}),
             ...(source ? { source } : {}),
             title: sessionTitleFromPrompt(content),
             stay: Boolean(options?.stay),
@@ -277,6 +284,8 @@ export function useMessageSending({
           toPeople: options?.toPeople || undefined,
           startSession: options?.startSession || undefined,
           code,
+          harness,
+          claudeCodeMode: options?.claudeCodeMode,
           continueFrom: source?.id,
           newSession: start
             ? { id: start.id, threadRootId: start.threadRootId }

@@ -9,6 +9,7 @@ import {
 } from "@repo/db"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, ForwardedMessage } from "@repo/db/schema"
@@ -55,6 +56,7 @@ export type NewSessionInput = Pick<
   | "threadRootId"
   | "origin"
   | "code"
+  | "harness"
   | "sourceSessionId"
   | "title"
   | "contextMessageIds"
@@ -440,6 +442,13 @@ export async function createMessage(
   if (existingSession?.archivedAt) throw new Error("This session is archived")
   const isPersonInSession =
     Boolean(input.newSession || existingSession) && input.userId !== LOR_USER_ID
+  // A Claude Code turn runs only on the sender's own Claude subscription
+  // (code-sessions-runbook.md chunk 7): without one, the message is for the
+  // session's people only.
+  const withoutClaude =
+    isPersonInSession &&
+    existingSession?.harness === "claude_code" &&
+    !(await hasPersonalAccount(input.userId, "claude"))
 
   const runInsertTransaction = () =>
     db.transaction(async (tx) => {
@@ -531,7 +540,7 @@ export async function createMessage(
       const routedToLor = isPersonInSession
         ? sessionMessageRunsLor({
             content: input.payload.content,
-            toPeople: input.payload.toPeople,
+            toPeople: input.payload.toPeople || withoutClaude,
             replyAuthorId,
             senderId: input.userId,
             startsSession: Boolean(input.newSession),
@@ -553,6 +562,10 @@ export async function createMessage(
           forwarded,
           threadRootId: session?.threadRootId ?? threadRootId,
           routedToLor,
+          // Read only by a Claude Code session's turn.
+          claudeCodeMode: isPersonInSession
+            ? (input.payload.claudeCodeMode ?? null)
+            : null,
           attachments: input.payload.attachments ?? [],
           status: input.status,
           clientKey: input.payload.nonce ?? null,

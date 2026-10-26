@@ -85,6 +85,18 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   "session_rewound",
 ])
 
+// Claude Code's own permission modes, picked per message in a Claude Code
+// session's composer (code-sessions-runbook.md chunk 7d-4b).
+export const claudeCodeModeEnum = pgEnum("claude_code_mode", [
+  "auto",
+  "default",
+  "acceptEdits",
+  "plan",
+  "bypassPermissions",
+])
+
+export type ClaudeCodeMode = (typeof claudeCodeModeEnum.enumValues)[number]
+
 // Lifecycle of a message row. Everything is "complete" except a Lor
 // placeholder, which lands as "pending" and flips to "complete"/"failed" when
 // the worker finishes — so the thinking indicator survives a reload/late join.
@@ -135,6 +147,11 @@ export const message = pgTable(
     // subscribers only (shown as an aside). Null outside sessions and on
     // Lor's own messages.
     routedToLor: boolean("routed_to_lor"),
+
+    // A person's message in a Claude Code session: the mode the sender
+    // picked for the turn it starts. It stays with the message while it waits
+    // in the session's queue.
+    claudeCodeMode: claudeCodeModeEnum("claude_code_mode"),
 
     // file attachments as JSON array
     // [{ url, filename, size, contentType, width?, height? }]

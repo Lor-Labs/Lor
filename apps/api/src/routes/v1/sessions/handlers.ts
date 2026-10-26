@@ -32,6 +32,7 @@ import {
   readChanges,
   readFileDiff,
   readRepoFile,
+  readRepoImage,
   readRepoTree,
   readUnpushedCommits,
   stagePaths,
@@ -66,6 +67,7 @@ import type {
   GenerateSessionCommitMessageRoute,
   GetAgentSessionRoute,
   GetRepoFileRoute,
+  GetRepoImageRoute,
   GetRepoTreeRoute,
   GetSessionChangeDiffRoute,
   GetSessionChangesRoute,
@@ -1190,6 +1192,56 @@ export const getRepoFile: AppRouteHandler<GetRepoFileRoute> = async (c) => {
     readRepoFile(sandbox, path)
   )
   return c.json(isGap(file) ? { kind: file } : file, HttpStatusCodes.OK)
+}
+
+export const getRepoImage: AppRouteHandler<GetRepoImageRoute> = async (c) => {
+  c.header("Cache-Control", "private, no-store")
+  const { sessionId } = c.req.valid("param")
+  const { path } = c.req.valid("query")
+  const session = await findCodeSession(sessionId, c.var.user.id)
+  if (!session) return c.json(codeSessionNotFound, HttpStatusCodes.NOT_FOUND)
+  const image = await withCodeSandbox(session, (sandbox) =>
+    readRepoImage(sandbox, path)
+  )
+  if (isGap(image)) {
+    return c.json(
+      {
+        success: false as const,
+        message: "The session's files are unavailable. Try again shortly.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (image.kind === "missing") {
+    return c.json(
+      { success: false as const, message: "File not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (image.kind === "too_large") {
+    return c.json(
+      {
+        success: false as const,
+        message: "Image exceeds the 10 MiB preview limit",
+      },
+      HttpStatusCodes.REQUEST_TOO_LONG
+    )
+  }
+  if (image.kind !== "image") {
+    return c.json(
+      {
+        success: false as const,
+        message: "This file is not a supported image",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  return c.body(new Uint8Array(image.bytes), HttpStatusCodes.OK, {
+    "Content-Type": image.mime,
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy":
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+  })
 }
 
 export const generateSessionCommitMessage: AppRouteHandler<

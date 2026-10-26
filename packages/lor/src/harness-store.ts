@@ -88,15 +88,18 @@ export async function loadHarnessState(
   }
 }
 
-// Where a run's turn ended in a session's Pi log: the last entry of the run's
-// last save. Null when the run saved nothing, or a later format conversion
-// stored the whole log as one chunk under another run.
-export async function turnEndEntryId(
+// A run's last save in a session's log: its bytes and where they start. Null
+// when the run saved nothing, or a later save replaced the whole log (a Pi
+// format conversion, a rewritten Claude Code file) under another run.
+export async function turnEndChunk(
   sessionId: string,
   runId: string
-): Promise<string | null> {
+): Promise<{ content: string; byteOffset: number } | null> {
   const [chunk] = await db
-    .select({ content: schema.harnessLog.content })
+    .select({
+      content: schema.harnessLog.content,
+      byteOffset: schema.harnessLog.byteOffset,
+    })
     .from(schema.harnessLog)
     .innerJoin(
       schema.harnessState,
@@ -110,6 +113,16 @@ export async function turnEndEntryId(
     )
     .orderBy(desc(schema.harnessLog.seq))
     .limit(1)
+  return chunk ?? null
+}
+
+// Where a run's turn ended in a session's Pi log: the last entry of the run's
+// last save.
+export async function turnEndEntryId(
+  sessionId: string,
+  runId: string
+): Promise<string | null> {
+  const chunk = await turnEndChunk(sessionId, runId)
   const last = chunk?.content.trimEnd().split("\n").at(-1)
   if (!last) return null
   const entry = JSON.parse(last) as { id?: unknown }

@@ -5,8 +5,9 @@ import { useEffect } from "react"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
 
-// The person's own accounts (GitHub), never shared with the workspace
-// (reference/planned/code-sessions-runbook.md, chunk 4).
+// The person's own accounts (GitHub, a Claude subscription), never shared
+// with the workspace (reference/planned/code-sessions-runbook.md, chunks 4
+// and 7).
 
 export const personalAccountsKey = ["personal-accounts"] as const
 
@@ -55,6 +56,41 @@ export function useConnectGithubAccount() {
       } catch {}
       openExternal(url)
     },
+    onError: (err) => toast.error(err.message),
+  })
+}
+
+// The token `claude setup-token` printed; the server checks it with
+// Anthropic before storing it, so its message is the reason to show.
+export function useConnectClaudeAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (token: string) => {
+      const res = await apiClient.v1["personal-accounts"].claude.$post({
+        json: { token },
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Couldn't connect Claude")
+      }
+      return res.json()
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+  })
+}
+
+export function useDisconnectClaudeAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.v1["personal-accounts"].claude.$delete()
+      if (!res.ok) throw new Error("Couldn't disconnect Claude")
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
     onError: (err) => toast.error(err.message),
   })
 }

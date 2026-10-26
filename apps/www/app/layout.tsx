@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://lor.chat"),
   title: "Lor | Work with AI, together",
   description:
-    "Lor is where your team talks and gets work done. Bring AI into the conversation, pull in an engineer, and turn an idea into something everyone can use.",
+    "Research, build, and make decisions with AI in shared sessions. Lor brings your team's conversations, tools, and knowledge into the work, so anyone can pick it up.",
   icons: {
     icon: [
       { url: "/lor-icon.svg", type: "image/svg+xml" },
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Lor | Work with AI, together",
     description:
-      "Work with AI and your team in the same place. Bring someone into a conversation, build something together, and pick up where they left off.",
+      "Bring your team's context into shared AI sessions. Go from a customer question to research, code, and review, with teammates who can pick up where you left off.",
     url: "https://lor.chat",
     siteName: "Lor",
     type: "website",

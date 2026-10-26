@@ -16,7 +16,7 @@ import { approval } from "./approvals"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
-import type { LorToolCall } from "./messages"
+import type { ClaudeCodeMode, LorToolCall } from "./messages"
 import { message } from "./messages"
 import type { PlanStatus, PlanStep } from "./plans"
 import { triggerDelivery } from "./trigger-deliveries"
@@ -420,6 +420,12 @@ export type AgentRunContext = {
   // The run only finished a paused turn and sent no prompt; the next delta
   // walks back through it (continuedFromRunId) to the paused run.
   continueOnly?: boolean
+  // A Claude Code turn: the person whose subscription it runs on, and the
+  // mode they picked. A run that continues its paused turn reads both here
+  // (the resume's trigger is Lor's own message, and the approver may be
+  // someone else).
+  claudeCodeUserId?: string
+  claudeCodeMode?: ClaudeCodeMode
   // Pi's own count of the conversation's context after the turn, for the
   // context meter.
   contextUsage?: AgentRunContextUsage
@@ -433,6 +439,9 @@ export type AgentRunContextUsage = {
   windowTokens: number
   compactAtTokens: number
   compacted: boolean
+  // Claude Code turns: its own /context rows that fill the window (System
+  // prompt, System tools, MCP tools, Messages, …), counted by Claude Code.
+  categories?: { name: string; tokens: number }[]
 }
 
 export type AgentRun = typeof agentRun.$inferSelect

@@ -49,7 +49,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | Doc | Use |
 |---|---|
 | `product-direction.md` | Current priorities and what is deferred |
-| `positioning.md` | Marketing and sales positioning, and how it differs from current www copy. Direction 2026-10-12, not locked |
+| `positioning.md` | Current www narrative and capability boundaries (2026-10-25), with earlier marketing and sales positioning retained as history |
 | `voice-channels.md` | Guiding product spec for voice; its "Voice channel model" decisions win over the runbook and research |
 | `workspace-model.md` | Locked design for channels, Lor sessions, subscriptions and archive; wins over its runbook on product behavior |
 | `adding-a-connector.md` | Runbook for wiring a new integration |

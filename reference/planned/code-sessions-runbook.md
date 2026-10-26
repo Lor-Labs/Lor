@@ -91,8 +91,17 @@ may lag web), a Lor-offered "Continue in Code" card.
   full-screen):
   - [x] **F1** Files tab: `/sessions/{id}/repo/tree` (`git ls-files`,
     tracked and untracked, at most 20,000 paths) and `/repo/file` (text up
-    to 1 MB; binary, too large, and paths resolving outside the repo
-    reported). Tree with folders, a filter, change marks.
+    to 1 MB; image metadata; unsupported binary, too large, and paths
+    resolving outside the repo reported). Tree with folders, a filter,
+    change marks. `/repo/image` serves private image bytes up to 10 MiB
+    through the authenticated client, including desktop. PNG, JPEG, GIF,
+    WebP, AVIF, BMP, ICO and SVG render as images; SVG has Preview/Source
+    tabs (source up to 2 MiB). Blob URLs are released on replacement/close.
+    File and diff views preload each requested language; Rust, JS module
+    extensions and SVG/XML use explicit language mappings.
+    Sandbox commands read full process logs after completion; truncated
+    process summaries must not become file paths, diffs or preview content.
+    A log retrieval failure surfaces as an error instead of empty output.
   - [x] **F2** Tabs beside the chat: Chat (fixed) plus file, diff and "All
     changes" tabs; the chat stays mounted. Preview tabs (single click
     reuses one); open tabs per person per session in local storage, the
@@ -104,7 +113,7 @@ may lag web), a Lor-offered "Continue in Code" card.
       jumped down when tabs opened.) The active tab is `?open=file:<path>`
       or `diff:<path>` (`?tab=` is the settings dialog's). The tab covers
       the transcript, which stays mounted but inert; type-to-focus and file
-      drops pause. A double click keeps a preview tab. The Changes and Files
+      uploads pause. A double click keeps a preview tab. The Changes and Files
       lists went back to rail width.
     - "All changes" (`?open=changes`, the Changes list's View all): one
       card per file with a sticky header and its stage checkbox; each diff
@@ -116,6 +125,17 @@ may lag web), a Lor-offered "Continue in Code" card.
     to Chat. Ctrl+Tab, Ctrl+Shift+Tab and Cmd+W only in the Mac app
     (browsers keep them). Cmd+W relies on WKWebView giving the page the key
     before the menu's Close Window: not yet checked in the app.
+  - [x] **F4** Files tree → composer: drag a file or folder from the tree
+    (or a file from filtered results) into its session to insert an atomic
+    reference chip. Entering the document with a reference drag returns to
+    Chat and reveals the composer; the existing draft survives. A drop
+    inside the editor inserts at the drop position, elsewhere appends.
+    References serialize as ordinary Markdown
+    links with the full repo-relative path. Folder chips have a folder icon
+    and trailing slash; their links reveal and expand the folder in the
+    Files panel. File links open the file's tab. No upload or content snapshot
+    is made. Archived sessions and references from other sessions are not
+    accepted.
 - [ ] **4. Personal GitHub and shipping.** The GitHub App's user
   authorization, stored and refreshed tokens, a connect prompt; Push and
   Create PR as the person, or as the Lor bot by setting. Decided with Jacob
@@ -313,8 +333,8 @@ may lag web), a Lor-offered "Continue in Code" card.
   - Rewind in a code session puts back the full state of that turn: files,
     branch and commits. What was pushed stays on GitHub; the next push asks
     to pull first.
-  - After a rewind, the later turns stay in the transcript, collapsed under
-    a row ("Jacob rewound to here · 6 messages · Show"), and Lor no longer
+  - After a rewind, the later turns stay in the transcript, collapsed into
+    a "Previous history" panel with the actor and message count, and Lor no longer
     sees them. A collapsed Lor reply can still be forked, so nothing is
     lost. Not hidden: in a shared session everyone sees who rewound and
     what was undone.
@@ -415,10 +435,12 @@ may lag web), a Lor-offered "Continue in Code" card.
       reply for everyone. Later messages fold away.", which also names the
       files in a code session). Its button spins until the server answers.
     - The `session_rewound` row folds what came after the reply, right
-      under it: "(avatar) Jacob ↺ rewound to here · 6 messages · Show"
-      (`rewound-turns.tsx`). Show unfolds them dimmed; their Lor replies
-      keep Fork. Overlapping rewinds fold together. The row arrives like
-      any message, so everyone's transcript folds at once.
+      under it (`rewound-turns.tsx`). Updated 2026-10-25: a bordered, tinted
+      "Previous history" panel with a rewind icon, message count, actor and
+      View/Hide control. Expanded messages keep normal contrast inside the
+      shared surface, and their Lor replies keep Fork. Each message stays a
+      direct scroller item for navigation. Overlapping rewinds fold together.
+      The row arrives like any message, so everyone's transcript folds at once.
   - Times (Jacob 2026-10-24): Lor's reply row ends with the reply's time;
     a person's follow-up line shows its time in the gutter on hover; a date
     divider (channel chat's) marks each new day in the transcript, but not
@@ -429,7 +451,360 @@ may lag web), a Lor-offered "Continue in Code" card.
     new session". Mobile still shows the event's plain text, like the other
     session events.
 - [ ] **7. Claude Code** on the session contract: native state per turn,
-  approvals and Lor's sandbox policy, sign-in, usage.
+  approvals and Lor's sandbox policy, sign-in, usage. Decided with Jacob
+  2026-10-24 (terms read the same day, under Research):
+  - **Subscription only for now:** each person pastes their own Claude Code
+    token once (from `claude setup-token`, as Amp does), in Linked
+    accounts. No API-key option yet. Jacob's call against the terms' "may
+    not collect, store, or intermediate" line, pending his question to
+    Anthropic's sales.
+  - **Only that person's own messages use it:** never Act or Loop runs,
+    never someone else's turn. In a Claude Code session, a teammate's
+    message during a running turn queues as its own turn instead of
+    steering it. The token stays out of the sandbox: Blaxel's proxy adds it
+    to Anthropic requests only while its owner's turn runs (to be proven in
+    the spike), and it is encrypted at rest.
+  - **No Lor credits for Claude Code turns** (the terms forbid paying for
+    users' Claude usage; supersedes the 2026-10-21 plan). Someone without a
+    token sees "Connect your Claude subscription" and "Continue with Lor":
+    a new Lor session (Lor credits) with this one as its context.
+  - **Claude Code's own permission modes:** Default (asks), Accept edits,
+    Plan, Auto (classifier) and Bypass, picked in the composer per message
+    like Shift+Tab; prompts become Lor's approval cards. Needs a patch: the
+    adapter only maps three coarse modes.
+  - Adapter 1.0.162 (see Research). Parts: 7a Blaxel spike (bridge over a
+    private preview WebSocket, standby, proxy-injected token, Claude Code
+    through our egress); 7b sandbox groundwork (image, port, bridge
+    lifetime, egress, bridge-token patch); 7c the harness choice and the
+    Claude account; 7d the Claude Code turn (native state per turn, Lor's
+    tools, modes and approvals, events, usage); 7e fork and rewind for
+    Claude Code (later).
+  - **7a spike, part 1** (2026-10-25, throwaway sandbox, our image, deleted):
+    - A `ws` server on `0.0.0.0` was reachable through a private preview
+      (`previews.createIfNotExists({ spec: { port, public: false } })`,
+      token in `?bl_preview_token=`): about 38 ms per round trip from a Mac.
+      The preview URL is `spec.url`.
+    - The same process (same pid) answered after 1 and after 3 minutes with
+      no connection. The sandbox status stayed `DEPLOYED`, so it is not
+      proven that it went to standby. Reconnecting took about 0.5 s.
+    - `SandboxInstance.updateNetwork` on the running sandbox added a POST
+      rule and a routing rule without stopping the process. The proxy
+      filled `{{SECRET:name}}` both in a header it injects and in a header
+      the sandbox sent, so code in the sandbox can use the secret while the
+      rule exists: add it for the owner's turn only.
+  - [x] **7a spike, parts 2 and 3** (2026-10-25, Jacob's `setup-token`
+    token, throwaway sandboxes, deleted):
+    - Claude Code 2.1.290 (`npm i`, 4 s) answered on Jacob's subscription
+      with `CLAUDE_CODE_OAUTH_TOKEN='{{SECRET:claude}}'` and a routing rule
+      for `api.anthropic.com` holding the token: "pong" in 1.7 s (Sonnet
+      5.5). Without the proxy the same placeholder got "401 Invalid bearer
+      token", so the token never was in the sandbox. Node needs
+      `NODE_EXTRA_CA_CERTS="$SSL_CERT_FILE"` for the proxy's CA.
+    - Egress: reads anywhere plus POST to `api.anthropic.com/*` was enough;
+      `--debug` showed no blocked calls, with or without
+      `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+    - Bypass mode refuses root unless `IS_SANDBOX=1` (then it works); as a
+      normal user it works too.
+    - The model's Bash saw `BRIDGE_CHANNEL_TOKEN` (patch the bridge to drop
+      it) but not `CLAUDE_CODE_OAUTH_TOKEN`: Claude Code keeps its own
+      sign-in variable out of its shell.
+    - A `setup-token` token printed wraps over lines in the terminal; a
+      pasted copy must be joined (108 characters).
+  - [x] **7b** sandbox groundwork, built 2026-10-25:
+    - The image (`sandbox/workbench:latest`, pushed with `bl push`) has
+      pnpm 10.34.8 and the bridge's packages (Claude Code 2.1.290, Agent
+      SDK 0.3.290) where the adapter's bootstrap puts them, so a new
+      sandbox's bootstrap finds them in place.
+    - `@ai-sdk/harness-claude-code` 1.0.162 in `@repo/lor`, patched
+      (`patches/@ai-sdk__harness-claude-code@1.0.162.patch`): the bridge
+      takes `BRIDGE_CHANNEL_TOKEN` out of its env before Claude Code
+      inherits it. A root shell could still read the bridge's original env
+      in `/proc`; running Claude Code as its own user would close that.
+    - Session sandbox (`session-sandbox.ts`): the bridge spawns as
+      `bridge-*` with no keepAlive or time limit, `IS_SANDBOX=1`, the
+      proxy CA, and no auto-updater or nonessential traffic. Its output
+      streams end after `bridge-ready`, so nothing polls the sandbox while
+      the bridge waits. Leftover bridges are stopped unless a run continues
+      a parked turn (`openSessionSandbox(owner, { keepBridges })`).
+      `grantClaudeAccess` / `revokeClaudeAccess` add and remove the POST
+      rule and the token routing rule; `claudeCodeBridgeEndpoint` gives the
+      private preview URL with a per-turn token header.
+    - Checked live with the real adapter in a throwaway session sandbox:
+      sandbox 7.6 s, bootstrap and bridge 9.1 s, a turn with two tool calls
+      6.6 s, answered on the subscription; the model's shell found no
+      `BRIDGE_CHANNEL_TOKEN`; nothing left running after the session
+      ended. Not yet checked: a bridge parked on an approval across real
+      standby (needs 7d's approvals).
+  - [x] **7c-1** Claude subscription in Linked accounts, built 2026-10-25:
+    - `personal_account_provider` gains `claude` (additive `db:push`).
+      `POST /personal-accounts/claude` takes the pasted token (spaces and
+      line breaks removed, `sk-ant-oat01-` only), checks it with
+      Anthropic's free model list (a bad token gets 401), and stores it
+      encrypted with an estimated one-year expiry. `DELETE` removes it;
+      Anthropic has no revoke endpoint for setup tokens.
+    - Setup tokens can run models but not read the profile (403), so the
+      row shows "Token ending in ABCD · connected Oct 25", not an email.
+    - Settings → Linked accounts: a "Claude subscription" row with a
+      neutral icon and a connect
+      dialog modeled on Amp's three steps.
+  - [x] **7c-2** the harness choice, built 2026-10-25:
+    - `agent_session.harness` (`harness_kind`, default `pi`; the enum gains
+      `claude_code` and moved to `agent-sessions.ts`, since
+      `harness-states.ts` imports that file). Additive `db:push`.
+    - New session, Code mode: "with Lor ▾ / Claude Code" beside the repo
+      picker (remembered like the mode). Claude Code without a connected
+      subscription shows "Claude Code runs on your own Claude
+      subscription" with Connect (the same dialog) and blocks the start;
+      realtime refuses it too. Code sessions only for now.
+    - In a Claude Code session, a message from someone without a
+      subscription goes to people only (`toPeople`), so it never runs on
+      anyone's plan. Above their reply line: "Connect your Claude
+      subscription" and "Continue with Lor" (New session with
+      `continueFrom` and `harness=pi`). The heading shows "Claude Code".
+    - Fork and rewind refused Claude Code sessions until 7e.
+  - [x] **7d-1 spike** (2026-10-25, three turns through the adapter in a
+    throwaway session sandbox, then deleted):
+    - A conversation is one append-only file,
+      `~/.claude/projects/<cwd with / as ->/<claude session id>.jsonl`
+      (about 90 KB after a short first turn, a few KB per short turn
+      after). `session.stop()` returns `{ claudeSessionId }` (the finish
+      part's metadata did not carry it); resuming with it keeps the same id
+      and appends to the same file. Without it, every turn starts a new
+      conversation.
+    - After deleting `~/.claude/projects` and writing the saved file back,
+      the next turn remembered the earlier turns. So Claude Code's state is
+      stored like Pi's log: `harness_state` and `harness_log` chunks with
+      kind `claude_code`, written back before each turn. Subagent side
+      files (`<id>/subagents/`) are not saved yet.
+    - The adapter's work folder is `<pwd>/claude-code-<sessionId>`; Lor
+      sets the harness `workDir` to the session's existing work folder, so
+      clone, checkpoints, restore and the Changes panel need no change.
+  - [x] **7d-2** the Claude Code turn, built 2026-10-25 (not yet run live):
+    - `session-core/claude-runtime.ts` (`runClaudeCodeTurn`): writes the
+      saved conversation file back when its sha differs, runs the turn
+      through `HarnessAgent` + `createClaudeCode` (bridge over the private
+      preview, token placeholder, `allow-all`, the session's work folder),
+      resumes by `claudeSessionId`, and saves the file after the turn as an
+      append (or a replace when Claude Code rewrote it). Same result shape
+      as `runPiTurn`, so `respond()` keeps one save, checkpoint and stop
+      path.
+    - `respond()` takes `claudeCode: { token }`: grants the token to the
+      proxy for the turn, revokes it after, and charges no Lor credits (no
+      usage events, no spend limit; the wall-clock limit stays). Prompt for
+      now: the code-session section only; no Lor tools yet (7d-3).
+    - Worker: loads the sender's token (`@repo/lor/claude-account`). A Loop
+      fire, an Act event or a sender without a subscription fails the turn
+      with a message saying why. No credit gate for Claude Code turns.
+    - Open: steered and teammate messages are not taken mid-turn (they wait
+      for the next turn's delta; queuing is 7d-4). A retried attempt after
+      its save delivers an empty answer (`savedTurnText` reads Pi's format
+      only).
+  - [x] **7d-3** Lor's tools, prompt and trail, built 2026-10-26 (not yet
+    run live in Lor):
+    - **Spike** (one turn, throwaway sandbox, deleted): tool inputs reach
+      the stream with paths relative to the work folder. `read`, `write`,
+      `edit` and `bash` keep Pi's names and input fields, but their results
+      are Claude Code's structured tool results: bash `{ stdout, stderr }`,
+      write `{ type: "create" | "update", content, structuredPatch }`, edit
+      `{ structuredPatch }` (hunks with context lines), read `{ file }`,
+      WebFetch `{ result }`. A failed command is a `tool-error` with text
+      ("Error: Exit code 2 …"). Lor's tools keep their own names in the
+      stream (`providerExecuted: false`); Claude Code defers them and loads
+      them with `ToolSearch` before the first call. Per-step usage counts
+      the whole context (cache reads included); the finish part has
+      `costUsd`; a raw `rate_limit_event` carries the plan's five-hour and
+      weekly use. The model id is empty and the context window is not sent.
+    - Lor's tools in Claude Code turns, except its web tools and plans
+      (Claude Code has WebSearch, WebFetch and its own task list) and the
+      approval-gated tools (a gated call pauses the turn: 7d-4). The
+      connector lines can still name a gated tool the turn does not have.
+    - The prompt appended to Claude Code's own: the shared session, Lor's
+      knowledge tools and citations, the connector lines, saving to memory,
+      mentions, workspace instructions and the code rules (CLAUDE.md is
+      loaded by Claude Code; an AGENTS.md is read on demand). No Lor
+      persona.
+    - Switched off: worktrees, schedules and remote triggers, push
+      notifications, questions and plan mode (7d-4), and the tools that
+      publish outside Lor (Artifact, DesignSync, SendUserFile,
+      ShareOnboardingGuide).
+    - Trail: labels for Claude Code's own tools; bash output, diffs from
+      `structuredPatch`, WebFetch's answer.
+  - [x] **7d-3b** the context meter for Claude Code, built 2026-10-26 (not
+    yet run live in Lor). Jacob: the same token and context breakdown as Pi;
+    never the Claude plan's limits (people see those in Claude Code).
+    - How others do it: Zed's adapter (`agentclientprotocol/claude-agent-acp`)
+      counts the last reply's input, cache and output tokens against
+      `result.modelUsage[model].contextWindow`, and refines the window with
+      `query.getContextUsage({ detail: "summary" }).rawMaxTokens`. T3 Code
+      counts the same tokens against a bundled model catalog. Neither shows
+      a breakdown.
+    - Lor asks Claude Code itself: the bridge patch calls
+      `getContextUsage({ detail: "full" })` when the turn's result arrives
+      (10 s cap) and puts the used rows, the total, the window and the
+      compact threshold on the finish part. Spike (two turns, throwaway
+      sandbox): "full" took about 350 ms and its total matched the last
+      request's input on both turns (17,418 and 17,642); "summary" took
+      about 15 ms but had no Messages row and gave the same 17,719 both
+      times (only the fixed parts). Window 1,000,000 for Sonnet 5.5,
+      compact at 967,000.
+    - Saved as the run's `contextUsage` with `categories` (Claude Code's
+      rows: System prompt, System tools, MCP tools, Skills, Messages, …).
+      The meter shows those rows in place of Pi's three estimates, and no
+      Cost row (`creditsSpent: null`: no Lor credits).
+  - **7d-4 decisions** (Jacob, 2026-10-26):
+    - Only the turn's sender answers Claude Code's own prompts (permission
+      requests, plan approval, questions); teammates see the card waiting
+      on them. Lor's gated tools keep Lor's approval policy.
+    - A new message starts in the person's last-used Claude Code mode,
+      first Auto.
+    - Parts: 7d-4a pause and continue; 7d-4b Claude Code's own modes and
+      their prompts as cards (patch for Plan and Auto, the picker); 7d-4c
+      questions. Queuing needs no work: a session is a thread scope, and
+      thread scopes always queue (`routeToActiveRun`), each queued message
+      later running as its sender's own turn.
+  - [x] **7d-4a** pause and continue, built 2026-10-26 (not yet run live in
+    Lor):
+    - **Spike** (throwaway sandboxes, deleted): a turn paused on a Lor
+      tool's approval; `suspendTurn()` keeps the bridge waiting and returns
+      its port and channel token. A new run reattached in 1.2 s
+      (`continueFrom` + `continueStream`), ran the approved tool and
+      finished. With the bridge killed, the continue never settled (the
+      script exited with it pending). Resuming the conversation from its
+      file after a kill worked: Claude Code read the waiting call as
+      interrupted. During a new conversation's first paused turn, the
+      paused state has no Claude session id, but the file is already
+      `~/.claude/projects/-workspace-pi-<id>/<claude session id>.jsonl`.
+    - `runClaudeCodeTurn` continues a paused turn with its decisions, or
+      drops it; a turn that waits saves the conversation file with the
+      continuation (as Pi does), and a dropped turn with nothing to run
+      only clears it. `pausedTurnExpired` checks each harness's own
+      binding.
+    - `respond()` keeps the bridge when a paused Claude Code turn exists
+      (`openSessionSandbox(owner, { keepBridges })` now reports
+      `bridgeRunning`). No running bridge drops the turn with a "lost"
+      note; a run that only continued it sends the note as its prompt.
+      Lor's gated tools are back in Claude Code turns.
+    - The continuation runs on the paused turn's sender's subscription,
+      saved as `claudeCodeUserId` in the run's context (a resume's trigger
+      is Lor's own message, and the approver can be someone else).
+    - Open: a bridge parked across real standby (unproven either way: a
+      dead bridge drops the turn). Stop on a paused Claude Code turn drops
+      it; that run has no prompt, so the stop note does not reach Claude
+      Code.
+  - [x] **7d-4b-1** Claude Code's own modes, server side, built 2026-10-26
+    (not yet run live in Lor; no picker yet, so every turn runs in Auto):
+    - **Spike** (one turn per mode, throwaway sandbox, deleted): Auto works
+      on a subscription. Auto, Default and Accept edits all ran `ls`/`cat`
+      without a prompt (Claude Code allows read-only commands itself);
+      Accept edits wrote a file without one. Plan wrote its plan to
+      `~/.claude/plans/*.md`, then `ExitPlanMode` came as an approval with
+      the plan text; after approval Claude Code worked in Default, so its
+      first edit asked again.
+    - Adapter patch: `createClaudeCode({ nativePermissionMode })` puts the
+      mode on the start message; the bridge then runs Claude Code in that
+      mode and sends every prompt it raises to the host (Lor's tools stay
+      host-approved). Bypass keeps the adapter's allow-all path.
+    - The mode travels with the message: `message.claude_code_mode`
+      (`claude_code_mode` enum, additive `db:push`), set from the send
+      payload's `claudeCodeMode`, default Auto. A run that continues a
+      paused turn reads the mode saved in that run's context.
+    - Claude Code's prompts are approvals of kind `claude_code` (enum value,
+      additive `db:push`): only the run's `claudeCodeUserId` may resolve
+      them, the owner included; the list sends `onlyUserId` and names the
+      sender, so others see "Waiting on <name>". `ExitPlanMode` is back
+      on; `EnterPlanMode` stays off (Plan is the sender's pick).
+  - [x] **7d-4b-2** the composer's mode picker and the plan card, built
+    2026-10-26 (not yet run live in Lor). Jacob: the plan card offers the
+    CLI's choices, "Approve and accept edits", "Approve, ask for edits" and
+    "Keep planning".
+    - Picker (`claude-code-mode-picker.tsx`): Auto, Ask before edits,
+      Accept edits, Plan, Bypass permissions, with tooltips; in the
+      session's tool bar and in New session once Claude Code is picked;
+      Shift+Tab in the editor cycles it. One remembered mode per browser
+      (localStorage), first Auto; each send carries it.
+    - Plan card: the plan's Markdown (`plan` on the approvals list, from
+      ExitPlanMode's input) and the three choices. "Keep planning" rejects.
+      Approving calls `POST /approvals/{id}/approve-plan` with `{ mode }`,
+      saved as `approval.claude_code_mode` (additive `db:push`); the paused
+      turn's decision carries it as the approval's `reason`, and the bridge
+      patch turns an approved ExitPlanMode's reason into Claude Code's
+      `setMode` for the session. Spike: approved with acceptEdits, the next
+      write ran without a prompt. Approving also sets the sender's picker
+      to that mode, so the next message does not plan again.
+    - Mobile shows Claude Code prompts with the sender-only rule, but a
+      plan there is a plain Approve (Claude Code goes on in Default).
+  - [x] **7d-4c** Claude Code's questions, built 2026-10-26 (not yet run
+    live in Lor):
+    - **Spike** (throwaway sandbox, deleted): AskUserQuestion arrives as a
+      host tool call `askUserQuestions` (the harness questions input: ids
+      `question-N` and `option-N`, `allowMultiple`, free-form allowed); the
+      turn pauses with it in `pendingToolResults`, and a fresh run that
+      reattached answered it with `toolResultContinuations` (`{ action:
+      "answered", answers: { "question-1": { optionIds: ["option-2"] } } }`):
+      "You prefer blue."
+    - A question is a `claude_code` approval row (the tool call id stands
+      in for the approval id), so it pauses, notifies and resumes like a
+      prompt, sender only. `askUserQuestions` is switched back on.
+    - `POST /approvals/{id}/answer` saves `approval.answers` (additive
+      `db:push`); the paused turn's continue sends them as the tool result.
+      Skip sends `declined`; someone writing instead sends `cancelled`.
+    - Web card (Jacob's redesign): a stepper, one question at a time with a
+      segmented progress bar and "Question 2 of 4 · <header>"; radio or
+      checkbox rows with number-key hints, a written-answer row, Previous /
+      Skip / Next (Send on the last). Skip leaves a question out; with none
+      answered the questions are declined. Steps slide (Motion, 220 ms
+      ease-out, the card's height eased), the bar fills with a clip-path
+      transition and the label rolls. Others see the questions and
+      "Waiting on <name>"; once answered the row reads "Answered by … ·
+      Color: Blue". Mobile asks to answer on web or desktop for now.
+  - [x] **7e** fork and rewind for Claude Code, built 2026-10-26 (not yet
+    run live in Lor):
+    - **Spike** (throwaway sandboxes, deleted): the SDK's `resumeSessionAt`
+      at turn A's last entry (its final assistant message) made the next
+      turn forget turn B; Claude Code kept the same file and appended the
+      new turn as a branch there (its first entry's parent was A's last).
+      A file copied up to the end of turn A into another work folder's
+      project folder resumed with only turn A. One run's turns used Claude
+      Code's own auto-memory (a file outside the work folder), which a
+      rewind does not undo.
+    - Adapter patch: `createClaudeCode({ resumeSessionAt })` puts it on the
+      first prompt's start message, and the bridge passes it to the SDK.
+    - `session-core/claude-branch.ts`: the turn end is the run's last save
+      (its last entry and last byte, `turnEndChunk`). Rewind leaves the
+      file as it is and moves `headEntryId` to that entry (refused off the
+      current branch, or when it is already the head); the next turn sees
+      a head that is not the file's last entry and resumes there. Fork:
+      the file up to that byte, renamed into the fork's project folder;
+      the fork keeps the Claude Code harness.
+    - Claude Code's auto memory is off (Jacob, 2026-10-26):
+      `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` on the bridge. Its notes lived only
+      in the sandbox, outlived rewinds and were shared by everyone's turns;
+      Lor keeps the team's memory. Checked: asked to remember something,
+      Claude Code said it had no memory tool and wrote no memory files.
+  - [x] **7f** first-turn speed, built 2026-10-26 (image push owed):
+    - Measured with the real adapter in throwaway sandboxes, timing each
+      sandbox call. A new session's first turn reached its first text at
+      18.3 s: sandbox 4.7 s, the adapter's bootstrap 7.0 s (`pnpm install`
+      took 6.1 s although the image had the packages; it ran because the
+      bootstrap's marker file was not in the image), bridge link 1.2 s,
+      bridge start 2.0 s, Claude Code to first text 2.1 s. Every turn also
+      waited 1.2 s at its end: the bridge process wait slept one full
+      second.
+    - The image now holds the bootstrap as done: `claude-code-bootstrap.ts`
+      writes the bridge as Lor's patch leaves it plus the marker (through
+      the harness's own `createHarnessSandboxTemplate`), and the
+      Dockerfile installs the packages next to them. Run it after any
+      change to the adapter or its patch, then `bl push`. An image with an
+      older marker still works: the adapter runs the bootstrap itself.
+    - Per turn: the Blaxel session reports `defaultWorkingDirectory`
+      (one `pwd` fewer, Pi too); a spawned process's wait polls with
+      backoff (stop took 0.3 s, not 1.2 s); the bridge link is made while
+      the work folder is prepared, and the token grant runs beside it.
+    - Checked with the bootstrap written into a new sandbox as the image
+      will have it: the adapter skipped the bootstrap, and the first text
+      came 5.7 s after the sandbox was ready (13.6 s before); a later turn
+      took 4.4 s in all (6.5 s before). Sandbox creation varied from 1.3 s
+      to 5.8 s; it is the same for Pi.
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
@@ -506,6 +881,41 @@ may lag web), a Lor-offered "Continue in Code" card.
     previews for the bridge WebSocket, proxy header injection, process
     lifetime across standby); then the shared harness infrastructure; then
     Claude Code (about 1–1.5× Pi's harness work); then Codex (about 2×).
+- [x] Claude Code before chunk 7 (read 2026-10-24: adapter source,
+  vendor terms, Blaxel docs):
+  - **Terms.** Anthropic (code.claude.com legal-and-compliance, modified
+    2026-10-05): a product running Claude Code in hosted sandboxes may not
+    pay for, resell or intermediate its users' Claude usage. Each person
+    uses their own Anthropic API key, their own subscription through
+    Anthropic's own sign-in in the unmodified CLI (Lor may not store or
+    relay that token), or their own Bedrock, Vertex or Foundry account.
+    This rules out workspace credits through the Gateway for Claude Code
+    (the 2026-10-21 plan for teammates without a subscription). OpenAI:
+    Lor's key or the Gateway is fine for Codex, as is a person's own API
+    key; ChatGPT-plan sign-in for hosted apps needs OpenAI's partner
+    approval.
+  - **Adapter.** Use `@ai-sdk/harness-claude-code` 1.0.162 (it matches our
+    harness 1.0.158). 1.0.163–1.0.168 ship without the bridge's
+    `pnpm-lock.yaml`, so their bootstrap fails. The bridge (Agent SDK
+    0.3.290, Claude Code 2.1.290) runs in the sandbox and talks to the
+    worker over a WebSocket on a sandbox port. Lor's tools reach it as an
+    in-bridge MCP server. Approvals come from permission modes
+    (`allow-all` = no gating; `allow-edits` gates Bash; `allow-reads` gates
+    edits and Bash), answered through the harness's continue flow. It loads
+    all setting sources (the repo's CLAUDE.md, settings and hooks); the
+    system prompt is Claude Code's with Lor's text appended. Usage comes
+    per step and per turn (with the CLI's cost estimate). No fork or rewind
+    API: the session JSONL (under `$HOME/.claude/projects`, outside the
+    volume) must be saved per turn, and fork would copy it.
+  - **Blaxel.** The worker can reach the bridge through a private preview
+    URL with a token header (WebSocket works; 15-minute idle timeout).
+    Standby keeps running processes, so a bridge parked on an approval can
+    survive. Lor's `spawn` (keepAlive, 30-minute timeout, leftover-process
+    cleanup) would kill it. The image lacks pnpm: bake the CLI and the
+    bridge's packages into it. The proxy can inject a secret per
+    destination (`{{SECRET:name}}`, public preview), so a key need not be
+    readable in the sandbox. The bridge's own token is probably readable
+    by the model's Bash (patch).
 - [x] boat.dev as a cheaper sandbox provider for code sessions (read
   2026-10-22). Cheaper (about $20–100/month for 1,000 one-hour sessions vs an
   estimated $370–1,000 on Blaxel) with real disks (12–50 GB) and Docker, but

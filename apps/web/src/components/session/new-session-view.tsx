@@ -5,6 +5,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { Button } from "@repo/ui/components/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,17 +23,28 @@ import { type CSSProperties, type ReactNode, useState } from "react"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import {
+  ClaudeCodeModePicker,
+  useClaudeCodeMode,
+} from "@/components/session/claude-code-mode-picker"
+import {
   CodeTargetPicker,
   SessionModeSwitch,
   useCodeTarget,
   useSessionMode,
 } from "@/components/session/code-target-picker"
+import {
+  HarnessPicker,
+  type SessionHarness,
+  useSessionHarness,
+} from "@/components/session/harness-picker"
 import { SessionStartedNote } from "@/components/session/session-started-note"
+import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useSocket } from "@/context/socket-context"
 import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useSessionStart } from "@/hooks/use-session-start"
 import type { Message } from "@/lib/api-types"
 import { readLastChannelId } from "@/lib/last-location"
@@ -74,12 +86,14 @@ export function NewSessionView({
   channelId: requestedChannelId,
   aboutMessageId,
   continueFromSessionId,
+  startHarness,
   draft,
 }: {
   workspaceSlug: string
   channelId?: string
   aboutMessageId?: string
   continueFromSessionId?: string
+  startHarness?: SessionHarness
   draft?: string
 }) {
   const { data: channels, isPending } = useQuery(
@@ -123,6 +137,7 @@ export function NewSessionView({
                 onPickChannel={setPickedChannelId}
                 aboutMessageId={aboutMessageId}
                 continueFromSessionId={continueFromSessionId}
+                startHarness={startHarness}
                 draft={draft}
               />
             ) : (
@@ -146,6 +161,7 @@ function NewSessionComposer({
   onPickChannel,
   aboutMessageId,
   continueFromSessionId,
+  startHarness,
   draft,
 }: {
   workspaceSlug: string
@@ -154,6 +170,7 @@ function NewSessionComposer({
   onPickChannel: (channelId: string) => void
   aboutMessageId?: string
   continueFromSessionId?: string
+  startHarness?: SessionHarness
   draft?: string
 }) {
   const navigate = useNavigate()
@@ -206,6 +223,15 @@ function NewSessionComposer({
     channelId: channel.id,
     enabled: mode === "code",
   })
+  // Claude Code runs on the starter's own Claude subscription, so without
+  // one the start waits for a connect (code-sessions-runbook.md chunk 7).
+  const [harness, setHarness] = useSessionHarness(startHarness)
+  const claudeCode = mode === "code" && harness === "claude_code"
+  const claudeMode = useClaudeCodeMode()
+  const { data: accounts } = usePersonalAccounts()
+  // Unknown while the accounts load.
+  const needsClaude = claudeCode && accounts?.claude.account === null
+  const [connectingClaude, setConnectingClaude] = useState(false)
   const sessionStart = useSessionStart({ workspaceSlug, channel })
   const { handleSend } = useMessageSending({
     socket,
@@ -284,6 +310,20 @@ function NewSessionComposer({
           <span className="min-w-0 truncate font-medium">{sourceTitle}</span>
         </StartContextChip>
       )}
+      {needsClaude && (
+        <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            Claude Code runs on your own Claude subscription.
+          </span>
+          <Button size="xs" onClick={() => setConnectingClaude(true)}>
+            Connect
+          </Button>
+        </div>
+      )}
+      <ClaudeConnectDialog
+        open={connectingClaude}
+        onOpenChange={setConnectingClaude}
+      />
       <MessageInput
         composerDraft={composerDraft}
         onComposerDraftConsumed={() => setComposerDraft(undefined)}
@@ -305,22 +345,39 @@ function NewSessionComposer({
                 channelId={channel.id}
                 code={code}
               />
+              <HarnessPicker value={harness} onChange={setHarness} />
             </>
           ) : (
             channelDropdown
           )
         }
         placeholder={
-          mode === "code" ? "Ask Lor to work on the code…" : "Ask Lor…"
+          claudeCode
+            ? "Ask Claude Code to work on the code…"
+            : mode === "code"
+              ? "Ask Lor to work on the code…"
+              : "Ask Lor…"
         }
-        sendBlocked={mode === "code" && !code.target}
+        sendBlocked={(mode === "code" && !code.target) || needsClaude}
+        tools={
+          claudeCode ? (
+            <ClaudeCodeModePicker
+              value={claudeMode.mode}
+              onChange={claudeMode.setMode}
+            />
+          ) : undefined
+        }
+        onShiftTab={claudeCode ? claudeMode.cycle : undefined}
         onSend={(content, options) =>
           handleSend(content, {
             mentions: [],
             ...options,
             startSession: true,
             contextMessageId: aboutMessageId,
-            ...(mode === "code" && code.target ? { code: code.target } : {}),
+            ...(mode === "code" && code.target
+              ? { code: code.target, harness }
+              : {}),
+            ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
             ...(continueFromSessionId
               ? {
                   continueFrom: {

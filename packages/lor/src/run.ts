@@ -1,6 +1,8 @@
 import type {
   AgentRunContext,
   ApprovalKind,
+  ClaudeCodeAnswers,
+  ClaudeCodeMode,
   TurnSandboxMode,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
@@ -91,11 +93,20 @@ export type ApprovalDecision = {
   kind: ApprovalKind
   target: string | null
   inputSha256: string | null
+  // An approved Claude Code plan: the mode the turn goes on in.
+  claudeCodeMode?: ClaudeCodeMode | null
+  // An answered Claude Code question: the sender's answers.
+  answers?: ClaudeCodeAnswers | null
+  // Rejected because someone wrote instead of deciding.
+  steered?: boolean
 }
 
 export type PausedTurnDrop =
   | { reason: "stopped"; by: string }
   | { reason: "upgraded" }
+  // A Claude Code turn's bridge process ended while it waited (the sandbox
+  // was replaced or restarted); respond() finds this, not the worker.
+  | { reason: "lost" }
 
 // One model call of a turn, priced at the model that answered.
 export type RunStepRecord = {

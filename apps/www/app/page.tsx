@@ -36,9 +36,8 @@ function Hero() {
           </h1>
           <div className="pb-1 lg:pb-2">
             <p className="max-w-[36ch] text-pretty text-[17px] text-foreground/70 leading-relaxed md:text-lg">
-              Lor is where your team talks and gets work done. Bring AI into the
-              conversation, pull in an engineer, and turn an idea into something
-              everyone can use.
+              Research, build, and make decisions with AI in a shared workspace.
+              Your team can join in and pick up where you left off.
             </p>
             <WaitlistForm className="mt-8" />
             <a

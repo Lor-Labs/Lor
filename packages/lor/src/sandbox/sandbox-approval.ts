@@ -270,3 +270,41 @@ export function sandboxAskDescription(
           : `Use ${toolName} in the sandbox`
   return reason ? `${call} (${reason})` : call
 }
+
+// The line for a Claude Code question (askUserQuestions): its first
+// question; the card shows them all.
+export function claudeCodeQuestionDescription(input: unknown): string {
+  const questions = (input as { questions?: { question?: unknown }[] } | null)
+    ?.questions
+  const first = questions?.[0]?.question
+  if (typeof first !== "string" || !first.trim()) {
+    return "Claude Code has a question"
+  }
+  return questions && questions.length > 1
+    ? `${first} (and ${questions.length - 1} more)`
+    : first
+}
+
+// The approval card's line for a prompt from Claude Code's own permission
+// mode: Pi's wording for the tools both have. ExitPlanMode's input carries
+// the plan, which the card shows.
+export function claudeCodeAskDescription(
+  toolName: string,
+  input: unknown
+): string {
+  const url = stringArg(input, "url")
+  const query = stringArg(input, "query")
+  const notebook = stringArg(input, "notebook_path")
+  switch (toolName) {
+    case "ExitPlanMode":
+      return "Start working on this plan"
+    case "WebFetch":
+      return url ? `Fetch ${url}` : "Fetch a page"
+    case "webSearch":
+      return query ? `Search the web for “${query}”` : "Search the web"
+    case "NotebookEdit":
+      return notebook ? `Edit ${notebook}` : "Edit a notebook"
+    default:
+      return sandboxAskDescription(toolName, input, undefined)
+  }
+}

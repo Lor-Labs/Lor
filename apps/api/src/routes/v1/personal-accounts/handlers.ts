@@ -1,6 +1,11 @@
 import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { decryptSecret } from "@repo/utils/crypto"
+import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
+import {
+  claudeTokenDetails,
+  normalizeClaudeToken,
+  verifyClaudeToken,
+} from "@/lib/claude-account"
 import {
   exchangeGithubCode,
   fetchGithubProfile,
@@ -14,7 +19,9 @@ import { logger } from "@/lib/logger"
 import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
+  ConnectClaudeAccountRoute,
   ConnectGithubAccountRoute,
+  DisconnectClaudeAccountRoute,
   DisconnectGithubAccountRoute,
   GetPersonalAccountsRoute,
   StartGithubAccountConnectRoute,
@@ -37,20 +44,111 @@ const isGithubAccount = (userId: string) =>
     eq(schema.personalAccount.provider, "github")
   )
 
+const isClaudeAccount = (userId: string) =>
+  and(
+    eq(schema.personalAccount.userId, userId),
+    eq(schema.personalAccount.provider, "claude")
+  )
+
+// A reconnect replaces the token, so "connected" is the last update.
+const claudeAccountColumns = {
+  login: schema.personalAccount.login,
+  updatedAt: schema.personalAccount.updatedAt,
+  accessTokenExpiresAt: schema.personalAccount.accessTokenExpiresAt,
+}
+
+const toClaudeAccount = (row: {
+  login: string
+  updatedAt: Date
+  accessTokenExpiresAt: Date | null
+}) => ({
+  tokenHint: row.login,
+  connectedAt: row.updatedAt.toISOString(),
+  expiresAt: row.accessTokenExpiresAt?.toISOString() ?? null,
+})
+
 export const getPersonalAccounts: AppRouteHandler<
   GetPersonalAccountsRoute
 > = async (c) => {
-  const account = await db
-    .select(accountColumns)
-    .from(schema.personalAccount)
-    .where(isGithubAccount(c.var.user.id))
-    .limit(1)
-    .then((rows) => rows[0] ?? null)
+  const [account, claude] = await Promise.all([
+    db
+      .select(accountColumns)
+      .from(schema.personalAccount)
+      .where(isGithubAccount(c.var.user.id))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+    db
+      .select(claudeAccountColumns)
+      .from(schema.personalAccount)
+      .where(isClaudeAccount(c.var.user.id))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+  ])
   await fillMissingGithubAvatar(c.var.user, account?.avatarUrl)
   return c.json(
-    { github: { available: githubAccountsAvailable(), account } },
+    {
+      github: { available: githubAccountsAvailable(), account },
+      claude: {
+        available: Boolean(env.INTEGRATION_ENCRYPTION_KEY),
+        account: claude ? toClaudeAccount(claude) : null,
+      },
+    },
     HttpStatusCodes.OK
   )
+}
+
+// Checked with Anthropic before it is stored, so a cut-off paste fails here
+// rather than on the person's first Claude Code turn.
+export const connectClaudeAccount: AppRouteHandler<
+  ConnectClaudeAccountRoute
+> = async (c) => {
+  const refuse = (message: string) =>
+    c.json({ success: false as const, message }, HttpStatusCodes.BAD_REQUEST)
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!key) return refuse("Claude subscriptions aren't available yet")
+  const token = normalizeClaudeToken(c.req.valid("json").token)
+  if (!token) {
+    return refuse(
+      "That isn't a Claude setup token. It starts with sk-ant-oat01-; run claude setup-token to get one"
+    )
+  }
+  const verified = await verifyClaudeToken(token)
+  if (verified === "rejected") {
+    return refuse(
+      "Anthropic didn't accept that token. Run claude setup-token again and paste all of it"
+    )
+  }
+  if (verified === "unreachable") {
+    return refuse("Couldn't reach Anthropic to check the token. Try again")
+  }
+  const values = {
+    ...claudeTokenDetails(token),
+    accessToken: encryptSecret(token, key),
+    name: null,
+    email: null,
+    avatarUrl: null,
+    refreshToken: null,
+    refreshTokenExpiresAt: null,
+  }
+  const [row] = await db
+    .insert(schema.personalAccount)
+    .values({ userId: c.var.user.id, provider: "claude", ...values })
+    .onConflictDoUpdate({
+      target: [schema.personalAccount.userId, schema.personalAccount.provider],
+      set: values,
+    })
+    .returning(claudeAccountColumns)
+  if (!row) throw new Error("Claude account upsert returned no row")
+  return c.json({ account: toClaudeAccount(row) }, HttpStatusCodes.OK)
+}
+
+// Anthropic has no endpoint to revoke a setup token; the person revokes it in
+// their Claude account settings if they want it gone there too.
+export const disconnectClaudeAccount: AppRouteHandler<
+  DisconnectClaudeAccountRoute
+> = async (c) => {
+  await db.delete(schema.personalAccount).where(isClaudeAccount(c.var.user.id))
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
 export const startGithubAccountConnect: AppRouteHandler<

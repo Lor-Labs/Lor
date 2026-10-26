@@ -9,12 +9,14 @@ import {
   ne,
   or,
   schema,
+  sql,
 } from "@repo/db"
 import {
   EMPTY_LOR_RUN_SCOPE,
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
 import type {
+  ClaudeCodeMode,
   Loop,
   LorMemory,
   LorReasoningSegment,
@@ -30,6 +32,7 @@ import {
   writeBack,
 } from "@repo/lor"
 import { saveHandoffNote } from "@repo/lor/act-runs"
+import { claudeSubscriptionToken } from "@repo/lor/claude-account"
 import type { ProposeLoopExecutor } from "@repo/lor/loops"
 import type { StartPlanInput } from "@repo/lor/plans"
 import { toRealtimePlan } from "@repo/lor/plans"
@@ -544,6 +547,7 @@ export function createLorRespondProcessor(
                     sourceSessionId: schema.agentSession.sourceSessionId,
                     forkedFromMessageId:
                       schema.agentSession.forkedFromMessageId,
+                    harness: schema.agentSession.harness,
                   })
                   .from(schema.agentSession)
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
@@ -723,7 +727,11 @@ export function createLorRespondProcessor(
 
             // Pre-flight credit gate. Autumn failures never land here — the
             // check fails open inside @repo/billing (serve, log, skip debit).
-            const gate = await checkCredits(workspaceId)
+            // Claude Code turns run on the sender's subscription instead.
+            const gate =
+              session.harness === "claude_code"
+                ? { allowed: true }
+                : await checkCredits(workspaceId)
             if (!gate.allowed) {
               logger.info(
                 { workspaceId, lorMessageId },
@@ -763,6 +771,60 @@ export function createLorRespondProcessor(
               messageId: lorMessageId,
               channelId,
               userId: triggerUserId,
+            }
+
+            // A Claude Code turn runs only on its sender's own subscription,
+            // in the mode they picked: never a Loop fire, an Act event or
+            // someone else's message. A run that continues a paused turn
+            // keeps that turn's sender and mode, whoever decided its
+            // approvals.
+            const claudeTurn =
+              session.harness !== "claude_code" || automated
+                ? null
+                : continueOnly && harnessState?.lastRunId
+                  ? await db
+                      .select({
+                        userId: sql<
+                          string | null
+                        >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
+                        mode: sql<ClaudeCodeMode | null>`${schema.agentRun.context} ->> 'claudeCodeMode'`,
+                      })
+                      .from(schema.agentRun)
+                      .where(eq(schema.agentRun.id, harnessState.lastRunId))
+                      .then((rows) => rows[0] ?? null)
+                  : triggerUserId && triggerUserId !== LOR_USER_ID
+                    ? {
+                        userId: triggerUserId,
+                        mode: triggerMessageId
+                          ? await db
+                              .select({ mode: schema.message.claudeCodeMode })
+                              .from(schema.message)
+                              .where(eq(schema.message.id, triggerMessageId))
+                              .then((rows) => rows[0]?.mode ?? null)
+                          : null,
+                      }
+                    : null
+            const claudeUserId = claudeTurn?.userId ?? null
+            const claudeCodeMode: ClaudeCodeMode = claudeTurn?.mode ?? "auto"
+            const claudeToken = claudeUserId
+              ? await claudeSubscriptionToken(claudeUserId)
+              : null
+            if (session.harness === "claude_code" && !claudeToken) {
+              const noSubscription = automated
+                ? "Claude Code sessions only run on a person's own messages."
+                : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
+              await db
+                .update(schema.message)
+                .set({ content: noSubscription, status: "failed" })
+                .where(eq(schema.message.id, lorMessageId))
+                .catch(() => {})
+              emit(noSubscription, true, "failed")
+              await runWriter.transition("failed", { stopReason: "error" })
+              execution.stop()
+              await settlePlan("failed")
+              await emitThreadSummary()
+              drainQueue()
+              return
             }
 
             // A paused turn finishes first, or is dropped (stopped, or saved
@@ -910,6 +972,15 @@ export function createLorRespondProcessor(
                       code: {
                         repoFullName: session.repoFullName,
                         baseBranch: session.baseBranch,
+                      },
+                    }
+                  : {}),
+                ...(claudeToken && claudeUserId
+                  ? {
+                      claudeCode: {
+                        token: claudeToken,
+                        userId: claudeUserId,
+                        mode: claudeCodeMode,
                       },
                     }
                   : {}),

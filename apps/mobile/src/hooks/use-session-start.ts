@@ -95,6 +95,7 @@ export function useSessionStart(
       creatorId: user.id,
       origin: start.origin,
       mode: "chat",
+      harness: "pi",
       repoFullName: null,
       baseBranch: null,
       sourceSessionId: null,

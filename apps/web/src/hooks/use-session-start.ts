@@ -31,6 +31,7 @@ export type SessionStart = {
   origin: "chat" | "new"
   // New session in Code mode.
   code?: { repo: string; branch: string }
+  harness?: "pi" | "claude_code"
   // "Continue in Code": the session it continues.
   source?: { id: string; title: string }
   title: string
@@ -97,6 +98,7 @@ export function useSessionStart({
       creatorId: user.id,
       origin: start.origin,
       mode: start.code ? "code" : "chat",
+      harness: start.harness ?? "pi",
       repoFullName: start.code?.repo ?? null,
       baseBranch: start.code?.branch ?? null,
       sourceSessionId: start.source?.id ?? null,

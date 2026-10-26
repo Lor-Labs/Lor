@@ -1,6 +1,9 @@
 import {
   Archive02Icon,
+  BubbleChatIcon,
+  CommandLineIcon,
   GitBranchIcon,
+  GitForkIcon,
   HashtagIcon,
   Link01Icon,
   MoreHorizontalIcon,
@@ -41,6 +44,7 @@ import {
   SessionTabBar,
   SessionTabView,
 } from "@/components/session/session-tabs"
+import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
@@ -56,6 +60,7 @@ import {
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
+import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useLiveSessionChanges } from "@/hooks/use-session-changes"
 import {
@@ -73,10 +78,12 @@ export function SessionView({
   workspaceSlug,
   sessionId,
   targetMessageId,
+  targetFolder,
 }: {
   workspaceSlug: string
   sessionId: string
   targetMessageId?: string
+  targetFolder?: string
 }) {
   const { data, isPending, isError } = useAgentSession(sessionId)
   // Opened without a row hover (⌘K, a link, a notification): the sidebar row
@@ -112,6 +119,7 @@ export function SessionView({
       workspaceSlug={workspaceSlug}
       detail={data}
       targetMessageId={targetMessageId}
+      targetFolder={targetFolder}
     />
   )
 }
@@ -120,10 +128,12 @@ function SessionConversation({
   workspaceSlug,
   detail: { session, channel, source },
   targetMessageId,
+  targetFolder,
 }: {
   workspaceSlug: string
   detail: AgentSessionDetail
   targetMessageId?: string
+  targetFolder?: string
 }) {
   // Approval and proposal cards render inline in the session; keep them live.
   useChannelApprovals(session.channelId, session.threadRootId)
@@ -152,7 +162,7 @@ function SessionConversation({
 
   // The right panel shows this session's context, plan, files and activity
   // while the page is open, the way a channel page sets its own panel view.
-  const { setView, clearView } = useRightSidebar()
+  const { setView, openView, clearView, isHydrated } = useRightSidebar()
   const isMobile = useIsMobile()
   const workView = useMemo<SessionWorkSidebarView>(
     () => ({
@@ -182,6 +192,20 @@ function SessionConversation({
   const fork = useForkSession(workspaceSlug)
   const rewind = useRewindSession(session.id)
   const navigate = useNavigate()
+  useEffect(() => {
+    // On mobile the files panel opens as the right sheet.
+    if (!targetFolder || !code || !isHydrated || isMobile === undefined) return
+    openView({
+      ...workView,
+      type: "session-files",
+      revealFolder: { id: crypto.randomUUID(), path: targetFolder },
+    })
+    void navigate({
+      to: ".",
+      search: (prev) => ({ ...prev, folder: undefined, open: undefined }),
+      replace: true,
+    })
+  }, [targetFolder, code, isHydrated, isMobile, workView, openView, navigate])
   const change = {
     workspaceId: session.workspaceId,
     channelId: session.channelId,
@@ -203,12 +227,49 @@ function SessionConversation({
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null
   const [renaming, setRenaming] = useState(false)
+  // Claude Code answers only messages from people with their own Claude
+  // subscription; the server sends the rest to the session's people
+  // (code-sessions-runbook.md chunk 7).
+  const { data: accounts } = usePersonalAccounts()
+  const [connectingClaude, setConnectingClaude] = useState(false)
+  const withoutClaude =
+    session.harness === "claude_code" &&
+    !session.archivedAt &&
+    accounts !== undefined &&
+    accounts.claude.account == null
 
   return (
     <SessionDocument
+      claudeCode={session.harness === "claude_code" && !withoutClaude}
+      composerNote={
+        withoutClaude ? (
+          <>
+            <ClaudeCodeNote
+              onConnect={() => setConnectingClaude(true)}
+              onContinueWithLor={() =>
+                void navigate({
+                  to: "/$workspaceSlug/session/new",
+                  params: { workspaceSlug },
+                  search: {
+                    channelId: session.channelId,
+                    continueFrom: session.id,
+                    harness: "pi",
+                  },
+                })
+              }
+            />
+            <ClaudeConnectDialog
+              open={connectingClaude}
+              onOpenChange={setConnectingClaude}
+            />
+          </>
+        ) : undefined
+      }
       workspaceSlug={workspaceSlug}
       channelId={session.channelId}
       threadRootId={session.threadRootId}
+      repoSessionId={code ? session.id : undefined}
+      onShowChat={() => tabs.select(null)}
       targetMessageId={targetMessageId}
       onFork={(message) =>
         fork.mutateAsync({ sessionId: session.id, messageId: message.id })
@@ -424,7 +485,30 @@ function SessionStrip({
   )
 }
 
-// The document's opening: the title, then one quiet line of context.
+function ClaudeCodeNote({
+  onConnect,
+  onContinueWithLor,
+}: {
+  onConnect: () => void
+  onContinueWithLor: () => void
+}) {
+  return (
+    <div className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
+      <span className="min-w-0 flex-1">
+        Claude Code answers people on their own Claude subscription. Your
+        messages here go to the people in the session.
+      </span>
+      <Button size="xs" variant="ghost" onClick={onContinueWithLor}>
+        Continue with Lor
+      </Button>
+      <Button size="xs" onClick={onConnect}>
+        Connect your Claude subscription
+      </Button>
+    </div>
+  )
+}
+
+// The document's opening: title and metadata, with the source on its own row.
 function SessionHeading({
   session,
   channelName,
@@ -461,7 +545,7 @@ function SessionHeading({
         onEditingChange={onRenamingChange}
         onRename={onRename}
       />
-      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-muted-foreground text-sm">
+      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground text-sm">
         {workspaceSlug ? (
           <Link
             to="/$workspaceSlug/$channelId"
@@ -476,27 +560,6 @@ function SessionHeading({
             {channelName}
           </Link>
         ) : null}
-        {source && workspaceSlug && (
-          <>
-            <span aria-hidden="true">·</span>
-            <Link
-              to="/$workspaceSlug/session/$sessionId"
-              params={{ workspaceSlug, sessionId: source.id }}
-              // A fork opens its source at the reply it was forked from.
-              search={
-                session.forkedFromMessageId
-                  ? { msgId: session.forkedFromMessageId }
-                  : {}
-              }
-              className="inline-flex min-w-0 items-center gap-1 transition-colors hover:text-foreground"
-            >
-              {session.forkedFromMessageId ? "Forked from" : "Continued from"}
-              <span className="max-w-64 truncate font-medium">
-                {source.title}
-              </span>
-            </Link>
-          </>
-        )}
         {session.repoFullName && session.baseBranch && (
           <>
             <span aria-hidden="true">·</span>
@@ -521,6 +584,19 @@ function SessionHeading({
             </a>
           </>
         )}
+        {session.harness === "claude_code" && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="inline-flex items-center gap-1">
+              <HugeiconsIcon
+                icon={CommandLineIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              Claude Code
+            </span>
+          </>
+        )}
         <span aria-hidden="true">·</span>
         <span className="inline-flex items-center gap-1.5">
           {starter && (
@@ -542,6 +618,33 @@ function SessionHeading({
         <span aria-hidden="true">·</span>
         <span>{timeAgo(session.createdAt)}</span>
       </p>
+      {source && workspaceSlug && (
+        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+          <HugeiconsIcon
+            icon={session.forkedFromMessageId ? GitForkIcon : BubbleChatIcon}
+            className="size-3.5 shrink-0"
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+          <span className="shrink-0">
+            {session.forkedFromMessageId ? "Forked from" : "Continued from"}
+          </span>
+          <Link
+            to="/$workspaceSlug/session/$sessionId"
+            params={{ workspaceSlug, sessionId: source.id }}
+            // A fork opens its source at the reply it was forked from.
+            search={
+              session.forkedFromMessageId
+                ? { msgId: session.forkedFromMessageId }
+                : {}
+            }
+            title={source.title}
+            className="min-w-0 truncate font-medium transition-colors hover:text-foreground"
+          >
+            {source.title}
+          </Link>
+        </div>
+      )}
       <div className="mt-6 border-border/50 border-t" />
     </div>
   )

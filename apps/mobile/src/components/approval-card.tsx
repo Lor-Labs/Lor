@@ -22,6 +22,8 @@ export type ApprovalCardData = {
   toolName: string | null
   resolver: ApprovalResolverSpec | null
   resolverUserName: string | null
+  // A Claude Code prompt: only the turn's sender decides it.
+  onlyUserId?: string | null
   status: "pending" | "approved" | "rejected" | "expired"
   resolvedBy: string | null
 }
@@ -47,7 +49,10 @@ export function ApprovalGateCard({
   onResolved?: () => void
 }) {
   const resolve = useResolveChannelApproval(channelId)
-  const canResolve = useCanResolveApproval(approval.resolver)
+  const canResolve = useCanResolveApproval(
+    approval.resolver,
+    approval.onlyUserId
+  )
   const { workspace } = useWorkspace()
   const { members } = useWorkspaceMembers(workspace?.slug ?? "")
   const { data: auth } = authClient.useSession()
@@ -133,7 +138,17 @@ export function ApprovalGateCard({
           </Text>
         </View>
       </View>
-      {canResolve ? (
+      {/* Claude Code's questions and plans have no mobile card yet:
+          approving would send no answer, or a plan nobody here read. */}
+      {canResolve && approval.toolName === "askUserQuestions" ? (
+        <Text className="text-xs text-muted">
+          Answer this question in Lor on the web or desktop.
+        </Text>
+      ) : canResolve && approval.toolName === "ExitPlanMode" ? (
+        <Text className="text-xs text-muted">
+          Review this plan in Lor on the web or desktop.
+        </Text>
+      ) : canResolve ? (
         <View className="flex-row justify-end gap-two">
           <Button
             isDisabled={resolve.isPending}
