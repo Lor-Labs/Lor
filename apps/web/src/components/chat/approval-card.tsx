@@ -397,6 +397,20 @@ const QUESTION_STEP = {
   }),
 } satisfies Variants
 
+// The "Question 2 of 4" line rolls: forward rises in from below, back drops in
+// from above.
+const STEP_LABEL = {
+  enter: (direction: number) => ({
+    opacity: 0,
+    transform: `translateY(${direction * 6}px)`,
+  }),
+  center: { opacity: 1, transform: "translateY(0px)" },
+  exit: (direction: number) => ({
+    opacity: 0,
+    transform: `translateY(${direction * -6}px)`,
+  }),
+} satisfies Variants
+
 // The card eases to the next question's height instead of jumping; it snaps
 // under reduced motion.
 function AnimatedHeight({ children }: { children: ReactNode }) {
@@ -555,22 +569,41 @@ function QuestionApprovalView({
         {questions.length > 1 && (
           <div className="flex gap-1">
             {questions.map((q, index) => (
-              <span
-                key={q.id}
-                className={cn(
-                  "h-1 flex-1 rounded-full transition-colors",
-                  index <= step ? "bg-foreground/80" : "bg-muted"
-                )}
-              />
+              <span key={q.id} className="h-1 flex-1 rounded-full bg-muted">
+                {/* Fills from the left; clip-path keeps the pill's ends round,
+                    where scaleX would squash them. */}
+                <span
+                  className="block h-full rounded-full bg-foreground/80 transition-[clip-path] duration-250 ease-out motion-reduce:transition-none"
+                  style={{
+                    clipPath:
+                      index <= step
+                        ? "inset(0 0 0 0 round 9999px)"
+                        : "inset(0 100% 0 0 round 9999px)",
+                  }}
+                />
+              </span>
             ))}
           </div>
         )}
-        <p className="text-muted-foreground text-xs">
-          {questions.length > 1
-            ? `Question ${step + 1} of ${questions.length}`
-            : "Claude Code asks"}
-          {question.header && ` · ${question.header}`}
-        </p>
+        <div className="relative">
+          <AnimatePresence mode="popLayout" initial={false} custom={direction}>
+            <motion.p
+              key={question.id}
+              custom={direction}
+              variants={STEP_LABEL}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.2, ease: EASE_OUT }}
+              className="text-muted-foreground text-xs"
+            >
+              {questions.length > 1
+                ? `Question ${step + 1} of ${questions.length}`
+                : "Claude Code asks"}
+              {question.header && ` · ${question.header}`}
+            </motion.p>
+          </AnimatePresence>
+        </div>
       </div>
       <AnimatedHeight>
         <AnimatePresence mode="popLayout" initial={false} custom={direction}>
