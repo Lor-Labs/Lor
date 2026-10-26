@@ -708,7 +708,9 @@ may lag web), a Lor-offered "Continue in Code" card.
       sender, so others see "Waiting on <name>". `ExitPlanMode` is back
       on; `EnterPlanMode` stays off (Plan is the sender's pick).
   - [ ] **7d-4b-2** the composer's mode picker (last used, first Auto) and
-    the plan card.
+    the plan card. Jacob 2026-10-26: the plan card offers the CLI's
+    choices, "Approve and accept edits", "Approve, ask for edits" and "Keep
+    planning" (the bridge's allow sets the mode for the rest of the turn).
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
