@@ -182,12 +182,12 @@ import {
   sandboxToolApproval,
 } from "./sandbox/sandbox-approval"
 import {
-  CLAUDE_CODE_BRIDGE_PORT,
   CLAUDE_TOKEN_PLACEHOLDER,
-  claudeCodeBridgeEndpoint,
-  grantClaudeAccess,
+  grantHarnessAccess,
+  HARNESS_BRIDGE_PORT,
+  harnessBridgeEndpoint,
   openSessionSandbox,
-  revokeClaudeAccess,
+  revokeHarnessAccess,
   SESSION_WORK_DIR,
 } from "./sandbox/session-sandbox"
 import {
@@ -3084,7 +3084,7 @@ export async function respond(
       // The Claude Code bridge's preview link is made while the work folder
       // is prepared; claudeCodeTurn awaits it.
       const bridgeEndpoint = ctx.claudeCode
-        ? claudeCodeBridgeEndpoint(harness.owner)
+        ? harnessBridgeEndpoint(harness.owner)
         : null
       bridgeEndpoint?.catch(() => {})
       const claudeTurnLost = claudePaused && !sandbox.bridgeRunning
@@ -3494,17 +3494,19 @@ export async function respond(
         token: string
         mode: ClaudeCodeMode
       }) => {
-        const access = grantClaudeAccess(harness.owner, claude.token)
+        const access = grantHarnessAccess(harness.owner, {
+          claudeToken: claude.token,
+        })
         try {
           const [, endpoint] = await Promise.all([
             access,
-            bridgeEndpoint ?? claudeCodeBridgeEndpoint(harness.owner),
+            bridgeEndpoint ?? harnessBridgeEndpoint(harness.owner),
           ])
           return await runClaudeCodeTurn({
             sessionId: conversationId,
             saved: harness.saved,
             sandbox: sandbox.session,
-            bridge: { port: CLAUDE_CODE_BRIDGE_PORT, endpoint },
+            bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
             tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
             mode: claude.mode,
             instructions,
@@ -3519,7 +3521,7 @@ export async function respond(
             onPart,
           })
         } finally {
-          await revokeClaudeAccess(harness.owner).catch((err) =>
+          await revokeHarnessAccess(harness.owner).catch((err) =>
             logger.error(
               { err, sessionId: conversationId },
               "Removing the Claude token from the sandbox proxy failed"

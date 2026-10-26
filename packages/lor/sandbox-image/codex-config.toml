@@ -1,0 +1,15 @@
+# Codex's user config in Lor's sandbox image (Dockerfile): see the comment
+# there. The adapter adds its own settings at launch.
+check_for_update_on_startup = false
+
+[analytics]
+enabled = false
+
+[feedback]
+enabled = false
+
+[features]
+# Off, Codex clones OpenAI's curated plugin repo into ~/.codex/.tmp at start.
+plugins = false
+apps = false
+memories = false

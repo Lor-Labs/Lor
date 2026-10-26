@@ -871,6 +871,28 @@ may lag web), a Lor-offered "Continue in Code" card.
     - Native state: one file per thread,
       `~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<threadId>.jsonl`.
       `~/.codex` also held 96 MB of a plugin cache Codex downloads.
+  - [x] **8b** sandbox groundwork, built 2026-10-26 (image push owed):
+    - `session-sandbox.ts`: any harness's bridge
+      (`.harness-bootstrap/<harness>/bridge.mjs`) runs as `bridge-*` with no
+      keepAlive, its log streams end at `bridge-ready`, and a paused turn
+      keeps it; Claude Code's env stays Claude Code's.
+      `grantHarnessAccess(owner, { claudeToken } | { gatewayKey })` and
+      `revokeHarnessAccess`; `harnessBridgeEndpoint` and
+      `HARNESS_BRIDGE_PORT` (the preview keeps its chunk 7 name).
+    - Image: `harness-bootstrap.ts` (was `claude-code-bootstrap.ts`) writes
+      `claude-code/` and `codex/`; the Dockerfile installs both bridges'
+      packages and copies `codex-config.toml` to `~/.codex/config.toml`: no
+      update checks, analytics, feedback, plugins, ChatGPT apps or memories.
+      `features.remote_plugin = false` did not stop the 93 MB plugin clone
+      (Codex clones OpenAI's curated plugin repo whenever plugins are on and
+      the remote catalog is unavailable); `features.plugins = false` did.
+    - Adapter patch (`patches/@ai-sdk__harness-codex@1.0.160.patch`):
+      changed tools or instructions keep the thread.
+    - Checked in throwaway sandboxes with the image's state written in: the
+      adapter skipped its bootstrap (the generated marker matches), the
+      bridge ran as `bridge-*`, a second turn with another tool list and
+      changed instructions kept the thread and its context, and `~/.codex`
+      stayed about 4 MB (95 MB before).
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
 
