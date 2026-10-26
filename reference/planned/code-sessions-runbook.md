@@ -623,9 +623,28 @@ may lag web), a Lor-offered "Continue in Code" card.
       ShareOnboardingGuide).
     - Trail: labels for Claude Code's own tools; bash output, diffs from
       `structuredPatch`, WebFetch's answer.
-    - Usage: the context meter stays hidden for Claude Code sessions (no
-      context usage is saved); what to show instead is open (plan use from
-      `rate_limit_event`, or tokens).
+  - [x] **7d-3b** the context meter for Claude Code, built 2026-10-26 (not
+    yet run live in Lor). Jacob: the same token and context breakdown as Pi;
+    never the Claude plan's limits (people see those in Claude Code).
+    - How others do it: Zed's adapter (`agentclientprotocol/claude-agent-acp`)
+      counts the last reply's input, cache and output tokens against
+      `result.modelUsage[model].contextWindow`, and refines the window with
+      `query.getContextUsage({ detail: "summary" }).rawMaxTokens`. T3 Code
+      counts the same tokens against a bundled model catalog. Neither shows
+      a breakdown.
+    - Lor asks Claude Code itself: the bridge patch calls
+      `getContextUsage({ detail: "full" })` when the turn's result arrives
+      (10 s cap) and puts the used rows, the total, the window and the
+      compact threshold on the finish part. Spike (two turns, throwaway
+      sandbox): "full" took about 350 ms and its total matched the last
+      request's input on both turns (17,418 and 17,642); "summary" took
+      about 15 ms but had no Messages row and gave the same 17,719 both
+      times (only the fixed parts). Window 1,000,000 for Sonnet 5.5,
+      compact at 967,000.
+    - Saved as the run's `contextUsage` with `categories` (Claude Code's
+      rows: System prompt, System tools, MCP tools, Skills, Messages, …).
+      The meter shows those rows in place of Pi's three estimates, and no
+      Cost row (`creditsSpent: null`: no Lor credits).
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

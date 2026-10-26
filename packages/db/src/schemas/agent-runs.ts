@@ -433,6 +433,9 @@ export type AgentRunContextUsage = {
   windowTokens: number
   compactAtTokens: number
   compacted: boolean
+  // Claude Code turns: its own /context rows that fill the window (System
+  // prompt, System tools, MCP tools, Messages, …), counted by Claude Code.
+  categories?: { name: string; tokens: number }[]
 }
 
 export type AgentRun = typeof agentRun.$inferSelect

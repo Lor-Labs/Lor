@@ -146,6 +146,7 @@ const EMPTY_CONTEXT = {
   windowTokens: env.LOR_CONTEXT_WINDOW,
   compactAtTokens: env.LOR_CONTEXT_WINDOW,
   segments: { system: 0, tools: 0, messages: 0 },
+  categories: null,
   compacted: false,
   rawHistoryTokens: 0,
   creditsSpent: 0,
@@ -227,6 +228,8 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
   ])
 
   const toTokens = (bytes: number) => Math.ceil(Number(bytes) / BYTES_PER_TOKEN)
+  // Claude Code counts its own rows; the byte estimates below are Pi's.
+  const claudeCode = usage.categories !== undefined
   const system = toTokens(run.instructionsBytes)
   const tools = toTokens(run.toolSchemaBytes)
   // Null right after a compaction until the next model response: only the
@@ -241,14 +244,17 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
       usedTokens,
       windowTokens: usage.windowTokens,
       compactAtTokens: usage.compactAtTokens,
-      segments: {
-        system: systemTokens,
-        tools: toolTokens,
-        messages: usedTokens - systemTokens - toolTokens,
-      },
+      segments: claudeCode
+        ? { system: 0, tools: 0, messages: 0 }
+        : {
+            system: systemTokens,
+            tools: toolTokens,
+            messages: usedTokens - systemTokens - toolTokens,
+          },
+      categories: usage.categories ?? null,
       compacted: usage.compacted,
       rawHistoryTokens: toTokens(history?.byteLength ?? 0) + system + tools,
-      creditsSpent: Number(scope?.creditsSpent ?? 0),
+      creditsSpent: claudeCode ? null : Number(scope?.creditsSpent ?? 0),
       runCount: Number(scope?.runCount ?? 0),
       state: scope?.state ?? run.state,
     },

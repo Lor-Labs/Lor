@@ -222,6 +222,8 @@ export type PiContextUsage = {
   windowTokens: number
   compactAtTokens: number
   compacted: boolean
+  // Set by Claude Code turns only (claude-runtime.ts).
+  categories?: { name: string; tokens: number }[]
 }
 
 type TurnProbe = {

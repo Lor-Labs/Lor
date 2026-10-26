@@ -19,6 +19,7 @@ import {
   SessionCoreError,
 } from "./harness-state"
 import {
+  type PiContextUsage,
   type PiTurnResult,
   type PiTurnSave,
   prepareTools,
@@ -194,12 +195,19 @@ export async function runClaudeCodeTurn(
   let stopped = false
   try {
     let aborted = false
+    let contextUsage: PiContextUsage | null = null
     const result = input.prompt
       ? await agent.stream({ session, messages: [input.prompt], ...abort })
       : null
     if (result) {
       for await (const part of result.stream) {
         if (part.type === "abort") aborted = true
+        if (part.type === "finish") {
+          // The harness sets it on finish; the AI SDK type does not declare it.
+          contextUsage = claudeContextUsage(
+            (part as { providerMetadata?: unknown }).providerMetadata
+          )
+        }
         await input.onPart(part)
       }
     }
@@ -239,11 +247,49 @@ export async function runClaudeCodeTurn(
       responseMessages,
       save,
       pendingApprovals: [],
-      contextUsage: null,
+      contextUsage,
     }
   } finally {
     // Lor supplies the sandbox, so neither leaves it running down.
     if (!stopped) await session.destroy().catch(() => {})
+  }
+}
+
+// Claude Code's own /context count, which Lor's bridge patch puts on the
+// finish part (getContextUsage "full"; patches/@ai-sdk__harness-claude-code).
+// Its total is the last request's input; the window is the model's own
+// (1M for Sonnet 5.5), and Claude Code compacts at its threshold.
+function claudeContextUsage(metadata: unknown): PiContextUsage | null {
+  const usage = (
+    metadata as {
+      "claude-code"?: {
+        contextUsage?: {
+          totalTokens?: unknown
+          rawMaxTokens?: unknown
+          autoCompactThreshold?: unknown
+          categories?: unknown
+        }
+      }
+    } | null
+  )?.["claude-code"]?.contextUsage
+  if (
+    typeof usage?.totalTokens !== "number" ||
+    typeof usage.rawMaxTokens !== "number" ||
+    !Array.isArray(usage.categories)
+  ) {
+    return null
+  }
+  return {
+    tokens: usage.totalTokens,
+    windowTokens: usage.rawMaxTokens,
+    compactAtTokens:
+      typeof usage.autoCompactThreshold === "number"
+        ? usage.autoCompactThreshold
+        : usage.rawMaxTokens,
+    compacted: false,
+    categories: (usage.categories as { name: string; tokens: number }[]).map(
+      ({ name, tokens }) => ({ name, tokens })
+    ),
   }
 }
 
