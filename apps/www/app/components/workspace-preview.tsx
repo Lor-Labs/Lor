@@ -8,6 +8,7 @@ import {
   GitBranchIcon,
   GitForkIcon,
   HashtagIcon,
+  MessageMultiple01Icon,
   MoreHorizontalIcon,
   PencilEdit02Icon,
   PlusSignIcon,
@@ -347,14 +348,15 @@ export function PreviewSidebar({ active }: { active: string }) {
               key={name}
               className={`ml-5 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs ${active === name ? "bg-foreground/[0.06] font-medium text-lor-text-dark" : "text-lor-text-tertiary-dark"}`}
             >
-              {name === "Export fix (fork)" ? (
-                <HugeiconsIcon icon={GitForkIcon} className="size-3 shrink-0" />
-              ) : name === "Fix export feedback" ? (
-                <HugeiconsIcon
-                  icon={SourceCodeIcon}
-                  className="size-3 shrink-0"
-                />
-              ) : null}
+              <HugeiconsIcon
+                icon={
+                  name === "Export fix (fork)" || name === "Fix export feedback"
+                    ? SourceCodeIcon
+                    : MessageMultiple01Icon
+                }
+                className="size-3.5 shrink-0 opacity-60"
+                strokeWidth={2}
+              />
               <span className="truncate">{name}</span>
             </p>
           ))}
