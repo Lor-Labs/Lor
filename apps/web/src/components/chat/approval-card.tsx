@@ -1,17 +1,31 @@
 import {
   Cancel01Icon,
-  HelpCircleIcon,
   LockKeyIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
+import { Checkbox } from "@repo/ui/components/checkbox"
 import { Input } from "@repo/ui/components/input"
+import { Kbd } from "@repo/ui/components/kbd"
+import { Radio, RadioGroup } from "@repo/ui/components/radio-group"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { useState } from "react"
+import {
+  AnimatePresence,
+  motion,
+  useReducedMotion,
+  type Variants,
+} from "motion/react"
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { rememberClaudeCodeMode } from "@/components/session/claude-code-mode-picker"
 import {
@@ -365,9 +379,56 @@ function PlanApprovalView({
   )
 }
 
-// A Claude Code question (AskUserQuestion): per question, pick options or
-// write an answer, as in Claude Code's own prompt. Skip declines, and Claude
-// Code goes on without it.
+// The --ease-out token (globals.css) and the strong ease-in-out, for Motion.
+const EASE_OUT = [0.23, 1, 0.32, 1] as const
+const EASE_IN_OUT = [0.77, 0, 0.175, 1] as const
+
+// A step slides out and the next question slides in from the side it comes
+// from: forward from the right, back from the left.
+const QUESTION_STEP = {
+  enter: (direction: number) => ({
+    opacity: 0,
+    transform: `translateX(${direction * 24}px)`,
+  }),
+  center: { opacity: 1, transform: "translateX(0px)" },
+  exit: (direction: number) => ({
+    opacity: 0,
+    transform: `translateX(${direction * -24}px)`,
+  }),
+} satisfies Variants
+
+// The card eases to the next question's height instead of jumping; it snaps
+// under reduced motion.
+function AnimatedHeight({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState<number | "auto">("auto")
+  const reduceMotion = useReducedMotion()
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return
+    const observer = new ResizeObserver(() => setHeight(element.offsetHeight))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <motion.div
+      initial={false}
+      animate={{ height }}
+      transition={{ duration: reduceMotion ? 0 : 0.25, ease: EASE_IN_OUT }}
+      className="overflow-hidden"
+    >
+      {/* popLayout takes the leaving step out of the flow, inside this box. */}
+      <div ref={ref} className="relative">
+        {children}
+      </div>
+    </motion.div>
+  )
+}
+
+// A Claude Code question (AskUserQuestion) as a stepper, one question at a
+// time: pick options (number keys too) or write your own answer, which
+// Claude Code takes over the options. Skip leaves a question unanswered;
+// with none answered the questions are declined and Claude Code goes on.
 function QuestionApprovalView({
   approval,
   questions,
@@ -381,108 +442,249 @@ function QuestionApprovalView({
   pending: boolean
   onResolve: (resolution: "approve" | "reject", extra?: ResolveExtra) => void
 }) {
+  const [step, setStep] = useState(0)
+  // 1 forward, -1 back: the next question comes in from that side.
+  const [direction, setDirection] = useState(1)
   const [picked, setPicked] = useState<Record<string, string[]>>({})
   const [written, setWritten] = useState<Record<string, string>>({})
-  const answers: Answers = Object.fromEntries(
-    questions.flatMap((question) => {
-      const optionIds = picked[question.id] ?? []
-      const freeform = written[question.id]?.trim()
-      if (optionIds.length === 0 && !freeform) return []
-      return [[question.id, { optionIds, ...(freeform ? { freeform } : {}) }]]
-    })
-  )
-  const toggle = (question: Question, optionId: string) =>
+  const question = questions[step]
+  if (!question) return null
+
+  const go = (to: number) => {
+    setDirection(to > step ? 1 : -1)
+    setStep(to)
+  }
+
+  const options = question.options ?? []
+  const chosen = picked[question.id] ?? []
+  const enabled = canResolve && !pending
+  const last = step === questions.length - 1
+  const answerOf = (id: string) => {
+    const freeform = written[id]?.trim()
+    if (freeform) return { optionIds: [], freeform }
+    const optionIds = picked[id] ?? []
+    return optionIds.length > 0 ? { optionIds } : null
+  }
+  const answered = answerOf(question.id) !== null
+
+  const pick = (optionId: string) => {
+    setWritten((current) => ({ ...current, [question.id]: "" }))
     setPicked((current) => {
-      const chosen = current[question.id] ?? []
-      const next = chosen.includes(optionId)
-        ? chosen.filter((id) => id !== optionId)
-        : question.allowMultiple
-          ? [...chosen, optionId]
-          : [optionId]
+      const ids = current[question.id] ?? []
+      const next = !question.allowMultiple
+        ? [optionId]
+        : ids.includes(optionId)
+          ? ids.filter((id) => id !== optionId)
+          : [...ids, optionId]
       return { ...current, [question.id]: next }
     })
+  }
+  const write = (value: string) => {
+    setWritten((current) => ({ ...current, [question.id]: value }))
+    if (value.trim())
+      setPicked((current) => ({ ...current, [question.id]: [] }))
+  }
+  // `skipped`: the current question, skipped on the last step.
+  const submit = (skipped?: string) => {
+    const answers: Answers = Object.fromEntries(
+      questions.flatMap((q) => {
+        const answer = q.id === skipped ? null : answerOf(q.id)
+        return answer ? [[q.id, answer]] : []
+      })
+    )
+    if (Object.keys(answers).length === 0) onResolve("reject")
+    else onResolve("approve", { answers })
+  }
+  const next = () => (last ? submit() : go(step + 1))
+  const skip = () => {
+    setPicked((current) => ({ ...current, [question.id]: [] }))
+    setWritten((current) => ({ ...current, [question.id]: "" }))
+    if (last) submit(question.id)
+    else go(step + 1)
+  }
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!enabled) return
+    if (event.key === "Enter" && answered) {
+      event.preventDefault()
+      next()
+      return
+    }
+    if (event.target instanceof HTMLInputElement) return
+    const option = options[Number(event.key) - 1]
+    if (option) {
+      event.preventDefault()
+      pick(option.id)
+    }
+  }
+
+  const rowClass = (selected: boolean) =>
+    cn(
+      "flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
+      enabled ? "cursor-pointer hover:bg-muted" : "cursor-default",
+      selected ? "bg-muted" : "bg-muted/40"
+    )
+  const optionText = (option: (typeof options)[number], index: number) => (
+    <>
+      <span
+        className="min-w-0 flex-1 truncate text-sm"
+        title={option.description}
+      >
+        <span className="font-medium">{option.label}</span>
+        {option.description && (
+          <span className="ms-2 text-muted-foreground">
+            {option.description}
+          </span>
+        )}
+      </span>
+      {enabled && index < 9 && <Kbd>{index + 1}</Kbd>}
+    </>
+  )
+  const hint =
+    options.length === 0
+      ? "Write your answer."
+      : question.allowMultiple
+        ? "Select all that apply, or write your own."
+        : "Choose one, or write your own."
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-3 dark:bg-foreground/[0.025]">
-      <div className="flex items-center gap-3">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning-foreground">
-          <HugeiconsIcon
-            icon={HelpCircleIcon}
-            className="size-3.5"
-            strokeWidth={2}
-          />
-        </span>
-        <p className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-4">
-          {canResolve
-            ? "Claude Code needs your answer"
-            : resolverLabel(approval.resolver, approval.resolverUserName)}
+    <div
+      onKeyDown={onKeyDown}
+      className="flex flex-col gap-4 rounded-xl border border-border/60 bg-card p-4 dark:bg-foreground/[0.025]"
+    >
+      <div className="flex flex-col gap-2">
+        {questions.length > 1 && (
+          <div className="flex gap-1">
+            {questions.map((q, index) => (
+              <span
+                key={q.id}
+                className={cn(
+                  "h-1 flex-1 rounded-full transition-colors",
+                  index <= step ? "bg-foreground/80" : "bg-muted"
+                )}
+              />
+            ))}
+          </div>
+        )}
+        <p className="text-muted-foreground text-xs">
+          {questions.length > 1
+            ? `Question ${step + 1} of ${questions.length}`
+            : "Claude Code asks"}
+          {question.header && ` · ${question.header}`}
         </p>
       </div>
-      {questions.map((question) => (
-        <div key={question.id} className="flex flex-col gap-1.5">
-          <p className="text-[13px] font-medium leading-5">
-            {question.header && (
-              <span className="me-1.5 rounded bg-muted px-1 py-px font-normal text-muted-foreground text-xs">
-                {question.header}
-              </span>
-            )}
-            {question.question}
-          </p>
-          {question.options && question.options.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {question.options.map((option) => (
-                <Button
-                  key={option.id}
-                  size="sm"
-                  variant={
-                    picked[question.id]?.includes(option.id)
-                      ? "default"
-                      : "outline"
-                  }
-                  disabled={!canResolve || pending}
-                  title={option.description}
-                  onClick={() => toggle(question, option.id)}
-                >
-                  {option.label}
-                </Button>
-              ))}
+      <AnimatedHeight>
+        <AnimatePresence mode="popLayout" initial={false} custom={direction}>
+          <motion.div
+            key={question.id}
+            custom={direction}
+            variants={QUESTION_STEP}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.22, ease: EASE_OUT }}
+            className="flex flex-col gap-4"
+          >
+            <div className="flex flex-col gap-0.5">
+              <p className="font-medium text-[15px] leading-6">
+                {question.question}
+              </p>
+              <p className="text-muted-foreground text-sm">{hint}</p>
             </div>
-          )}
-          {canResolve && (
-            <Input
-              size="sm"
-              value={written[question.id] ?? ""}
-              onChange={(event) =>
-                setWritten((current) => ({
-                  ...current,
-                  [question.id]: event.target.value,
-                }))
-              }
-              placeholder="Or write your own answer"
-              disabled={pending}
-            />
-          )}
-        </div>
-      ))}
-      {canResolve && (
-        <div className="flex justify-end gap-1.5">
+            {options.length > 0 &&
+              (question.allowMultiple ? (
+                <div className="flex flex-col gap-1.5">
+                  {options.map((option, index) => (
+                    // biome-ignore lint/a11y/noLabelWithoutControl: Base UI's Checkbox renders the input
+                    <label
+                      key={option.id}
+                      className={rowClass(chosen.includes(option.id))}
+                    >
+                      <Checkbox
+                        checked={chosen.includes(option.id)}
+                        onCheckedChange={() => pick(option.id)}
+                        disabled={!enabled}
+                      />
+                      {optionText(option, index)}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <RadioGroup
+                  value={chosen[0] ?? ""}
+                  onValueChange={(value) => pick(String(value))}
+                  disabled={!enabled}
+                  className="gap-1.5"
+                >
+                  {options.map((option, index) => (
+                    // biome-ignore lint/a11y/noLabelWithoutControl: Base UI's Radio renders the input
+                    <label
+                      key={option.id}
+                      className={rowClass(chosen.includes(option.id))}
+                    >
+                      <Radio value={option.id} />
+                      {optionText(option, index)}
+                    </label>
+                  ))}
+                </RadioGroup>
+              ))}
+            {canResolve && (
+              <Input
+                unstyled
+                size="lg"
+                value={written[question.id] ?? ""}
+                onChange={(event) => write(event.target.value)}
+                placeholder="Or write your own answer…"
+                disabled={pending}
+                className="rounded-lg bg-muted/40 text-sm transition-colors focus-within:bg-muted"
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </AnimatedHeight>
+      <div className="flex items-center gap-1.5">
+        {step > 0 && (
           <Button
             size="sm"
             variant="ghost"
             disabled={pending}
-            onClick={() => onResolve("reject")}
+            onClick={() => go(step - 1)}
           >
-            Skip
+            Previous
           </Button>
-          <Button
-            size="sm"
-            disabled={pending || Object.keys(answers).length === 0}
-            onClick={() => onResolve("approve", { answers })}
-          >
-            Send answer
-          </Button>
+        )}
+        <div className="ms-auto flex items-center gap-1.5">
+          {canResolve ? (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={pending}
+                onClick={skip}
+              >
+                Skip
+              </Button>
+              <Button size="sm" disabled={!enabled || !answered} onClick={next}>
+                {last ? "Send" : "Next"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <span className="text-muted-foreground text-xs">
+                {resolverLabel(approval.resolver, approval.resolverUserName)}
+              </span>
+              {!last && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => go(step + 1)}
+                >
+                  Next
+                </Button>
+              )}
+            </>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
