@@ -37,6 +37,10 @@ async function turnEnd(
   messageId: string,
   action: "fork" | "rewind"
 ) {
+  // Both work on Pi's saved log; Claude Code's comes later (chunk 7e).
+  if (session.harness !== "pi") {
+    throw new BranchRefusedError(`Claude Code sessions can't ${action} yet`)
+  }
   const [run] = await db
     .select({
       id: schema.agentRun.id,

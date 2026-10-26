@@ -541,6 +541,22 @@ may lag web), a Lor-offered "Continue in Code" card.
     - Settings → Linked accounts: a "Claude subscription" row with a
       neutral icon and a connect
       dialog modeled on Amp's three steps.
+  - [x] **7c-2** the harness choice, built 2026-10-25:
+    - `agent_session.harness` (`harness_kind`, default `pi`; the enum gains
+      `claude_code` and moved to `agent-sessions.ts`, since
+      `harness-states.ts` imports that file). Additive `db:push`.
+    - New session, Code mode: "with Lor ▾ / Claude Code" beside the repo
+      picker (remembered like the mode). Claude Code without a connected
+      subscription shows "Claude Code runs on your own Claude
+      subscription" with Connect (the same dialog) and blocks the start;
+      realtime refuses it too. Code sessions only for now.
+    - In a Claude Code session, a message from someone without a
+      subscription goes to people only (`toPeople`), so it never runs on
+      anyone's plan. Above their reply line: "Connect your Claude
+      subscription" and "Continue with Lor" (New session with
+      `continueFrom` and `harness=pi`). The heading shows "Claude Code".
+    - Until 7d, a Claude Code turn ends with "Claude Code sessions can't
+      run turns yet". Fork and rewind refuse Claude Code sessions (7e).
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

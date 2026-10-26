@@ -13,6 +13,7 @@ import {
   chatFeedMessage,
   findAgentSessionByThreadRoot,
 } from "@repo/db/queries/agent-sessions"
+import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { env } from "@repo/env/server"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 import { extractDirectMentionUserIds } from "@repo/messaging"
@@ -133,10 +134,22 @@ export async function sessionStartFor(args: {
     const source = payload.continueFrom
       ? await continuedSession(payload.continueFrom, payload.channelId)
       : null
+    // Claude Code: code sessions only for now, on the starter's own Claude
+    // subscription (code-sessions-runbook.md chunk 7).
+    const claudeCode = payload.harness === "claude_code"
+    if (claudeCode && !code) {
+      throw new Error("Claude Code sessions need a repository")
+    }
+    if (claudeCode && !(await hasPersonalAccount(args.senderId, "claude"))) {
+      throw new Error(
+        "Connect your Claude subscription in Settings → Linked accounts to start a Claude Code session"
+      )
+    }
     return {
       ...ids,
       origin: "new",
       ...(code ? { code } : {}),
+      ...(claudeCode ? { harness: "claude_code" as const } : {}),
       ...(source
         ? {
             sourceSessionId: source.id,

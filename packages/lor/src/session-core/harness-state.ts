@@ -2,7 +2,7 @@
 // Lor implements the store (worker); the core never imports @repo/db.
 // See reference/planned/pi-harness-runbook.md §4.3 and §6.
 
-export type HarnessKind = "pi"
+export type HarnessKind = "pi" | "claude_code"
 
 // A Lor session or a voice call.
 export type HarnessOwner = { sessionId: string } | { voiceSessionId: string }

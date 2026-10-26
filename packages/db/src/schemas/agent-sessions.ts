@@ -31,6 +31,12 @@ export const agentSessionModeEnum = pgEnum("agent_session_mode", [
   "code",
 ])
 
+// Harnesses that can run a conversation (reference/planned/harness-sessions.md
+// §3). Claude Code runs on the turn starter's own Claude subscription
+// (code-sessions-runbook.md chunk 7). Defined here, not in harness-states.ts,
+// which imports this file.
+export const harnessKindEnum = pgEnum("harness_kind", ["pi", "claude_code"])
+
 // A Lor session: one place where Lor works on one thing, next to the channel
 // chat (reference/workspace-model.md). Its anchor message (type
 // "agent_session") never shows in chat; session messages are thread replies
@@ -59,6 +65,9 @@ export const agentSession = pgTable(
     }),
     origin: agentSessionOriginEnum("origin").notNull(),
     mode: agentSessionModeEnum("mode").notNull().default("chat"),
+    // Fixed when the session starts: each harness keeps its own native
+    // conversation, so a session never switches.
+    harness: harnessKindEnum("harness").notNull().default("pi"),
     // Code sessions: the GitHub repo (owner/repo) cloned as the work folder
     // and the branch it starts from. Null in chat sessions.
     repoFullName: text("repo_full_name"),

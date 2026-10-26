@@ -184,6 +184,8 @@ export function useMessageSending({
         startSession?: boolean
         // With startSession: start it in Code mode on this repo and branch.
         code?: { repo: string; branch: string }
+        // With code: Claude Code runs it instead of Lor's own agent.
+        harness?: "pi" | "claude_code"
         // With startSession: "Continue in Code" from this session.
         continueFrom?: { id: string; title: string }
         // "Ask Lor about this": the message the new session starts with.
@@ -220,12 +222,14 @@ export function useMessageSending({
           ? { id: crypto.randomUUID(), threadRootId: crypto.randomUUID() }
           : null
       const code = options?.startSession ? options.code : undefined
+      const harness = code ? options?.harness : undefined
       const source = options?.startSession ? options.continueFrom : undefined
       const start: SessionStart | null = startIds
         ? {
             ...startIds,
             origin: options?.startSession ? "new" : "chat",
             ...(code ? { code } : {}),
+            ...(harness ? { harness } : {}),
             ...(source ? { source } : {}),
             title: sessionTitleFromPrompt(content),
             stay: Boolean(options?.stay),
@@ -277,6 +281,7 @@ export function useMessageSending({
           toPeople: options?.toPeople || undefined,
           startSession: options?.startSession || undefined,
           code,
+          harness,
           continueFrom: source?.id,
           newSession: start
             ? { id: start.id, threadRootId: start.threadRootId }

@@ -98,10 +98,14 @@ export function SessionDocument({
   onFork,
   onRewind,
   rewindRestoresFiles,
+  composerNote,
 }: {
   workspaceSlug: string
   channelId: string
   threadRootId: string
+  // Above the reply line: why the agent won't answer this person (a Claude
+  // Code session without their Claude subscription).
+  composerNote?: ReactNode
   // "Fork from here" on Lor's finished replies; settles when the fork opens
   // or fails.
   onFork?: (message: Message) => Promise<unknown>
@@ -469,6 +473,7 @@ export function SessionDocument({
       />
       {/* Right above the reply line, like other people's draft lines. */}
       <DocumentTypingIndicator people={typingPeople} />
+      {composerNote}
       <MessageInput
         key={threadRootId}
         context={CHANNEL_CONTEXT}

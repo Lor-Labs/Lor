@@ -1,6 +1,7 @@
 import {
   Archive02Icon,
   BubbleChatIcon,
+  CommandLineIcon,
   GitBranchIcon,
   GitForkIcon,
   HashtagIcon,
@@ -43,6 +44,7 @@ import {
   SessionTabBar,
   SessionTabView,
 } from "@/components/session/session-tabs"
+import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
@@ -58,6 +60,7 @@ import {
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
+import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useLiveSessionChanges } from "@/hooks/use-session-changes"
 import {
@@ -205,9 +208,43 @@ function SessionConversation({
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null
   const [renaming, setRenaming] = useState(false)
+  // Claude Code answers only messages from people with their own Claude
+  // subscription; the server sends the rest to the session's people
+  // (code-sessions-runbook.md chunk 7).
+  const { data: accounts } = usePersonalAccounts()
+  const [connectingClaude, setConnectingClaude] = useState(false)
+  const withoutClaude =
+    session.harness === "claude_code" &&
+    !session.archivedAt &&
+    accounts !== undefined &&
+    accounts.claude.account == null
 
   return (
     <SessionDocument
+      composerNote={
+        withoutClaude ? (
+          <>
+            <ClaudeCodeNote
+              onConnect={() => setConnectingClaude(true)}
+              onContinueWithLor={() =>
+                void navigate({
+                  to: "/$workspaceSlug/session/new",
+                  params: { workspaceSlug },
+                  search: {
+                    channelId: session.channelId,
+                    continueFrom: session.id,
+                    harness: "pi",
+                  },
+                })
+              }
+            />
+            <ClaudeConnectDialog
+              open={connectingClaude}
+              onOpenChange={setConnectingClaude}
+            />
+          </>
+        ) : undefined
+      }
       workspaceSlug={workspaceSlug}
       channelId={session.channelId}
       threadRootId={session.threadRootId}
@@ -428,6 +465,29 @@ function SessionStrip({
   )
 }
 
+function ClaudeCodeNote({
+  onConnect,
+  onContinueWithLor,
+}: {
+  onConnect: () => void
+  onContinueWithLor: () => void
+}) {
+  return (
+    <div className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
+      <span className="min-w-0 flex-1">
+        Claude Code answers people on their own Claude subscription. Your
+        messages here go to the people in the session.
+      </span>
+      <Button size="xs" variant="ghost" onClick={onContinueWithLor}>
+        Continue with Lor
+      </Button>
+      <Button size="xs" onClick={onConnect}>
+        Connect your Claude subscription
+      </Button>
+    </div>
+  )
+}
+
 // The document's opening: title and metadata, with the source on its own row.
 function SessionHeading({
   session,
@@ -502,6 +562,19 @@ function SessionHeading({
               />
               {session.baseBranch}
             </a>
+          </>
+        )}
+        {session.harness === "claude_code" && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="inline-flex items-center gap-1">
+              <HugeiconsIcon
+                icon={CommandLineIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              Claude Code
+            </span>
           </>
         )}
         <span aria-hidden="true">·</span>

@@ -544,12 +544,32 @@ export function createLorRespondProcessor(
                     sourceSessionId: schema.agentSession.sourceSessionId,
                     forkedFromMessageId:
                       schema.agentSession.forkedFromMessageId,
+                    harness: schema.agentSession.harness,
                   })
                   .from(schema.agentSession)
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
                   .then((rows) => rows[0])
               : undefined
             if (!session) throw new Error("This Lor run has no session")
+            // Claude Code turns run from code-sessions-runbook.md chunk 7d;
+            // until then a Claude Code session's turn says so instead of
+            // running on Lor's own agent.
+            if (session.harness === "claude_code") {
+              const notYet =
+                "Claude Code sessions can't run turns yet. Start a Lor session to work on this now."
+              await db
+                .update(schema.message)
+                .set({ content: notYet, status: "failed" })
+                .where(eq(schema.message.id, lorMessageId))
+                .catch(() => {})
+              emit(notYet, true, "failed")
+              await runWriter.transition("failed", { stopReason: "error" })
+              execution.stop()
+              await settlePlan("failed")
+              await emitThreadSummary()
+              drainQueue()
+              return
+            }
             const owner = { sessionId: session.id }
             const harnessState = await loadHarnessState(
               owner,
