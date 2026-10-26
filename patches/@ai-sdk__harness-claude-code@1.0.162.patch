@@ -1,5 +1,5 @@
 diff --git a/dist/bridge/index.mjs b/dist/bridge/index.mjs
-index e21cffa448869313e6b9a136c91b69c60850cb26..08289314e9dd0241ed69226f6e532eedb15cb24b 100644
+index e21cffa448869313e6b9a136c91b69c60850cb26..53ee2bbf37c7c2312425c8d4908cbfe9ef1a90d5 100644
 --- a/dist/bridge/index.mjs
 +++ b/dist/bridge/index.mjs
 @@ -1461,25 +1461,35 @@ const mcpModule = mcpServerModule;
@@ -71,7 +71,16 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..08289314e9dd0241ed69226f6e532eed
  			} : {
  				behavior: "deny",
  				message: decision.reason ?? "Denied",
-@@ -1770,6 +1788,7 @@ async function runTurn(start, turn) {
+@@ -1757,6 +1775,8 @@ async function runTurn(start, turn) {
+ 				}] }]
+ 			},
+ 			...start.resumeSessionId ?? lastClaudeSessionId ? { resume: start.resumeSessionId ?? lastClaudeSessionId } : start.continue === true || !turn.firstTurn ? { continue: true } : {},
++			// Lor patch: a rewind resumes only up to this entry.
++			...start.resumeSessionAt ? { resumeSessionAt: start.resumeSessionAt } : {},
+ 			...permissionOptions,
+ 			mcpServers,
+ 			cwd: workdir,
+@@ -1770,6 +1790,7 @@ async function runTurn(start, turn) {
  	};
  	let turnUsage;
  	let totalCostUsd;
@@ -79,7 +88,7 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..08289314e9dd0241ed69226f6e532eed
  	let emittedTerminalError = false;
  	let emittedTerminalFinish = false;
  	const emitTerminalError = (message) => {
-@@ -1838,6 +1857,7 @@ async function runTurn(start, turn) {
+@@ -1838,6 +1859,7 @@ async function runTurn(start, turn) {
  					if (!queryInput.answersSentMessage(msg)) continue;
  					queryInput.observeResult();
  					if (!queryInput.hasActiveUserMessages()) {
@@ -87,7 +96,7 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..08289314e9dd0241ed69226f6e532eed
  						queryInput.close();
  						break;
  					}
-@@ -1845,6 +1865,7 @@ async function runTurn(start, turn) {
+@@ -1845,6 +1867,7 @@ async function runTurn(start, turn) {
  				continue;
  			}
  			if (queryInput.hasObservedResult && !queryInput.hasActiveUserMessages()) {
@@ -95,7 +104,7 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..08289314e9dd0241ed69226f6e532eed
  				queryInput.close();
  				break;
  			}
-@@ -1873,12 +1894,40 @@ async function runTurn(start, turn) {
+@@ -1873,12 +1896,40 @@ async function runTurn(start, turn) {
  			raw: "stop"
  		},
  		totalUsage: turnUsage ?? streamEventState.stepUsage ?? defaultUsage(),
@@ -139,10 +148,10 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..08289314e9dd0241ed69226f6e532eed
  	let closed = false;
  	let observedResult = false;
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index 35c09984546c68938d5fed6ba90a829e9091662a..a69ecf982acc03be2b840f702a64bcbd8a8879df 100644
+index 35c09984546c68938d5fed6ba90a829e9091662a..ecd6ab5256ce2657048c8bc97b4b39b2ec955685 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
-@@ -22,6 +22,12 @@ type ClaudeCodeHarnessSettings = {
+@@ -22,6 +22,17 @@ type ClaudeCodeHarnessSettings = {
     * discover, read, or otherwise access in the host process.
     */
    readonly credentialForwarding?: HarnessV1CredentialForwarding;
@@ -152,47 +161,67 @@ index 35c09984546c68938d5fed6ba90a829e9091662a..a69ecf982acc03be2b840f702a64bcbd
 +   * the harness `permissionMode` mapping applies.
 +   */
 +  readonly nativePermissionMode?: "default" | "acceptEdits" | "plan" | "auto";
++  /**
++   * Lor patch: the first prompt resumes the conversation only up to this
++   * entry (the SDK's `resumeSessionAt`): a rewind.
++   */
++  readonly resumeSessionAt?: string;
    /**
     * MCP server definitions keyed by server name. Each definition uses the
     * underlying runtime's native MCP server configuration format.
 diff --git a/dist/index.js b/dist/index.js
-index 25fa866a95d96c9a3d2c3f0e338c6f525db01ef6..646b4f4094690b22556226af79cc97ce17cbed79 100644
+index 25fa866a95d96c9a3d2c3f0e338c6f525db01ef6..9ad8df58b35ca528fdd9a3eb82c8b24135ffa720 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -1106,6 +1106,7 @@ function createClaudeCode(settings = {}) {
+@@ -1106,6 +1106,8 @@ function createClaudeCode(settings = {}) {
  					sandboxCredentialEnvironment,
  					debug: startOpts.observability?.debug,
  					permissionMode: startOpts.permissionMode,
 +					nativePermissionMode: settings.nativePermissionMode,
++					resumeSessionAt: settings.resumeSessionAt,
  					builtinToolFiltering: startOpts.builtinToolFiltering,
  					sandbox: toolSafeSandboxSession,
  					sandboxHomeDir,
-@@ -1221,6 +1222,7 @@ function createClaudeCode(settings = {}) {
+@@ -1221,6 +1223,8 @@ function createClaudeCode(settings = {}) {
  				sandboxCredentialEnvironment,
  				debug: startOpts.observability?.debug,
  				permissionMode: startOpts.permissionMode,
 +				nativePermissionMode: settings.nativePermissionMode,
++				resumeSessionAt: settings.resumeSessionAt,
  				builtinToolFiltering: startOpts.builtinToolFiltering,
  				sandbox: toolSafeSandboxSession,
  				sandboxHomeDir,
-@@ -1406,7 +1408,7 @@ function formatUnknownError(error) {
+@@ -1406,11 +1410,13 @@ function formatUnknownError(error) {
  	if (error instanceof Error) return error.message;
  	return String(error);
  }
 -function createSession({ sessionId, channel, finishListenerAttachment, proc, maxTurns, agentProgressSummaries, forwardSubagentText, env, thinking, effort, isResume, continueOnFirstPrompt, resumeSessionId, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, builtinToolFiltering, sandbox, sandboxHomeDir, mcpServers, supportsUserMessageResponses }) {
-+function createSession({ sessionId, channel, finishListenerAttachment, proc, maxTurns, agentProgressSummaries, forwardSubagentText, env, thinking, effort, isResume, continueOnFirstPrompt, resumeSessionId, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, nativePermissionMode, builtinToolFiltering, sandbox, sandboxHomeDir, mcpServers, supportsUserMessageResponses }) {
++function createSession({ sessionId, channel, finishListenerAttachment, proc, maxTurns, agentProgressSummaries, forwardSubagentText, env, thinking, effort, isResume, continueOnFirstPrompt, resumeSessionId, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, nativePermissionMode, resumeSessionAt, builtinToolFiltering, sandbox, sandboxHomeDir, mcpServers, supportsUserMessageResponses }) {
  	let stopped = false;
  	let stopPromise;
  	let pendingResumeFlag = continueOnFirstPrompt;
-@@ -1566,6 +1568,7 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
+ 	let lastClaudeSessionId = resumeSessionId;
++	// Lor patch: a rewind applies to the first prompt only.
++	let pendingResumeAt = resumeSessionAt;
+ 	const wireTurn = (turnOpts) => {
+ 		let pendingResolve;
+ 		let pendingReject;
+@@ -1566,10 +1572,13 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
  				...promptOpts.skills.length > 0 ? { skills: promptOpts.skills.map((skill) => skill.name) } : {},
  				...mcpServers == null ? {} : { mcpServers },
  				...permissionMode ? { permissionMode } : {},
 +				...nativePermissionMode ? { nativePermissionMode } : {},
  				...builtinToolFiltering ? { builtinToolFiltering } : {},
  				...debug ? { debug } : {},
- 				...lastClaudeSessionId ? { resumeSessionId: lastClaudeSessionId } : pendingResumeFlag ? { continue: true } : {}
-@@ -1600,6 +1603,7 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
+-				...lastClaudeSessionId ? { resumeSessionId: lastClaudeSessionId } : pendingResumeFlag ? { continue: true } : {}
++				...lastClaudeSessionId ? { resumeSessionId: lastClaudeSessionId } : pendingResumeFlag ? { continue: true } : {},
++				...pendingResumeAt && lastClaudeSessionId ? { resumeSessionAt: pendingResumeAt } : {}
+ 			};
++			pendingResumeAt = void 0;
+ 			pendingResumeFlag = false;
+ 			rerunContinue = false;
+ 			channel.send(startMessage);
+@@ -1600,6 +1609,7 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
  					...continueOpts.skills.length > 0 ? { skills: continueOpts.skills.map((skill) => skill.name) } : {},
  					...mcpServers == null ? {} : { mcpServers },
  					...permissionMode ? { permissionMode } : {},

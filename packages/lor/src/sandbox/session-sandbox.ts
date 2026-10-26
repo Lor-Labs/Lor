@@ -76,7 +76,9 @@ const GIT_PROXY_CA =
 // adapter as `node <bootstrap>/bridge.mjs …`; Claude Code inherits its env.
 // The sandbox runs as root, where Claude Code refuses Bypass permissions
 // unless IS_SANDBOX=1; Node trusts the proxy's CA only through
-// NODE_EXTRA_CA_CERTS (code-sessions-runbook.md chunk 7a).
+// NODE_EXTRA_CA_CERTS (code-sessions-runbook.md chunk 7a). Claude Code's
+// auto memory is off: its notes live only in the sandbox, outlive rewinds
+// and are shared by everyone's turns, and Lor keeps the team's memory.
 const CLAUDE_CODE_BRIDGE_SCRIPT = ".harness-bootstrap/claude-code/bridge.mjs"
 const CLAUDE_CODE_SHELL =
   'if [ -n "$SSL_CERT_FILE" ]; then export NODE_EXTRA_CA_CERTS="$SSL_CERT_FILE"; fi; '
@@ -84,6 +86,7 @@ const CLAUDE_CODE_ENV = {
   IS_SANDBOX: "1",
   DISABLE_AUTOUPDATER: "1",
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+  CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
 }
 
 // A Claude Code turn (code-sessions-runbook.md chunk 7): the sandbox may

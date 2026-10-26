@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { posix } from "node:path"
 import {
   HarnessAgent,
@@ -18,10 +17,10 @@ import type {
   ToolSet,
   UserModelMessage,
 } from "ai"
+import { claudeHeadOf, pendingRewind } from "./claude-branch"
 import {
   checkCompatibility,
   type HarnessBinding,
-  type HarnessHead,
   type SavedHarnessState,
   SessionCoreError,
 } from "./harness-state"
@@ -76,34 +75,6 @@ const CLAUDE_CODE_INACTIVE_TOOLS = [
   "SendUserFile",
   "ShareOnboardingGuide",
 ]
-
-function sha256(text: string): string {
-  return createHash("sha256").update(text, "utf8").digest("hex")
-}
-
-// `logFileName` is the file's path under ~/.claude, so a restore needs no
-// knowledge of how Claude Code names project folders.
-function claudeHeadOf(
-  text: string,
-  logFileName: string,
-  claudeSessionId: string
-): HarnessHead | null {
-  const lines = text.split("\n").filter((line) => line.trim() !== "")
-  if (lines.length === 0) return null
-  let lastId: unknown
-  try {
-    lastId = (JSON.parse(lines[lines.length - 1] ?? "") as { uuid?: unknown })
-      .uuid
-  } catch {}
-  return {
-    harnessSessionId: claudeSessionId,
-    logFileName,
-    entryCount: lines.length,
-    headEntryId: typeof lastId === "string" ? lastId : String(lines.length),
-    byteLength: Buffer.byteLength(text, "utf8"),
-    sha256: sha256(text),
-  }
-}
 
 export type ClaudeCodeTurnInput = {
   // Lor's session id: the harness session, and the work folder's name.
@@ -176,6 +147,8 @@ export async function runClaudeCodeTurn(
       save: withContinuation(null, saved, null),
     }
   }
+  const rewindTo =
+    saved && !paused ? pendingRewind(saved.head, saved.log) : null
   const claudeHome = `${await sandboxHome(sandbox)}/.claude`
   // Postgres is the authority: put the saved file back unless it matches. A
   // paused turn's bridge still holds the file and appends to it, so it stays.
@@ -198,6 +171,9 @@ export async function runClaudeCodeTurn(
       ...(input.mode === "bypassPermissions"
         ? {}
         : { nativePermissionMode: input.mode }),
+      // After a rewind the next turn resumes from that entry and branches
+      // the file there (adapter patch, the SDK's resumeSessionAt).
+      ...(rewindTo ? { resumeSessionAt: rewindTo } : {}),
     }),
     instructions: input.instructions,
     tools: prepareTools(

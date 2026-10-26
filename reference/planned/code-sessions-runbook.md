@@ -561,7 +561,7 @@ may lag web), a Lor-offered "Continue in Code" card.
       anyone's plan. Above their reply line: "Connect your Claude
       subscription" and "Continue with Lor" (New session with
       `continueFrom` and `harness=pi`). The heading shows "Claude Code".
-    - Fork and rewind refuse Claude Code sessions (7e).
+    - Fork and rewind refused Claude Code sessions until 7e.
   - [x] **7d-1 spike** (2026-10-25, three turns through the adapter in a
     throwaway session sandbox, then deleted):
     - A conversation is one append-only file,
@@ -748,10 +748,39 @@ may lag web), a Lor-offered "Continue in Code" card.
     - `POST /approvals/{id}/answer` saves `approval.answers` (additive
       `db:push`); the paused turn's continue sends them as the tool result.
       Skip sends `declined`; someone writing instead sends `cancelled`.
-    - Web card: each question with its options (one or several) and a
-      written answer, Send answer and Skip; others see the questions and
+    - Web card (Jacob's redesign): a stepper, one question at a time with a
+      segmented progress bar and "Question 2 of 4 · <header>"; radio or
+      checkbox rows with number-key hints, a written-answer row, Previous /
+      Skip / Next (Send on the last). Skip leaves a question out; with none
+      answered the questions are declined. Steps slide (Motion, 220 ms
+      ease-out, the card's height eased), the bar fills with a clip-path
+      transition and the label rolls. Others see the questions and
       "Waiting on <name>"; once answered the row reads "Answered by … ·
       Color: Blue". Mobile asks to answer on web or desktop for now.
+  - [x] **7e** fork and rewind for Claude Code, built 2026-10-26 (not yet
+    run live in Lor):
+    - **Spike** (throwaway sandboxes, deleted): the SDK's `resumeSessionAt`
+      at turn A's last entry (its final assistant message) made the next
+      turn forget turn B; Claude Code kept the same file and appended the
+      new turn as a branch there (its first entry's parent was A's last).
+      A file copied up to the end of turn A into another work folder's
+      project folder resumed with only turn A. One run's turns used Claude
+      Code's own auto-memory (a file outside the work folder), which a
+      rewind does not undo.
+    - Adapter patch: `createClaudeCode({ resumeSessionAt })` puts it on the
+      first prompt's start message, and the bridge passes it to the SDK.
+    - `session-core/claude-branch.ts`: the turn end is the run's last save
+      (its last entry and last byte, `turnEndChunk`). Rewind leaves the
+      file as it is and moves `headEntryId` to that entry (refused off the
+      current branch, or when it is already the head); the next turn sees
+      a head that is not the file's last entry and resumes there. Fork:
+      the file up to that byte, renamed into the fork's project folder;
+      the fork keeps the Claude Code harness.
+    - Claude Code's auto memory is off (Jacob, 2026-10-26):
+      `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` on the bridge. Its notes lived only
+      in the sandbox, outlived rewinds and were shared by everyone's turns;
+      Lor keeps the team's memory. Checked: asked to remember something,
+      Claude Code said it had no memory tool and wrote no memory files.
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
