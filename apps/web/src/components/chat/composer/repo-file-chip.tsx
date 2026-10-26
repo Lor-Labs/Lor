@@ -1,4 +1,4 @@
-import { File01Icon } from "@hugeicons/core-free-icons"
+import { File01Icon, Folder01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "@repo/ui/lib/utils"
 import { Selection } from "@tiptap/pm/state"
@@ -13,6 +13,7 @@ import {
 import {
   type ComposerFileReference,
   repoFileFromUrl,
+  repoFileLabel,
   repoFileMarkdown,
   repoFileUrl,
 } from "@/lib/repo-file-reference"
@@ -33,8 +34,13 @@ function RepoFileChipView({ node, selected }: NodeViewProps) {
         )}
         title={reference?.path}
       >
-        <HugeiconsIcon icon={File01Icon} className="size-3 shrink-0" />
-        <span className="max-w-64 truncate">{reference?.path}</span>
+        <HugeiconsIcon
+          icon={reference?.kind === "folder" ? Folder01Icon : File01Icon}
+          className="size-3 shrink-0"
+        />
+        <span className="max-w-64 truncate">
+          {reference ? repoFileLabel(reference) : ""}
+        </span>
       </span>
     </NodeViewWrapper>
   )
@@ -70,10 +76,11 @@ export const RepoFileChip = Node.create({
   },
 
   renderHTML({ HTMLAttributes, node }) {
+    const reference = repoFileFromUrl(node.attrs.url)
     return [
       "span",
       mergeAttributes(HTMLAttributes),
-      repoFileFromUrl(node.attrs.url)?.path ?? "",
+      reference ? repoFileLabel(reference) : "",
     ]
   },
 

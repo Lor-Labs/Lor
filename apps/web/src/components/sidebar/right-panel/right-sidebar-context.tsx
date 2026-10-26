@@ -34,6 +34,7 @@ interface RightSidebarContextValue {
   file: OpenFile | null
   sizeClass: PanelSizeClass
   setView: (view: RightSidebarView | null) => void
+  openView: (view: RightSidebarView) => void
   clearView: () => void
   consumeComposerDraft: (id: string) => void
   isCollapsed: boolean
@@ -206,6 +207,14 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     setView(null)
   }, [])
 
+  const openView = useCallback((nextView: RightSidebarView) => {
+    setView(nextView)
+    setIsCollapsed(false)
+    try {
+      localStorage.setItem(PANEL_COLLAPSED_KEY, "false")
+    } catch {}
+  }, [])
+
   const consumeComposerDraft = useCallback((id: string) => {
     setView((current) =>
       current?.type === "thread" && current.composerDraft?.id === id
@@ -245,6 +254,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       file,
       sizeClass,
       setView,
+      openView,
       clearView,
       consumeComposerDraft,
       isCollapsed,
@@ -257,6 +267,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       view,
       file,
       sizeClass,
+      openView,
       clearView,
       consumeComposerDraft,
       isCollapsed,

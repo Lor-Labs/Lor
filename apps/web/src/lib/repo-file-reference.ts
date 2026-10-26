@@ -13,6 +13,7 @@ const referenceSchema = z.object({
     .max(256)
     .regex(/^[\w-]+$/),
   sessionId: z.uuid(),
+  kind: z.enum(["file", "folder"]).optional(),
   path: z
     .string()
     .min(1)
@@ -34,18 +35,24 @@ export interface ComposerFileReference {
 }
 
 export function repoFileUrl(reference: RepoFileReference) {
-  return sessionTabLink(
-    reference.workspaceSlug,
-    reference.sessionId,
-    fileTabId(reference.path)
-  )
-    .replaceAll("(", "%28")
-    .replaceAll(")", "%29")
+  const url =
+    reference.kind === "folder"
+      ? `${sessionTabLink(reference.workspaceSlug, reference.sessionId, null)}?folder=${encodeURIComponent(reference.path)}`
+      : sessionTabLink(
+          reference.workspaceSlug,
+          reference.sessionId,
+          fileTabId(reference.path)
+        )
+  return url.replaceAll("(", "%28").replaceAll(")", "%29")
+}
+
+export function repoFileLabel(reference: RepoFileReference) {
+  return `${reference.path}${reference.kind === "folder" ? "/" : ""}`
 }
 
 // Ordinary Markdown keeps the full repo path readable by Lor and other clients.
 export function repoFileMarkdown(reference: RepoFileReference) {
-  const label = reference.path.replace(/[\\`*_[\]<>+&@]/g, "\\$&")
+  const label = repoFileLabel(reference).replace(/[\\`*_[\]<>+&@]/g, "\\$&")
   return `[${label}](${repoFileUrl(reference)})`
 }
 
@@ -55,11 +62,13 @@ export function repoFileFromUrl(href: string): RepoFileReference | null {
     if (url.origin !== new URL(webOrigin()).origin) return null
     const match = /^\/([^/]+)\/session\/([^/]+)$/.exec(url.pathname)
     const open = url.searchParams.get("open")
-    if (!match || !open?.startsWith("file:")) return null
+    const folder = url.searchParams.get("folder")
+    if (!match || (folder === null && !open?.startsWith("file:"))) return null
     const result = referenceSchema.safeParse({
       workspaceSlug: decodeURIComponent(match[1] ?? ""),
       sessionId: match[2],
-      path: open.slice(5),
+      kind: folder !== null ? "folder" : "file",
+      path: folder ?? open?.slice(5),
     })
     return result.success ? result.data : null
   } catch {
@@ -75,7 +84,7 @@ export function writeRepoFileDrag(
   transfer.setData(REPO_FILE_MIME, JSON.stringify(reference))
   // Dragover can read types, but cannot read the payload until drop.
   transfer.setData(sessionMime(reference.sessionId), "")
-  transfer.setData("text/plain", reference.path)
+  transfer.setData("text/plain", repoFileLabel(reference))
   transfer.setData("text/uri-list", repoFileUrl(reference))
 }
 

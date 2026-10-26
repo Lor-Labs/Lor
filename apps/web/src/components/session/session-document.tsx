@@ -586,7 +586,7 @@ export function SessionDocument({
         <div className="pointer-events-none absolute inset-0 z-40 rounded-lg border-2 border-dashed border-primary/40">
           <div className="absolute inset-x-0 bottom-16 flex justify-center">
             <span className="rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm">
-              Drop to reference this file
+              Drop to reference this file or folder
             </span>
           </div>
         </div>

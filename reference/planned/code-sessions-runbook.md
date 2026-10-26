@@ -125,14 +125,17 @@ may lag web), a Lor-offered "Continue in Code" card.
     to Chat. Ctrl+Tab, Ctrl+Shift+Tab and Cmd+W only in the Mac app
     (browsers keep them). Cmd+W relies on WKWebView giving the page the key
     before the menu's Close Window: not yet checked in the app.
-  - [x] **F4** Files tree → composer: drag a file from the tree or filtered
-    results into its session to insert an atomic file-reference chip. Entering
-    the document with a file drag returns to Chat and reveals the composer;
-    the existing draft survives. A drop inside the editor inserts at the drop
-    position, elsewhere appends. References serialize as ordinary Markdown
-    links with the full repo-relative path and session file-tab URL; sent chips
-    open that file in the app. No upload or content snapshot is made. Folders,
-    archived sessions and references from other sessions are not accepted.
+  - [x] **F4** Files tree → composer: drag a file or folder from the tree
+    (or a file from filtered results) into its session to insert an atomic
+    reference chip. Entering the document with a reference drag returns to
+    Chat and reveals the composer; the existing draft survives. A drop
+    inside the editor inserts at the drop position, elsewhere appends.
+    References serialize as ordinary Markdown
+    links with the full repo-relative path. Folder chips have a folder icon
+    and trailing slash; their links reveal and expand the folder in the
+    Files panel. File links open the file's tab. No upload or content snapshot
+    is made. Archived sessions and references from other sessions are not
+    accepted.
 - [ ] **4. Personal GitHub and shipping.** The GitHub App's user
   authorization, stored and refreshed tokens, a connect prompt; Push and
   Create PR as the person, or as the Lor bot by setting. Decided with Jacob

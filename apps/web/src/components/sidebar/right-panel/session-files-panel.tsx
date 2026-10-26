@@ -9,7 +9,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { SessionFilesSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import {
@@ -108,12 +108,14 @@ export function SessionFilesPanel({ view }: { view: SessionFilesSidebarView }) {
     <FolderGapNote gap={tree.data.state} onRetry={() => void tree.refetch()} />
   ) : (
     <FileTree
+      key={view.revealFolder?.id ?? view.sessionId}
       workspaceSlug={view.workspaceSlug}
       sessionId={view.sessionId}
       paths={tree.data.paths}
       truncated={tree.data.truncated}
       statusByPath={statusByPath}
       activeTab={tabs.active}
+      folderPath={view.revealFolder?.path}
       onOpen={(path, preview) => tabs.open(fileTabId(path), { preview })}
     />
   )
@@ -138,6 +140,7 @@ function FileTree({
   truncated,
   statusByPath,
   activeTab,
+  folderPath,
   onOpen,
 }: {
   workspaceSlug: string
@@ -146,10 +149,20 @@ function FileTree({
   truncated: boolean
   statusByPath: Map<string, Status>
   activeTab: string | null
+  folderPath?: string
   onOpen: (path: string, preview: boolean) => void
 }) {
   const [filter, setFilter] = useState("")
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    const parts = folderPath?.split("/") ?? []
+    return new Set(parts.map((_, index) => parts.slice(0, index + 1).join("/")))
+  })
+  const folderRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (folderPath) {
+      folderRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
+    }
+  }, [folderPath])
   const root = useMemo(() => buildTree(paths), [paths])
   // A folder holding a changed file is marked too, so changes are findable
   // with the tree folded.
@@ -178,7 +191,7 @@ function FileTree({
       return next
     })
   const rowHighlight = (path: string) =>
-    activeTab === fileTabId(path)
+    activeTab === fileTabId(path) || (!activeTab && path === folderPath)
       ? "bg-foreground/[0.06]"
       : "hover:bg-foreground/[0.04]"
 
@@ -191,16 +204,15 @@ function FileTree({
         <div key={child.path}>
           <button
             type="button"
-            draggable={!isFolder}
-            onDragStart={
-              isFolder
-                ? undefined
-                : (event) =>
-                    writeRepoFileDrag(event.dataTransfer, {
-                      workspaceSlug,
-                      sessionId,
-                      path: child.path,
-                    })
+            ref={isFolder && child.path === folderPath ? folderRef : undefined}
+            draggable
+            onDragStart={(event) =>
+              writeRepoFileDrag(event.dataTransfer, {
+                workspaceSlug,
+                sessionId,
+                path: child.path,
+                kind: isFolder ? "folder" : "file",
+              })
             }
             // A click opens a preview tab, a double click keeps it.
             onClick={() =>

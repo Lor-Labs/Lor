@@ -78,10 +78,12 @@ export function SessionView({
   workspaceSlug,
   sessionId,
   targetMessageId,
+  targetFolder,
 }: {
   workspaceSlug: string
   sessionId: string
   targetMessageId?: string
+  targetFolder?: string
 }) {
   const { data, isPending, isError } = useAgentSession(sessionId)
   // Opened without a row hover (⌘K, a link, a notification): the sidebar row
@@ -117,6 +119,7 @@ export function SessionView({
       workspaceSlug={workspaceSlug}
       detail={data}
       targetMessageId={targetMessageId}
+      targetFolder={targetFolder}
     />
   )
 }
@@ -125,10 +128,12 @@ function SessionConversation({
   workspaceSlug,
   detail: { session, channel, source },
   targetMessageId,
+  targetFolder,
 }: {
   workspaceSlug: string
   detail: AgentSessionDetail
   targetMessageId?: string
+  targetFolder?: string
 }) {
   // Approval and proposal cards render inline in the session; keep them live.
   useChannelApprovals(session.channelId, session.threadRootId)
@@ -157,7 +162,7 @@ function SessionConversation({
 
   // The right panel shows this session's context, plan, files and activity
   // while the page is open, the way a channel page sets its own panel view.
-  const { setView, clearView } = useRightSidebar()
+  const { setView, openView, clearView, isHydrated } = useRightSidebar()
   const isMobile = useIsMobile()
   const workView = useMemo<SessionWorkSidebarView>(
     () => ({
@@ -187,6 +192,19 @@ function SessionConversation({
   const fork = useForkSession(workspaceSlug)
   const rewind = useRewindSession(session.id)
   const navigate = useNavigate()
+  useEffect(() => {
+    if (!targetFolder || !code || !isHydrated || isMobile !== false) return
+    openView({
+      ...workView,
+      type: "session-files",
+      revealFolder: { id: crypto.randomUUID(), path: targetFolder },
+    })
+    void navigate({
+      to: ".",
+      search: (prev) => ({ ...prev, folder: undefined, open: undefined }),
+      replace: true,
+    })
+  }, [targetFolder, code, isHydrated, isMobile, workView, openView, navigate])
   const change = {
     workspaceId: session.workspaceId,
     channelId: session.channelId,
