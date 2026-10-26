@@ -6,6 +6,7 @@ import {
   HarnessAgent,
   type HarnessAgentContinueTurnState,
   type HarnessAgentPendingToolApproval,
+  type HarnessAgentPendingToolResult,
 } from "@ai-sdk/harness/agent"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
@@ -185,6 +186,14 @@ export function pausedApprovals(
 ): HarnessAgentPendingToolApproval[] {
   const paused = saved?.continuation as HarnessAgentContinueTurnState | null
   return [...(paused?.pendingToolApprovals ?? [])]
+}
+
+// The questions a saved paused Claude Code turn waits on.
+export function pausedToolResults(
+  saved: SavedHarnessState | null
+): HarnessAgentPendingToolResult[] {
+  const paused = saved?.continuation as HarnessAgentContinueTurnState | null
+  return [...(paused?.pendingToolResults ?? [])]
 }
 
 function withGatewayOptions(
@@ -552,6 +561,9 @@ export type PiTurnResult = {
   save: PiTurnSave | null
   // Set when the turn paused; the save carries its continuation.
   pendingApprovals: HarnessAgentPendingToolApproval[]
+  // Claude Code only: questions (askUserQuestions) the paused turn waits
+  // on, answered as tool results.
+  pendingToolResults?: HarnessAgentPendingToolResult[]
   // Null when Pi never reported one (it did not start, or no model answered).
   contextUsage: PiContextUsage | null
 }

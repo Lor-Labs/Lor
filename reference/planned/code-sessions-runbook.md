@@ -727,6 +727,25 @@ may lag web), a Lor-offered "Continue in Code" card.
       to that mode, so the next message does not plan again.
     - Mobile shows Claude Code prompts with the sender-only rule, but a
       plan there is a plain Approve (Claude Code goes on in Default).
+  - [x] **7d-4c** Claude Code's questions, built 2026-10-26 (not yet run
+    live in Lor):
+    - **Spike** (throwaway sandbox, deleted): AskUserQuestion arrives as a
+      host tool call `askUserQuestions` (the harness questions input: ids
+      `question-N` and `option-N`, `allowMultiple`, free-form allowed); the
+      turn pauses with it in `pendingToolResults`, and a fresh run that
+      reattached answered it with `toolResultContinuations` (`{ action:
+      "answered", answers: { "question-1": { optionIds: ["option-2"] } } }`):
+      "You prefer blue."
+    - A question is a `claude_code` approval row (the tool call id stands
+      in for the approval id), so it pauses, notifies and resumes like a
+      prompt, sender only. `askUserQuestions` is switched back on.
+    - `POST /approvals/{id}/answer` saves `approval.answers` (additive
+      `db:push`); the paused turn's continue sends them as the tool result.
+      Skip sends `declined`; someone writing instead sends `cancelled`.
+    - Web card: each question with its options (one or several) and a
+      written answer, Send answer and Skip; others see the questions and
+      "Waiting on <name>"; once answered the row reads "Answered by … ·
+      Color: Blue". Mobile asks to answer on web or desktop for now.
 - [ ] **8. Codex**, the same way.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").

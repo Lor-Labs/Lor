@@ -123,17 +123,11 @@ export function ClaudeConnectDialog({
               }}
               aria-invalid={connect.isError || undefined}
             />
-            <p
-              className={
-                connect.isError
-                  ? "text-destructive text-xs"
-                  : "text-muted-foreground text-xs"
-              }
-            >
-              {connect.isError
-                ? connect.error.message
-                : "It's valid for a year. Your terminal may wrap it over two lines; copy all of it."}
-            </p>
+            {connect.isError && (
+              <p className="text-destructive text-xs">
+                {connect.error.message}
+              </p>
+            )}
           </Step>
         </DialogPanel>
         <DialogFooter>

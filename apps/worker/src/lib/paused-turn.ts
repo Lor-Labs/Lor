@@ -127,6 +127,7 @@ export async function loadPausedDecisions(
       steered: schema.approval.steered,
       consumedByRunId: schema.approval.consumedByRunId,
       claudeCodeMode: schema.approval.claudeCodeMode,
+      answers: schema.approval.answers,
     })
     .from(schema.approval)
     .innerJoin(schema.agentRun, eq(schema.agentRun.id, schema.approval.runId))
@@ -173,6 +174,8 @@ export async function loadPausedDecisions(
         target: row.target,
         inputSha256: row.inputSha256,
         claudeCodeMode: row.claudeCodeMode,
+        answers: row.answers,
+        steered: row.steered,
       }
     })
   )
@@ -198,6 +201,7 @@ async function resolverStillAllowed(input: {
   const access = await resolveChannelAccess(input.userId, input.channelId)
   if (!access.ok || !access.access.canWrite) return false
   // Request and sandbox rows: anyone who can write in the session approves.
+  // Claude Code rows: the approvals API already held them to the sender.
   if (input.kind !== "policy") return true
   const [member] = await db
     .select({

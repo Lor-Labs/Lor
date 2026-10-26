@@ -14,6 +14,7 @@ import type {
   TextStreamPart,
   ToolApprovalResponse,
   ToolApprovalStatus,
+  ToolResultPart,
   ToolSet,
   UserModelMessage,
 } from "ai"
@@ -58,9 +59,8 @@ export const CLAUDE_CODE_BINDING: HarnessBinding = {
 // Claude Code's own tools that Lor switches off: worktrees leave the work
 // folder that checkpoints and the Changes panel read; schedules and
 // notifications would outlive the turn's process (Loops do this in Lor);
-// questions need their card (chunk 7d-4c); plan mode is the sender's pick in
-// the composer, so the model does not enter it itself; the rest publish
-// outside Lor.
+// plan mode is the sender's pick in the composer, so the model does not
+// enter it itself; the rest publish outside Lor.
 const CLAUDE_CODE_INACTIVE_TOOLS = [
   "EnterWorktree",
   "ExitWorktree",
@@ -70,7 +70,6 @@ const CLAUDE_CODE_INACTIVE_TOOLS = [
   "ScheduleWakeup",
   "RemoteTrigger",
   "PushNotification",
-  "askUserQuestions",
   "EnterPlanMode",
   "Artifact",
   "DesignSync",
@@ -128,6 +127,8 @@ export type ClaudeCodeTurnInput = {
   // with one decision per pending approval. Then `prompt`, when given, starts
   // a new turn in the same conversation.
   decisions?: ToolApprovalResponse[]
+  // Answers to the questions it waits on (askUserQuestions), as tool results.
+  answers?: ToolResultPart[]
   // Drop the paused turn instead (stopped, saved by another adapter version,
   // or its bridge is gone): the conversation goes on from its file, where
   // Claude Code reads the waiting calls as interrupted (7d-4a spike).
@@ -272,6 +273,7 @@ export async function runClaudeCodeTurn(
         await agent.continueStream({
           session,
           toolApprovalContinuations: input.decisions ?? [],
+          toolResultContinuations: input.answers ?? [],
           ...abort,
         })
       )
@@ -338,6 +340,7 @@ export async function runClaudeCodeTurn(
       responseMessages: totals.flatMap(([, , messages]) => messages),
       save: withContinuation(log, saved, continuation),
       pendingApprovals: [...(continuation?.pendingToolApprovals ?? [])],
+      pendingToolResults: [...(continuation?.pendingToolResults ?? [])],
       contextUsage,
     }
   } finally {

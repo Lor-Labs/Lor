@@ -138,7 +138,13 @@ export function ApprovalGateCard({
           </Text>
         </View>
       </View>
-      {canResolve ? (
+      {/* Claude Code's questions have no mobile card yet: approving would
+          send no answer. */}
+      {canResolve && approval.toolName === "askUserQuestions" ? (
+        <Text className="text-xs text-muted">
+          Answer this question in Lor on the web or desktop.
+        </Text>
+      ) : canResolve ? (
         <View className="flex-row justify-end gap-two">
           <Button
             isDisabled={resolve.isPending}

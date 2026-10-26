@@ -1,18 +1,22 @@
 import {
   Cancel01Icon,
+  HelpCircleIcon,
   LockKeyIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
+import { Input } from "@repo/ui/components/input"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
+import { useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { rememberClaudeCodeMode } from "@/components/session/claude-code-mode-picker"
 import {
   type ApprovalResolverSpec,
+  type ChannelApproval,
   resolverLabel,
   useCanResolveApproval,
   useMessageApprovals,
@@ -32,11 +36,18 @@ export type ApprovalCardData = {
   onlyUserId?: string | null
   // A Claude Code plan waiting for approval: its Markdown.
   plan?: string | null
+  // A Claude Code question: its questions, and once answered, the answers.
+  questions?: ChannelApproval["questions"]
+  answers?: ChannelApproval["answers"]
   status: "pending" | "approved" | "rejected" | "expired"
   resolvedBy: string | null
 }
 
-type PlanMode = "acceptEdits" | "default"
+type Answers = NonNullable<ChannelApproval["answers"]>
+type Question = NonNullable<ChannelApproval["questions"]>[number]
+
+// What a Claude Code prompt's decision carries beyond yes or no.
+type ResolveExtra = { planMode?: "acceptEdits" | "default"; answers?: Answers }
 
 // The gate cards under a paused run's own message, one per gated call.
 // Renders nothing unless this message's run paused on approvals. In a session
@@ -117,7 +128,10 @@ export function ApprovalGateCard({
     approval.onlyUserId
   )
 
-  const onResolve = (resolution: "approve" | "reject", planMode?: PlanMode) => {
+  const onResolve = (
+    resolution: "approve" | "reject",
+    extra: ResolveExtra = {}
+  ) => {
     if (!activeMember) return
     resolve.mutate({
       approvalId: approval.id,
@@ -125,10 +139,11 @@ export function ApprovalGateCard({
       userId: activeMember.userId,
       planId: approval.planId,
       threadRootId,
-      ...(planMode ? { claudeCodeMode: planMode } : {}),
+      ...(extra.planMode ? { claudeCodeMode: extra.planMode } : {}),
+      ...(extra.answers ? { answers: extra.answers } : {}),
     })
     // The sender's next message goes on in that mode too, not in Plan.
-    if (planMode) rememberClaudeCodeMode(planMode)
+    if (extra.planMode) rememberClaudeCodeMode(extra.planMode)
   }
 
   const resolvedByName =
@@ -167,7 +182,7 @@ export function ApprovalGateView({
   approval: ApprovalCardData
   canResolve: boolean
   pending: boolean
-  onResolve: (resolution: "approve" | "reject", planMode?: PlanMode) => void
+  onResolve: (resolution: "approve" | "reject", extra?: ResolveExtra) => void
   resolvedByName: string | null
 }) {
   if (approval.status === "pending" && approval.plan) {
@@ -181,8 +196,23 @@ export function ApprovalGateView({
       />
     )
   }
+  if (approval.status === "pending" && approval.questions) {
+    return (
+      <QuestionApprovalView
+        approval={approval}
+        questions={approval.questions}
+        canResolve={canResolve}
+        pending={pending}
+        onResolve={onResolve}
+      />
+    )
+  }
   if (approval.status !== "pending") {
     const approved = approval.status === "approved"
+    const answered =
+      approval.questions && approval.answers
+        ? answerSummary(approval.questions, approval.answers)
+        : null
     return (
       <div className="flex items-center gap-3 rounded-xl border border-border/60 py-2 ps-3 pe-3">
         <span
@@ -204,8 +234,13 @@ export function ApprovalGateView({
             {approval.description}
           </p>
           <p className="truncate text-muted-foreground text-xs leading-4">
-            {RESOLVED_LABEL[approval.status]}
+            {approval.questions
+              ? approved
+                ? "Answered"
+                : "Skipped"
+              : RESOLVED_LABEL[approval.status]}
             {resolvedByName && ` by ${resolvedByName}`}
+            {answered && ` · ${answered}`}
           </p>
         </div>
       </div>
@@ -273,7 +308,7 @@ function PlanApprovalView({
   plan: string
   canResolve: boolean
   pending: boolean
-  onResolve: (resolution: "approve" | "reject", planMode?: PlanMode) => void
+  onResolve: (resolution: "approve" | "reject", extra?: ResolveExtra) => void
 }) {
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-card p-3 dark:bg-foreground/[0.025]">
@@ -313,14 +348,14 @@ function PlanApprovalView({
             size="sm"
             variant="outline"
             disabled={pending}
-            onClick={() => onResolve("approve", "default")}
+            onClick={() => onResolve("approve", { planMode: "default" })}
           >
             Approve, ask for edits
           </Button>
           <Button
             size="sm"
             disabled={pending}
-            onClick={() => onResolve("approve", "acceptEdits")}
+            onClick={() => onResolve("approve", { planMode: "acceptEdits" })}
           >
             Approve and accept edits
           </Button>
@@ -328,4 +363,145 @@ function PlanApprovalView({
       )}
     </div>
   )
+}
+
+// A Claude Code question (AskUserQuestion): per question, pick options or
+// write an answer, as in Claude Code's own prompt. Skip declines, and Claude
+// Code goes on without it.
+function QuestionApprovalView({
+  approval,
+  questions,
+  canResolve,
+  pending,
+  onResolve,
+}: {
+  approval: ApprovalCardData
+  questions: Question[]
+  canResolve: boolean
+  pending: boolean
+  onResolve: (resolution: "approve" | "reject", extra?: ResolveExtra) => void
+}) {
+  const [picked, setPicked] = useState<Record<string, string[]>>({})
+  const [written, setWritten] = useState<Record<string, string>>({})
+  const answers: Answers = Object.fromEntries(
+    questions.flatMap((question) => {
+      const optionIds = picked[question.id] ?? []
+      const freeform = written[question.id]?.trim()
+      if (optionIds.length === 0 && !freeform) return []
+      return [[question.id, { optionIds, ...(freeform ? { freeform } : {}) }]]
+    })
+  )
+  const toggle = (question: Question, optionId: string) =>
+    setPicked((current) => {
+      const chosen = current[question.id] ?? []
+      const next = chosen.includes(optionId)
+        ? chosen.filter((id) => id !== optionId)
+        : question.allowMultiple
+          ? [...chosen, optionId]
+          : [optionId]
+      return { ...current, [question.id]: next }
+    })
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-3 dark:bg-foreground/[0.025]">
+      <div className="flex items-center gap-3">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning-foreground">
+          <HugeiconsIcon
+            icon={HelpCircleIcon}
+            className="size-3.5"
+            strokeWidth={2}
+          />
+        </span>
+        <p className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-4">
+          {canResolve
+            ? "Claude Code needs your answer"
+            : resolverLabel(approval.resolver, approval.resolverUserName)}
+        </p>
+      </div>
+      {questions.map((question) => (
+        <div key={question.id} className="flex flex-col gap-1.5">
+          <p className="text-[13px] font-medium leading-5">
+            {question.header && (
+              <span className="me-1.5 rounded bg-muted px-1 py-px font-normal text-muted-foreground text-xs">
+                {question.header}
+              </span>
+            )}
+            {question.question}
+          </p>
+          {question.options && question.options.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {question.options.map((option) => (
+                <Button
+                  key={option.id}
+                  size="sm"
+                  variant={
+                    picked[question.id]?.includes(option.id)
+                      ? "default"
+                      : "outline"
+                  }
+                  disabled={!canResolve || pending}
+                  title={option.description}
+                  onClick={() => toggle(question, option.id)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          )}
+          {canResolve && (
+            <Input
+              size="sm"
+              value={written[question.id] ?? ""}
+              onChange={(event) =>
+                setWritten((current) => ({
+                  ...current,
+                  [question.id]: event.target.value,
+                }))
+              }
+              placeholder="Or write your own answer"
+              disabled={pending}
+            />
+          )}
+        </div>
+      ))}
+      {canResolve && (
+        <div className="flex justify-end gap-1.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={() => onResolve("reject")}
+          >
+            Skip
+          </Button>
+          <Button
+            size="sm"
+            disabled={pending || Object.keys(answers).length === 0}
+            onClick={() => onResolve("approve", { answers })}
+          >
+            Send answer
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// One line of what was answered: "Color: Blue".
+function answerSummary(questions: Question[], answers: Answers): string {
+  return questions
+    .flatMap((question) => {
+      const answer = answers[question.id]
+      if (!answer) return []
+      const value =
+        answer.freeform ??
+        answer.optionIds
+          .map(
+            (id) => question.options?.find((option) => option.id === id)?.label
+          )
+          .filter(Boolean)
+          .join(", ")
+      return value ? [`${question.header ?? question.question}: ${value}`] : []
+    })
+    .join("; ")
 }

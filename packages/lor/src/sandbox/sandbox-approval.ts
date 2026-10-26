@@ -271,6 +271,20 @@ export function sandboxAskDescription(
   return reason ? `${call} (${reason})` : call
 }
 
+// The line for a Claude Code question (askUserQuestions): its first
+// question; the card shows them all.
+export function claudeCodeQuestionDescription(input: unknown): string {
+  const questions = (input as { questions?: { question?: unknown }[] } | null)
+    ?.questions
+  const first = questions?.[0]?.question
+  if (typeof first !== "string" || !first.trim()) {
+    return "Claude Code has a question"
+  }
+  return questions && questions.length > 1
+    ? `${first} (and ${questions.length - 1} more)`
+    : first
+}
+
 // The approval card's line for a prompt from Claude Code's own permission
 // mode: Pi's wording for the tools both have. ExitPlanMode's input carries
 // the plan, which the card shows.

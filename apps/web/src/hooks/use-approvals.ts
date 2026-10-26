@@ -152,18 +152,25 @@ export function useResolveChannelApproval(channelId: string) {
       threadRootId?: string | null
       // Approving a Claude Code plan: the mode its turn goes on in.
       claudeCodeMode?: "acceptEdits" | "default"
+      // Answering a Claude Code question.
+      answers?: NonNullable<ChannelApproval["answers"]>
     }) => {
       const approval = apiClient.v1.approvals[":approvalId"]
       const param = { approvalId: args.approvalId }
       const res =
         args.resolution === "reject"
           ? await approval.reject.$post({ param })
-          : args.claudeCodeMode
-            ? await approval["approve-plan"].$post({
+          : args.answers
+            ? await approval.answer.$post({
                 param,
-                json: { mode: args.claudeCodeMode },
+                json: { answers: args.answers },
               })
-            : await approval.approve.$post({ param })
+            : args.claudeCodeMode
+              ? await approval["approve-plan"].$post({
+                  param,
+                  json: { mode: args.claudeCodeMode },
+                })
+              : await approval.approve.$post({ param })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           message?: string

@@ -13,7 +13,7 @@ import {
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
-import type { Approval, Plan } from "@repo/db/schema"
+import type { Approval, ClaudeCodeAnswers, Plan } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import { findRunVoiceRequest } from "@repo/voice/server"
 import {
@@ -36,11 +36,13 @@ import { enqueueVoiceRequest } from "@/lib/voice/runs"
 import { findConnectedParticipant } from "@/lib/voice/sessions"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import type {
+  AnswerApprovalRoute,
   ApproveApprovalRoute,
   ApprovePlanApprovalRoute,
   ListChannelApprovalsRoute,
   RejectApprovalRoute,
 } from "@/routes/v1/approvals/routes"
+import { channelApprovalSchema } from "@/routes/v1/approvals/schema"
 
 export const listChannelApprovals: AppRouteHandler<
   ListChannelApprovalsRoute
@@ -160,6 +162,13 @@ export const listChannelApprovals: AppRouteHandler<
             row.approval.toolName === "ExitPlanMode"
               ? planText(row.approval.payload)
               : null,
+          ...(row.approval.kind === "claude_code" &&
+          row.approval.toolName === "askUserQuestions"
+            ? {
+                questions: questionsOf(row.approval.payload),
+                answers: row.approval.answers,
+              }
+            : { questions: null, answers: null }),
         }
       }),
     },
@@ -171,6 +180,22 @@ export const listChannelApprovals: AppRouteHandler<
 function planText(payload: unknown): string | null {
   const plan = (payload as { plan?: unknown } | null)?.plan
   return typeof plan === "string" && plan.trim() ? plan : null
+}
+
+// askUserQuestions' input: the harness questions list (7d-4c spike).
+function questionsOf(payload: unknown) {
+  const parsed = channelApprovalSchema.shape.questions.safeParse(
+    (payload as { questions?: unknown } | null)?.questions ?? null
+  )
+  return parsed.success ? parsed.data : null
+}
+
+// What a Claude Code prompt's decision carries beyond yes or no.
+type ResolveDetail = {
+  // An approved plan: the mode its turn goes on in.
+  planMode?: "acceptEdits" | "default"
+  // An answered question: the sender's answers.
+  answers?: ClaudeCodeAnswers
 }
 
 type ResolveOutcome =
@@ -220,7 +245,7 @@ async function resolveApproval(
   approvalId: string,
   userId: string,
   resolution: "approved" | "rejected",
-  planMode?: "acceptEdits" | "default"
+  detail: ResolveDetail = {}
 ): Promise<ResolveOutcome> {
   const row = await db
     .select({
@@ -325,12 +350,19 @@ async function resolveApproval(
         status: resolution,
         resolvedBy: userId,
         resolvedAt: new Date(),
-        // An approved Claude Code plan goes on in the mode the sender chose.
+        // An approved Claude Code plan goes on in the mode the sender chose;
+        // an answered question carries the answers.
         ...(resolution === "approved" &&
         row.approval.kind === "claude_code" &&
         row.approval.toolName === "ExitPlanMode" &&
-        planMode
-          ? { claudeCodeMode: planMode }
+        detail.planMode
+          ? { claudeCodeMode: detail.planMode }
+          : {}),
+        ...(resolution === "approved" &&
+        row.approval.kind === "claude_code" &&
+        row.approval.toolName === "askUserQuestions" &&
+        detail.answers
+          ? { answers: detail.answers }
           : {}),
       })
       .where(
@@ -518,15 +550,14 @@ async function resolveApproval(
 // ResolveOutcome to its response so new variants can't drift between the two.
 function resolveHandler(
   resolution: "approved" | "rejected",
-  // A Claude Code plan's approval names the mode its turn goes on in.
-  planMode?: "acceptEdits" | "default"
+  detail: ResolveDetail = {}
 ) {
   return async (c: Parameters<AppRouteHandler<ApproveApprovalRoute>>[0]) => {
     const outcome = await resolveApproval(
       c.req.valid("param").approvalId,
       c.var.user.id,
       resolution,
-      planMode
+      detail
     )
     switch (outcome.kind) {
       case "not_found":
@@ -580,7 +611,10 @@ export const approveApproval: AppRouteHandler<ApproveApprovalRoute> =
 
 export const approvePlanApproval: AppRouteHandler<ApprovePlanApprovalRoute> = (
   c
-) => resolveHandler("approved", c.req.valid("json").mode)(c)
+) => resolveHandler("approved", { planMode: c.req.valid("json").mode })(c)
+
+export const answerApproval: AppRouteHandler<AnswerApprovalRoute> = (c) =>
+  resolveHandler("approved", { answers: c.req.valid("json").answers })(c)
 
 export const rejectApproval: AppRouteHandler<RejectApprovalRoute> =
   resolveHandler("rejected")

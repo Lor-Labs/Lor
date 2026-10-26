@@ -41,6 +41,7 @@ import {
   type TextStreamPart,
   type ToolApprovalResponse,
   type ToolApprovalStatus,
+  type ToolResultPart,
   type ToolSet,
   tool,
   type UserModelMessage,
@@ -176,6 +177,7 @@ import {
 } from "./sandbox/pi-events"
 import {
   claudeCodeAskDescription,
+  claudeCodeQuestionDescription,
   sandboxAskDescription,
   sandboxToolApproval,
 } from "./sandbox/sandbox-approval"
@@ -203,6 +205,7 @@ import {
   type PiCompaction,
   type PiTurnUsage,
   pausedApprovals,
+  pausedToolResults,
   piWorkDir,
   runPiTurn,
 } from "./session-core/pi-runtime"
@@ -3034,6 +3037,27 @@ export async function respond(
           }
         })
       : undefined
+    // A paused Claude Code turn's questions: the sender's answers, or why
+    // there are none (skipped, or someone wrote instead).
+    const answers = harness.pausedDecisions
+      ? pausedToolResults(harness.saved).map((pending): ToolResultPart => {
+          const decision = harness.pausedDecisions?.find(
+            (d) => d.harnessApprovalId === pending.toolCallId
+          )
+          return {
+            type: "tool-result",
+            toolCallId: pending.toolCallId,
+            toolName: pending.toolName,
+            output: {
+              type: "json",
+              value:
+                decision?.approved && decision.answers
+                  ? { action: "answered", answers: decision.answers }
+                  : { action: decision?.steered ? "cancelled" : "declined" },
+            },
+          }
+        })
+      : undefined
 
     const hinted = withTouchHints(tools, {
       workspaceId: ctx.workspaceId,
@@ -3477,6 +3501,7 @@ export async function respond(
             mode: claude.mode,
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
+            ...(answers && !pausedDropped ? { answers } : {}),
             ...(pausedDropped ? { dropPaused: true } : {}),
             ...(prompt ? { prompt } : {}),
             tools: guarded.tools,
@@ -3544,7 +3569,8 @@ export async function respond(
       })
 
       const stoppedFor: RunStopCause | undefined =
-        turn.pendingApprovals.length > 0
+        turn.pendingApprovals.length > 0 ||
+        (turn.pendingToolResults?.length ?? 0) > 0
           ? "awaiting_approval"
           : harness.continueOnly && harness.pausedDropped?.reason === "stopped"
             ? "stopped_by_user"
@@ -3624,6 +3650,22 @@ export async function respond(
           }
         }
       )
+      // Claude Code's questions wait on the sender too, filed like its
+      // prompts; the tool call id stands in for an approval id.
+      for (const pending of turn.pendingToolResults ?? []) {
+        const payload = parseToolInput(pending.input)
+        approvals.push({
+          harnessApprovalId: pending.toolCallId,
+          toolCallId: pending.toolCallId,
+          toolName: pending.toolName,
+          kind: "claude_code",
+          target: null,
+          action: pending.toolName,
+          description: claudeCodeQuestionDescription(payload),
+          payload,
+          inputSha256: sha256(pending.input),
+        })
+      }
 
       // Only a finished turn has a total. Charged before the save, since the
       // tokens are spent either way: a retry that finds the turn saved
