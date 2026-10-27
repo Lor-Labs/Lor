@@ -38,7 +38,7 @@ Goal (Jacob): mobile works with code sessions, including starting one, without w
 - [x] D1 (Changes and Files drawer, Jacob 2026-10-26: all three chunks): a code button in a code session's header with the changed-file count opens a tall sheet: changed files (Tracked / Untracked, status dot, +/- counts), each file's diff, the Lor-working and merge notes, and the restoring / gone states; live through the same socket events as web.
 - [x] D2: Changes | Files tabs in the drawer; the Files tab is the repo tree (folders first, changed files and the folders holding them marked, a "Find a file" filter) and a read-only viewer (text with line numbers, images loaded with the session cookie, notes for binary, too large and missing files). The header button shows the lines added and removed (Jacob: +/−, not a file count).
 - [ ] D3: stage and unstage, commit message (with the model's draft), Commit, Push, Pull, the pull-request link; needs a GitHub account linked on web.
-- [ ] Later: fork and rewind actions, composer mode and model pickers, context meter.
+- [ ] Later: fork and rewind actions, composer mode and model pickers, context meter, syntax highlighting in the drawer (skipped 2026-10-26; recommended: the API returns Shiki tokens with web's themes, since Hermes has no WebAssembly for Shiki's default engine).
 
 ## Post-launch — onboarding (web shipped 2026-10-08, `reference/onboarding.md`)
 
