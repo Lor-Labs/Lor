@@ -8,7 +8,7 @@ export const features: Readonly<{
   voiceChannels: boolean
 }> = {
   selfSignups: false,
-  claudeCodeHarness: false,
+  claudeCodeHarness: true,
   codexHarness: false,
   directMessages: false,
   voiceChannels: false,

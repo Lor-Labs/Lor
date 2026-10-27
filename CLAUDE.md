@@ -121,8 +121,8 @@ senders for search, workspace templates, and push visibility. Existing code and
 data are retained. DM and voice are product visibility flags, not API authorization: their
 endpoints remain accessible to authorized clients.
 
-`selfSignups`, `claudeCodeHarness`, and `codexHarness` are also off by default
-and enforced on the server. Self signup requires a valid, pending signed email
+`selfSignups` and `codexHarness` are off by default; `claudeCodeHarness` is on.
+These flags are enforced on the server. Self signup requires a valid, pending signed email
 invitation matching the new account; public invite links do not bypass the gate.
 Existing users can sign in. Harness flags independently gate session creation,
 forks, message routing and worker execution; disabled sessions remain readable
