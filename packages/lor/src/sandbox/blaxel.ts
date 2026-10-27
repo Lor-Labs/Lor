@@ -28,14 +28,18 @@ export const SANDBOX_PROCESS_ENV = {
   NODE_OPTIONS: "--disable-warning=UNDICI-EHPA",
 }
 
-export function baseConfig(name: string, diskMb: number) {
+export function baseConfig(
+  name: string,
+  diskMb: number,
+  memoryMb: number = env.LOR_WORKBENCH_MEMORY_MB
+) {
   return {
     name,
     // Pinned: Blaxel's default region can move, and features differ by
     // region and generation.
     region: env.BL_REGION,
     image: env.LOR_WORKBENCH_IMAGE,
-    memory: env.LOR_WORKBENCH_MEMORY_MB,
+    memory: memoryMb,
     volumes: [
       {
         name: "workspace",

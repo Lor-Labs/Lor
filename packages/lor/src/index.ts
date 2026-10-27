@@ -3126,6 +3126,7 @@ export async function respond(
     )
     const sandbox = await openSessionSandbox(harness.owner, {
       keepBridges: bridgePaused,
+      code: Boolean(ctx.code),
     })
     try {
       // The bridge's preview link is made while the work folder is prepared;
