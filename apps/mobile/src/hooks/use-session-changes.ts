@@ -1,9 +1,11 @@
 import type { LorToolEventPayload } from "@repo/realtime-types"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useToast } from "heroui-native/toast"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
-import { api } from "@/lib/api"
+import { api, responseMessage } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
+import { openExternalUrl } from "@/lib/open-url"
 
 // A code session's Changes drawer: git state read from the session's sandbox
 // (reference/planned/code-sessions-runbook.md, chunk 3). Mirrors web's
@@ -192,5 +194,196 @@ export function useChangeDiff(
     },
     enabled: file !== null,
     placeholderData: (previous) => previous,
+  })
+}
+
+type StageInput = { staged: boolean } & (
+  | { paths: string[]; all?: never }
+  | { all: true; paths?: never }
+)
+
+export function useStageChanges(sessionId: string) {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const key = sessionChangesKey(sessionId)
+  return useMutation({
+    mutationFn: async (input: StageInput) => {
+      const res = await api.v1.sessions[":sessionId"].changes.stage.$post({
+        param: { sessionId },
+        json: input,
+      })
+      if (res.status === 409) {
+        throw new Error(
+          "Lor is working in this session. Try again when it finishes."
+        )
+      }
+      if (!res.ok) throw new Error("Couldn't update the staged files")
+      return res.json()
+    },
+    // The file moves at once; the response is the truth.
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<SessionChanges>(key)
+      if (previous?.state === "ready") {
+        const touched = (file: ChangedFile) =>
+          input.all || input.paths?.includes(file.path)
+        queryClient.setQueryData<SessionChanges>(key, {
+          ...previous,
+          files: previous.files.map((file) =>
+            touched(file)
+              ? { ...file, staged: input.staged, unstaged: !input.staged }
+              : file
+          ),
+        })
+      }
+      return { previous }
+    },
+    onError: (err, _input, context) => {
+      if (context?.previous) queryClient.setQueryData(key, context.previous)
+      toast.show({ label: err.message, variant: "danger" })
+    },
+    onSuccess: (changes) => queryClient.setQueryData(key, changes),
+  })
+}
+
+// Commits the staged files as the person's linked GitHub account.
+export function useCommitChanges(sessionId: string) {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  return useMutation({
+    mutationFn: async (message: string) => {
+      const res = await api.v1.sessions[":sessionId"].changes.commit.$post({
+        param: { sessionId },
+        json: { message },
+      })
+      if (!res.ok)
+        throw new Error(await responseMessage(res, "Couldn't commit"))
+      return res.json()
+    },
+    onSuccess: ({ changes }) =>
+      queryClient.setQueryData(sessionChangesKey(sessionId), changes),
+    onError: (err) => toast.show({ label: err.message, variant: "danger" }),
+  })
+}
+
+// Brings GitHub's new commits into the session. Conflicts stay in the files
+// for the session (or Lor) to fix, then Commit finishes the merge.
+export function usePullChanges(sessionId: string) {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.v1.sessions[":sessionId"].changes.pull.$post({
+        param: { sessionId },
+      })
+      if (!res.ok) throw new Error(await responseMessage(res, "Couldn't pull"))
+      return res.json()
+    },
+    onSuccess: ({ pulled, changes }) => {
+      queryClient.setQueryData(sessionChangesKey(sessionId), changes)
+      if (pulled.commitCount > 0) {
+        void queryClient.invalidateQueries({
+          queryKey: ["repo-tree", sessionId],
+        })
+        void queryClient.invalidateQueries({
+          queryKey: ["repo-file", sessionId],
+        })
+      }
+      const commits = `${pulled.commitCount} ${pulled.commitCount === 1 ? "commit" : "commits"}`
+      toast.show(
+        pulled.outcome === "conflicts"
+          ? {
+              label: `Pulled ${commits} with conflicts`,
+              description: `Fix ${pulled.conflicts.length} ${pulled.conflicts.length === 1 ? "file" : "files"}, stage them, then commit.`,
+              variant: "danger",
+            }
+          : {
+              label:
+                pulled.outcome === "up_to_date"
+                  ? "Already up to date"
+                  : `Pulled ${commits}`,
+              variant: "success",
+            }
+      )
+    },
+    onError: (err) => toast.show({ label: err.message, variant: "danger" }),
+  })
+}
+
+// GitHub's branch moved on: the toast offers to pull, then push again.
+class BehindError extends Error {}
+
+// Pushes the session's commits to the same branch on GitHub, as the person;
+// the toast then offers the branch's pull request.
+export function usePushChanges(sessionId: string) {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const pull = usePullChanges(sessionId)
+  const push = useMutation({
+    mutationFn: async () => {
+      const res = await api.v1.sessions[":sessionId"].changes.push.$post({
+        param: { sessionId },
+      })
+      if (res.status === 409) {
+        throw new BehindError(await responseMessage(res, "Pull first"))
+      }
+      if (!res.ok) throw new Error(await responseMessage(res, "Couldn't push"))
+      return res.json()
+    },
+    onSuccess: ({ pushed, pullRequest, changes }) => {
+      queryClient.setQueryData(sessionChangesKey(sessionId), changes)
+      toast.show({
+        label: `Pushed ${pushed.branch} to GitHub`,
+        variant: "success",
+        ...(pullRequest
+          ? {
+              actionLabel: pullRequest.open
+                ? "View pull request"
+                : "Create pull request",
+              onActionPress: ({ hide }) => {
+                hide("all")
+                openExternalUrl(pullRequest.url)
+              },
+            }
+          : {}),
+      })
+    },
+    onError: (err) => {
+      toast.show({
+        label: err.message,
+        variant: "danger",
+        ...(err instanceof BehindError
+          ? {
+              actionLabel: "Pull and push",
+              onActionPress: ({ hide }) => {
+                hide("all")
+                pull.mutate(undefined, {
+                  onSuccess: ({ pulled }) => {
+                    if (pulled.outcome !== "conflicts") push.mutate()
+                  },
+                })
+              },
+            }
+          : {}),
+      })
+    },
+  })
+  return push
+}
+
+// The model's commit message for the staged changes.
+export function useCommitMessage(sessionId: string) {
+  const { toast } = useToast()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.v1.sessions[":sessionId"].changes.message.$post({
+        param: { sessionId },
+      })
+      if (!res.ok) throw new Error("Couldn't write a commit message")
+      const { message } = await res.json()
+      if (!message) throw new Error("Stage some changes first")
+      return message
+    },
+    onError: (err) => toast.show({ label: err.message, variant: "danger" }),
   })
 }

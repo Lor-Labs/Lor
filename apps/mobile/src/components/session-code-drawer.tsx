@@ -18,7 +18,10 @@ import {
   splitPath,
 } from "@/components/code-drawer-parts"
 import { diffLineClass } from "@/components/lor-tool-trail"
+import { SessionCommitBox } from "@/components/session-commit-box"
 import { SessionFilesView } from "@/components/session-files-view"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs } from "@/components/ui/tabs"
 import {
   type ChangedFile,
@@ -26,6 +29,7 @@ import {
   type ReadyChanges,
   useChangeDiff,
   useSessionChanges,
+  useStageChanges,
 } from "@/hooks/use-session-changes"
 
 // A code session's drawer: the files Lor and people changed in the session's
@@ -77,7 +81,7 @@ export function SessionCodeDrawer({
       version={changes.dataUpdatedAt}
     />
   ) : (
-    <ChangesList changes={ready} onOpen={setOpenPath} />
+    <ChangesList changes={ready} onOpen={setOpenPath} sessionId={sessionId} />
   )
 
   return (
@@ -96,6 +100,9 @@ export function SessionCodeDrawer({
           contentContainerClassName="h-full"
           enableDynamicSizing={false}
           enableOverDrag={false}
+          // The commit message's keyboard lifts the sheet's foot.
+          keyboardBehavior="interactive"
+          keyboardBlurBehavior="restore"
           // The composer's keyboard would cover the sheet.
           onAnimate={(fromIndex, toIndex) => {
             if (fromIndex !== -1 || toIndex < 0) return
@@ -139,66 +146,115 @@ export function SessionCodeDrawer({
   )
 }
 
+// Fully staged; a partly staged file (some hunks) reads as not staged, and
+// a tap stages all of it.
+function isStaged(file: ChangedFile) {
+  return file.staged && !file.unstaged
+}
+
 function ChangesList({
+  sessionId,
   changes,
   onOpen,
 }: {
+  sessionId: string
   changes: ReadyChanges
   onOpen: (path: string) => void
 }) {
+  const stage = useStageChanges(sessionId)
   const totals = changeTotals(changes.files)
   const tracked = changes.files.filter((file) => file.status !== "untracked")
   const untracked = changes.files.filter((file) => file.status === "untracked")
+  const allStaged =
+    changes.files.length > 0 && changes.files.every((file) => isStaged(file))
+  const stagedCount = changes.files.filter((file) => file.staged).length
+  const groupProps = {
+    locked: changes.lorWorking,
+    onOpen,
+    // A rename stages both its old and new path.
+    onToggle: (file: ChangedFile, staged: boolean) =>
+      stage.mutate({
+        paths: file.oldPath ? [file.oldPath, file.path] : [file.path],
+        staged,
+      }),
+  }
   return (
-    <BottomSheetScrollView
-      contentContainerStyle={{ paddingBottom: 40 }}
-      showsVerticalScrollIndicator={false}
-    >
-      <View className="flex-row items-center gap-two px-one pb-two">
-        <Text className="text-[13px] text-muted">
-          {changes.files.length} {changes.files.length === 1 ? "file" : "files"}
-          {changes.branch ? ` on ${changes.branch}` : ""}
-        </Text>
-        <LineCounts additions={totals.additions} deletions={totals.deletions} />
-      </View>
-      {changes.lorWorking ? (
-        <Text className="mx-one mb-two rounded-lor-sm bg-accent-soft px-three py-two text-xs text-accent">
-          Lor is working. Staging waits until it finishes.
-        </Text>
-      ) : null}
-      {changes.merging ? (
-        <Text className="mx-one mb-two rounded-lor-sm bg-warning-soft px-three py-two text-xs text-warning">
-          The pulled commits conflict with this session's. Fix the conflicted
-          files (Lor can), stage them, then commit to finish the merge.
-        </Text>
-      ) : null}
-      {changes.files.length === 0 ? (
-        <Text className="px-three py-eight text-center text-sm text-muted">
-          No changes yet. Lor's edits show up here as it works.
-        </Text>
-      ) : (
-        <>
-          <FileGroup files={tracked} onOpen={onOpen} title="Tracked" />
-          <FileGroup files={untracked} onOpen={onOpen} title="Untracked" />
-          {changes.truncated ? (
-            <Text className="px-three py-two text-xs text-muted">
-              Showing the first 1,000 files.
-            </Text>
+    <View className="flex-1">
+      <BottomSheetScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 16 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View className="min-h-9 flex-row items-center gap-two px-one pb-two">
+          <Text className="text-[13px] text-muted">
+            {changes.files.length}{" "}
+            {changes.files.length === 1 ? "file" : "files"}
+          </Text>
+          <LineCounts
+            additions={totals.additions}
+            deletions={totals.deletions}
+          />
+          {changes.files.length > 0 ? (
+            <Button
+              className="ml-auto"
+              isDisabled={changes.lorWorking}
+              onPress={() => stage.mutate({ all: true, staged: !allStaged })}
+              size="sm"
+              variant="ghost"
+            >
+              {allStaged ? "Unstage all" : "Stage all"}
+            </Button>
           ) : null}
-        </>
-      )}
-    </BottomSheetScrollView>
+        </View>
+        {changes.lorWorking ? (
+          <Text className="mx-one mb-two rounded-lor-sm bg-accent-soft px-three py-two text-xs text-accent">
+            Lor is working. Staging waits until it finishes.
+          </Text>
+        ) : null}
+        {changes.merging ? (
+          <Text className="mx-one mb-two rounded-lor-sm bg-warning-soft px-three py-two text-xs text-warning">
+            The pulled commits conflict with this session's. Fix the conflicted
+            files (Lor can), stage them, then commit to finish the merge.
+          </Text>
+        ) : null}
+        {changes.files.length === 0 ? (
+          <Text className="px-three py-eight text-center text-sm text-muted">
+            No changes yet. Lor's edits show up here as it works.
+          </Text>
+        ) : (
+          <>
+            <FileGroup files={tracked} title="Tracked" {...groupProps} />
+            <FileGroup files={untracked} title="Untracked" {...groupProps} />
+            {changes.truncated ? (
+              <Text className="px-three py-two text-xs text-muted">
+                Showing the first 1,000 files.
+              </Text>
+            ) : null}
+          </>
+        )}
+      </BottomSheetScrollView>
+      <SessionCommitBox
+        changes={changes}
+        sessionId={sessionId}
+        stagedCount={stagedCount}
+      />
+    </View>
   )
 }
 
 function FileGroup({
   title,
   files,
+  locked,
   onOpen,
+  onToggle,
 }: {
   title: string
   files: ChangedFile[]
+  locked: boolean
   onOpen: (path: string) => void
+  onToggle: (file: ChangedFile, staged: boolean) => void
 }) {
   if (files.length === 0) return null
   return (
@@ -209,35 +265,55 @@ function FileGroup({
       {files.map((file) => {
         const { name, folder } = splitPath(file.path)
         const status = STATUS[file.status]
+        const staged = isStaged(file)
         return (
-          <Pressable
-            accessibilityHint="Shows its changes"
-            accessibilityLabel={`${file.path}, ${status.label}`}
-            accessibilityRole="button"
-            className="min-h-11 flex-row items-center gap-two rounded-lor-sm px-one active:bg-surface-secondary"
-            key={file.path}
-            onPress={() => onOpen(file.path)}
-          >
-            <View className={`size-2 rounded-full ${status.className}`} />
-            <Text
-              className={`shrink-0 text-[15px] ${
-                file.status === "deleted"
-                  ? "text-muted line-through"
-                  : "text-foreground"
-              }`}
-              numberOfLines={1}
+          <View className="flex-row items-center" key={file.path}>
+            <Pressable
+              accessibilityHint="Shows its changes"
+              accessibilityLabel={`${file.path}, ${status.label}`}
+              accessibilityRole="button"
+              className="min-h-11 min-w-0 flex-1 flex-row items-center gap-two rounded-lor-sm px-one active:bg-surface-secondary"
+              onPress={() => onOpen(file.path)}
             >
-              {name}
-            </Text>
-            <Text
-              className="min-w-0 flex-1 text-xs text-muted"
-              ellipsizeMode="head"
-              numberOfLines={1}
+              <View className={`size-2 rounded-full ${status.className}`} />
+              <Text
+                className={`shrink-0 text-[15px] ${
+                  file.status === "deleted"
+                    ? "text-muted line-through"
+                    : "text-foreground"
+                }`}
+                numberOfLines={1}
+              >
+                {name}
+              </Text>
+              <Text
+                className="min-w-0 flex-1 text-xs text-muted"
+                ellipsizeMode="head"
+                numberOfLines={1}
+              >
+                {folder}
+              </Text>
+              <LineCounts
+                additions={file.additions}
+                deletions={file.deletions}
+              />
+            </Pressable>
+            {/* Staging a conflicted file marks it fixed (git add), which a
+                pull's merge needs before Commit. */}
+            <Pressable
+              accessibilityLabel={`${staged ? "Unstage" : "Stage"} ${file.path}`}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: staged, disabled: locked }}
+              className="min-h-11 items-center justify-center pl-two pr-one"
+              disabled={locked}
+              hitSlop={6}
+              onPress={() => onToggle(file, !staged)}
             >
-              {folder}
-            </Text>
-            <LineCounts additions={file.additions} deletions={file.deletions} />
-          </Pressable>
+              <View pointerEvents="none">
+                <Checkbox isDisabled={locked} isSelected={staged} />
+              </View>
+            </Pressable>
+          </View>
         )
       })}
     </View>
