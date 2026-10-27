@@ -9,7 +9,10 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useMemo, useState } from "react"
 import { Pressable, Text, View } from "react-native"
-import { KeyboardController } from "react-native-keyboard-controller"
+import {
+  KeyboardController,
+  useKeyboardState,
+} from "react-native-keyboard-controller"
 import {
   FolderNote,
   LineCounts,
@@ -46,6 +49,7 @@ export function SessionCodeDrawer({
   onOpenChange: (isOpen: boolean) => void
 }) {
   const changes = useSessionChanges(sessionId)
+  const keyboardVisible = useKeyboardState((state) => state.isVisible)
   const [tab, setTab] = useState<"changes" | "files">("changes")
   // The file whose diff is open; null shows the list.
   const [openPath, setOpenPath] = useState<string | null>(null)
@@ -100,7 +104,11 @@ export function SessionCodeDrawer({
           contentContainerClassName="h-full"
           enableDynamicSizing={false}
           enableOverDrag={false}
-          // The commit message's keyboard lifts the sheet's foot.
+          // The commit message's keyboard lifts the sheet's foot; the home
+          // indicator's padding goes while the keyboard covers it.
+          contentContainerProps={
+            keyboardVisible ? { style: { paddingBottom: 0 } } : undefined
+          }
           keyboardBehavior="interactive"
           keyboardBlurBehavior="restore"
           // The composer's keyboard would cover the sheet.
@@ -310,7 +318,12 @@ function FileGroup({
               onPress={() => onToggle(file, !staged)}
             >
               <View pointerEvents="none">
-                <Checkbox isDisabled={locked} isSelected={staged} />
+                <Checkbox
+                  // className="border border-border"
+                  isDisabled={locked}
+                  isSelected={staged}
+                  variant="secondary"
+                />
               </View>
             </Pressable>
           </View>

@@ -265,6 +265,7 @@ export function QuestionApprovalCard({
                   <Checkbox
                     isDisabled={!enabled}
                     isSelected={chosen.includes(option.id)}
+                    variant="secondary"
                   />
                 </View>
                 {optionLabel(option)}

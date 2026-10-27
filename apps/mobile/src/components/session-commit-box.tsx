@@ -7,6 +7,7 @@ import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useState } from "react"
 import { Pressable, Text, View } from "react-native"
+import { useKeyboardState } from "react-native-keyboard-controller"
 import { Button } from "@/components/ui/button"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import {
@@ -30,6 +31,7 @@ export function SessionCommitBox({
   stagedCount: number
 }) {
   const [accent, muted] = useThemeColor(["accent", "muted"])
+  const keyboardVisible = useKeyboardState((state) => state.isVisible)
   const [message, setMessage] = useState("")
   const generate = useCommitMessage(sessionId)
   const commit = useCommitChanges(sessionId)
@@ -52,7 +54,11 @@ export function SessionCommitBox({
   }
 
   return (
-    <View className="gap-two border-t border-separator px-one pb-six pt-two">
+    <View
+      className={`gap-two border-t border-separator px-one pt-two ${
+        keyboardVisible ? "pb-two" : "pb-six"
+      }`}
+    >
       <View className="flex-row items-center gap-one">
         <HugeiconsIcon
           color={muted}
