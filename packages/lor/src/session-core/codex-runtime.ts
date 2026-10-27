@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import {
   HarnessAgent,
   type HarnessAgentContinueTurnState,
@@ -16,10 +15,10 @@ import type {
   ToolSet,
   UserModelMessage,
 } from "ai"
+import { codexHeadOf } from "./codex-branch"
 import {
   checkCompatibility,
   type HarnessBinding,
-  type HarnessHead,
   type SavedHarnessState,
   SessionCoreError,
 } from "./harness-state"
@@ -288,23 +287,6 @@ function withContinuation(
     head: saved.head,
     log: { kind: "append", text: "" },
     continuation,
-  }
-}
-
-function codexHeadOf(
-  text: string,
-  logFileName: string,
-  threadId: string
-): HarnessHead | null {
-  const lines = text.split("\n").filter((line) => line.trim() !== "")
-  if (lines.length === 0) return null
-  return {
-    harnessSessionId: threadId,
-    logFileName,
-    entryCount: lines.length,
-    headEntryId: String(lines.length),
-    byteLength: Buffer.byteLength(text, "utf8"),
-    sha256: createHash("sha256").update(text, "utf8").digest("hex"),
   }
 }
 

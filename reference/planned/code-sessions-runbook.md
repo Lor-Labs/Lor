@@ -949,6 +949,29 @@ may lag web), a Lor-offered "Continue in Code" card.
       estimate (Codex's base prompt counts as messages).
     - Checked against real Codex output in a throwaway sandbox: labels,
       bash details and the meter.
+  - [x] **8e** fork and rewind for Codex, built 2026-10-26 (not yet run
+    live in Lor):
+    - **Source read** (Codex 0.160.1): the app-server no longer has
+      `thread/rollback`, but a resumed thread still applies the rollback
+      events in its rollout (`thread_rolled_back`, "drop the newest N user
+      turns"). Its `thread/fork` copies the rollout up to a turn into a new
+      thread. Codex's rollout is "paginated": every line has an `ordinal`,
+      the file's last line must have one (Codex resumes the count from
+      it), and a person's message is an `item_completed` UserMessage event.
+    - `session-core/codex-branch.ts`: rewind appends a rollback event with
+      the next ordinal that drops every user turn after the reply's turn
+      (its run's last saved byte), like Pi's label entry; the later turns
+      stay in the file and can still be forked. It is refused for a turn an
+      earlier rewind dropped, for the newest turn, and when Codex compacted
+      after the turn (its summary would keep the later turns; fork
+      instead). Fork: the rollout up to that byte, with the same thread id
+      and path, in the fork's own sandbox; the adapter resumes it in the
+      fork's work folder.
+    - Checked through `runCodexTurn` in throwaway sandboxes: three turns,
+      a rewind to the first, then a turn that knew only the first turn's
+      word; a fork from a turn the rewind dropped knew both earlier words;
+      a fork from the turn after the rewind knew only the first. Both forks
+      ran in their own work folder.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
 

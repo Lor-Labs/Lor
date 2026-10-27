@@ -25,23 +25,25 @@ import {
   lastEntryUuid,
   rewindClaudeLog,
 } from "./session-core/claude-branch"
+import { branchCodexLog, rewindCodexLog } from "./session-core/codex-branch"
 import { branchPiLog, rewindPiLog } from "./session-core/pi-branch"
 import { piWorkDir } from "./session-core/work-dir"
 
 // Fork and rewind at one of Lor's replies, on the same harness with its
-// native state (code-sessions-runbook.md chunks 6 and 7e): Pi's log or
-// Claude Code's conversation file up to that turn and, in a code session,
-// that turn's files.
+// native state (code-sessions-runbook.md chunks 6, 7e and 8e): Pi's log,
+// Claude Code's conversation file or Codex's rollout up to that turn and, in
+// a code session, that turn's files.
 
 export class BranchRefusedError extends Error {}
 
 const ACTIVE_RUN_STATES = ["queued", "working", "finalizing"] as const
 
-// Where a turn ended in the saved conversation: Pi's entry, or Claude Code's
-// last entry and the save's last byte.
+// Where a turn ended in the saved conversation: Pi's entry, Claude Code's
+// last entry and the save's last byte, or Codex's last byte.
 type TurnPoint =
   | { harness: "pi"; entryId: string }
   | { harness: "claude_code"; entryUuid: string; endOffset: number }
+  | { harness: "codex"; endOffset: number }
 
 async function turnPoint(
   session: AgentSession,
@@ -52,13 +54,11 @@ async function turnPoint(
     return entryId ? { harness: "pi", entryId } : null
   }
   const chunk = await turnEndChunk(session.id, runId)
-  const entryUuid = chunk ? lastEntryUuid(chunk.content) : null
-  if (!chunk || !entryUuid) return null
-  return {
-    harness: "claude_code",
-    entryUuid,
-    endOffset: chunk.byteOffset + Buffer.byteLength(chunk.content, "utf8"),
-  }
+  if (!chunk) return null
+  const endOffset = chunk.byteOffset + Buffer.byteLength(chunk.content, "utf8")
+  if (session.harness === "codex") return { harness: "codex", endOffset }
+  const entryUuid = lastEntryUuid(chunk.content)
+  return entryUuid ? { harness: "claude_code", entryUuid, endOffset } : null
 }
 
 // Where one of Lor's replies left the session: the saved conversation, the
@@ -135,6 +135,14 @@ function forkClaudeLog(
   return { ...branched, formatVersion: saved.binding.formatVersion }
 }
 
+function forkCodexLog(saved: SavedHarnessState, endOffset: number) {
+  const branched = branchCodexLog(saved.log, endOffset, saved.head)
+  if (!branched) {
+    throw new BranchRefusedError("That reply's conversation can't be forked")
+  }
+  return { ...branched, formatVersion: saved.binding.formatVersion }
+}
+
 // A new session from that turn; the source session is unchanged, and Lor may
 // keep working there: only saved state is read.
 export async function forkSession(input: {
@@ -171,7 +179,9 @@ export async function forkSession(input: {
           point.entryId,
           piWorkDir(SESSION_WORK_DIR, id)
         )
-      : forkClaudeLog(saved, point.endOffset, source.id, id)
+      : point.harness === "codex"
+        ? forkCodexLog(saved, point.endOffset)
+        : forkClaudeLog(saved, point.endOffset, source.id, id)
   // Before the rows: a failed transaction leaves only a branch, which the
   // daily checkpoint sweep deletes.
   if (checkpoint) await branchCheckpoint(checkpoint, id)
@@ -225,10 +235,11 @@ export async function forkSession(input: {
 }
 
 // The session itself goes back to that turn, for everyone in it: Pi's log
-// gets the label entry that moves Lor's position there. The later turns stay
-// in the log and the transcript (collapsed) and can still be forked. The
-// caller puts back the turn's files (rewindWorkFolder) and posts the event
-// row, which also bounds the next turn's prompt.
+// gets the label entry that moves Lor's position there, Codex's rollout a
+// rollback event. The later turns stay in the log and the transcript
+// (collapsed) and can still be forked. The caller puts back the turn's files
+// (rewindWorkFolder) and posts the event row, which also bounds the next
+// turn's prompt.
 export async function rewindSession(input: {
   session: AgentSession
   // The Lor reply whose turn the session goes back to.
@@ -256,7 +267,9 @@ export async function rewindSession(input: {
           logFileName: saved.head.logFileName,
           formatVersion: saved.binding.formatVersion,
         })
-      : rewindClaudeLog(saved.log, point.entryUuid, saved.head)
+      : point.harness === "codex"
+        ? rewindCodexLog(saved.log, point.endOffset, saved.head)
+        : rewindClaudeLog(saved.log, point.entryUuid, saved.head)
   if (rewound.kind === "off_branch") {
     throw new BranchRefusedError(
       "That reply was already rewound. Fork from it instead"
@@ -268,6 +281,11 @@ export async function rewindSession(input: {
   if (rewound.kind === "old_format") {
     throw new BranchRefusedError(
       "Lor was updated since this session's last turn. Send a message, then rewind"
+    )
+  }
+  if (rewound.kind === "compacted") {
+    throw new BranchRefusedError(
+      "Codex compacted the conversation after that reply. Fork from it instead"
     )
   }
 
