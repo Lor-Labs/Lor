@@ -44,6 +44,10 @@ export async function resolvePublicUrl(rawUrl: string | URL) {
     throw new Error("Only public HTTP(S) URLs without credentials are allowed")
   }
   const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase()
+  // Loopback by name (RFC 6761), refused before any DNS lookup.
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    throw new Error("The URL does not resolve to a public address")
+  }
   const addresses = isIP(hostname)
     ? [{ address: hostname, family: isIP(hostname) }]
     : await lookup(hostname, { all: true })
