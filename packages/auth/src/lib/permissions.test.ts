@@ -27,7 +27,10 @@ describe("workspace permissions", () => {
 
   it("enforces workspace authority hierarchy", () => {
     expect(
-      canManageWorkspaceAuthority({ role: "owner" }, { role: "admin" })
+      canManageWorkspaceAuthority(
+        { role: "owner", isOwner: true },
+        { role: "admin" }
+      )
     ).toBe(true)
     expect(
       canManageWorkspaceAuthority({ role: "admin" }, { role: "member" })
@@ -36,7 +39,10 @@ describe("workspace permissions", () => {
       canManageWorkspaceAuthority({ role: "member" }, { role: "admin" })
     ).toBe(false)
     expect(
-      canManageWorkspaceAuthority({ role: "admin" }, { role: "owner" })
+      canManageWorkspaceAuthority(
+        { role: "admin" },
+        { role: "owner", isOwner: true }
+      )
     ).toBe(false)
   })
 
