@@ -823,6 +823,24 @@ may lag web), a Lor-offered "Continue in Code" card.
       came 5.7 s after the sandbox was ready (13.6 s before); a later turn
       took 4.4 s in all (6.5 s before). Sandbox creation varied from 1.3 s
       to 5.8 s; it is the same for Pi.
+  - [x] **7g** Claude model picker and a trimmed Details tab, built
+    2026-10-26 (additive `db:push`: the `claude_model` enum and
+    `message.claude_model`). Decided with Jacob the same day:
+    - The composer's model picker beside the mode
+      (`claude-model-picker.tsx`): Opus (default), Sonnet, Haiku and Fable,
+      as Claude Code's own aliases, so they follow its newest models.
+      Remembered per person, kept on the message like the Codex model; a
+      continued turn keeps its model.
+    - Checked in a throwaway sandbox: `haiku` ran `claude-haiku-4-5`,
+      `fable` ran `claude-fable-5-1`. With no model, the bridge's Claude
+      Code (2.1.290) ran `claude-sonnet-5-5`, although Claude Code's docs
+      now give Opus 5.5 as the default on every plan. So Lor always sends a
+      model: a message with none (from mobile) runs on Opus. The adapter
+      reports the alias as the turn's model, not the model that ran.
+    - Details tab in code sessions: no Files section (repo files have
+      their own tab; uploads stay in the transcript), and Plan only in Pi
+      sessions (Claude Code and Codex do not get Lor's plan tools). Context
+      stays.
 - [ ] **8. Codex**, the same way. Decided with Jacob 2026-10-26 (adapter
   `@ai-sdk/harness-codex@1.0.160`, read the same day; it matches our harness
   1.0.158 and bundles Codex CLI 0.160.1):

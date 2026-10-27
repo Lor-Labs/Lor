@@ -153,13 +153,14 @@ export const threadSummarySchema = z
 
 export const messageWithAuthorSchema = selectMessageSchema
   // Raw memory column is reshaped into `remembered` below; the memory
-  // exclusion flag, send-idempotency key, Claude Code mode and Codex model
-  // are plumbing the client never needs.
+  // exclusion flag, send-idempotency key, Claude Code mode and the Claude
+  // and Codex models are plumbing the client never needs.
   .omit({
     lorMemories: true,
     excludedFromMemory: true,
     clientKey: true,
     claudeCodeMode: true,
+    claudeModel: true,
     codexModel: true,
   })
   .extend({

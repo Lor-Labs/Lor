@@ -27,6 +27,7 @@ import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-acce
 import type {
   AgentRunContext,
   ClaudeCodeMode,
+  ClaudeModel,
   CodexModel,
   LorToolCall,
   LorToolCallUpdate,
@@ -595,10 +596,15 @@ export type RespondContext = {
   code?: RunCodeContext
   // A Claude Code session's turn (code-sessions-runbook.md chunk 7d): the
   // turn starter's own Claude subscription token, who that is and the mode
-  // they picked (saved with the request, so a paused turn continues on the
-  // same person's subscription and mode). Claude Code runs the turn instead
-  // of Pi, and Lor credits are not charged.
-  claudeCode?: { token: string; userId: string; mode: ClaudeCodeMode }
+  // and model they picked (saved with the request, so a paused turn
+  // continues on the same person's subscription, mode and model). Claude
+  // Code runs the turn instead of Pi, and Lor credits are not charged.
+  claudeCode?: {
+    token: string
+    userId: string
+    mode: ClaudeCodeMode
+    model: ClaudeModel
+  }
   // A Codex session's turn (chunk 8d): the model the sender picked, saved
   // with the request so a paused turn continues on it. Codex runs the turn
   // instead of Pi, on Lor credits.
@@ -2992,6 +2998,7 @@ export async function respond(
           ? {
               claudeCodeUserId: ctx.claudeCode.userId,
               claudeCodeMode: ctx.claudeCode.mode,
+              claudeModel: ctx.claudeCode.model,
             }
           : {}),
         ...(ctx.codex ? { codexModel: ctx.codex.model } : {}),
@@ -3533,6 +3540,7 @@ export async function respond(
       const claudeCodeTurn = async (claude: {
         token: string
         mode: ClaudeCodeMode
+        model: ClaudeModel
       }) => {
         const access = grantHarnessAccess(harness.owner, {
           claudeToken: claude.token,
@@ -3549,6 +3557,7 @@ export async function respond(
             bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
             tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
             mode: claude.mode,
+            model: claude.model,
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(answers && !pausedDropped ? { answers } : {}),

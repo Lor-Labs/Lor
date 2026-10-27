@@ -189,6 +189,7 @@ export function useMessageSending({
         harness?: SendMessagePayload["harness"]
         // A Claude Code session: the mode for the turn this message starts.
         claudeCodeMode?: SendMessagePayload["claudeCodeMode"]
+        claudeModel?: SendMessagePayload["claudeModel"]
         // A Codex session: the model for the turn this message starts.
         codexModel?: SendMessagePayload["codexModel"]
         // With startSession: "Continue in Code" from this session.
@@ -288,6 +289,7 @@ export function useMessageSending({
           code,
           harness,
           claudeCodeMode: options?.claudeCodeMode,
+          claudeModel: options?.claudeModel,
           codexModel: options?.codexModel,
           continueFrom: source?.id,
           newSession: start

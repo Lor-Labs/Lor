@@ -85,7 +85,8 @@ function collectSessionWork(pages: ThreadPage[]) {
 }
 
 // The session's details beside the session page: its starting context, plan
-// and files stay in view while the transcript scrolls. Lor's tool activity
+// and files stay in view while the transcript scrolls (a code session shows
+// only its context and Pi's plan). Lor's tool activity
 // shows on its replies; approval and proposal cards render inline there too.
 export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
   const queryClient = useQueryClient()
@@ -100,7 +101,15 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
     () => collectSessionWork(data?.pages ?? []),
     [data]
   )
-  const { data: files } = useQuery(sessionFilesQueryOptions(view.sessionId))
+  const { data: detail } = useAgentSession(view.sessionId)
+  // Code sessions: repo files have their own tab, and only Pi makes Lor's
+  // plans (Claude Code and Codex keep their own task lists).
+  const code = detail?.session.mode === "code"
+  const showPlan = !code || detail?.session.harness === "pi"
+  const { data: files } = useQuery({
+    ...sessionFilesQueryOptions(view.sessionId),
+    enabled: detail !== undefined && !code,
+  })
   const plan = usePlanForThread(view.channelId, view.threadRootId)
   const doneCount = !plan
     ? 0
@@ -128,24 +137,20 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
   }, [liveSources, files])
   const fileCount = outputs.length + sources.length
   const steps = plan?.steps ?? []
-  const { data: detail } = useAgentSession(view.sessionId)
+  const hasContext = Boolean(
+    detail && (detail.source || detail.context.length > 0)
+  )
 
   return (
     <div className="flex h-full w-full flex-col">
       <RightPanelHeader
-        title={
-          detail?.session.mode === "code" ? (
-            <SessionPanelTabs view={view} />
-          ) : (
-            "Details"
-          )
-        }
+        title={code ? <SessionPanelTabs view={view} /> : "Details"}
         workspaceSlug={view.workspaceSlug}
         channelId={view.channelId}
         hideBack
       />
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
-        {detail && (detail.source || detail.context.length > 0) && (
+        {detail && hasContext && (
           <PanelSection title="Context">
             {detail.source ? (
               <Link
@@ -180,30 +185,37 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
             )}
           </PanelSection>
         )}
-        <PanelSection
-          title="Plan"
-          meta={
-            steps.length > 0 ? (
-              <MorphText>{`${doneCount}/${steps.length}`}</MorphText>
-            ) : undefined
-          }
-        >
-          {steps.length > 0 ? (
-            <PlanStepList items={steps} />
-          ) : (
-            <PanelEmpty>No plan yet</PanelEmpty>
-          )}
-        </PanelSection>
-        <PanelSection
-          title="Files"
-          meta={fileCount > 0 ? String(fileCount) : undefined}
-        >
-          {fileCount > 0 ? (
-            <SessionFileList outputs={outputs} sources={sources} />
-          ) : (
-            <PanelEmpty>No files yet</PanelEmpty>
-          )}
-        </PanelSection>
+        {showPlan && (
+          <PanelSection
+            title="Plan"
+            meta={
+              steps.length > 0 ? (
+                <MorphText>{`${doneCount}/${steps.length}`}</MorphText>
+              ) : undefined
+            }
+          >
+            {steps.length > 0 ? (
+              <PlanStepList items={steps} />
+            ) : (
+              <PanelEmpty>No plan yet</PanelEmpty>
+            )}
+          </PanelSection>
+        )}
+        {!code && (
+          <PanelSection
+            title="Files"
+            meta={fileCount > 0 ? String(fileCount) : undefined}
+          >
+            {fileCount > 0 ? (
+              <SessionFileList outputs={outputs} sources={sources} />
+            ) : (
+              <PanelEmpty>No files yet</PanelEmpty>
+            )}
+          </PanelSection>
+        )}
+        {detail && !showPlan && !hasContext && (
+          <PanelEmpty>This session has no starting context.</PanelEmpty>
+        )}
       </div>
     </div>
   )

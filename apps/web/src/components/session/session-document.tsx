@@ -35,6 +35,10 @@ import {
   useClaudeCodeMode,
 } from "@/components/session/claude-code-mode-picker"
 import {
+  ClaudeModelPicker,
+  useClaudeModel,
+} from "@/components/session/claude-model-picker"
+import {
   CodexModelPicker,
   useCodexModel,
 } from "@/components/session/codex-model-picker"
@@ -461,6 +465,7 @@ export function SessionDocument({
     null
   )
   const claudeMode = useClaudeCodeMode()
+  const claudeModel = useClaudeModel()
   const codexModel = useCodexModel()
 
   // The heading renders once the oldest page is loaded; until then, and once
@@ -535,10 +540,16 @@ export function SessionDocument({
         }
         tools={
           claudeCode ? (
-            <ClaudeCodeModePicker
-              value={claudeMode.mode}
-              onChange={claudeMode.setMode}
-            />
+            <>
+              <ClaudeModelPicker
+                value={claudeModel.model}
+                onChange={claudeModel.setModel}
+              />
+              <ClaudeCodeModePicker
+                value={claudeMode.mode}
+                onChange={claudeMode.setMode}
+              />
+            </>
           ) : codex ? (
             <CodexModelPicker
               value={codexModel.model}
@@ -551,7 +562,12 @@ export function SessionDocument({
           const nonce = handleSend(content, {
             mentions: [],
             ...options,
-            ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
+            ...(claudeCode
+              ? {
+                  claudeCodeMode: claudeMode.mode,
+                  claudeModel: claudeModel.model,
+                }
+              : {}),
             ...(codex ? { codexModel: codexModel.model } : {}),
           })
           if (nonce) showSendEffects(nonce, options)

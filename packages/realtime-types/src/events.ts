@@ -187,6 +187,8 @@ export const sendMessagePayloadSchema = z
     claudeCodeMode: z
       .enum(["auto", "default", "acceptEdits", "plan", "bypassPermissions"])
       .optional(),
+    // Likewise the Claude model, as Claude Code's alias. Default: Opus.
+    claudeModel: z.enum(["opus", "sonnet", "haiku", "fable"]).optional(),
     // In a Codex session: the model for the turn this message starts.
     // Default: GPT-6.1 Sol.
     codexModel: z.enum(["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"]).optional(),

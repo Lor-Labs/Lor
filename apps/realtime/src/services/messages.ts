@@ -566,6 +566,9 @@ export async function createMessage(
           claudeCodeMode: isPersonInSession
             ? (input.payload.claudeCodeMode ?? null)
             : null,
+          claudeModel: isPersonInSession
+            ? (input.payload.claudeModel ?? null)
+            : null,
           codexModel: isPersonInSession
             ? (input.payload.codexModel ?? null)
             : null,
