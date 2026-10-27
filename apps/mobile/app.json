@@ -3,7 +3,7 @@
     "name": "Lor",
     "slug": "lor",
     "owner": "lor-chat",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "lor",
@@ -98,7 +98,8 @@
       "expo-font",
       "expo-image",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/with-scene-lifecycle"
     ],
     "experiments": {
       "typedRoutes": true,

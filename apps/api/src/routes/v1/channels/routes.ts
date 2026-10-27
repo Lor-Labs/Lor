@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
+  conflictSchema,
   forbiddenSchema,
   internalServerErrorSchema,
   notFoundSchema,
@@ -227,6 +228,7 @@ export const deleteChannel = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
   },
 })

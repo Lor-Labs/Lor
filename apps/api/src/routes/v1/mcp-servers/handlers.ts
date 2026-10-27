@@ -335,13 +335,17 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
     )
   }
 
-  // Merge semantics: string sets (encrypted), null deletes, absent keeps.
-  let secrets: Record<string, string> | undefined
+  // Write-only credentials belong to the endpoint that received them.
+  const endpointChanged = body.url !== undefined && body.url !== existing.url
+  let secrets: Record<string, string> | undefined = endpointChanged
+    ? {}
+    : undefined
+  const headers = body.headers ?? (endpointChanged ? {} : existing.headers)
   if (body.secrets !== undefined) {
     // Count the merged set before encrypting — a patch isn't size-capped by
     // the schema (null deletes need to pass through), so an oversized body
     // would otherwise buy N encryptions before the rejection.
-    const merged = new Set(Object.keys(existing.secrets))
+    const merged = new Set(Object.keys(endpointChanged ? {} : existing.secrets))
     for (const [name, value] of Object.entries(body.secrets)) {
       if (value === null) merged.delete(name)
       else merged.add(name)
@@ -352,7 +356,7 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
         HttpStatusCodes.BAD_REQUEST
       )
     }
-    secrets = { ...existing.secrets }
+    secrets = endpointChanged ? {} : { ...existing.secrets }
     for (const [name, value] of Object.entries(body.secrets)) {
       if (value === null) delete secrets[name]
       else secrets[name] = encryptSecret(value, key)
@@ -360,7 +364,7 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
   }
 
   const connectionChanged =
-    (body.url !== undefined && body.url !== existing.url) ||
+    endpointChanged ||
     (body.headers !== undefined &&
       !sameMcpHeaders(body.headers, existing.headers)) ||
     (body.secrets !== undefined && Object.keys(body.secrets).length > 0)
@@ -376,7 +380,7 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
     ? await discoverStaticMcpToolMetadata(
         {
           url: body.url ?? existing.url,
-          headers: body.headers ?? existing.headers,
+          headers,
           secrets: secrets ?? existing.secrets,
           enabledTools,
         },
@@ -401,7 +405,7 @@ export const updateMcpServer: AppRouteHandler<UpdateMcpServerRoute> = async (
             ? { description: body.description }
             : {}),
           ...(body.url !== undefined ? { url: body.url } : {}),
-          ...(body.headers !== undefined ? { headers: body.headers } : {}),
+          headers,
           ...(body.enabledTools !== undefined
             ? { enabledTools: body.enabledTools }
             : {}),
@@ -864,7 +868,10 @@ export const rediscoverMcpServer: AppRouteHandler<
 
   let headers: Record<string, string>
   try {
-    headers = renderedHeaders(body.headers ?? existing.headers, secrets)
+    headers = renderedHeaders(
+      body.headers ?? (url === existing.url ? existing.headers : {}),
+      secrets
+    )
   } catch (err) {
     return c.json(
       {

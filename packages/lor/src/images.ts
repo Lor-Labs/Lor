@@ -1,4 +1,5 @@
 import { Worker } from "node:worker_threads"
+import { readAttachmentBytes } from "./attachments/storage"
 import { logger } from "./logger"
 
 // What the vision models accept natively.
@@ -106,13 +107,21 @@ export function assertJpegOutputSize(bytes: Uint8Array): void {
 function convertHeifInWorker(bytes: Uint8Array): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(
-      new URL("./image-conversion-worker.ts", import.meta.url)
+      new URL("./image-conversion-worker.ts", import.meta.url),
+      { resourceLimits: { maxOldGenerationSizeMb: 256 } }
     )
     let settled = false
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      void worker.terminate()
+      reject(new Error("Image conversion timed out"))
+    }, 30_000)
 
     const finish = (result: { bytes?: unknown; error?: unknown }): void => {
       if (settled) return
       settled = true
+      clearTimeout(timeout)
       void worker.terminate()
 
       if (typeof result.error === "string") {
@@ -136,11 +145,13 @@ function convertHeifInWorker(bytes: Uint8Array): Promise<Uint8Array> {
     worker.once("error", (error) => {
       if (settled) return
       settled = true
+      clearTimeout(timeout)
       reject(error)
     })
     worker.once("exit", (code) => {
       if (settled) return
       settled = true
+      clearTimeout(timeout)
       reject(new Error(`Image conversion worker exited with code ${code}`))
     })
     const transferList: ArrayBuffer[] = []
@@ -164,9 +175,7 @@ export async function fetchImageBytes(
   mediaType: string
 ): Promise<FetchedImage | null> {
   try {
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const bytes = new Uint8Array(await res.arrayBuffer())
+    const bytes = await readAttachmentBytes(url)
     if (!TRANSCODE_MEDIA_TYPES.has(mediaType)) return { bytes, mediaType }
     if (heifExceedsPixelLimit(bytes)) {
       throw new Error("HEIF image exceeds the pixel limit")

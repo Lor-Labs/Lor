@@ -32,7 +32,9 @@ export const Route = createFileRoute(
     continueFrom:
       typeof search.continueFrom === "string" ? search.continueFrom : undefined,
     harness:
-      search.harness === "pi" || search.harness === "claude_code"
+      search.harness === "pi" ||
+      search.harness === "claude_code" ||
+      search.harness === "codex"
         ? search.harness
         : undefined,
   }),

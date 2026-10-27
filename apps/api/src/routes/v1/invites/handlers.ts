@@ -1,6 +1,10 @@
 import { auth } from "@repo/auth"
 import { verifyInvitationSignature } from "@repo/auth/invitations"
 import { and, db, eq, schema, sql } from "@repo/db"
+import {
+  resolveChannelAccess,
+  resolveChannelAudienceInfo,
+} from "@repo/db/queries/channel-access"
 import { BASE62_ALPHABET, randomCode } from "@repo/utils/short-code"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -75,6 +79,16 @@ export const createInvite: AppRouteHandler<CreateInviteRoute> = async (c) => {
   const workspace = c.var.workspace
   const user = c.var.user
   const { channelId, maxUses, expiresInMinutes } = c.req.valid("json")
+
+  if (channelId) {
+    const access = await resolveChannelAccess(user.id, channelId)
+    if (!access.ok || access.access.channel.workspaceId !== workspace.id) {
+      return c.json(
+        { success: false, message: "Channel not found" },
+        HttpStatusCodes.FORBIDDEN
+      )
+    }
+  }
 
   const expiresAt = expiresInMinutes
     ? new Date(Date.now() + expiresInMinutes * 60 * 1000)
@@ -270,12 +284,27 @@ export const previewInvite: AppRouteHandler<PreviewInviteRoute> = async (c) => {
   // Get channel info if present
   let channelInfo = null
   if (invite.channelId) {
-    channelInfo = await db
+    const invitedChannel = await db
       .select({ id: schema.channel.id, name: schema.channel.name })
       .from(schema.channel)
-      .where(eq(schema.channel.id, invite.channelId))
+      .where(
+        and(
+          eq(schema.channel.id, invite.channelId),
+          eq(schema.channel.workspaceId, invite.workspaceId)
+        )
+      )
       .limit(1)
       .then((rows) => rows[0] ?? null)
+    if (invitedChannel) {
+      const audience = await resolveChannelAudienceInfo(invitedChannel.id)
+      // Joining a workspace doesn't grant access to its private channels.
+      if (
+        audience.audience === "workspace" ||
+        (session && audience.userIds.includes(session.user.id))
+      ) {
+        channelInfo = invitedChannel
+      }
+    }
   }
 
   const isExpired =

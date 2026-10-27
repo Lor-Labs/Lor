@@ -1,0 +1,16 @@
+diff --git a/dist/index.js b/dist/index.js
+index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..41681c5f73f7c59e97525bc273a778d3a0a781bb 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -817,7 +817,10 @@ function createSession({ sessionId, channel, proc, model, reasoningEffort, webSe
+ 			instructions,
+ 			tools
+ 		});
+-		const restartThread = latestThreadId != null && (skillsResult.changed || latestTurnConfigurationFingerprint?.startsWith("v2:") === true && latestTurnConfigurationFingerprint !== nextFingerprint);
++		// Lor's patch (code-sessions-runbook.md chunk 8): changed tools or
++		// instructions keep the thread. Instructions still apply on resume (they
++		// travel in the thread's config); the thread keeps its first tool list.
++		const restartThread = latestThreadId != null && skillsResult.changed;
+ 		latestTurnConfigurationFingerprint = nextFingerprint;
+ 		if (restartThread) pendingResumeThreadId = void 0;
+ 		return { restartThread };

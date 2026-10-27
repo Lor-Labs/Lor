@@ -10,6 +10,8 @@
     "./lor": "./src/lor.ts",
     "./phone": "./src/phone.ts",
     "./crypto": "./src/crypto.ts",
+    "./github": "./src/github.ts",
+    "./network": "./src/network.ts",
     "./avatar-colors": "./src/avatar-colors.ts",
     "./domain": "./src/domain.ts",
     "./file-preview": "./src/file-preview.ts",

@@ -1,7 +1,12 @@
 import "./instrumentation"
 import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
-import { auth, type Session } from "@repo/auth"
+import {
+  auth,
+  SESSION_REVOKED_CHANNEL,
+  type Session,
+  USER_ACCESS_REVOKED_CHANNEL,
+} from "@repo/auth"
 import { and, db, eq, notExists, schema } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import {
@@ -152,6 +157,7 @@ const corsOrigins = [
 const redisPubClient = createClient({ url: env.REDIS_URL })
 const redisSubClient = redisPubClient.duplicate()
 const redisPresenceClient = redisPubClient.duplicate()
+const redisAuthClient = redisPubClient.duplicate()
 
 redisPubClient.on("error", (error) => {
   logger.error({ err: error }, "Redis pub error")
@@ -161,6 +167,9 @@ redisSubClient.on("error", (error) => {
 })
 redisPresenceClient.on("error", (error) => {
   logger.error({ err: error }, "Redis presence error")
+})
+redisAuthClient.on("error", (error) => {
+  logger.error({ err: error }, "Redis session revocation error")
 })
 
 const httpServer = createServer((req, res) => {
@@ -233,7 +242,34 @@ io.use(async (socket, next) => {
 // full row, so we surface it as the plugin-augmented Session the app uses.
 async function sessionFromToken(token: string): Promise<Session | null> {
   const ctx = await auth.$context
-  return (await ctx.internalAdapter.findSession(token)) as Session | null
+  const session = (await ctx.internalAdapter.findSession(
+    token
+  )) as Session | null
+  return session && session.session.expiresAt.getTime() > Date.now()
+    ? session
+    : null
+}
+
+const sessionConnectionRoom = (id: string) => `session-connections:${id}`
+
+async function checkSocketSession(socket: RealtimeSocket): Promise<boolean> {
+  try {
+    const session = await sessionFromToken(socket.data.session.token)
+    if (
+      session &&
+      session.session.id === socket.data.session.id &&
+      session.user.id === socket.data.user.id &&
+      !session.user.banned
+    ) {
+      socket.data.session = session.session
+      socket.data.user = session.user
+      return socket.connected
+    }
+  } catch (err) {
+    logger.warn({ err, socketId: socket.id }, "Socket session check failed")
+  }
+  socket.disconnect(true)
+  return false
 }
 
 io.use(async (socket, next) => {
@@ -246,12 +282,16 @@ io.use(async (socket, next) => {
     // cookie jar, so the client passes the session token in the auth payload.
     if (!session) {
       const token = socket.handshake.auth?.token
-      if (typeof token === "string" && token.length > 0) {
+      if (
+        typeof token === "string" &&
+        token.length > 0 &&
+        token.length <= 1024
+      ) {
         session = await sessionFromToken(token)
       }
     }
 
-    if (!session) {
+    if (!session || session.user.banned) {
       next(new Error("Unauthorized"))
       return
     }
@@ -289,6 +329,7 @@ async function clearSocketPresence(socket: RealtimeSocket, socketId: string) {
 }
 
 async function refreshSocketPresence(socket: RealtimeSocket, socketId: string) {
+  if (!(await checkSocketSession(socket))) return
   await refreshPresenceHeartbeat(
     redisPresenceClient,
     socket.data.user.id,
@@ -300,6 +341,9 @@ async function refreshSocketPresence(socket: RealtimeSocket, socketId: string) {
 
 async function initializeConnection(socket: RealtimeSocket) {
   try {
+    await socket.join(sessionConnectionRoom(socket.data.session.id))
+    // Close the gap between handshake authentication and revocation subscription.
+    if (!(await checkSocketSession(socket))) return false
     const initSocketId = socket.id
     const userPresenceRoom = userRoom(socket.data.user.id)
 
@@ -402,6 +446,26 @@ async function initializeConnection(socket: RealtimeSocket) {
 }
 
 io.on("connection", (socket) => {
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined
+  const scheduleExpiry = () => {
+    if (!socket.connected) return
+    expiryTimer = setTimeout(
+      () => {
+        void checkSocketSession(socket).then((valid) => {
+          if (valid) scheduleExpiry()
+        })
+      },
+      Math.max(
+        0,
+        Math.min(
+          2 ** 31 - 1,
+          socket.data.session.expiresAt.getTime() - Date.now()
+        )
+      )
+    )
+  }
+  scheduleExpiry()
+  socket.once("disconnect", () => clearTimeout(expiryTimer))
   let activityPending = false
   socket.on("workspace:activity", async (payload, ack) => {
     if (typeof ack !== "function") return
@@ -435,7 +499,9 @@ io.on("connection", (socket) => {
   // an event from this socket.
   socket.use((_event, next) => {
     enterContext({ socketId: socket.id, userId: socket.data.user?.id })
-    next()
+    void checkSocketSession(socket).then((valid) => {
+      next(valid ? undefined : new Error("Unauthorized"))
+    })
   })
 
   socket.on("presence:subscribe", async (payload, ack) => {
@@ -1365,9 +1431,16 @@ async function bootstrap() {
     redisPubClient.connect(),
     redisSubClient.connect(),
     redisPresenceClient.connect(),
+    redisAuthClient.connect(),
   ])
 
   io.adapter(createAdapter(redisPubClient, redisSubClient))
+  await redisAuthClient.subscribe(SESSION_REVOKED_CHANNEL, (sessionId) => {
+    io.local.to(sessionConnectionRoom(sessionId)).disconnectSockets(true)
+  })
+  await redisAuthClient.subscribe(USER_ACCESS_REVOKED_CHANNEL, (userId) => {
+    io.local.to(userConnectionRoom(userId)).disconnectSockets(true)
+  })
 
   // Code session starts check the repo against the GitHub repo list; share
   // the worker's and API's cached copy.

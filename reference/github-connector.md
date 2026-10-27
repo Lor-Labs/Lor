@@ -36,6 +36,21 @@ Webhook URL is `https://api.lor.chat/v1/integrations/github/webhook`.
 Disconnecting in Lor deletes the connection row but leaves the App installed
 on GitHub.
 
+Workspace connection requires the caller's linked GitHub account. The API
+checks the installation using that user's token, then requires the personal
+account owner or an active organization owner before sharing its repositories
+with the workspace. The installation ID alone is never proof of ownership.
+IDs must be canonical positive safe integers; old numeric aliases fail closed
+when listing repositories or minting tokens. Unsuspending an installation
+requires reconnection in Lor and does not reactivate a revoked binding.
+
+Security rollout: stop API/realtime/workers, run
+`packages/db/scripts/revoke-unverified-github-connections.sql` once against the
+deployment database, deploy all services, then reconnect installations through
+the verified flow. Revocation hides their indexed sources. Existing bindings
+cannot be assumed valid, including canonical IDs. Review any disputed binding
+before removing it; never merge numeric aliases into another tenant's row.
+
 ### Dev App
 
 An App has one Setup URL, so dev needs its own App. Checklist:

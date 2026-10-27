@@ -3,6 +3,7 @@ import { and, asc, db, eq, inArray, schema } from "@repo/db"
 import type { CustomTool } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
+import { fetchPublicResource } from "@repo/utils/network"
 import { dynamicTool, jsonSchema, type ToolSet } from "ai"
 import { logger } from "./logger"
 
@@ -82,13 +83,14 @@ export const CUSTOM_TOOLS_PROMPT_LINE =
 
 const REQUEST_TIMEOUT_MS = 15_000
 const RESPONSE_MAX_CHARS = 256 * 1024
+const RESPONSE_MAX_BYTES = 4 * RESPONSE_MAX_CHARS
 
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH"])
 
 // SSRF guard, applied to the stored template at create time and to the final
 // interpolated URL at call time. HTTPS-only; hostnames must be public-looking:
 // no IP literals, no localhost/.local/.internal, no dotless intranet names.
-// DNS-pinning is a hosted-hardening follow-up (automation-primitives.md §4).
+// The transport also verifies and pins the resolved public address.
 export function customToolUrlIssue(rawUrl: string): string | null {
   let url: URL
   try {
@@ -285,13 +287,17 @@ async function executeCustomTool(
   try {
     const secrets = decryptSecrets(row, key)
     const request = buildCustomToolRequest(row, args, secrets)
-    const response = await fetch(request.url, {
-      method: request.method,
-      headers: request.headers,
-      ...(request.body !== null ? { body: request.body } : {}),
-      redirect: "error",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    })
+    const response = await fetchPublicResource(
+      request.url,
+      {
+        method: request.method,
+        headers: request.headers,
+        ...(request.body !== null ? { body: request.body } : {}),
+        redirect: "error",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      },
+      { maxBytes: RESPONSE_MAX_BYTES, timeoutMs: REQUEST_TIMEOUT_MS }
+    )
     const text = await readBodyCapped(response, RESPONSE_MAX_CHARS)
     let body: unknown = text
     try {

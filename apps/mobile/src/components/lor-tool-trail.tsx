@@ -35,12 +35,16 @@ function builtinToolIcon(toolName: string): IconSvgElement {
       return Search01Icon
     case "search_web":
     case "fetch_web":
+    // Claude Code's own web tools.
+    case "webSearch":
+    case "WebFetch":
       return Globe02Icon
     case "fetch_source":
     case "export_tool_result":
       return Download01Icon
     case "ls":
     case "read":
+    case "view_image":
     case "memory_ls":
     case "memory_read":
       return BookOpen01Icon
@@ -48,6 +52,9 @@ function builtinToolIcon(toolName: string): IconSvgElement {
       return TerminalIcon
     case "write":
     case "edit":
+    case "NotebookEdit":
+    // Codex's patches, one per file.
+    case "fileChange":
     case "share_file":
     case "memory_write":
     case "memory_edit":
@@ -160,7 +167,7 @@ function deliveredFile(path: string | null, delivered: DeliveredFile[]) {
   )
 }
 
-function diffLineClass(line: string) {
+export function diffLineClass(line: string) {
   if (
     line.startsWith("+++") ||
     line.startsWith("---") ||

@@ -72,15 +72,16 @@ const SESSION_NETWORK = {
 const GIT_PROXY_CA =
   'if [ -n "$SSL_CERT_FILE" ]; then export GIT_SSL_CAINFO="$SSL_CERT_FILE"; fi; '
 
-// Claude Code's sandbox bridge (@ai-sdk/harness-claude-code), started by the
-// adapter as `node <bootstrap>/bridge.mjs …`; Claude Code inherits its env.
-// The sandbox runs as root, where Claude Code refuses Bypass permissions
-// unless IS_SANDBOX=1; Node trusts the proxy's CA only through
-// NODE_EXTRA_CA_CERTS (code-sessions-runbook.md chunk 7a). Claude Code's
-// auto memory is off: its notes live only in the sandbox, outlive rewinds
-// and are shared by everyone's turns, and Lor keeps the team's memory.
-const CLAUDE_CODE_BRIDGE_SCRIPT = ".harness-bootstrap/claude-code/bridge.mjs"
-const CLAUDE_CODE_SHELL =
+// A harness's sandbox bridge (@ai-sdk/harness-claude-code or -codex), started
+// by the adapter as `node <bootstrap>/<harness>/bridge.mjs …`; the CLI it
+// runs inherits its env. Node trusts the proxy's CA only through
+// NODE_EXTRA_CA_CERTS (code-sessions-runbook.md chunk 7a). The sandbox runs
+// as root, where Claude Code refuses Bypass permissions unless IS_SANDBOX=1.
+// Claude Code's auto memory is off: its notes live only in the sandbox,
+// outlive rewinds and are shared by everyone's turns, and Lor keeps the
+// team's memory. Codex's settings are in the image (~/.codex/config.toml).
+const HARNESS_BRIDGE_SCRIPT = /\.harness-bootstrap\/([a-z-]+)\/bridge\.mjs/
+const BRIDGE_SHELL =
   'if [ -n "$SSL_CERT_FILE" ]; then export NODE_EXTRA_CA_CERTS="$SSL_CERT_FILE"; fi; '
 const CLAUDE_CODE_ENV = {
   IS_SANDBOX: "1",
@@ -89,60 +90,59 @@ const CLAUDE_CODE_ENV = {
   CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
 }
 
-// A Claude Code turn (code-sessions-runbook.md chunk 7): the sandbox may
-// POST to Anthropic's API, and the proxy fills in the turn owner's
-// subscription token wherever Claude Code sends this placeholder, so the
-// token never enters the sandbox. Sandbox code can use the placeholder too
-// while the rule exists: grant it for the owner's own turn and revoke it
-// when the turn ends. Network changes apply to a running sandbox.
+// A harness turn's model credential (code-sessions-runbook.md chunks 7 and
+// 8): the sandbox may POST to the model API, and the proxy fills in the
+// credential wherever the CLI sends its placeholder, so it never enters the
+// sandbox. Claude Code uses the turn owner's subscription token; Codex uses
+// Lor's AI Gateway key. Sandbox code can use the placeholder too while the
+// rule exists: grant it for the turn and revoke it when the turn ends.
+// Network changes apply to a running sandbox.
 export const CLAUDE_TOKEN_PLACEHOLDER = "{{SECRET:claude}}"
+export const GATEWAY_KEY_PLACEHOLDER = "{{SECRET:gateway}}"
 const CLAUDE_API_HOST = "api.anthropic.com"
+const GATEWAY_HOST = "ai-gateway.vercel.sh"
 
-export async function grantClaudeAccess(
+export type HarnessAccess = { claudeToken: string } | { gatewayKey: string }
+
+export async function grantHarnessAccess(
   owner: HarnessOwner,
-  token: string
+  access: HarnessAccess
 ): Promise<void> {
+  const [host, secrets] =
+    "claudeToken" in access
+      ? [CLAUDE_API_HOST, { claude: access.claudeToken }]
+      : [GATEWAY_HOST, { gateway: access.gatewayKey }]
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: {
-      allowedDomains: [
-        ...SESSION_NETWORK.allowedDomains,
-        `POST:${CLAUDE_API_HOST}/*`,
-      ],
-      proxy: {
-        routing: [
-          {
-            destinations: [CLAUDE_API_HOST],
-            headers: {},
-            secrets: { claude: token },
-          },
-        ],
-      },
+      allowedDomains: [...SESSION_NETWORK.allowedDomains, `POST:${host}/*`],
+      proxy: { routing: [{ destinations: [host], headers: {}, secrets }] },
     },
   })
 }
 
-export async function revokeClaudeAccess(owner: HarnessOwner): Promise<void> {
+export async function revokeHarnessAccess(owner: HarnessOwner): Promise<void> {
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: SESSION_NETWORK,
   })
 }
 
-// The worker reaches a sandbox's Claude Code bridge through a private
-// preview on this port (8080 is Blaxel's sandbox API), with a token per turn.
-export const CLAUDE_CODE_BRIDGE_PORT = 8790
+// The worker reaches a sandbox's harness bridge through a private preview on
+// this port (8080 is Blaxel's sandbox API), with a token per turn.
+export const HARNESS_BRIDGE_PORT = 8790
 const BRIDGE_PREVIEW_TOKEN_TTL_MS = 60 * 60 * 1000
 
-export async function claudeCodeBridgeEndpoint(
+export async function harnessBridgeEndpoint(
   owner: HarnessOwner
 ): Promise<{ url: string; headers: Record<string, string> }> {
   const sandbox = await SandboxInstance.get(sessionSandboxName(owner))
   try {
+    // Named in chunk 7; existing sandboxes already have it on this port.
     const preview = await sandbox.previews.createIfNotExists({
       metadata: { name: "claude-code-bridge" },
-      spec: { port: CLAUDE_CODE_BRIDGE_PORT, public: false },
+      spec: { port: HARNESS_BRIDGE_PORT, public: false },
     })
     const url = (preview.spec as { url?: string }).url
-    if (!url) throw new Error("The Claude Code bridge preview has no URL")
+    if (!url) throw new Error("The harness bridge preview has no URL")
     const token = await preview.tokens.create(
       new Date(Date.now() + BRIDGE_PREVIEW_TOKEN_TTL_MS)
     )
@@ -361,6 +361,33 @@ export async function attachOrCreateSessionSandbox(
   }
 }
 
+// A turn parked on an approval keeps its sandbox out of standby (billed as
+// running) while its bridge waits (code-sessions-runbook.md 7d-4a). Past its
+// live window the bridge stops; the next decision finds none and drops the
+// turn with a note. Never creates a sandbox. Returns how many were stopped.
+export async function stopParkedBridges(owner: HarnessOwner): Promise<number> {
+  if (!blaxelConfigured()) return 0
+  const sandbox = await SandboxInstance.get(sessionSandboxName(owner)).catch(
+    (err: unknown) => {
+      if (isNotFound(err)) return null
+      throw err
+    }
+  )
+  if (!sandbox) return 0
+  try {
+    const bridges = (await sandbox.process.list()).filter(
+      (record) =>
+        record.status === "running" && record.name.startsWith("bridge-")
+    )
+    await Promise.all(
+      bridges.map((record) => sandbox.process.kill(record.name))
+    )
+    return bridges.length
+  } finally {
+    closeConnection(sandbox)
+  }
+}
+
 // The conversation's files go with it; Pi's saved state and shared files
 // live in Postgres and R2. A sandbox that is already gone counts as deleted.
 export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
@@ -522,19 +549,21 @@ export function blaxelSandboxSession(
     abortSignal,
   }) => {
     abortSignal?.throwIfAborted()
-    const bridge = command.includes(CLAUDE_CODE_BRIDGE_SCRIPT)
+    // The harness whose bridge this is ("claude-code", "codex"), or null.
+    const bridge = HARNESS_BRIDGE_SCRIPT.exec(command)?.[1] ?? null
     const name = `${bridge ? "bridge" : "spawn"}-${randomUUID().slice(0, 8)}`
     await sandbox.process.exec({
       name,
-      command: inShell(bridge ? `${CLAUDE_CODE_SHELL}${command}` : command),
+      command: inShell(bridge ? `${BRIDGE_SHELL}${command}` : command),
       workingDir: workingDirectory ?? WORKSPACE_MOUNT,
       env: {
         ...SANDBOX_PROCESS_ENV,
-        ...(bridge ? CLAUDE_CODE_ENV : {}),
+        ...(bridge === "claude-code" ? CLAUDE_CODE_ENV : {}),
         ...env,
       },
       // A bridge outlives its turn while it waits on an approval: no time
-      // limit, and no keepAlive, so the sandbox can go to standby meanwhile.
+      // limit, and no keepAlive. A parked one still kept its sandbox out of
+      // standby, so it stops after 30 minutes (release-parked-bridge).
       ...(bridge ? {} : { keepAlive: true, timeout: RUN_TIMEOUT_SEC }),
     })
     const kill = async () => {

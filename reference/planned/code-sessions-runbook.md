@@ -450,9 +450,10 @@ may lag web), a Lor-offered "Continue in Code" card.
     (`?msgId=`). The source's event row: "Jacob forked this session into a
     new session". Mobile still shows the event's plain text, like the other
     session events.
-- [ ] **7. Claude Code** on the session contract: native state per turn,
-  approvals and Lor's sandbox policy, sign-in, usage. Decided with Jacob
-  2026-10-24 (terms read the same day, under Research):
+- [x] **7. Claude Code** (built 2026-10-26; live QA in Lor owed) on the
+  session contract: native state per turn, approvals and Lor's sandbox
+  policy, sign-in, usage. Decided with Jacob 2026-10-24 (terms read the same
+  day, under Research):
   - **Subscription only for now:** each person pastes their own Claude Code
     token once (from `claude setup-token`, as Amp does), in Linked
     accounts. No API-key option yet. Jacob's call against the terms' "may
@@ -687,10 +688,28 @@ may lag web), a Lor-offered "Continue in Code" card.
     - The continuation runs on the paused turn's sender's subscription,
       saved as `claudeCodeUserId` in the run's context (a resume's trigger
       is Lor's own message, and the approver can be someone else).
-    - Open: a bridge parked across real standby (unproven either way: a
-      dead bridge drops the turn). Stop on a paused Claude Code turn drops
-      it; that run has no prompt, so the stop note does not reach Claude
-      Code.
+    - A parked bridge keeps its sandbox out of standby (checked 2026-10-26
+      in throwaway sandboxes): a turn parked on an approval stayed live 30
+      minutes and continued after the approval, but Blaxel reported the
+      sandbox `RUNNING` the whole time with no use after the pause.
+      Controls reached `STANDBY` within a minute: an idle sandbox, plain
+      processes without keepAlive (a `sleep`, a port listener, an outbound
+      connection), a network update, a preview. Deleting the bridge's
+      preview did not help. The cause inside the bridge is not known.
+    - So a parked turn stays live 30 minutes (Jacob, 2026-10-26): parking
+      schedules `release-parked-bridge`, which stops the session's bridges
+      if the turn still waits (approvals pending, no run in the session,
+      the saved state still that run's), under the paused run's row lock
+      that the approval endpoint takes. A later decision finds no bridge
+      and drops the turn with the "lost" note; Claude Code asks again.
+    - Stop on a paused Claude Code turn starts no run (`stopPausedTurn`
+      closes its approvals and marks the run); the next message's run
+      drops the turn and its prompt starts with the stop note, as for Pi.
+      (Corrected 2026-10-26: this said the note was lost.)
+    - A retried attempt whose turn already saved delivers the saved answer
+      (`savedTurnText`). It read only Pi's lines, so for Claude Code it
+      found no text and posted an empty reply; it reads Claude Code's file
+      too since 2026-10-26.
   - [x] **7d-4b-1** Claude Code's own modes, server side, built 2026-10-26
     (not yet run live in Lor; no picker yet, so every turn runs in Auto):
     - **Spike** (one turn per mode, throwaway sandbox, deleted): Auto works
@@ -805,7 +824,174 @@ may lag web), a Lor-offered "Continue in Code" card.
       came 5.7 s after the sandbox was ready (13.6 s before); a later turn
       took 4.4 s in all (6.5 s before). Sandbox creation varied from 1.3 s
       to 5.8 s; it is the same for Pi.
-- [ ] **8. Codex**, the same way.
+  - [x] **7g** Claude model picker and a trimmed Details tab, built
+    2026-10-26 (additive `db:push`: the `claude_model` enum and
+    `message.claude_model`). Decided with Jacob the same day:
+    - The composer's model picker beside the mode
+      (`claude-model-picker.tsx`): Opus (default), Sonnet, Haiku and Fable,
+      as Claude Code's own aliases, so they follow its newest models.
+      Remembered per person, kept on the message like the Codex model; a
+      continued turn keeps its model.
+    - Checked in a throwaway sandbox: `haiku` ran `claude-haiku-4-5`,
+      `fable` ran `claude-fable-5-1`. With no model, the bridge's Claude
+      Code (2.1.290) ran `claude-sonnet-5-5`, although Claude Code's docs
+      now give Opus 5.5 as the default on every plan. So Lor always sends a
+      model: a message with none (from mobile) runs on Opus. The adapter
+      reports the alias as the turn's model, not the model that ran.
+    - Details tab in code sessions: no Files section (repo files have
+      their own tab; uploads stay in the transcript), and Plan only in Pi
+      sessions (Claude Code and Codex do not get Lor's plan tools). Context
+      stays.
+- [x] **8. Codex** (built 2026-10-26; live QA in Lor owed), the same way.
+  Decided with Jacob 2026-10-26 (adapter `@ai-sdk/harness-codex@1.0.160`,
+  read the same day; it matches our harness 1.0.158 and bundles Codex CLI
+  0.160.1):
+  - **Billing: Lor credits for now.** Codex turns go through the AI Gateway
+    on Lor's key, which the sandbox proxy injects (the key never enters the
+    sandbox), so everyone in the session can send Codex turns, like Pi.
+    ChatGPT plans come later: OpenAI offers plan usage ("Sign in with
+    ChatGPT") to open-source and local apps, and to paid or hosted apps
+    only as selected partners through its interest form, which Jacob fills
+    in. The adapter's own subscription mode reuses the Codex CLI's sign-in,
+    which OpenAI says is not approved for third-party clients. Once Lor is
+    approved: a "Sign in with ChatGPT" row in Linked accounts, its access
+    token sent as a Bearer token to `api.openai.com` through the proxy.
+  - **Spend is counted at the turn's end:** Codex reports usage per turn
+    only, so a long turn can pass the spend limit before Lor sees it. No
+    patch.
+  - **Models:** a picker in the composer, GPT-6.1 Sol by default, GPT-6
+    Astra and GPT-6 Luna, all on the Gateway. The adapter pins GPT-5.5
+    because GPT-5.6 models do not get tool calls through a custom provider
+    (openai/codex#31894, open); the first spike checks GPT-6.x. If they
+    fail, GPT-5.5 until the fix.
+  - **Tool changes keep the thread:** the adapter starts a new, empty
+    Codex thread when Lor's instructions or tools change between turns.
+    Patch it to keep the thread. Instructions still update (they go in
+    Codex's config on every resume); the thread keeps the tools it started
+    with, so a newly connected tool reaches Codex in the next session.
+  - **Approvals:** Codex's own tools (shell, patch, web search, images)
+    run without approvals: the adapter forces `approval_policy="never"` and
+    no Codex sandbox, so Lor's sandbox and egress limits are the boundary
+    (Jacob's 2026-10-22 decision). Lor's gated tools keep Lor's approval
+    policy.
+  - [x] **8a spike** (2026-10-26, throwaway session sandbox, deleted):
+    - Lor's Gateway key as `{{SECRET:gateway}}`: the proxy filled it on
+      Codex's requests to `ai-gateway.vercel.sh` (a POST rule plus a
+      routing rule, like the Claude token); Codex trusted the proxy's CA.
+    - GPT-6.1 Sol ran a shell command and called a Lor tool; GPT-6 Astra
+      answered too. The GPT-5.6 tool bug did not show.
+    - A new bridge resumed the thread by its id (`resumeFrom` with
+      `{ threadId }`) on another model and kept the conversation; Codex
+      warns when a thread changes model.
+    - A gated Lor tool paused the turn (`suspendTurn`), and a new session
+      continued it after the approval.
+    - New sandbox: bootstrap and bridge in about 8 s; a turn took 2–5 s.
+      Usage comes at the turn's end with cache reads and writes; a paused
+      turn's early finish carries none.
+    - Native state: one file per thread,
+      `~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<threadId>.jsonl`.
+      `~/.codex` also held 96 MB of a plugin cache Codex downloads.
+  - [x] **8b** sandbox groundwork, built 2026-10-26 (image push owed):
+    - `session-sandbox.ts`: any harness's bridge
+      (`.harness-bootstrap/<harness>/bridge.mjs`) runs as `bridge-*` with no
+      keepAlive, its log streams end at `bridge-ready`, and a paused turn
+      keeps it; Claude Code's env stays Claude Code's.
+      `grantHarnessAccess(owner, { claudeToken } | { gatewayKey })` and
+      `revokeHarnessAccess`; `harnessBridgeEndpoint` and
+      `HARNESS_BRIDGE_PORT` (the preview keeps its chunk 7 name).
+    - Image: `harness-bootstrap.ts` (was `claude-code-bootstrap.ts`) writes
+      `claude-code/` and `codex/`; the Dockerfile installs both bridges'
+      packages and copies `codex-config.toml` to `~/.codex/config.toml`: no
+      update checks, analytics, feedback, plugins, ChatGPT apps or memories.
+      `features.remote_plugin = false` did not stop the 93 MB plugin clone
+      (Codex clones OpenAI's curated plugin repo whenever plugins are on and
+      the remote catalog is unavailable); `features.plugins = false` did.
+    - Adapter patch (`patches/@ai-sdk__harness-codex@1.0.160.patch`):
+      changed tools or instructions keep the thread.
+    - Checked in throwaway sandboxes with the image's state written in: the
+      adapter skipped its bootstrap (the generated marker matches), the
+      bridge ran as `bridge-*`, a second turn with another tool list and
+      changed instructions kept the thread and its context, and `~/.codex`
+      stayed about 4 MB (95 MB before).
+  - [x] **8c** picking Codex, built 2026-10-26 (additive `db:push`: `codex`
+    in `harness_kind`, the `codex_model` enum and `message.codex_model`):
+    - The New session picker offers Codex ("OpenAI's coding agent, on Lor
+      credits"), for code sessions only, like Claude Code; no linked
+      account. The session header shows the harness's name.
+    - The composer's model picker (`codex-model-picker.tsx`): GPT-6.1 Sol
+      (default), GPT-6 Astra, GPT-6 Luna, remembered per person. Each
+      message carries its pick (`codexModel` in the send payload, kept on
+      the message like the Claude Code mode).
+    - Until 8d a Codex session's message failed with "Codex sessions can't
+      run turns yet" instead of running on Pi, whose saved state a Codex
+      session could not read (removed in 8d-1).
+  - [x] **8d-1** the Codex turn, built 2026-10-26 (`db:seed` owed for the
+    model rates; not yet run live in Lor):
+    - **Spike** (throwaway sandboxes, deleted): turns append to one rollout
+      file, a paused turn's lines included. A new sandbox given only the
+      saved rollout (none of Codex's state databases) resumed the thread by
+      its id, and a dropped paused turn's waiting call read as not run.
+    - `session-core/codex-runtime.ts` (`runCodexTurn`, `CODEX_BINDING`),
+      shaped like Claude Code's: the saved rollout is written back unless
+      its hash matches; a paused turn continues through its bridge, or is
+      dropped; the save is the rollout's new bytes, its path relative to
+      `~/.codex` and its head the thread id.
+    - `respond()`: `ctx.codex = { model }`. Claude Code and Codex share the
+      prompt head (Claude Code's text unchanged); Codex keeps Lor's web
+      tools (its own web search is off) and drops Lor's plan tools (it has
+      its own). The proxy adds Lor's Gateway key for the turn. Parked
+      bridges and lost turns work as for Claude Code. Usage is charged at
+      the turn's end at `openai/<model>`; the model is saved with the
+      request, so a continued turn keeps it.
+    - The worker picks the model: the paused run's for a continuation,
+      else the message's, else GPT-6.1 Sol. Rates for the three models in
+      `seeds/model-rates.ts` (standard tier; requests past 272k input
+      tokens cost about twice as much).
+    - `savedTurnText` reads Codex's rollout messages, and the 30-minute
+      release covers Codex bridges.
+    - Checked `runCodexTurn` itself in throwaway sandboxes, with saves
+      carried between calls: a turn, a turn paused on a gated Lor tool, its
+      continuation after the approval, then a resume in a new sandbox from
+      the saved rollout, which still knew both earlier turns.
+  - [x] **8d-2** the trail and the context meter, built 2026-10-26:
+    - Codex's patches reach Lor as one `fileChange` part per file
+      (`{ event, path }`, the harness's own part), not as `apply_patch`
+      calls; the trail reads "Created / Edited / Deleted <path>"
+      (`harnessToolLabel`, which also names `compaction` and
+      `view_image`). The diffs stay in the Changes panel. bash shows the
+      command inside Codex's login-shell wrapper, and its detail is the
+      output's tail, an error when the exit code is not 0
+      (`codexToolDetail`).
+    - The context meter reads the rollout's last `token_count` event: the
+      last request's `total_tokens` against Codex's `model_context_window`
+      (258,400 for GPT-6.1 Sol, Codex's own limit), compacting at about
+      90%. Credits show, as for Pi; the meter's segments are Lor's
+      estimate (Codex's base prompt counts as messages).
+    - Checked against real Codex output in a throwaway sandbox: labels,
+      bash details and the meter.
+  - [x] **8e** fork and rewind for Codex, built 2026-10-26 (not yet run
+    live in Lor):
+    - **Source read** (Codex 0.160.1): the app-server no longer has
+      `thread/rollback`, but a resumed thread still applies the rollback
+      events in its rollout (`thread_rolled_back`, "drop the newest N user
+      turns"). Its `thread/fork` copies the rollout up to a turn into a new
+      thread. Codex's rollout is "paginated": every line has an `ordinal`,
+      the file's last line must have one (Codex resumes the count from
+      it), and a person's message is an `item_completed` UserMessage event.
+    - `session-core/codex-branch.ts`: rewind appends a rollback event with
+      the next ordinal that drops every user turn after the reply's turn
+      (its run's last saved byte), like Pi's label entry; the later turns
+      stay in the file and can still be forked. It is refused for a turn an
+      earlier rewind dropped, for the newest turn, and when Codex compacted
+      after the turn (its summary would keep the later turns; fork
+      instead). Fork: the rollout up to that byte, with the same thread id
+      and path, in the fork's own sandbox; the adapter resumes it in the
+      fork's work folder.
+    - Checked through `runCodexTurn` in throwaway sandboxes: three turns,
+      a rewind to the first, then a turn that knew only the first turn's
+      word; a fork from a turn the rewind dropped knew both earlier words;
+      a fork from the turn after the rewind knew only the first. Both forks
+      ran in their own work folder.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
 

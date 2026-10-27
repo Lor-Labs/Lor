@@ -21,6 +21,7 @@ import {
 } from "@/hooks/use-workspace-activity"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import type { SessionHarness } from "@/lib/harness"
 import { lorMention, mentionsLor } from "@/lib/mentions"
 import {
   createOptimisticMessage,
@@ -40,6 +41,8 @@ export type SessionStart = {
   title: string
   // The sender's message, the session's first turn.
   message: Message
+  // A code session: its repo, base branch and agent.
+  code?: { repo: string; branch: string; harness: SessionHarness }
 }
 
 export type SessionStartHandlers = {
@@ -94,10 +97,10 @@ export function useSessionStart(
       threadRootId: start.threadRootId,
       creatorId: user.id,
       origin: start.origin,
-      mode: "chat",
-      harness: "pi",
-      repoFullName: null,
-      baseBranch: null,
+      mode: start.code ? "code" : "chat",
+      harness: start.code?.harness ?? "pi",
+      repoFullName: start.code?.repo ?? null,
+      baseBranch: start.code?.branch ?? null,
       sourceSessionId: null,
       forkedFromMessageId: null,
       title: start.title,
@@ -239,7 +242,9 @@ export function useSendNewSession(channel: {
   return async (
     content: string,
     attachments: NonNullable<Message["attachments"]>,
-    contextMessageId: string | undefined
+    contextMessageId: string | undefined,
+    // Code mode: the session's repo, base branch and agent.
+    code?: SessionStart["code"]
   ) => {
     const user = auth?.user
     if (!socket?.connected) {
@@ -265,6 +270,7 @@ export function useSendNewSession(channel: {
         }),
         mentions: mentionsLor(content) ? [lorMention] : [],
       },
+      ...(code ? { code } : {}),
     }
     handlers.starting(start)
     try {
@@ -276,6 +282,12 @@ export function useSendNewSession(channel: {
         startSession: true,
         newSession: ids,
         referencedMessageId: contextMessageId,
+        ...(code
+          ? {
+              code: { repo: code.repo, branch: code.branch },
+              harness: code.harness,
+            }
+          : {}),
       })
       if (!result.ok) throw new Error(result.error)
       if (!result.session) throw new Error("Couldn't start the session")

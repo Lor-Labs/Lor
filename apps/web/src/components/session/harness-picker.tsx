@@ -9,22 +9,25 @@ import {
 import { useState } from "react"
 
 // Which agent runs a code session, fixed at its start
-// (reference/planned/code-sessions-runbook.md chunk 7): Lor's own, or Claude
-// Code on the starter's own Claude subscription.
+// (reference/planned/code-sessions-runbook.md chunks 7 and 8): Lor's own,
+// Claude Code on the starter's own Claude subscription, or Codex on Lor
+// credits.
 
-export type SessionHarness = "pi" | "claude_code"
+export type SessionHarness = "pi" | "claude_code" | "codex"
 
-const HARNESSES: SessionHarness[] = ["pi", "claude_code"]
+const HARNESSES: SessionHarness[] = ["pi", "claude_code", "codex"]
 
 export const HARNESS_LABELS: Record<SessionHarness, string> = {
   pi: "Lor",
   claude_code: "Claude Code",
+  codex: "Codex",
 }
 
 const HARNESS_TOOLTIPS: Record<SessionHarness, string> = {
   pi: "Lor's own agent, on Lor credits.",
   claude_code:
     "Runs on your own Claude Pro or Max plan. Each person's messages use their own plan.",
+  codex: "OpenAI's coding agent, on Lor credits.",
 }
 
 const HARNESS_KEY = "lor:new-session-harness"
@@ -37,9 +40,8 @@ export function useSessionHarness(
   const [harness, setHarness] = useState<SessionHarness>(() => {
     if (start) return start
     try {
-      return localStorage.getItem(HARNESS_KEY) === "claude_code"
-        ? "claude_code"
-        : "pi"
+      const saved = localStorage.getItem(HARNESS_KEY)
+      return HARNESSES.find((harness) => harness === saved) ?? "pi"
     } catch {
       return "pi"
     }

@@ -92,6 +92,8 @@ export type ClaudeCodeTurnInput = {
   // Claude Code's own permission mode. Its prompts pause the turn as builtin
   // approvals; Bypass raises none.
   mode: ClaudeCodeMode
+  // Claude Code's model alias ("opus", "sonnet"...).
+  model?: string
   // Appended to Claude Code's own system prompt (it cannot be replaced).
   instructions: string
   // A paused turn in `saved` continues first, through its bridge process,
@@ -175,6 +177,7 @@ export async function runClaudeCodeTurn(
       // the file there (adapter patch, the SDK's resumeSessionAt).
       ...(rewindTo ? { resumeSessionAt: rewindTo } : {}),
     }),
+    ...(input.model ? { model: input.model } : {}),
     instructions: input.instructions,
     tools: prepareTools(
       { ...missingToolStubs(paused, input.tools), ...input.tools },

@@ -17,6 +17,8 @@ import {
 } from "@repo/db/queries/channel-access"
 import type {
   ClaudeCodeMode,
+  ClaudeModel,
+  CodexModel,
   Loop,
   LorMemory,
   LorReasoningSegment,
@@ -63,6 +65,7 @@ import { claimAgentRun, delayJobUntil, LeaseLostError } from "@/lib/agent-run"
 import {
   notifyApprovalParked,
   scheduleApprovalEscalation,
+  scheduleParkedBridgeRelease,
 } from "@/lib/approval-notify"
 import { createProposalCard } from "@/lib/change-proposal"
 import { loadHarnessState, savedTurnText } from "@/lib/harness-state"
@@ -774,10 +777,10 @@ export function createLorRespondProcessor(
             }
 
             // A Claude Code turn runs only on its sender's own subscription,
-            // in the mode they picked: never a Loop fire, an Act event or
-            // someone else's message. A run that continues a paused turn
-            // keeps that turn's sender and mode, whoever decided its
-            // approvals.
+            // in the mode and on the model they picked: never a Loop fire, an
+            // Act event or someone else's message. A run that continues a
+            // paused turn keeps that turn's sender, mode and model, whoever
+            // decided its approvals.
             const claudeTurn =
               session.harness !== "claude_code" || automated
                 ? null
@@ -788,6 +791,7 @@ export function createLorRespondProcessor(
                           string | null
                         >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
                         mode: sql<ClaudeCodeMode | null>`${schema.agentRun.context} ->> 'claudeCodeMode'`,
+                        model: sql<ClaudeModel | null>`${schema.agentRun.context} ->> 'claudeModel'`,
                       })
                       .from(schema.agentRun)
                       .where(eq(schema.agentRun.id, harnessState.lastRunId))
@@ -795,13 +799,16 @@ export function createLorRespondProcessor(
                   : triggerUserId && triggerUserId !== LOR_USER_ID
                     ? {
                         userId: triggerUserId,
-                        mode: triggerMessageId
+                        ...(triggerMessageId
                           ? await db
-                              .select({ mode: schema.message.claudeCodeMode })
+                              .select({
+                                mode: schema.message.claudeCodeMode,
+                                model: schema.message.claudeModel,
+                              })
                               .from(schema.message)
                               .where(eq(schema.message.id, triggerMessageId))
-                              .then((rows) => rows[0]?.mode ?? null)
-                          : null,
+                              .then((rows) => rows[0] ?? null)
+                          : null),
                       }
                     : null
             const claudeUserId = claudeTurn?.userId ?? null
@@ -809,16 +816,39 @@ export function createLorRespondProcessor(
             const claudeToken = claudeUserId
               ? await claudeSubscriptionToken(claudeUserId)
               : null
-            if (session.harness === "claude_code" && !claudeToken) {
-              const noSubscription = automated
-                ? "Claude Code sessions only run on a person's own messages."
-                : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
+            const refusal =
+              session.harness === "claude_code" && !claudeToken
+                ? automated
+                  ? "Claude Code sessions only run on a person's own messages."
+                  : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
+                : null
+            // A Codex turn runs on the model its sender picked; a run that
+            // continues a paused turn keeps that turn's model.
+            const codexModel: CodexModel | null =
+              session.harness !== "codex"
+                ? null
+                : continueOnly && harnessState?.lastRunId
+                  ? await db
+                      .select({
+                        model: sql<CodexModel | null>`${schema.agentRun.context} ->> 'codexModel'`,
+                      })
+                      .from(schema.agentRun)
+                      .where(eq(schema.agentRun.id, harnessState.lastRunId))
+                      .then((rows) => rows[0]?.model ?? null)
+                  : triggerMessageId
+                    ? await db
+                        .select({ model: schema.message.codexModel })
+                        .from(schema.message)
+                        .where(eq(schema.message.id, triggerMessageId))
+                        .then((rows) => rows[0]?.model ?? null)
+                    : null
+            if (refusal) {
               await db
                 .update(schema.message)
-                .set({ content: noSubscription, status: "failed" })
+                .set({ content: refusal, status: "failed" })
                 .where(eq(schema.message.id, lorMessageId))
                 .catch(() => {})
-              emit(noSubscription, true, "failed")
+              emit(refusal, true, "failed")
               await runWriter.transition("failed", { stopReason: "error" })
               execution.stop()
               await settlePlan("failed")
@@ -981,8 +1011,12 @@ export function createLorRespondProcessor(
                         token: claudeToken,
                         userId: claudeUserId,
                         mode: claudeCodeMode,
+                        model: claudeTurn?.model ?? "opus",
                       },
                     }
+                  : {}),
+                ...(session.harness === "codex"
+                  ? { codex: { model: codexModel ?? "gpt-6.1-sol" } }
                   : {}),
                 ...(loopRun && threadRootId
                   ? {
@@ -1474,6 +1508,17 @@ export function createLorRespondProcessor(
                 logger.error(
                   { err, approvalId: parkedApproval.id },
                   "Approval notification fan-out failed"
+                )
+              }
+              if (threadRootId) {
+                await scheduleParkedBridgeRelease({
+                  runId: job.data.runId,
+                  threadRootId,
+                }).catch((err) =>
+                  logger.error(
+                    { err, runId: job.data.runId },
+                    "Parked bridge release scheduling failed"
+                  )
                 )
               }
             }

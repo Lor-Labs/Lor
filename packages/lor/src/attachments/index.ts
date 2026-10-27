@@ -7,11 +7,17 @@ import {
   fetchImageBytes,
   isViewableImage,
   MAX_IMAGE_BYTES,
+  MAX_IMAGE_PIXELS,
 } from "../images"
 import { logger } from "../logger"
 import { emitUsage, type OnUsage } from "../usage"
 import { type Extracted, extractDocument, type Transcriber } from "./extract"
 import { documentKind } from "./kinds"
+import {
+  attachmentObjectKey,
+  MAX_ATTACHMENT_DOWNLOAD_BYTES,
+  readAttachmentBytes,
+} from "./storage"
 import { transcribeImage } from "./transcribe"
 
 const MIN_IMAGE_EDGE_PX = 128
@@ -44,7 +50,7 @@ function isDecorativeImage(attachment: Attachment): boolean {
 // of skipping them.
 async function fitImage(image: FetchedImage): Promise<FetchedImage | null> {
   if (image.bytes.byteLength <= MAX_IMAGE_BYTES) return image
-  const bytes = await sharp(image.bytes)
+  const bytes = await sharp(image.bytes, { limitInputPixels: MAX_IMAGE_PIXELS })
     .resize({
       width: DOWNSCALE_EDGE_PX,
       height: DOWNSCALE_EDGE_PX,
@@ -157,12 +163,6 @@ function formatBytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
-async function fetchFileBytes(url: string): Promise<Uint8Array> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`file fetch failed with ${res.status}`)
-  return new Uint8Array(await res.arrayBuffer())
-}
-
 // Documents get one row per page, slide, or part. Unsupported types, files
 // past the size cap, and files with no extractable text get one filename-only
 // row so they are still findable by name and by the sharing message.
@@ -172,10 +172,12 @@ async function indexFile(
   onUsage?: OnUsage
 ): Promise<void> {
   const kind = documentKind(attachment.contentType, attachment.filename)
-  const tooBig = kind === "xlsx" && attachment.size > MAX_SPREADSHEET_BYTES
+  const maxBytes =
+    kind === "xlsx" ? MAX_SPREADSHEET_BYTES : MAX_ATTACHMENT_DOWNLOAD_BYTES
+  const tooBig = attachment.size > maxBytes
   let extracted: Extracted | null = null
   if (kind && !tooBig) {
-    const bytes = await fetchFileBytes(attachment.url)
+    const bytes = await readAttachmentBytes(attachment.url, maxBytes)
     // A page the model fails to read is skipped, not retried: the rest of
     // the document is still indexed.
     const transcribe: Transcriber = async (image) => {
@@ -263,6 +265,7 @@ export async function indexMessageAttachments(
 
   let failed = 0
   for (const attachment of message.attachments) {
+    if (!attachmentObjectKey(attachment.url)) continue
     if (indexed.has(attachment.url) || isDecorativeImage(attachment)) continue
     try {
       if (isViewableImage(attachment.contentType)) {

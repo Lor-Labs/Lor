@@ -30,7 +30,15 @@ export function piToolLabel(name: string, input: unknown): string {
     case "edit":
       return path ? `Edited ${path}` : "Edited a file"
     case "bash": {
+      // Codex wraps each command in a login shell, single- or double-quoted:
+      // show the command itself.
       const command = asString(args?.command)
+        ?.replace(/^\/bin\/(?:ba)?sh -lc '([\s\S]*)'$/, (_, inner: string) =>
+          inner.replaceAll("'\\''", "'")
+        )
+        .replace(/^\/bin\/(?:ba)?sh -lc "([\s\S]*)"$/, (_, inner: string) =>
+          inner.replace(/\\(["\\$`])/g, "$1")
+        )
       return command ? `Ran ${command}` : "Ran a command"
     }
     default:
@@ -255,6 +263,60 @@ export function claudeCodeToolDetail(
         ? `…${text.slice(-MAX_OUTPUT_CHARS)}`
         : `${text.slice(0, MAX_OUTPUT_CHARS)}…`
   return { status: "ok", detail: { summary } }
+}
+
+// The harness's own parts and Codex's tools beyond bash and webSearch (Pi's
+// and Claude Code's labels cover those). Codex's patches reach Lor as one
+// fileChange per file, `{ event: create | modify | delete, path }`, not as
+// apply_patch calls (8d-2 check). Null for any other name.
+export function harnessToolLabel(name: string, input: unknown): string | null {
+  const args = asRecord(input)
+  const path = asString(args?.path)
+  switch (name) {
+    case "fileChange": {
+      const verb =
+        args?.event === "create"
+          ? "Created"
+          : args?.event === "delete"
+            ? "Deleted"
+            : "Edited"
+      return path ? `${verb} ${path}` : `${verb} a file`
+    }
+    case "compaction":
+      return "Compacted context"
+    case "view_image":
+      return path ? `Viewed ${path}` : "Viewed an image"
+    default:
+      return null
+  }
+}
+
+// Trail detail for one of Codex's own tools that ran (adapter 1.0.160): bash
+// `{ exitCode, output, status }`; the rest show their label only. A failed
+// call arrives as tool-error.
+export function codexToolDetail(
+  toolName: string,
+  output: unknown
+): Pick<LorToolCall, "detail" | "status"> {
+  if (toolName !== "bash") return { status: "ok" }
+  const result = asRecord(output)
+  const text = typeof result?.output === "string" ? result.output : ""
+  const failed =
+    result?.status === "failed" ||
+    (typeof result?.exitCode === "number" && result.exitCode !== 0)
+  return {
+    status: failed ? "error" : "ok",
+    ...(text
+      ? {
+          detail: {
+            summary:
+              text.length <= MAX_OUTPUT_CHARS
+                ? text
+                : `…${text.slice(-MAX_OUTPUT_CHARS)}`,
+          },
+        }
+      : {}),
+  }
 }
 
 // Trail detail for one of Pi's sandbox tools that ran, whose results arrive

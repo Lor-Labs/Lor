@@ -27,11 +27,19 @@ import {
   useClaudeCodeMode,
 } from "@/components/session/claude-code-mode-picker"
 import {
+  ClaudeModelPicker,
+  useClaudeModel,
+} from "@/components/session/claude-model-picker"
+import {
   CodeTargetPicker,
   SessionModeSwitch,
   useCodeTarget,
   useSessionMode,
 } from "@/components/session/code-target-picker"
+import {
+  CodexModelPicker,
+  useCodexModel,
+} from "@/components/session/codex-model-picker"
 import {
   HarnessPicker,
   type SessionHarness,
@@ -228,6 +236,9 @@ function NewSessionComposer({
   const [harness, setHarness] = useSessionHarness(startHarness)
   const claudeCode = mode === "code" && harness === "claude_code"
   const claudeMode = useClaudeCodeMode()
+  const claudeModel = useClaudeModel()
+  const codex = mode === "code" && harness === "codex"
+  const codexModel = useCodexModel()
   const { data: accounts } = usePersonalAccounts()
   // Unknown while the accounts load.
   const needsClaude = claudeCode && accounts?.claude.account === null
@@ -354,16 +365,29 @@ function NewSessionComposer({
         placeholder={
           claudeCode
             ? "Ask Claude Code to work on the code…"
-            : mode === "code"
-              ? "Ask Lor to work on the code…"
-              : "Ask Lor…"
+            : codex
+              ? "Ask Codex to work on the code…"
+              : mode === "code"
+                ? "Ask Lor to work on the code…"
+                : "Ask Lor…"
         }
         sendBlocked={(mode === "code" && !code.target) || needsClaude}
         tools={
           claudeCode ? (
-            <ClaudeCodeModePicker
-              value={claudeMode.mode}
-              onChange={claudeMode.setMode}
+            <>
+              <ClaudeModelPicker
+                value={claudeModel.model}
+                onChange={claudeModel.setModel}
+              />
+              <ClaudeCodeModePicker
+                value={claudeMode.mode}
+                onChange={claudeMode.setMode}
+              />
+            </>
+          ) : codex ? (
+            <CodexModelPicker
+              value={codexModel.model}
+              onChange={codexModel.setModel}
             />
           ) : undefined
         }
@@ -377,7 +401,13 @@ function NewSessionComposer({
             ...(mode === "code" && code.target
               ? { code: code.target, harness }
               : {}),
-            ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
+            ...(claudeCode
+              ? {
+                  claudeCodeMode: claudeMode.mode,
+                  claudeModel: claudeModel.model,
+                }
+              : {}),
+            ...(codex ? { codexModel: codexModel.model } : {}),
             ...(continueFromSessionId
               ? {
                   continueFrom: {

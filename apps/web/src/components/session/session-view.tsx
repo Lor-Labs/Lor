@@ -39,6 +39,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
+import { HARNESS_LABELS } from "@/components/session/harness-picker"
 import { SessionDocument } from "@/components/session/session-document"
 import {
   SessionTabBar,
@@ -241,6 +242,7 @@ function SessionConversation({
   return (
     <SessionDocument
       claudeCode={session.harness === "claude_code" && !withoutClaude}
+      codex={session.harness === "codex" && !session.archivedAt}
       composerNote={
         withoutClaude ? (
           <>
@@ -584,7 +586,7 @@ function SessionHeading({
             </a>
           </>
         )}
-        {session.harness === "claude_code" && (
+        {session.harness !== "pi" && (
           <>
             <span aria-hidden="true">·</span>
             <span className="inline-flex items-center gap-1">
@@ -593,7 +595,7 @@ function SessionHeading({
                 className="size-3.5"
                 strokeWidth={2}
               />
-              Claude Code
+              {HARNESS_LABELS[session.harness]}
             </span>
           </>
         )}

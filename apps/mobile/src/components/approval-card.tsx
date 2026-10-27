@@ -1,9 +1,15 @@
 import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
-import LockKeyIcon from "@hugeicons/core-free-icons/LockKeyIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useThemeColor } from "heroui-native/hooks"
 import { Text, View } from "react-native"
+import {
+  ApprovalHeader,
+  answerSummary,
+  PlanApprovalCard,
+  QuestionApprovalCard,
+  type ResolveExtra,
+} from "@/components/claude-code-approval"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/context/workspace-context"
 import {
@@ -14,6 +20,7 @@ import {
   useResolveChannelApproval,
 } from "@/hooks/use-approvals"
 import { useWorkspaceMembers } from "@/hooks/use-workspace-members"
+import type { ChannelApproval } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 
 export type ApprovalCardData = {
@@ -24,6 +31,11 @@ export type ApprovalCardData = {
   resolverUserName: string | null
   // A Claude Code prompt: only the turn's sender decides it.
   onlyUserId?: string | null
+  // A Claude Code plan waiting for approval: its Markdown.
+  plan?: string | null
+  // A Claude Code question: its questions, and once answered, the answers.
+  questions?: ChannelApproval["questions"]
+  answers?: ChannelApproval["answers"]
   status: "pending" | "approved" | "rejected" | "expired"
   resolvedBy: string | null
 }
@@ -56,11 +68,50 @@ export function ApprovalGateCard({
   const { workspace } = useWorkspace()
   const { members } = useWorkspaceMembers(workspace?.slug ?? "")
   const { data: auth } = authClient.useSession()
-  const [success, warning, muted] = useThemeColor([
-    "success",
-    "warning",
-    "muted",
-  ])
+  const [success, muted] = useThemeColor(["success", "muted"])
+
+  const onResolve = (
+    resolution: "approve" | "reject",
+    extra: ResolveExtra = {}
+  ) => {
+    resolve.mutate(
+      {
+        approvalId: approval.id,
+        resolution,
+        ...(extra.planMode ? { claudeCodeMode: extra.planMode } : {}),
+        ...(extra.answers ? { answers: extra.answers } : {}),
+      },
+      { onSettled: () => onResolved?.() }
+    )
+  }
+  const statusLine = canResolve
+    ? "Needs your approval"
+    : resolverLabel(approval.resolver, approval.resolverUserName)
+
+  if (approval.status === "pending" && approval.plan) {
+    return (
+      <PlanApprovalCard
+        canResolve={canResolve}
+        description={approval.description}
+        onResolve={onResolve}
+        pending={resolve.isPending}
+        plan={approval.plan}
+        statusLine={statusLine}
+      />
+    )
+  }
+  if (approval.status === "pending" && approval.questions) {
+    return (
+      <QuestionApprovalCard
+        canResolve={canResolve}
+        description={approval.description}
+        onResolve={onResolve}
+        pending={resolve.isPending}
+        questions={approval.questions}
+        statusLine={statusLine}
+      />
+    )
+  }
 
   if (approval.status !== "pending") {
     const approved = approval.status === "approved"
@@ -69,6 +120,10 @@ export function ApprovalGateCard({
         ? "you"
         : (members.find((member) => member.userId === approval.resolvedBy)
             ?.name ?? null)
+    const answered =
+      approval.questions && approval.answers
+        ? answerSummary(approval.questions, approval.answers)
+        : null
     return (
       <View className="flex-row items-center gap-three rounded-lor-md border border-border px-three py-two">
         <View
@@ -90,69 +145,41 @@ export function ApprovalGateCard({
           >
             {approval.description}
           </Text>
-          <Text className="text-xs text-muted" numberOfLines={1}>
-            {RESOLVED_LABEL[approval.status]}
+          <Text className="text-xs text-muted" numberOfLines={2}>
+            {approval.questions
+              ? approved
+                ? "Answered"
+                : "Skipped"
+              : RESOLVED_LABEL[approval.status]}
             {resolvedByName ? ` by ${resolvedByName}` : ""}
+            {answered ? ` · ${answered}` : ""}
           </Text>
         </View>
       </View>
     )
   }
 
-  const onPress = (resolution: "approve" | "reject") => {
-    resolve.mutate(
-      { approvalId: approval.id, resolution },
-      {
-        onSettled: () => {
-          onResolved?.()
-        },
-      }
-    )
-  }
-
   return (
     <View className="gap-three rounded-lor-md border border-border bg-surface px-three py-three">
-      <View className="flex-row items-start gap-three">
-        <View className="size-7 items-center justify-center rounded-lor-sm bg-warning-soft">
-          <HugeiconsIcon
-            color={warning}
-            icon={LockKeyIcon}
-            size={14}
-            strokeWidth={2}
-          />
-        </View>
-        <View className="min-w-0 flex-1 gap-px">
-          <Text className="text-[13px] font-medium leading-5 text-foreground">
-            {approval.description}
-          </Text>
-          <Text className="text-xs text-muted">
-            {canResolve
-              ? "Needs your approval"
-              : resolverLabel(approval.resolver, approval.resolverUserName)}
+      <ApprovalHeader
+        description={approval.description}
+        statusLine={
+          <>
+            {statusLine}
             {approval.toolName ? (
               <>
                 {" · "}
                 <Text className="font-mono">{approval.toolName}</Text>
               </>
             ) : null}
-          </Text>
-        </View>
-      </View>
-      {/* Claude Code's questions and plans have no mobile card yet:
-          approving would send no answer, or a plan nobody here read. */}
-      {canResolve && approval.toolName === "askUserQuestions" ? (
-        <Text className="text-xs text-muted">
-          Answer this question in Lor on the web or desktop.
-        </Text>
-      ) : canResolve && approval.toolName === "ExitPlanMode" ? (
-        <Text className="text-xs text-muted">
-          Review this plan in Lor on the web or desktop.
-        </Text>
-      ) : canResolve ? (
+          </>
+        }
+      />
+      {canResolve ? (
         <View className="flex-row justify-end gap-two">
           <Button
             isDisabled={resolve.isPending}
-            onPress={() => onPress("reject")}
+            onPress={() => onResolve("reject")}
             size="sm"
             variant="ghost"
           >
@@ -160,7 +187,7 @@ export function ApprovalGateCard({
           </Button>
           <Button
             isDisabled={resolve.isPending}
-            onPress={() => onPress("approve")}
+            onPress={() => onResolve("approve")}
             size="sm"
           >
             Approve

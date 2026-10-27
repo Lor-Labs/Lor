@@ -1,7 +1,10 @@
 import type { PermissionRequest } from "@repo/auth/permissions"
 import { workspaceAuthorityHasPermissions } from "@repo/auth/permissions"
 import { and, asc, db, desc, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
-import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import {
+  resolveChannelAccess,
+  resolveChannelAudienceInfo,
+} from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { ChangeProposal, ChangeProposalOperation } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
@@ -378,12 +381,20 @@ async function announceCreatedResources(args: {
   )
   if (createdChannels.length === 0 && createdLoops.length === 0) return
 
-  const origin = await db
-    .select({ name: schema.channel.name })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, args.proposal.channelId))
-    .limit(1)
-    .then((rows) => rows[0] ?? null)
+  // New channels are workspace-public. A private source channel's name and
+  // identity must not become part of their durable announcement.
+  const originAudience = await resolveChannelAudienceInfo(
+    args.proposal.channelId
+  )
+  const origin =
+    originAudience.audience === "workspace"
+      ? await db
+          .select({ name: schema.channel.name })
+          .from(schema.channel)
+          .where(eq(schema.channel.id, args.proposal.channelId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : null
 
   for (const op of createdChannels) {
     const channelId = op.result?.resourceId
@@ -406,8 +417,12 @@ async function announceCreatedResources(args: {
       eventType: "channel_created",
       payload: {
         via: "proposal",
-        originChannelId: args.proposal.channelId,
-        originChannelName: origin?.name ?? undefined,
+        ...(origin
+          ? {
+              originChannelId: args.proposal.channelId,
+              originChannelName: origin.name ?? undefined,
+            }
+          : {}),
       },
     })
   }

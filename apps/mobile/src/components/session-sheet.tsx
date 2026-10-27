@@ -4,6 +4,8 @@ import {
 } from "@gorhom/bottom-sheet"
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import ArchiveRestoreIcon from "@hugeicons/core-free-icons/ArchiveRestoreIcon"
+import BubbleChatIcon from "@hugeicons/core-free-icons/BubbleChatIcon"
+import GitForkIcon from "@hugeicons/core-free-icons/GitForkIcon"
 import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
 import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
@@ -136,9 +138,13 @@ export function SessionSheet({
   const updateSession = useUpdateAgentSession()
   const { data: detail } = useAgentSession(session.id)
   const plan = usePlanForThread(session.channelId, session.threadRootId)
+  // A code session: repo files are on web's Files tab, and only Lor's own
+  // agent makes plans (Claude Code and Codex keep their own task lists).
+  const code = session.mode === "code"
+  const showPlan = !code || session.harness === "pi"
   const { data: sessionFiles } = useQuery({
     queryKey: ["agent-session-files", session.id],
-    enabled: isOpen,
+    enabled: isOpen && !code,
     queryFn: async (): Promise<SessionFiles> => {
       const response = await api.v1.sessions[":sessionId"].files.$get({
         param: { sessionId: session.id },
@@ -166,6 +172,7 @@ export function SessionSheet({
       : steps.filter((step) => step.status === "done").length
   const context = detail?.context ?? []
   const newestContext = context.at(-1)
+  const source = detail?.source ?? null
 
   const close = (next: boolean) => {
     if (!next) setRenaming(false)
@@ -244,7 +251,26 @@ export function SessionSheet({
               contentContainerStyle={{ gap: 24, paddingBottom: 40 }}
               showsVerticalScrollIndicator={false}
             >
-              {newestContext ? (
+              {source ? (
+                <Section title="Context">
+                  <SourceRow
+                    forked={session.forkedFromMessageId !== null}
+                    onPress={() => {
+                      close(false)
+                      router.push({
+                        pathname: "/session/[sessionId]",
+                        params: session.forkedFromMessageId
+                          ? {
+                              sessionId: source.id,
+                              focusMessageId: session.forkedFromMessageId,
+                            }
+                          : { sessionId: source.id },
+                      })
+                    }}
+                    title={source.title}
+                  />
+                </Section>
+              ) : newestContext ? (
                 <Section title="Context">
                   <ContextRow
                     channelName={detail?.channel.name ?? "channel"}
@@ -253,40 +279,46 @@ export function SessionSheet({
                   />
                 </Section>
               ) : null}
-              <Section
-                meta={
-                  steps.length > 0 ? `${doneCount}/${steps.length}` : undefined
-                }
-                title="Plan"
-              >
-                {steps.length > 0 ? (
-                  <PlanStepList items={steps} />
-                ) : (
-                  <Empty>No plan yet</Empty>
-                )}
-              </Section>
-              <Section
-                meta={files.length > 0 ? String(files.length) : undefined}
-                title="Files"
-              >
-                {files.length > 0 ? (
-                  <View className="gap-one">
-                    {files.map((file) => (
-                      <FileChip
-                        key={file.key}
-                        name={file.name}
-                        onPress={() => {
-                          close(false)
-                          openFile(file.target)
-                        }}
-                        size={file.size}
-                      />
-                    ))}
-                  </View>
-                ) : (
-                  <Empty>No files yet</Empty>
-                )}
-              </Section>
+              {showPlan ? (
+                <Section
+                  meta={
+                    steps.length > 0
+                      ? `${doneCount}/${steps.length}`
+                      : undefined
+                  }
+                  title="Plan"
+                >
+                  {steps.length > 0 ? (
+                    <PlanStepList items={steps} />
+                  ) : (
+                    <Empty>No plan yet</Empty>
+                  )}
+                </Section>
+              ) : null}
+              {code ? null : (
+                <Section
+                  meta={files.length > 0 ? String(files.length) : undefined}
+                  title="Files"
+                >
+                  {files.length > 0 ? (
+                    <View className="gap-one">
+                      {files.map((file) => (
+                        <FileChip
+                          key={file.key}
+                          name={file.name}
+                          onPress={() => {
+                            close(false)
+                            openFile(file.target)
+                          }}
+                          size={file.size}
+                        />
+                      ))}
+                    </View>
+                  ) : (
+                    <Empty>No files yet</Empty>
+                  )}
+                </Section>
+              )}
               <View className="gap-two border-t border-separator px-one pt-five">
                 {archived ? null : (
                   <ActionRow
@@ -376,6 +408,38 @@ function ContextRow({
       <Text className="text-sm text-foreground">{channelName}</Text>
       <Text className="text-xs text-muted">
         {count} {count === 1 ? "message" : "messages"}
+      </Text>
+    </Pressable>
+  )
+}
+
+// "Continue in Code" or a fork: the session this one comes from.
+function SourceRow({
+  title,
+  forked,
+  onPress,
+}: {
+  title: string
+  forked: boolean
+  onPress: () => void
+}) {
+  const muted = useThemeColor("muted")
+  return (
+    <Pressable
+      accessibilityRole="link"
+      className="min-h-9 flex-row items-center gap-one self-start rounded-lor-sm active:opacity-60"
+      onPress={onPress}
+    >
+      <HugeiconsIcon
+        color={muted}
+        icon={forked ? GitForkIcon : BubbleChatIcon}
+        size={14}
+      />
+      <Text className="text-xs text-muted">
+        {forked ? "Forked from" : "Continued from"}
+      </Text>
+      <Text className="shrink text-sm text-foreground" numberOfLines={1}>
+        {title}
       </Text>
     </Pressable>
   )

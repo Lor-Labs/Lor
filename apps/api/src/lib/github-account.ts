@@ -2,6 +2,7 @@ import { auth } from "@repo/auth"
 import { and, db, eq, isNull, or, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
+import { parseGithubInstallationId } from "@repo/utils/github"
 import { logger } from "@/lib/logger"
 
 // A person's own GitHub account ("Your accounts"), authorized through the
@@ -194,6 +195,68 @@ export async function fetchGithubProfile(token: string) {
     email:
       emails.find((entry) => entry.primary && entry.verified)?.email ?? null,
   }
+}
+
+// Listing an installation alone also admits collaborators with access to only
+// one repo. Sharing the entire installation requires its account owner.
+export async function verifyGithubInstallationOwner(
+  token: string,
+  installationId: string
+): Promise<{ accountLogin: string } | null> {
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
+  const headers = { ...GITHUB_HEADERS, Authorization: `Bearer ${token}` }
+  const signal = AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS)
+  const get = (path: string) =>
+    fetch(`${GITHUB_API}${path}`, {
+      headers,
+      redirect: "error",
+      signal,
+    })
+  type Installation = {
+    id: number
+    account: { id: number; login: string; type: string } | null
+    suspended_at: string | null
+  }
+  let installation: Installation | undefined
+  for (let page = 1; page <= 100; page++) {
+    const response = await get(`/user/installations?per_page=100&page=${page}`)
+    if (!response.ok) return null
+    const body = (await response.json()) as { installations: Installation[] }
+    installation = body.installations.find((entry) => entry.id === id)
+    if (installation || body.installations.length < 100) break
+  }
+  const account = installation?.account
+  if (!account || installation?.suspended_at) return null
+  if (account.type === "User") {
+    const response = await get("/user")
+    if (!response.ok) return null
+    const user = (await response.json()) as { id: number }
+    return user.id === account.id ? { accountLogin: account.login } : null
+  }
+  if (account.type !== "Organization") return null
+  type Membership = {
+    state: string
+    role: string
+    organization: { id: number }
+  }
+  for (let page = 1; page <= 100; page++) {
+    const response = await get(
+      `/user/memberships/orgs?state=active&per_page=100&page=${page}`
+    )
+    if (!response.ok) return null
+    const memberships = (await response.json()) as Membership[]
+    const membership = memberships.find(
+      (entry) => entry.organization.id === account.id
+    )
+    if (membership) {
+      return membership.state === "active" && membership.role === "admin"
+        ? { accountLogin: account.login }
+        : null
+    }
+    if (memberships.length < 100) break
+  }
+  return null
 }
 
 export async function fillMissingGithubAvatar(

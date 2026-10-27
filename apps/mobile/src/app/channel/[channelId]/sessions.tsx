@@ -238,7 +238,8 @@ function SessionListRow({
           {session.title}
         </Text>
         <Text className="text-xs text-muted" numberOfLines={1}>
-          {byline} · {when}
+          {byline}
+          {session.repoFullName ? ` · ${session.repoFullName}` : ""} · {when}
         </Text>
       </View>
       {session.running ? (

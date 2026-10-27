@@ -31,7 +31,7 @@ export type SessionStart = {
   origin: "chat" | "new"
   // New session in Code mode.
   code?: { repo: string; branch: string }
-  harness?: "pi" | "claude_code"
+  harness?: "pi" | "claude_code" | "codex"
   // "Continue in Code": the session it continues.
   source?: { id: string; title: string }
   title: string

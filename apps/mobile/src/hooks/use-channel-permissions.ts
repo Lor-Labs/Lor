@@ -1,6 +1,8 @@
 import { workspaceAuthorityHasPermissions } from "@repo/auth/permissions"
 import { useMemo } from "react"
+import { useWorkspace } from "@/context/workspace-context"
 import { useActiveMember } from "@/hooks/use-active-member"
+import { authClient } from "@/lib/auth-client"
 
 type ChannelPermissions = {
   canCreateChannel: boolean
@@ -20,6 +22,13 @@ const EMPTY_PERMISSIONS: ChannelPermissions = {
 
 export function useChannelPermissions(workspaceId?: string) {
   const member = useActiveMember(workspaceId)
+  const { workspace } = useWorkspace()
+  const { data: session } = authClient.useSession()
+  const isOwner = Boolean(
+    workspace?.id === workspaceId &&
+      session?.user.id &&
+      workspace?.ownerId === session.user.id
+  )
 
   return useMemo<ChannelPermissions>(() => {
     if (!workspaceId) return EMPTY_PERMISSIONS
@@ -32,7 +41,7 @@ export function useChannelPermissions(workspaceId?: string) {
 
     // Custom roles degrade to member-tier affordances here — mobile doesn't
     // fetch custom-role grants yet; the server enforces real grants.
-    const authority = { role }
+    const authority = { role, isOwner }
     return {
       canCreateChannel: workspaceAuthorityHasPermissions(authority, {
         channel: ["create"],
@@ -48,5 +57,5 @@ export function useChannelPermissions(workspaceId?: string) {
       }),
       isLoading: false,
     }
-  }, [workspaceId, member.isPending, member.data])
+  }, [workspaceId, member.isPending, member.data, isOwner])
 }

@@ -8,6 +8,7 @@ import {
   recommendedConnectorTools,
 } from "@repo/connectors"
 import { db, schema } from "@repo/db"
+import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import {
   ACT_DEFAULTS,
   channel,
@@ -22,12 +23,15 @@ import {
   connectNotion as exchangeNotionCode,
   getAttioAccessToken,
   getInstallationOverview,
-  getSourceProvider,
   connectBetterstack as verifyBetterstackToken,
   connectCloudwatch as verifyCloudwatchKeys,
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
+import {
+  githubAccountToken,
+  verifyGithubInstallationOwner,
+} from "@/lib/github-account"
 import {
   clearGithubConnectIntent,
   readGithubConnectIntent,
@@ -204,13 +208,23 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             )
           )
       : []
+  const accessibleChannels = await listAccessibleChannelIds(
+    c.var.user.id,
+    workspace.id
+  )
+  const visibleTriggers = triggers.filter((trigger) =>
+    accessibleChannels.has(trigger.channelId)
+  )
   const triggerByEvent = new Map(
-    triggers.map((t) => [`${t.connectionId}:${t.event}`, t])
+    visibleTriggers.map((t) => [`${t.connectionId}:${t.event}`, t])
   )
 
   // Newest agent_run per trigger in one query — one per event would fan out
   // across every connector.
-  const lastActs = await lastActByTrigger(triggers.map((t) => t.id))
+  const lastActs = await lastActByTrigger(
+    visibleTriggers.map((t) => t.id),
+    [...accessibleChannels]
+  )
 
   if (!env.GITHUB_APP_SLUG) {
     logger.warn(
@@ -305,6 +319,18 @@ export const startGithubConnect: AppRouteHandler<
   const workspace = c.var.workspace
   const user = c.var.user
 
+  const account = await githubAccountToken(user.id).catch(() => null)
+  if (account?.status !== "ok") {
+    return c.json(
+      {
+        success: false,
+        message:
+          "Connect your GitHub account in Settings → Linked accounts before connecting a workspace",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
   const url = githubInstallUrl(signOAuthState(workspace.slug, user.id))
   if (!url) {
     return c.json(
@@ -383,18 +409,25 @@ export const completeGithubSetup: AppRouteHandler<
     connector: ["manage"],
   })
 
-  // Require a verifiable installation — don't persist fabricated ids or ones
-  // the server can't actually reach (App not configured / invalid).
-  const verified = await getSourceProvider("github")
-    ?.verifyConnection({ externalId: installationId })
-    .catch(() => null)
+  const account = await githubAccountToken(user.id).catch(() => null)
+  const verified =
+    account?.status === "ok"
+      ? await verifyGithubInstallationOwner(
+          account.token,
+          installationId
+        ).catch(() => null)
+      : null
   if (!verified) {
     return c.json(
-      { success: false, message: "Couldn't verify the GitHub installation" },
-      HttpStatusCodes.BAD_REQUEST
+      {
+        success: false,
+        message:
+          "Connect the GitHub account that owns this installation. For an organization, an organization owner must connect it.",
+      },
+      HttpStatusCodes.FORBIDDEN
     )
   }
-  const accountLogin = verified.accountLabel ?? null
+  const accountLogin = verified.accountLogin
 
   const ok = await replaceActiveConnection({
     workspaceId: workspace.id,

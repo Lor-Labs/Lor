@@ -1,5 +1,6 @@
 import { githubItemKey } from "@repo/connectors"
 import { env } from "@repo/env/server"
+import { parseGithubInstallationId } from "@repo/utils/github"
 import { App } from "octokit"
 import { logger } from "../logger"
 import type { SourceFetcher, SourceProvider } from "./types"
@@ -91,8 +92,8 @@ export async function getInstallationToken(
     )
     return null
   }
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) {
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) {
     logger.warn({ installationId }, "Invalid GitHub installation id")
     return null
   }
@@ -130,8 +131,8 @@ export async function listInstallationRepos(
 ): Promise<InstallationRepo[]> {
   const app = getApp()
   if (!app) return []
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return []
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return []
   try {
     const octokit = await app.getInstallationOctokit(id)
     const repos: InstallationRepo[] = []
@@ -177,8 +178,8 @@ export async function listRepoBranches(
 ): Promise<RepoBranches | null> {
   const app = getApp()
   if (!app) return null
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return null
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
   const [owner, name] = repoFullName.split("/")
   if (!(owner && name)) return null
   try {
@@ -228,8 +229,8 @@ export async function getInstallationOverview(
 ): Promise<{ repos: InstallationRepo[]; manageUrl: string | null } | null> {
   const app = getApp()
   if (!app) return null
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return null
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
   const [repos, manageUrl] = await Promise.all([
     listInstallationRepos(installationId),
     app.octokit.rest.apps
@@ -273,8 +274,8 @@ export async function searchIssues(
 ): Promise<IssueSearchHit[]> {
   const app = getApp()
   if (!app) return []
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return []
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return []
   if (opts.repos.length === 0) return []
   try {
     const octokit = await app.getInstallationOctokit(id)
@@ -343,8 +344,8 @@ export async function fetchRepoTree(
 ): Promise<RepoTree | null> {
   const app = getApp()
   if (!app) return null
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return null
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
   const [owner, repo] = repoFullName.split("/")
   if (!(owner && repo)) return null
 
@@ -388,8 +389,8 @@ export async function fetchIssueOrPr(
 ): Promise<FetchedIssue | null> {
   const app = getApp()
   if (!app) return null
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return null
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
   const parsed = parseRef(ref, "#")
   if (!parsed) return null
   try {
@@ -473,9 +474,9 @@ export async function fetchPullRequestCard(
   ref: string
 ): Promise<PullRequestCard | null> {
   const app = getApp()
-  const id = Number(installationId)
+  const id = parseGithubInstallationId(installationId)
   const parsed = parseRef(ref, "#")
-  if (!app || !Number.isFinite(id) || !parsed) return null
+  if (!app || id === null || !parsed) return null
   const request = () => ({ signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
   try {
     const octokit = await app.getInstallationOctokit(id)
@@ -595,9 +596,9 @@ export const fetchGithubSourceItem: SourceFetcher = async (
 ) => {
   const app = getApp()
   if (!app) throw new Error("GitHub App not configured")
-  const installationId = Number(connection.externalId)
+  const installationId = parseGithubInstallationId(connection.externalId)
   const parsed = parseRef(ref, "#")
-  if (!(Number.isFinite(installationId) && parsed)) {
+  if (installationId === null || !parsed) {
     return { item: null, gone: [] }
   }
   const octokit = await app.getInstallationOctokit(installationId)
@@ -741,8 +742,8 @@ export const githubProvider: SourceProvider = {
   async verifyConnection(connection) {
     const app = getApp()
     if (!app) return null
-    const installationId = Number(connection.externalId)
-    if (!Number.isFinite(installationId)) return null
+    const installationId = parseGithubInstallationId(connection.externalId)
+    if (installationId === null) return null
     try {
       const { data } = await app.octokit.rest.apps.getInstallation({
         installation_id: installationId,

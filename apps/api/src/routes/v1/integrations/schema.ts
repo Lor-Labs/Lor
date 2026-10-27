@@ -1,6 +1,7 @@
 import { z } from "@hono/zod-openapi"
 import { AWS_REGIONS, DATADOG_SITES } from "@repo/connectors"
 import { integrationProviderEnum } from "@repo/db/schema"
+import { parseGithubInstallationId } from "@repo/utils/github"
 
 export const integrationsWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
@@ -96,7 +97,13 @@ export const startGithubConnectResponseSchema = z.object({
 
 export const completeGithubSetupRequestSchema = z.object({
   // GitHub App installation ids are numeric; reject anything else up front.
-  installationId: z.string().regex(/^\d+$/),
+  installationId: z
+    .string()
+    .max(16)
+    .refine(
+      (value) => parseGithubInstallationId(value) !== null,
+      "Invalid GitHub installation ID"
+    ),
   // The signed state from the install URL. GitHub's configure-page redirect
   // can omit it; the server then uses the recorded connect intent.
   state: z.string().min(1).optional(),
