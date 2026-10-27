@@ -450,9 +450,10 @@ may lag web), a Lor-offered "Continue in Code" card.
     (`?msgId=`). The source's event row: "Jacob forked this session into a
     new session". Mobile still shows the event's plain text, like the other
     session events.
-- [ ] **7. Claude Code** on the session contract: native state per turn,
-  approvals and Lor's sandbox policy, sign-in, usage. Decided with Jacob
-  2026-10-24 (terms read the same day, under Research):
+- [x] **7. Claude Code** (built 2026-10-26; live QA in Lor owed) on the
+  session contract: native state per turn, approvals and Lor's sandbox
+  policy, sign-in, usage. Decided with Jacob 2026-10-24 (terms read the same
+  day, under Research):
   - **Subscription only for now:** each person pastes their own Claude Code
     token once (from `claude setup-token`, as Amp does), in Linked
     accounts. No API-key option yet. Jacob's call against the terms' "may
@@ -841,9 +842,10 @@ may lag web), a Lor-offered "Continue in Code" card.
       their own tab; uploads stay in the transcript), and Plan only in Pi
       sessions (Claude Code and Codex do not get Lor's plan tools). Context
       stays.
-- [ ] **8. Codex**, the same way. Decided with Jacob 2026-10-26 (adapter
-  `@ai-sdk/harness-codex@1.0.160`, read the same day; it matches our harness
-  1.0.158 and bundles Codex CLI 0.160.1):
+- [x] **8. Codex** (built 2026-10-26; live QA in Lor owed), the same way.
+  Decided with Jacob 2026-10-26 (adapter `@ai-sdk/harness-codex@1.0.160`,
+  read the same day; it matches our harness 1.0.158 and bundles Codex CLI
+  0.160.1):
   - **Billing: Lor credits for now.** Codex turns go through the AI Gateway
     on Lor's key, which the sandbox proxy injects (the key never enters the
     sandbox), so everyone in the session can send Codex turns, like Pi.
