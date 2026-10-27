@@ -145,6 +145,10 @@ interface MessageInputProps {
   // Shows where the message goes (Lor or people) in a toolbar row under the
   // editor. Omit for DMs and call chats, which never reach Lor.
   destination?: ComposerDestination
+  // Session only: the agent can't answer this person (its harness is off, or
+  // Claude Code without their subscription), so every message goes to
+  // people, with no switch to Lor. The server routes it the same way.
+  peopleOnly?: boolean
   // Session only: the other subscribers, shown as faces when a message goes
   // to people.
   subscribers?: SubscriberFace[]
@@ -510,6 +514,7 @@ function resolveRouting({
   currentUserId,
   candidates,
   manualToPeople,
+  peopleOnly,
 }: {
   destination: ComposerDestination | undefined
   mentionedIds: string[]
@@ -517,6 +522,7 @@ function resolveRouting({
   currentUserId: string | undefined
   candidates: MentionCandidate[]
   manualToPeople: boolean
+  peopleOnly: boolean
 }) {
   const isSession = destination === "session"
   const pinged = new Map<string, PingedPerson>()
@@ -546,12 +552,12 @@ function resolveRouting({
     mentionedIds.includes(LOR_USER_ID) ||
     (isSession && replyAuthor?.id === LOR_USER_ID)
   const toLor = isSession
-    ? addressesLor || (!manualToPeople && pinged.size === 0)
+    ? !peopleOnly && (addressesLor || (!manualToPeople && pinged.size === 0))
     : destination === "new" || addressesLor
   return {
     toLor,
     pinged: [...pinged.values()],
-    canSwitch: isSession && !addressesLor && pinged.size === 0,
+    canSwitch: isSession && !peopleOnly && !addressesLor && pinged.size === 0,
   }
 }
 
@@ -565,6 +571,7 @@ export function MessageInput({
   contextScopeKey,
   lorIntro = false,
   destination,
+  peopleOnly = false,
   subscribers,
   channelPicker,
   notice,
@@ -793,6 +800,7 @@ export function MessageInput({
         currentUserId,
         candidates: normalizedMentionCandidates,
         manualToPeople,
+        peopleOnly,
       }),
     [
       destination,
@@ -801,6 +809,7 @@ export function MessageInput({
       currentUserId,
       normalizedMentionCandidates,
       manualToPeople,
+      peopleOnly,
     ]
   )
   const showLorState = Boolean(destination) && routing.toLor

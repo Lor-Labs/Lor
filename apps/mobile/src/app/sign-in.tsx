@@ -1,3 +1,4 @@
+import { features } from "@repo/utils/features"
 import { Redirect, router } from "expo-router"
 import { useRef, useState } from "react"
 import {
@@ -154,18 +155,20 @@ export default function SignInScreen() {
                 </Text>
               )}
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              className="min-h-11 items-center justify-center active:opacity-70"
-              onPress={() => router.replace("/sign-up")}
-            >
-              <Text className="text-sm font-medium text-lor-text-secondary dark:text-lor-text-secondary-dark">
-                Don’t have an account?{" "}
-                <Text className="font-semibold text-lor-accent dark:text-lor-accent-dark">
-                  Sign up
+            {features.selfSignups && (
+              <Pressable
+                accessibilityRole="button"
+                className="min-h-11 items-center justify-center active:opacity-70"
+                onPress={() => router.replace("/sign-up")}
+              >
+                <Text className="text-sm font-medium text-lor-text-secondary dark:text-lor-text-secondary-dark">
+                  Don’t have an account?{" "}
+                  <Text className="font-semibold text-lor-accent dark:text-lor-accent-dark">
+                    Sign up
+                  </Text>
                 </Text>
-              </Text>
-            </Pressable>
+              </Pressable>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>

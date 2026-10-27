@@ -4,6 +4,7 @@ import { ensureCustomer, grantSignupPromo, syncSeats } from "@repo/billing"
 import { and, db, eq, LOR_USER_ID, ne, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
+import { features } from "@repo/utils/features"
 import { escapeHtml } from "@repo/utils/html"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { APIError, createAuthMiddleware } from "better-auth/api"
@@ -244,12 +245,21 @@ export const auth = betterAuth({
         // account starts verified.
         before: async (user, ctx) => {
           if (ctx?.path !== "/sign-up/email") return
+          const refuseSelfSignup = () => {
+            if (!features.selfSignups) {
+              throw new APIError("FORBIDDEN", {
+                message:
+                  "Self signups are temporarily closed. Ask your workspace admin for an email invitation.",
+              })
+            }
+          }
           const { invitationId, invitationSig } = ctx.body ?? {}
           if (
             typeof invitationId !== "string" ||
             typeof invitationSig !== "string" ||
             !verifyInvitationSignature(invitationId, invitationSig)
           ) {
+            refuseSelfSignup()
             return
           }
           const invitation = await db
@@ -267,6 +277,7 @@ export const auth = betterAuth({
             invitation.expiresAt <= new Date() ||
             invitation.email !== user.email
           ) {
+            refuseSelfSignup()
             return
           }
           return { data: { ...user, emailVerified: true } }

@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
   imageMimeForPath,
@@ -102,6 +103,44 @@ export function codeSandboxIn(
     },
     readBinaryFile: async (path) => session.readBinaryFile({ path }),
     close,
+  }
+}
+
+// Blaxel's process logs drop output past roughly 880 KB with exit 0 and no
+// notice (measured 2026-10-27; 512 KB came back whole). A command whose
+// output can be larger writes it to a file: up to 512 KB still comes back in
+// the same round trip, more is read through the file API.
+const MAX_LOG_OUTPUT_BYTES = 512 * 1024
+const OUTPUT_SIZE_MARKER = "__LOR_OUTPUT_SIZE__"
+
+async function runLarge(sandbox: CodeSandbox, command: string) {
+  const file = `/tmp/lor-out-${randomUUID()}`
+  // Small output: the command removes the file itself, with no extra trip.
+  let removed = false
+  try {
+    const result = await sandbox.run(
+      [
+        `(\n${command}\n) > ${file}`,
+        "code=$?",
+        `size=$(stat -c %s ${file} 2>/dev/null || echo 0)`,
+        `if [ "$size" -le ${MAX_LOG_OUTPUT_BYTES} ]; then cat ${file}; rm -f ${file}; fi`,
+        `printf '\\n${OUTPUT_SIZE_MARKER}%s' "$size" >&2`,
+        'exit "$code"',
+      ].join("\n")
+    )
+    const at = result.stderr.lastIndexOf(`\n${OUTPUT_SIZE_MARKER}`)
+    if (at === -1) return result
+    const stderr = result.stderr.slice(0, at)
+    const size = Number(result.stderr.slice(at + OUTPUT_SIZE_MARKER.length + 1))
+    if (size <= MAX_LOG_OUTPUT_BYTES) {
+      removed = true
+      return { ...result, stderr }
+    }
+    const bytes = await sandbox.readBinaryFile(file)
+    if (!bytes) throw new Error("The command's output file couldn't be read")
+    return { ...result, stderr, stdout: Buffer.from(bytes).toString("utf8") }
+  } finally {
+    if (!removed) await sandbox.run(`rm -f ${file}`).catch(() => {})
   }
 }
 
@@ -219,7 +258,8 @@ export async function readChanges(
   // Untracked files have no diff to count: their lines are all added, and a
   // file grep calls binary has no count.
   const countNewFiles = `${GIT} ls-files --others --exclude-standard -z | head -z -n ${MAX_COUNTED_NEW_FILES} | while IFS= read -r -d '' f; do if [ ! -s "$f" ]; then printf '0\\t0\\t%s\\0' "$f"; elif grep -Iq '' "$f"; then printf '%s\\t0\\t%s\\0' "$(grep -c '' "$f")" "$f"; else printf -- '-\\t-\\t%s\\0' "$f"; fi; done`
-  const result = await sandbox.run(
+  const result = await runLarge(
+    sandbox,
     [
       `${GIT} status --porcelain=v2 -z --branch --untracked-files=all || exit 4`,
       `printf '\\0${LOG_MARKER}\\0'`,
@@ -280,7 +320,8 @@ export async function readFileDiff(
     ? `${GIT} diff --no-index --no-color --no-ext-diff -- /dev/null ${q(file.path)}`
     : `${GIT} diff HEAD --no-color --no-ext-diff --find-renames -- ${paths.join(" ")}`
   // git's own exit code: a huge diff cut by head ends with SIGPIPE (141).
-  const result = await sandbox.run(
+  const result = await runLarge(
+    sandbox,
     `${diff} | head -c ${MAX_PATCH_BYTES + 1}\nexit "\${PIPESTATUS[0]}"`
   )
   const okCodes = untracked ? [0, 1, SIGPIPE_EXIT] : [0, SIGPIPE_EXIT]
@@ -337,7 +378,8 @@ function repoFileFailure(result: { exitCode: number; stderr: string }): {
 
 // Tracked and untracked files, without ignored ones (node_modules, builds).
 export async function readRepoTree(sandbox: CodeSandbox): Promise<RepoTree> {
-  const result = await sandbox.run(
+  const result = await runLarge(
+    sandbox,
     `${GIT} ls-files -z --cached --others --exclude-standard | head -z -n ${MAX_TREE_PATHS + 1}`
   )
   if (result.exitCode !== 0) {
@@ -367,7 +409,8 @@ export async function readRepoFile(
     if (result.exitCode !== 0) return repoFileFailure(result)
     return { kind: "image", mime, size: Number(result.stdout.trim()) }
   }
-  const result = await sandbox.run(
+  const result = await runLarge(
+    sandbox,
     [
       ...repoFileProbe(path, MAX_FILE_BYTES),
       `[ -s "$p" ] || exit 0`,
@@ -509,7 +552,7 @@ export type UnpushedCommits =
 
 const MAX_PUSH_COMMITS = 50
 const MAX_PUSH_BLOB_BYTES = 50 * 1024 * 1024
-const BLOB_BATCH_BYTES = 8 * 1024 * 1024
+const BLOB_READS_AT_ONCE = 6
 const DETACHED = 11
 const COMMIT_MARKER = "__LOR_COMMIT__"
 const SHA = /^[0-9a-f]{40}$/
@@ -580,7 +623,8 @@ export async function readUnpushedCommits(
   baseBranch: string
 ): Promise<UnpushedCommits> {
   const base = shellQuote(`refs/remotes/origin/${baseBranch}`)
-  const result = await sandbox.run(
+  const result = await runLarge(
+    sandbox,
     [
       `branch=$(git symbolic-ref --short -q HEAD) || exit ${DETACHED}`,
       `up="refs/remotes/origin/$branch"`,
@@ -651,8 +695,9 @@ export async function readUnpushedCommits(
   return { ok: true, branch, upstreamSha, commits }
 }
 
-// Base64 contents of the blobs a push uploads, read in batches so one
-// sandbox command never returns too much.
+// Base64 contents of the blobs a push uploads. They come out as files, not
+// command output: Blaxel's process logs drop output past roughly 880 KB with
+// exit 0 and no notice, and return it at about 150 KB/s (measured 2026-10-27).
 export async function readBlobs(
   sandbox: CodeSandbox,
   shas: string[]
@@ -660,39 +705,49 @@ export async function readBlobs(
   const contents = new Map<string, string>()
   const valid = shas.filter((sha) => SHA.test(sha))
   if (valid.length === 0) return contents
-  const sizes = await sandbox.run(
+  const sizes = await runLarge(
+    sandbox,
     `printf '%s\\n' ${valid.join(" ")} | git cat-file --batch-check='%(objectname) %(objectsize)'`
   )
   if (sizes.exitCode !== 0) {
     throw new Error(`git cat-file failed: ${sizes.stderr.slice(0, 300)}`)
   }
-  const batches: string[][] = [[]]
-  let batchBytes = 0
   for (const line of sizes.stdout.trim().split("\n")) {
-    const [sha = "", size = "0"] = line.split(" ")
-    const bytes = Number(size)
-    if (bytes > MAX_PUSH_BLOB_BYTES) {
+    if (Number(line.split(" ")[1] ?? "0") > MAX_PUSH_BLOB_BYTES) {
       throw new Error("A file is larger than 50 MB")
     }
-    if (batchBytes + bytes > BLOB_BATCH_BYTES && batchBytes > 0) {
-      batches.push([])
-      batchBytes = 0
-    }
-    batches.at(-1)?.push(sha)
-    batchBytes += bytes
   }
-  for (const batch of batches) {
-    if (batch.length === 0) continue
-    const result = await sandbox.run(
-      `for s in ${batch.join(" ")}; do git cat-file blob "$s" | base64 -w0; printf '\\0'; done`
+  const dir = `/tmp/lor-push-${randomUUID()}`
+  try {
+    const written = await sandbox.run(
+      `mkdir -p ${dir} && for s in ${valid.join(" ")}; do git cat-file blob "$s" > ${dir}/"$s" || exit 1; done`
     )
-    if (result.exitCode !== 0) {
-      throw new Error(`git cat-file failed: ${result.stderr.slice(0, 300)}`)
+    if (written.exitCode !== 0) {
+      throw new Error(`git cat-file failed: ${written.stderr.slice(0, 300)}`)
     }
-    const parts = result.stdout.split("\0")
-    batch.forEach((sha, index) => {
-      contents.set(sha, parts[index] ?? "")
-    })
+    let next = 0
+    const download = async () => {
+      for (let sha = valid[next++]; sha !== undefined; sha = valid[next++]) {
+        const data = await sandbox.readBinaryFile(`${dir}/${sha}`)
+        // GitHub must receive exactly the sandbox's bytes.
+        const hash = createHash("sha1")
+          .update(`blob ${data?.byteLength ?? 0}\0`)
+          .update(data ?? new Uint8Array())
+          .digest("hex")
+        if (!data || hash !== sha) {
+          throw new Error(`File ${sha.slice(0, 7)} didn't read back whole`)
+        }
+        contents.set(sha, Buffer.from(data).toString("base64"))
+      }
+    }
+    await Promise.all(
+      Array.from(
+        { length: Math.min(BLOB_READS_AT_ONCE, valid.length) },
+        download
+      )
+    )
+  } finally {
+    await sandbox.run(`rm -rf ${dir}`).catch(() => {})
   }
   return contents
 }

@@ -37,6 +37,7 @@ export function composerRouting({
   currentUserId,
   candidates,
   manualToPeople,
+  peopleOnly = false,
 }: {
   destination: ComposerDestination | undefined
   mentionedIds: string[]
@@ -44,6 +45,10 @@ export function composerRouting({
   currentUserId: string | undefined
   candidates: MentionCandidate[]
   manualToPeople: boolean
+  // Session only: the agent can't answer this person (its harness is off, or
+  // Claude Code without their subscription), so the server sends every
+  // message to people.
+  peopleOnly?: boolean
 }) {
   const isSession = destination === "session"
   const pinged = new Map<string, PingedPerson>()
@@ -75,12 +80,12 @@ export function composerRouting({
     mentionedIds.includes(LOR_USER_ID) ||
     (isSession && replyingTo?.author.id === LOR_USER_ID)
   const toLor = isSession
-    ? addressesLor || (!manualToPeople && pinged.size === 0)
+    ? !peopleOnly && (addressesLor || (!manualToPeople && pinged.size === 0))
     : addressesLor
   return {
     toLor,
     pinged: [...pinged.values()],
-    canSwitch: isSession && !addressesLor && pinged.size === 0,
+    canSwitch: isSession && !peopleOnly && !addressesLor && pinged.size === 0,
   }
 }
 

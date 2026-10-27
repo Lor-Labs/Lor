@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
+import { features } from "@repo/utils/features"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
@@ -168,12 +169,19 @@ function InviteCard({
     } else {
       cta = (
         <div className="grid w-full gap-3">
-          <Button
-            className="w-full"
-            render={<Link to="/signup" search={{ redirect: invitePath }} />}
-          >
-            Sign Up to Join
-          </Button>
+          {features.selfSignups ? (
+            <Button
+              className="w-full"
+              render={<Link to="/signup" search={{ redirect: invitePath }} />}
+            >
+              Sign Up to Join
+            </Button>
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">
+              Signups are temporarily closed. Ask your workspace admin for an
+              email invitation.
+            </p>
+          )}
           <p className="text-center text-sm text-muted-foreground">
             Already have an account?{" "}
             <Link

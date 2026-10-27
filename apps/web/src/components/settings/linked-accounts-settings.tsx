@@ -5,6 +5,7 @@ import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { Separator } from "@repo/ui/components/separator"
 import { Spinner } from "@repo/ui/components/spinner"
 import { formatDate } from "@repo/utils/date"
+import { features } from "@repo/utils/features"
 import { useState } from "react"
 import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import {
@@ -91,47 +92,51 @@ export function LinkedAccountsSettings() {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
-        {/* Anthropic's logo needs their permission: a neutral mark. */}
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
-          <HugeiconsIcon
-            icon={CommandLineIcon}
-            className="size-5 text-foreground"
-          />
+      {(features.claudeCodeHarness || claude.account) && (
+        <div className="flex items-center gap-3">
+          {/* Anthropic's logo needs their permission: a neutral mark. */}
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
+            <HugeiconsIcon
+              icon={CommandLineIcon}
+              className="size-5 text-foreground"
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-sm">Claude subscription</p>
+            <p className="truncate text-muted-foreground text-xs">
+              {claude.account
+                ? `Token ending in ${claude.account.tokenHint} · connected ${formatDate(claude.account.connectedAt)}`
+                : claude.available
+                  ? "Run Claude Code sessions on your own Claude Pro or Max plan."
+                  : "Not available on this server yet."}
+            </p>
+          </div>
+          {claude.account ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={disconnectClaude.isPending}
+              onClick={() => disconnectClaude.mutate()}
+            >
+              Disconnect
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={!claude.available}
+              onClick={() => setConnectingClaude(true)}
+            >
+              Connect
+            </Button>
+          )}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="font-medium text-sm">Claude subscription</p>
-          <p className="truncate text-muted-foreground text-xs">
-            {claude.account
-              ? `Token ending in ${claude.account.tokenHint} · connected ${formatDate(claude.account.connectedAt)}`
-              : claude.available
-                ? "Run Claude Code sessions on your own Claude Pro or Max plan."
-                : "Not available on this server yet."}
-          </p>
-        </div>
-        {claude.account ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={disconnectClaude.isPending}
-            onClick={() => disconnectClaude.mutate()}
-          >
-            Disconnect
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            disabled={!claude.available}
-            onClick={() => setConnectingClaude(true)}
-          >
-            Connect
-          </Button>
-        )}
-      </div>
-      <ClaudeConnectDialog
-        open={connectingClaude}
-        onOpenChange={setConnectingClaude}
-      />
+      )}
+      {features.claudeCodeHarness && (
+        <ClaudeConnectDialog
+          open={connectingClaude}
+          onOpenChange={setConnectingClaude}
+        />
+      )}
     </div>
   )
 }

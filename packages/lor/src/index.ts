@@ -34,6 +34,7 @@ import type {
   SandboxTurnContext,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
+import { assertHarnessEnabled } from "@repo/utils/features"
 import {
   asSchema,
   generateText,
@@ -2503,6 +2504,9 @@ export async function respond(
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
+  assertHarnessEnabled(
+    ctx.claudeCode ? "claude_code" : ctx.codex ? "codex" : "pi"
+  )
   const respondStart = performance.now()
   const savedAnswer = run?.harness?.savedAnswer
   if (savedAnswer != null) {

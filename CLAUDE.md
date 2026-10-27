@@ -118,8 +118,19 @@ Loops work is executed phase-by-phase from the runbook at `reference/loops.md` â
 voice channels are hidden by default. Re-enable each independently and rebuild
 web/desktop, mobile, and the marketing site; redeploy API/auth and notification
 senders for search, workspace templates, and push visibility. Existing code and
-data are retained. These are product visibility flags, not API authorization:
-DM and voice endpoints remain implemented and accessible to authorized clients.
+data are retained. DM and voice are product visibility flags, not API authorization: their
+endpoints remain accessible to authorized clients.
+
+`selfSignups` and `codexHarness` are off by default; `claudeCodeHarness` is on.
+These flags are enforced on the server. Self signup requires a valid, pending signed email
+invitation matching the new account; public invite links do not bypass the gate.
+Existing users can sign in. Harness flags independently gate session creation,
+forks, message routing and worker execution; disabled sessions remain readable
+and messages go only to people. Claude account linking is disabled while its
+harness is off (disconnect remains available). After approval, enable each flag
+here, rebuild web/desktop and mobile, and redeploy API/auth, realtime and worker
+consumers together. Drain/restart workers during rollout to stop pre-deployment
+runs; these static flags do not interrupt an already-running process.
 
 ### Voice channels and memory
 

@@ -13,6 +13,7 @@ import { Input } from "@repo/ui/components/input"
 import { InlineValidation } from "@repo/ui/components/interior/inline-validation"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
+import { features } from "@repo/utils/features"
 import { useMutation } from "@tanstack/react-query"
 import {
   createFileRoute,
@@ -29,11 +30,33 @@ import { validateEmail } from "@/lib/email-validation"
 import { webOrigin } from "@/lib/web-origin"
 
 export const Route = createFileRoute("/signup")({
-  component: SignUpPage,
+  component: SignupRoute,
   validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
     redirect: sanitizeRedirect(search.redirect),
   }),
 })
+
+function SignupRoute() {
+  const { redirect } = Route.useSearch()
+  if (features.selfSignups) return <SignUpPage />
+  return (
+    <div className="flex min-h-svh items-center justify-center bg-background p-6">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Signups are temporarily closed</CardTitle>
+          <CardDescription>
+            Ask your workspace admin for an email invitation to join Lor.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button render={<Link to="/login" search={{ redirect }} />}>
+            Sign in
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
 function SignUpPage() {
   const navigate = useNavigate()

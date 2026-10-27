@@ -58,6 +58,10 @@ import {
   userRoom,
   workspaceRoom,
 } from "@repo/realtime-types/rooms"
+import {
+  assertHarnessEnabled,
+  HarnessDisabledError,
+} from "@repo/utils/features"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -557,6 +561,7 @@ export function createLorRespondProcessor(
                   .then((rows) => rows[0])
               : undefined
             if (!session) throw new Error("This Lor run has no session")
+            assertHarnessEnabled(session.harness)
             const owner = { sessionId: session.id }
             const harnessState = await loadHarnessState(
               owner,
@@ -1194,10 +1199,13 @@ export function createLorRespondProcessor(
               return
             }
             logger.error({ err, lorMessageId }, "Lor response failed")
+            // A harness switched off after this run was queued.
             const failureText =
               err instanceof SandboxCapacityError
                 ? SANDBOX_CAPACITY_MESSAGE
-                : LOR_ERROR_FALLBACK
+                : err instanceof HarnessDisabledError
+                  ? err.message
+                  : LOR_ERROR_FALLBACK
             await db
               .update(schema.message)
               .set({ content: failureText, status: "failed" })

@@ -6,6 +6,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
+import { isHarnessEnabled } from "@repo/utils/features"
 import { useState } from "react"
 
 // Which agent runs a code session, fixed at its start
@@ -15,7 +16,9 @@ import { useState } from "react"
 
 export type SessionHarness = "pi" | "claude_code" | "codex"
 
-const HARNESSES: SessionHarness[] = ["pi", "claude_code", "codex"]
+const HARNESSES = (["pi", "claude_code", "codex"] as const).filter(
+  isHarnessEnabled
+)
 
 export const HARNESS_LABELS: Record<SessionHarness, string> = {
   pi: "Lor",
@@ -38,7 +41,7 @@ export function useSessionHarness(
   start?: SessionHarness
 ): [SessionHarness, (harness: SessionHarness) => void] {
   const [harness, setHarness] = useState<SessionHarness>(() => {
-    if (start) return start
+    if (start && isHarnessEnabled(start)) return start
     try {
       const saved = localStorage.getItem(HARNESS_KEY)
       return HARNESSES.find((harness) => harness === saved) ?? "pi"
@@ -47,6 +50,7 @@ export function useSessionHarness(
     }
   })
   const change = (next: SessionHarness) => {
+    if (!isHarnessEnabled(next)) return
     setHarness(next)
     try {
       localStorage.setItem(HARNESS_KEY, next)
@@ -62,6 +66,7 @@ export function HarnessPicker({
   value: SessionHarness
   onChange: (harness: SessionHarness) => void
 }) {
+  if (HARNESSES.length < 2) return null
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 font-medium text-agent transition-colors hover:bg-agent/10 data-popup-open:bg-agent/10">

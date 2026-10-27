@@ -1,6 +1,7 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { isHarnessEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
@@ -304,7 +305,8 @@ export function ThreadView({
   )
   // Claude Code answers only messages from people with their own Claude
   // subscription; the server sends the rest to the session's people.
-  const claudeCode = lorSession?.harness === "claude_code"
+  const harnessEnabled = !lorSession || isHarnessEnabled(lorSession.harness)
+  const claudeCode = harnessEnabled && lorSession?.harness === "claude_code"
   const { data: accounts } = usePersonalAccounts(claudeCode)
   const withoutClaude =
     claudeCode &&
@@ -651,6 +653,7 @@ export function ThreadView({
                 lorSession ? "session" : startsSessions ? "thread" : undefined
               }
               initialDraft={composerDraft}
+              peopleOnly={!harnessEnabled || withoutClaude}
               subscribers={otherSubscribers}
               channelId={channelId}
               channelName={channelName}
@@ -712,7 +715,15 @@ export function ThreadView({
               topAccessory={
                 // A session lists its queued turns in the transcript.
                 lorSession ? (
-                  withoutClaude ? (
+                  !harnessEnabled ? (
+                    <View className="mb-two rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
+                      <Text className="text-[13px] text-muted">
+                        This agent is temporarily unavailable. Messages here go
+                        to the people in this session. Start a new session with
+                        Lor to keep working.
+                      </Text>
+                    </View>
+                  ) : withoutClaude ? (
                     <View className="mb-two rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
                       <Text className="text-[13px] text-muted">
                         Claude Code answers people on their own Claude

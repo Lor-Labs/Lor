@@ -1,5 +1,6 @@
 import UserGroupIcon from "@hugeicons/core-free-icons/UserGroupIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { features } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { router, useLocalSearchParams } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
@@ -172,7 +173,14 @@ export default function InviteScreen() {
               </Button>
             ) : (
               <>
-                <Button onPress={signUpToJoin}>Sign up to join</Button>
+                {features.selfSignups ? (
+                  <Button onPress={signUpToJoin}>Sign up to join</Button>
+                ) : (
+                  <Text className="text-center text-sm text-muted">
+                    Signups are temporarily closed. Ask your workspace admin for
+                    an email invitation.
+                  </Text>
+                )}
                 <Button onPress={signInToJoin} variant="secondary">
                   I have an account
                 </Button>

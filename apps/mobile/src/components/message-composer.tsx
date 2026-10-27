@@ -96,6 +96,7 @@ export function MessageComposer({
   topAccessory,
   lorIntro = false,
   destination,
+  peopleOnly,
   subscribers,
   currentUserId,
 }: {
@@ -138,6 +139,8 @@ export function MessageComposer({
   // Chat and human threads, where @Lor starts a session instead of posting
   // here, and sessions, where a message goes to Lor or its subscribers.
   destination?: ComposerDestination
+  // Session only: every message goes to people, with no switch to Lor.
+  peopleOnly?: boolean
   // Session only: the other subscribers, shown as faces when a message goes
   // to people.
   subscribers?: PingedPerson[]
@@ -211,6 +214,7 @@ export function MessageComposer({
     currentUserId,
     candidates: mentionCandidates,
     manualToPeople,
+    peopleOnly,
   })
   const isSession = destination === "session"
   // Taught once the person types in a session, when the destination button

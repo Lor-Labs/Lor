@@ -32,6 +32,7 @@ import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
+import { isHarnessEnabled } from "@repo/utils/features"
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
@@ -233,7 +234,9 @@ function SessionConversation({
   // (code-sessions-runbook.md chunk 7).
   const { data: accounts } = usePersonalAccounts()
   const [connectingClaude, setConnectingClaude] = useState(false)
+  const harnessEnabled = isHarnessEnabled(session.harness)
   const withoutClaude =
+    harnessEnabled &&
     session.harness === "claude_code" &&
     !session.archivedAt &&
     accounts !== undefined &&
@@ -241,10 +244,21 @@ function SessionConversation({
 
   return (
     <SessionDocument
-      claudeCode={session.harness === "claude_code" && !withoutClaude}
-      codex={session.harness === "codex" && !session.archivedAt}
+      harness={session.harness}
+      claudeCode={
+        harnessEnabled && session.harness === "claude_code" && !withoutClaude
+      }
+      codex={
+        harnessEnabled && session.harness === "codex" && !session.archivedAt
+      }
       composerNote={
-        withoutClaude ? (
+        !harnessEnabled ? (
+          <p className="text-sm text-muted-foreground">
+            This agent is temporarily unavailable. Messages here go to the
+            people in this session. Start a new session with Lor to keep
+            working.
+          </p>
+        ) : withoutClaude ? (
           <>
             <ClaudeCodeNote
               onConnect={() => setConnectingClaude(true)}

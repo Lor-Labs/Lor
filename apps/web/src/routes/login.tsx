@@ -12,6 +12,7 @@ import {
 import { InlineValidation } from "@repo/ui/components/interior/inline-validation"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
+import { features } from "@repo/utils/features"
 import { useMutation } from "@tanstack/react-query"
 import {
   createFileRoute,
@@ -166,16 +167,18 @@ function LoginPage() {
                         "Sign in"
                       )}
                     </Button>
-                    <p className="text-center text-sm text-muted-foreground">
-                      Don&apos;t have an account?{" "}
-                      <Link
-                        to="/signup"
-                        search={{ redirect }}
-                        className="underline underline-offset-4 hover:text-primary"
-                      >
-                        Sign up
-                      </Link>
-                    </p>
+                    {features.selfSignups && (
+                      <p className="text-center text-sm text-muted-foreground">
+                        Don&apos;t have an account?{" "}
+                        <Link
+                          to="/signup"
+                          search={{ redirect }}
+                          className="underline underline-offset-4 hover:text-primary"
+                        >
+                          Sign up
+                        </Link>
+                      </p>
+                    )}
                   </div>
                 </div>
               </form>

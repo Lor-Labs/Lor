@@ -1,3 +1,4 @@
+import { isHarnessEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import * as SecureStore from "expo-secure-store"
 import { useState } from "react"
@@ -19,7 +20,9 @@ const repoKey = (workspaceSlug: string) =>
 const REPOS_STALE_MS = 5 * 60 * 1000
 const BRANCHES_STALE_MS = 30 * 1000
 
-const HARNESSES: SessionHarness[] = ["pi", "claude_code", "codex"]
+const HARNESSES = (["pi", "claude_code", "codex"] as const).filter(
+  isHarnessEnabled
+)
 
 export const HARNESS_DETAILS: Record<SessionHarness, string> = {
   pi: "Lor's own agent, on Lor credits.",
@@ -59,6 +62,7 @@ function useStoredChoice<T extends string>(
     () => choices.find((choice) => choice === readStored(key)) ?? fallback
   )
   const change = (next: T) => {
+    if (!choices.includes(next)) return
     setValue(next)
     writeStored(key, next)
   }

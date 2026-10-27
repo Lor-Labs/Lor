@@ -1,3 +1,4 @@
+import { features } from "@repo/utils/features"
 import { Redirect, router } from "expo-router"
 import { useRef, useState } from "react"
 import {
@@ -19,7 +20,32 @@ import lorMark from "../../assets/images/splash-icon.png"
 
 const MIN_PASSWORD_LENGTH = 8
 
-export default function SignUpScreen() {
+export default function SignupRoute() {
+  if (features.selfSignups) return <SignUpScreen />
+  return (
+    <Screen className="bg-lor-bg dark:bg-lor-bg-dark">
+      <View className="flex-1 justify-center gap-four px-seven">
+        <Text className="text-2xl font-bold text-lor-text dark:text-lor-text-dark">
+          Signups are temporarily closed
+        </Text>
+        <Text className="text-base text-lor-text-secondary dark:text-lor-text-secondary-dark">
+          Ask your workspace admin for an email invitation to join Lor.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          className="min-h-11 justify-center"
+          onPress={() => router.replace("/sign-in")}
+        >
+          <Text className="font-semibold text-lor-accent dark:text-lor-accent-dark">
+            Sign in
+          </Text>
+        </Pressable>
+      </View>
+    </Screen>
+  )
+}
+
+function SignUpScreen() {
   const theme = useTheme()
   const { data: session } = authClient.useSession()
   const [name, setName] = useState("")
