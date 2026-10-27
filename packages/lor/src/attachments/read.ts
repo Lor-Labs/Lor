@@ -2,6 +2,7 @@ import { and, asc, db, eq, gte, lte, schema, sql } from "@repo/db"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { privateAudienceFilter } from "../retrieval"
 import { documentKind, pieceLabel } from "./kinds"
+import { attachmentObjectKey } from "./storage"
 
 const MAX_PIECES = 10
 const MAX_CHARS = 20_000
@@ -15,6 +16,7 @@ export async function readAttachmentPieces(
   from?: number,
   to?: number
 ) {
+  if (!attachmentObjectKey(url)) return null
   const scope = and(
     eq(schema.attachmentChunk.workspaceId, workspaceId),
     eq(schema.attachmentChunk.url, url),

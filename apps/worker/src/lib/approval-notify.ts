@@ -15,6 +15,7 @@ import { userRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 import { Queue } from "bullmq"
 import { logger } from "@/lib/logger"
+import { visibleNotificationRecipients } from "@/lib/notification-audience"
 import {
   PARKED_BRIDGE_LIVE_MS,
   RELEASE_PARKED_BRIDGE_JOB,
@@ -377,9 +378,14 @@ async function sendPings(
 // render the OS notification); the push covers whoever is offline.
 async function notifyUsers(
   deps: NotifyDeps,
-  userIds: string[],
+  candidates: string[],
   notification: ApprovalNotification
 ) {
+  const userIds = await visibleNotificationRecipients(
+    candidates,
+    notification.channelId,
+    notification.threadRootId
+  )
   if (userIds.length === 0) return
   for (const userId of userIds) {
     deps.emitter

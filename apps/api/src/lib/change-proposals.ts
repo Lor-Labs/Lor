@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { isWorkspaceRole } from "@repo/auth/permissions"
 import { isConnectorEvent } from "@repo/connectors"
 import { and, db, eq, isUniqueViolation, max, schema, sql } from "@repo/db"
+import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import type {
   ChangeOperation,
   ChangeProposal,
@@ -65,6 +66,22 @@ function fail(position: number, message: string): never {
   throw new OperationApplyError(position, message)
 }
 
+async function requireWritableChannel(
+  ctx: ApplyContext,
+  channelId: string,
+  position: number
+) {
+  const access = await resolveChannelAccess(ctx.approverId, channelId)
+  if (
+    !access.ok ||
+    access.access.channel.workspaceId !== ctx.workspaceId ||
+    access.access.channel.type !== "text"
+  ) {
+    fail(position, "Channel not found")
+  }
+  if (!access.access.canWrite) fail(position, "Channel is archived")
+}
+
 async function resolveChannelRef(
   ctx: ApplyContext,
   ref: ResourceRef,
@@ -91,6 +108,7 @@ async function resolveChannelRef(
     .limit(1)
     .then((rows) => rows[0])
   if (!row) fail(position, "Channel not found")
+  await requireWritableChannel(ctx, row.id, position)
   return row.id
 }
 
@@ -292,6 +310,7 @@ async function applyOperation(
         .limit(1)
         .then((rows) => rows[0])
       if (!loop) fail(position, "Loop not found")
+      await requireWritableChannel(ctx, loop.channelId, position)
       if (loop.status === "completed") {
         fail(position, "Completed loops can't be edited")
       }

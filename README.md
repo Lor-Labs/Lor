@@ -58,6 +58,13 @@ pnpm db:push
 pnpm dev
 ```
 
+For the bundled Docker Compose services, set `POSTGRES_PASSWORD` and
+`REDIS_PASSWORD` in `.env` to separate random, URL-safe passwords (for example,
+generate each with `openssl rand -hex 32`). Database and Redis host ports bind
+only to `127.0.0.1`; apps running on the host must use matching credentials in
+`DATABASE_URL` and `REDIS_URL`. An existing Postgres volume retains its database
+password: rotate that role's password before changing the Compose credential.
+
 Before opening a pull request, run the same static gate used by CI:
 
 ```sh

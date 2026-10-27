@@ -9,6 +9,7 @@
     "./agent-sessions": "./src/agent-sessions.ts",
     "./artifacts": "./src/artifacts/service.ts",
     "./attachments": "./src/attachments/index.ts",
+    "./attachment-storage": "./src/attachments/storage.ts",
     "./attio": "./src/attio.ts",
     "./meeting-insights": "./src/meeting-insights.ts",
     "./capabilities": "./src/capabilities.ts",
@@ -83,7 +84,7 @@
     "heic-convert": "^2.1.0",
     "mammoth": "^1.12.3",
     "octokit": "^5.0.5",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "unpdf": "^1.8.1",
     "zod": "^4.3.6"
   },

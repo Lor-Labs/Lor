@@ -7,9 +7,10 @@ import { HugeiconsIcon } from "@hugeicons/react-native"
 import { timeAgo } from "@repo/utils/date"
 import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
-import { Linking, Pressable, Text, View } from "react-native"
+import { Pressable, Text, View } from "react-native"
 import { TypewriterText } from "@/components/typewriter-text"
 import { Avatar } from "@/components/ui/avatar"
+import { openExternalUrl } from "@/lib/open-url"
 
 // A session's opening, the first item of its transcript: the title, then one
 // quiet line of context, and the session it comes from on its own row.
@@ -63,7 +64,7 @@ export function SessionHeading({
               accessibilityRole="link"
               className="flex-row items-center gap-one active:opacity-60"
               onPress={() =>
-                void Linking.openURL(
+                openExternalUrl(
                   `https://github.com/${repo.fullName}/tree/${repo.branch}`
                 )
               }

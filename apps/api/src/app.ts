@@ -1,5 +1,6 @@
 import { auth } from "@repo/auth"
 import { env } from "@repo/env/server"
+import { bodyLimit } from "hono/body-limit"
 import { cors } from "hono/cors"
 import createApp from "@/lib/helpers/app/create-app"
 import configureOpenAPI from "@/lib/helpers/openapi/configure-openapi"
@@ -64,6 +65,17 @@ app.use(
 )
 
 app.use("*", globalRateLimit)
+
+// Uploads go directly to object storage; API/webhook payloads stay bounded
+// even when Content-Length is absent and the sender streams chunks.
+app.use(
+  "*",
+  bodyLimit({
+    maxSize: 5 * 1024 * 1024,
+    onError: (c) =>
+      c.json({ success: false, message: "Payload too large" }, 413),
+  })
+)
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => {
   return auth.handler(c.req.raw)

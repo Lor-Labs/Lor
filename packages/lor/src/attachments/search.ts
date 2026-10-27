@@ -14,6 +14,7 @@ import {
   withIterativeScan,
 } from "../retrieval"
 import { pieceLabel } from "./kinds"
+import { attachmentObjectKey } from "./storage"
 
 const POOL_FACTOR = 3
 const SNIPPET_MAX = 1000
@@ -97,6 +98,7 @@ export async function searchAttachments(
   const perFile = new Map<string, number>()
   return fuseByRank([keyword, vector], (row) => row.id)
     .filter((row) => {
+      if (!attachmentObjectKey(row.url)) return false
       const key = `${row.messageId}:${row.url}`
       const hits = perFile.get(key) ?? 0
       perFile.set(key, hits + 1)

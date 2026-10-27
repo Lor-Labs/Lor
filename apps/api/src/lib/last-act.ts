@@ -1,4 +1,4 @@
-import { db, desc, inArray } from "@repo/db"
+import { and, db, desc, inArray } from "@repo/db"
 import { agentRun } from "@repo/db/schema"
 
 // "Lor's last run" for Act-enabled triggers: the newest agent_run per
@@ -14,10 +14,12 @@ export type LastAct = {
 
 // One DISTINCT ON instead of a query per trigger.
 export async function lastActByTrigger(
-  triggerIds: string[]
+  triggerIds: string[],
+  readableChannelIds: string[]
 ): Promise<Map<string, LastAct>> {
   const byTrigger = new Map<string, LastAct>()
-  if (triggerIds.length === 0) return byTrigger
+  if (triggerIds.length === 0 || readableChannelIds.length === 0)
+    return byTrigger
   const rows = await db
     .selectDistinctOn([agentRun.triggerId], {
       triggerId: agentRun.triggerId,
@@ -27,7 +29,12 @@ export async function lastActByTrigger(
       createdAt: agentRun.createdAt,
     })
     .from(agentRun)
-    .where(inArray(agentRun.triggerId, triggerIds))
+    .where(
+      and(
+        inArray(agentRun.triggerId, triggerIds),
+        inArray(agentRun.channelId, readableChannelIds)
+      )
+    )
     .orderBy(agentRun.triggerId, desc(agentRun.createdAt))
   for (const row of rows) {
     if (!row.triggerId) continue

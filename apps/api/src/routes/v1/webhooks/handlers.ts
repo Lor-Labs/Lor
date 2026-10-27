@@ -196,7 +196,10 @@ export const listChannelWebhooks: AppRouteHandler<
     )
     .orderBy(integrationConnection.createdAt)
 
-  const lastActs = await lastActByTrigger(rows.map((row) => row.triggerId))
+  const lastActs = await lastActByTrigger(
+    rows.map((row) => row.triggerId),
+    [channelId]
+  )
 
   return c.json(
     {
@@ -480,7 +483,7 @@ export const updateChannelWebhook: AppRouteHandler<
         .then((rows) => rows[0]?.name ?? null)
     : null
 
-  const lastActs = await lastActByTrigger([updated.triggerId])
+  const lastActs = await lastActByTrigger([updated.triggerId], [channelId])
 
   return c.json(
     {

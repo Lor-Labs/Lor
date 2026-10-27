@@ -72,6 +72,8 @@ function isSafe(argv: Argv): boolean {
   const name = commandName(argv)
   const args = argv.slice(1)
   if (name === null || args.some((arg) => arg === null)) return false
+  // A repository executable named ./cat is not the system command.
+  if (argv[0] !== name) return false
   const words = args as string[]
   if (SAFE_COMMANDS.has(name)) return true
   switch (name) {

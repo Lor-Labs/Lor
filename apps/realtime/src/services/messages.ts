@@ -14,6 +14,7 @@ import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, ForwardedMessage } from "@repo/db/schema"
 import { type CreateSessionArgs, createSession } from "@repo/lor/agent-sessions"
+import { validateMessageAttachments } from "@repo/lor/attachment-storage"
 import {
   buildReactionNotification,
   channelEventContent,
@@ -399,6 +400,11 @@ export async function createMessage(
   }
 
   const channelRecord = input.accessibleChannel
+  const attachments = await validateMessageAttachments(
+    input.userId,
+    channelRecord.id,
+    input.payload.attachments ?? []
+  )
   const authorAvatarColor = await workspaceAvatarColor(
     channelRecord.workspaceId,
     input.userId
@@ -572,7 +578,7 @@ export async function createMessage(
           codexModel: isPersonInSession
             ? (input.payload.codexModel ?? null)
             : null,
-          attachments: input.payload.attachments ?? [],
+          attachments,
           status: input.status,
           clientKey: input.payload.nonce ?? null,
         })
@@ -703,7 +709,7 @@ export async function createMessage(
     },
     mentions: [],
     reactions: [],
-    attachments: input.payload.attachments ?? [],
+    attachments,
     embeds: [],
     referencedMessage,
     forwarded,

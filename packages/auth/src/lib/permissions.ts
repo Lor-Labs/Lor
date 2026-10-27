@@ -82,6 +82,11 @@ export function normalizeWorkspaceAuthority(
 ): WorkspaceAuthority & { isOwner: boolean } {
   return {
     ...authority,
+    // A stale or forged owner role must never confer ownership.
+    role:
+      authority.role === "owner" && !authority.isOwner
+        ? "member"
+        : authority.role,
     isOwner: authority.isOwner ?? false,
   }
 }
