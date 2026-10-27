@@ -167,7 +167,7 @@ function deliveredFile(path: string | null, delivered: DeliveredFile[]) {
   )
 }
 
-function diffLineClass(line: string) {
+export function diffLineClass(line: string) {
   if (
     line.startsWith("+++") ||
     line.startsWith("---") ||

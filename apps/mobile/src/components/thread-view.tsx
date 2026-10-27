@@ -1,11 +1,12 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
+import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Text, View } from "react-native"
+import { Alert, Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import { ForwardSheet } from "@/components/forward-sheet"
@@ -14,6 +15,7 @@ import {
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
 import { RunQueuePill } from "@/components/run-queue-pill"
+import { SessionCodeDrawer } from "@/components/session-code-drawer"
 import { SessionHeading } from "@/components/session-heading"
 import { SessionSheet } from "@/components/session-sheet"
 import {
@@ -53,6 +55,10 @@ import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import {
+  useLiveSessionChanges,
+  useSessionChanges,
+} from "@/hooks/use-session-changes"
 import { useSessionStart } from "@/hooks/use-session-start"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
@@ -104,6 +110,7 @@ export function ThreadView({
   // The session's heading is on screen, so the bar leaves its title out.
   const [headingVisible, setHeadingVisible] = useState(true)
   const [isActionsOpen, setIsActionsOpen] = useState(false)
+  const [isCodeOpen, setIsCodeOpen] = useState(false)
   // Session: the message being forwarded into the channel chat.
   const [forwarding, setForwarding] = useState<Message | null>(null)
   const updateSession = useUpdateAgentSession()
@@ -286,6 +293,12 @@ export function ThreadView({
   // screen's cached detail.
   const { data: sessionDetail } = useAgentSession(lorSession?.id ?? "")
   const sourceSession = sessionDetail?.source ?? null
+  // A code session's Changes drawer, kept live while the session is open;
+  // the header shows how many files changed.
+  const codeSession = lorSession?.mode === "code" && !sessionPending
+  useLiveSessionChanges(lorSession?.id ?? "", threadRootId, codeSession)
+  const { data: changes } = useSessionChanges(lorSession?.id ?? "", codeSession)
+  const changedCount = changes?.state === "ready" ? changes.files.length : 0
   // Claude Code answers only messages from people with their own Claude
   // subscription; the server sends the rest to the session's people.
   const claudeCode = lorSession?.harness === "claude_code"
@@ -559,6 +572,26 @@ export function ThreadView({
       ) : (
         // Grouped without the row's gap, so the faces sit by the "…".
         <View className="flex-row items-center">
+          {codeSession ? (
+            <Pressable
+              accessibilityLabel={`Changes${changedCount ? `, ${changedCount} files` : ""}`}
+              accessibilityRole="button"
+              className="min-h-10 flex-row items-center gap-one rounded-lor-sm px-two active:bg-surface-secondary"
+              onPress={() => setIsCodeOpen(true)}
+            >
+              <HugeiconsIcon
+                color={foreground}
+                icon={SourceCodeIcon}
+                size={18}
+                strokeWidth={2}
+              />
+              {changedCount ? (
+                <Text className="text-xs font-medium tabular-nums text-muted">
+                  {changedCount}
+                </Text>
+              ) : null}
+            </Pressable>
+          ) : null}
           <ThreadSubscribers
             channelId={channelId}
             channelName={channelName}
@@ -779,6 +812,13 @@ export function ThreadView({
           messages={thread.messages}
           onOpenChange={setIsActionsOpen}
           session={lorSession}
+        />
+      ) : null}
+      {codeSession && lorSession ? (
+        <SessionCodeDrawer
+          isOpen={isCodeOpen}
+          onOpenChange={setIsCodeOpen}
+          sessionId={lorSession.id}
         />
       ) : null}
       {lorSession ? (
