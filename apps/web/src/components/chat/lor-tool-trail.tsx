@@ -83,6 +83,7 @@ export function toolIcon(toolName: string): TrailIcon {
       return DownloadGlyph
     case "ls":
     case "read":
+    case "view_image":
     case "memory_ls":
     case "memory_read":
       return ReadGlyph
@@ -91,6 +92,8 @@ export function toolIcon(toolName: string): TrailIcon {
     case "write":
     case "edit":
     case "NotebookEdit":
+    // Codex's patches, one per file.
+    case "fileChange":
     case "share_file":
     case "memory_write":
     case "memory_edit":

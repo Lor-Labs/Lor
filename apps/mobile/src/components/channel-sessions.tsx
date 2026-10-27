@@ -1,4 +1,5 @@
 import RepeatIcon from "@hugeicons/core-free-icons/RepeatIcon"
+import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import type {
   ChannelActivity,
@@ -277,10 +278,10 @@ function SessionRow({
         })
       }}
     >
-      {session.loop ? (
+      {session.loop || session.code ? (
         <HugeiconsIcon
           color={muted}
-          icon={RepeatIcon}
+          icon={session.loop ? RepeatIcon : SourceCodeIcon}
           size={14}
           strokeWidth={2}
         />

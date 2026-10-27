@@ -33,7 +33,7 @@ Goal (Jacob): mobile works with code sessions, including starting one, without w
 
 - [x] M1: readable session event rows (continued, committed, pushed, forked, rewound) with their icons and links to the other session or the GitHub commit; a rewind's set-aside turns folded under a "Previous history" row.
 - [x] M2: Claude Code plan card (Approve and accept edits / Approve, ask for edits / Keep planning) and question stepper (options, a written answer, Previous / Skip / Next, Send), through the approve-plan and answer endpoints; answered cards show "Answered by … · Color: Blue". Approving a plan does not change the mode of mobile's next message (mobile has no mode picker; it sends Auto).
-- [ ] M3: code, repo, branch and harness labels on session rows, heading and sheet; the people-only notice for senders without a Claude subscription; "Forked from" link; Claude Code and Codex tool icons.
+- [x] M3: a code icon on Channels-tab session rows and the repo on a channel's Sessions page; the heading shows repo and branch (opens GitHub), the harness, and "Forked from" / "Continued from" (a fork opens its source at the reply); the session sheet links the source and, in a code session, drops Files and shows Plan only for Lor's own agent (as web's Details tab); the people-only notice above the composer in a Claude Code session for senders without a linked Claude account (connecting is on web for now); tool icons for Claude Code's web and notebook tools and Codex's file changes and images.
 - [ ] M4: starting a code session: Chat | Code, repo and branch picker, harness picker (Claude Code needs a linked account).
 - [ ] Later: Changes panel (stage, commit, push, pull), Files tab, fork and rewind actions, composer mode and model pickers, context meter.
 
