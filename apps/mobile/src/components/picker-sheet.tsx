@@ -67,7 +67,11 @@ export function PickerSheet({
       <BottomSheet.Portal unstable_accessibilityContainerViewIsModal>
         <BottomSheet.Overlay className="bg-neutral-950/50" />
         <BottomSheet.Content
+          // Its list scrolls only inside a bounded content container
+          // (HeroUI's bottom-sheet docs, "Scrollable with Snap Points").
+          contentContainerClassName="h-full"
           enableDynamicSizing={false}
+          enableOverDrag={false}
           // The composer's keyboard would cover the list.
           onAnimate={(fromIndex, toIndex) => {
             if (fromIndex !== -1 || toIndex < 0) return

@@ -56,6 +56,7 @@ import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
 import {
+  changeTotals,
   useLiveSessionChanges,
   useSessionChanges,
 } from "@/hooks/use-session-changes"
@@ -294,11 +295,13 @@ export function ThreadView({
   const { data: sessionDetail } = useAgentSession(lorSession?.id ?? "")
   const sourceSession = sessionDetail?.source ?? null
   // A code session's Changes drawer, kept live while the session is open;
-  // the header shows how many files changed.
+  // the header shows the lines added and removed.
   const codeSession = lorSession?.mode === "code" && !sessionPending
   useLiveSessionChanges(lorSession?.id ?? "", threadRootId, codeSession)
   const { data: changes } = useSessionChanges(lorSession?.id ?? "", codeSession)
-  const changedCount = changes?.state === "ready" ? changes.files.length : 0
+  const lineTotals = changeTotals(
+    changes?.state === "ready" ? changes.files : []
+  )
   // Claude Code answers only messages from people with their own Claude
   // subscription; the server sends the rest to the session's people.
   const claudeCode = lorSession?.harness === "claude_code"
@@ -574,7 +577,11 @@ export function ThreadView({
         <View className="flex-row items-center">
           {codeSession ? (
             <Pressable
-              accessibilityLabel={`Changes${changedCount ? `, ${changedCount} files` : ""}`}
+              accessibilityLabel={`Changes${
+                lineTotals.additions || lineTotals.deletions
+                  ? `, ${lineTotals.additions} lines added, ${lineTotals.deletions} removed`
+                  : ""
+              }`}
               accessibilityRole="button"
               className="min-h-10 flex-row items-center gap-one rounded-lor-sm px-two active:bg-surface-secondary"
               onPress={() => setIsCodeOpen(true)}
@@ -585,9 +592,17 @@ export function ThreadView({
                 size={18}
                 strokeWidth={2}
               />
-              {changedCount ? (
-                <Text className="text-xs font-medium tabular-nums text-muted">
-                  {changedCount}
+              {lineTotals.additions || lineTotals.deletions ? (
+                <Text className="font-mono text-xs">
+                  {lineTotals.additions ? (
+                    <Text className="text-success">
+                      +{lineTotals.additions}
+                    </Text>
+                  ) : null}
+                  {lineTotals.additions && lineTotals.deletions ? " " : null}
+                  {lineTotals.deletions ? (
+                    <Text className="text-danger">−{lineTotals.deletions}</Text>
+                  ) : null}
                 </Text>
               ) : null}
             </Pressable>

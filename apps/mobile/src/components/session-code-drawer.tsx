@@ -7,34 +7,30 @@ import { HugeiconsIcon } from "@hugeicons/react-native"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
-import { type ReactNode, useState } from "react"
+import { useMemo, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
+import {
+  FolderNote,
+  LineCounts,
+  Note,
+  STATUS,
+  splitPath,
+} from "@/components/code-drawer-parts"
 import { diffLineClass } from "@/components/lor-tool-trail"
-import { Button } from "@/components/ui/button"
+import { SessionFilesView } from "@/components/session-files-view"
+import { Tabs } from "@/components/ui/tabs"
 import {
   type ChangedFile,
+  changeTotals,
   type ReadyChanges,
   useChangeDiff,
   useSessionChanges,
 } from "@/hooks/use-session-changes"
 
 // A code session's drawer: the files Lor and people changed in the session's
-// sandbox and their diffs. Mirrors web's Changes panel
-// (session-changes-panel.tsx).
-
-const STATUS: Record<
-  ChangedFile["status"],
-  { label: string; className: string }
-> = {
-  modified: { label: "Modified", className: "bg-warning" },
-  added: { label: "Added", className: "bg-success" },
-  untracked: { label: "New, untracked", className: "bg-success" },
-  deleted: { label: "Deleted", className: "bg-danger" },
-  renamed: { label: "Renamed", className: "bg-accent" },
-  typechange: { label: "Type changed", className: "bg-accent" },
-  conflicted: { label: "Conflict", className: "bg-danger" },
-}
+// sandbox with their diffs, and the repo's files. Mirrors web's Changes and
+// Files panels (session-changes-panel.tsx, session-files-panel.tsx).
 
 export function SessionCodeDrawer({
   sessionId,
@@ -46,56 +42,34 @@ export function SessionCodeDrawer({
   onOpenChange: (isOpen: boolean) => void
 }) {
   const changes = useSessionChanges(sessionId)
+  const [tab, setTab] = useState<"changes" | "files">("changes")
   // The file whose diff is open; null shows the list.
   const [openPath, setOpenPath] = useState<string | null>(null)
   const ready = changes.data?.state === "ready" ? changes.data : null
   const openFile = ready?.files.find((file) => file.path === openPath) ?? null
+  // Changed files are marked in the Files tab.
+  const statusByPath = useMemo(
+    () =>
+      new Map<string, ChangedFile["status"]>(
+        ready?.files.map((file) => [file.path, file.status])
+      ),
+    [ready]
+  )
 
-  const body = changes.isPending ? (
-    <Note>
-      <Spinner />
-    </Note>
-  ) : changes.isError ? (
-    <Note>
-      <Text className="text-center text-sm text-muted">
-        Couldn't load the changes.
-      </Text>
-      <Button
-        onPress={() => void changes.refetch()}
-        size="sm"
-        variant="outline"
-      >
-        Try again
-      </Button>
-    </Note>
-  ) : changes.data.state === "restoring" ? (
-    <Note>
-      <Spinner />
-      <Text className="text-center text-sm text-muted">
-        Restoring the session's files…
-      </Text>
-    </Note>
-  ) : changes.data.state === "restore_failed" ? (
-    <Note>
-      <Text className="text-center text-sm text-muted">
-        Couldn't restore the session's files.
-      </Text>
-      <Button
-        onPress={() => void changes.refetch()}
-        size="sm"
-        variant="outline"
-      >
-        Try again
-      </Button>
-    </Note>
-  ) : changes.data.state === "gone" ? (
-    <Note>
-      <Text className="text-center text-sm text-muted">
-        This session's sandbox no longer exists, and it has no checkpoint to
-        restore its files from.
-      </Text>
-    </Note>
-  ) : openFile ? (
+  const changesGap = changes.isPending
+    ? "loading"
+    : changes.isError
+      ? "error"
+      : changes.data.state === "ready"
+        ? null
+        : changes.data.state
+  const changesBody = changesGap ? (
+    <FolderNote
+      onRetry={() => void changes.refetch()}
+      state={changesGap}
+      what="the changes"
+    />
+  ) : !ready ? null : openFile ? (
     <DiffView
       file={openFile}
       onBack={() => setOpenPath(null)}
@@ -103,7 +77,7 @@ export function SessionCodeDrawer({
       version={changes.dataUpdatedAt}
     />
   ) : (
-    <ChangesList changes={changes.data} onOpen={setOpenPath} />
+    <ChangesList changes={ready} onOpen={setOpenPath} />
   )
 
   return (
@@ -117,7 +91,11 @@ export function SessionCodeDrawer({
       <BottomSheet.Portal unstable_accessibilityContainerViewIsModal>
         <BottomSheet.Overlay className="bg-neutral-950/50" />
         <BottomSheet.Content
+          // Its lists scroll only inside a bounded content container
+          // (HeroUI's bottom-sheet docs, "Scrollable with Snap Points").
+          contentContainerClassName="h-full"
           enableDynamicSizing={false}
+          enableOverDrag={false}
           // The composer's keyboard would cover the sheet.
           onAnimate={(fromIndex, toIndex) => {
             if (fromIndex !== -1 || toIndex < 0) return
@@ -128,47 +106,37 @@ export function SessionCodeDrawer({
           snapPoints={["92%"]}
         >
           <View className="flex-row items-center px-one pb-three">
-            <BottomSheet.Title className="flex-1">Changes</BottomSheet.Title>
+            <Tabs
+              className="flex-1"
+              onValueChange={(value) =>
+                setTab(value === "files" ? "files" : "changes")
+              }
+              value={tab}
+            >
+              <Tabs.List className="self-start">
+                <Tabs.Indicator />
+                <Tabs.Trigger value="changes">
+                  <Tabs.Label>Changes</Tabs.Label>
+                </Tabs.Trigger>
+                <Tabs.Trigger value="files">
+                  <Tabs.Label>Files</Tabs.Label>
+                </Tabs.Trigger>
+              </Tabs.List>
+            </Tabs>
             <BottomSheet.Close />
           </View>
-          {body}
+          {tab === "changes" ? (
+            changesBody
+          ) : (
+            <SessionFilesView
+              sessionId={sessionId}
+              statusByPath={statusByPath}
+            />
+          )}
         </BottomSheet.Content>
       </BottomSheet.Portal>
     </BottomSheet>
   )
-}
-
-function Note({ children }: { children: ReactNode }) {
-  return (
-    <View className="flex-1 items-center justify-center gap-three px-six pb-eight">
-      {children}
-    </View>
-  )
-}
-
-function LineCounts({
-  additions,
-  deletions,
-}: {
-  additions: number | null
-  deletions: number | null
-}) {
-  if (!(additions || deletions)) return null
-  return (
-    <Text className="font-mono text-xs">
-      {additions ? <Text className="text-success">+{additions}</Text> : null}
-      {additions && deletions ? " " : null}
-      {deletions ? <Text className="text-danger">−{deletions}</Text> : null}
-    </Text>
-  )
-}
-
-function splitPath(path: string) {
-  const slash = path.lastIndexOf("/")
-  return {
-    name: path.slice(slash + 1),
-    folder: slash > 0 ? path.slice(0, slash) : "",
-  }
 }
 
 function ChangesList({
@@ -178,13 +146,7 @@ function ChangesList({
   changes: ReadyChanges
   onOpen: (path: string) => void
 }) {
-  const totals = changes.files.reduce(
-    (sum, file) => ({
-      additions: sum.additions + (file.additions ?? 0),
-      deletions: sum.deletions + (file.deletions ?? 0),
-    }),
-    { additions: 0, deletions: 0 }
-  )
+  const totals = changeTotals(changes.files)
   const tracked = changes.files.filter((file) => file.status !== "untracked")
   const untracked = changes.files.filter((file) => file.status === "untracked")
   return (

@@ -35,6 +35,16 @@ export type SessionChanges = NonNullable<
 export type ReadyChanges = Extract<SessionChanges, { state: "ready" }>
 export type ChangedFile = ReadyChanges["files"][number]
 
+export function changeTotals(files: ChangedFile[]) {
+  return files.reduce(
+    (sum, file) => ({
+      additions: sum.additions + (file.additions ?? 0),
+      deletions: sum.deletions + (file.deletions ?? 0),
+    }),
+    { additions: 0, deletions: 0 }
+  )
+}
+
 // Live while the session is open: files refresh as Lor's tool calls finish
 // and when its run ends; the "Lor is working" lock when a run starts and
 // ends; staging when someone else stages.
@@ -107,6 +117,47 @@ export function useLiveSessionChanges(
       if (timer) clearTimeout(timer)
     }
   }, [socket, queryClient, sessionId, threadRootId, enabled, userId])
+}
+
+// The repo's files (tracked and untracked, without ignored ones) for the
+// Files tab.
+export function useRepoTree(sessionId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["repo-tree", sessionId],
+    queryFn: async () => {
+      const res = await api.v1.sessions[":sessionId"].repo.tree.$get({
+        param: { sessionId },
+      })
+      if (!res.ok) throw new Error("Failed to load the files")
+      return res.json()
+    },
+    enabled,
+  })
+}
+
+export function useRepoFile(sessionId: string, path: string) {
+  return useQuery({
+    queryKey: ["repo-file", sessionId, path],
+    queryFn: async () => {
+      const res = await api.v1.sessions[":sessionId"].repo.file.$get({
+        param: { sessionId },
+        query: { path },
+      })
+      if (!res.ok) throw new Error("Failed to load the file")
+      return res.json()
+    },
+  })
+}
+
+// An image in the repo, loaded by the image view with the session cookie.
+export function repoImageSource(sessionId: string, path: string) {
+  const cookie = authClient.getCookie()
+  return {
+    uri: api.v1.sessions[":sessionId"].repo.image
+      .$url({ param: { sessionId }, query: { path } })
+      .toString(),
+    ...(cookie ? { headers: { cookie } } : {}),
+  }
 }
 
 // The file's changes against HEAD, staged and unstaged together.
