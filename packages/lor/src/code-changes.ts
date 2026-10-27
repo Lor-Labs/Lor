@@ -115,27 +115,32 @@ const OUTPUT_SIZE_MARKER = "__LOR_OUTPUT_SIZE__"
 
 async function runLarge(sandbox: CodeSandbox, command: string) {
   const file = `/tmp/lor-out-${randomUUID()}`
-  const result = await sandbox.run(
-    [
-      `(\n${command}\n) > ${file}`,
-      "code=$?",
-      `size=$(stat -c %s ${file} 2>/dev/null || echo 0)`,
-      `if [ "$size" -le ${MAX_LOG_OUTPUT_BYTES} ]; then cat ${file}; rm -f ${file}; fi`,
-      `printf '\\n${OUTPUT_SIZE_MARKER}%s' "$size" >&2`,
-      'exit "$code"',
-    ].join("\n")
-  )
-  const at = result.stderr.lastIndexOf(`\n${OUTPUT_SIZE_MARKER}`)
-  if (at === -1) return result
-  const stderr = result.stderr.slice(0, at)
-  const size = Number(result.stderr.slice(at + OUTPUT_SIZE_MARKER.length + 1))
-  if (size <= MAX_LOG_OUTPUT_BYTES) return { ...result, stderr }
+  // Small output: the command removes the file itself, with no extra trip.
+  let removed = false
   try {
+    const result = await sandbox.run(
+      [
+        `(\n${command}\n) > ${file}`,
+        "code=$?",
+        `size=$(stat -c %s ${file} 2>/dev/null || echo 0)`,
+        `if [ "$size" -le ${MAX_LOG_OUTPUT_BYTES} ]; then cat ${file}; rm -f ${file}; fi`,
+        `printf '\\n${OUTPUT_SIZE_MARKER}%s' "$size" >&2`,
+        'exit "$code"',
+      ].join("\n")
+    )
+    const at = result.stderr.lastIndexOf(`\n${OUTPUT_SIZE_MARKER}`)
+    if (at === -1) return result
+    const stderr = result.stderr.slice(0, at)
+    const size = Number(result.stderr.slice(at + OUTPUT_SIZE_MARKER.length + 1))
+    if (size <= MAX_LOG_OUTPUT_BYTES) {
+      removed = true
+      return { ...result, stderr }
+    }
     const bytes = await sandbox.readBinaryFile(file)
     if (!bytes) throw new Error("The command's output file couldn't be read")
     return { ...result, stderr, stdout: Buffer.from(bytes).toString("utf8") }
   } finally {
-    await sandbox.run(`rm -f ${file}`).catch(() => {})
+    if (!removed) await sandbox.run(`rm -f ${file}`).catch(() => {})
   }
 }
 
