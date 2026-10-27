@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises"
 import { isIP } from "node:net"
+import { fetchPublicResource } from "@repo/utils/network"
 
 const DEFAULT_TIMEOUT_MS = 8_000
 const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024
@@ -183,7 +184,13 @@ export function createGuardedMcpFetch(options: {
   const resolveAddresses: AddressResolver =
     options.resolveAddresses ??
     (async (hostname) => await lookup(hostname, { all: true }))
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch
+  const fetchImpl =
+    options.fetchImpl ??
+    ((input, init) =>
+      fetchPublicResource(input, init, {
+        maxBytes: maxResponseBytes,
+        timeoutMs,
+      }))
 
   const validateUrl = async (rawUrl: string | URL): Promise<URL> => {
     const url = parseAndCheckUrl(rawUrl, production)

@@ -21,6 +21,7 @@ export type SidebarSession = {
   titleEdited: boolean
   state: SidebarSessionState
   loop: boolean
+  code: boolean
   lastActivityAt: string
 }
 
@@ -167,6 +168,30 @@ export const sendMessagePayloadSchema = z
     // New session view: the message starts a session in this channel with
     // no chat context, @Lor or not.
     startSession: z.boolean().optional(),
+    // New session in Code mode: the repository (owner/repo) and base branch
+    // the session works in. Only read with startSession.
+    code: z
+      .object({
+        repo: z.string().min(3).max(200),
+        branch: z.string().min(1).max(255),
+      })
+      .optional(),
+    // With startSession: "Continue in Code" from this session (same channel),
+    // whose recent messages become the new session's context.
+    continueFrom: z.string().uuid().optional(),
+    // With startSession and code: the harness that runs the session. Claude
+    // Code needs the sender's own Claude subscription.
+    harness: z.enum(["pi", "claude_code", "codex"]).optional(),
+    // In a Claude Code session: the Claude Code mode for the turn this
+    // message starts (the composer's picker). Default: auto.
+    claudeCodeMode: z
+      .enum(["auto", "default", "acceptEdits", "plan", "bypassPermissions"])
+      .optional(),
+    // Likewise the Claude model, as Claude Code's alias. Default: Opus.
+    claudeModel: z.enum(["opus", "sonnet", "haiku", "fable"]).optional(),
+    // In a Codex session: the model for the turn this message starts.
+    // Default: GPT-6.1 Sol.
+    codexModel: z.enum(["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"]).optional(),
     // Ids the sender chose for the session this send starts (New session or
     // @Lor), so it can show the session before the ack. Ignored when the
     // send starts none.
@@ -253,6 +278,11 @@ export type RealtimeChannelEventType =
   | "loop_completed"
   | "loop_run"
   | "trigger_run"
+  | "session_continued"
+  | "session_committed"
+  | "session_pushed"
+  | "session_forked"
+  | "session_rewound"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -266,6 +296,23 @@ export type RealtimeChannelEventPayload =
       via?: "proposal"
     }
   | { triggerId: string; label: string }
+  | { sessionId: string; repoFullName: string | null }
+  | {
+      sessionId: string
+      sha: string
+      subject: string
+      branch: string | null
+      fileCount: number
+    }
+  | {
+      sessionId: string
+      repoFullName: string
+      branch: string
+      commitCount: number
+      headSha: string
+    }
+  | { sessionId: string; fromMessageId: string }
+  | { sessionId: string; toMessageId: string }
   | null
 
 export type RealtimeAuthor = {
@@ -568,7 +615,6 @@ export type RealtimeLorToolCall = {
   label: string
   at?: number
   order?: number
-  parentToolCallId?: string
   detail?: {
     summary?: string
     items?: { title: string; url?: string }[]
@@ -799,6 +845,17 @@ export interface ServerToClientEvents {
   "plan:updated": (payload: PlanUpdatedEvent) => void
   // Lor session row changed (title, archive, activity). Channel room.
   "session:updated": (payload: AgentSessionUpdatedEvent) => void
+  // A run in this thread became terminal (complete, failed, stopped). Thread
+  // room; sent after the run row is updated, unlike message:stream's done.
+  "run:settled": (payload: { threadRootId: string }) => void
+  // Someone staged, committed, pushed or pulled in a code session. Thread
+  // room; ids only. filesChanged: a pull changed the files too.
+  "session:changes:updated": (payload: {
+    sessionId: string
+    threadRootId: string
+    byUserId: string
+    filesChanged?: boolean
+  }) => void
   // A run parked on an approval gate. Channel room; ids only — the
   // durable card data comes from the channel approvals query this invalidates.
   "approval:created": (payload: ApprovalCreatedEvent) => void
@@ -913,6 +970,7 @@ export type PlanUpdatedEvent = {
 }
 
 export type RealtimeAgentSessionOrigin = "chat" | "new" | "loop" | "trigger"
+export type RealtimeAgentSessionMode = "chat" | "code"
 
 // Snapshot of a Lor session row. Mirrors agent_session in @repo/db; guarded
 // in @repo/lor.
@@ -923,6 +981,12 @@ export type RealtimeAgentSession = {
   threadRootId: string
   creatorId: string | null
   origin: RealtimeAgentSessionOrigin
+  mode: RealtimeAgentSessionMode
+  harness: "pi" | "claude_code" | "codex"
+  repoFullName: string | null
+  baseBranch: string | null
+  sourceSessionId: string | null
+  forkedFromMessageId: string | null
   title: string
   titleEditedAt: string | null
   loopId: string | null

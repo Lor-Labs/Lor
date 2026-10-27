@@ -12,6 +12,7 @@ import {
 import { LOR_MODEL } from "../../models"
 import type { CreatePlanForThread } from "../../plans"
 import { formatSpeakerLine } from "../../transcript"
+import { evalPiSession } from "../pi-session"
 import { JUDGE_MODEL, nextUserTurn } from "./judge"
 import {
   degenerateSample,
@@ -33,8 +34,9 @@ import {
 // Long-task eval (`pnpm --filter @repo/lor eval:long`). Each attempt seeds a
 // fresh world and runs one task as a session thread with the production tool
 // load (plans, proposals, loops, decoy custom tools); multi-turn tasks
-// continue the session the way the worker does. Grades the end state, not
-// the wording. EVAL_K attempts per task; pass^k = every attempt passed.
+// continue the session the way the worker does, on the Pi path with a real
+// Blaxel session sandbox per attempt (evalPiSession). Grades the end state,
+// not the wording. EVAL_K attempts per task; pass^k = every attempt passed.
 // EVAL_TASKS filters by name, EVAL_CONCURRENCY bounds parallelism,
 // EVAL_JUDGE_MODEL picks the grader.
 
@@ -109,6 +111,7 @@ async function postMessage(
 
 async function runAttempt(task: LongTask, attempt: number): Promise<Attempt> {
   const world = await seedWorld()
+  const session = evalPiSession()
   const toolNames = new Map<string, string>()
   const failedCalls = new Set<string>()
   const usage: UsageEvent[] = []
@@ -205,28 +208,25 @@ async function runAttempt(task: LongTask, attempt: number): Promise<Attempt> {
                 loops.push(input)
                 return { loopId: randomUUID() }
               },
-              ...(messages && delta
+              ...(delta
                 ? {
-                    continuation: {
-                      messages: [
-                        ...messages,
-                        { role: "user" as const, content: delta },
-                      ],
-                      coveredMessageIds: [turn.messageId],
-                      deltaText: delta,
-                      lastInputTokens: 0,
-                      compaction: null,
-                    },
+                    delta: { text: delta, coveredMessageIds: [turn.messageId] },
                   }
                 : {}),
             },
-            callbacks
+            callbacks,
+            session.run()
           )
         )
-        messages = result.messages
+        // Pi returns only this turn's messages; its saved state holds the rest.
+        messages = [...(messages ?? []), ...result.messages]
         answers.push(result.text)
         stops.push(result.stoppedFor ?? null)
         transcript.push({ author: "Lor", text: result.text })
+        if (session.paused()) {
+          error = `turn ${i + 1}: paused on an approval the eval cannot answer`
+          break
+        }
 
         const sim = task.simulatedUser
         const next = task.followUps
@@ -324,6 +324,9 @@ async function runAttempt(task: LongTask, attempt: number): Promise<Attempt> {
       ),
     }
   } finally {
+    await session.close().catch((err) => {
+      console.error(`sandbox delete failed for ${task.name}#${attempt}:`, err)
+    })
     await world.cleanup().catch((err) => {
       console.error(`cleanup failed for ${task.name}#${attempt}:`, err)
     })

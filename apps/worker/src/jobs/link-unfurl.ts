@@ -7,47 +7,51 @@ import type {
 } from "@repo/realtime-types"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
+import { fetchPublicResource } from "@repo/utils/network"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job } from "bullmq"
 import ogs from "open-graph-scraper"
-import { isSafeUrl, matchProxyRule } from "@/jobs/link-unfurl-url"
+import { matchProxyRule } from "@/jobs/link-unfurl-url"
 import { logger } from "@/lib/logger"
 
 const OG_FETCH_TIMEOUT_MS = 5000
 const MAX_REDIRECT_HOPS = 5
+const MAX_HTML_BYTES = 1024 * 1024
+const MAX_URLS_PER_MESSAGE = 5
 const USER_AGENT = "Lor/1.0 OGBot"
 
-// Manual redirect handling: validate every hop with isSafeUrl before making
-// the next request. Letting fetch/ogs auto-follow lets an attacker chain
-// `safe.com → http://10.0.0.1/admin` past our final-URL check, since the
-// internal request fires before we inspect the result.
+// Every redirect creates a fresh connection pinned to a validated public IP.
+// The transport never follows redirects before the next destination is checked.
 async function fetchHtmlWithSafeRedirects(
   initialUrl: string
 ): Promise<{ finalUrl: string; html: string } | null> {
   let current = initialUrl
   for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-    if (!(await isSafeUrl(current))) {
-      logger.warn({ initialUrl, current, hop }, "Redirect hit unsafe URL")
-      return null
-    }
-
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), OG_FETCH_TIMEOUT_MS)
     try {
-      const res = await fetch(current, {
-        redirect: "manual",
-        signal: controller.signal,
-        headers: { "user-agent": USER_AGENT },
-      })
+      const res = await fetchPublicResource(
+        current,
+        {
+          redirect: "manual",
+          signal: controller.signal,
+          headers: { "user-agent": USER_AGENT },
+        },
+        { maxBytes: MAX_HTML_BYTES, timeoutMs: OG_FETCH_TIMEOUT_MS }
+      )
 
       if (res.status >= 300 && res.status < 400) {
+        await res.body?.cancel()
         const location = res.headers.get("location")
         if (!location) return null
         current = new URL(location, current).toString()
         continue
       }
 
-      if (!res.ok) return null
+      if (!res.ok) {
+        await res.body?.cancel()
+        return null
+      }
       const html = await res.text()
       return { finalUrl: current, html }
     } finally {
@@ -111,7 +115,9 @@ export function createLinkUnfurlProcessor(
 
         if (urls.length === 0) return
 
-        const results = await Promise.all(urls.map(fetchOgEmbed))
+        const results = await Promise.all(
+          urls.slice(0, MAX_URLS_PER_MESSAGE).map(fetchOgEmbed)
+        )
         const embeds = results.filter((e): e is Embed => e !== null)
 
         if (embeds.length === 0) {

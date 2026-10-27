@@ -1,7 +1,10 @@
 import type { PermissionRequest } from "@repo/auth/permissions"
 import { workspaceAuthorityHasPermissions } from "@repo/auth/permissions"
 import { and, asc, db, desc, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
-import { resolveChannelAccess } from "@repo/db/queries/channel-access"
+import {
+  resolveChannelAccess,
+  resolveChannelAudienceInfo,
+} from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { ChangeProposal, ChangeProposalOperation } from "@repo/db/schema"
 import { proposalPermissions } from "@repo/db/schema"
@@ -225,9 +228,10 @@ async function emitProposalUpdated(proposal: ChangeProposal): Promise<void> {
 }
 
 // Post the resolution as the resolver and start the follow-up continuation
-// run: in the session the card is in, or the card's own thread for
-// pre-session proposals. Best-effort by design for approve (the config is
-// already applied); reject un-resolves on failure at its call site.
+// run in the session the card is in. A pre-session proposal gets the note in
+// the card's own thread but no run: Lor runs only in sessions. Best-effort by
+// design for approve (the config is already applied); reject un-resolves on
+// failure at its call site.
 async function postResolutionAndContinue(args: {
   proposal: ChangeProposal
   authorId: string
@@ -243,13 +247,12 @@ async function postResolutionAndContinue(args: {
     content: args.content,
   }).catch(() => null)
   if (!messageId) return null
+  if (!proposal.threadRootId) return messageId
   // Resolving joins the session, like resolving an approval does.
-  if (proposal.threadRootId) {
-    await subscribeToThread(proposal.threadRootId, [args.authorId]).catch(
-      () => {}
-    )
-    notifyWorkspaceActivity(proposal.workspaceId)
-  }
+  await subscribeToThread(proposal.threadRootId, [args.authorId]).catch(
+    () => {}
+  )
+  notifyWorkspaceActivity(proposal.workspaceId)
   try {
     await startScopeContinuationRun({
       workspaceId: proposal.workspaceId,
@@ -378,12 +381,20 @@ async function announceCreatedResources(args: {
   )
   if (createdChannels.length === 0 && createdLoops.length === 0) return
 
-  const origin = await db
-    .select({ name: schema.channel.name })
-    .from(schema.channel)
-    .where(eq(schema.channel.id, args.proposal.channelId))
-    .limit(1)
-    .then((rows) => rows[0] ?? null)
+  // New channels are workspace-public. A private source channel's name and
+  // identity must not become part of their durable announcement.
+  const originAudience = await resolveChannelAudienceInfo(
+    args.proposal.channelId
+  )
+  const origin =
+    originAudience.audience === "workspace"
+      ? await db
+          .select({ name: schema.channel.name })
+          .from(schema.channel)
+          .where(eq(schema.channel.id, args.proposal.channelId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : null
 
   for (const op of createdChannels) {
     const channelId = op.result?.resourceId
@@ -406,8 +417,12 @@ async function announceCreatedResources(args: {
       eventType: "channel_created",
       payload: {
         via: "proposal",
-        originChannelId: args.proposal.channelId,
-        originChannelName: origin?.name ?? undefined,
+        ...(origin
+          ? {
+              originChannelId: args.proposal.channelId,
+              originChannelName: origin.name ?? undefined,
+            }
+          : {}),
       },
     })
   }

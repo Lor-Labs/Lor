@@ -1,7 +1,6 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import BookOpen01Icon from "@hugeicons/core-free-icons/BookOpen01Icon"
-import CodeIcon from "@hugeicons/core-free-icons/CodeIcon"
 import Download01Icon from "@hugeicons/core-free-icons/Download01Icon"
 import ExternalLinkIcon from "@hugeicons/core-free-icons/ExternalLinkIcon"
 import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
@@ -28,32 +27,38 @@ import { openExternalUrl } from "@/lib/open-url"
 
 function builtinToolIcon(toolName: string): IconSvgElement {
   switch (toolName) {
-    case "investigate_code":
-    case "propose_code_change":
-      return CodeIcon
     case "search_sources":
     case "search_messages":
     case "grep":
     case "find":
+    case "glob":
       return Search01Icon
     case "search_web":
     case "fetch_web":
+    // Claude Code's own web tools.
+    case "webSearch":
+    case "WebFetch":
       return Globe02Icon
     case "fetch_source":
     case "export_tool_result":
       return Download01Icon
     case "ls":
-    case "tree":
     case "read":
+    case "view_image":
+    case "memory_ls":
+    case "memory_read":
       return BookOpen01Icon
     case "bash":
       return TerminalIcon
     case "write":
     case "edit":
-    case "create_artifacts":
-    case "mkdir":
-    case "move":
-    case "link":
+    case "NotebookEdit":
+    // Codex's patches, one per file.
+    case "fileChange":
+    case "share_file":
+    case "memory_write":
+    case "memory_edit":
+    case "memory_link":
       return PencilEdit02Icon
     default:
       return Wrench01Icon
@@ -132,6 +137,16 @@ type FileDiff = NonNullable<LorToolCall["diff"]>
 // Pi labels read "<Verb> <target>" (piToolLabel); the target shows in mono
 // so the verb scans. Mirrors web.
 const TARGET_TOOLS = new Set(["read", "write", "edit", "ls", "bash"])
+// Pi's sandbox tools as Lor calls them directly (find is exposed as glob).
+const SANDBOX_TOOLS = new Set([
+  "bash",
+  "read",
+  "write",
+  "edit",
+  "grep",
+  "glob",
+  "ls",
+])
 function splitLabel(toolCall: LorToolCall) {
   const space = toolCall.label.indexOf(" ")
   if (!TARGET_TOOLS.has(toolCall.toolName) || space < 0) {
@@ -143,8 +158,8 @@ function splitLabel(toolCall: LorToolCall) {
   }
 }
 
-// A sub-step that wrote one of the files the run delivered (paths are
-// relative to the sandbox's output folder).
+// A sandbox call that wrote one of the files the turn shared (shared paths
+// are relative to the work folder).
 function deliveredFile(path: string | null, delivered: DeliveredFile[]) {
   if (!path) return undefined
   return delivered.find(
@@ -152,7 +167,7 @@ function deliveredFile(path: string | null, delivered: DeliveredFile[]) {
   )
 }
 
-function diffLineClass(line: string) {
+export function diffLineClass(line: string) {
   if (
     line.startsWith("+++") ||
     line.startsWith("---") ||
@@ -176,10 +191,10 @@ function DiffCounts({ diff }: { diff: FileDiff }) {
   )
 }
 
-// One step inside a sandbox run, flat: verb, target (or a chip for a file
-// the run delivered, which opens it), diff counts. Tapping the row opens its
-// diff or output. Mirrors web's SubStepRow.
-function SubStepRow({
+// One sandbox call, flat: verb, target (or a chip for a file the turn
+// shared, which opens it), diff counts. Tapping the row opens its diff or
+// output. Mirrors web's SandboxRow.
+function SandboxRow({
   toolCall,
   delivered,
 }: {
@@ -291,11 +306,9 @@ function SubStepRow({
 
 export function LorToolTrail({
   toolCalls,
-  childrenByParent,
   streaming = false,
 }: {
   toolCalls: LorToolCall[]
-  childrenByParent?: Map<string, LorToolCall[]>
   streaming?: boolean
 }) {
   const [muted, foreground, accent] = useThemeColor([
@@ -308,6 +321,8 @@ export function LorToolTrail({
   // keeps updating while the call streams in more detail.
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
   if (toolCalls.length === 0) return null
+  // Files Lor shared this turn; a sandbox row that wrote one shows its chip.
+  const shared = toolCalls.flatMap((toolCall) => toolCall.files ?? [])
 
   const selectedTool = selectedToolId
     ? (toolCalls.find((toolCall) => toolCall.toolCallId === selectedToolId) ??
@@ -341,52 +356,49 @@ export function LorToolTrail({
       {expanded ? (
         <View className="ml-one gap-one border-l border-border pl-three">
           {toolCalls.map((toolCall) => {
+            // Lor's own sandbox work reads as flat rows (mirrors web).
+            if (SANDBOX_TOOLS.has(toolCall.toolName)) {
+              return (
+                <SandboxRow
+                  delivered={shared}
+                  key={toolCall.toolCallId}
+                  toolCall={toolCall}
+                />
+              )
+            }
             const drillable = hasDetail(toolCall)
-            const children = childrenByParent?.get(toolCall.toolCallId) ?? []
             return (
-              <View className="gap-one" key={toolCall.toolCallId}>
-                <Pressable
-                  accessibilityHint={
-                    drillable ? "Opens the tool result drawer" : undefined
-                  }
-                  accessibilityLabel={toolCall.label}
-                  accessibilityRole={drillable ? "button" : undefined}
-                  className="min-h-8 flex-row items-center gap-two py-one"
-                  disabled={!drillable}
-                  onPress={() => setSelectedToolId(toolCall.toolCallId)}
+              <Pressable
+                accessibilityHint={
+                  drillable ? "Opens the tool result drawer" : undefined
+                }
+                accessibilityLabel={toolCall.label}
+                accessibilityRole={drillable ? "button" : undefined}
+                className="min-h-8 flex-row items-center gap-two py-one"
+                disabled={!drillable}
+                key={toolCall.toolCallId}
+                onPress={() => setSelectedToolId(toolCall.toolCallId)}
+              >
+                <ToolGlyph color={muted} toolName={toolCall.toolName} />
+                <Text
+                  className="min-w-0 flex-1 text-xs text-muted"
+                  numberOfLines={1}
                 >
-                  <ToolGlyph color={muted} toolName={toolCall.toolName} />
-                  <Text
-                    className="min-w-0 flex-1 text-xs text-muted"
-                    numberOfLines={1}
-                  >
-                    {toolCall.label}
+                  {toolCall.label}
+                </Text>
+                {toolCall.status === "error" ? (
+                  <Text className="text-xs font-semibold text-danger">
+                    failed
                   </Text>
-                  {toolCall.status === "error" ? (
-                    <Text className="text-xs font-semibold text-danger">
-                      failed
-                    </Text>
-                  ) : null}
-                  {drillable ? (
-                    <HugeiconsIcon
-                      color={muted}
-                      icon={ArrowRight01Icon}
-                      size={13}
-                    />
-                  ) : null}
-                </Pressable>
-                {children.length > 0 ? (
-                  <View className="ml-five gap-one border-l border-border pl-three">
-                    {children.map((child) => (
-                      <SubStepRow
-                        delivered={toolCall.files ?? []}
-                        key={child.toolCallId}
-                        toolCall={child}
-                      />
-                    ))}
-                  </View>
                 ) : null}
-              </View>
+                {drillable ? (
+                  <HugeiconsIcon
+                    color={muted}
+                    icon={ArrowRight01Icon}
+                    size={13}
+                  />
+                ) : null}
+              </Pressable>
             )
           })}
         </View>

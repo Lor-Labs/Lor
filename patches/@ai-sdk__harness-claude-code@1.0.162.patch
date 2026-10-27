@@ -1,0 +1,231 @@
+diff --git a/dist/bridge/index.mjs b/dist/bridge/index.mjs
+index e21cffa448869313e6b9a136c91b69c60850cb26..53ee2bbf37c7c2312425c8d4908cbfe9ef1a90d5 100644
+--- a/dist/bridge/index.mjs
++++ b/dist/bridge/index.mjs
+@@ -1461,25 +1461,35 @@ const mcpModule = mcpServerModule;
+ * so the latest observation is the one a later resume must name.
+ */
+ let lastClaudeSessionId;
++// Lor patch: Claude Code (and so the model's Bash) inherits this process's
++// env, where the channel token would let sandbox code drive the bridge and
++// answer its own approvals. Take it out before the first turn.
++const bridgeChannelToken = env.BRIDGE_CHANNEL_TOKEN ?? "";
++delete env.BRIDGE_CHANNEL_TOKEN;
+ await runBridge({
+ 	bridgeType: "claude-code",
+ 	bridgeStateDir,
++	token: bridgeChannelToken,
+ 	onStart: runTurn,
+ 	onStop: () => lastClaudeSessionId == null ? {} : { claudeSessionId: lastClaudeSessionId }
+ });
+ function createPermissionOptions(input) {
+ 	const permissionMode = input.start.permissionMode ?? "allow-all";
++	// Lor patch: one of Claude Code's own modes (default, acceptEdits, plan,
++	// auto). Claude Code decides what to ask, and every ask goes to the host;
++	// the host's own tools stay host-approved.
++	const nativePermissionMode = input.start.nativePermissionMode;
+ 	const inactiveNativeTools = new Set(input.inactiveNativeTools);
+ 	const permissionSettings = createPermissionSettings({
+-		permissionMode,
++		permissionMode: nativePermissionMode ? "allow-all" : permissionMode,
+ 		inactiveNativeTools
+ 	});
+ 	const baseOptions = {
+-		permissionMode: permissionMode === "allow-all" ? "bypassPermissions" : permissionMode === "allow-edits" ? "acceptEdits" : "default",
+-		allowDangerouslySkipPermissions: permissionMode === "allow-all",
++		permissionMode: nativePermissionMode ?? (permissionMode === "allow-all" ? "bypassPermissions" : permissionMode === "allow-edits" ? "acceptEdits" : "default"),
++		allowDangerouslySkipPermissions: !nativePermissionMode && permissionMode === "allow-all",
+ 		...permissionSettings ? { settings: permissionSettings } : {}
+ 	};
+-	if (permissionMode === "allow-all") return {
++	if (!nativePermissionMode && permissionMode === "allow-all") return {
+ 		...baseOptions,
+ 		permissionPromptToolName: "stdio"
+ 	};
+@@ -1490,7 +1500,7 @@ function createPermissionOptions(input) {
+ 				behavior: "allow",
+ 				updatedInput: toolInput
+ 			};
+-			if (!inactiveNativeTools.has(toolName) && !nativeToolRequiresApproval({
++			if (!nativePermissionMode && !inactiveNativeTools.has(toolName) && !nativeToolRequiresApproval({
+ 				nativeName: toolName,
+ 				permissionMode
+ 			})) return {
+@@ -1520,10 +1530,18 @@ function createPermissionOptions(input) {
+ 			});
+ 			input.markWaitingOnHostInput(approvalId);
+ 			const decision = await decisionPromise.finally(() => input.clearWaitingOnHostInput(approvalId));
++			// Lor patch: an approved plan names the mode the turn goes on in,
++			// like Claude Code's own plan dialog (accept edits or ask for edits).
++			const planMode = toolName === "ExitPlanMode" && (decision.reason === "acceptEdits" || decision.reason === "default") ? decision.reason : void 0;
+ 			return decision.approved ? {
+ 				behavior: "allow",
+ 				updatedInput: toolInput,
+-				toolUseID: approvalId
++				toolUseID: approvalId,
++				...planMode ? { updatedPermissions: [{
++					type: "setMode",
++					mode: planMode,
++					destination: "session"
++				}] } : {}
+ 			} : {
+ 				behavior: "deny",
+ 				message: decision.reason ?? "Denied",
+@@ -1757,6 +1775,8 @@ async function runTurn(start, turn) {
+ 				}] }]
+ 			},
+ 			...start.resumeSessionId ?? lastClaudeSessionId ? { resume: start.resumeSessionId ?? lastClaudeSessionId } : start.continue === true || !turn.firstTurn ? { continue: true } : {},
++			// Lor patch: a rewind resumes only up to this entry.
++			...start.resumeSessionAt ? { resumeSessionAt: start.resumeSessionAt } : {},
+ 			...permissionOptions,
+ 			mcpServers,
+ 			cwd: workdir,
+@@ -1770,6 +1790,7 @@ async function runTurn(start, turn) {
+ 	};
+ 	let turnUsage;
+ 	let totalCostUsd;
++	let contextUsage;
+ 	let emittedTerminalError = false;
+ 	let emittedTerminalFinish = false;
+ 	const emitTerminalError = (message) => {
+@@ -1838,6 +1859,7 @@ async function runTurn(start, turn) {
+ 					if (!queryInput.answersSentMessage(msg)) continue;
+ 					queryInput.observeResult();
+ 					if (!queryInput.hasActiveUserMessages()) {
++						contextUsage = await readContextUsage(q);
+ 						queryInput.close();
+ 						break;
+ 					}
+@@ -1845,6 +1867,7 @@ async function runTurn(start, turn) {
+ 				continue;
+ 			}
+ 			if (queryInput.hasObservedResult && !queryInput.hasActiveUserMessages()) {
++				contextUsage = await readContextUsage(q);
+ 				queryInput.close();
+ 				break;
+ 			}
+@@ -1873,12 +1896,40 @@ async function runTurn(start, turn) {
+ 			raw: "stop"
+ 		},
+ 		totalUsage: turnUsage ?? streamEventState.stepUsage ?? defaultUsage(),
+-		...totalCostUsd !== void 0 || lastClaudeSessionId !== void 0 ? { harnessMetadata: { "claude-code": {
++		...totalCostUsd !== void 0 || lastClaudeSessionId !== void 0 || contextUsage !== void 0 ? { harnessMetadata: { "claude-code": {
+ 			...totalCostUsd !== void 0 ? { costUsd: totalCostUsd } : {},
+-			...lastClaudeSessionId !== void 0 ? { sessionId: lastClaudeSessionId } : {}
++			...lastClaudeSessionId !== void 0 ? { sessionId: lastClaudeSessionId } : {},
++			...contextUsage !== void 0 ? { contextUsage } : {}
+ 		} } } : {}
+ 	});
+ }
++// Lor patch: Claude Code's /context breakdown at the end of the turn, for the
++// host's context meter. "full" counts each category with the token-count API
++// (about 350 ms; its total matched the last request's input). "summary" only
++// estimates the fixed parts: no Messages row, and a total that never moves.
++async function readContextUsage(q) {
++	let timer;
++	try {
++		const usage = await Promise.race([q.getContextUsage({ detail: "full" }), new Promise((resolve) => {
++			timer = setTimeout(resolve, 1e4);
++		})]);
++		if (!usage || !(usage.rawMaxTokens > 0)) return void 0;
++		return {
++			totalTokens: usage.totalTokens,
++			rawMaxTokens: usage.rawMaxTokens,
++			...typeof usage.autoCompactThreshold === "number" ? { autoCompactThreshold: usage.autoCompactThreshold } : {},
++			model: usage.model,
++			categories: usage.categories.filter((category) => category.kind === "used" && category.tokens > 0).map((category) => ({
++				name: category.name,
++				tokens: category.tokens
++			}))
++		};
++	} catch {
++		return void 0;
++	} finally {
++		clearTimeout(timer);
++	}
++}
+ function createQueryInput({ initialUserMessage, userMessages, abortSignal }) {
+ 	let closed = false;
+ 	let observedResult = false;
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 35c09984546c68938d5fed6ba90a829e9091662a..ecd6ab5256ce2657048c8bc97b4b39b2ec955685 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -22,6 +22,17 @@ type ClaudeCodeHarnessSettings = {
+    * discover, read, or otherwise access in the host process.
+    */
+   readonly credentialForwarding?: HarnessV1CredentialForwarding;
++  /**
++   * Lor patch: one of Claude Code's own permission modes. Every prompt it
++   * raises in that mode reaches the host as a builtin tool approval. Unset,
++   * the harness `permissionMode` mapping applies.
++   */
++  readonly nativePermissionMode?: "default" | "acceptEdits" | "plan" | "auto";
++  /**
++   * Lor patch: the first prompt resumes the conversation only up to this
++   * entry (the SDK's `resumeSessionAt`): a rewind.
++   */
++  readonly resumeSessionAt?: string;
+   /**
+    * MCP server definitions keyed by server name. Each definition uses the
+    * underlying runtime's native MCP server configuration format.
+diff --git a/dist/index.js b/dist/index.js
+index 25fa866a95d96c9a3d2c3f0e338c6f525db01ef6..9ad8df58b35ca528fdd9a3eb82c8b24135ffa720 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1106,6 +1106,8 @@ function createClaudeCode(settings = {}) {
+ 					sandboxCredentialEnvironment,
+ 					debug: startOpts.observability?.debug,
+ 					permissionMode: startOpts.permissionMode,
++					nativePermissionMode: settings.nativePermissionMode,
++					resumeSessionAt: settings.resumeSessionAt,
+ 					builtinToolFiltering: startOpts.builtinToolFiltering,
+ 					sandbox: toolSafeSandboxSession,
+ 					sandboxHomeDir,
+@@ -1221,6 +1223,8 @@ function createClaudeCode(settings = {}) {
+ 				sandboxCredentialEnvironment,
+ 				debug: startOpts.observability?.debug,
+ 				permissionMode: startOpts.permissionMode,
++				nativePermissionMode: settings.nativePermissionMode,
++				resumeSessionAt: settings.resumeSessionAt,
+ 				builtinToolFiltering: startOpts.builtinToolFiltering,
+ 				sandbox: toolSafeSandboxSession,
+ 				sandboxHomeDir,
+@@ -1406,11 +1410,13 @@ function formatUnknownError(error) {
+ 	if (error instanceof Error) return error.message;
+ 	return String(error);
+ }
+-function createSession({ sessionId, channel, finishListenerAttachment, proc, maxTurns, agentProgressSummaries, forwardSubagentText, env, thinking, effort, isResume, continueOnFirstPrompt, resumeSessionId, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, builtinToolFiltering, sandbox, sandboxHomeDir, mcpServers, supportsUserMessageResponses }) {
++function createSession({ sessionId, channel, finishListenerAttachment, proc, maxTurns, agentProgressSummaries, forwardSubagentText, env, thinking, effort, isResume, continueOnFirstPrompt, resumeSessionId, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, nativePermissionMode, resumeSessionAt, builtinToolFiltering, sandbox, sandboxHomeDir, mcpServers, supportsUserMessageResponses }) {
+ 	let stopped = false;
+ 	let stopPromise;
+ 	let pendingResumeFlag = continueOnFirstPrompt;
+ 	let lastClaudeSessionId = resumeSessionId;
++	// Lor patch: a rewind applies to the first prompt only.
++	let pendingResumeAt = resumeSessionAt;
+ 	const wireTurn = (turnOpts) => {
+ 		let pendingResolve;
+ 		let pendingReject;
+@@ -1566,10 +1572,13 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
+ 				...promptOpts.skills.length > 0 ? { skills: promptOpts.skills.map((skill) => skill.name) } : {},
+ 				...mcpServers == null ? {} : { mcpServers },
+ 				...permissionMode ? { permissionMode } : {},
++				...nativePermissionMode ? { nativePermissionMode } : {},
+ 				...builtinToolFiltering ? { builtinToolFiltering } : {},
+ 				...debug ? { debug } : {},
+-				...lastClaudeSessionId ? { resumeSessionId: lastClaudeSessionId } : pendingResumeFlag ? { continue: true } : {}
++				...lastClaudeSessionId ? { resumeSessionId: lastClaudeSessionId } : pendingResumeFlag ? { continue: true } : {},
++				...pendingResumeAt && lastClaudeSessionId ? { resumeSessionAt: pendingResumeAt } : {}
+ 			};
++			pendingResumeAt = void 0;
+ 			pendingResumeFlag = false;
+ 			rerunContinue = false;
+ 			channel.send(startMessage);
+@@ -1600,6 +1609,7 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
+ 					...continueOpts.skills.length > 0 ? { skills: continueOpts.skills.map((skill) => skill.name) } : {},
+ 					...mcpServers == null ? {} : { mcpServers },
+ 					...permissionMode ? { permissionMode } : {},
++					...nativePermissionMode ? { nativePermissionMode } : {},
+ 					...builtinToolFiltering ? { builtinToolFiltering } : {},
+ 					...debug ? { debug } : {},
+ 					...lastClaudeSessionId ? { resumeSessionId: lastClaudeSessionId } : { continue: true }

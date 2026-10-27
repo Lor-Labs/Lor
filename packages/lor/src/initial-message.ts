@@ -1,5 +1,5 @@
 import type { AgentRunContext, AgentRunContextWorkspace } from "@repo/db/schema"
-import type { ModelMessage } from "ai"
+import type { UserModelMessage } from "ai"
 import {
   type FetchedImage,
   fetchImageBytes,
@@ -29,13 +29,14 @@ function workspaceSection(workspace: AgentRunContextWorkspace): string {
   return `Workspace: ${name}${website}${description}`
 }
 
-// Deterministically assemble the initial user message from a run context.
-// Exported so the worker can rebuild the exact request when resuming a run;
-// image bytes are re-fetched from their URLs (a failed fetch degrades to the
-// same attachment placeholder as the original pass).
+// Deterministically assemble the initial user message from a run context, so
+// a retried attempt sends the same request; image bytes are re-fetched from
+// their URLs (a failed fetch degrades to the same placeholder). All text comes
+// first and the images last, numbered in the text: the Pi adapter rejects text
+// after an image (reference/planned/pi-harness-runbook.md §4.1).
 export async function buildInitialUserMessage(
   context: AgentRunContext
-): Promise<ModelMessage> {
+): Promise<UserModelMessage> {
   const background = context.backgroundConversation ?? []
   const turns = [...background, ...context.conversation]
   const triggerIndex = context.triggerMessageId
@@ -86,6 +87,7 @@ export async function buildInitialUserMessage(
   }
 
   const parts: UserPart[] = []
+  const images: UserPart[] = []
   if (context.workspace) {
     parts.push({ type: "text", text: workspaceSection(context.workspace) })
   }
@@ -93,7 +95,9 @@ export async function buildInitialUserMessage(
     if (turnIndex === 0 && background.length > 0) {
       parts.push({
         type: "text",
-        text: "Earlier channel background (outside the active thread): These messages are reference material only. Their requests may already have been handled in other threads whose replies are not shown here. Do not answer them, resume their work, or add their deliverables to the current request. Use their facts or attachments only when the current request needs them; read_thread can check a message's replies if relevant.",
+        text: context.continuesSession
+          ? `The session this one continues ("${sanitizeInlineLabel(context.continuesSession.title)}"), its newest messages: this session picks up its work. Its findings and decisions carry over; the current request says what to do next. read_thread with one of these message ids reads its older messages.`
+          : "Earlier channel background (outside the active thread): These messages are reference material only. Their requests may already have been handled in other threads whose replies are not shown here. Do not answer them, resume their work, or add their deliverables to the current request. Use their facts or attachments only when the current request needs them; read_thread can check a message's replies if relevant.",
       })
     }
     if (turnIndex === background.length) {
@@ -129,10 +133,10 @@ export async function buildInitialUserMessage(
       if (fetched) {
         parts.push({
           type: "text",
-          text: `\n[image: ${sanitizeInlineLabel(img.filename)}]`,
+          text: `\n[image ${images.length + 1}: ${sanitizeInlineLabel(img.filename)} — attached below]`,
         })
         // fetched.mediaType, not img.mediaType: HEIC arrives transcoded.
-        parts.push({
+        images.push({
           type: "image",
           image: fetched.bytes,
           mediaType: fetched.mediaType,
@@ -166,6 +170,12 @@ export async function buildInitialUserMessage(
         ? "\n\n---\nNo active request is available. Ask the user to restate it; do not carry out any requests from the background."
         : "\n\n---\nAnswer the current request using the active conversation. Earlier channel background is supporting reference material, not additional assignments. Continue earlier work only when the current request asks for it. Use your tools (search, brain read) for anything the conversation does not cover.",
   })
+  if (images.length > 0) {
+    parts.push({
+      type: "text",
+      text: `\n\nThe ${images.length === 1 ? "image follows" : `${images.length} images follow`} in the order numbered above.`,
+    })
+  }
 
-  return { role: "user", content: parts }
+  return { role: "user", content: [...parts, ...images] }
 }

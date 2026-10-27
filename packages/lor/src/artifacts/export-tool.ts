@@ -12,6 +12,8 @@ export const EXPORT_TOOL_NAME = "export_tool_result"
 // reads like run_sql) runs with the authority the run already has.
 export const EXPORT_DENIED_TOOLS = new Set([
   ...SIDE_EFFECT_TOOLS,
+  // Publishes a file; not a side-effect tool, so re-sharing makes a new version.
+  "share_file",
   "request_approval",
   "update_plan",
   "complete_plan",
@@ -199,7 +201,7 @@ type InvokableTool = {
 
 // Host-side pipe: run a read tool, write its full result to artifact storage,
 // and hand the model only a receipt. Bulk data never enters model context —
-// the file URL feeds create_artifacts.inputFileUrls or ships as the deliverable.
+// the file URL is downloaded into the sandbox or ships as the deliverable.
 // The factory closes over the run's live tool map + per-tool context map, so
 // it must be created after those are assembled (and added to the same map).
 export function createExportToolResultTool(opts: {
@@ -209,7 +211,7 @@ export function createExportToolResultTool(opts: {
 }) {
   return tool({
     description:
-      "Run another available tool and save its complete result as a file instead of reading it into the conversation. Use this whenever a tool would return bulk data (many rows, long lists, big JSON) — especially database queries — or when someone wants the data as a file. Returns a receipt with the file url, row/byte counts, and a small preview; the full data is only in the file. Share the url as the deliverable, or pass it to create_artifacts as an input file for further processing. Only read tools can be exported; action tools are refused.",
+      "Run another available tool and save its complete result as a file instead of reading it into the conversation. Use this whenever a tool would return bulk data (many rows, long lists, big JSON) — especially database queries — or when someone wants the data as a file. Returns a receipt with the file url, row/byte counts, and a small preview; the full data is only in the file. Share the url as the deliverable, or download it into your sandbox for further processing. Only read tools can be exported; action tools are refused.",
     inputSchema: z.object({
       tool: z.string().describe("name of the tool to run, e.g. run_sql"),
       args: z

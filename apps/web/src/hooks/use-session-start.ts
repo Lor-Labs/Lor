@@ -29,6 +29,11 @@ export type SessionStart = {
   id: string
   threadRootId: string
   origin: "chat" | "new"
+  // New session in Code mode.
+  code?: { repo: string; branch: string }
+  harness?: "pi" | "claude_code" | "codex"
+  // "Continue in Code": the session it continues.
+  source?: { id: string; title: string }
   title: string
   // The sender's message, the session's first turn.
   message: Message
@@ -92,6 +97,12 @@ export function useSessionStart({
       threadRootId: start.threadRootId,
       creatorId: user.id,
       origin: start.origin,
+      mode: start.code ? "code" : "chat",
+      harness: start.harness ?? "pi",
+      repoFullName: start.code?.repo ?? null,
+      baseBranch: start.code?.branch ?? null,
+      sourceSessionId: start.source?.id ?? null,
+      forkedFromMessageId: null,
       title: start.title,
       titleEditedAt: null,
       loopId: null,
@@ -105,7 +116,7 @@ export function useSessionStart({
     const updatedAt = Date.now() + PENDING_MS
     queryClient.setQueryData<AgentSessionDetail>(
       agentSessionQueryOptions(start.id).queryKey,
-      { session, channel, context: [] },
+      { session, channel, context: [], source: start.source ?? null },
       { updatedAt }
     )
     queryClient.setQueryData<InfiniteData<ThreadPage, ThreadPageParam>>(

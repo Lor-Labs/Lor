@@ -72,7 +72,53 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   // The connector event that started an Act session. Content is the event
   // payload Lor reads; clients show the label.
   "trigger_run",
+  // In a session: someone continued it in a new code session.
+  "session_continued",
+  // In a code session: someone committed its staged files.
+  "session_committed",
+  // In a code session: someone pushed its commits to GitHub.
+  "session_pushed",
+  // In a session: someone forked it at one of Lor's replies.
+  "session_forked",
+  // In a session: someone rewound it to one of Lor's replies. The messages
+  // between that reply and this row are the rewound turns.
+  "session_rewound",
 ])
+
+// Claude Code's own permission modes, picked per message in a Claude Code
+// session's composer (code-sessions-runbook.md chunk 7d-4b).
+export const claudeCodeModeEnum = pgEnum("claude_code_mode", [
+  "auto",
+  "default",
+  "acceptEdits",
+  "plan",
+  "bypassPermissions",
+])
+
+export type ClaudeCodeMode = (typeof claudeCodeModeEnum.enumValues)[number]
+
+// The models a Codex session's composer offers, on the AI Gateway
+// (code-sessions-runbook.md chunk 8). GPT-6.1 Sol is the default.
+export const codexModelEnum = pgEnum("codex_model", [
+  "gpt-6.1-sol",
+  "gpt-6-astra",
+  "gpt-6-luna",
+])
+
+export type CodexModel = (typeof codexModelEnum.enumValues)[number]
+
+// The models a Claude Code session's composer offers, as Claude Code's own
+// aliases (each resolves to the newest model of its family that the
+// bridge's Claude Code knows). None picked: Opus, Claude Code's documented
+// default; the bridge's version would pick Sonnet itself.
+export const claudeModelEnum = pgEnum("claude_model", [
+  "opus",
+  "sonnet",
+  "haiku",
+  "fable",
+])
+
+export type ClaudeModel = (typeof claudeModelEnum.enumValues)[number]
 
 // Lifecycle of a message row. Everything is "complete" except a Lor
 // placeholder, which lands as "pending" and flips to "complete"/"failed" when
@@ -124,6 +170,14 @@ export const message = pgTable(
     // subscribers only (shown as an aside). Null outside sessions and on
     // Lor's own messages.
     routedToLor: boolean("routed_to_lor"),
+
+    // A person's message in a Claude Code session: the mode the sender
+    // picked for the turn it starts. It stays with the message while it waits
+    // in the session's queue.
+    claudeCodeMode: claudeCodeModeEnum("claude_code_mode"),
+    claudeModel: claudeModelEnum("claude_model"),
+    // Likewise in a Codex session: the model the sender picked.
+    codexModel: codexModelEnum("codex_model"),
 
     // file attachments as JSON array
     // [{ url, filename, size, contentType, width?, height? }]
@@ -292,6 +346,42 @@ export type TriggerRunPayload = {
   label: string
 }
 
+export type SessionContinuedPayload = {
+  // The new code session.
+  sessionId: string
+  repoFullName: string | null
+}
+
+export type SessionCommittedPayload = {
+  sessionId: string
+  sha: string
+  subject: string
+  // Null on a detached HEAD.
+  branch: string | null
+  fileCount: number
+}
+
+export type SessionPushedPayload = {
+  sessionId: string
+  repoFullName: string
+  branch: string
+  commitCount: number
+  headSha: string
+}
+
+export type SessionForkedPayload = {
+  // The new session.
+  sessionId: string
+  // The Lor reply it was forked at.
+  fromMessageId: string
+}
+
+export type SessionRewoundPayload = {
+  sessionId: string
+  // The Lor reply the session went back to.
+  toMessageId: string
+}
+
 export type ChannelEventPayload =
   | ChannelCreatedPayload
   | ChannelRenamedPayload
@@ -299,6 +389,11 @@ export type ChannelEventPayload =
   | MemberRemovedPayload
   | LoopEventPayload
   | TriggerRunPayload
+  | SessionContinuedPayload
+  | SessionCommittedPayload
+  | SessionPushedPayload
+  | SessionForkedPayload
+  | SessionRewoundPayload
   | null
 
 // Type definitions for the JSONB fields
@@ -353,9 +448,6 @@ export type LorToolCall = {
   toolName: string
   // Human status line, e.g. "Searching connected sources for …".
   label: string
-  // Set on a nested sub-step (e.g. a code-investigation sandbox agent's own
-  // tool calls) → the toolCallId of the parent tool. Top-level calls omit it.
-  parentToolCallId?: string
   // Character offset into the message `content` where this call occurred, so the
   // UI can render text and tool groups in the order the model produced them.
   at?: number
@@ -369,8 +461,8 @@ export type LorToolCall = {
     // favicon: site icon url for web results — rendered on the item's badge.
     items?: { title: string; url?: string; favicon?: string }[]
   }
-  // File change a nested sandbox sub-step made (write/edit): line counts for
-  // the row label and a bounded unified diff for the expandable view.
+  // File change a sandbox write/edit made: line counts for the row label and
+  // a bounded diff for the expandable view.
   diff?: {
     path: string
     additions: number
@@ -378,7 +470,7 @@ export type LorToolCall = {
     patch?: string
     truncated?: boolean
   }
-  // Artifact deliverables this call produced (create_artifacts) — presented
+  // Artifact deliverables this call produced (share_file) — presented
   // as file cards at the end of the message, opening the artifact viewer.
   files?: {
     artifactId: string

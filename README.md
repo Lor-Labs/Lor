@@ -20,6 +20,10 @@ apps/
   www/          — Marketing site & waitlist (Next.js)
   api/          — Hono API server
   realtime/     — Socket.IO realtime gateway
+  desktop/      — Desktop client
+  mobile/       — Mobile client
+  transcriber/  — Speech-to-text service
+  worker/       — Background worker
 
 packages/
   api-client/   — Shared type-safe Hono API client
@@ -28,6 +32,13 @@ packages/
   db/           — Drizzle ORM schema & database client
   env/          — Type-safe environment variables (server/client)
   utils/        — Shared utility helpers
+  billing/      — Subscription and billing logic
+  connectors/   — Integration connector registry
+  logger/       — Shared logging helpers
+  lor/          — Lor agent runtime
+  messaging/    — Message and channel domain logic
+  realtime-types/ — Shared realtime event types
+  voice/        — Voice channel support
   typescript-config/ — Shared TypeScript configs
 ```
 
@@ -46,6 +57,13 @@ pnpm db:push
 # Start all apps in dev mode
 pnpm dev
 ```
+
+For the bundled Docker Compose services, set `POSTGRES_PASSWORD` and
+`REDIS_PASSWORD` in `.env` to separate random, URL-safe passwords (for example,
+generate each with `openssl rand -hex 32`). Database and Redis host ports bind
+only to `127.0.0.1`; apps running on the host must use matching credentials in
+`DATABASE_URL` and `REDIS_URL`. An existing Postgres volume retains its database
+password: rotate that role's password before changing the Compose credential.
 
 Before opening a pull request, run the same static gate used by CI:
 

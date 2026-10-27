@@ -35,6 +35,12 @@ export const workspaceAuthMiddleware = async (
   }
 
   const workspaceSlug = c.req.param("workspaceSlug")
+  if (!workspaceSlug) {
+    return c.json(
+      { success: false, message: "Workspace not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
 
   const workspaceRecord = await db
     .select()

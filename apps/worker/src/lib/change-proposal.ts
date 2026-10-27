@@ -16,6 +16,7 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import type { createClient } from "redis"
 import { logger } from "@/lib/logger"
 import { postLorMessage } from "@/lib/lor-messages"
+import { visibleNotificationRecipients } from "@/lib/notification-audience"
 
 type RedisClient = ReturnType<typeof createClient>
 
@@ -256,7 +257,11 @@ async function notifyProposalApprovers(
   }
 ): Promise<void> {
   const required = proposalPermissions(input.operations) as PermissionRequest
-  const userIds = await qualifyingApprovers(input.workspaceId, required)
+  const userIds = await visibleNotificationRecipients(
+    await qualifyingApprovers(input.workspaceId, required),
+    input.channelId,
+    input.threadRootId
+  )
   if (userIds.length === 0) return
 
   const [workspace, channel] = await Promise.all([

@@ -2,6 +2,7 @@ import { and, asc, db, eq, gte, lte, schema, sql } from "@repo/db"
 import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { privateAudienceFilter } from "../retrieval"
 import { documentKind, pieceLabel } from "./kinds"
+import { attachmentObjectKey } from "./storage"
 
 const MAX_PIECES = 10
 const MAX_CHARS = 20_000
@@ -15,6 +16,7 @@ export async function readAttachmentPieces(
   from?: number,
   to?: number
 ) {
+  if (!attachmentObjectKey(url)) return null
   const scope = and(
     eq(schema.attachmentChunk.workspaceId, workspaceId),
     eq(schema.attachmentChunk.url, url),
@@ -100,10 +102,10 @@ export async function readAttachmentPieces(
   const kind = first ? documentKind(first.contentType, first.filename) : null
   const notes = [
     kind === "xlsx" || kind === "csv"
-      ? "Spreadsheet rows are not stored: each piece profiles one sheet (columns, ranges, frequent values, sample rows). For exact totals or filtered rows, use create_artifacts with this url."
+      ? "Spreadsheet rows are not stored: each piece profiles one sheet (columns, ranges, frequent values, sample rows). For exact totals or filtered rows, download this url into your sandbox and compute them there."
       : null,
     summary.truncated
-      ? "Only part of this file was indexed (it exceeded the indexing limits). For the full file, use create_artifacts with this url."
+      ? "Only part of this file was indexed (it exceeded the indexing limits). For the full file, download this url into your sandbox."
       : null,
   ].filter(Boolean)
 

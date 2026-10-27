@@ -64,7 +64,7 @@ jobs:
               per_page: 100,
             })
 
-            if (comments.some((c) => c.body?.includes(marker))) {
+            if (comments.some((c) => c.user?.login === "github-actions[bot]" && c.body?.includes(marker))) {
               core.info("Release options comment already present.")
               return
             }
@@ -87,14 +87,14 @@ jobs:
   # the label so the state is visible next to the merge box.
   sync-label:
     name: Sync TestFlight label
-    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '<!-- lor-release-options -->')
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.user.login == 'github-actions[bot]' && contains(github.event.comment.body, '<!-- lor-release-options -->')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
       # Covers label add/remove on the PR. Repo-level label creation would need
       # issues: write, but Issues are disabled on this repo so that permission
-      # can't be granted — creation is best-effort below.
+      # can't be granted. Create the label once in repository settings.
       pull-requests: write
     steps:
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
@@ -102,6 +102,16 @@ jobs:
           RELEASE_LABEL: ${{ env.RELEASE_LABEL }}
         with:
           script: |
+            const { data: actor } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.sender.login,
+            })
+            if (!["admin", "maintain", "write"].includes(actor.permission)) {
+              core.info("Only repository writers can request a release.")
+              return
+            }
+
             const label = process.env.RELEASE_LABEL
             const issue = context.payload.issue
             const wanted = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im.test(
@@ -120,18 +130,8 @@ jobs:
               issue_number: issue.number,
             }
 
-            // The label is cosmetic — the decide job reads the checkbox itself
-            // on merge — so never fail the run over it.
             if (wanted) {
-              try {
-                await github.rest.issues.addLabels({ ...args, labels: [label] })
-              } catch (error) {
-                core.warning(
-                  `Couldn't add the ${label} label (${error.message}). ` +
-                    `Create it once at https://github.com/${context.repo.owner}/${context.repo.repo}/labels — ` +
-                    `either way, the checked box alone triggers the release on merge.`
-                )
-              }
+              await github.rest.issues.addLabels({ ...args, labels: [label] })
               core.notice("Merging this PR will cut a TestFlight build.")
             } else {
               await github.rest.issues
@@ -186,25 +186,8 @@ jobs:
 
             const labelled = pr.labels.some((l) => l.name === label)
 
-            // Fall back to the checkbox itself, in case the label sync failed
-            // or the PR predates it.
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr.number,
-              per_page: 100,
-            })
-            const re = /^[ \t]*[-*][ \t]*\[[xX]\][^\n]*testflight/im
-            const checked =
-              comments.some(
-                (c) => c.body?.includes("<!-- lor-release-options -->") && re.test(c.body)
-              ) || re.test(pr.body ?? "")
-
-            const release = labelled || checked
-            core.info(
-              `PR #${pr.number}: label=${labelled} checkbox=${checked} → release=${release}`
-            )
-            core.setOutput("release", String(release))
+            core.info(`PR #${pr.number}: release label=${labelled}`)
+            core.setOutput("release", String(labelled))
 
   release:
     name: Build & submit to TestFlight

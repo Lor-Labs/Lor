@@ -1,7 +1,8 @@
 import { db, schema } from "@repo/db"
+import { isChannelFeatureEnabled } from "@repo/utils/features"
 
 type TemplateChannel = Pick<
-  typeof schema.channel.$inferInsert,
+  typeof schema.channel.$inferSelect,
   "name" | "type" | "topic"
 >
 
@@ -37,10 +38,12 @@ const STARTUP_CHANNELS: TemplateChannel[] = [
 // (reference/workspace-model.md); the New session view teaches what it does.
 export async function seedWorkspaceTemplate(workspaceId: string) {
   await db.insert(schema.channel).values(
-    STARTUP_CHANNELS.map((channel, position) => ({
-      ...channel,
-      workspaceId,
-      position,
-    }))
+    STARTUP_CHANNELS.filter(isChannelFeatureEnabled).map(
+      (channel, position) => ({
+        ...channel,
+        workspaceId,
+        position,
+      })
+    )
   )
 }

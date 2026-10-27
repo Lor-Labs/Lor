@@ -31,6 +31,8 @@ export const LANGUAGE_ALIAS_MAP: Record<string, string> = {
   ts: "typescript",
   tsx: "typescript",
   js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
   jsx: "javascript",
   py: "python",
   sh: "bash",

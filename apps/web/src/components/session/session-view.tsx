@@ -1,9 +1,14 @@
 import {
   Archive02Icon,
+  BubbleChatIcon,
+  CommandLineIcon,
+  GitBranchIcon,
+  GitForkIcon,
   HashtagIcon,
   Link01Icon,
   MoreHorizontalIcon,
   PencilEdit02Icon,
+  SourceCodeIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
@@ -30,11 +35,17 @@ import { timeAgo } from "@repo/utils/date"
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
+import { HARNESS_LABELS } from "@/components/session/harness-picker"
 import { SessionDocument } from "@/components/session/session-document"
+import {
+  SessionTabBar,
+  SessionTabView,
+} from "@/components/session/session-tabs"
+import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
@@ -44,11 +55,20 @@ import {
   prefetchSession,
   useAgentSession,
   useAgentSessionUpdates,
+  useForkSession,
+  useRewindSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
+import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useChannelProposals } from "@/hooks/use-proposals"
+import { useLiveSessionChanges } from "@/hooks/use-session-changes"
+import {
+  parseTabId,
+  sessionTabLink,
+  useSessionTabs,
+} from "@/hooks/use-session-tabs"
 import {
   findSidebarSession,
   patchSidebarSession,
@@ -59,10 +79,12 @@ export function SessionView({
   workspaceSlug,
   sessionId,
   targetMessageId,
+  targetFolder,
 }: {
   workspaceSlug: string
   sessionId: string
   targetMessageId?: string
+  targetFolder?: string
 }) {
   const { data, isPending, isError } = useAgentSession(sessionId)
   // Opened without a row hover (⌘K, a link, a notification): the sidebar row
@@ -98,18 +120,21 @@ export function SessionView({
       workspaceSlug={workspaceSlug}
       detail={data}
       targetMessageId={targetMessageId}
+      targetFolder={targetFolder}
     />
   )
 }
 
 function SessionConversation({
   workspaceSlug,
-  detail: { session, channel },
+  detail: { session, channel, source },
   targetMessageId,
+  targetFolder,
 }: {
   workspaceSlug: string
   detail: AgentSessionDetail
   targetMessageId?: string
+  targetFolder?: string
 }) {
   // Approval and proposal cards render inline in the session; keep them live.
   useChannelApprovals(session.channelId, session.threadRootId)
@@ -138,7 +163,7 @@ function SessionConversation({
 
   // The right panel shows this session's context, plan, files and activity
   // while the page is open, the way a channel page sets its own panel view.
-  const { setView, clearView } = useRightSidebar()
+  const { setView, openView, clearView, isHydrated } = useRightSidebar()
   const isMobile = useIsMobile()
   const workView = useMemo<SessionWorkSidebarView>(
     () => ({
@@ -156,9 +181,32 @@ function SessionConversation({
     return () => clearView()
   }, [workView, isMobile, setView, clearView])
 
+  // Code sessions: files and diffs open in tabs beside the chat.
+  const code = session.mode === "code"
+  useLiveSessionChanges(session.id, session.threadRootId, code)
+  const tabs = useSessionTabs(session.id)
+  const activeTab = code && tabs.active ? parseTabId(tabs.active) : null
+  const showTabs = code && (tabs.ids.length > 0 || activeTab !== null)
+
   useAgentSessionUpdates(session.id)
   const updateSession = useUpdateAgentSession()
+  const fork = useForkSession(workspaceSlug)
+  const rewind = useRewindSession(session.id)
   const navigate = useNavigate()
+  useEffect(() => {
+    // On mobile the files panel opens as the right sheet.
+    if (!targetFolder || !code || !isHydrated || isMobile === undefined) return
+    openView({
+      ...workView,
+      type: "session-files",
+      revealFolder: { id: crypto.randomUUID(), path: targetFolder },
+    })
+    void navigate({
+      to: ".",
+      search: (prev) => ({ ...prev, folder: undefined, open: undefined }),
+      replace: true,
+    })
+  }, [targetFolder, code, isHydrated, isMobile, workView, openView, navigate])
   const change = {
     workspaceId: session.workspaceId,
     channelId: session.channelId,
@@ -180,19 +228,75 @@ function SessionConversation({
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null
   const [renaming, setRenaming] = useState(false)
+  // Claude Code answers only messages from people with their own Claude
+  // subscription; the server sends the rest to the session's people
+  // (code-sessions-runbook.md chunk 7).
+  const { data: accounts } = usePersonalAccounts()
+  const [connectingClaude, setConnectingClaude] = useState(false)
+  const withoutClaude =
+    session.harness === "claude_code" &&
+    !session.archivedAt &&
+    accounts !== undefined &&
+    accounts.claude.account == null
 
   return (
     <SessionDocument
+      claudeCode={session.harness === "claude_code" && !withoutClaude}
+      codex={session.harness === "codex" && !session.archivedAt}
+      composerNote={
+        withoutClaude ? (
+          <>
+            <ClaudeCodeNote
+              onConnect={() => setConnectingClaude(true)}
+              onContinueWithLor={() =>
+                void navigate({
+                  to: "/$workspaceSlug/session/new",
+                  params: { workspaceSlug },
+                  search: {
+                    channelId: session.channelId,
+                    continueFrom: session.id,
+                    harness: "pi",
+                  },
+                })
+              }
+            />
+            <ClaudeConnectDialog
+              open={connectingClaude}
+              onOpenChange={setConnectingClaude}
+            />
+          </>
+        ) : undefined
+      }
       workspaceSlug={workspaceSlug}
       channelId={session.channelId}
       threadRootId={session.threadRootId}
+      repoSessionId={code ? session.id : undefined}
+      onShowChat={() => tabs.select(null)}
       targetMessageId={targetMessageId}
+      onFork={(message) =>
+        fork.mutateAsync({ sessionId: session.id, messageId: message.id })
+      }
+      onRewind={
+        session.archivedAt
+          ? undefined
+          : (message) => rewind.mutateAsync(message.id)
+      }
+      rewindRestoresFiles={code}
       header={({ lorRunning, headingVisible }) => (
         <SessionStrip
           session={session}
           workView={workView}
           lorRunning={lorRunning}
           showTitle={!headingVisible}
+          tabBar={
+            showTabs ? (
+              <SessionTabBar
+                workspaceSlug={workspaceSlug}
+                sessionId={session.id}
+                tabs={tabs}
+              />
+            ) : null
+          }
           onRename={() => setRenaming(true)}
           onArchive={() => {
             updateSession.mutate({ ...change, archived: true })
@@ -208,12 +312,23 @@ function SessionConversation({
         <SessionHeading
           session={session}
           channelName={channel.name ?? "channel"}
+          source={source}
           startedBy={startedBy}
           starter={starter}
           renaming={renaming}
           onRenamingChange={setRenaming}
           onRename={(title) => updateSession.mutate({ ...change, title })}
         />
+      }
+      cover={
+        activeTab ? (
+          <SessionTabView
+            key={activeTab.id}
+            sessionId={session.id}
+            tab={activeTab}
+            onOpen={tabs.open}
+          />
+        ) : undefined
       }
       archivedBar={
         session.archivedAt ? (
@@ -249,6 +364,7 @@ function SessionStrip({
   workView,
   lorRunning,
   showTitle,
+  tabBar,
   onRename,
   onArchive,
 }: {
@@ -256,23 +372,28 @@ function SessionStrip({
   workView: SessionWorkSidebarView
   lorRunning: boolean
   showTitle: boolean
+  // A code session's open tabs take the title's place.
+  tabBar: ReactNode
   onRename: () => void
   onArchive: () => void
 }) {
   const { workspaceSlug, channelId } = workView
+  const navigate = useNavigate()
   const archived = session.archivedAt !== null
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const [confirmArchive, setConfirmArchive] = useState(false)
+  // The session itself, without an open tab or highlighted message.
   const copyLink = () =>
     void navigator.clipboard
-      .writeText(window.location.href)
+      .writeText(sessionTabLink(workspaceSlug, session.id, null))
       .then(() => toast.success("Link copied"))
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-1 px-3">
       <HeaderNavControls className="-ml-1" />
+      {tabBar}
       <AnimatePresence initial={false}>
-        {showTitle && (
+        {showTitle && !tabBar && (
           <motion.span
             key="title"
             initial={{ opacity: 0 }}
@@ -316,6 +437,21 @@ function SessionStrip({
                 Rename
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem
+              onClick={() =>
+                void navigate({
+                  to: "/$workspaceSlug/session/new",
+                  params: { workspaceSlug },
+                  search: {
+                    channelId: session.channelId,
+                    continueFrom: session.id,
+                  },
+                })
+              }
+            >
+              <HugeiconsIcon icon={SourceCodeIcon} strokeWidth={2} />
+              Continue in Code
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={copyLink}>
               <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
               Copy link
@@ -351,10 +487,34 @@ function SessionStrip({
   )
 }
 
-// The document's opening: the title, then one quiet line of context.
+function ClaudeCodeNote({
+  onConnect,
+  onContinueWithLor,
+}: {
+  onConnect: () => void
+  onContinueWithLor: () => void
+}) {
+  return (
+    <div className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
+      <span className="min-w-0 flex-1">
+        Claude Code answers people on their own Claude subscription. Your
+        messages here go to the people in the session.
+      </span>
+      <Button size="xs" variant="ghost" onClick={onContinueWithLor}>
+        Continue with Lor
+      </Button>
+      <Button size="xs" onClick={onConnect}>
+        Connect your Claude subscription
+      </Button>
+    </div>
+  )
+}
+
+// The document's opening: title and metadata, with the source on its own row.
 function SessionHeading({
   session,
   channelName,
+  source,
   startedBy,
   starter,
   renaming,
@@ -363,6 +523,8 @@ function SessionHeading({
 }: {
   session: RealtimeAgentSession
   channelName: string
+  // "Continue in Code" or a fork: the session this one comes from.
+  source: { id: string; title: string } | null
   startedBy: string
   // The person who started it; null for loops and automations.
   starter: {
@@ -385,7 +547,7 @@ function SessionHeading({
         onEditingChange={onRenamingChange}
         onRename={onRename}
       />
-      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-muted-foreground text-sm">
+      <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground text-sm">
         {workspaceSlug ? (
           <Link
             to="/$workspaceSlug/$channelId"
@@ -400,6 +562,43 @@ function SessionHeading({
             {channelName}
           </Link>
         ) : null}
+        {session.repoFullName && session.baseBranch && (
+          <>
+            <span aria-hidden="true">·</span>
+            <a
+              href={`https://github.com/${session.repoFullName}/tree/${session.baseBranch}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+            >
+              <HugeiconsIcon
+                icon={SourceCodeIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              {session.repoFullName}
+              <HugeiconsIcon
+                icon={GitBranchIcon}
+                className="ml-1 size-3.5"
+                strokeWidth={2}
+              />
+              {session.baseBranch}
+            </a>
+          </>
+        )}
+        {session.harness !== "pi" && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="inline-flex items-center gap-1">
+              <HugeiconsIcon
+                icon={CommandLineIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              {HARNESS_LABELS[session.harness]}
+            </span>
+          </>
+        )}
         <span aria-hidden="true">·</span>
         <span className="inline-flex items-center gap-1.5">
           {starter && (
@@ -421,6 +620,33 @@ function SessionHeading({
         <span aria-hidden="true">·</span>
         <span>{timeAgo(session.createdAt)}</span>
       </p>
+      {source && workspaceSlug && (
+        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+          <HugeiconsIcon
+            icon={session.forkedFromMessageId ? GitForkIcon : BubbleChatIcon}
+            className="size-3.5 shrink-0"
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+          <span className="shrink-0">
+            {session.forkedFromMessageId ? "Forked from" : "Continued from"}
+          </span>
+          <Link
+            to="/$workspaceSlug/session/$sessionId"
+            params={{ workspaceSlug, sessionId: source.id }}
+            // A fork opens its source at the reply it was forked from.
+            search={
+              session.forkedFromMessageId
+                ? { msgId: session.forkedFromMessageId }
+                : {}
+            }
+            title={source.title}
+            className="min-w-0 truncate font-medium transition-colors hover:text-foreground"
+          >
+            {source.title}
+          </Link>
+        </div>
+      )}
       <div className="mt-6 border-border/50 border-t" />
     </div>
   )

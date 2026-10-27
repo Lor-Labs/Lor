@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@repo/api": "workspace:*",
-    "hono": "^4.11.9"
+    "hono": "^4.13.14"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*"

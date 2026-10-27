@@ -1,3 +1,4 @@
+import { features } from "@repo/utils/features"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
@@ -182,13 +183,15 @@ export default function NotificationSettingsScreen() {
               title="Channel Notifications"
               value={settings.desktopNotifications}
             />
-            <OptionGroup
-              detail="Direct messages sent to you."
-              onChange={(dmNotifications) => update({ dmNotifications })}
-              options={DM_OPTIONS}
-              title="DM Notifications"
-              value={settings.dmNotifications}
-            />
+            {features.directMessages && (
+              <OptionGroup
+                detail="Direct messages sent to you."
+                onChange={(dmNotifications) => update({ dmNotifications })}
+                options={DM_OPTIONS}
+                title="DM Notifications"
+                value={settings.dmNotifications}
+              />
+            )}
           </>
         ) : (
           <NotificationSettingsSkeleton />
@@ -205,17 +208,19 @@ function NotificationSettingsSkeleton() {
         { key: "channels", rows: 3 },
         { key: "lor-threads", rows: 2 },
         { key: "dms", rows: 2 },
-      ].map(({ key, rows }, group) => (
-        <View className="gap-two" key={key}>
-          <Skeleton className="h-2.5 w-40 rounded-full" />
-          {Array.from({ length: rows }, (_, index) => index).map((row) => (
-            <Skeleton
-              className="h-[52px] rounded-lor-md"
-              key={`${group}-${row}`}
-            />
-          ))}
-        </View>
-      ))}
+      ]
+        .filter(({ key }) => features.directMessages || key !== "dms")
+        .map(({ key, rows }, group) => (
+          <View className="gap-two" key={key}>
+            <Skeleton className="h-2.5 w-40 rounded-full" />
+            {Array.from({ length: rows }, (_, index) => index).map((row) => (
+              <Skeleton
+                className="h-[52px] rounded-lor-md"
+                key={`${group}-${row}`}
+              />
+            ))}
+          </View>
+        ))}
     </View>
   )
 }

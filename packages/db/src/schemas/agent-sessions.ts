@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm"
 import {
+  type AnyPgColumn,
   index,
   pgEnum,
   pgTable,
@@ -22,6 +23,22 @@ export const agentSessionOriginEnum = pgEnum("agent_session_origin", [
   "new",
   "loop",
   "trigger",
+])
+
+// Fixed when the session starts (reference/planned/code-channels.md §2).
+export const agentSessionModeEnum = pgEnum("agent_session_mode", [
+  "chat",
+  "code",
+])
+
+// Harnesses that can run a conversation (reference/planned/harness-sessions.md
+// §3). Claude Code runs on the turn starter's own Claude subscription
+// (code-sessions-runbook.md chunk 7); Codex on Lor credits (chunk 8).
+// Defined here, not in harness-states.ts, which imports this file.
+export const harnessKindEnum = pgEnum("harness_kind", [
+  "pi",
+  "claude_code",
+  "codex",
 ])
 
 // A Lor session: one place where Lor works on one thing, next to the channel
@@ -51,6 +68,26 @@ export const agentSession = pgTable(
       onDelete: "set null",
     }),
     origin: agentSessionOriginEnum("origin").notNull(),
+    mode: agentSessionModeEnum("mode").notNull().default("chat"),
+    // Fixed when the session starts: each harness keeps its own native
+    // conversation, so a session never switches.
+    harness: harnessKindEnum("harness").notNull().default("pi"),
+    // Code sessions: the GitHub repo (owner/repo) cloned as the work folder
+    // and the branch it starts from. Null in chat sessions.
+    repoFullName: text("repo_full_name"),
+    baseBranch: text("base_branch"),
+    // "Continue in Code": the session this one continues, whose messages are
+    // its starting context.
+    sourceSessionId: uuid("source_session_id").references(
+      (): AnyPgColumn => agentSession.id,
+      { onDelete: "set null" }
+    ),
+    // A fork: the Lor reply in the source session whose turn it starts from
+    // (code-sessions-runbook.md chunk 6).
+    forkedFromMessageId: uuid("forked_from_message_id").references(
+      () => message.id,
+      { onDelete: "set null" }
+    ),
     title: text("title").notNull(),
     // Set when a person renames the session; generated titles stop then.
     titleEditedAt: timestamp("title_edited_at"),
@@ -82,7 +119,7 @@ export const agentSession = pgTable(
 // The messages a session was started with: chat history before `@Lor`, the
 // message behind "Ask Lor about this", or a thread's replies. Written once at
 // session start; renders as the "From #channel" block and is the background
-// Lor reads. What Lor reads later lives in agent_run_step.
+// Lor reads. What Lor reads later is in the session's Pi log (harness_log).
 export const agentSessionContext = pgTable(
   "agent_session_context",
   {

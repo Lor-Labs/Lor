@@ -27,13 +27,15 @@ import {
 async function createPresignedUpload(
   key: string,
   contentType: string,
-  size: number
+  size: number,
+  metadata?: Record<string, string>
 ) {
   const command = new PutObjectCommand({
     Bucket: env.S3_BUCKET_NAME,
     Key: key,
     ContentType: contentType,
     ContentLength: size,
+    Metadata: metadata,
   })
   const uploadUrl = await getSignedUrl(s3Client, command, {
     expiresIn: PRESIGNED_URL_EXPIRY_SECONDS,
@@ -67,7 +69,8 @@ export const presign: AppRouteHandler<PresignRoute> = async (c) => {
   const { uploadUrl, fileUrl } = await createPresignedUpload(
     key,
     contentType,
-    size
+    size,
+    { "uploader-id": user.id, "channel-id": channelId }
   )
 
   return c.json({ uploadUrl, fileUrl, key }, HttpStatusCodes.OK)

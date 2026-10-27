@@ -28,6 +28,7 @@ import {
 import { Spinner } from "@repo/ui/components/spinner"
 import { Switch } from "@repo/ui/components/switch"
 import { cn } from "@repo/ui/lib/utils"
+import { features } from "@repo/utils/features"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
@@ -219,10 +220,15 @@ export function CreateChannelDialog({
             <div className="space-y-1.5">
               <Label htmlFor="channel-type">Type</Label>
               <Select
-                items={channelTypes.map((ct) => ({
-                  value: ct.value,
-                  label: ct.label,
-                }))}
+                items={channelTypes
+                  .filter(
+                    (option) =>
+                      features.voiceChannels || option.value !== "voice"
+                  )
+                  .map((ct) => ({
+                    value: ct.value,
+                    label: ct.label,
+                  }))}
                 value={type}
                 onValueChange={(v) => setType(v as "text" | "voice")}
               >
@@ -230,24 +236,29 @@ export function CreateChannelDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end" alignItemWithTrigger={false}>
-                  {channelTypes.map((ct) => (
-                    <CustomSelectItem
-                      key={ct.value}
-                      value={ct.value}
-                      tooltip={ct.description}
-                      side="right"
-                      disabled={ct.disabled}
-                    >
-                      <div className="flex items-center gap-2">
-                        <HugeiconsIcon
-                          icon={ct.icon}
-                          className="size-4 text-muted-foreground"
-                          strokeWidth={2}
-                        />
-                        {ct.label}
-                      </div>
-                    </CustomSelectItem>
-                  ))}
+                  {channelTypes
+                    .filter(
+                      (option) =>
+                        features.voiceChannels || option.value !== "voice"
+                    )
+                    .map((ct) => (
+                      <CustomSelectItem
+                        key={ct.value}
+                        value={ct.value}
+                        tooltip={ct.description}
+                        side="right"
+                        disabled={ct.disabled}
+                      >
+                        <div className="flex items-center gap-2">
+                          <HugeiconsIcon
+                            icon={ct.icon}
+                            className="size-4 text-muted-foreground"
+                            strokeWidth={2}
+                          />
+                          {ct.label}
+                        </div>
+                      </CustomSelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

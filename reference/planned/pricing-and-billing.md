@@ -286,7 +286,7 @@ Recommended spending controls:
 
 - Additional spend defaults to $0 until an admin chooses a budget or buys balance. Warn at 50%, 80% and 100% of the allowance/budget.
 - Display a total ceiling as seats plus authorized additional spend. A ten-person team choosing $100 additional spend has a $390 monthly subscription-plus-usage ceiling; the revised typical $343 bill fits within it.
-- Set separate per-run and per-Loop ceilings; start with a $5 regular run budget and an explicit larger budget for long code/browser work. Preserve a checkpoint when pausing.
+- No fixed per-run budget (decision 2026-10-20, superseding the earlier $5 per-run proposal). The workspace balance is the limit: auto top-up refills it below a threshold, and a run stops gracefully only when the balance is exhausted and cannot be refilled. The admin's monthly dollar cap on top-ups guards against a runaway run or Loop. Check the live balance during a run, not only before it starts. Preserve a checkpoint when pausing. See [pi-harness-runbook.md §4.5](pi-harness-runbook.md).
 - Reserve the next bounded step, reconcile actual usage and release unused reservations. Allow enough prepaid headroom for in-flight provider calls, rather than pretending cancellation can undo them.
 - Distinguish exhausted monthly allowance, purchased balance and auto-recharge authorization. A “monthly cap” must state whether it caps new purchases, consumption, or both; do not let stored prepaid balance make the promise ambiguous.
 - Spend caps pause new paid agent execution; they do not block chat, reading files or exporting existing work. Exhausting AI credits does not stop included search, transcription or access to stored code. Keep retention policy separate from the AI wallet.

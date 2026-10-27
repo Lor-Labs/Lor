@@ -20,6 +20,7 @@ import {
   threadReadState,
   user,
 } from "@repo/db/schema"
+import { channelCodeRepo, listRepoBranches } from "@repo/lor/code-repo"
 import {
   listConnectorScopes as listScopes,
   searchConnector,
@@ -74,6 +75,7 @@ import type {
   ListChannelConnectorsRoute,
   ListChannelMessagesRoute,
   ListChannelsRoute,
+  ListCodeBranchesRoute,
   ListConnectorScopesRoute,
   ListPinnedMessagesRoute,
   ListThreadActivityRoute,
@@ -87,6 +89,21 @@ import type {
 } from "@/routes/v1/channels/routes"
 
 const DEFAULT_CONNECTOR_SEARCH_LIMIT = 8
+
+async function workspaceProfileExists(profileId: string, workspaceId: string) {
+  const profile = await db
+    .select({ id: agentProfile.id })
+    .from(agentProfile)
+    .where(
+      and(
+        eq(agentProfile.id, profileId),
+        eq(agentProfile.workspaceId, workspaceId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  return Boolean(profile)
+}
 
 export const listChannels: AppRouteHandler<ListChannelsRoute> = async (c) => {
   const workspace = c.var.workspace
@@ -144,6 +161,16 @@ export const createChannel: AppRouteHandler<CreateChannelRoute> = async (c) => {
   assertWorkspaceAuthority(c.var.authority, {
     channel: ["create"],
   })
+
+  if (body.agentProfileId) {
+    assertWorkspaceAuthority(c.var.authority, { channel: ["update"] })
+    if (!(await workspaceProfileExists(body.agentProfileId, workspace.id))) {
+      return c.json(
+        { success: false, message: "Profile not found" },
+        HttpStatusCodes.FORBIDDEN
+      )
+    }
+  }
 
   // Creating inside a category requires a real category in this workspace the
   // caller can access — no planting channels inside a private project or
@@ -486,18 +513,7 @@ export const updateChannel: AppRouteHandler<UpdateChannelRoute> = async (c) => {
   // Assigning an agent profile: it must belong to this workspace (the FK alone
   // doesn't scope it). null clears the assignment (inherit category/default).
   if (body.agentProfileId) {
-    const profile = await db
-      .select({ id: agentProfile.id })
-      .from(agentProfile)
-      .where(
-        and(
-          eq(agentProfile.id, body.agentProfileId),
-          eq(agentProfile.workspaceId, workspace.id)
-        )
-      )
-      .limit(1)
-      .then((r) => r[0])
-    if (!profile) {
+    if (!(await workspaceProfileExists(body.agentProfileId, workspace.id))) {
       return c.json(
         { success: false, message: "Profile not found" },
         HttpStatusCodes.NOT_FOUND
@@ -570,18 +586,44 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
     )
   }
 
-  const deleted = await db
-    .delete(channel)
-    .where(
-      and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
-    )
-    .returning({ id: channel.id })
-    .then((rows) => rows[0])
+  const result = await db.transaction(async (tx) => {
+    // Lock the parent against concurrent FK inserts/reparenting. Deleting a
+    // category would otherwise detach children and widen inherited audiences.
+    const existing = await tx
+      .select({ id: channel.id })
+      .from(channel)
+      .where(
+        and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
+      )
+      .for("update")
+      .limit(1)
+      .then((rows) => rows[0])
+    if (!existing) return "not_found" as const
+    const child = await tx
+      .select({ id: channel.id })
+      .from(channel)
+      .where(eq(channel.parentId, channelId))
+      .limit(1)
+      .then((rows) => rows[0])
+    if (child) return "nonempty" as const
+    await tx.delete(channel).where(eq(channel.id, channelId))
+    return "deleted" as const
+  })
 
-  if (!deleted) {
+  if (result === "not_found") {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
+    )
+  }
+
+  if (result === "nonempty") {
+    return c.json(
+      {
+        success: false,
+        message: "Delete child channels before deleting their category",
+      },
+      HttpStatusCodes.CONFLICT
     )
   }
 
@@ -1397,6 +1439,45 @@ export const listConnectorScopes: AppRouteHandler<
 
   const scopes = await listScopes(provider, workspace.id)
   return c.json({ scopes: scopes ?? [] }, HttpStatusCodes.OK)
+}
+
+export const listCodeBranches: AppRouteHandler<ListCodeBranchesRoute> = async (
+  c
+) => {
+  const workspace = c.var.workspace
+  const currentUser = c.var.user
+  const { channelId } = c.req.valid("param")
+  const { repo, q } = c.req.valid("query")
+
+  if (
+    !(await channelInWorkspace(channelId, workspace.id)) ||
+    !(await userCanAccessChannel(channelId, currentUser.id))
+  ) {
+    return c.json(
+      { success: false, message: "Channel not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const allowed = await channelCodeRepo(workspace.id, channelId, repo)
+  if (!allowed) {
+    return c.json(
+      {
+        success: false,
+        message: "That repository isn't available for code sessions here",
+      },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+
+  const listed = await listRepoBranches(
+    allowed.installationId,
+    allowed.repo.fullName,
+    q ?? ""
+  )
+  return c.json(
+    listed ?? { defaultBranch: allowed.repo.defaultBranch, branches: [] },
+    HttpStatusCodes.OK
+  )
 }
 
 export const searchConnectorFiles: AppRouteHandler<

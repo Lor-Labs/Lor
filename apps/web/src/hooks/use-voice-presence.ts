@@ -1,3 +1,4 @@
+import { features } from "@repo/utils/features"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { useSocket } from "@/context/socket-context"
@@ -22,7 +23,7 @@ export function useInvalidateOnVoiceUpdate(
   const queryClient = useQueryClient()
 
   useEffect(() => {
-    if (!socket || !queryParam) return
+    if (!features.voiceChannels || !socket || !queryParam) return
     let timer: ReturnType<typeof setTimeout> | undefined
     const refresh = () => {
       void queryClient.invalidateQueries({ queryKey: [queryName, queryParam] })
@@ -53,7 +54,7 @@ export function useVoicePresence(
   useInvalidateOnVoiceUpdate("voice-presence", workspaceSlug, workspaceId)
   const query = useQuery({
     queryKey: voicePresenceQueryKey(workspaceSlug),
-    enabled: Boolean(workspaceSlug),
+    enabled: features.voiceChannels && Boolean(workspaceSlug),
     refetchInterval: POLL_MS,
     queryFn: async () => {
       if (!workspaceSlug) return []
@@ -64,7 +65,7 @@ export function useVoicePresence(
       return (await res.json()).channels
     },
   })
-  return query.data
+  return features.voiceChannels ? query.data : undefined
 }
 
 export type VoicePresenceChannel = NonNullable<

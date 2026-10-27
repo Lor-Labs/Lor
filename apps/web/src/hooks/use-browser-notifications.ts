@@ -13,6 +13,7 @@ import {
   type SubscribedNotification,
   type UnreadNotification,
 } from "@repo/realtime-types"
+import { features, isChannelFeatureEnabled } from "@repo/utils/features"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect } from "react"
@@ -23,6 +24,7 @@ import {
 } from "@/hooks/use-channel-mutes"
 import { useMessageSearchNavigation } from "@/hooks/use-message-search-navigation"
 import { apiClient } from "@/lib/api-client"
+import { channelQueryOptions } from "@/lib/channel-query"
 import { showNotification } from "@/lib/notification-dispatcher"
 
 type NotificationSettings = {
@@ -55,12 +57,31 @@ export function useBrowserNotifications() {
 
   useEffect(() => {
     if (!socket) return
+    let active = true
 
     // The sidebar keeps the workspace list loaded; notifications carry ids.
     const workspaceSlugFor = (workspaceId: string) =>
       queryClient
         .getQueryData<Array<{ id: string; slug: string }>>(["workspaces"])
         ?.find((workspace) => workspace.id === workspaceId)?.slug
+
+    const canShowChannel = async (payload: {
+      channelId: string
+      workspaceId: string | null
+    }) => {
+      if (payload.workspaceId === null) return features.directMessages
+      if (features.voiceChannels) return true
+      const workspaceSlug = workspaceSlugFor(payload.workspaceId)
+      if (!workspaceSlug) return false
+      try {
+        const channel = await queryClient.ensureQueryData(
+          channelQueryOptions(workspaceSlug, payload.channelId)
+        )
+        return isChannelFeatureEnabled(channel)
+      } catch {
+        return false
+      }
+    }
 
     // A focused window is not enough to assume the user saw it: sitting in
     // #general while a message lands in #test leaves only a sidebar badge,
@@ -80,7 +101,8 @@ export function useBrowserNotifications() {
         params: { workspaceSlug, sessionId },
       })
 
-    const onMention = (payload: MentionNotification) => {
+    const onMention = async (payload: MentionNotification) => {
+      if (!(await canShowChannel(payload)) || !active) return
       if (isAlreadyVisible(payload.channelId, payload.sessionId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
@@ -139,7 +161,8 @@ export function useBrowserNotifications() {
       })
     }
 
-    const onUnread = (payload: UnreadNotification) => {
+    const onUnread = async (payload: UnreadNotification) => {
+      if (!(await canShowChannel(payload)) || !active) return
       if (isAlreadyVisible(payload.channelId, payload.sessionId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
@@ -175,7 +198,8 @@ export function useBrowserNotifications() {
       )
     }
 
-    const onReaction = (payload: ReactionNotification) => {
+    const onReaction = async (payload: ReactionNotification) => {
+      if (!(await canShowChannel(payload)) || !active) return
       if (isAlreadyVisible(payload.channelId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
@@ -202,7 +226,8 @@ export function useBrowserNotifications() {
     // Directed approval pings (LOR-83): the server already narrowed the
     // audience to this user, so mutes and level settings deliberately don't
     // apply — only "nothing" and being on the channel already suppress it.
-    const onApproval = (payload: ApprovalNotification) => {
+    const onApproval = async (payload: ApprovalNotification) => {
+      if (!(await canShowChannel(payload)) || !active) return
       if (isAlreadyVisible(payload.channelId)) return
       if (settings?.desktopNotifications === "nothing") return
       const { title, body } = buildApprovalNotificationContent(payload)
@@ -211,7 +236,8 @@ export function useBrowserNotifications() {
 
     // Same contract as approvals: the server already narrowed the audience to
     // people who can approve this proposal.
-    const onProposal = (payload: ProposalNotification) => {
+    const onProposal = async (payload: ProposalNotification) => {
+      if (!(await canShowChannel(payload)) || !active) return
       if (isAlreadyVisible(payload.channelId)) return
       if (settings?.desktopNotifications === "nothing") return
       const { title, body } = buildProposalNotificationContent(payload)
@@ -219,7 +245,8 @@ export function useBrowserNotifications() {
     }
 
     // Being added as a subscriber notifies like a mention.
-    const onSubscribed = (payload: SubscribedNotification) => {
+    const onSubscribed = async (payload: SubscribedNotification) => {
+      if (!(await canShowChannel(payload)) || !active) return
       if (isAlreadyVisible(payload.channelId, payload.sessionId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
@@ -247,7 +274,9 @@ export function useBrowserNotifications() {
 
     // Lor summarized a call this person was in. Opening the call's chat root
     // lands on its Summary tab.
-    const onCallSummary = (payload: CallSummaryNotification) => {
+    const onCallSummary = async (payload: CallSummaryNotification) => {
+      if (!features.voiceChannels) return
+      if (!(await canShowChannel(payload)) || !active) return
       if (isAlreadyVisible(payload.channelId)) return
       if (!(settings && mutes)) return
       if (findActiveMute(mutes, payload.channelId)) return
@@ -279,6 +308,7 @@ export function useBrowserNotifications() {
     socket.on("notification:call-summary", onCallSummary)
 
     return () => {
+      active = false
       socket.off("notification:mention", onMention)
       socket.off("notification:unread", onUnread)
       socket.off("notification:reaction", onReaction)

@@ -1,11 +1,12 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
+import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Text, View } from "react-native"
+import { Alert, Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import { ForwardSheet } from "@/components/forward-sheet"
@@ -14,6 +15,7 @@ import {
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
 import { RunQueuePill } from "@/components/run-queue-pill"
+import { SessionCodeDrawer } from "@/components/session-code-drawer"
 import { SessionHeading } from "@/components/session-heading"
 import { SessionSheet } from "@/components/session-sheet"
 import {
@@ -36,16 +38,28 @@ import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
-import { useUpdateAgentSession } from "@/hooks/use-agent-session"
-import { useChannelApprovals } from "@/hooks/use-approvals"
+import {
+  useAgentSession,
+  useUpdateAgentSession,
+} from "@/hooks/use-agent-session"
+import {
+  useChannelApprovals,
+  usePausedLorMessageId,
+} from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useOpenDM } from "@/hooks/use-open-dm"
+import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useProfileSheet } from "@/hooks/use-profile-sheet"
 import { useChannelProposals } from "@/hooks/use-proposals"
 import { useRunQueue } from "@/hooks/use-run-queue"
+import {
+  changeTotals,
+  useLiveSessionChanges,
+  useSessionChanges,
+} from "@/hooks/use-session-changes"
 import { useSessionStart } from "@/hooks/use-session-start"
 import { useStopLorRun } from "@/hooks/use-stop-lor-run"
 import { useThreadMessages } from "@/hooks/use-thread-messages"
@@ -54,6 +68,7 @@ import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { AgentSession, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import { HARNESS_LABELS } from "@/lib/harness"
 
 // A call's chat: Summary (ended calls only), Chat, Transcript.
 export type CallTab = "summary" | "chat" | "transcript"
@@ -96,6 +111,7 @@ export function ThreadView({
   // The session's heading is on screen, so the bar leaves its title out.
   const [headingVisible, setHeadingVisible] = useState(true)
   const [isActionsOpen, setIsActionsOpen] = useState(false)
+  const [isCodeOpen, setIsCodeOpen] = useState(false)
   // Session: the message being forwarded into the channel chat.
   const [forwarding, setForwarding] = useState<Message | null>(null)
   const updateSession = useUpdateAgentSession()
@@ -222,11 +238,18 @@ export function ThreadView({
   })
   const { openDM } = useOpenDM()
 
+  // A turn paused on approvals is stoppable too: Stop rejects them all.
+  // Scoped to this thread: a channel-wide lookup would let a human thread
+  // stop another session's paused turn.
+  const pausedLorMessageId = usePausedLorMessageId(
+    channelId ?? "",
+    threadRootId
+  )
+  const stoppableLorMessageId = pendingLorMessageId ?? pausedLorMessageId
   const stopPendingLor = useCallback(async () => {
-    const messageId = pendingLorMessage?.id
-    if (!messageId) return
-    await requestStop(messageId)
-  }, [pendingLorMessage?.id, requestStop])
+    if (!stoppableLorMessageId) return
+    await requestStop(stoppableLorMessageId)
+  }, [stoppableLorMessageId, requestStop])
 
   const channelName = channelState.channel?.name ?? "channel"
   // Who a message "To subscribers" reaches, shown as faces in the composer.
@@ -267,6 +290,27 @@ export function ThreadView({
       }),
     [typingUsers, memberById]
   )
+  // The session's source ("Continue in Code" or a fork), from the session
+  // screen's cached detail.
+  const { data: sessionDetail } = useAgentSession(lorSession?.id ?? "")
+  const sourceSession = sessionDetail?.source ?? null
+  // A code session's Changes drawer, kept live while the session is open;
+  // the header shows the lines added and removed.
+  const codeSession = lorSession?.mode === "code" && !sessionPending
+  useLiveSessionChanges(lorSession?.id ?? "", threadRootId, codeSession)
+  const { data: changes } = useSessionChanges(lorSession?.id ?? "", codeSession)
+  const lineTotals = changeTotals(
+    changes?.state === "ready" ? changes.files : []
+  )
+  // Claude Code answers only messages from people with their own Claude
+  // subscription; the server sends the rest to the session's people.
+  const claudeCode = lorSession?.harness === "claude_code"
+  const { data: accounts } = usePersonalAccounts(claudeCode)
+  const withoutClaude =
+    claudeCode &&
+    !lorSession?.archivedAt &&
+    accounts !== undefined &&
+    accounts.claude.account == null
   // Memoized: the list re-renders its rows only when its items change, and
   // the heading is one, so it changes them exactly when its content does.
   const sessionHeading = useMemo(() => {
@@ -277,6 +321,27 @@ export function ThreadView({
         channelName={channelName}
         createdAt={lorSession.createdAt}
         generatedTitle={lorSession.titleEditedAt === null}
+        harnessLabel={
+          lorSession.harness === "pi"
+            ? null
+            : HARNESS_LABELS[lorSession.harness]
+        }
+        repo={
+          lorSession.repoFullName && lorSession.baseBranch
+            ? {
+                fullName: lorSession.repoFullName,
+                branch: lorSession.baseBranch,
+              }
+            : null
+        }
+        source={
+          sourceSession
+            ? {
+                ...sourceSession,
+                forkedAt: lorSession.forkedFromMessageId,
+              }
+            : null
+        }
         startedBy={
           lorSession.origin === "loop"
             ? "Loop"
@@ -296,7 +361,7 @@ export function ThreadView({
         title={lorSession.title}
       />
     )
-  }, [lorSession, channelName, memberById, nameOf])
+  }, [lorSession, sourceSession, channelName, memberById, nameOf])
 
   useEffect(() => {
     setReplyingTo(null)
@@ -510,6 +575,38 @@ export function ThreadView({
       ) : (
         // Grouped without the row's gap, so the faces sit by the "…".
         <View className="flex-row items-center">
+          {codeSession ? (
+            <Pressable
+              accessibilityLabel={`Changes${
+                lineTotals.additions || lineTotals.deletions
+                  ? `, ${lineTotals.additions} lines added, ${lineTotals.deletions} removed`
+                  : ""
+              }`}
+              accessibilityRole="button"
+              className="min-h-10 flex-row items-center gap-one rounded-lor-sm px-two active:bg-surface-secondary"
+              onPress={() => setIsCodeOpen(true)}
+            >
+              <HugeiconsIcon
+                color={foreground}
+                icon={SourceCodeIcon}
+                size={18}
+                strokeWidth={2}
+              />
+              {lineTotals.additions || lineTotals.deletions ? (
+                <Text className="font-mono text-xs">
+                  {lineTotals.additions ? (
+                    <Text className="text-success">
+                      +{lineTotals.additions}
+                    </Text>
+                  ) : null}
+                  {lineTotals.additions && lineTotals.deletions ? " " : null}
+                  {lineTotals.deletions ? (
+                    <Text className="text-danger">−{lineTotals.deletions}</Text>
+                  ) : null}
+                </Text>
+              ) : null}
+            </Pressable>
+          ) : null}
           <ThreadSubscribers
             channelId={channelId}
             channelName={channelName}
@@ -559,7 +656,7 @@ export function ThreadView({
               channelName={channelName}
               editingMessage={editingMessage}
               inputNativeID={inputNativeID}
-              isStopping={stoppingMessageId === pendingLorMessageId}
+              isStopping={stoppingMessageId === stoppableLorMessageId}
               isConnected={isSocketConnected}
               isMentionCandidatesLoading={mentions.isLoading}
               // The thread doesn't exist until the start is confirmed.
@@ -609,12 +706,22 @@ export function ThreadView({
                 }
                 setReplyingTo(null)
               }}
-              onStop={pendingLorMessage ? stopPendingLor : undefined}
+              onStop={stoppableLorMessageId ? stopPendingLor : undefined}
               placeholder={lorSession ? "Reply…" : "Reply in thread"}
               replyingTo={replyingTo}
               topAccessory={
                 // A session lists its queued turns in the transcript.
-                lorSession ? undefined : (
+                lorSession ? (
+                  withoutClaude ? (
+                    <View className="mb-two rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
+                      <Text className="text-[13px] text-muted">
+                        Claude Code answers people on their own Claude
+                        subscription. Your messages here go to the people in the
+                        session. Connect yours in Lor on the web or desktop.
+                      </Text>
+                    </View>
+                  ) : undefined
+                ) : (
                   <RunQueuePill
                     currentUserId={session?.user.id}
                     messages={queuedMessages}
@@ -720,6 +827,13 @@ export function ThreadView({
           messages={thread.messages}
           onOpenChange={setIsActionsOpen}
           session={lorSession}
+        />
+      ) : null}
+      {codeSession && lorSession ? (
+        <SessionCodeDrawer
+          isOpen={isCodeOpen}
+          onOpenChange={setIsCodeOpen}
+          sessionId={lorSession.id}
         />
       ) : null}
       {lorSession ? (

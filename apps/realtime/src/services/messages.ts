@@ -9,12 +9,15 @@ import {
 } from "@repo/db"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, ForwardedMessage } from "@repo/db/schema"
 import { type CreateSessionArgs, createSession } from "@repo/lor/agent-sessions"
+import { validateMessageAttachments } from "@repo/lor/attachment-storage"
 import {
   buildReactionNotification,
+  channelEventContent,
   type PresenceRedisClient,
   syncMessageMentions,
 } from "@repo/messaging"
@@ -53,10 +56,16 @@ export type NewSessionInput = Pick<
   | "id"
   | "threadRootId"
   | "origin"
+  | "code"
+  | "harness"
+  | "sourceSessionId"
   | "title"
   | "contextMessageIds"
   | "subscriberIds"
->
+> & {
+  // "Continue in Code": the source session's thread, which gets the event.
+  sourceThreadRootId?: string
+}
 
 type DeleteMessageInput = {
   userId: string
@@ -87,6 +96,8 @@ export type CreateMessageResult = {
   deduplicated?: boolean
   // Set when this send started a Lor session.
   session?: AgentSession
+  // "Continue in Code": the event row posted in the source session.
+  continuedEvent?: RealtimeMessage
 }
 
 async function loadReferencedMessage(
@@ -360,7 +371,9 @@ async function workspaceAvatarColor(
     .then((rows) => rows[0]?.avatarColor ?? null)
 }
 
-export async function createMessage(input: CreateMessageInput) {
+export async function createMessage(
+  input: CreateMessageInput
+): Promise<CreateMessageResult> {
   if (input.accessibleChannel.id !== input.payload.channelId) {
     throw new Error("Channel mismatch")
   }
@@ -387,6 +400,11 @@ export async function createMessage(input: CreateMessageInput) {
   }
 
   const channelRecord = input.accessibleChannel
+  const attachments = await validateMessageAttachments(
+    input.userId,
+    channelRecord.id,
+    input.payload.attachments ?? []
+  )
   const authorAvatarColor = await workspaceAvatarColor(
     channelRecord.workspaceId,
     input.userId
@@ -430,6 +448,13 @@ export async function createMessage(input: CreateMessageInput) {
   if (existingSession?.archivedAt) throw new Error("This session is archived")
   const isPersonInSession =
     Boolean(input.newSession || existingSession) && input.userId !== LOR_USER_ID
+  // A Claude Code turn runs only on the sender's own Claude subscription
+  // (code-sessions-runbook.md chunk 7): without one, the message is for the
+  // session's people only.
+  const withoutClaude =
+    isPersonInSession &&
+    existingSession?.harness === "claude_code" &&
+    !(await hasPersonalAccount(input.userId, "claude"))
 
   const runInsertTransaction = () =>
     db.transaction(async (tx) => {
@@ -521,7 +546,7 @@ export async function createMessage(input: CreateMessageInput) {
       const routedToLor = isPersonInSession
         ? sessionMessageRunsLor({
             content: input.payload.content,
-            toPeople: input.payload.toPeople,
+            toPeople: input.payload.toPeople || withoutClaude,
             replyAuthorId,
             senderId: input.userId,
             startsSession: Boolean(input.newSession),
@@ -543,7 +568,17 @@ export async function createMessage(input: CreateMessageInput) {
           forwarded,
           threadRootId: session?.threadRootId ?? threadRootId,
           routedToLor,
-          attachments: input.payload.attachments ?? [],
+          // Read only by a Claude Code or Codex session's turn.
+          claudeCodeMode: isPersonInSession
+            ? (input.payload.claudeCodeMode ?? null)
+            : null,
+          claudeModel: isPersonInSession
+            ? (input.payload.claudeModel ?? null)
+            : null,
+          codexModel: isPersonInSession
+            ? (input.payload.codexModel ?? null)
+            : null,
+          attachments,
           status: input.status,
           clientKey: input.payload.nonce ?? null,
         })
@@ -594,7 +629,36 @@ export async function createMessage(input: CreateMessageInput) {
         throw new Error("Failed to fetch created message")
       }
 
-      return { ...createdMessageWithAuthor, session }
+      // "Continue in Code": a row in the source session says where the work
+      // went, for its people and for Lor there. Nobody is subscribed by it.
+      const sourceThreadRootId = input.newSession?.sourceThreadRootId
+      const continuedEvent =
+        session && sourceThreadRootId
+          ? await tx
+              .insert(schema.message)
+              .values({
+                channelId: input.payload.channelId,
+                authorId: input.userId,
+                type: "event",
+                eventType: "session_continued",
+                eventPayload: {
+                  sessionId: session.id,
+                  repoFullName: session.repoFullName,
+                },
+                content: channelEventContent({
+                  eventType: "session_continued",
+                  actorName: createdMessageWithAuthor.authorName,
+                  repoFullName: session.repoFullName,
+                  threadRootId: session.threadRootId,
+                }),
+                threadRootId: sourceThreadRootId,
+                excludedFromMemory: true,
+              })
+              .returning()
+              .then((rows) => rows[0])
+          : undefined
+
+      return { ...createdMessageWithAuthor, session, continuedEvent }
     })
 
   let messageWithAuthor: Awaited<ReturnType<typeof runInsertTransaction>>
@@ -645,7 +709,7 @@ export async function createMessage(input: CreateMessageInput) {
     },
     mentions: [],
     reactions: [],
-    attachments: input.payload.attachments ?? [],
+    attachments,
     embeds: [],
     referencedMessage,
     forwarded,
@@ -657,10 +721,35 @@ export async function createMessage(input: CreateMessageInput) {
     createdMessage.nonce = input.payload.nonce
   }
 
+  const event = messageWithAuthor.continuedEvent
+  const continuedEvent: RealtimeMessage | undefined = event
+    ? {
+        id: event.id,
+        channelId: event.channelId,
+        content: event.content,
+        type: "event",
+        eventType: event.eventType,
+        eventPayload: event.eventPayload,
+        status: event.status,
+        pinned: false,
+        createdAt: event.createdAt.toISOString(),
+        author: createdMessage.author,
+        mentions: [],
+        reactions: [],
+        attachments: [],
+        embeds: [],
+        referencedMessage: null,
+        forwarded: null,
+        threadRootId: event.threadRootId,
+        routedToLor: null,
+      }
+    : undefined
+
   return {
     message: createdMessage,
     channel: channelRecord,
     session: messageWithAuthor.session ?? undefined,
+    ...(continuedEvent ? { continuedEvent } : {}),
   } satisfies CreateMessageResult
 }
 

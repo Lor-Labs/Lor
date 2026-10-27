@@ -1,6 +1,8 @@
 import {
+  ComputerTerminal01Icon,
   GlobeIcon,
   KeyboardIcon,
+  Link01Icon,
   Message01Icon,
   Notification01Icon,
   PaintBrush01Icon,
@@ -37,8 +39,10 @@ import {
 import { listen } from "@tauri-apps/api/event"
 import { useEffect, useMemo, useState } from "react"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
+import { LinkedAccountsSettings } from "@/components/settings/linked-accounts-settings"
 import { MyAccountSettings } from "@/components/settings/my-account-settings"
 import { NotificationSettings } from "@/components/settings/notification-settings"
+import { SandboxSettings } from "@/components/settings/sandbox-settings"
 import { useAppVersion } from "@/hooks/use-app-version"
 import { useSettings } from "@/hooks/use-settings"
 
@@ -52,8 +56,10 @@ const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
 const settingsNav = [
   { id: "account", name: "My Account", icon: UserIcon },
+  { id: "linked-accounts", name: "Linked accounts", icon: Link01Icon },
   { id: "appearance", name: "Appearance", icon: PaintBrush01Icon },
   { id: "notifications", name: "Notifications", icon: Notification01Icon },
+  { id: "sandbox", name: "Sandbox", icon: ComputerTerminal01Icon },
   { id: "messages", name: "Messages & Media", icon: Message01Icon },
   { id: "language", name: "Language & Region", icon: GlobeIcon },
   { id: "accessibility", name: "Accessibility", icon: KeyboardIcon },
@@ -172,10 +178,14 @@ export function SettingsDialog() {
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
               {activeItem.id === "account" ? (
                 <MyAccountSettings />
+              ) : activeItem.id === "linked-accounts" ? (
+                <LinkedAccountsSettings />
               ) : activeItem.id === "appearance" ? (
                 <AppearanceSettings />
               ) : activeItem.id === "notifications" ? (
                 <NotificationSettings />
+              ) : activeItem.id === "sandbox" ? (
+                <SandboxSettings />
               ) : (
                 <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                   {activeItem.name} settings coming soon.

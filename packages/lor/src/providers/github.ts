@@ -1,6 +1,7 @@
 import { githubItemKey } from "@repo/connectors"
 import { env } from "@repo/env/server"
-import { App, Octokit } from "octokit"
+import { parseGithubInstallationId } from "@repo/utils/github"
+import { App } from "octokit"
 import { logger } from "../logger"
 import type { SourceFetcher, SourceProvider } from "./types"
 
@@ -25,7 +26,11 @@ function rewrapPem(key: string): string {
 }
 
 // Accept multi-line, escaped-newline, single-line, or base64-encoded PEMs.
-function normalizePrivateKey(raw: string | undefined): string | undefined {
+// PEM from env: real newlines, "\n" escapes, or base64. Also used for the
+// Code Storage key (code-checkpoints.ts).
+export function normalizePrivateKey(
+  raw: string | undefined
+): string | undefined {
   if (!raw) return undefined
   let key = raw.trim()
   if (!key.includes("-----BEGIN")) {
@@ -87,8 +92,8 @@ export async function getInstallationToken(
     )
     return null
   }
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) {
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) {
     logger.warn({ installationId }, "Invalid GitHub installation id")
     return null
   }
@@ -126,8 +131,8 @@ export async function listInstallationRepos(
 ): Promise<InstallationRepo[]> {
   const app = getApp()
   if (!app) return []
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return []
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return []
   try {
     const octokit = await app.getInstallationOctokit(id)
     const repos: InstallationRepo[] = []
@@ -159,13 +164,73 @@ export async function listInstallationRepos(
   }
 }
 
+export type RepoBranches = { defaultBranch: string | null; branches: string[] }
+
+const BRANCH_PAGE_SIZE = 50
+
+// Branches for the code session picker. GitHub filters by name, so a repo with
+// thousands of branches still finds the one being typed. REST has no name
+// search; GraphQL `refs(query:)` does.
+export async function listRepoBranches(
+  installationId: string,
+  repoFullName: string,
+  query: string
+): Promise<RepoBranches | null> {
+  const app = getApp()
+  if (!app) return null
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
+  const [owner, name] = repoFullName.split("/")
+  if (!(owner && name)) return null
+  try {
+    const octokit = await app.getInstallationOctokit(id)
+    const { repository } = await octokit.graphql<{
+      repository: {
+        defaultBranchRef: { name: string } | null
+        refs: { nodes: { name: string }[] } | null
+      } | null
+    }>(
+      `query ($owner: String!, $name: String!, $filter: String, $first: Int!) {
+        repository(owner: $owner, name: $name) {
+          defaultBranchRef { name }
+          refs(refPrefix: "refs/heads/", query: $filter, first: $first, orderBy: { field: ALPHABETICAL, direction: ASC }) {
+            nodes { name }
+          }
+        }
+      }`,
+      {
+        owner,
+        name,
+        // "query" is reserved by @octokit/graphql (it carries the document).
+        filter: query.trim() || undefined,
+        first: BRANCH_PAGE_SIZE,
+        request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      }
+    )
+    if (!repository) return null
+    const defaultBranch = repository.defaultBranchRef?.name ?? null
+    const names = (repository.refs?.nodes ?? []).map((ref) => ref.name)
+    // The default branch leads when it matches, and always with no query (it
+    // can sort past the first page).
+    const lead =
+      defaultBranch && (!query.trim() || names.includes(defaultBranch))
+        ? defaultBranch
+        : null
+    const branches = lead ? [lead, ...names.filter((n) => n !== lead)] : names
+    return { defaultBranch, branches }
+  } catch (err) {
+    logger.error({ err, repoFullName }, "GitHub branch list failed")
+    return null
+  }
+}
+
 export async function getInstallationOverview(
   installationId: string
 ): Promise<{ repos: InstallationRepo[]; manageUrl: string | null } | null> {
   const app = getApp()
   if (!app) return null
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return null
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
   const [repos, manageUrl] = await Promise.all([
     listInstallationRepos(installationId),
     app.octokit.rest.apps
@@ -177,38 +242,6 @@ export async function getInstallationOverview(
       .catch(() => null),
   ])
   return { repos, manageUrl }
-}
-
-// Tri-state so callers can tell "branch doesn't exist" (false) from "couldn't
-// verify" (null — App unconfigured or GitHub unreachable).
-export async function branchExists(
-  installationId: string,
-  repoFullName: string,
-  branch: string
-): Promise<boolean | null> {
-  const app = getApp()
-  if (!app) return null
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return null
-  const [owner, repo] = repoFullName.split("/")
-  if (!(owner && repo)) return null
-  try {
-    const octokit = await app.getInstallationOctokit(id)
-    await octokit.rest.repos.getBranch({
-      owner,
-      repo,
-      branch,
-      request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-    })
-    return true
-  } catch (err) {
-    if ((err as { status?: number }).status === 404) return false
-    logger.error(
-      { err, installationId: id, repoFullName, branch },
-      "Failed to check branch existence"
-    )
-    return null
-  }
 }
 
 function clip(s: string): string {
@@ -241,8 +274,8 @@ export async function searchIssues(
 ): Promise<IssueSearchHit[]> {
   const app = getApp()
   if (!app) return []
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return []
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return []
   if (opts.repos.length === 0) return []
   try {
     const octokit = await app.getInstallationOctokit(id)
@@ -311,8 +344,8 @@ export async function fetchRepoTree(
 ): Promise<RepoTree | null> {
   const app = getApp()
   if (!app) return null
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return null
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
   const [owner, repo] = repoFullName.split("/")
   if (!(owner && repo)) return null
 
@@ -356,8 +389,8 @@ export async function fetchIssueOrPr(
 ): Promise<FetchedIssue | null> {
   const app = getApp()
   if (!app) return null
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) return null
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
   const parsed = parseRef(ref, "#")
   if (!parsed) return null
   try {
@@ -441,9 +474,9 @@ export async function fetchPullRequestCard(
   ref: string
 ): Promise<PullRequestCard | null> {
   const app = getApp()
-  const id = Number(installationId)
+  const id = parseGithubInstallationId(installationId)
   const parsed = parseRef(ref, "#")
-  if (!app || !Number.isFinite(id) || !parsed) return null
+  if (!app || id === null || !parsed) return null
   const request = () => ({ signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
   try {
     const octokit = await app.getInstallationOctokit(id)
@@ -532,159 +565,6 @@ function parseRef(externalId: string, sep: "#" | "@") {
   return { owner, repo, id }
 }
 
-export type OpenedPullRequest = {
-  number: number
-  url: string
-  draft: boolean
-  // False when an open PR for this head branch already existed and was reused
-  // (pushing the branch updated it).
-  created: boolean
-}
-
-// Writes need a discriminated result — the tool must distinguish "the App
-// lacks write permission" from "branch already has a PR" to say something
-// actionable, where reads can just degrade to null.
-export type OpenPullRequestResult =
-  | { ok: true; pr: OpenedPullRequest }
-  | { ok: false; reason: string }
-
-const OPEN_PULL_REQUEST_PERMISSIONS = {
-  contents: "read",
-  pull_requests: "write",
-} as const
-
-export async function openPullRequest(
-  installationId: string,
-  opts: {
-    repoFullName: string
-    head: string // branch name, same owner
-    base: string
-    title: string
-    body: string
-  }
-): Promise<OpenPullRequestResult> {
-  const app = getApp()
-  if (!app) return { ok: false, reason: "GitHub App not configured" }
-  const id = Number(installationId)
-  if (!Number.isFinite(id)) {
-    return { ok: false, reason: "invalid installation id" }
-  }
-  const [owner, repo] = opts.repoFullName.split("/")
-  if (!(owner && repo)) {
-    return { ok: false, reason: `not a valid owner/repo: ${opts.repoFullName}` }
-  }
-
-  try {
-    const token = await getInstallationToken(installationId, {
-      repositories: [repo],
-      // GitHub returns `422: not all refs are readable` for private repos
-      // unless the PR token can read the head and base refs.
-      permissions: OPEN_PULL_REQUEST_PERMISSIONS,
-      request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-    })
-    if (!token) {
-      return {
-        ok: false,
-        reason: "couldn't obtain a repository-scoped GitHub installation token",
-      }
-    }
-    const octokit = new Octokit({ auth: token })
-    try {
-      const { data } = await octokit.rest.pulls.create({
-        owner,
-        repo,
-        head: opts.head,
-        base: opts.base,
-        title: opts.title,
-        body: opts.body,
-        draft: true,
-        request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-      })
-      return {
-        ok: true,
-        pr: {
-          number: data.number,
-          url: data.html_url,
-          draft: Boolean(data.draft),
-          created: true,
-        },
-      }
-    } catch (err) {
-      const status = (err as { status?: number }).status
-      const message = err instanceof Error ? err.message : String(err)
-      const errors = (err as { response?: { data?: { errors?: unknown } } })
-        .response?.data?.errors
-      const isDuplicate = Array.isArray(errors)
-        ? errors.some((entry) => {
-            if (!(entry && typeof entry === "object")) return false
-            const { code, message: errorMessage } = entry as {
-              code?: unknown
-              message?: unknown
-            }
-            return (
-              code === "custom" &&
-              typeof errorMessage === "string" &&
-              /already exists/i.test(errorMessage)
-            )
-          })
-        : /already exists/i.test(message)
-      // 422 "A pull request already exists": the push updated the open PR —
-      // reuse it instead of failing the whole proposal.
-      if (status === 422 && isDuplicate) {
-        const existing = await octokit.rest.pulls
-          .list({
-            owner,
-            repo,
-            head: `${owner}:${opts.head}`,
-            base: opts.base,
-            state: "open",
-            per_page: 1,
-            request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
-          })
-          .then((r) => r.data[0] ?? null)
-          .catch(() => null)
-        if (existing) {
-          return {
-            ok: true,
-            pr: {
-              number: existing.number,
-              url: existing.html_url,
-              draft: Boolean(existing.draft),
-              created: false,
-            },
-          }
-        }
-      }
-      throw err
-    }
-  } catch (err) {
-    const status = (err as { status?: number }).status
-    const message = err instanceof Error ? err.message : String(err)
-    logger.error(
-      { err, repoFullName: opts.repoFullName, head: opts.head },
-      "GitHub draft PR creation failed"
-    )
-    if (status === 403) {
-      return {
-        ok: false,
-        reason:
-          "the GitHub App lacks pull-request write access (the installation may need to approve updated permissions)",
-      }
-    }
-    if (
-      status === 422 &&
-      /draft pull requests are not supported/i.test(message)
-    ) {
-      return {
-        ok: false,
-        reason:
-          "this repository's plan doesn't support draft pull requests (the branch was pushed; a PR can be opened manually)",
-      }
-    }
-    return { ok: false, reason: `couldn't open the pull request: ${message}` }
-  }
-}
-
 // Ingestion reads the whole first page of each discussion list, more than
 // fetch_github: comments and reviews are where decisions live.
 const INGEST_PAGE_SIZE = 100
@@ -716,9 +596,9 @@ export const fetchGithubSourceItem: SourceFetcher = async (
 ) => {
   const app = getApp()
   if (!app) throw new Error("GitHub App not configured")
-  const installationId = Number(connection.externalId)
+  const installationId = parseGithubInstallationId(connection.externalId)
   const parsed = parseRef(ref, "#")
-  if (!(Number.isFinite(installationId) && parsed)) {
+  if (installationId === null || !parsed) {
     return { item: null, gone: [] }
   }
   const octokit = await app.getInstallationOctokit(installationId)
@@ -862,8 +742,8 @@ export const githubProvider: SourceProvider = {
   async verifyConnection(connection) {
     const app = getApp()
     if (!app) return null
-    const installationId = Number(connection.externalId)
-    if (!Number.isFinite(installationId)) return null
+    const installationId = parseGithubInstallationId(connection.externalId)
+    if (installationId === null) return null
     try {
       const { data } = await app.octokit.rest.apps.getInstallation({
         installation_id: installationId,

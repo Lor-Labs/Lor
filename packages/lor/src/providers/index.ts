@@ -63,7 +63,6 @@ export { connectBetterstack } from "./betterstack"
 export { connectCloudwatch } from "./cloudwatch"
 export { connectDatadog } from "./datadog"
 export {
-  branchExists,
   type FetchedIssue,
   fetchIssueOrPr,
   getInstallationOverview,

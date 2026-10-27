@@ -1,6 +1,7 @@
 import {
   ApiIcon,
   CloudServerIcon,
+  ComputerTerminal01Icon,
   File02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -43,7 +44,9 @@ export function ProfileServiceIcon({
   }
   const icon =
     group.kind === "builtin"
-      ? File02Icon
+      ? group.id === "sandbox"
+        ? ComputerTerminal01Icon
+        : File02Icon
       : group.kind === "customTools"
         ? ApiIcon
         : CloudServerIcon

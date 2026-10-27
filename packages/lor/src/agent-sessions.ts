@@ -31,6 +31,12 @@ export function toRealtimeAgentSession(
     threadRootId: row.threadRootId,
     creatorId: row.creatorId,
     origin: row.origin,
+    mode: row.mode,
+    harness: row.harness,
+    repoFullName: row.repoFullName,
+    baseBranch: row.baseBranch,
+    sourceSessionId: row.sourceSessionId,
+    forkedFromMessageId: row.forkedFromMessageId,
     title: row.title,
     titleEditedAt: row.titleEditedAt?.toISOString() ?? null,
     loopId: row.loopId,
@@ -53,6 +59,14 @@ export type CreateSessionArgs = {
   authorId: string
   creatorId: string | null
   origin: AgentSession["origin"]
+  // Set for a code session; checked against the channel's repos by the caller.
+  code?: { repoFullName: string; baseBranch: string }
+  // Claude Code: checked against the starter's Claude account by the caller.
+  harness?: AgentSession["harness"]
+  // "Continue in Code" or a fork: checked to be in the same channel by the
+  // caller.
+  sourceSessionId?: string
+  forkedFromMessageId?: string
   title: string
   loopId?: string
   triggerId?: string
@@ -86,6 +100,12 @@ export async function createSession(
       threadRootId: anchor.id,
       creatorId: args.creatorId,
       origin: args.origin,
+      mode: args.code ? "code" : "chat",
+      harness: args.harness ?? "pi",
+      repoFullName: args.code?.repoFullName ?? null,
+      baseBranch: args.code?.baseBranch ?? null,
+      sourceSessionId: args.sourceSessionId ?? null,
+      forkedFromMessageId: args.forkedFromMessageId ?? null,
       title: args.title,
       loopId: args.loopId ?? null,
       triggerId: args.triggerId ?? null,

@@ -1,4 +1,5 @@
 import { registerGlobals } from "@livekit/react-native"
+import { features } from "@repo/utils/features"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router"
 import * as ScreenOrientation from "expo-screen-orientation"
@@ -23,7 +24,7 @@ import { queryClient, subscribeQueryFocus } from "@/lib/query-client"
 import { restoreThemePreference } from "@/lib/theme-preference"
 
 SplashScreen.preventAutoHideAsync()
-registerGlobals()
+if (features.voiceChannels) registerGlobals()
 
 export default function RootLayout() {
   const colorScheme = useColorScheme()
@@ -60,7 +61,7 @@ export default function RootLayout() {
                             options={{ presentation: "modal" }}
                           />
                         </Stack>
-                        <CallTile />
+                        {features.voiceChannels && <CallTile />}
                         <AppUpdates />
                       </View>
                     </VoiceCallProvider>

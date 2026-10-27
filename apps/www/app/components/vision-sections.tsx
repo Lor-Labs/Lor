@@ -1,5 +1,9 @@
 import { AgentChoice } from "@/app/components/agent-choice"
-import { Citation, WorkLog } from "@/app/components/mock-parts"
+import {
+  Citation,
+  ReviewChangesCard,
+  WorkLog,
+} from "@/app/components/mock-parts"
 import { Reveal } from "@/app/components/reveal"
 import { ChannelWorkflow } from "@/app/components/workspace-apps"
 import {
@@ -28,8 +32,13 @@ function WhyLor() {
               you got there.
             </p>
             <p className="text-[#242321]">
-              Just bring them into the conversation. They can see what you
-              tried, ask their own questions, and help finish the job.
+              Bring them into the session. They can see the context, add what
+              you missed, or fork it to ask their own questions. The work stays
+              in a shared place, ready for the next person to pick up.
+            </p>
+            <p>
+              Start with one project. You can use Lor alongside your existing
+              team chat.
             </p>
           </div>
         </Reveal>
@@ -38,12 +47,63 @@ function WhyLor() {
   )
 }
 
+function BuildTogether() {
+  return (
+    <section id="vision" className="scroll-mt-24 px-5 py-24 sm:px-8 md:py-28">
+      <div className="mx-auto grid max-w-[1240px] items-center gap-12 lg:grid-cols-[1fr_1.1fr] lg:gap-24">
+        <Reveal>
+          <h2 className="max-w-[18ch] text-balance text-4xl font-medium leading-[1.08] tracking-[-0.04em] md:text-[52px]">
+            Take the conversation into code.
+          </h2>
+          <p className="mt-7 max-w-[40ch] text-[17px] leading-relaxed text-muted-foreground">
+            Continue an investigation in a code session with the conversation
+            attached. Work in your repo, inspect the files and diffs, then
+            commit and push with your own GitHub account.
+          </p>
+          <p className="mt-5 max-w-[40ch] text-[17px] leading-relaxed text-muted-foreground">
+            Want to try another approach? Fork from a reply and explore it in a
+            new session. Or rewind to an earlier turn, with the code and
+            conversation together.
+          </p>
+        </Reveal>
+        <Reveal delay={80}>
+          <PreviewFrame>
+            <PreviewDocument
+              title="Try a background export"
+              channel="product"
+              starter="Theo"
+              repo={{ name: "kestrel/app", branch: "fix/exports" }}
+              source={{ title: "Fix export feedback", kind: "fork" }}
+            >
+              <PreviewTurn person="Theo">
+                What if larger exports ran in the background? Let&rsquo;s
+                explore that here and keep the original change as it is.
+              </PreviewTurn>
+              <PreviewTurn person="Lor">
+                <WorkLog
+                  label="Worked"
+                  detail="Read the export code · Drafted another approach"
+                />
+                <p className="mt-3">
+                  This version starts an export job and lets people keep
+                  working. They can download the file when it&rsquo;s ready.
+                </p>
+                <ReviewChangesCard added={42} removed={8} files={3} />
+              </PreviewTurn>
+              <PreviewTurn person="Zoe" aside>
+                Let&rsquo;s compare this with the smaller fix before we decide.
+              </PreviewTurn>
+            </PreviewDocument>
+          </PreviewFrame>
+        </Reveal>
+      </div>
+    </section>
+  )
+}
+
 function TeamKnowHow() {
   return (
-    <section
-      id="vision"
-      className="scroll-mt-24 border-y border-foreground/[0.07] px-5 py-24 sm:px-8 md:py-28"
-    >
+    <section className="border-y border-foreground/[0.07] px-5 py-24 sm:px-8 md:py-28">
       <div className="mx-auto grid max-w-[1240px] items-center gap-12 lg:grid-cols-[1.1fr_1fr] lg:gap-24">
         <Reveal className="order-2 lg:order-1">
           <PreviewFrame>
@@ -52,16 +112,20 @@ function TeamKnowHow() {
         </Reveal>
         <Reveal className="order-1 lg:order-2">
           <h2 className="max-w-[18ch] text-balance text-4xl font-medium leading-[1.08] tracking-[-0.04em] md:text-[52px]">
-            &ldquo;Ask Lor in #gtm. It knows how we do this.&rdquo;
+            Work out the process once. Put it to work every week.
           </h2>
           <p className="mt-7 max-w-[40ch] text-[17px] leading-relaxed text-muted-foreground">
-            Your team already worked out which accounts matter, what to check,
-            and how to write the first email. The next person should be able to
-            use all of that.
+            Give Lor your team&rsquo;s criteria and connect the tools you use.
+            Research accounts, prepare a shortlist, update the CRM, or turn the
+            findings into a document the team can use.
           </p>
           <p className="mt-5 max-w-[40ch] text-[17px] leading-relaxed text-muted-foreground">
-            Zoe figured it out last week. Rafael runs it this week. Same
-            criteria, same checks, without another walkthrough.
+            Run it when you need it, or on a schedule. Teammates can follow the
+            work, add context, and review actions that need their approval.
+          </p>
+          <p className="mt-6 max-w-[40ch] text-sm leading-relaxed text-muted-foreground">
+            Connect GitHub, Linear, Notion, Attio, and more. Choose which tools
+            Lor can use and which actions require approval.
           </p>
         </Reveal>
       </div>
@@ -92,12 +156,11 @@ function KeepTheHistory() {
             title="Picking up the Paygrove account"
             channel="gtm"
             starter="Rafael"
-            agent="Claude Code"
           >
             <PreviewTurn person="Rafael">
               I&rsquo;m taking over Paygrove. Why did we hold off on the pilot?
             </PreviewTurn>
-            <PreviewTurn person="Claude Code">
+            <PreviewTurn person="Lor">
               <WorkLog
                 label="Worked"
                 detail="Read Zoe's call notes and follow-up"
@@ -127,6 +190,7 @@ export function VisionSections() {
   return (
     <>
       <WhyLor />
+      <BuildTogether />
       <TeamKnowHow />
       <KeepTheHistory />
       <AgentChoice />

@@ -45,10 +45,16 @@ async function resolverSpec(
 
 // People connected to the call right now who can resolve an approval on this
 // target: the same rule as chat (named role or person, or any member; the
-// owner always can), with write access to the channel as the floor.
-export async function listCallApprovers(scope: CallScope, target: string) {
+// owner always can), with write access to the channel as the floor. No
+// target (a sandbox ask): anyone in the call with write access.
+export async function listCallApprovers(
+  scope: CallScope,
+  target: string | null
+) {
   const [spec, people] = await Promise.all([
-    resolverSpec(scope.workspaceId, target),
+    target
+      ? resolverSpec(scope.workspaceId, target)
+      : ({ kind: "any_member" } as const),
     db
       .selectDistinct({
         userId: schema.voiceSessionParticipant.userId,
@@ -128,11 +134,24 @@ export async function enqueueApprovalResume(
   )
 }
 
+// The call ended while a set waited: nobody can decide any of it.
+export async function expireApprovalSet(runId: string) {
+  await db
+    .update(schema.approval)
+    .set({ status: "expired", resolvedAt: new Date() })
+    .where(
+      and(
+        eq(schema.approval.runId, runId),
+        eq(schema.approval.status, "pending")
+      )
+    )
+}
+
 // Settles a still-pending approval without a person: rejected when the
-// approvers left the call (Lor is told), expired when the call ended.
+// approvers left the call (Lor is told).
 export async function settleApprovalUnresolved(
   approvalId: string,
-  status: "rejected" | "expired"
+  status: "rejected"
 ) {
   const [row] = await db
     .update(schema.approval)

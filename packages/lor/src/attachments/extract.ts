@@ -1,5 +1,6 @@
 import { posix } from "node:path"
-import { strFromU8, unzipSync } from "fflate"
+import { inflateRawSync } from "node:zlib"
+import { strFromU8, unzipSync, zipSync } from "fflate"
 import mammoth from "mammoth"
 import { getDocumentProxy, renderPageAsImage } from "unpdf"
 import type { DocumentKind } from "./kinds"
@@ -30,6 +31,10 @@ const TRANSCRIBE_CONCURRENCY = 4
 const SCANNED_PAGE_MAX_CHARS = 20
 const PDF_RENDER_SCALE = 2
 const MAX_SLIDE_IMAGE_BYTES = 20 * 1024 * 1024
+const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+const MAX_ARCHIVE_ENTRY_BYTES = 20 * 1024 * 1024
+const MAX_ARCHIVE_ENTRIES = 2_000
+const MAX_RENDER_PIXELS = 16_000_000
 const SLIDE_IMAGE_TYPES: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
@@ -214,7 +219,8 @@ async function extractPdf(
   try {
     const pageCount = Math.min(pdf.numPages, MAX_PDF_PAGES)
     for (let n = 1; n <= pageCount; n++) {
-      const content = await (await pdf.getPage(n)).getTextContent()
+      const page = await pdf.getPage(n)
+      const content = await page.getTextContent()
       const text = content.items
         .map((item) =>
           "str" in item ? item.str + (item.hasEOL ? "\n" : "") : ""
@@ -230,6 +236,14 @@ async function extractPdf(
       if (scanned.length >= MAX_TRANSCRIBED_PAGES) {
         truncated = true
         if (text) pieces.push({ position: n, text })
+        continue
+      }
+      const viewport = page.getViewport({ scale: PDF_RENDER_SCALE })
+      if (
+        !Number.isFinite(viewport.width * viewport.height) ||
+        viewport.width * viewport.height > MAX_RENDER_PIXELS
+      ) {
+        truncated = true
         continue
       }
       const png = await renderPageAsImage(pdf, n, {
@@ -249,6 +263,99 @@ async function extractPdf(
     pieces.sort((a, b) => a.position - b.position)
   }
   return { pieces, truncated }
+}
+
+// Repack bounded bytes so downstream OOXML parsers never decompress attacker
+// supplied streams or trust a different ZIP header's declared sizes.
+function boundedOfficeArchive(bytes: Uint8Array): Uint8Array {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const invalid = () =>
+    new Error("Document archive is invalid or exceeds the extraction limits")
+  let end = bytes.byteLength - 22
+  const earliest = Math.max(0, end - 65_535)
+  for (; end >= earliest; end--) {
+    if (
+      view.getUint32(end, true) === 0x06054b50 &&
+      end + 22 + view.getUint16(end + 20, true) === bytes.byteLength
+    )
+      break
+  }
+  if (end < earliest) throw invalid()
+  const count = view.getUint16(end + 10, true)
+  let offset = view.getUint32(end + 16, true)
+  const directoryStart = offset
+  const directoryEnd = offset + view.getUint32(end + 12, true)
+  if (
+    view.getUint32(end + 4, true) !== 0 ||
+    view.getUint16(end + 8, true) !== count ||
+    count > MAX_ARCHIVE_ENTRIES ||
+    directoryEnd !== end
+  )
+    throw invalid()
+  let expanded = 0
+  let compressedRead = 0
+  const files: Record<string, Uint8Array> = Object.create(null)
+  for (let i = 0; i < count; i++) {
+    if (
+      offset + 46 > directoryEnd ||
+      view.getUint32(offset, true) !== 0x02014b50
+    )
+      throw invalid()
+    const flags = view.getUint16(offset + 8, true)
+    const method = view.getUint16(offset + 10, true)
+    const compressed = view.getUint32(offset + 20, true)
+    const original = view.getUint32(offset + 24, true)
+    const nameLength = view.getUint16(offset + 28, true)
+    const next =
+      offset +
+      46 +
+      nameLength +
+      view.getUint16(offset + 30, true) +
+      view.getUint16(offset + 32, true)
+    const local = view.getUint32(offset + 42, true)
+    if (
+      next > directoryEnd ||
+      flags & 1 ||
+      (method !== 0 && method !== 8) ||
+      original > MAX_ARCHIVE_ENTRY_BYTES ||
+      expanded + original > MAX_ARCHIVE_BYTES ||
+      compressedRead + compressed > bytes.byteLength ||
+      local + 30 > directoryStart ||
+      view.getUint32(local, true) !== 0x04034b50 ||
+      view.getUint16(local + 8, true) !== method
+    )
+      throw invalid()
+    const name = new TextDecoder("utf-8", { fatal: true }).decode(
+      bytes.subarray(offset + 46, offset + 46 + nameLength)
+    )
+    if (
+      !name ||
+      Object.hasOwn(files, name) ||
+      name.includes("\\") ||
+      name.startsWith("/") ||
+      name.includes("\0") ||
+      name.split("/").some((part) => part === "." || part === "..")
+    )
+      throw invalid()
+    const start =
+      local +
+      30 +
+      view.getUint16(local + 26, true) +
+      view.getUint16(local + 28, true)
+    if (start + compressed > directoryStart) throw invalid()
+    const data = bytes.subarray(start, start + compressed)
+    const file =
+      method === 0
+        ? data
+        : inflateRawSync(data, { maxOutputLength: Math.max(1, original) })
+    if (file.byteLength !== original) throw invalid()
+    files[name] = file
+    expanded += file.byteLength
+    compressedRead += compressed
+    offset = next
+  }
+  if (offset !== directoryEnd) throw invalid()
+  return zipSync(files, { level: 0 })
 }
 
 async function extractDocx(bytes: Uint8Array): Promise<Extracted> {
@@ -439,7 +546,11 @@ export async function extractDocument(
   kind: DocumentKind,
   transcribe?: Transcriber
 ): Promise<Extracted> {
-  const extracted = await extractByKind(bytes, kind, transcribe)
+  const input =
+    kind === "docx" || kind === "pptx" || kind === "xlsx"
+      ? boundedOfficeArchive(bytes)
+      : bytes
+  const extracted = await extractByKind(input, kind, transcribe)
   const max = kind === "pdf" ? MAX_PDF_PAGES : MAX_PIECES
   const maxChars =
     kind === "xlsx" || kind === "csv" ? MAX_TABLE_PIECE_CHARS : MAX_PIECE_CHARS

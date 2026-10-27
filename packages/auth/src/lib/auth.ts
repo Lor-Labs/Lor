@@ -23,6 +23,40 @@ import { notifySignup } from "./signup-notifications"
 import { seedWorkspaceTemplate } from "./workspace-template"
 
 const redis = new Redis(env.REDIS_URL)
+export const SESSION_REVOKED_CHANNEL = "lor:session-revoked"
+export const USER_ACCESS_REVOKED_CHANNEL = "lor:user-access-revoked"
+const sessionStorage = redisStorage({ client: redis, keyPrefix: "lor:" })
+
+async function publishRevocation(channel: string, id: string) {
+  await redis.publish(channel, id).catch((err) => {
+    logger.warn({ err }, "Auth revocation notification failed")
+  })
+}
+
+const secondaryStorage = {
+  ...sessionStorage,
+  async delete(key: string) {
+    const cached = await sessionStorage.get(key)
+    await sessionStorage.delete(key)
+    if (!cached) return
+    try {
+      const value: unknown = JSON.parse(cached)
+      if (
+        value &&
+        typeof value === "object" &&
+        "session" in value &&
+        value.session &&
+        typeof value.session === "object" &&
+        "id" in value.session &&
+        typeof value.session.id === "string"
+      ) {
+        await publishRevocation(SESSION_REVOKED_CHANNEL, value.session.id)
+      }
+    } catch {
+      // Other secondary-storage entries are not session records.
+    }
+  },
+}
 const resend = new Resend(env.RESEND_API_KEY)
 // Email clients need an sRGB fallback for Lor's primary token:
 // oklch(0.48 0.19 293) from packages/ui/src/styles/lor-tokens.css.
@@ -78,7 +112,15 @@ export const auth = betterAuth({
   baseURL: env.NEXT_PUBLIC_API_URL,
   database: drizzleAdapter(db, { provider: "pg", schema }),
   secret: env.BETTER_AUTH_SECRET,
-  secondaryStorage: redisStorage({ client: redis, keyPrefix: "lor:" }),
+  secondaryStorage,
+  // Clients use /v1 for moderation and role deletion, which enforce Lor's
+  // ownership, hierarchy, reassignment and socket-revocation rules.
+  disabledPaths: [
+    "/organization/update-member-role",
+    "/organization/remove-member",
+    "/organization/delete-role",
+    "/organization/leave",
+  ],
   rateLimit: {
     enabled: true,
     window: 60,
@@ -245,8 +287,7 @@ export const auth = betterAuth({
   },
   session: {
     cookieCache: {
-      enabled: true,
-      maxAge: 5 * 60,
+      enabled: false,
     },
   },
   plugins: [
@@ -368,6 +409,23 @@ export const auth = betterAuth({
         },
       },
       organizationHooks: {
+        beforeDeleteOrganization: async ({ organization, user }) => {
+          const current = await db
+            .select({ ownerId: schema.workspace.ownerId })
+            .from(schema.workspace)
+            .where(eq(schema.workspace.id, organization.id))
+            .limit(1)
+            .then((rows) => rows[0])
+          if (current?.ownerId !== user.id) {
+            throw new APIError("FORBIDDEN", {
+              message: "Only the workspace owner can delete it",
+            })
+          }
+        },
+        afterRemoveMember: async ({ member }) => {
+          await publishRevocation(USER_ACCESS_REVOKED_CHANNEL, member.userId)
+          void syncSeats(member.organizationId)
+        },
         beforeCreateOrganization: async ({ organization, user }) => {
           return { data: { ...organization, ownerId: user.id } }
         },

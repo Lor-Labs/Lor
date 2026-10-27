@@ -9,10 +9,11 @@ import {
   isNull,
   notExists,
   schema,
+  sql,
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
-import type { Approval, Plan } from "@repo/db/schema"
+import type { Approval, ClaudeCodeAnswers, Plan } from "@repo/db/schema"
 import { channelRoom } from "@repo/realtime-types/rooms"
 import { findRunVoiceRequest } from "@repo/voice/server"
 import {
@@ -35,10 +36,13 @@ import { enqueueVoiceRequest } from "@/lib/voice/runs"
 import { findConnectedParticipant } from "@/lib/voice/sessions"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 import type {
+  AnswerApprovalRoute,
   ApproveApprovalRoute,
+  ApprovePlanApprovalRoute,
   ListChannelApprovalsRoute,
   RejectApprovalRoute,
 } from "@/routes/v1/approvals/routes"
+import { channelApprovalSchema } from "@/routes/v1/approvals/schema"
 
 export const listChannelApprovals: AppRouteHandler<
   ListChannelApprovalsRoute
@@ -61,6 +65,9 @@ export const listChannelApprovals: AppRouteHandler<
       messageId: schema.agentRun.messageId,
       threadRootId: schema.agentRun.threadRootId,
       resolverUserName: schema.user.name,
+      claudeCodeUserId: sql<
+        string | null
+      >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
     })
     .from(schema.approval)
     .innerJoin(schema.agentRun, eq(schema.approval.runId, schema.agentRun.id))
@@ -107,11 +114,35 @@ export const listChannelApprovals: AppRouteHandler<
         rows.map((r) => r.approval)
       )
     : new Map()
+  // Claude Code prompts wait on the turn's sender, named on the card.
+  const senderIds = [
+    ...new Set(
+      rows.flatMap((row) =>
+        row.approval.kind === "claude_code" && row.claudeCodeUserId
+          ? [row.claudeCodeUserId]
+          : []
+      )
+    ),
+  ]
+  const senderNames = new Map(
+    senderIds.length > 0
+      ? (
+          await db
+            .select({ id: schema.user.id, name: schema.user.name })
+            .from(schema.user)
+            .where(inArray(schema.user.id, senderIds))
+        ).map((user) => [user.id, user.name])
+      : []
+  )
 
   return c.json(
     {
       approvals: rows.map((row) => {
-        const resolver = resolvers.get(row.approval.id) ?? null
+        const onlyUserId =
+          row.approval.kind === "claude_code" ? row.claudeCodeUserId : null
+        const resolver = onlyUserId
+          ? { kind: "user" as const, userId: onlyUserId }
+          : (resolvers.get(row.approval.id) ?? null)
         return {
           ...serializeApproval(row.approval),
           channelId,
@@ -120,13 +151,51 @@ export const listChannelApprovals: AppRouteHandler<
           resolver,
           // The joined name is only meaningful for a user resolver — never
           // surface a stale resolver_user_id's name for other kinds.
-          resolverUserName:
-            resolver?.kind === "user" ? row.resolverUserName : null,
+          resolverUserName: onlyUserId
+            ? (senderNames.get(onlyUserId) ?? null)
+            : resolver?.kind === "user"
+              ? row.resolverUserName
+              : null,
+          onlyUserId,
+          plan:
+            row.approval.kind === "claude_code" &&
+            row.approval.toolName === "ExitPlanMode"
+              ? planText(row.approval.payload)
+              : null,
+          ...(row.approval.kind === "claude_code" &&
+          row.approval.toolName === "askUserQuestions"
+            ? {
+                questions: questionsOf(row.approval.payload),
+                answers: row.approval.answers,
+              }
+            : { questions: null, answers: null }),
         }
       }),
     },
     HttpStatusCodes.OK
   )
+}
+
+// ExitPlanMode's input carries the plan as Markdown (7d-4b spike).
+function planText(payload: unknown): string | null {
+  const plan = (payload as { plan?: unknown } | null)?.plan
+  return typeof plan === "string" && plan.trim() ? plan : null
+}
+
+// askUserQuestions' input: the harness questions list (7d-4c spike).
+function questionsOf(payload: unknown) {
+  const parsed = channelApprovalSchema.shape.questions.safeParse(
+    (payload as { questions?: unknown } | null)?.questions ?? null
+  )
+  return parsed.success ? parsed.data : null
+}
+
+// What a Claude Code prompt's decision carries beyond yes or no.
+type ResolveDetail = {
+  // An approved plan: the mode its turn goes on in.
+  planMode?: "acceptEdits" | "default"
+  // An answered question: the sender's answers.
+  answers?: ClaudeCodeAnswers
 }
 
 type ResolveOutcome =
@@ -175,7 +244,8 @@ function approvalScope(
 async function resolveApproval(
   approvalId: string,
   userId: string,
-  resolution: "approved" | "rejected"
+  resolution: "approved" | "rejected",
+  detail: ResolveDetail = {}
 ): Promise<ResolveOutcome> {
   const row = await db
     .select({
@@ -186,6 +256,9 @@ async function resolveApproval(
         threadRootId: schema.agentRun.threadRootId,
         scopeKey: schema.agentRun.scopeKey,
         messageId: schema.agentRun.messageId,
+        claudeCodeUserId: sql<
+          string | null
+        >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
       },
       plan: schema.plan,
     })
@@ -249,28 +322,72 @@ async function resolveApproval(
     row.approval.workspaceId,
     row.approval.target
   )
-  const allowed = spec
-    ? canResolveApproval(authority, spec, userId)
-    : authority.isOwner
+  // A Claude Code prompt is the turn's sender's own, as at their terminal:
+  // no owner override (code-sessions-runbook.md chunk 7d-4).
+  const allowed =
+    row.approval.kind === "claude_code"
+      ? Boolean(row.run?.claudeCodeUserId) &&
+        row.run?.claudeCodeUserId === userId
+      : spec
+        ? canResolveApproval(authority, spec, userId)
+        : authority.isOwner
   if (!allowed) return { kind: "forbidden" }
 
   // CAS: only one resolver wins; a second click reads as already resolved.
-  const resolved = await db
-    .update(schema.approval)
-    .set({
-      status: resolution,
-      resolvedBy: userId,
-      resolvedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(schema.approval.id, approvalId),
-        eq(schema.approval.status, "pending")
+  // A paused turn waits on its whole set: resolutions of one run serialize on
+  // the run row, so exactly one of them sees the set complete.
+  const decided = await db.transaction(async (tx) => {
+    if (row.approval.runId) {
+      await tx
+        .select({ id: schema.agentRun.id })
+        .from(schema.agentRun)
+        .where(eq(schema.agentRun.id, row.approval.runId))
+        .for("update")
+    }
+    const resolved = await tx
+      .update(schema.approval)
+      .set({
+        status: resolution,
+        resolvedBy: userId,
+        resolvedAt: new Date(),
+        // An approved Claude Code plan goes on in the mode the sender chose;
+        // an answered question carries the answers.
+        ...(resolution === "approved" &&
+        row.approval.kind === "claude_code" &&
+        row.approval.toolName === "ExitPlanMode" &&
+        detail.planMode
+          ? { claudeCodeMode: detail.planMode }
+          : {}),
+        ...(resolution === "approved" &&
+        row.approval.kind === "claude_code" &&
+        row.approval.toolName === "askUserQuestions" &&
+        detail.answers
+          ? { answers: detail.answers }
+          : {}),
+      })
+      .where(
+        and(
+          eq(schema.approval.id, approvalId),
+          eq(schema.approval.status, "pending")
+        )
       )
-    )
-    .returning()
-    .then((rows) => rows[0] ?? null)
-  if (!resolved) return { kind: "conflict" }
+      .returning()
+      .then((rows) => rows[0] ?? null)
+    if (!resolved?.runId) return resolved ? { resolved, complete: true } : null
+    const open = await tx
+      .select({ id: schema.approval.id })
+      .from(schema.approval)
+      .where(
+        and(
+          eq(schema.approval.runId, resolved.runId),
+          eq(schema.approval.status, "pending")
+        )
+      )
+      .limit(1)
+    return { resolved, complete: open.length === 0 }
+  })
+  if (!decided) return { kind: "conflict" }
+  const { resolved } = decided
 
   const undoResolution = () =>
     db
@@ -285,9 +402,10 @@ async function resolveApproval(
       )
       .catch(() => {})
 
-  // Nothing posts to the call chat: the paused request resumes in Lor's
-  // window. Without the resume job the request would wait forever, so a
-  // failed enqueue undoes the resolution for a retry.
+  // Nothing posts to the call chat. Lor's window shows a set one approval at
+  // a time: the job shows the next one, or resumes the request once the set
+  // is decided. Without the job the request would wait forever, so a failed
+  // enqueue undoes the resolution for a retry.
   if (voice) {
     const queued = await enqueueVoiceRequest(voice.id, resolved.id)
       .then(() => true)
@@ -300,23 +418,24 @@ async function resolveApproval(
     return { kind: "resolved", approval: resolved }
   }
 
-  // No message posts: the decision reaches Lor as the AI SDK's approval
-  // response (or a decision line for request_approval), and the card shows
-  // it. The continuation answers Lor's parked reply. Only an old message-less
-  // run still needs a posted resolution to trigger on; if that can't be
-  // created, un-resolve the CAS so the caller can retry.
-  const messageId =
-    row.run?.messageId ??
-    (await postScopeMessage({
-      channelId: scope.channelId,
-      threadRootId: scope.threadRootId,
-      authorId: userId,
-      content:
-        resolution === "approved"
-          ? `Approved — go ahead: ${resolved.description}`
-          : `Rejected — do not proceed: ${resolved.description}`,
-    }).catch(() => null))
-  if (!messageId) {
+  // No message posts: the decision reaches Lor as the harness approval
+  // response, and the card shows it. When the set is complete, the
+  // continuation answers Lor's paused reply. Only an old message-less run
+  // still needs a posted resolution to trigger on; if that can't be created,
+  // un-resolve the CAS so the caller can retry.
+  const messageId = !decided.complete
+    ? null
+    : (row.run?.messageId ??
+      (await postScopeMessage({
+        channelId: scope.channelId,
+        threadRootId: scope.threadRootId,
+        authorId: userId,
+        content:
+          resolution === "approved"
+            ? `Approved — go ahead: ${resolved.description}`
+            : `Rejected — do not proceed: ${resolved.description}`,
+      }).catch(() => null)))
+  if (decided.complete && !messageId) {
     await undoResolution()
     return { kind: "post_failed" }
   }
@@ -350,6 +469,8 @@ async function resolveApproval(
       "Approval resolution broadcast failed; continuing"
     )
   }
+  // The rest of the set is still open: the turn stays paused.
+  if (!messageId) return { kind: "resolved", approval: resolved }
 
   try {
     const plan = row.plan
@@ -387,12 +508,8 @@ async function resolveApproval(
       scopeKey: scope.scopeKey,
       triggerMessageId: messageId,
       senderId: userId,
-      // The worker replays a policy gate's parked tool call with the SDK
-      // approval response, or hands request_approval its decision (unless an
-      // old run's posted resolution already says it).
-      ...(resolved.runId && (resolved.toolCallId || row.run?.messageId)
-        ? { resumeApprovalId: resolved.id }
-        : {}),
+      // The worker finishes the paused turn with the set's decisions.
+      ...(resolved.runId ? { resumeApprovalId: resolved.id } : {}),
       ...(plan
         ? {
             onAbandoned: async () => {
@@ -431,12 +548,16 @@ async function resolveApproval(
 
 // Approve and reject share identical route shapes; one handler body maps each
 // ResolveOutcome to its response so new variants can't drift between the two.
-function resolveHandler(resolution: "approved" | "rejected") {
+function resolveHandler(
+  resolution: "approved" | "rejected",
+  detail: ResolveDetail = {}
+) {
   return async (c: Parameters<AppRouteHandler<ApproveApprovalRoute>>[0]) => {
     const outcome = await resolveApproval(
       c.req.valid("param").approvalId,
       c.var.user.id,
-      resolution
+      resolution,
+      detail
     )
     switch (outcome.kind) {
       case "not_found":
@@ -487,6 +608,13 @@ function resolveHandler(resolution: "approved" | "rejected") {
 
 export const approveApproval: AppRouteHandler<ApproveApprovalRoute> =
   resolveHandler("approved")
+
+export const approvePlanApproval: AppRouteHandler<ApprovePlanApprovalRoute> = (
+  c
+) => resolveHandler("approved", { planMode: c.req.valid("json").mode })(c)
+
+export const answerApproval: AppRouteHandler<AnswerApprovalRoute> = (c) =>
+  resolveHandler("approved", { answers: c.req.valid("json").answers })(c)
 
 export const rejectApproval: AppRouteHandler<RejectApprovalRoute> =
   resolveHandler("rejected")

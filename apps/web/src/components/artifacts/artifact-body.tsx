@@ -1,8 +1,10 @@
 import {
+  filePreviewMime,
   isTextPreviewable,
   MAX_PREVIEW_BYTES,
   previewMarkdown,
 } from "@repo/utils/file-preview"
+import { ImagePreview } from "@/components/artifacts/image-preview"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { useArtifactContent } from "@/hooks/use-artifact"
 
@@ -20,13 +22,40 @@ export function ArtifactBody({
   url: string | null
   size: number | null
 }) {
-  const content = useArtifactContent({ url, mime, size })
-
-  if (mime.startsWith("image/") && mime !== "image/svg+xml" && url) {
+  const previewMime = filePreviewMime(path, mime)
+  if (previewMime.startsWith("image/") && url) {
     return (
-      <img src={url} alt={path} className="max-h-full max-w-full self-start" />
+      <ImagePreview
+        path={path}
+        url={url}
+        source={
+          previewMime === "image/svg+xml" ? (
+            <ArtifactText
+              path={path}
+              mime={previewMime}
+              url={url}
+              size={size}
+            />
+          ) : undefined
+        }
+      />
     )
   }
+  return <ArtifactText path={path} mime={previewMime} url={url} size={size} />
+}
+
+function ArtifactText({
+  path,
+  mime,
+  url,
+  size,
+}: {
+  path: string
+  mime: string
+  url: string | null
+  size: number | null
+}) {
+  const content = useArtifactContent({ url, mime, size })
 
   // Must mirror useArtifactContent's enabled guard: a file it refuses to
   // fetch (too big, wrong type) would otherwise sit in isPending forever.

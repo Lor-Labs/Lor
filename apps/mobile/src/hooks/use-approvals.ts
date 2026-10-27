@@ -29,7 +29,7 @@ function channelApprovalsQueryOptions(
 ) {
   return {
     queryKey: [...channelApprovalsQueryKey(channelId), threadRootId] as const,
-    // Message rows mount useMessageApproval against the same key; a short
+    // Message rows mount useMessageApprovals against the same key; a short
     // staleTime keeps each new observer from refetching the whole channel
     // (approval:created/updated invalidations keep it live regardless).
     staleTime: 30_000,
@@ -78,17 +78,31 @@ export function useChannelApprovals(
   return query
 }
 
-// The approval anchored to one Lor message, if any: in a session, pending or
-// resolved; in chat, pending only.
-export function useMessageApproval(
+// The approvals anchored to one Lor message (a paused turn files one per
+// gated call): in a session, pending or resolved; in chat, pending only.
+export function useMessageApprovals(
   channelId: string,
   messageId: string,
   threadRootId: string | null
-): ChannelApproval | null {
+): ChannelApproval[] {
   const { data } = useQuery({
     ...channelApprovalsQueryOptions(channelId, threadRootId),
     select: (approvals: ChannelApproval[]) =>
-      approvals.find((a) => a.messageId === messageId) ?? null,
+      approvals.filter((a) => a.messageId === messageId),
+  })
+  return data ?? []
+}
+
+// The Lor message whose turn is paused on pending approvals, if any: Stop
+// rejects them all.
+export function usePausedLorMessageId(
+  channelId: string,
+  threadRootId: string | null
+): string | null {
+  const { data } = useQuery({
+    ...channelApprovalsQueryOptions(channelId, threadRootId),
+    select: (approvals: ChannelApproval[]) =>
+      approvals.find((a) => a.status === "pending")?.messageId ?? null,
   })
   return data ?? null
 }
@@ -96,7 +110,9 @@ export function useMessageApproval(
 // Client-side mirror of the server's resolver check, for showing/hiding the
 // buttons only — the resolve endpoint re-checks with real authority.
 export function useCanResolveApproval(
-  resolver: ApprovalResolverSpec | null
+  resolver: ApprovalResolverSpec | null,
+  // A Claude Code prompt: only the turn's sender, the owner included.
+  onlyUserId?: string | null
 ): boolean {
   const { workspace } = useWorkspace()
   const member = useActiveMember(workspace?.id)
@@ -105,6 +121,7 @@ export function useCanResolveApproval(
   const role = member.data?.role
   const userId = member.data?.userId
   if (!workspace?.ownerId || typeof role !== "string" || !userId) return false
+  if (onlyUserId) return userId === onlyUserId
   const authority = {
     role,
     isOwner: workspace.ownerId === userId,
@@ -127,19 +144,32 @@ export function useResolveChannelApproval(channelId: string) {
     mutationFn: async (args: {
       approvalId: string
       resolution: "approve" | "reject"
+      // Approving a Claude Code plan: the mode its turn goes on in.
+      claudeCodeMode?: "acceptEdits" | "default"
+      // Answering a Claude Code question.
+      answers?: NonNullable<ChannelApproval["answers"]>
     }) => {
-      const endpoint =
-        api.v1.approvals[":approvalId"][
-          args.resolution === "approve" ? "approve" : "reject"
-        ]
-      const res = await endpoint.$post({
-        param: { approvalId: args.approvalId },
-      })
+      const approval = api.v1.approvals[":approvalId"]
+      const param = { approvalId: args.approvalId }
+      const res =
+        args.resolution === "reject"
+          ? await approval.reject.$post({ param })
+          : args.answers
+            ? await approval.answer.$post({
+                param,
+                json: { answers: args.answers },
+              })
+            : args.claudeCodeMode
+              ? await approval["approve-plan"].$post({
+                  param,
+                  json: { mode: args.claudeCodeMode },
+                })
+              : await approval.approve.$post({ param })
       if (!res.ok) throw new Error("Failed to resolve approval")
       return res.json()
     },
     // The card shows the decision at once; a failure puts it back.
-    onMutate: async ({ approvalId, resolution }) => {
+    onMutate: async ({ approvalId, resolution, answers }) => {
       await queryClient.cancelQueries({ queryKey })
       const previous = queryClient.getQueriesData<ChannelApproval[]>({
         queryKey,
@@ -153,6 +183,7 @@ export function useResolveChannelApproval(channelId: string) {
                 status,
                 resolvedBy: auth?.user.id ?? null,
                 resolvedAt: new Date().toISOString(),
+                ...(answers ? { answers } : {}),
               }
             : approval
         )
@@ -164,7 +195,11 @@ export function useResolveChannelApproval(channelId: string) {
         queryClient.setQueryData(key, data)
       }
       Alert.alert(
-        args.resolution === "approve" ? "Couldn't approve" : "Couldn't reject",
+        args.answers
+          ? "Couldn't send your answers"
+          : args.resolution === "approve"
+            ? "Couldn't approve"
+            : "Couldn't reject",
         "Please try again in a moment."
       )
     },

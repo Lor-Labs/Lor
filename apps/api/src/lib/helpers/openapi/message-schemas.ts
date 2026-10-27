@@ -73,7 +73,6 @@ export const lorToolCallSchema = z.object({
   label: z.string(),
   at: z.number().optional(),
   order: z.number().int().nonnegative().optional(),
-  parentToolCallId: z.string().optional(),
   detail: z
     .object({
       summary: z.string().optional(),
@@ -154,8 +153,16 @@ export const threadSummarySchema = z
 
 export const messageWithAuthorSchema = selectMessageSchema
   // Raw memory column is reshaped into `remembered` below; the memory
-  // exclusion flag and send-idempotency key are plumbing the client never needs.
-  .omit({ lorMemories: true, excludedFromMemory: true, clientKey: true })
+  // exclusion flag, send-idempotency key, Claude Code mode and the Claude
+  // and Codex models are plumbing the client never needs.
+  .omit({
+    lorMemories: true,
+    excludedFromMemory: true,
+    clientKey: true,
+    claudeCodeMode: true,
+    claudeModel: true,
+    codexModel: true,
+  })
   .extend({
     author: messageAuthorSchema,
     // Typed passthrough — keeps the inferred client type as the payload union

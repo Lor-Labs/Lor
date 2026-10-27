@@ -12,6 +12,7 @@ import {
 import { Separator } from "@repo/ui/components/separator"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
+import { features } from "@repo/utils/features"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { apiClient } from "@/lib/api-client"
@@ -164,28 +165,30 @@ export function NotificationSettings() {
           </Select>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="dm-notifications">DM Notifications</Label>
-          <p className="text-xs text-muted-foreground">
-            Choose whether you get notified for new direct messages.
-          </p>
-          <Select
-            items={DM_NOTIFICATION_OPTIONS}
-            value={settings?.dmNotifications ?? "all_messages"}
-            onValueChange={(v) => v && handleChange("dmNotifications", v)}
-          >
-            <SelectTrigger id="dm-notifications" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DM_NOTIFICATION_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {features.directMessages && (
+          <div className="space-y-2">
+            <Label htmlFor="dm-notifications">DM Notifications</Label>
+            <p className="text-xs text-muted-foreground">
+              Choose whether you get notified for new direct messages.
+            </p>
+            <Select
+              items={DM_NOTIFICATION_OPTIONS}
+              value={settings?.dmNotifications ?? "all_messages"}
+              onValueChange={(v) => v && handleChange("dmNotifications", v)}
+            >
+              <SelectTrigger id="dm-notifications" className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DM_NOTIFICATION_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
     </div>
   )

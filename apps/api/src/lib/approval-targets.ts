@@ -60,14 +60,17 @@ export async function workspaceApprovalTargets(
   ])
   const connected = new Set(connections.map((row) => row.provider))
   return [
-    ...STANDALONE_TOOLS.map((tool) => ({
-      ...tool,
-      key: approvalTargetKey({ kind: "builtinTool", toolName: tool.name }),
-      group: "builtin" as const,
-      groupKey: `builtin:${tool.group}`,
-      groupLabel: BUILTIN_GROUPS[tool.group].label,
-      connected: true,
-    })),
+    // Sandbox tools follow each person's sandbox permission mode instead.
+    ...STANDALONE_TOOLS.filter((tool) => tool.group !== "sandbox").map(
+      (tool) => ({
+        ...tool,
+        key: approvalTargetKey({ kind: "builtinTool", toolName: tool.name }),
+        group: "builtin" as const,
+        groupKey: `builtin:${tool.group}`,
+        groupLabel: BUILTIN_GROUPS[tool.group].label,
+        connected: true,
+      })
+    ),
     ...Object.values(CONNECTORS).flatMap((connector) =>
       CONNECTOR_TOOLS[connector.id].map((tool) => ({
         ...tool,

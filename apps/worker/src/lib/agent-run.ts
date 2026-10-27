@@ -1,6 +1,9 @@
-import { randomUUID } from "node:crypto"
-import { hostname } from "node:os"
-import { computeCredits, getRate } from "@repo/billing"
+import {
+  CREDIT_USD,
+  type CreditRate,
+  computeCostUsd,
+  getRate,
+} from "@repo/billing"
 import {
   and,
   asc,
@@ -27,21 +30,22 @@ import type {
   LorToolCall,
 } from "@repo/db/schema"
 import {
-  buildInitialUserMessage,
   type ConversationUpdate,
-  estimateMessagesTokens,
-  type ModelMessage,
   mergeRunContextCoverage,
   type RunCounters,
   type RunHandle,
   type RunResume,
   type RunStepRecord,
+  type RunTurnRecord,
   type UsageEvent,
   userDisplayName,
 } from "@repo/lor"
+import { type HarnessOwner, SessionCoreError } from "@repo/lor/session-core"
+import { DelayedError, type Job } from "bullmq"
+import { writeHarnessState } from "@/lib/harness-state"
 import { logger } from "@/lib/logger"
-import { replayContinuedPrefix } from "@/lib/run-continuation"
 import { createRunEventWriter, type RunEventWriter } from "@/lib/run-events"
+import { WORKER_ID } from "@/lib/worker-id"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
 const LEASE_TTL_MS = 60_000
@@ -49,8 +53,6 @@ const HEARTBEAT_MS = 20_000
 // Sequence gap left when taking over a crashed attempt, so recovered frames
 // can never collide with the dead worker's un-flushed live tail.
 const TAKEOVER_SEQ_GAP = 10_000
-
-const WORKER_ID = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
 
 // Attachment-only messages have null content; render their files as the same
 // [file: …] lines the initial context uses so mid-run injections carry them.
@@ -108,8 +110,13 @@ export type RunExecution = {
   handle: RunHandle
   resume: ResumeState | null
   counters: () => RunCounters
-  // Nested billable usage (investigate_code) folds into the next checkpoint.
-  noteNestedUsage: (u: UsageEvent) => void
+  // Adds one model call to the counters (RunHarness.recordUsage).
+  recordUsage: (
+    usage: RunStepRecord,
+    kind: "step" | "compaction"
+  ) => Promise<RunCounters>
+  // Saves a finished Pi turn for the conversation `owner` (RunHarness.saveTurn).
+  saveTurn: (owner: HarnessOwner, turn: RunTurnRecord) => Promise<RunCounters>
   // Post-answer usage (write-back) folds straight into the counters.
   addUsage: (u: UsageEvent) => void
   // Persists the predecessor pointer; recovery combines it with this run's
@@ -138,7 +145,29 @@ export type ClaimOutcome =
   | { kind: "legacy" }
   | { kind: "terminal" }
   | { kind: "exhausted" }
+  // Another attempt holds a live lease. After a crash BullMQ redelivers the
+  // job before the lease expires, so the job waits for it (delayJobUntil)
+  // instead of finishing with the run left working.
+  | { kind: "busy"; retryAt: Date }
   | { kind: "claimed"; execution: RunExecution }
+
+// Thrown from deep in a job that met a busy claim; the processor delays.
+export class RunBusyError extends Error {
+  constructor(readonly retryAt: Date) {
+    super("The run's lease is held by another attempt")
+    this.name = "RunBusyError"
+  }
+}
+
+// Puts the job back until `at` without using one of its attempts.
+export async function delayJobUntil(
+  job: Job,
+  token: string | undefined,
+  at: Date
+): Promise<never> {
+  await job.moveToDelayed(at.getTime() + 1_000, token)
+  throw new DelayedError()
+}
 
 function countersOf(row: {
   steps: number
@@ -160,6 +189,21 @@ function countersOf(row: {
   }
 }
 
+// Adds model usage and its credits to the run counters.
+function usageIncrements(
+  steps: number,
+  usage: RunStepRecord | null,
+  credits: number
+) {
+  return {
+    steps: sql`${schema.agentRun.steps} + ${steps}`,
+    inputTokens: sql`${schema.agentRun.inputTokens} + ${usage?.inputTokens ?? 0}`,
+    cachedInputTokens: sql`${schema.agentRun.cachedInputTokens} + ${usage?.cachedInputTokens ?? 0}`,
+    outputTokens: sql`${schema.agentRun.outputTokens} + ${usage?.outputTokens ?? 0}`,
+    creditsSpent: sql`${schema.agentRun.creditsSpent} + ${credits}`,
+  }
+}
+
 const COUNTER_SELECTION = {
   steps: schema.agentRun.steps,
   inputTokens: schema.agentRun.inputTokens,
@@ -168,21 +212,6 @@ const COUNTER_SELECTION = {
   toolCalls: schema.agentRun.toolCalls,
   toolOutputBytes: schema.agentRun.toolOutputBytes,
   creditsSpent: schema.agentRun.creditsSpent,
-}
-
-function assistantText(messages: ModelMessage[]): string {
-  let out = ""
-  for (const m of messages) {
-    if (m.role !== "assistant") continue
-    if (typeof m.content === "string") {
-      out += m.content
-      continue
-    }
-    for (const part of m.content) {
-      if (part.type === "text") out += part.text
-    }
-  }
-  return out
 }
 
 async function loadTrailSeed(runId: string): Promise<RunTrailSeed> {
@@ -329,8 +358,12 @@ export async function claimAgentRun(
         .catch(() => {})
       return { kind: "exhausted" }
     }
-    // A live lease elsewhere — that worker owns the answer.
-    return { kind: "terminal" }
+    // A live lease elsewhere: a running worker renews it until the run ends;
+    // a crashed one's lease expires and the waiting job takes over.
+    return {
+      kind: "busy",
+      retryAt: row.leaseExpiresAt ?? new Date(now.getTime() + LEASE_TTL_MS),
+    }
   }
 
   // queued → working changes the channel's sidebar aggregate (a takeover
@@ -395,10 +428,13 @@ export async function claimAgentRun(
       })
   }, HEARTBEAT_MS)
 
-  const rateCache = new Map<
-    string,
-    Awaited<ReturnType<typeof getRate>> | null
-  >()
+  // Spend toward the run's limit, summed exactly and rounded up once per
+  // attempt: per-call rounding (at least 1 credit each) would inflate a long
+  // turn several times over. Returns the whole credits to add now. A failed
+  // rate lookup is not cached, so the next call tries again.
+  const rateCache = new Map<string, CreditRate>()
+  let attemptCredits = 0
+  let attemptCounted = 0
   const creditsFor = async (u: {
     model?: string
     inputTokens?: number
@@ -407,12 +443,13 @@ export async function claimAgentRun(
   }): Promise<number> => {
     if (!u.model) return 0
     if ((u.inputTokens ?? 0) === 0 && (u.outputTokens ?? 0) === 0) return 0
-    if (!rateCache.has(u.model)) {
-      rateCache.set(u.model, await getRate(u.model).catch(() => null))
+    let rate = rateCache.get(u.model)
+    if (!rate) {
+      rate = (await getRate(u.model).catch(() => null)) ?? undefined
+      if (rate) rateCache.set(u.model, rate)
     }
-    const rate = rateCache.get(u.model)
     if (!rate) return 0
-    return computeCredits(
+    const usd = computeCostUsd(
       {
         inputTokens: u.inputTokens,
         cachedInputTokens: u.cachedInputTokens,
@@ -420,154 +457,130 @@ export async function claimAgentRun(
       },
       rate
     )
+    attemptCredits += (usd * rate.conversionRate) / CREDIT_USD
+    const whole = Math.ceil(attemptCredits)
+    const added = whole - attemptCounted
+    attemptCounted = whole
+    return added
   }
 
-  const pendingNested: UsageEvent[] = []
   let runContext = claimed.context
 
-  const checkpoint = async (record: RunStepRecord): Promise<RunCounters> => {
-    let credits = await creditsFor(record)
-    for (const nested of pendingNested.splice(0)) {
-      credits += await creditsFor(nested)
-    }
-    const updated = await db.transaction(async (tx) => {
-      // Insert first: a replayed step (same run + step number) must not
-      // re-add its tokens/credits to the run counters, so the increments
-      // below only run when this step row is genuinely new.
-      const insertedStep = await tx
-        .insert(schema.agentRunStep)
-        .values({
-          runId,
-          step: record.step,
-          messages: record.messages as unknown[],
-          model: record.model ?? null,
-          inputTokens: record.inputTokens ?? null,
-          cachedInputTokens: record.cachedInputTokens ?? null,
-          outputTokens: record.outputTokens ?? null,
-          reasoningTokens: record.reasoningTokens ?? null,
-          toolCalls: record.toolCalls,
-          toolOutputBytes: record.toolOutputBytes,
-        })
-        .onConflictDoNothing()
-        .returning({ step: schema.agentRunStep.step })
-        .then((r) => r[0])
-      const isNew = Boolean(insertedStep)
-      // Coverage becomes durable only with the step that carried the injected
-      // message, so a crash before this transaction causes safe reinjection.
-      const nextContext =
-        isNew && runContext
-          ? mergeRunContextCoverage(runContext, record.coveredMessageIds ?? [])
-          : runContext
-      const row = await tx
-        .update(schema.agentRun)
-        .set({
-          steps: record.step,
-          inputTokens: sql`${schema.agentRun.inputTokens} + ${isNew ? (record.inputTokens ?? 0) : 0}`,
-          cachedInputTokens: sql`${schema.agentRun.cachedInputTokens} + ${isNew ? (record.cachedInputTokens ?? 0) : 0}`,
-          outputTokens: sql`${schema.agentRun.outputTokens} + ${isNew ? (record.outputTokens ?? 0) : 0}`,
-          toolCalls: sql`${schema.agentRun.toolCalls} + ${isNew ? record.toolCalls : 0}`,
-          toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${isNew ? record.toolOutputBytes : 0}`,
-          creditsSpent: sql`${schema.agentRun.creditsSpent} + ${isNew ? credits : 0}`,
-          ...(nextContext !== runContext ? { context: nextContext } : {}),
-        })
-        .where(
-          and(
-            eq(schema.agentRun.id, runId),
-            eq(schema.agentRun.leaseOwner, WORKER_ID),
-            eq(schema.agentRun.state, "working")
-          )
+  // One model call as it finishes, so the spend limit is checked inside the
+  // turn (pi-harness-runbook.md §4.5). A compaction summary is not a step.
+  const recordUsage = async (
+    usage: RunStepRecord,
+    kind: "step" | "compaction"
+  ): Promise<RunCounters> => {
+    const credits = await creditsFor(usage)
+    const row = await db
+      .update(schema.agentRun)
+      .set(usageIncrements(kind === "step" ? 1 : 0, usage, credits))
+      .where(
+        and(
+          eq(schema.agentRun.id, runId),
+          eq(schema.agentRun.leaseOwner, WORKER_ID),
+          eq(schema.agentRun.state, "working")
         )
-        .returning({
-          ...COUNTER_SELECTION,
-          stopRequestedAt: schema.agentRun.stopRequestedAt,
-        })
-        .then((r) => r[0])
-      if (!row) throw new LeaseLostError()
-      if (row.stopRequestedAt) requestStop()
-      return { row, nextContext }
-    })
-    runContext = updated.nextContext
-    counters = countersOf(updated.row)
+      )
+      .returning(COUNTER_SELECTION)
+      .then((r) => r[0])
+    if (!row) {
+      abort.abort()
+      throw new LeaseLostError()
+    }
+    counters = countersOf(row)
     return counters
   }
 
-  let resume: ResumeState | null = null
-  if (claimed.context && claimed.instructions) {
-    // Steer rows consumed by a step the dead attempt never checkpointed were
-    // dropped with its transcript tail — put them back so this attempt
-    // injects them again. Snapshot-covered rows (consumedAtStep 0) stay
-    // consumed: they live in the persisted step-0 context.
-    await db
-      .update(schema.agentRunQueue)
-      .set({ state: "steered", consumedAtStep: null })
-      .where(
-        and(
-          eq(schema.agentRunQueue.runId, runId),
-          eq(schema.agentRunQueue.state, "consumed"),
-          gt(schema.agentRunQueue.consumedAtStep, claimed.steps)
-        )
-      )
-      .catch((err) =>
-        logger.warn({ err, runId }, "Steered-row requeue on takeover failed")
-      )
-    const stepRows = await db
-      .select()
-      .from(schema.agentRunStep)
-      .where(eq(schema.agentRunStep.runId, runId))
-      .orderBy(asc(schema.agentRunStep.step))
-    const stepMessages = stepRows.flatMap((r) => r.messages as ModelMessage[])
-    // A run that compacted persisted its post-compaction baseline; resuming
-    // from it (plus the steps checkpointed after it) replays exactly what the
-    // model was last sent. Replaying the raw transcript instead would re-send
-    // everything the compaction projected away — and can exceed the model
-    // context outright once a compaction has happened.
-    const compacted = claimed.compaction
-    // A continued run's prefix is the chain it inherited plus the delta it was
-    // started with — rebuilding it as a fresh initial message would silently
-    // drop every prior run's work. Falls back to the fresh shape if the chain
-    // can't be replayed. The baseline supersedes the chain walk: it already
-    // embeds the inherited transcript.
-    const prefix = compacted
-      ? (compacted.baselineMessages as ModelMessage[])
-      : claimed.continuedFromRunId
-        ? await replayContinuedPrefix({
-            continuedFromRunId: claimed.continuedFromRunId,
-            context: claimed.context,
-          })
-        : null
-    const replayedSteps = compacted
-      ? stepRows.filter((r) => r.step > compacted.atStep)
-      : stepRows
-    const messages = [
-      ...(prefix ?? [await buildInitialUserMessage(claimed.context)]),
-      ...replayedSteps.flatMap((r) => r.messages as ModelMessage[]),
-    ]
-    resume = {
-      approvalResume: claimed.context.approvalResume,
-      messages,
-      instructions: claimed.instructions,
-      counters,
-      // The full answer streamed so far, from every step row — the baseline
-      // filter above shapes the model request, not the visible text.
-      answerTextSoFar: assistantText(stepMessages),
-      // What the first request will actually weigh, not what the last step
-      // weighed: after a compaction the last step is small while a raw replay
-      // is huge, and seeding the small number would skip the compaction the
-      // first request needs.
-      lastInputTokens: Math.max(
-        estimateMessagesTokens(messages),
-        stepRows.at(-1)?.inputTokens ?? 0
-      ),
-      compaction: compacted
+  // One transaction: the Pi log under the lease and head checks, the approval
+  // set a paused turn waits on, then the counters the steps did not record:
+  // compaction and cache usage, and tool counts.
+  const saveTurn = async (
+    owner: HarnessOwner,
+    turn: RunTurnRecord
+  ): Promise<RunCounters> => {
+    const credits = turn.extraUsage ? await creditsFor(turn.extraUsage) : 0
+    // The turn's coverage, paused sandbox state and context count ride the
+    // save, so a lost lease never records one without the other.
+    const context =
+      runContext &&
+      (turn.pausedSandbox ||
+        turn.contextUsage ||
+        turn.coveredMessageIds.length > 0)
         ? {
-            summary: compacted.summary,
-            summaryFailures: compacted.summaryFailures,
+            ...mergeRunContextCoverage(runContext, turn.coveredMessageIds),
+            ...(turn.pausedSandbox
+              ? { pausedSandbox: turn.pausedSandbox }
+              : {}),
+            ...(turn.contextUsage ? { contextUsage: turn.contextUsage } : {}),
           }
-        : null,
-      conversation: claimed.context.conversation,
-      trail: await loadTrailSeed(runId),
-    }
+        : null
+    const row = await db
+      .transaction(async (tx) => {
+        if (turn.save) {
+          await writeHarnessState(tx, {
+            ...turn.save,
+            owner,
+            workspaceId: claimed.workspaceId,
+            claim: { runId, attempt: claimed.attempt },
+          })
+        }
+        if (turn.approvals.length > 0) {
+          await tx.insert(schema.approval).values(
+            turn.approvals.map((approval) => ({
+              ...approval,
+              workspaceId: claimed.workspaceId,
+              runId,
+              planId: turn.planId,
+            }))
+          )
+        }
+        const updated = await tx
+          .update(schema.agentRun)
+          .set({
+            ...usageIncrements(0, turn.extraUsage, credits),
+            toolCalls: sql`${schema.agentRun.toolCalls} + ${turn.toolCalls}`,
+            toolOutputBytes: sql`${schema.agentRun.toolOutputBytes} + ${turn.toolOutputBytes}`,
+            ...(context ? { context } : {}),
+          })
+          .where(
+            and(
+              eq(schema.agentRun.id, runId),
+              eq(schema.agentRun.leaseOwner, WORKER_ID),
+              eq(schema.agentRun.state, "working")
+            )
+          )
+          .returning(COUNTER_SELECTION)
+          .then((r) => r[0])
+        if (!updated) throw new LeaseLostError()
+        return updated
+      })
+      .catch((err: unknown) => {
+        if (
+          err instanceof LeaseLostError ||
+          (err instanceof SessionCoreError && err.code === "lease_lost")
+        ) {
+          abort.abort()
+          throw new LeaseLostError()
+        }
+        throw err
+      })
+    if (context) runContext = context
+    counters = countersOf(row)
+    return counters
   }
+
+  // A retried attempt sends the saved request again from the last saved Pi
+  // head; the lost attempt's turn is gone (pi-harness-runbook.md §4.3).
+  const resume: ResumeState | null = claimed.context
+    ? {
+        context: claimed.context,
+        counters,
+        conversation: claimed.context.conversation,
+        trail: await loadTrailSeed(runId),
+      }
+    : null
 
   // Consume steer rows and gather ambient conversation activity for the next
   // step boundary. Steered rows are the guaranteed tier: consumed
@@ -683,11 +696,6 @@ export async function claimAgentRun(
   const handle: RunHandle = {
     runId,
     budgets: {
-      steps: claimed.budgetSteps,
-      inputTokens: claimed.budgetInputTokens,
-      outputTokens: claimed.budgetOutputTokens,
-      toolCalls: claimed.budgetToolCalls,
-      toolOutputBytes: claimed.budgetToolOutputBytes,
       credits: claimed.budgetCredits,
       deadlineAt:
         claimed.deadlineAt ?? new Date(now.getTime() + claimed.budgetWallMs),
@@ -711,26 +719,6 @@ export async function claimAgentRun(
         throw new LeaseLostError()
       }
       runContext = context
-    },
-    checkpoint: (record) =>
-      checkpoint(record).catch((err) => {
-        if (err instanceof LeaseLostError) abort.abort()
-        throw err
-      }),
-    // Best-effort: a failed write keeps the previous baseline, which replays
-    // correctly (steps after its atStep cover the gap) — just less compactly.
-    // Lease loss surfaces through the heartbeat/checkpoint, not here.
-    saveCompaction: async (state) => {
-      await db
-        .update(schema.agentRun)
-        .set({ compaction: state })
-        .where(
-          and(
-            eq(schema.agentRun.id, runId),
-            eq(schema.agentRun.leaseOwner, WORKER_ID),
-            eq(schema.agentRun.state, "working")
-          )
-        )
     },
     drainConversation,
     stopRequested: () => stopRequested,
@@ -767,9 +755,8 @@ export async function claimAgentRun(
       handle,
       resume,
       counters: () => counters,
-      noteNestedUsage: (u) => {
-        pendingNested.push(u)
-      },
+      recordUsage,
+      saveTurn,
       // Write-back runs after the answer is terminal, so this folds without a
       // lease guard — it only feeds observability and the skip floor.
       addUsage: (u) => {

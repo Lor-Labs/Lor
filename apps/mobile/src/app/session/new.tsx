@@ -1,8 +1,10 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
 import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon"
 import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
+import GitBranchIcon from "@hugeicons/core-free-icons/GitBranchIcon"
+import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
-import { HugeiconsIcon } from "@hugeicons/react-native"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { router, useLocalSearchParams } from "expo-router"
 import * as SecureStore from "expo-secure-store"
@@ -10,22 +12,34 @@ import { SymbolView } from "expo-symbols"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import { MessageComposer } from "@/components/message-composer"
 import { messageDisplayName } from "@/components/message-row"
+import { PickerSheet } from "@/components/picker-sheet"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
+import { Tabs } from "@/components/ui/tabs"
 import { LorMark } from "@/components/voice/lor-window"
 import { useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import {
+  branchesQueryOptions,
+  codeTargetNote,
+  HARNESS_OPTIONS,
+  useCodeTarget,
+  useSessionHarness,
+  useSessionMode,
+} from "@/hooks/use-code-target"
+import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useSendNewSession } from "@/hooks/use-session-start"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
+import { HARNESS_LABELS } from "@/lib/harness"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import {
   openTextChannels,
@@ -136,8 +150,40 @@ function NewSessionComposer({
   const isConnected = useSocketConnected()
   const { workspace } = useWorkspace()
   const { data: auth } = authClient.useSession()
-  const [isPicking, setIsPicking] = useState(false)
+  const [sheet, setSheet] = useState<
+    "channel" | "repo" | "branch" | "harness" | null
+  >(null)
   const [isSending, setIsSending] = useState(false)
+  const workspaceSlug = workspace?.slug ?? ""
+  const [mode, setMode] = useSessionMode()
+  const code = useCodeTarget({
+    workspaceSlug,
+    channelId: channel.id,
+    enabled: mode === "code",
+  })
+  // Claude Code runs on the starter's own Claude subscription; connecting
+  // it is on web for now.
+  const [harness, setHarness] = useSessionHarness()
+  const claudeCode = mode === "code" && harness === "claude_code"
+  const { data: accounts } = usePersonalAccounts(claudeCode)
+  // Unknown while the accounts load.
+  const needsClaude = claudeCode && accounts?.claude.account === null
+  const [branchQuery, setBranchQuery] = useState("")
+  const [debouncedBranchQuery, setDebouncedBranchQuery] = useState("")
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedBranchQuery(branchQuery), 200)
+    return () => clearTimeout(timer)
+  }, [branchQuery])
+  const branches = useQuery({
+    ...branchesQueryOptions(
+      workspaceSlug,
+      channel.id,
+      code.repo,
+      debouncedBranchQuery
+    ),
+    enabled: sheet === "branch" && Boolean(code.repo),
+    placeholderData: (previous) => previous,
+  })
   // Picking an example remounts the composer with it as the draft.
   const [prefill, setPrefill] = useState({ key: 0, text: draft ?? "" })
   const send = useSendNewSession(channel)
@@ -156,6 +202,29 @@ function NewSessionComposer({
 
   const accessory = (
     <View className="mb-two gap-two">
+      <Tabs
+        className="self-start"
+        onValueChange={(value) => setMode(value === "code" ? "code" : "chat")}
+        value={mode}
+      >
+        <Tabs.List>
+          <Tabs.Indicator />
+          <Tabs.Trigger value="chat">
+            <Tabs.Label>Chat</Tabs.Label>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="code">
+            <Tabs.Label>Code</Tabs.Label>
+          </Tabs.Trigger>
+        </Tabs.List>
+      </Tabs>
+      {needsClaude ? (
+        <View className="rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
+          <Text className="text-[13px] text-muted">
+            Claude Code runs on your own Claude subscription. Connect it in Lor
+            on the web or desktop, or pick another agent.
+          </Text>
+        </View>
+      ) : null}
       {aboutMessageId ? (
         <View className="min-h-11 flex-row items-center gap-two rounded-lor-sm border border-border px-three">
           <Text className="text-sm text-muted">About</Text>
@@ -199,7 +268,7 @@ function NewSessionComposer({
             accessibilityRole="button"
             className="min-h-8 flex-row items-center gap-one rounded-lor-sm px-one active:bg-accent-soft"
             hitSlop={6}
-            onPress={() => setIsPicking(true)}
+            onPress={() => setSheet("channel")}
           >
             <Text className="text-[13px] font-semibold text-accent">
               #{channelName}
@@ -208,6 +277,41 @@ function NewSessionComposer({
           </Pressable>
         )}
       </View>
+      {mode === "code" ? (
+        <View className="flex-row flex-wrap items-center gap-one">
+          {code.status === "ready" && code.repo ? (
+            <>
+              <Text className="text-[13px] text-muted">on</Text>
+              <TargetChip
+                hint="Chooses the repository the session works in"
+                icon={GithubIcon}
+                label={code.repo}
+                onPress={() => setSheet("repo")}
+              />
+              {code.branch ? (
+                <TargetChip
+                  hint="Chooses the branch the session starts from"
+                  icon={GitBranchIcon}
+                  label={code.branch}
+                  onPress={() => setSheet("branch")}
+                />
+              ) : (
+                <Spinner size="sm" />
+              )}
+            </>
+          ) : (
+            <Text className="text-[13px] text-muted">
+              {codeTargetNote(code.status)}
+            </Text>
+          )}
+          <Text className="text-[13px] text-muted">with</Text>
+          <TargetChip
+            hint="Chooses the agent that runs the session"
+            label={HARNESS_LABELS[harness]}
+            onPress={() => setSheet("harness")}
+          />
+        </View>
+      ) : null}
     </View>
   )
 
@@ -231,12 +335,22 @@ function NewSessionComposer({
             onSend={async (content, attachments) => {
               setIsSending(true)
               try {
-                await send(content, attachments, aboutMessageId)
+                await send(
+                  content,
+                  attachments,
+                  aboutMessageId,
+                  mode === "code" && code.target
+                    ? { ...code.target, harness }
+                    : undefined
+                )
               } finally {
                 setIsSending(false)
               }
             }}
-            placeholder="Ask Lor…"
+            placeholder={
+              mode === "code" ? "Ask Lor to work on the code…" : "Ask Lor…"
+            }
+            sendBlocked={(mode === "code" && !code.target) || needsClaude}
             topAccessory={accessory}
           />
         )}
@@ -261,16 +375,97 @@ function NewSessionComposer({
         )}
       />
       <ChannelPickerSheet
-        isOpen={isPicking}
-        onOpenChange={setIsPicking}
+        isOpen={sheet === "channel"}
+        onOpenChange={(open) => setSheet(open ? "channel" : null)}
         onPick={(channelId) => {
           onPickChannel(channelId)
-          setIsPicking(false)
+          setSheet(null)
         }}
         options={options}
         selectedId={channel.id}
       />
+      <PickerSheet
+        emptyText="No repositories found"
+        isOpen={sheet === "repo"}
+        onOpenChange={(open) => setSheet(open ? "repo" : null)}
+        onPick={(repo) => {
+          code.pickRepo(repo)
+          setSheet(null)
+        }}
+        options={code.repos.map((repo) => ({ value: repo, label: repo }))}
+        search={{ placeholder: "Find a repository" }}
+        selected={code.repo}
+        title="Repository"
+      />
+      <PickerSheet
+        emptyText="No branches found"
+        isOpen={sheet === "branch"}
+        loading={branches.isFetching}
+        onOpenChange={(open) => setSheet(open ? "branch" : null)}
+        onPick={(branch) => {
+          code.pickBranch(branch)
+          setSheet(null)
+        }}
+        options={(
+          branches.data?.branches ?? (code.branch ? [code.branch] : [])
+        ).map((branch) => ({
+          value: branch,
+          label: branch,
+          badge: branch === code.defaultBranch ? "default" : null,
+        }))}
+        search={{ placeholder: "Find a branch", onQueryChange: setBranchQuery }}
+        selected={code.branch}
+        title="Branch"
+      />
+      <PickerSheet
+        isOpen={sheet === "harness"}
+        onOpenChange={(open) => setSheet(open ? "harness" : null)}
+        onPick={(value) => {
+          const next = HARNESS_OPTIONS.find((option) => option.value === value)
+          if (next) setHarness(next.value)
+          setSheet(null)
+        }}
+        options={HARNESS_OPTIONS}
+        selected={harness}
+        title="Agent"
+      />
     </>
+  )
+}
+
+// A pick in the destination line (repo, branch, agent), styled like the
+// channel's.
+function TargetChip({
+  label,
+  icon,
+  hint,
+  onPress,
+}: {
+  label: string
+  icon?: IconSvgElement
+  hint: string
+  onPress: () => void
+}) {
+  const [accent, muted] = useThemeColor(["accent", "muted"])
+  return (
+    <Pressable
+      accessibilityHint={hint}
+      accessibilityRole="button"
+      className="min-h-8 max-w-full flex-row items-center gap-one rounded-lor-sm px-one active:bg-accent-soft"
+      hitSlop={6}
+      onPress={onPress}
+    >
+      {icon ? (
+        <HugeiconsIcon color={accent} icon={icon} size={13} strokeWidth={2} />
+      ) : null}
+      <Text
+        className="shrink text-[13px] font-semibold text-accent"
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+      <HugeiconsIcon color={muted} icon={ArrowDown01Icon} size={12} />
+    </Pressable>
   )
 }
 

@@ -16,10 +16,16 @@ import { approval } from "./approvals"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
 import { loop } from "./loops"
-import type { LorToolCall } from "./messages"
+import type {
+  ClaudeCodeMode,
+  ClaudeModel,
+  CodexModel,
+  LorToolCall,
+} from "./messages"
 import { message } from "./messages"
 import type { PlanStatus, PlanStep } from "./plans"
 import { triggerDelivery } from "./trigger-deliveries"
+import type { TurnSandboxMode } from "./user-sandbox-settings"
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
@@ -132,30 +138,17 @@ export const agentRun = pgTable(
     attempt: integer("attempt").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(2),
 
-    // Hard ceilings, snapshotted at creation from env defaults — an in-flight
-    // run keeps its budgets across retries and config changes. Emergency
-    // rails, not normal stopping targets.
-    budgetSteps: integer("budget_steps").notNull().default(100),
-    budgetInputTokens: integer("budget_input_tokens")
-      .notNull()
-      .default(1_000_000),
-    budgetOutputTokens: integer("budget_output_tokens")
-      .notNull()
-      .default(150_000),
-    budgetToolCalls: integer("budget_tool_calls").notNull().default(200),
-    budgetToolOutputBytes: integer("budget_tool_output_bytes")
-      .notNull()
-      .default(2_097_152),
+    // The run's limits, snapshotted at creation from env defaults so an
+    // in-flight run keeps them across retries and config changes. Spend is
+    // the real limit; the wall clock is a backstop for a stuck run
+    // (pi-harness-runbook.md §4.5).
     budgetWallMs: integer("budget_wall_ms").notNull().default(1_800_000),
     budgetCredits: integer("budget_credits").notNull().default(500),
 
-    // Cumulative counters across the whole run — persisted at each step
-    // checkpoint and reused (never reset) by recovery. `steps` doubles as the
-    // checkpoint pointer: transcript rows 1..steps are durable.
+    // What the run used, across all its attempts (never reset on recovery).
     steps: integer("steps").notNull().default(0),
     inputTokens: integer("input_tokens").notNull().default(0),
-    // Cache-read portion of inputTokens; the input budget weights these at
-    // 1/10 so cheap cached re-sends don't exhaust the rail (LOR-66 follow-up).
+    // Cache-read portion of inputTokens.
     cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     toolCalls: integer("tool_calls").notNull().default(0),
@@ -183,23 +176,13 @@ export const agentRun = pgTable(
     // See reference/automation-primitives.md §5.
     handoffNote: text("handoff_note"),
 
-    // Set when this run continued a predecessor's transcript instead of
-    // rebuilding context from the chat snapshot (reference/context-continuation.md).
-    // Recovery depends on this pointer plus predecessor-chain replay to rebuild
-    // the inherited prefix. Deletion still uses set null rather than cascading
-    // into the run that followed it.
+    // The run this one's delta continues from (reference/context-continuation.md);
+    // a delta walks back through runs that only finished a paused turn. Set
+    // null on delete rather than cascading into the run that followed it.
     continuedFromRunId: uuid("continued_from_run_id").references(
       (): AnyPgColumn => agentRun.id,
       { onDelete: "set null" }
     ),
-
-    // Durable compaction state, overwritten on each mid-run compaction. The
-    // baseline is the post-compaction message array the model was actually
-    // sent, so recovery/continuation replays baseline + steps after atStep
-    // instead of the raw transcript (which can exceed the model context once
-    // a compaction has happened). Best-effort: when null or stale, replay
-    // falls back to the raw chain and re-compacts on the first step.
-    compaction: jsonb("compaction").$type<AgentRunCompaction>(),
   },
   (table) => [
     uniqueIndex("agent_run_messageId_uidx").on(table.messageId),
@@ -261,11 +244,10 @@ export const agentRunQueue = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     state: agentRunQueueStateEnum("state").notNull().default("queued"),
-    // Set when this queued message is a resolved approval riding behind an
-    // active run (LOR-81): the drained follow-up replays the parked run named
-    // by the approval instead of building a delta. Lazy AnyPgColumn reference
-    // because approvals.ts imports this file; set-null degrades the drained
-    // follow-up to a fresh context, which buildApprovalContinuation handles.
+    // Set when this queued message is a decided approval set riding behind an
+    // active run: the drained follow-up finishes the paused turn instead of
+    // building a delta, unless another run finished it first. Lazy
+    // AnyPgColumn reference because approvals.ts imports this file.
     resumeApprovalId: uuid("resume_approval_id").references(
       (): AnyPgColumn => approval.id,
       { onDelete: "set null" }
@@ -284,31 +266,6 @@ export const agentRunQueue = pgTable(
     // A message routes at a run exactly once.
     uniqueIndex("agent_run_queue_messageId_uidx").on(table.messageId),
   ]
-)
-
-// Append-only transcript: one row per completed model/tool step, holding the
-// ModelMessages that step added. Recovery rebuilds the request as step-0
-// context + rows 1..agent_run.steps. Typed as unknown[] because @repo/db
-// cannot depend on the ai package; @repo/lor owns the real ModelMessage
-// shape on both write and read.
-export const agentRunStep = pgTable(
-  "agent_run_step",
-  {
-    runId: uuid("run_id")
-      .notNull()
-      .references(() => agentRun.id, { onDelete: "cascade" }),
-    step: integer("step").notNull(),
-    messages: jsonb("messages").$type<unknown[]>().notNull(),
-    model: text("model"),
-    inputTokens: integer("input_tokens"),
-    cachedInputTokens: integer("cached_input_tokens"),
-    outputTokens: integer("output_tokens"),
-    reasoningTokens: integer("reasoning_tokens"),
-    toolCalls: integer("tool_calls").notNull().default(0),
-    toolOutputBytes: integer("tool_output_bytes").notNull().default(0),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-  },
-  (table) => [primaryKey({ columns: [table.runId, table.step] })]
 )
 
 // Side-effecting tool executions, keyed by a hash of tool name + canonical
@@ -417,21 +374,21 @@ export type AgentRunContextWorkspace = {
   website?: string
   description?: string
 }
-// Approval resume (LOR-81): a continuation started by resolving a policy gate
-// carries the tool-approval-response instead of a delta message. Replayed
-// verbatim so the parked tool call stays paired on every later replay —
-// without it the provider rejects the transcript (unpaired tool call).
-export type AgentRunApprovalResume = {
-  approvalId: string
-  approved: boolean
-  toolName: string
-  target: string
-  reason?: string
+export type SandboxTurnContext = {
+  request: string
+  recentCalls?: { toolName: string; subject: string }[]
+  denials?: string[]
+  consecutiveDenials?: number
+  totalDenials?: number
 }
+
 export type AgentRunContext = {
   conversation: AgentRunContextTurn[]
   // Nearby channel messages are reference material, outside the active thread.
   backgroundConversation?: AgentRunContextTurn[]
+  // "Continue in Code": the background is this session's newest messages,
+  // the work being continued rather than reference material.
+  continuesSession?: { title: string }
   threadRootId?: string
   triggerMessageId?: string
   // Injected brain pages; only snapshots from before memory moved into
@@ -445,40 +402,57 @@ export type AgentRunContext = {
   // Cold-start context from onboarding; absent on older snapshots.
   workspace?: AgentRunContextWorkspace
   plan?: AgentRunContextPlan
-  // Continued runs only (agentRun.continuedFromRunId set): the exact rendered
-  // delta message appended after the inherited transcript. Stored rather than
-  // re-rendered because it embeds elapsed time ("about 3 hours since then"),
-  // which would drift on recovery and break the byte-stable replay.
+  // Runs after a session's first: the rendered delta sent as the turn's
+  // prompt. Stored rather than re-rendered because it embeds elapsed time
+  // ("about 3 hours since then"), so a retried attempt sends the same text.
   continuationDelta?: string
-  // Set instead of continuationDelta when this run resumed a parked approval.
-  approvalResume?: AgentRunApprovalResume
   // Serialized size of the tool schemas bound to this run. Tool definitions are
   // re-sent on every request but live nowhere else on the row, so the context
   // meter would otherwise fold them into the other segments invisibly. Which
   // tools are bound depends on the channel's connectors, hence per-run.
   toolSchemaBytes?: number
-  // Includes the inherited transcript on continuations, before the first checkpoint.
-  initialMessagesTokens?: number
-  // Message IDs injected at step boundaries and committed with the checkpoint
-  // that first exposed them to the model. Optional for pre-existing snapshots.
+  // Message IDs the turn took in (its prompt, and ambient messages saved into
+  // the Pi log at turn boundaries); the next delta skips them.
   coveredMessageIds?: string[]
+  // The sandbox mode the turn runs under, frozen at its start so a retry or a
+  // changed setting never runs a call under a looser mode.
+  sandboxMode?: TurnSandboxMode
+  // Authorization and denial history survive retries and approval pauses.
+  sandboxContext?: SandboxTurnContext
+  // The turn this run left paused on approvals, which can differ from the
+  // run's own prompt: the resume finishes it under this mode and context.
+  pausedSandbox?: { mode: TurnSandboxMode; context: SandboxTurnContext }
+  // The run only finished a paused turn and sent no prompt; the next delta
+  // walks back through it (continuedFromRunId) to the paused run.
+  continueOnly?: boolean
+  // A Claude Code turn: the person whose subscription it runs on, and the
+  // mode they picked. A run that continues its paused turn reads both here
+  // (the resume's trigger is Lor's own message, and the approver may be
+  // someone else).
+  claudeCodeUserId?: string
+  claudeCodeMode?: ClaudeCodeMode
+  claudeModel?: ClaudeModel
+  // A Codex turn: the model its sender picked, read the same way.
+  codexModel?: CodexModel
+  // Pi's own count of the conversation's context after the turn, for the
+  // context meter.
+  contextUsage?: AgentRunContextUsage
 }
 
-// Written by @repo/lor at compaction time (see compaction.ts). summary is
-// the rolling working notes — the next run in this scope seeds its compactor
-// with it so facts merge forward instead of being rebuilt from a clipped
-// digest. baselineMessages are ModelMessages, typed unknown[] for the same
-// reason as agentRunStep.messages.
-export type AgentRunCompaction = {
-  summary: string | null
-  summaryFailures: number
-  baselineMessages: unknown[]
-  messageTokens?: number
-  atStep: number
+// Pi's getContextUsage(): tokens is null right after a compaction, until the
+// next model response. compactAtTokens is where Pi compacts (window minus its
+// reserve).
+export type AgentRunContextUsage = {
+  tokens: number | null
+  windowTokens: number
+  compactAtTokens: number
+  compacted: boolean
+  // Claude Code turns: its own /context rows that fill the window (System
+  // prompt, System tools, MCP tools, Messages, …), counted by Claude Code.
+  categories?: { name: string; tokens: number }[]
 }
 
 export type AgentRun = typeof agentRun.$inferSelect
-export type AgentRunStep = typeof agentRunStep.$inferSelect
 export type AgentRunToolResult = typeof agentRunToolResult.$inferSelect
 export type AgentRunState = (typeof agentRunStateEnum.enumValues)[number]
 export type AgentRunPhase = (typeof agentRunPhaseEnum.enumValues)[number]

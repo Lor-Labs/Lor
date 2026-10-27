@@ -1,4 +1,4 @@
-const BILLABLE_TOOLS = new Set(["lor.respond", "investigate_code"])
+const BILLABLE_TOOLS = new Set(["lor.respond"])
 
 export function isBillableTool(tool: string): boolean {
   return BILLABLE_TOOLS.has(tool)

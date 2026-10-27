@@ -1,16 +1,21 @@
+import { File01Icon, Folder01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { env } from "@repo/env/client"
 import { MessageMarkdown as NexusMessageMarkdown } from "@repo/ui/components/nexus-ui/message"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { formatDateTime } from "@repo/utils/date"
+import { Link } from "@tanstack/react-router"
 import { memo, type ReactNode, useMemo, useState } from "react"
 import type { Components } from "streamdown"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { useCallCitation } from "@/hooks/use-call-citation"
 import { useMessageLocation } from "@/hooks/use-message-search-navigation"
+import { fileTabId } from "@/hooks/use-session-tabs"
 import type { Message } from "@/lib/api-types"
 import { CODE_THEMES } from "@/lib/code-themes"
 import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
+import { repoFileFromUrl, repoFileLabel } from "@/lib/repo-file-reference"
 
 const USER_MENTION_TOKEN_REGEX =
   /<@([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})>/gi
@@ -249,17 +254,41 @@ export const MessageMarkdown = memo(function MessageMarkdown({
 
   const components = useMemo<Components>(
     () => ({
-      a: ({ href, children }) => (
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="break-words font-medium text-primary underline-offset-2 hover:underline"
-        >
-          <LinkIcon href={href} />
-          {children}
-        </a>
-      ),
+      a: ({ href, children }) => {
+        const reference = href ? repoFileFromUrl(href) : null
+        if (reference) {
+          return (
+            <Link
+              to="/$workspaceSlug/session/$sessionId"
+              params={reference}
+              search={
+                reference.kind === "folder"
+                  ? { folder: reference.path }
+                  : { open: fileTabId(reference.path) }
+              }
+              title={reference.path}
+              className="inline-flex max-w-full items-center gap-1 rounded bg-primary/10 px-1 py-0.5 align-baseline font-medium text-primary hover:bg-primary/20"
+            >
+              <HugeiconsIcon
+                icon={reference.kind === "folder" ? Folder01Icon : File01Icon}
+                className="size-3 shrink-0"
+              />
+              <span className="truncate">{repoFileLabel(reference)}</span>
+            </Link>
+          )
+        }
+        return (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="break-words font-medium text-primary underline-offset-2 hover:underline"
+          >
+            <LinkIcon href={href} />
+            {children}
+          </a>
+        )
+      },
       // Verified brain-page citation ([[/path]]). Subtle, non-clickable for now
       // (no brain browser yet); the path is the children text.
       pageref: (props: MentionProps) => (

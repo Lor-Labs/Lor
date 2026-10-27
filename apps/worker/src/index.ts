@@ -2,6 +2,7 @@ import "./instrumentation"
 import { env } from "@repo/env/server"
 import { flushErrorReports } from "@repo/logger"
 import { claimOverdueActWindows } from "@repo/lor/act-runs"
+import { sweepCheckpointStorage } from "@repo/lor/code-checkpoints"
 import { setRepoCacheStore } from "@repo/lor/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
@@ -9,6 +10,8 @@ import {
   type ActFlushJobData,
   AGENT_RUN_STOP_CHANNEL,
   ATTACHMENT_INDEX_QUEUE,
+  DELETE_SESSION_SANDBOX_JOB,
+  type DeleteSessionSandboxJobData,
   LINK_UNFURL_QUEUE,
   LOOP_RUN_QUEUE,
   LOR_RESPOND_QUEUE,
@@ -58,6 +61,12 @@ import {
 } from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
 import { awaitInflightDrains } from "@/lib/run-queue"
+import {
+  deleteArchivedSessionSandbox,
+  RELEASE_PARKED_BRIDGE_JOB,
+  type ReleaseParkedBridgeJobData,
+  releaseParkedBridge,
+} from "@/lib/session-sandboxes"
 import { installVoiceNotifier } from "@/lib/voice-notify"
 import { setWorkspaceActivityEmitter } from "@/lib/workspace-activity"
 
@@ -72,6 +81,9 @@ process.on("unhandledRejection", (reason) => {
 // sweep for open-but-overdue windows and re-arm them.
 const ACT_WINDOW_SWEEP_EVERY_MS = 5 * 60 * 1000
 const ACT_WINDOW_SWEEP_GRACE_MS = 60 * 1000
+// Deleted sessions and workspaces leave checkpoints in Code Storage until
+// this sweep (code-checkpoints.ts).
+const CHECKPOINT_STORAGE_SWEEP_EVERY_MS = 24 * 60 * 60 * 1000
 
 async function bootstrap() {
   // Redis client for Socket.IO emitter (uses `redis` v4 package)
@@ -391,7 +403,16 @@ async function bootstrap() {
       } else if (job.name === "sweep-due-loops")
         await sweepDueLoops(emitter, loopRunQueue)
       else if (job.name === "sweep-voice-sessions") await sweepVoiceSessions()
-      else if (job.name === "audit-voice-sessions") await auditVoiceSessions()
+      else if (job.name === "sweep-checkpoint-storage") {
+        const swept = await sweepCheckpointStorage()
+        logger.info(swept, "Checkpoint storage swept")
+      } else if (job.name === DELETE_SESSION_SANDBOX_JOB) {
+        await deleteArchivedSessionSandbox(
+          job.data as DeleteSessionSandboxJobData
+        )
+      } else if (job.name === RELEASE_PARKED_BRIDGE_JOB) {
+        await releaseParkedBridge(job.data as ReleaseParkedBridgeJobData)
+      } else if (job.name === "audit-voice-sessions") await auditVoiceSessions()
       else if (job.name === NOTIFY_APPROVAL_JOB) {
         const { approvalId } = job.data as { approvalId: string }
         await escalateApproval(
@@ -447,6 +468,9 @@ async function bootstrap() {
   })
   await maintenanceQueue.upsertJobScheduler("sweep-voice-sessions", {
     every: VOICE_SESSION_SWEEP_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("sweep-checkpoint-storage", {
+    every: CHECKPOINT_STORAGE_SWEEP_EVERY_MS,
   })
   await maintenanceQueue.upsertJobScheduler("audit-voice-sessions", {
     every: VOICE_SESSION_AUDIT_EVERY_MS,

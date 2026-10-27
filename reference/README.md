@@ -19,13 +19,13 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Covers |
 |---|---|
-| `agent-harness.md` | Durable runs: Postgres-owned state, BullMQ scheduling, leases, budgets, steer/stop |
-| `artifacts.md` | Artifact + version model (Postgres/R2), workbench deliverables |
+| `agent-harness.md` | Durable runs on the Pi path (rewritten 2026-10-22): Postgres-owned run and Pi state, per-turn saves, leases, spend-only limits, steer/stop, context meter |
+| `artifacts.md` | Artifact + version model (Postgres/R2), the session sandbox and `share_file` (rewritten 2026-10-22) |
 | `automation-primitives.md` | Triggers, effects, Act, custom tools, MCP servers |
 | `mcp-oauth.md` | Workspace-scoped OAuth for MCP servers (written as the plan; routes shipped) |
 | `lor-mvp-spec.md` | Lor MVP as built: brain, retrieval, write-back; overrides the archived architecture doc |
-| `github-connector.md` | GitHub App + sandboxed code investigation; definition-of-done list, status as of 2026-07-31 |
-| `context-continuation.md` | Run continuation, compaction baselines, data-to-file pipe |
+| `github-connector.md` | GitHub App, `clone_repo` code reading in the session sandbox, definition-of-done list; status 2026-10-22 (coding child and draft-PR loop deleted) |
+| `context-continuation.md` | Continuation on the Pi path (deltas, Pi compaction), data-to-file pipe, `read_thread`/image fixes; legacy replay and compaction sections kept as history |
 | `loops.md` | Scheduled Lor runs |
 | `tasks-v2.md` | Plans (formerly tasks): emergent tasks, thread anchors, scope-keyed sandboxes |
 | `custom-roles.md` | Custom roles + permission enforcement (LOR-57/82) |
@@ -37,7 +37,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 |---|---|
 | `connector-tools.md` | Shared tool selections, MCP read-only hints, Better Stack, Notion/Attio writes |
 | `voice-channels-runbook.md` | Voice calls, transcription, Lor in the call, memory. V0–V7 built; prod setup, live QA and merge open |
-| `approval-policies.md` | Per-tool approval rules, resolver controls, and breaking schema rollout |
+| `approval-policies.md` | Per-tool approval rules, resolver controls, breaking schema rollout, and pause/resume on the Pi path (2026-10-22) |
 | `change-proposals.md` | Workspace change proposals (self-configuration pillar 3). P6 vertical-slice QA |
 | `attachment-search.md` | Attachment indexing + reranker. Steps 1–6 built; 4b and 7 parked behind triggers |
 | `onboarding.md` | First-run redesign for small tech startups: opaque workspace key, startup channel template, company prefill, setup checklist, domain join, per-user hints, permission changes. All 10 steps built 2026-10-08; prod db:push + rekey and live QA owed |
@@ -49,7 +49,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | Doc | Use |
 |---|---|
 | `product-direction.md` | Current priorities and what is deferred |
-| `positioning.md` | Marketing and sales positioning, and how it differs from current www copy. Direction 2026-10-12, not locked |
+| `positioning.md` | Current www narrative and capability boundaries (2026-10-25), with earlier marketing and sales positioning retained as history |
 | `voice-channels.md` | Guiding product spec for voice; its "Voice channel model" decisions win over the runbook and research |
 | `workspace-model.md` | Locked design for channels, Lor sessions, subscriptions and archive; wins over its runbook on product behavior |
 | `adding-a-connector.md` | Runbook for wiring a new integration |
@@ -65,8 +65,11 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `pricing-and-billing.md` | Pricing proposal and editable economics for LOR-16, 2026-10-16: included search, voice and code storage; separate AI credits/BYOK/BYOS; pooled browser/sandbox allowances and heavy-use overage; margins and billing gaps; no production pricing changes |
 | `agent-browser.md` | Cloud browser Lor drives in a session: live view, take over, per-channel logins. Research and design 2026-10-12; builds after the sessions branch merges; vendor (Browserbase or Steel) decided by a spike |
 | `linear-projects.md` | Lor projects linked to Linear projects. Split from onboarding 2026-10-07; open for its own design thread |
-| `code-channels.md` | Code workspace collaboration, fork/rewind, local clone and Yjs; aligned with shared harness sessions 2026-10-19; design only |
-| `harness-sessions.md` | Finalized architecture, 2026-10-19: Pi-first migration, common Postgres activity, native Pi state + private Git files, checkpoint/fork and import rules; implementation gates recorded; CLI deferred; not built |
+| `code-channels.md` | Code sessions (Chat/Code modes, repos, pickers, code Loops, repo instruction files; decided 2026-10-21; people commit and open PRs, no coding child, 2026-10-22), workspace collaboration, fork/rewind, local clone and Yjs; design only |
+| `code-sessions-runbook.md` | Code sessions launch scope and chunks (2026-10-22): stage 1 on Pi (code mode, Continue in Code, Changes window, personal GitHub commits), stage 2 before charging (checkpoints, rewind/fork, Claude Code, Codex); chunks 1–8 built by 2026-10-26 (chunk 4's Lor bot later), live QA owed; next OpenCode and ACP agents |
+| `harness-sessions.md` | Finalized architecture, 2026-10-19; runtime decided 2026-10-20 (`HarnessAgent` + `harness-pi`): Pi-first migration, sandbox for every agent run, common Postgres activity, native Pi state + private Git files, checkpoint/fork and import rules; implementation gates recorded; CLI deferred; phase 1 built 2026-10-22 (see the runbook), later phases not built |
+| `pi-harness-runbook.md` | Phase-1 runbook, revised 2026-10-20: runtime decided (`HarnessAgent` + `harness-pi`; Pi Durable rejected), per-turn native saves to Postgres, spend-only run limits, sandbox for every run kind, adapter overrides and remaining gates G1–G7; 1.1–1.3 built 2026-10-21, 1.4–1.6 built 2026-10-22; `db:push`, live QA and evals owed |
+| `sandbox-safety-research.md` | Research record behind the §4.6 sandbox safety policy, 2026-10-21: how Claude Code, Codex, Cursor, Gemini CLI, VS Code, OpenCode, Goose, OpenHands and others gate commands and edits; production classifiers and their numbers; research evidence; incidents; Blaxel network controls |
 | `context-engine.md` | Unblocked-style linked, ranked, permission-safe context. Research + proposed design 2026-10-10; §7 build order and §8 decisions revised 2026-10-17 |
 | `context-engine-phase-2.md` | Runbook, 2026-10-17: Remember removed, GitHub/Linear/Attio ingested as real text with chunks on webhooks (a search index, not a mirror); BM25 + hybrid search, filters, ranking priors, conflicts. Ships with phase 1 in one release |
 | `live-collaboration.md` | Editor decision (TipTap over Plate, 2026-10-09) and the MIT build map for live multiplayer documents |

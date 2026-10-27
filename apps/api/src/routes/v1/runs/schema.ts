@@ -32,7 +32,6 @@ const toolCallSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
   label: z.string(),
-  parentToolCallId: z.string().optional(),
   at: z.number().optional(),
   order: z.number().optional(),
   detail: z
@@ -130,11 +129,17 @@ export const threadContextResponseSchema = z.object({
     tools: z.number().int(),
     messages: z.number().int(),
   }),
+  // A Claude Code session: Claude Code's own counted rows replace the
+  // estimated segments (which are then zero).
+  categories: z
+    .array(z.object({ name: z.string(), tokens: z.number().int() }))
+    .nullable(),
   compacted: z.boolean(),
   // Tokens the whole thread's transcript would weigh uncompacted — the
   // headline for what compaction bought.
   rawHistoryTokens: z.number().int(),
-  creditsSpent: z.number().int(),
+  // Null for a Claude Code session: its turns spend no Lor credits.
+  creditsSpent: z.number().int().nullable(),
   runCount: z.number().int(),
   state: z.enum(agentRunStateEnum.enumValues).nullable(),
 })

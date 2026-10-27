@@ -9,6 +9,7 @@
     "./schema": "./src/schemas/index.ts",
     "./queries/agent-sessions": "./src/queries/agent-sessions.ts",
     "./queries/channel-access": "./src/queries/channel-access.ts",
+    "./queries/personal-accounts": "./src/queries/personal-accounts.ts",
     "./queries/session-chat-access": "./src/queries/session-chat-access.ts",
     "./queries/thread-subscriptions": "./src/queries/thread-subscriptions.ts"
   },

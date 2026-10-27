@@ -31,8 +31,10 @@ import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
 import { ForwardedMessageCard } from "@/components/chat/forwarded-message-card"
 import { LoopCard } from "@/components/chat/loop-card"
+import { LorFailureNotice } from "@/components/chat/lor-failure-notice"
 import { LorMessageBody } from "@/components/chat/lor-message-body"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
+import { LorReplyActions } from "@/components/chat/lor-reply-actions"
 import {
   isAttioRecording,
   MeetingRecordingCard,
@@ -43,6 +45,7 @@ import { MessageEditInput } from "@/components/chat/message-edit-input"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { PlanCard } from "@/components/chat/plan-card"
 import { ProposalCard } from "@/components/chat/proposal-card"
+import { RewindDivider } from "@/components/chat/rewind-divider"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
 import type { Message } from "@/lib/api-types"
@@ -69,6 +72,15 @@ interface MessageItemProps {
   onAskLor?: (message: Message) => void
   // Session: forward a message into the channel chat.
   onForward?: (message: Message) => void
+  // Session: a new session from one of Lor's finished replies.
+  onFork?: (message: Message) => Promise<unknown>
+  // Session: the newest Lor reply keeps its action row in view.
+  isLatestLorReply?: boolean
+  // Session: "Rewind to here" under the reply. `canRewind` (set per message)
+  // when it is on the current line, not the newest turn, and Lor is idle.
+  onRewind?: (message: Message) => Promise<unknown>
+  canRewind?: boolean
+  rewindRestoresFiles?: boolean
   onOpenThread?: (rootMessageId: string) => void
   onDelete?: (messageId: string) => void
   onEdit?: (messageId: string, content: string) => void
@@ -309,6 +321,11 @@ export const MessageItem = memo(function MessageItem({
   onReplyInThread,
   onAskLor,
   onForward,
+  onFork,
+  isLatestLorReply = false,
+  onRewind,
+  canRewind = false,
+  rewindRestoresFiles = false,
   onOpenThread,
   onDelete,
   onEdit,
@@ -391,6 +408,26 @@ export const MessageItem = memo(function MessageItem({
     !message.streaming &&
     Boolean(message.content?.trim())
 
+  const handleFork = useCallback(
+    () => onFork?.(message) ?? Promise.resolve(),
+    [message, onFork]
+  )
+  const handleRewind = useCallback(
+    () => onRewind?.(message) ?? Promise.resolve(),
+    [message, onRewind]
+  )
+  // The API checks the turn saved; this only hides it where it can't apply.
+  const canFork =
+    Boolean(onFork) &&
+    message.authorId === LOR_USER_ID &&
+    (message.type === "default" || message.type === "reply") &&
+    message.status === "complete" &&
+    !message.streaming
+  // Lor's replies in a session get an action row under them instead of the
+  // floating bar, once the reply is finished.
+  const lorReplyRow = isDocument && message.authorId === LOR_USER_ID
+  const replyFinished = !message.streaming && message.status !== "pending"
+
   const handleOpenThread = useCallback(() => {
     onOpenThread?.(message.id)
   }, [message.id, onOpenThread])
@@ -447,6 +484,13 @@ export const MessageItem = memo(function MessageItem({
   // the gutter (Lor's too) instead of a name row; name and time on hover.
   const documentGutter = (
     <div className="w-7 shrink-0">
+      {/* A person's follow-up line shows its time on hover, like channel
+          chat; Lor's replies carry theirs in the action row. */}
+      {!showHeader && !lorReplyRow && (
+        <div className="flex justify-end whitespace-nowrap text-[10px] text-muted-foreground leading-6 opacity-0 transition-opacity duration-100 group-hover:opacity-100">
+          {formatTime(message.createdAt)}
+        </div>
+      )}
       {showHeader && (
         <Avatar
           className="-mt-0.5 size-7"
@@ -586,29 +630,33 @@ export const MessageItem = memo(function MessageItem({
             : !canWrapUnderAvatar && !isDocument && "hover:bg-muted/30"
       )}
     >
-      <div
-        className={cn(
-          "absolute top-0 right-4 z-20 -translate-y-1/2 opacity-0 transition-opacity duration-100",
-          "pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100",
-          isActionBarPinned && "pointer-events-auto opacity-100"
-        )}
-      >
-        <MessageActionBar
-          onReact={handleReact}
-          onReply={handleReply}
-          onReplyInThread={canStartThread ? handleReplyInThread : undefined}
-          onAskLor={onAskLor ? handleAskLor : undefined}
-          onForward={canForward ? handleForward : undefined}
-          onCopyText={handleCopyText}
-          onEdit={isOwnMessage && onEdit ? handleEditRequest : undefined}
-          onDelete={isOwnMessage && onDelete ? handleDeleteRequest : undefined}
-          onTogglePin={canPin ? handleTogglePin : undefined}
-          isPinned={message.pinned}
-          canManageMessage={isOwnMessage}
-          canPin={canPin}
-          onOverlayOpenChange={setIsActionBarPinned}
-        />
-      </div>
+      {!lorReplyRow && (
+        <div
+          className={cn(
+            "absolute top-0 right-4 z-20 -translate-y-1/2 opacity-0 transition-opacity duration-100",
+            "pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100",
+            isActionBarPinned && "pointer-events-auto opacity-100"
+          )}
+        >
+          <MessageActionBar
+            onReact={handleReact}
+            onReply={handleReply}
+            onReplyInThread={canStartThread ? handleReplyInThread : undefined}
+            onAskLor={onAskLor ? handleAskLor : undefined}
+            onForward={canForward ? handleForward : undefined}
+            onCopyText={handleCopyText}
+            onEdit={isOwnMessage && onEdit ? handleEditRequest : undefined}
+            onDelete={
+              isOwnMessage && onDelete ? handleDeleteRequest : undefined
+            }
+            onTogglePin={canPin ? handleTogglePin : undefined}
+            isPinned={message.pinned}
+            canManageMessage={isOwnMessage}
+            canPin={canPin}
+            onOverlayOpenChange={setIsActionBarPinned}
+          />
+        </div>
+      )}
       {message.pinned && (
         <div
           className={cn(
@@ -767,12 +815,12 @@ export const MessageItem = memo(function MessageItem({
             // reasoning starts, that block takes over the "thinking" affordance.
             <ThinkingIndicator />
           ) : message.status === "failed" &&
-            !message.content &&
+            message.authorId === LOR_USER_ID &&
             !hasToolCalls &&
             !hasReasoningSegments ? (
-            <span className="text-sm text-muted-foreground italic">
-              Lor couldn't respond to that.
-            </span>
+            <LorFailureNotice
+              text={message.content || "Lor couldn't respond to that."}
+            />
           ) : hasToolCalls || hasReasoningSegments ? (
             <LorMessageBody
               content={message.content}
@@ -875,6 +923,19 @@ export const MessageItem = memo(function MessageItem({
               onReact={handleReact}
             />
           )}
+          {lorReplyRow && replyFinished && !isEditing && (
+            <LorReplyActions
+              alwaysVisible={isLatestLorReply}
+              time={formatTime(message.createdAt)}
+              onCopyText={message.content ? handleCopyText : undefined}
+              onReact={handleReact}
+              onReply={handleReply}
+              onForward={canForward ? handleForward : undefined}
+              onFork={canFork ? handleFork : undefined}
+              onTogglePin={canPin ? handleTogglePin : undefined}
+              isPinned={message.pinned}
+            />
+          )}
           {message.threadSummary && message.threadSummary.replyCount > 0 && (
             <ThreadFooter
               summary={message.threadSummary}
@@ -883,6 +944,12 @@ export const MessageItem = memo(function MessageItem({
           )}
         </div>
       </div>
+      {lorReplyRow && replyFinished && canRewind && onRewind && (
+        <RewindDivider
+          restoresFiles={rewindRestoresFiles}
+          onRewind={handleRewind}
+        />
+      )}
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}

@@ -1,77 +1,161 @@
-# Artifacts & the workbench (task file deliverables)
+# Artifacts and the session sandbox (file deliverables)
 
-As-built reference for the artifact system shipped 2026-08-08 as part of **Tasks** (the multiplayer delegated-work feature). Artifacts are the file deliverables Lor produces: real files, made by a real coding agent in a real ephemeral sandbox, stored durably, rendered in the app. The task layer they usually belong to is documented in [`agent-harness.md`](./agent-harness.md) (Tasks section).
+As-built reference for files Lor makes and shares. Rewritten 2026-10-22 for
+the Pi path: Lor works in its session's sandbox and publishes a file with
+`share_file`. The old workbench (`create_artifacts`, `sandbox/workbench.ts`,
+per-thread `wbs-*` sandboxes, the `/workspace/out` harvest and reseed) and
+the coding child agent are deleted
+([pi-harness-runbook.md](planned/pi-harness-runbook.md) 1.3d, 1.4).
 
 ## The one principle
 
-**Postgres/R2 is where work lives; the sandbox is disposable power tooling.** Every deliverable is an `artifact` row (identity) plus append-only `artifact_version` snapshots (content). A task sandbox may remain in standby between sessions, but anything worth keeping is harvested to durable storage. Losing a task sandbox costs warmth, never work.
+**Postgres/R2 is where work lives; the sandbox is disposable power tooling.**
+Every deliverable is an `artifact` row (identity) plus append-only
+`artifact_version` snapshots (content). Sandbox files are private until
+shared. Until phase 2 Git checkpoints, a lost sandbox loses its unshared
+files; the conversation and shared files survive.
 
 ## Data model (`packages/db/src/schemas/artifacts.ts`)
 
-- `artifact` — identity: `workspaceId`, `channelId`, `threadRootId` (the owning session's thread; null only for channel-level artifacts from before sessions, which stand alone), `planId` (provenance only), `originRunId`, `path` (logical filename), `mime`, `currentVersion` (0 = no committed version), `createdById`. Unique `(threadRootId, path)` where threadRootId not null: within a session, plan or not, a path names one artifact and repeated writes version it. The session also scopes the workbench sandbox (`wbs-{threadRootId}`) and its `/workspace/out` reseed (2026-10-13, `session-files-runbook.md` Step 4a; it was the plan before).
-- `artifact_version` — full snapshots, append-only: `version` (unique per artifact), `baseVersion` (lineage — what the author derived from), `blobKey` (R2), `size`, `contentType`, `authorType` (`agent | user`), `authorId`.
+- `artifact` — identity: `workspaceId`, `channelId`, `threadRootId` (the
+  owning session's thread; null only for channel-level artifacts from before
+  sessions), `planId` (provenance only), `originRunId`, `path` (logical
+  filename), `mime`, `currentVersion` (0 = no committed version),
+  `createdById`. Unique `(threadRootId, path)` where `threadRootId` is not
+  null: within a session a path names one artifact, and sharing it again
+  versions it.
+- `artifact_version` — full snapshots, append-only: `version`,
+  `baseVersion` (lineage), `blobKey` (R2), `size`, `contentType`,
+  `authorType` (`agent | user`), `authorId`.
 
 Deliberate choices:
-- **Full snapshots, not deltas.** Storage is cents (R2, no egress fees); deltas would fight the CRDT future, where Yjs updates become the delta layer and snapshots stay as keyframes.
-- **Identity separate from content** so the collaborative-editing future changes how current content is produced without moving identity, permissions, history, or attribution.
+
+- **Full snapshots, not deltas.** Storage is cheap (R2, no egress fees);
+  deltas would fight the CRDT future, where Yjs updates become the delta
+  layer and snapshots stay as keyframes.
+- **Identity separate from content**, so collaborative editing later changes
+  how content is produced without moving identity, permissions, history or
+  attribution.
 
 ## The single write path
 
-`writeArtifactVersion` (`packages/lor/src/artifacts/service.ts`) is the only way artifact content is committed — sandbox harvest today; human edits and CRDT session flushes later. Mechanics:
+`writeArtifactVersion` (`packages/lor/src/artifacts/service.ts`) is the only
+way artifact content is committed: `share_file` and `export_tool_result`
+today, human edits and CRDT flushes later.
 
-- Blob uploads to R2 **before** the version transaction: an orphaned blob is harmless, a version row pointing at missing bytes is not.
-- Version numbers allocate atomically (`UPDATE current_version = current_version + 1 RETURNING`).
-- Blob keys are version-independent (`artifacts/{workspaceId}/{artifactId}/{uuid}/{filename}`) so upload and commit can't race over naming.
-- Reads are public-URL-by-obscurity (`S3_PUBLIC_URL/key`), same model as message attachments. ACLs/presigned GETs are a recorded punt.
-- S3 client lives in `packages/lor/src/artifacts/storage.ts`; the worker validates all `S3_*` env at boot, no presign hop for machine writes.
+- Blobs upload to R2 **before** the version transaction: an orphaned blob is
+  harmless, a version row pointing at missing bytes is not.
+- Version numbers allocate atomically
+  (`UPDATE current_version = current_version + 1 RETURNING`).
+- Blob keys are version-independent
+  (`artifacts/{workspaceId}/{artifactId}/{uuid}/{filename}`).
+- Reads are public-URL-by-obscurity (`S3_PUBLIC_URL/key`), the same model as
+  message attachments. ACLs and presigned GETs are a recorded punt.
 
-**Concurrent-edit policy (decided 2026-08-08):** when a human edit surface ships (pre-CRDT), `writeArtifactVersion` gets a version guard — reject when `baseVersion ≠ currentVersion`; the human keeps the pointer, the agent's tool call gets the conflict plus the human's version back and Lor redoes/merges ("human wins, machine reconciles"). CRDT sessions later dissolve the race entirely. Nothing is ever lost meanwhile — versions are append-only and any state is recoverable from history.
+**Concurrent-edit policy (decided 2026-08-08):** when a human edit surface
+ships (pre-CRDT), `writeArtifactVersion` gets a version guard — reject when
+`baseVersion ≠ currentVersion`; the human keeps the pointer and Lor redoes or
+merges ("human wins, machine reconciles").
 
-## The workbench (`packages/lor/src/sandbox/workbench.ts`)
+## The session sandbox (`packages/lor/src/sandbox/session-sandbox.ts`)
 
-`runWorkbenchSession` is the seam: seed → run Pi with write tools → harvest. **Blaxel is the only sandbox provider** (Jacob's bet 2026-08-09; full commitment 2026-08-10 — the Railway path, its checkpoint machinery, and the `task.sandboxCheckpoint` column are deleted, pre-launch, no migration). Provider plumbing lives in `sandbox/blaxel.ts` (`blaxelConfigured`, `withEphemeralSandbox`, `withTaskSandbox`, `execToCompletion`, `runPi`); both the workbench and `investigate_code` build on it.
+- **One per conversation:** `ses-<sessionId>` for a session, `call-<id>` for
+  a voice call. It is created on the conversation's first Lor run, reused on
+  every later run, and in standby between turns (the run closes its
+  connection). Loops share one per Loop session; Act gets one per event.
+- **Disk and lifetime:** a 2 GB `/workspace` volume (`LOR_SESSION_DISK_MB`),
+  deleted by Blaxel after 7 days idle (`LOR_SESSION_SANDBOX_TTL`) or by the
+  `delete-session-sandbox` job 10 minutes after the session is archived
+  (Loop sessions excepted).
+- **Work folder:** `/workspace/pi-<conversationId>`. Pi's built-in tools
+  (`bash`, `read`, `write`, `edit`, `grep`, `glob`, `ls`) run there through
+  the adapter; Pi itself runs in the worker, so the sandbox holds no Gateway
+  key and no credentials for the team's services.
+- **Egress limits** (`SESSION_NETWORK`, set at creation, marked with the
+  `lor-egress` label): reads (`GET`/`HEAD`/`OPTIONS`) to any host, plus git
+  fetch from GitHub, GitLab and Bitbucket and `npm audit`. Other requests
+  get HTTP 403 with `Proxy-Error: firewall_blocked`. A sandbox without the
+  current limits is replaced. The limits bind clients that use
+  `HTTP(S)_PROXY` (Node through `NODE_USE_ENV_PROXY`); the firewall ruleset
+  that would bind all traffic is off since 2026-10-23, because Blaxel's
+  ephemeral volumes now need Carbon, which has no firewalling. Sandboxes are
+  created in `BL_REGION` (default `us-pdx-1`). See
+  [sandbox-safety-research.md](planned/sandbox-safety-research.md) §7.
+- **Health and loss:** an existing sandbox is probed; one that answers
+  unhealthy is replaced, and a probe error fails the run instead of deleting
+  files. A run that gets a new sandbox while earlier turns exist tells the
+  model and the session that earlier files are gone.
+- **Process fencing:** before a run uses an existing sandbox, commands still
+  running from an earlier attempt (`run-*`/`spawn-*`) are stopped. Only one
+  run works in a conversation at a time.
+- **Image:** `packages/lor/sandbox-image/` (Python with pandas, matplotlib,
+  openpyxl and pdfplumber, Node, git, Blaxel's `sandbox-api`), pushed with
+  `bl push` as `LOR_WORKBENCH_IMAGE`, memory `LOR_WORKBENCH_MEMORY_MB`. The
+  image still contains the Pi CLI, which nothing uses since 1.4.
+- **Gotchas:** `fs.writeBinary` reads a string argument as a local file path,
+  so content is encoded to bytes first. Blaxel's push log stream drops lines
+  under load, so output is polled from the process record. Debian's git
+  ignores `SSL_CERT_FILE`, so commands export `GIT_SSL_CAINFO` for the proxy
+  CA.
 
-- **Image**: custom Dockerfile at `packages/lor/sandbox-image/` (python:3.12-slim + node 22 + `@earendil-works/pi-coding-agent` **exact-pinned 0.84.1** + pandas/matplotlib/openpyxl/pdfplumber/git + Blaxel's required `sandbox-api` binary). Push with `bl push` from that directory — it registers as `sandbox/workbench:latest` (the `LOR_WORKBENCH_IMAGE` default). No provisioning step, no PATH shimming: the image is the toolchain (pptx/docx later = add packages here and re-push).
-- **Pi CLI**: 0.84 has the full legacy flag set (`--session-id` create-if-missing, `--thinking max`, `--no-approve`) plus explicit non-interactive mode — `buildPiCommand` always passes `print: true` now. Beware the 0.71–0.73 window if the pin ever lands there (no create-by-id, no `--no-approve`, thinking caps at `xhigh`). Session continuity verified live on 0.84.1: the same `--session-id` resumes with context and does not re-emit prior events (no double billing).
-- **Task continuity = the sandbox itself.** Each task gets a persistent sandbox named `task-{taskId}` (`createIfNotExists`). Between runs it sits in standby: zero compute cost, filesystem (Pi session, scripts, scratch) intact, ~25ms resume. No checkpoint pointer exists anymore — the name derives from the task id.
-- **Workspace storage**: every sandbox mounts an ephemeral disk-backed volume at `/workspace` (`LOR_WORKBENCH_DISK_MB`, default 8192 MB). Repositories, dependency trees, package-manager caches, temporary files, Pi sessions, and artifact inputs/outputs live there instead of competing for the 2 GB RAM-backed root overlay. The volume survives standby and is destroyed with the sandbox.
-- **Idle deletion is safe by design**: task sandboxes carry a short `ttl-idle` expiration (`LOR_WORKBENCH_SANDBOX_TTL`, default 24h). If deleted, the next run recreates the sandbox cold and the artifact reseed from R2 restores deliverables — deletion only costs warmth. Code sandboxes use `LOR_CODE_SANDBOX_TTL` (default 7d) so unpublished diffs have a longer approval window. Persistent sandboxes are health-checked when acquired, update changed lifecycle policies in place, and are recreated if process execution fails or their workspace volume is missing/undersized. Plain-answer and investigation sessions use ephemeral sandboxes (`wb-`/`inv-{uuid}`), deleted in `finally` with a 2h `ttl-max-age` backstop.
-- **Standby vs a 20-min Pi run**: execs routed through `execToCompletion` (agent runs, probes) set `keepAlive: true` + `timeout`; short setup calls (mkdir) don't — keepAlive pins the sandbox active for the process duration and the timeout auto-kills (a timed-out run surfaces as status `killed` → same failure-harvest path). Gotcha: the SDK holds an HTTP/2 session that counts as an "active connection" — sessions close `sandbox.h2Session` in `finally` so a task sandbox drops to standby in ~15s instead of idling billed for up to 15 minutes.
-- **Log-stream caveat**: the SDK's live `onStdout` can attach late and miss lines — it only drives sub-tool UX (`onStep`). The authoritative result (summary, usage, error) is parsed from the complete process stdout after completion (`process.get`/`logs`).
-- **`fs.writeBinary` string gotcha**: a string argument is treated as a *local file path* to upload, not content — `writeText` encodes first.
-- **Secrets**: `AI_GATEWAY_API_KEY` (and the GitHub clone token in `investigate_code`) are passed per-process on the exec, never baked into the sandbox at creation and never embedded in the persisted command string.
-- **Region**: optionally set `BL_REGION` (e.g. `us-pdx-1`) — the SDK reads it directly; unset just logs a warning and uses the platform default.
-- **Failure never vaporizes work:** on timeout/crash a task session still harvests `/workspace/out` (the sandbox keeps the workspace regardless); the tool result carries a `warning` telling the model to call again ("say what remains") and continue warm. An abort skips harvest — user stop, lease loss, and deadline arrive as one signal and are not distinguishable, and harvesting after lease loss would write artifacts for a run we no longer own. `/workspace/out` is reseeded from current artifact versions each session so a human edit beats the sandbox's stale copy; seed digests stop unchanged files from churning identical versions.
-- **Caps (env, defaulted):** `LOR_WORKBENCH_TIMEOUT_SEC` 1200 (also clamped to the run's remaining wall clock minus a finish margin), `LOR_WORKBENCH_MAX_FILE_BYTES` 100 MB, `LOR_WORKBENCH_MAX_TOTAL_BYTES` 500 MB, `LOR_WORKBENCH_MAX_FILES` 20, `LOR_WORKBENCH_MEMORY_MB` 4096, and `LOR_WORKBENCH_DISK_MB` 8192.
-- **Abort:** tools honor ai@7's `options.abortSignal` (user stop / lease loss / deadline) — kills the Pi process instead of letting it run to timeout.
+## `share_file` (`packages/lor/src/artifacts/share-file.ts`)
 
-## The `create_artifacts` tool (`packages/lor/src/artifacts/tool.ts`)
-
-- Bound when Blaxel is configured (`BL_API_KEY`+`BL_WORKSPACE`) + channel has the `artifacts` capability + not a DM. Registered in `SIDE_EFFECT_TOOLS` with `billingKey = toolExecutionKey(name, input)` — crash recovery replays the stored manifest, never re-runs or re-bills the sandbox. Usage flows through the same `onUsage` → `noteNestedUsage` + ledger path as `investigate_code`; nested Pi steps stream as `parentToolCallId` sub-tools.
-- Inputs: complete instructions + optional `inputFileUrls` (max 20) — **only URLs on our own bucket** (message attachments, prior artifacts); the model can't point the worker at arbitrary URLs.
-- Returns a manifest (`path`, `contentType`, `size`, `version`, `artifactId`, `url`) + Pi's summary — never file bodies (the 256 KB tool-output cap drops oversized results wholesale).
-- **File visibility convention:** non-image attachments surface to the model as `[file: name — type, size — url]` lines — in the initial context (`buildInitialUserMessage`), steer injections, and the ambient tier alike (attachment-only messages have null content and were invisible before 2026-08-08; three query sites now include them).
+- Bound in sessions when the sandbox tools are on. Takes a path relative to
+  the work folder, or absolute.
+- The path is resolved inside the sandbox (`realpath`), so a symlink cannot
+  reach outside `/workspace`; files over `LOR_WORKBENCH_MAX_FILE_BYTES`
+  (100 MB) are refused.
+- Commits through `writeArtifactVersion` with the session's `threadRootId`;
+  sharing the same path again publishes a new version. Returns the file's
+  link, which Lor puts in its answer.
+- **Files people share** reach the model as `[file: name — type, size —
+  url]` lines (initial context, deltas, steering and ambient messages); Lor
+  downloads one into the sandbox when the work needs it.
+- **Repositories:** `clone_repo` copies a connected repository into the work
+  folder; see [github-connector.md](github-connector.md).
 
 ## Web UI (apps/web)
 
-- **Renderer registry** (`components/artifacts/artifact-body.tsx`): per-MIME → markdown (Streamdown), code (shiki via fenced block), images, download fallback. CSV/TSV is handled by the viewer shell directly (full-bleed grid, below). New artifact types register here without touching the shell.
-- **CSV stack** (2026-08-09 redesign, spec from Jacob's prior app): `lib/csv.ts` (character-level RFC-4180 parser + serializer, round-trip verified; stable `col_N` keys separate from display names, stable `__rowId` per row), `csv-grid.tsx` (**react-data-grid, pinned exact `7.0.0-beta.61`** — beta line renamed the default export to named `DataGrid`, expect API drift on bumps; virtualized, frozen row-number column, themed via `--rdg-*` vars mapped to our tokens, `rdg-dark`/`rdg-light` from next-themes `resolvedTheme`), `csv-preview.tsx` (in-chat compact table card — cheap line-parse of first rows only; the deliverable presentation for CSV artifacts in Lor messages, other types keep the file chip). **Read-only by decision (2026-08-09): no human editing until demand proves it — edits go through Lor or Download.** The editing layer's landing spot is designed (editor context + undo/redo from the spec; persistence = version-guarded `writeArtifactVersion`, `authorType: "user"`); grid is a leaf swap (Univer et al.) if xlsx/formulas ever arrive.
-- **Takeover viewer** (`artifact-overlay.tsx`): covers the channel panel only (NOT fullscreen — workspace sidebar + right thread panel stay, so a task's CSV reads file-wide-center with the conversation beside it; Jacob rejected the fullscreen overlay), addressed by `?artifactId=` on the channel route — URL-addressable on purpose: the URL is the share link today and the multiplayer room key later. **Morphs out of the in-chat CSV preview card** via framer-motion shared `layoutId` (`artifact:{id}`; preview suppresses its layoutId while open so the pair never double-mounts; route wraps the overlay in `AnimatePresence`). Toolbar: Copy (raw contents) + Download. `min-h-0`/`min-w-0` on the grid's flex parent are load-bearing. **Only artifacts open here** (deliberate: the viewer marks "editable"); plain attachments stay links.
-- **Deliverables presented in the message**: `create_artifacts` results carry a typed `files` array on the persisted `LorToolCall` (db type + API zod schema + `lor:tool` event all mirror it); `LorMessageBody` renders them at the end of Lor's message as `ArtifactFileCard` rows, which open the file in the right panel (`?artifactId`, `FilePanel`).
-- Task surfaces: task card (`task-card.tsx`, coss `Frame` idiom — title/status in muted chrome, plan in the inset `FramePanel`, file chips in the chrome footer; full message-width, stretched-overlay click target so file chips stay interactive), task panel (thread panel re-skinned when the root is a `task_card`: header says **Task** + status badge; docked strip (`task-thread-header.tsx`) with `Plan · x/y` / `Files · n` popover chips — Files splits **Outputs** (artifacts → viewer) from **Sources** (thread uploads → plain links) — and the always-visible approval card). Live via the `task:updated` channel-room event; task list per channel via `use-channel-tasks.ts`. No global header chip (removed 2026-08-09).
+- **Renderer registry** (`components/artifacts/artifact-body.tsx`): per-MIME
+  → markdown, code, images, download fallback. CSV/TSV is handled by the
+  viewer shell (full-bleed grid).
+- **CSV stack:** `lib/csv.ts` (RFC-4180 parser and serializer),
+  `csv-grid.tsx` (react-data-grid, pinned exact `7.0.0-beta.61`),
+  `csv-preview.tsx` (in-chat compact table card). Read-only by decision
+  (2026-08-09).
+- **Deliverables in the message:** `share_file` results carry a typed
+  `files` array on the persisted `LorToolCall`; `LorMessageBody` renders them
+  at the end of Lor's message as file cards that open the right panel
+  (`?artifactId`, `FilePanel`). A sandbox row that wrote a shared file shows
+  its chip.
 
 ## Future contract (build against this, don't reinvent)
 
-1. **The sync-doc primitive.** When live editing lands, Lor runs one workspace-scoped service: given a stable key, authorized members get a shared CRDT document (Yjs) + an ephemeral awareness channel (cursors/presence). It lives in `apps/realtime` (auth, rooms, Redis adapter already there). Keys: `artifact:{artifactId}` for document editing; `app:{artifactId}:{key}` for generated-app runtime state.
-2. **Sessions flush through the single write path.** The doc session persists by calling `writeArtifactVersion` on idle/interval — snapshots stay the keyframes; identity/history/attribution never move.
-3. **AI edits apply INTO live sessions** as CRDT transactions server-side (the Notion-AI pattern), not by racing the pointer.
-3a. **Editing an existing file is by id, not by path.** Session-scoped paths only make "the same name in this session" the same file. Before live editing, Lor's file tools must accept an existing `artifactId` and seed it into the sandbox, so "update the Q3 doc" from another session edits that artifact (same doc key) instead of creating a copy.
-4. **Both multiplayer problems are one primitive:** editing a doc and a generated app's realtime state are both "shared doc + presence under a key." A multiplayer game artifact is just an app doc.
-5. **HTML artifacts run in sandboxed iframes** served as static bundles (R2), with a small Lor SDK bridging postMessage → the host page's socket (the iframe never holds credentials). Dynamic behavior comes from Lor platform APIs, not from a live server per artifact. Blaxel sandboxes expose ports + preview URLs (with private mode and custom domains) — authoring previews have a home when this lands.
-6. **Sandbox provider** (decided 2026-08-09, full commitment 2026-08-10): **Blaxel, everywhere, no fallback** — Jacob chose it over Daytona/E2B for the product-experience win (per-task persistent sandboxes: free standby, ~25ms resume, no checkpoint dance) plus egress allowlisting and preview URLs/custom domains for the HTML-artifacts future, then dropped the Railway fallback entirely (pre-launch, nothing to migrate). Validated live 2026-08-10: workbench smoke ✓, task continuity ✓ (persistent sandbox reconnect + Pi session memory + digest-guarded reharvest). `investigate_code` runs on the same image/plumbing (ported 2026-08-10; needs a live GitHub e2e). Known caveat: Blaxel is the youngest vendor in the space; standby persistence beyond starter quotas is tier-gated.
+1. **The sync-doc primitive.** When live editing lands, Lor runs one
+   workspace-scoped service: given a stable key, authorized members get a
+   shared CRDT document (Yjs) plus an awareness channel. It lives in
+   `apps/realtime`. Keys: `artifact:{artifactId}` for documents,
+   `app:{artifactId}:{key}` for generated-app state.
+2. **Sessions flush through the single write path** on idle or interval;
+   identity, history and attribution never move.
+3. **AI edits apply into live sessions** as CRDT transactions server-side,
+   not by racing the pointer.
+4. **Editing an existing file is by id, not by path.** Before live editing,
+   Lor's file tools must accept an existing `artifactId` and seed it into the
+   sandbox, so "update the Q3 doc" from another session edits that artifact
+   instead of creating a copy.
+5. **Editing a doc and a generated app's realtime state are one primitive:**
+   a shared doc plus presence under a key.
+6. **HTML artifacts run in sandboxed iframes** served as static bundles (R2),
+   with a small Lor SDK bridging postMessage to the host page's socket.
+   Blaxel sandboxes expose ports and preview URLs for authoring previews.
+7. **Sandbox provider:** Blaxel, everywhere, no fallback (decided
+   2026-08-09/10). Known caveat: standby persistence beyond starter quotas is
+   tier-gated.
 
 ## Punts (recorded; don't re-litigate)
 
-Artifact ACLs (public-by-obscurity stands), pptx/docx (workbench package additions), diff/HTML previews, version-history UI (data is there; viewer shows current), artifact FTS/brain integration, mobile task surfaces (see `mobile-parity-todo.md`), hard per-tool approval gating (approval is prompt-policy in v1).
-
-From the 2026-08-09 review round (deferred deliberately): harvest memory bounding (harvest buffers up to `LOR_WORKBENCH_MAX_TOTAL_BYTES` in worker RAM — fix as upload-per-file during the provider swap), `createTaskWithCard` transactionality (compensation delete exists; orphan card renders a benign fallback), worker task-lookup retry-on-DB-error, task-list pagination (limit 50, no cursor), strict CSV unterminated-quote fallback (parser is deliberately lenient), FileReader abort-on-timeout, Redis-helper dedupe across api/worker/realtime (`serializeTask` half closed 2026-08-23: single drift-guarded `toRealtimeTask` in `@repo/lor/tasks`).
+Artifact ACLs (public-by-obscurity stands), pptx/docx (image package
+additions), diff/HTML previews, version-history UI (data is there; viewer
+shows current), artifact FTS/brain integration, mobile file surfaces (see
+`mobile-parity-todo.md`).

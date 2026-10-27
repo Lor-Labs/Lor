@@ -1,4 +1,10 @@
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
+import { features } from "@repo/utils/features"
+import {
+  Redirect,
+  router,
+  useFocusEffect,
+  useLocalSearchParams,
+} from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
@@ -29,6 +35,10 @@ import { dmDisplayName, dmMemberToMentionCandidate } from "@/lib/dms"
 const EMPTY_AVATAR_COLORS: ReadonlyMap<string, string> = new Map()
 
 export default function DMScreen() {
+  return features.directMessages ? <EnabledDMScreen /> : <Redirect href="/" />
+}
+
+function EnabledDMScreen() {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [isSavingEdit, setIsSavingEdit] = useState(false)

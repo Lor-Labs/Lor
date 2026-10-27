@@ -71,6 +71,10 @@ import {
 } from "@/components/chat/composer/mention-suggestion-list"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import {
+  insertRepoFileReference,
+  RepoFileChip,
+} from "@/components/chat/composer/repo-file-chip"
+import {
   type SlashCommandItem,
   SlashCommandList,
   type SlashCommandListProps,
@@ -88,6 +92,7 @@ import {
   toStoredMarkdown,
   whenEditorMounted,
 } from "@/lib/editor-utils"
+import type { ComposerFileReference } from "@/lib/repo-file-reference"
 
 const MAX_MENTION_RESULTS = 8
 const MAX_SLASH_RESULTS = 8
@@ -124,6 +129,8 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
 interface MessageInputProps {
   composerDraft?: { id: string; text: string }
   onComposerDraftConsumed?: (id: string) => void
+  composerFileReference?: ComposerFileReference
+  onComposerFileReferenceConsumed?: (id: string) => void
   context: ChatContext
   // Enables connector attachments — omitted in DMs, which have no workspace.
   channelId?: string
@@ -170,6 +177,9 @@ interface MessageInputProps {
     }
   ) => void
   isSending?: boolean
+  // Holds the send (keeping the draft) until a choice outside the editor is
+  // made, e.g. a code session's repo.
+  sendBlocked?: boolean
   currentUserId?: string
   mentionCandidates?: MentionCandidate[]
   replyingTo?: Message | null
@@ -186,6 +196,10 @@ interface MessageInputProps {
   canSteerQueued?: boolean
   onSteerQueued?: () => void
   isSteeringQueued?: boolean
+  // Extra controls before the send button, e.g. a Claude Code session's mode.
+  tools?: ReactNode
+  // Shift+Tab in the editor, like Claude Code's mode cycle.
+  onShiftTab?: () => void
 }
 
 interface SuggestionPopupListRef {
@@ -544,6 +558,8 @@ function resolveRouting({
 export function MessageInput({
   composerDraft,
   onComposerDraftConsumed,
+  composerFileReference,
+  onComposerFileReferenceConsumed,
   context,
   channelId,
   contextScopeKey,
@@ -561,6 +577,7 @@ export function MessageInput({
   disabledReason,
   onSend,
   isSending,
+  sendBlocked = false,
   currentUserId,
   mentionCandidates = [],
   replyingTo,
@@ -577,6 +594,8 @@ export function MessageInput({
   canSteerQueued = false,
   onSteerQueued,
   isSteeringQueued = false,
+  tools,
+  onShiftTab,
 }: MessageInputProps) {
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
   const mentionCandidatesRef = useRef<MentionCandidate[]>([])
@@ -584,6 +603,8 @@ export function MessageInput({
   const handleSubmitRef = useRef<(stay: boolean) => void>(() => undefined)
   const addFilesRef = useRef(addFiles)
   addFilesRef.current = addFiles
+  const onShiftTabRef = useRef(onShiftTab)
+  onShiftTabRef.current = onShiftTab
   const onTypingRef = useRef(onTyping)
   onTypingRef.current = onTyping
 
@@ -695,6 +716,7 @@ export function MessageInput({
           suggestion: mentionSuggestion,
         }),
         ConnectorChip,
+        RepoFileChip,
         slashCommandExtension,
       ],
       editorProps: {
@@ -703,6 +725,11 @@ export function MessageInput({
             "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
         },
         handleKeyDown: (_view, event) => {
+          if (event.key === "Tab" && event.shiftKey && onShiftTabRef.current) {
+            event.preventDefault()
+            onShiftTabRef.current()
+            return true
+          }
           if (event.key !== "Enter" || event.shiftKey) return false
           if (event.isComposing) return false
           if (document.querySelector(SUGGESTION_MENU_SELECTOR)) return false
@@ -830,6 +857,25 @@ export function MessageInput({
     }
   }, [editor, composerDraft, onComposerDraftConsumed, destination])
 
+  const appliedFileReferenceRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!editor || !composerFileReference || disabled) return
+    const applyReference = () => {
+      if (appliedFileReferenceRef.current === composerFileReference.id) return
+      if (insertRepoFileReference(editor, composerFileReference)) {
+        appliedFileReferenceRef.current = composerFileReference.id
+        onComposerFileReferenceConsumed?.(composerFileReference.id)
+      }
+    }
+    if (editor.isInitialized) applyReference()
+    editor.on("create", applyReference)
+    editor.on("mount", applyReference)
+    return () => {
+      editor.off("create", applyReference)
+      editor.off("mount", applyReference)
+    }
+  }, [editor, composerFileReference, onComposerFileReferenceConsumed, disabled])
+
   const handleSend = useCallback(
     (stay = false) => {
       if (!editor || isUploading) return
@@ -841,7 +887,7 @@ export function MessageInput({
       const hasAttachments = uploadedAttachments.length > 0
       const hasContent = trimmed.length > 0
 
-      if ((!hasContent && !hasAttachments) || isSending) return
+      if ((!hasContent && !hasAttachments) || isSending || sendBlocked) return
 
       const mentionCandidatesById = new Map(
         normalizedMentionCandidates.map((candidate) => [
@@ -891,6 +937,7 @@ export function MessageInput({
     [
       editor,
       isSending,
+      sendBlocked,
       isUploading,
       getUploadedAttachments,
       clearAttachments,
@@ -988,6 +1035,7 @@ export function MessageInput({
   const canSend =
     (trimmedValue.length > 0 || pendingAttachments.length > 0) &&
     !isSending &&
+    !sendBlocked &&
     !isUploading
   const isStopMode =
     Boolean(onStop) &&
@@ -1431,6 +1479,7 @@ export function MessageInput({
               </div>
             )}
             <div className="flex shrink-0 items-center gap-1">
+              {tools}
               {/* onStop is only supplied while a run is stoppable, so it doubles
                 as "Lor is working here right now". */}
               <ContextMeter

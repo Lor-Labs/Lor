@@ -13,6 +13,7 @@ import { MessageApprovalCard } from "@/components/approval-card"
 import { ConnectorIcon, connectorForName } from "@/components/connector-icon"
 import { ForwardedMessageCard } from "@/components/forwarded-message-card"
 import { LoopCard } from "@/components/loop-card"
+import { LorFailureNotice } from "@/components/lor-failure-notice"
 import { LorMessageBody } from "@/components/lor-message-body"
 import { LorReasoning } from "@/components/lor-reasoning"
 import {
@@ -189,6 +190,10 @@ function MessageRowBody({
               onCitationJump={onJumpToMessage}
               streaming={isStreaming}
             />
+          ) : isLor && message.status === "failed" ? (
+            <LorFailureNotice
+              text={message.content || "Lor couldn't respond to that."}
+            />
           ) : message.content && !isMeetingPost ? (
             <MessageContent
               content={message.content}
@@ -202,11 +207,6 @@ function MessageRowBody({
           ) : null}
           {isStreaming && !message.content && !hasTimeline ? (
             <ThinkingIndicator />
-          ) : null}
-          {isLor && message.status === "failed" && !message.content ? (
-            <Text className="text-sm italic text-muted">
-              Lor couldn&apos;t respond to that.
-            </Text>
           ) : null}
           {isLor && message.lorTriggerMessageId ? (
             <MessageApprovalCard

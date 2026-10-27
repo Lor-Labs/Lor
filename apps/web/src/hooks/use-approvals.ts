@@ -77,18 +77,33 @@ export function useChannelApprovals(
   return query
 }
 
-// The approval anchored to one Lor message, if any: in a session, pending or
-// resolved; in chat, pending only. Shares the list query's cache; select
-// keeps a message from re-rendering on other messages' approvals.
-export function useMessageApproval(
+// The approvals anchored to one Lor message (a paused turn files one per
+// gated call): in a session, pending or resolved; in chat, pending only.
+// Shares the list query's cache; select keeps a message from re-rendering on
+// other messages' approvals.
+export function useMessageApprovals(
   channelId: string,
   messageId: string,
   threadRootId: string | null
-): ChannelApproval | null {
+): ChannelApproval[] {
   const { data } = useQuery({
     ...channelApprovalsQueryOptions(channelId, threadRootId),
     select: (approvals: ChannelApproval[]) =>
-      approvals.find((a) => a.messageId === messageId) ?? null,
+      approvals.filter((a) => a.messageId === messageId),
+  })
+  return data ?? []
+}
+
+// The Lor message whose turn is paused on pending approvals, if any: Stop
+// rejects them all.
+export function usePausedLorMessageId(
+  channelId: string,
+  threadRootId: string | null
+): string | null {
+  const { data } = useQuery({
+    ...channelApprovalsQueryOptions(channelId, threadRootId),
+    select: (approvals: ChannelApproval[]) =>
+      approvals.find((a) => a.status === "pending")?.messageId ?? null,
   })
   return data ?? null
 }
@@ -99,10 +114,13 @@ export function useCanResolveApproval(
   workspaceId: string | undefined,
   member: { userId: string; role: string } | null,
   ownerId: string | undefined,
-  resolver: ApprovalResolverSpec | null
+  resolver: ApprovalResolverSpec | null,
+  // A Claude Code prompt: only the turn's sender, the owner included.
+  onlyUserId?: string | null
 ): boolean {
   const { data: customRoles } = useWorkspaceRoles(workspaceId)
   if (!member || !ownerId) return false
+  if (onlyUserId) return member.userId === onlyUserId
   const authority = {
     role: member.role,
     isOwner: ownerId === member.userId,
@@ -132,14 +150,27 @@ export function useResolveChannelApproval(channelId: string) {
       userId: string
       planId?: string | null
       threadRootId?: string | null
+      // Approving a Claude Code plan: the mode its turn goes on in.
+      claudeCodeMode?: "acceptEdits" | "default"
+      // Answering a Claude Code question.
+      answers?: NonNullable<ChannelApproval["answers"]>
     }) => {
-      const endpoint =
-        apiClient.v1.approvals[":approvalId"][
-          args.resolution === "approve" ? "approve" : "reject"
-        ]
-      const res = await endpoint.$post({
-        param: { approvalId: args.approvalId },
-      })
+      const approval = apiClient.v1.approvals[":approvalId"]
+      const param = { approvalId: args.approvalId }
+      const res =
+        args.resolution === "reject"
+          ? await approval.reject.$post({ param })
+          : args.answers
+            ? await approval.answer.$post({
+                param,
+                json: { answers: args.answers },
+              })
+            : args.claudeCodeMode
+              ? await approval["approve-plan"].$post({
+                  param,
+                  json: { mode: args.claudeCodeMode },
+                })
+              : await approval.approve.$post({ param })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
           message?: string

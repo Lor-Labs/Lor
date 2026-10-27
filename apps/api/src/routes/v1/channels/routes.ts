@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
+  conflictSchema,
   forbiddenSchema,
   internalServerErrorSchema,
   notFoundSchema,
@@ -15,6 +16,8 @@ import {
   channelParamsSchema,
   channelReadPositionResponseSchema,
   channelResponseSchema,
+  codeBranchesQuerySchema,
+  codeBranchesResponseSchema,
   connectorFilesQuerySchema,
   connectorSearchQuerySchema,
   connectorSearchResponseSchema,
@@ -225,6 +228,7 @@ export const deleteChannel = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
   },
 })
@@ -481,6 +485,28 @@ export const searchConnectorFiles = createRoute({
   },
 })
 
+export const listCodeBranches = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/code/branches",
+  method: "get",
+  summary: "Search a repository's branches for a code session",
+  description:
+    "Branch names for the New session base branch picker, filtered by name on GitHub. The repo must be one code sessions in this channel may use.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware, connectorLookupRateLimit] as const,
+  hide: true,
+  request: { params: channelParamsSchema, query: codeBranchesQuerySchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: codeBranchesResponseSchema,
+      description: "Matching branches",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export type ListChannelsRoute = typeof listChannels
 export type CreateChannelRoute = typeof createChannel
 export type ReorderChannelsRoute = typeof reorderChannels
@@ -500,3 +526,4 @@ export type ListChannelConnectorsRoute = typeof listChannelConnectors
 export type SearchChannelConnectorRoute = typeof searchChannelConnector
 export type ListConnectorScopesRoute = typeof listConnectorScopes
 export type SearchConnectorFilesRoute = typeof searchConnectorFiles
+export type ListCodeBranchesRoute = typeof listCodeBranches

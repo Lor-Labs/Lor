@@ -31,8 +31,6 @@ import {
   integrationsWorkspaceParamsSchema,
   listIntegrationsResponseSchema,
   startGithubConnectResponseSchema,
-  updateGithubRepoConfigRequestSchema,
-  updateGithubRepoConfigResponseSchema,
   updateIntegrationRequestSchema,
   updateIntegrationResponseSchema,
   updateIntegrationToolsRequestSchema,
@@ -284,34 +282,6 @@ export const updateIntegration = createRoute({
   },
 })
 
-export const updateGithubRepoConfig = createRoute({
-  path: "/workspaces/{workspaceSlug}/integrations/{connectionId}/repos",
-  method: "patch",
-  summary: "Set a repository's pull request base branch",
-  description:
-    "Overrides the branch Lor's code actions open pull requests against for one repository; null resets to the repository's default branch.",
-  tags: ["Integrations"],
-  middleware: [workspaceAuthMiddleware] as const,
-  request: {
-    params: connectionIdParamsSchema,
-    body: jsonContent({
-      schema: updateGithubRepoConfigRequestSchema,
-      description: "The repository and its base branch (null to reset)",
-    }),
-  },
-  responses: {
-    [HttpStatusCodes.OK]: jsonContent({
-      schema: updateGithubRepoConfigResponseSchema,
-      description: "Updated",
-    }),
-    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
-    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
-    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
-    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
-    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
-  },
-})
-
 export const disconnectIntegration = createRoute({
   path: "/workspaces/{workspaceSlug}/integrations/{connectionId}",
   method: "delete",
@@ -341,7 +311,6 @@ export type ConnectNotionRoute = typeof connectNotion
 export type ConnectDatadogRoute = typeof connectDatadog
 export type ConnectCloudwatchRoute = typeof connectCloudwatch
 export type UpdateIntegrationRoute = typeof updateIntegration
-export type UpdateGithubRepoConfigRoute = typeof updateGithubRepoConfig
 export type DisconnectIntegrationRoute = typeof disconnectIntegration
 
 export const updateIntegrationTools = createRoute({

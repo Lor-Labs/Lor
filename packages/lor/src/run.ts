@@ -1,27 +1,25 @@
-import type { AgentRunCompaction, AgentRunContext } from "@repo/db/schema"
+import type {
+  AgentRunContext,
+  ApprovalKind,
+  ClaudeCodeAnswers,
+  ClaudeCodeMode,
+  TurnSandboxMode,
+} from "@repo/db/schema"
 import { env } from "@repo/env/server"
-import type { ModelMessage } from "ai"
-import type { CompactionState } from "./compaction"
+import type { HarnessOwner, SavedHarnessState } from "./session-core"
+import type { PiTurnSave } from "./session-core/pi-runtime"
 
 // Re-exported so the worker can type transcript rows without its own ai dep.
 export type { ModelMessage } from "ai"
 
 // Contract between respond() and the durable-run executor (the worker). The
-// worker owns Postgres and billing; respond() owns the model loop and calls
-// back at step boundaries. See reference/agent-harness.md (execution engine).
+// worker owns Postgres and billing; respond() runs one Pi turn and saves it
+// through the harness binding (reference/planned/pi-harness-runbook.md).
 
-export type BudgetStopReason =
-  | "budget_steps"
-  | "budget_input_tokens"
-  | "budget_output_tokens"
-  | "budget_tool_calls"
-  | "budget_tool_output"
-  | "budget_wall_clock"
-  | "budget_spend"
+export type BudgetStopReason = "budget_wall_clock" | "budget_spend"
 
 // Why the answer loop ended early: a budget ceiling, an explicit user stop, or
-// a tool call parked on an approval policy (LOR-81) — the resolved approval
-// starts the continuation run.
+// a turn paused on approvals — the last decision starts the continuation run.
 export type RunStopCause =
   | BudgetStopReason
   | "stopped_by_user"
@@ -54,12 +52,6 @@ export function conversationUpdateMessageIds(
 }
 
 export type RunBudgets = {
-  steps: number
-  inputTokens: number
-  // Total output tokens (the SDK's outputTokens includes reasoning).
-  outputTokens: number
-  toolCalls: number
-  toolOutputBytes: number
   credits: number
   deadlineAt: Date
 }
@@ -75,20 +67,109 @@ export type RunCounters = {
   creditsSpent: number
 }
 
-// One completed model/tool step, ready to persist.
+// One call a paused turn waits on. The worker files it as an approval row in
+// the same transaction as the save.
+export type PendingApproval = {
+  harnessApprovalId: string
+  toolCallId: string
+  toolName: string
+  kind: ApprovalKind
+  target: string | null
+  action: string
+  description: string
+  payload: unknown
+  inputSha256: string
+}
+
+// The decision on one pending approval of the paused turn, from its row.
+// `reason` is what the model reads when the call is not run.
+export type ApprovalDecision = {
+  harnessApprovalId: string
+  approved: boolean
+  // A person pressed reject: not steered past, expired or revoked.
+  rejectedByPerson: boolean
+  reason: string
+  toolName: string
+  kind: ApprovalKind
+  target: string | null
+  inputSha256: string | null
+  // An approved Claude Code plan: the mode the turn goes on in.
+  claudeCodeMode?: ClaudeCodeMode | null
+  // An answered Claude Code question: the sender's answers.
+  answers?: ClaudeCodeAnswers | null
+  // Rejected because someone wrote instead of deciding.
+  steered?: boolean
+}
+
+export type PausedTurnDrop =
+  | { reason: "stopped"; by: string }
+  | { reason: "upgraded" }
+  // A Claude Code turn's bridge process ended while it waited (the sandbox
+  // was replaced or restarted); respond() finds this, not the worker.
+  | { reason: "lost" }
+
+// One model call of a turn, priced at the model that answered.
 export type RunStepRecord = {
-  step: number
-  messages: ModelMessage[]
-  // IDs represented by an injected user message in this step. The worker
-  // commits these to context in the same transaction as the step row.
-  coveredMessageIds?: string[]
-  model?: string
-  inputTokens?: number
-  cachedInputTokens?: number
-  outputTokens?: number
-  reasoningTokens?: number
+  model: string
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+}
+
+// One finished or paused Pi turn, ready to save: the new Pi log (null when
+// nothing changed), the counters its steps did not already record, and the
+// approvals it paused on.
+export type RunTurnRecord = {
+  save: PiTurnSave | null
+  // Usage in Pi's turn total beyond the recorded steps and compactions:
+  // cache warming.
+  extraUsage: RunStepRecord | null
   toolCalls: number
   toolOutputBytes: number
+  approvals: PendingApproval[]
+  planId: string | null
+  // Set when the turn ended paused; saved with the approvals.
+  pausedSandbox: AgentRunContext["pausedSandbox"] | null
+  // Ambient messages the turn saved into the Pi log, added to the run's
+  // coverage so the next turn's delta skips them.
+  coveredMessageIds: string[]
+  // Pi's context count after the turn, for the context meter.
+  contextUsage: AgentRunContext["contextUsage"] | null
+}
+
+// The conversation's saved Pi state and its save. The worker binds it, since
+// it owns Postgres and the lease (reference/planned/pi-harness-runbook.md §4.3).
+export type RunHarness = {
+  owner: HarnessOwner
+  saved: SavedHarnessState | null
+  // Set when a retried attempt finds this run's turn already saved: respond()
+  // delivers it instead of running the turn twice.
+  savedAnswer: string | null
+  // Set when the saved turn paused on approvals: one decision per row of the
+  // set. respond() finishes that turn first, then sends its own prompt.
+  pausedDecisions: ApprovalDecision[] | null
+  // Set when the saved paused turn is dropped instead of finished: a person
+  // pressed Stop, or another adapter version saved it. Its calls read as not
+  // run, and respond() tells the model why.
+  pausedDropped: PausedTurnDrop | null
+  // The run only finishes the paused turn (the last approval was decided):
+  // no new prompt.
+  continueOnly: boolean
+  // How the turn's `bash`, `write` and `edit` calls are approved, frozen at
+  // its start (the worker resolves it; respond() saves it with the request).
+  sandboxMode: TurnSandboxMode
+  pausedSandboxContext?: AgentRunContext["sandboxContext"]
+  pausedSandboxMode?: TurnSandboxMode
+  // Adds one model call (a step, or a compaction summary that is not a step)
+  // to the run counters under the run's lease, so spend is checked inside
+  // the turn. Throws when the lease moved.
+  recordUsage: (
+    usage: RunStepRecord,
+    kind: "step" | "compaction"
+  ) => Promise<RunCounters>
+  // One transaction under the run's lease: the Pi log, the new head and the
+  // counters. Throws when the lease or the saved head moved.
+  saveTurn: (turn: RunTurnRecord) => Promise<RunCounters>
 }
 
 export type RunToolResultStore = {
@@ -96,24 +177,12 @@ export type RunToolResultStore = {
   put: (toolKey: string, toolName: string, output: unknown) => Promise<void>
 }
 
+// A retried attempt of an interrupted turn: it sends the saved request again
+// from the last saved Pi head. Nothing of the lost attempt's turn survives
+// except sandbox files and tool receipts.
 export type RunResume = {
-  approvalResume?: AgentRunContext["approvalResume"]
-  // Transcript to resume from: the compaction baseline + steps after it when
-  // the dead attempt had compacted, else the rebuilt initial user message +
-  // every checkpointed step.
-  messages: ModelMessage[]
-  instructions: string
+  context: AgentRunContext
   counters: RunCounters
-  answerTextSoFar: string
-  // What the resumed loop's first request will weigh, so it can trigger
-  // compaction before any local step exists. Must be estimated from the
-  // replayed messages, never taken from the last step alone — a run that
-  // compacted ends with small steps while its raw replay stays huge.
-  lastInputTokens: number
-  // Working notes persisted by the dead attempt's compactions; seeds the new
-  // attempt's compactor so notes merge forward instead of rebuilding from a
-  // clipped digest.
-  compaction: CompactionState | null
 }
 
 export type RunHandle = {
@@ -122,20 +191,12 @@ export type RunHandle = {
   runId: string
   budgets: RunBudgets
   resume: RunResume | null
-  // Persist the step-0 context; called once on a fresh run, before streaming.
+  // Persist the turn's request; called once on a fresh run, before streaming.
   saveContext: (args: {
     context: AgentRunContext
     instructions: string
   }) => Promise<void>
-  // Atomically fold a completed step into the run (transcript row + counters,
-  // including nested usage like investigate_code). Returns the authoritative
-  // cumulative counters; throws if the lease was lost.
-  checkpoint: (record: RunStepRecord) => Promise<RunCounters>
-  // Persist compaction state (notes + post-compaction baseline) right after a
-  // compaction, so recovery and successors replay the compacted projection
-  // instead of the raw transcript. Best-effort — failure keeps the previous
-  // (older but still correct) baseline.
-  saveCompaction?: (state: AgentRunCompaction) => Promise<void>
+  harness?: RunHarness
   toolResults: RunToolResultStore | null
   abortSignal?: AbortSignal
   // Steering: drain messages that landed mid-run (marks steered rows
@@ -171,66 +232,16 @@ export const ZERO_RUN_COUNTERS: RunCounters = {
   creditsSpent: 0,
 }
 
-// Budgets for a respond() call with no durable run behind it (legacy jobs,
-// evals): same env ceilings, wall clock anchored at call time. Credits never
-// accumulate without the worker's rate math, so that ceiling is inert here.
+// Budgets for a respond() call with no durable run behind it (evals): the
+// env limits, wall clock anchored at call time. Credits never accumulate
+// without the worker's rate math, so that limit is inert here.
 export function defaultRunBudgets(): RunBudgets {
   return {
-    steps: env.AGENT_RUN_MAX_STEPS,
-    inputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-    outputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-    toolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-    toolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
     credits: env.AGENT_RUN_MAX_CREDITS,
     deadlineAt: new Date(Date.now() + env.AGENT_RUN_MAX_WALL_MS),
   }
 }
 
-// First ceiling the counters have hit, if any.
-export function budgetViolation(
-  counters: RunCounters,
-  budgets: RunBudgets
-): BudgetStopReason | null {
-  if (counters.steps >= budgets.steps) return "budget_steps"
-  // Cache reads bill at a fraction of fresh input and re-send the same bytes
-  // every step, so they count at 1/10 — otherwise long tool loops exhaust the
-  // rail on cheap cached re-sends while credits sit far below their ceiling.
-  const weightedInputTokens =
-    counters.inputTokens - Math.floor(counters.cachedInputTokens * 0.9)
-  if (weightedInputTokens >= budgets.inputTokens) return "budget_input_tokens"
-  if (counters.outputTokens >= budgets.outputTokens) {
-    return "budget_output_tokens"
-  }
-  if (counters.toolCalls >= budgets.toolCalls) return "budget_tool_calls"
-  if (counters.toolOutputBytes >= budgets.toolOutputBytes) {
-    return "budget_tool_output"
-  }
-  if (counters.creditsSpent >= budgets.credits) return "budget_spend"
-  if (
-    Date.now() >=
-    budgets.deadlineAt.getTime() - WALL_CLOCK_ANSWER_MARGIN_MS
-  ) {
-    return "budget_wall_clock"
-  }
-  return null
-}
-
 // Reserved tail of the wall budget: once inside it, tools are disabled so the
 // loop ends with a text answer instead of a hard timeout.
 export const WALL_CLOCK_ANSWER_MARGIN_MS = 3 * 60_000
-
-export function addStepToCounters(
-  counters: RunCounters,
-  record: RunStepRecord
-): RunCounters {
-  return {
-    steps: counters.steps + 1,
-    inputTokens: counters.inputTokens + (record.inputTokens ?? 0),
-    cachedInputTokens:
-      counters.cachedInputTokens + (record.cachedInputTokens ?? 0),
-    outputTokens: counters.outputTokens + (record.outputTokens ?? 0),
-    toolCalls: counters.toolCalls + record.toolCalls,
-    toolOutputBytes: counters.toolOutputBytes + record.toolOutputBytes,
-    creditsSpent: counters.creditsSpent,
-  }
-}

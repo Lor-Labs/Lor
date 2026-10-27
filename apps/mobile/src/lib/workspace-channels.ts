@@ -1,3 +1,4 @@
+import { visibleChannels } from "@repo/utils/features"
 import { queryOptions } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import type { ChannelList } from "@/lib/api-types"
@@ -5,6 +6,7 @@ import type { ChannelList } from "@/lib/api-types"
 export function workspaceChannelsQueryOptions(workspaceSlug: string) {
   return queryOptions({
     queryKey: ["channels", workspaceSlug],
+    select: (data) => visibleChannels(data),
     enabled: Boolean(workspaceSlug),
     queryFn: async () => {
       const response = await api.v1.workspaces[":workspaceSlug"].channels.$get({

@@ -1,6 +1,13 @@
 # GitHub Connector — Status & Definition of Done
 
-Status as of 2026-07-31. The **code-investigation core works end-to-end** (verified live: sandboxed Pi → Kimi K3 through Vercel AI Gateway → read-only tool loop → findings → metered → torn down). It is **NOT "done"** by our bar yet. This is the resume-here doc. (2026-08-10: the sandbox provider moved Railway → **Blaxel** — same flow, engine details updated below; the ported path needs a live GitHub e2e re-verify.) (2026-08-18: the **draft-PR write loop shipped** — `propose_code_change`, gated by the `code_actions` capability; details in Definition of Done. Needs its own live e2e verify.)
+Status as of 2026-10-22. Lor reads code with `clone_repo` in its own session
+sandbox; the coding child agent (`investigate_code`) and the draft-PR write
+loop (`propose_code_change`) are deleted
+([pi-harness-runbook.md](planned/pi-harness-runbook.md) 1.4). Nothing in
+phase 1 commits, pushes or opens a PR. In code sessions (later) a person
+commits or opens the PR, under their own GitHub account or as the Lor bot
+([code-channels.md](planned/code-channels.md) §2). The App configuration below
+is unchanged.
 
 ## GitHub App webhook configuration
 
@@ -29,6 +36,21 @@ Webhook URL is `https://api.lor.chat/v1/integrations/github/webhook`.
 Disconnecting in Lor deletes the connection row but leaves the App installed
 on GitHub.
 
+Workspace connection requires the caller's linked GitHub account. The API
+checks the installation using that user's token, then requires the personal
+account owner or an active organization owner before sharing its repositories
+with the workspace. The installation ID alone is never proof of ownership.
+IDs must be canonical positive safe integers; old numeric aliases fail closed
+when listing repositories or minting tokens. Unsuspending an installation
+requires reconnection in Lor and does not reactivate a revoked binding.
+
+Security rollout: stop API/realtime/workers, run
+`packages/db/scripts/revoke-unverified-github-connections.sql` once against the
+deployment database, deploy all services, then reconnect installations through
+the verified flow. Revocation hides their indexed sources. Existing bindings
+cannot be assumed valid, including canonical IDs. Review any disputed binding
+before removing it; never merge numeric aliases into another tenant's row.
+
 ### Dev App
 
 An App has one Setup URL, so dev needs its own App. Checklist:
@@ -52,34 +74,76 @@ An App has one Setup URL, so dev needs its own App. Checklist:
    App. Existing dev rows hold prod-App installation ids, and the dev App's
    key cannot mint tokens for them.
 
+### Personal GitHub accounts (user authorization)
+
+People link their own GitHub account (Settings → Linked accounts) to commit
+and push as themselves in code sessions
+([code-sessions-runbook.md](planned/code-sessions-runbook.md) chunk 4). This
+uses the same App's user authorization, not the install flow. Per App (prod
+and dev):
+
+1. Redirect URI (the "Identifying and authorizing users" section; GitHub
+   used to call it Callback URL): the web origin plus
+   `/accounts/github/callback`, for example
+   `https://app.lor.chat/accounts/github/callback`. Leave wildcard
+   matching, "Request user authorization (OAuth) during installation" and
+   Device Flow off.
+2. User-to-server token expiration (Optional features): opted in, so tokens
+   last 8 hours and Lor refreshes them.
+3. Generate a client secret. Set `GITHUB_APP_CLIENT_ID` (the App's Client
+   ID, not its App ID) and `GITHUB_APP_CLIENT_SECRET` in the API env;
+   `INTEGRATION_ENCRYPTION_KEY` must be set too.
+4. Account permissions → Email addresses: read-only, so commits can use
+   the person's primary email. Repository permissions → Contents and Pull
+   requests: read and write, for push and pull requests. Installation
+   owners must approve changed permissions on GitHub.
+
+A user token acts as the person, limited to repositories the App is
+installed on. Disconnecting deletes the tokens and revokes them at GitHub.
+
 ## How it works today (as-built)
 
-The flow: Lor calls the `investigate_code(repo, question)` tool → clone the repo into an ephemeral Blaxel sandbox at query time → run Pi with the configured Lor main model as a read-only sub-agent → stream its tool calls back live → return findings → Lor composes the answer.
+The flow: Lor calls `clone_repo(repo, branch)` → the repo is shallow-cloned
+into the work folder of the session's own sandbox → Lor searches and reads it
+with its sandbox tools (`grep`, `glob`, `read`, `bash`) → Lor answers, linking
+cited lines with commit-pinned GitHub URLs. There is no second agent; the
+reading is part of Lor's own turn, metered like the rest of it.
 
-- **Tool:** `packages/lor/src/code.ts` (`buildCodeTools`) — registered in `respond()` (`index.ts`) only when Blaxel is configured (`BL_API_KEY`+`BL_WORKSPACE`). Resolves the workspace's active GitHub connection → mints a short-lived installation token (`getInstallationToken`, `providers/github.ts`).
-- **Engine:** `packages/lor/src/sandbox/investigate.ts` → `withEphemeralSandbox` (`sandbox/blaxel.ts`). It runs the same workbench image (Pi pinned, see `reference/artifacts.md`) and shallow-clones the repository fresh per query (`git clone --depth 1 --single-branch`, no deps or repo caching; the clone token reaches the sandbox as process env, never in the persisted command string). Pi runs Kimi K3 through Vercel AI Gateway with only `read`, `grep`, `find`, and `ls`; sessions, extensions, skills, prompt templates, and repo context files are disabled. The live smoke test probes the image's Pi CLI so incompatible image changes fail visibly.
-- **Realtime trail:** Pi JSON events feed the live `onStdout` stream → each `tool_execution_start` is emitted as a `lor:tool` with `parentToolCallId` = the investigate_code call id (live stream is UX-only; findings + usage are parsed from the complete stdout after completion). Web nests it: `lor-message-body.tsx` (`childrenByParent`) + `lor-tool-trail.tsx`. Findings rendered as markdown (small/dimmed).
-- **Usage metering:** `packages/lor/src/usage.ts` (`UsageEvent`/`OnUsage`) forwards each Pi run's token counts to the central usage ledger. Every successful `investigate_code` invocation is priced from the served model's database rate and debited from the workspace's customer credits with a retry-safe per-response invocation key.
-- **Sandbox lifecycle:** `"Sandbox: created"` / `"Sandbox: destroyed"` logs confirm teardown (no surprise billing).
-- **SDK:** `@blaxel/core`; env `BL_API_KEY` + `BL_WORKSPACE` (read by the SDK from process.env), optional `BL_REGION`.
+- **Tool:** `packages/lor/src/code.ts` (`cloneRepoTool`), bound when GitHub is
+  connected, the tool is selected, and the Sandbox group's `read` or `bash` is
+  on. The repo is resolved against the connected repos (`resolveRepo`) and a
+  read token is minted for that one repo (`contents: read`,
+  `getInstallationToken`).
+- **Clone:** `git clone --depth 1 --single-branch` into
+  `<work folder>/repos/<owner>/<repo>`. The token is passed as per-command env
+  and expanded by the shell, never in the command string or the saved remote.
+  A process in the sandbox could read it during the clone; it only reads a
+  repo the sandbox already holds and expires within an hour (accepted).
+- **Update:** calling it again fetches the branch and switches only when the
+  clone has no changed files and no commits made in the sandbox; otherwise it
+  stays as it is and says so. It never resets or cleans.
+- **Egress:** the sandbox's limits allow git fetch but not push
+  (`git-receive-pack`), so nothing can leave by git.
+- **Returns:** path, branch, commit and a commit-pinned `linkBase`
+  (`https://github.com/<repo>/blob/<commit>/`).
+- **Composer:** GitHub file browsing (attach a repo file) requires
+  `clone_repo`, which Lor reads the file with.
+- **SDK:** `@blaxel/core`; env `BL_API_KEY` + `BL_WORKSPACE`, optional
+  `BL_REGION`. See [artifacts.md](artifacts.md) for the session sandbox.
 
 ## Definition of Done
 
 ### ✅ Done
 
-- [x] Code investigation: clone → agentic exploration → findings (with `path#L..` citations).
-- [x] Realtime **nested** sub-tool streaming (live trail) + persisted on the message.
-- [x] Findings rendered as markdown (dimmed, 11px) in the drill-down, scrollable, untruncated.
-- [x] Per-invocation usage metering (seam for billing).
-- [x] Sandbox create/destroy logging; full sandbox-exec error logging.
+- [x] Code reading: `clone_repo` into the session sandbox, read by Lor's own tools, citations as commit-pinned links (2026-10-22; replaced `investigate_code`).
 - [x] Auth: GitHub App installation tokens + robust PEM handling.
-- [x] **Repo resolution.** The installation *is* the repo picker — we enumerate its accessible repos (`listInstallationRepos`, `apps.listReposAccessibleToInstallation`) rather than rebuild a picker. They're listed in the `investigate_code` description (so Lor targets a real repo) and resolved again server-side before clone (`resolveRepo` in `code.ts`): single repo → auto-use; exact/unambiguous-name match → use; miss → return the valid list so Lor retries — never clones a phantom. Settings shows the repos read-only with a "Manage on GitHub" link (`getInstallationOverview` → installation `html_url`).
+- [x] **Repo resolution.** The installation *is* the repo picker — we enumerate its accessible repos (`listInstallationRepos`, `apps.listReposAccessibleToInstallation`) rather than rebuild a picker. They're listed in the `clone_repo` description (so Lor targets a real repo) and resolved again server-side before the clone (`resolveRepo` in `code.ts`): single repo → auto-use; exact/unambiguous-name match → use; miss → return the valid list so Lor retries — never clones a phantom. Settings shows the repos read-only with a "Manage on GitHub" link (`getInstallationOverview` → installation `html_url`).
 - [x] **On-demand PR/issue search (live).** `search_github` (live `GET /search/issues`, scoped to the connected repos via `repo:` qualifiers, `type` PR/issue filter, capped fan-out with an overflow note) + `fetch_github` (full body + comments, plus review comments for PRs; auto-detects PR vs issue). Lives in `packages/lor/src/github.ts` (provider calls `searchIssues`/`fetchIssueOrPr` in `providers/github.ts`); registered only when GitHub is connected. Results are referenced inline by **Markdown link** (live, not `[[src:]]` — nothing is ingested), and appear as grounded drillable items in the tool trail. System prompt routes GitHub PR/issue questions here.
-- [x] **Draft-PR write loop (§7.5) — "code actions" (shipped 2026-08-18; needs live e2e verify).** `propose_code_change` (`packages/lor/src/code-actions.ts`), gated on the new `code_actions` capability (registry pair with `code_intelligence`, like `linear`/`linear_write`). Engine: `sandbox/code-session.ts` — a **persistent per-conversation-scope sandbox** (`code-{threadRootId ?? channelId}`, `withPersistentSandbox` in `blaxel.ts`) holding one checkout per repo and a resumable Pi session (deterministic uuid from scope+repo), so follow-ups start warm. Flow: read-scoped token mint (narrowed via `createInstallationAccessToken` `repositories`+`permissions`) → clone/fetch+hard-reset (freshness by fetch, the sandbox is a cache not a source of truth) → checkout `lor/<slug>-<rand>` → Pi with `WORKBENCH_PI_TOOLS` (**no token in its env**) → stage+commit as `<app-slug>[bot]` → **orchestrated push**: our command, exact `sha:refs/heads/lor/*` refspec (regex-enforced), explicit URL (never `origin` — the agent could have re-pointed it), `core.hooksPath=/dev/null --no-verify`, write-scoped token as per-command env → `openPullRequest` (`providers/github.ts`, **draft only**, 422-already-exists reuses the open PR so branch-continue updates it). Empty diff ⇒ no PR; diffstat returned for the thread message. `prepareChange`/`publishChange` are split with an `authorizePublish()` choke point in the tool — the future user-configured approval flow plugs in there (persist the serializable `ProposedChange`, publish on approve). Iteration: after an initial publish succeeds, passing the returned branch updates the same PR. A branch surfaced by a failed pre-publish attempt can resume from its local ref while the persistent sandbox survives; code sandboxes use a 7-day idle TTL (`LOR_CODE_SANDBOX_TTL`) to leave room for approval before an unpublished diff expires. If the sandbox expires first, no remote ref exists and the proposal must start fresh. Idempotent via `SIDE_EFFECT_TOOLS` replay. Placement prompt explicitly keeps code requests out of tasks.
+- [x] ~~Draft-PR write loop (`propose_code_change`, shipped 2026-08-18)~~ **Deleted 2026-10-22** with the coding child agent, along with the per-repo base-branch setting (`github_repo_config`). Shipping code moves to code sessions, where a person commits or opens the PR ([code-channels.md](planned/code-channels.md) §2). Its orchestrated-push rules carry over as design: explicit refspecs, `lor/*` or the person's branch, never force, no push credential in the sandbox.
 
 ### 🔴 Must-have before shipping (even read-only)
 
-- [ ] **Cost/rate guard.** Per-workspace budget + rate limit on the sandbox tools (runaway-cost protection) — now covers `propose_code_change` too, whose sessions run longer than investigations. GitHub-specific safety.
+- [x] ~~**Cost/rate guard** on the sandbox tools~~ — code reading is now part of Lor's own turn, so the run's spend limit covers it (runbook §4.5).
 
 ### 🟣 Cross-cutting (not a GitHub blocker — project-level)
 
@@ -87,29 +151,30 @@ The flow: Lor calls the `investigate_code(repo, question)` tool → clone the re
 
 ### 🟡 For the "proper = read + write" bar
 
-- [x] ~~Draft-PR write loop (§7.5)~~ — shipped, see above. Remaining from the original item: **dep install / verification in the sandbox is deliberately NOT built** — the customer's own CI on the draft PR is the verifier (add `checks: read` to the App later so Lor can read results and iterate).
+- [ ] Write side moves to code sessions (later; [code-channels.md](planned/code-channels.md) §2). Add `checks: read` to the App then, so Lor can read CI results and iterate.
 
 ### ⚪ Nice-to-have / robustness
 
-- [ ] Connect-time repo-map → brain (cheap orientation; avoid spinning a sandbox for every question).
-- [ ] Session reuse (`Sandbox.connect`) so follow-ups don't re-clone.
+- [ ] Code index for chat (`code-channels.md` §11), which may replace `clone_repo` in chat.
+- [x] ~~Session reuse so follow-ups don't re-clone~~ — the clone lives in the session sandbox and updates by fetch.
 - [ ] Re-verify `fetch_source` now that App auth works (was silently broken by the PEM issue).
-- [ ] Edge cases: large-repo clone timeout, concurrent-sandbox cap (100/env), mid-stream agent failure, repo-not-found.
+- [ ] Edge cases: large-repo clone timeout, repos that do not fit the 2 GB session disk, repo-not-found. Live check owed: a private repo clones through the egress proxy.
 - [ ] **Ground GitHub links.** PR/issue refs are emitted as plain Markdown links, so the citation grounder can't catch a fabricated url (the real results are in the trail, but inline links aren't verified). Optional: a `[[gh:owner/repo#n]]` token verified against tool output, or post-hoc link validation.
 - [ ] **Confirm `search.issuesAndPullRequests` live** (deprecation: GitHub is nudging toward the `advanced_search` opt-in). Best-effort/defensive today; verify scoping + result shape against a real installation.
 
 ## Decisions locked (do NOT re-litigate)
 
 - ~~**No embedding by default** of GitHub PRs/issues — brain-centric. The old `SOURCE_INGEST_ENABLED` flag is gone: an event becomes a source only when its trigger has Remember on (`apps/api/src/lib/connector-triggers.ts`).~~ **Reversed 2026-10-17** (`planned/context-engine.md` §8 decision 3): PRs and issues with their comments and reviews are ingested by default as real text, chunked and embedded; Remember is removed.
-- **No repo caching for reads** (freshness) → investigate clones per query, shallow, no deps. Pi comes from our workbench image (exact-pinned). *Amended 2026-08-18 for writes:* code-action sandboxes persist per conversation scope as a **warm cache** — freshness still comes from a fetch+hard-reset at session start, never from trusting the cached checkout.
-- **Draft PRs only**, never auto-merge. Lor pushes only `lor/*` branches (the product namespace GitHub contributors see), never force-pushes.
-- **The coding agent never holds a write token.** Write-scoped tokens (narrowed to one repo, `contents: write`) exist only as per-command env on the orchestrated push, after the session ends.
+- **Clones live in the session sandbox** (2026-10-22): shallow, no deps unless Lor installs them; freshness comes from a fetch when `clone_repo` is called again, and Lor's own changes are never reset.
+- **Lor never commits, pushes or opens a PR by itself** (2026-10-22); a person does, from a code session. Never auto-merge, never force-push.
+- **No push credential ever enters the sandbox**, Lor's or a person's.
 - ~~**Webhooks not needed** for GitHub's core loop (brain-centric → no index to sync). They'd only return for proactive notifs/synthesis.~~ **Reversed 2026-10-17:** webhooks are the refetch signal for ingestion. No catch-up sweep: the stored copy is a search index, not a mirror, so a dropped delivery (GitHub never redelivers) leaves the item stale until its next change, and current state comes from the live tools.
 - **Linear is deferred** until GitHub is done; when resumed: proper OAuth + write scope + webhooks from day 1 (tokens expire ~24h w/ refresh — design researched).
 
 ## Recommended next step
 
-The write loop is built but **needs a live e2e verify** (clone → edit → push → draft PR → branch-continue) against a real installation — note existing installations must accept the App's permission upgrade to Contents/PRs read-write before pushes stop 403ing. Then the one GitHub-specific 🔴:
-1. **Cost/rate guard** — per-workspace budget + rate limit on the sandbox tools (the only tools that spend real money / can run away), now more urgent with write sessions.
-
-After that: flip `investigate_code` onto the same persistent scope sandbox (the machinery is proven by code actions; ~1 day) so investigate→propose hands off a warm session. Gating is cross-cutting (🟣) and lands as its own project-level layer. Live-verify `search/issues` scoping against a real installation when convenient.
+Live-verify `clone_repo` against a real installation (a private repo through
+the egress proxy), and switch "Clone repository" on for existing GitHub
+connections (their saved tool lists predate it). Then the write side is code
+sessions (`code-channels.md`). Live-verify `search/issues` scoping when
+convenient.

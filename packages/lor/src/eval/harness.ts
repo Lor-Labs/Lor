@@ -18,6 +18,7 @@ import {
   fixtures,
   type RespondFixture,
 } from "./fixtures"
+import { evalPiSession } from "./pi-session"
 import { listBrainPages, seedEvalWorkspace } from "./seed"
 
 function dbHost(): string {
@@ -105,6 +106,7 @@ async function runRespondFixture(
     if (usage.model) usageModels.push(usage.model)
   }
 
+  const session = evalPiSession()
   const answer = await respond(
     { workspaceId, conversation },
     {
@@ -118,7 +120,12 @@ async function runRespondFixture(
         }
       },
       onUsage,
-    }
+    },
+    session.run()
+  ).finally(() =>
+    session.close().catch((err) => {
+      console.error("sandbox delete failed:", err)
+    })
   )
   const grounded = await groundCitations(workspaceId, answer.text, {
     privateContainerChannelId: null,

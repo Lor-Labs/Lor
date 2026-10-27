@@ -41,6 +41,12 @@ const RATES = [
     cached: 0.02,
     output: 0,
   },
+  // Codex session models (code-sessions-runbook.md chunk 8), at the Gateway's
+  // standard tier. Accepted under-billing: a request past 272k input tokens
+  // costs about twice as much, and cache writes are 1.25x input.
+  { model: "openai/gpt-6.1-sol", input: 2, cached: 0.1, output: 10 },
+  { model: "openai/gpt-6-astra", input: 10, cached: 1, output: 50 },
+  { model: "openai/gpt-6-luna", input: 0.1, cached: 0.01, output: 0.5 },
   { model: "*", input: 3, cached: 0.3, output: 15 },
 ]
 

@@ -10,3 +10,13 @@ export function openExternal(url: string) {
   }
   window.location.href = url
 }
+
+// A page people look at and come back from (a pull request): a new tab on
+// the web, the system browser in the desktop app.
+export function openInNewTab(url: string) {
+  if (isTauri) {
+    openExternal(url)
+    return
+  }
+  window.open(url, "_blank", "noopener,noreferrer")
+}

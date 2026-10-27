@@ -73,6 +73,7 @@ export function MessageComposer({
   channelId,
   channelName,
   isSending,
+  sendBlocked = false,
   isConnected,
   onSend,
   onStop,
@@ -125,6 +126,9 @@ export function MessageComposer({
   onTyping?: () => void
   inputNativeID?: string
   onCustomInputViewChange?: (isOpen: boolean) => void
+  // The message can't go yet (a new code session without its repo, or
+  // Claude Code without the person's Claude subscription).
+  sendBlocked?: boolean
   // Rendered flush above the input card so accessories (run queue) can tuck
   // behind its top edge.
   topAccessory?: ReactNode
@@ -188,7 +192,8 @@ export function MessageComposer({
       ? canSaveEdit
       : (hasMessage || hasUploadedAttachments) &&
         !attachmentUpload.hasError &&
-        !attachmentUpload.isUploading) &&
+        !attachmentUpload.isUploading &&
+        !sendBlocked) &&
     !isSending &&
     isConnected
   const isStopMode =

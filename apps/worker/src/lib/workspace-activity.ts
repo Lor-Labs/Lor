@@ -1,5 +1,5 @@
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import { workspaceRoom } from "@repo/realtime-types/rooms"
+import { threadRoom, workspaceRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 
 // Set once at worker bootstrap; run/plan lifecycle code deep in the call tree
@@ -20,6 +20,16 @@ export function notifyWorkspaceActivity(workspaceId: string) {
     emitter
       ?.to(workspaceRoom(workspaceId))
       .emit("workspace:activity:updated", { workspaceId })
+  } catch {
+    // swallow: delivery is best-effort by design
+  }
+}
+
+// A thread's run became terminal: open code session panels refresh their
+// changes and "Lor is working" lock. Best-effort like the above.
+export function notifyRunSettled(threadRootId: string) {
+  try {
+    emitter?.to(threadRoom(threadRootId)).emit("run:settled", { threadRootId })
   } catch {
     // swallow: delivery is best-effort by design
   }

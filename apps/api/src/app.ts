@@ -1,5 +1,6 @@
 import { auth } from "@repo/auth"
 import { env } from "@repo/env/server"
+import { bodyLimit } from "hono/body-limit"
 import { cors } from "hono/cors"
 import createApp from "@/lib/helpers/app/create-app"
 import configureOpenAPI from "@/lib/helpers/openapi/configure-openapi"
@@ -24,11 +25,13 @@ import mcpServersRouter from "@/routes/v1/mcp-servers/index"
 import mobileRouter from "@/routes/v1/mobile/index"
 import notificationSettingsRouter from "@/routes/v1/notification-settings/index"
 import onboardingRouter from "@/routes/v1/onboarding/index"
+import personalAccountsRouter from "@/routes/v1/personal-accounts/index"
 import plansRouter from "@/routes/v1/plans/index"
 import projectsRouter from "@/routes/v1/projects/index"
 import proposalsRouter from "@/routes/v1/proposals/index"
 import pushTokensRouter from "@/routes/v1/push-tokens/index"
 import runsRouter from "@/routes/v1/runs/index"
+import sandboxSettingsRouter from "@/routes/v1/sandbox-settings/index"
 import sessionsRouter from "@/routes/v1/sessions/index"
 import threadSubscriptionsRouter from "@/routes/v1/thread-subscriptions/index"
 import uploadsRouter from "@/routes/v1/uploads/index"
@@ -63,6 +66,17 @@ app.use(
 
 app.use("*", globalRateLimit)
 
+// Uploads go directly to object storage; API/webhook payloads stay bounded
+// even when Content-Length is absent and the sender streams chunks.
+app.use(
+  "*",
+  bodyLimit({
+    maxSize: 5 * 1024 * 1024,
+    onError: (c) =>
+      c.json({ success: false, message: "Payload too large" }, 413),
+  })
+)
+
 app.on(["POST", "GET"], "/api/auth/*", (c) => {
   return auth.handler(c.req.raw)
 })
@@ -81,6 +95,8 @@ const routes = app
   .route("/v1", onboardingRouter)
   .route("/v1", invitesRouter)
   .route("/v1", notificationSettingsRouter)
+  .route("/v1", sandboxSettingsRouter)
+  .route("/v1", personalAccountsRouter)
   .route("/v1", pushTokensRouter)
   .route("/v1", channelMutesRouter)
   .route("/v1", hintsRouter)

@@ -5,6 +5,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { Button } from "@repo/ui/components/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,14 +19,40 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type CSSProperties, useState } from "react"
+import { type CSSProperties, type ReactNode, useState } from "react"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
+import {
+  ClaudeCodeModePicker,
+  useClaudeCodeMode,
+} from "@/components/session/claude-code-mode-picker"
+import {
+  ClaudeModelPicker,
+  useClaudeModel,
+} from "@/components/session/claude-model-picker"
+import {
+  CodeTargetPicker,
+  SessionModeSwitch,
+  useCodeTarget,
+  useSessionMode,
+} from "@/components/session/code-target-picker"
+import {
+  CodexModelPicker,
+  useCodexModel,
+} from "@/components/session/codex-model-picker"
+import {
+  HarnessPicker,
+  type SessionHarness,
+  useSessionHarness,
+} from "@/components/session/harness-picker"
 import { SessionStartedNote } from "@/components/session/session-started-note"
+import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useSocket } from "@/context/socket-context"
+import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageSending } from "@/hooks/use-message-sending"
+import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useSessionStart } from "@/hooks/use-session-start"
 import type { Message } from "@/lib/api-types"
 import { readLastChannelId } from "@/lib/last-location"
@@ -66,11 +93,15 @@ export function NewSessionView({
   workspaceSlug,
   channelId: requestedChannelId,
   aboutMessageId,
+  continueFromSessionId,
+  startHarness,
   draft,
 }: {
   workspaceSlug: string
   channelId?: string
   aboutMessageId?: string
+  continueFromSessionId?: string
+  startHarness?: SessionHarness
   draft?: string
 }) {
   const { data: channels, isPending } = useQuery(
@@ -79,13 +110,14 @@ export function NewSessionView({
   const [pickedChannelId, setPickedChannelId] = useState<string | null>(null)
   const options: ChannelOption[] = channels ? openTextChannels(channels) : []
   // A session's context must come from its own channel, so asking about a
-  // message fixes the channel to that message's.
+  // message or continuing a session fixes the channel to theirs.
+  const channelFixed = Boolean(aboutMessageId || continueFromSessionId)
   const preferred = (
-    aboutMessageId
+    channelFixed
       ? [requestedChannelId]
       : [pickedChannelId, requestedChannelId, readLastChannelId(workspaceSlug)]
   ).find((id) => options.some((option) => option.id === id))
-  const channel = aboutMessageId
+  const channel = channelFixed
     ? options.find((option) => option.id === preferred)
     : (options.find((option) => option.id === preferred) ?? options[0])
 
@@ -112,6 +144,8 @@ export function NewSessionView({
                 options={options}
                 onPickChannel={setPickedChannelId}
                 aboutMessageId={aboutMessageId}
+                continueFromSessionId={continueFromSessionId}
+                startHarness={startHarness}
                 draft={draft}
               />
             ) : (
@@ -134,6 +168,8 @@ function NewSessionComposer({
   options,
   onPickChannel,
   aboutMessageId,
+  continueFromSessionId,
+  startHarness,
   draft,
 }: {
   workspaceSlug: string
@@ -141,6 +177,8 @@ function NewSessionComposer({
   options: ChannelOption[]
   onPickChannel: (channelId: string) => void
   aboutMessageId?: string
+  continueFromSessionId?: string
+  startHarness?: SessionHarness
   draft?: string
 }) {
   const navigate = useNavigate()
@@ -172,6 +210,39 @@ function NewSessionComposer({
     </>
   )
 
+  const { data: source } = useQuery({
+    ...agentSessionQueryOptions(continueFromSessionId ?? ""),
+    enabled: Boolean(continueFromSessionId),
+  })
+  const sourceTitle = source?.session.title ?? "a session"
+  const clearStartContext = () =>
+    void navigate({
+      to: "/$workspaceSlug/session/new",
+      params: { workspaceSlug },
+      search: { channelId: channel.id },
+      replace: true,
+    })
+
+  const [mode, setMode] = useSessionMode(
+    continueFromSessionId ? "code" : undefined
+  )
+  const code = useCodeTarget({
+    workspaceSlug,
+    channelId: channel.id,
+    enabled: mode === "code",
+  })
+  // Claude Code runs on the starter's own Claude subscription, so without
+  // one the start waits for a connect (code-sessions-runbook.md chunk 7).
+  const [harness, setHarness] = useSessionHarness(startHarness)
+  const claudeCode = mode === "code" && harness === "claude_code"
+  const claudeMode = useClaudeCodeMode()
+  const claudeModel = useClaudeModel()
+  const codex = mode === "code" && harness === "codex"
+  const codexModel = useCodexModel()
+  const { data: accounts } = usePersonalAccounts()
+  // Unknown while the accounts load.
+  const needsClaude = claudeCode && accounts?.claude.account === null
+  const [connectingClaude, setConnectingClaude] = useState(false)
   const sessionStart = useSessionStart({ workspaceSlug, channel })
   const { handleSend } = useMessageSending({
     socket,
@@ -181,11 +252,47 @@ function NewSessionComposer({
     sessionStart: sessionStart.handlers,
   })
 
+  const channelDropdown =
+    aboutMessageId || continueFromSessionId ? (
+      <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 font-medium text-agent">
+        {channelLabel}
+      </span>
+    ) : (
+      <DropdownMenu>
+        <DropdownMenuTrigger className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 font-medium text-agent transition-colors hover:bg-agent/10 data-popup-open:bg-agent/10">
+          {channelLabel}
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            className="size-3"
+            strokeWidth={2}
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="max-h-72 w-56">
+          <DropdownMenuRadioGroup
+            value={channel.id}
+            onValueChange={(value) => onPickChannel(String(value))}
+          >
+            {options.map((option) => (
+              <DropdownMenuRadioItem key={option.id} value={option.id}>
+                # {option.name}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+
   return (
     <>
+      <div className="mx-4 mb-2">
+        <SessionModeSwitch mode={mode} onChange={setMode} />
+      </div>
       {aboutMessageId && (
-        <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] px-3 py-2 text-sm">
-          <span className="shrink-0 text-muted-foreground">About</span>
+        <StartContextChip
+          label="About"
+          removeLabel="Remove the attached message"
+          onRemove={clearStartContext}
+        >
           {aboutMessage ? (
             <span className="min-w-0 truncate">
               <span className="font-medium">
@@ -203,27 +310,31 @@ function NewSessionComposer({
               a message in #{channelName}
             </span>
           )}
-          <button
-            type="button"
-            aria-label="Remove the attached message"
-            onClick={() =>
-              void navigate({
-                to: "/$workspaceSlug/session/new",
-                params: { workspaceSlug },
-                search: { channelId: channel.id },
-                replace: true,
-              })
-            }
-            className="ml-auto flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-          >
-            <HugeiconsIcon
-              icon={Cancel01Icon}
-              className="size-3.5"
-              strokeWidth={2}
-            />
-          </button>
+        </StartContextChip>
+      )}
+      {continueFromSessionId && (
+        <StartContextChip
+          label="Continuing"
+          removeLabel="Start without the earlier session"
+          onRemove={clearStartContext}
+        >
+          <span className="min-w-0 truncate font-medium">{sourceTitle}</span>
+        </StartContextChip>
+      )}
+      {needsClaude && (
+        <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            Claude Code runs on your own Claude subscription.
+          </span>
+          <Button size="xs" onClick={() => setConnectingClaude(true)}>
+            Connect
+          </Button>
         </div>
       )}
+      <ClaudeConnectDialog
+        open={connectingClaude}
+        onOpenChange={setConnectingClaude}
+      />
       <MessageInput
         composerDraft={composerDraft}
         onComposerDraftConsumed={() => setComposerDraft(undefined)}
@@ -237,42 +348,74 @@ function NewSessionComposer({
           />
         }
         channelPicker={
-          aboutMessageId ? (
-            <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 font-medium text-agent">
-              {channelLabel}
-            </span>
+          mode === "code" ? (
+            <>
+              {channelDropdown}
+              <CodeTargetPicker
+                workspaceSlug={workspaceSlug}
+                channelId={channel.id}
+                code={code}
+              />
+              <HarnessPicker value={harness} onChange={setHarness} />
+            </>
           ) : (
-            <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 font-medium text-agent transition-colors hover:bg-agent/10 data-popup-open:bg-agent/10">
-                {channelLabel}
-                <HugeiconsIcon
-                  icon={ArrowDown01Icon}
-                  className="size-3"
-                  strokeWidth={2}
-                />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="max-h-72 w-56">
-                <DropdownMenuRadioGroup
-                  value={channel.id}
-                  onValueChange={(value) => onPickChannel(String(value))}
-                >
-                  {options.map((option) => (
-                    <DropdownMenuRadioItem key={option.id} value={option.id}>
-                      # {option.name}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            channelDropdown
           )
         }
-        placeholder="Ask Lor…"
+        placeholder={
+          claudeCode
+            ? "Ask Claude Code to work on the code…"
+            : codex
+              ? "Ask Codex to work on the code…"
+              : mode === "code"
+                ? "Ask Lor to work on the code…"
+                : "Ask Lor…"
+        }
+        sendBlocked={(mode === "code" && !code.target) || needsClaude}
+        tools={
+          claudeCode ? (
+            <>
+              <ClaudeModelPicker
+                value={claudeModel.model}
+                onChange={claudeModel.setModel}
+              />
+              <ClaudeCodeModePicker
+                value={claudeMode.mode}
+                onChange={claudeMode.setMode}
+              />
+            </>
+          ) : codex ? (
+            <CodexModelPicker
+              value={codexModel.model}
+              onChange={codexModel.setModel}
+            />
+          ) : undefined
+        }
+        onShiftTab={claudeCode ? claudeMode.cycle : undefined}
         onSend={(content, options) =>
           handleSend(content, {
             mentions: [],
             ...options,
             startSession: true,
             contextMessageId: aboutMessageId,
+            ...(mode === "code" && code.target
+              ? { code: code.target, harness }
+              : {}),
+            ...(claudeCode
+              ? {
+                  claudeCodeMode: claudeMode.mode,
+                  claudeModel: claudeModel.model,
+                }
+              : {}),
+            ...(codex ? { codexModel: codexModel.model } : {}),
+            ...(continueFromSessionId
+              ? {
+                  continueFrom: {
+                    id: continueFromSessionId,
+                    title: sourceTitle,
+                  },
+                }
+              : {}),
           })
         }
         currentUserId={authSession?.user.id}
@@ -284,13 +427,46 @@ function NewSessionComposer({
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
       />
-      {!aboutMessageId && (
+      {!(aboutMessageId || continueFromSessionId) && mode === "chat" && (
         <SessionExamples
           examples={sessionExamples(channelName)}
           onPick={(text) => setComposerDraft({ id: crypto.randomUUID(), text })}
         />
       )}
     </>
+  )
+}
+
+// What the session starts with, above the prompt: an asked-about message or
+// the session being continued.
+function StartContextChip({
+  label,
+  removeLabel,
+  onRemove,
+  children,
+}: {
+  label: string
+  removeLabel: string
+  onRemove: () => void
+  children: ReactNode
+}) {
+  return (
+    <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] px-3 py-2 text-sm">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      {children}
+      <button
+        type="button"
+        aria-label={removeLabel}
+        onClick={onRemove}
+        className="ml-auto flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+      >
+        <HugeiconsIcon
+          icon={Cancel01Icon}
+          className="size-3.5"
+          strokeWidth={2}
+        />
+      </button>
+    </div>
   )
 }
 

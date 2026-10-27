@@ -1,12 +1,7 @@
 import { and, asc, db, eq, gt, schema } from "@repo/db"
-import { formatSpeakerLine, type ModelMessage } from "@repo/lor"
+import { formatSpeakerLine } from "@repo/lor"
 import { listCallLines, listRunVoiceRequestSpans } from "@repo/voice/server"
-import { logger } from "@/lib/logger"
-import {
-  type Continuation,
-  findPredecessor,
-  replayChain,
-} from "@/lib/run-continuation"
+import { loadPredecessorRun } from "@/lib/run-continuation"
 
 // Runaway guards, not windows: everything said since the last run goes in.
 const MAX_DELTA_LINES = 5_000
@@ -101,50 +96,17 @@ function formatVoiceDelta(said: string[], request: VoiceRequestTurn) {
   return `The call continued since you last worked. Everything above is still your context.${since}\n\nNew request:\n${formatSpeakerLine(request.speakerName, request.content)}`
 }
 
-// A later request in a call continues the call's last run: its transcript
-// (earlier requests, tool results, what Lor showed) replayed verbatim, plus
-// one message with what was said since and the new request. Keeps the cached
-// prompt prefix across the call. Null falls back to a fresh snapshot.
-export async function buildVoiceContinuation(
+// The prompt of a later request in a call: what was said since the run that
+// saved the call's Pi conversation last, then the new request. Pi's saved
+// state holds the earlier requests, tool results and what Lor showed.
+export async function buildVoiceDelta(
   request: VoiceRequestTurn,
-  runId: string
-): Promise<Continuation | null> {
-  try {
-    const predecessor = await findPredecessor({
-      scopeKey: request.sessionId,
-      channelId: request.channelId,
-      excludeRunId: runId,
-    })
-    if (!predecessor?.context) return null
-    if (predecessor.stopReason === "awaiting_approval") return null
-    const replayed = await replayChain(predecessor.id)
-    if (!replayed) return null
-    const said = await loadVoiceDelta(request, {
-      id: predecessor.id,
-      startedAt: predecessor.startedAt ?? predecessor.createdAt,
-    })
-    if (!said) return null
-    const deltaText = formatVoiceDelta(said, request)
-    return {
-      predecessorRunId: predecessor.id,
-      messages: [
-        ...replayed.messages,
-        { role: "user", content: deltaText } satisfies ModelMessage,
-      ],
-      conversation: [
-        { authorName: request.speakerName, content: request.content },
-      ],
-      coveredMessageIds: [],
-      deltaText,
-      approvalResume: null,
-      lastInputTokens: replayed.lastInputTokens,
-      compaction: replayed.compaction,
-    }
-  } catch (err) {
-    logger.warn(
-      { err, sessionId: request.sessionId },
-      "Voice run continuation failed; falling back to a fresh context"
-    )
-    return null
-  }
+  predecessorRunId: string | null
+): Promise<string> {
+  const predecessor = await loadPredecessorRun(predecessorRunId)
+  const said = await loadVoiceDelta(request, {
+    id: predecessor.id,
+    startedAt: predecessor.startedAt ?? predecessor.createdAt,
+  })
+  return formatVoiceDelta(said ?? [], request)
 }

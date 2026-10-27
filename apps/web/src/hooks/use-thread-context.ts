@@ -12,9 +12,12 @@ export type ThreadContextUsage = {
     tools: number
     messages: number
   }
+  // A Claude Code session: its own counted rows, in place of the segments.
+  categories: { name: string; tokens: number }[] | null
   compacted: boolean
   rawHistoryTokens: number
-  creditsSpent: number
+  // Null for a Claude Code session, which spends no Lor credits.
+  creditsSpent: number | null
   runCount: number
   state: string | null
 }

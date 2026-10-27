@@ -22,9 +22,10 @@ jobs:
       - name: Get version from tauri.conf.json
         id: version
         run: |
+          set -euo pipefail
           VERSION=$(jq -r '.version' apps/desktop/src-tauri/tauri.conf.json)
-          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-            echo "::error::No version found in tauri.conf.json"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version in tauri.conf.json"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -32,8 +33,10 @@ jobs:
 
       - name: Check if tag already exists
         id: check
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -41,6 +44,8 @@ jobs:
 
       - name: Create and push tag
         if: steps.check.outputs.exists == 'false'
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          git tag -- "$RELEASE_TAG"
+          git push origin "refs/tags/$RELEASE_TAG"

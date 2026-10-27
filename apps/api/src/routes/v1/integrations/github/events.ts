@@ -280,7 +280,7 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
   })
 
   // App lifecycle: uninstall drops the connection (sources cascade-purge);
-  // suspend/unsuspend toggles status. Workspace mapping is the setup flow.
+  // Suspension revokes access; reconnect must prove ownership again.
   webhooks.on(
     ["installation.deleted", "installation.suspend", "installation.unsuspend"],
     async ({ payload }) => {
@@ -297,9 +297,10 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
         await db.delete(schema.integrationConnection).where(where)
         return
       }
+      if (payload.action === "unsuspend") return
       await db
         .update(schema.integrationConnection)
-        .set({ status: payload.action === "suspend" ? "revoked" : "active" })
+        .set({ status: "revoked" })
         .where(where)
     }
   )

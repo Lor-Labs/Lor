@@ -34,6 +34,7 @@ interface RightSidebarContextValue {
   file: OpenFile | null
   sizeClass: PanelSizeClass
   setView: (view: RightSidebarView | null) => void
+  openView: (view: RightSidebarView) => void
   clearView: () => void
   consumeComposerDraft: (id: string) => void
   isCollapsed: boolean
@@ -98,7 +99,13 @@ function sizeClassFor(
 ): PanelSizeClass {
   if (file) return "file"
   if (view?.type === "thread" || view?.type === "loop") return "wide"
-  return view?.type === "session-work" ? "rail" : "compact"
+  // A code session's files and diffs open in tabs beside the chat, so its
+  // Changes and Files lists stay rail-width.
+  return view?.type === "session-work" ||
+    view?.type === "session-changes" ||
+    view?.type === "session-files"
+    ? "rail"
+    : "compact"
 }
 
 function defaultWidth(
@@ -200,6 +207,14 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     setView(null)
   }, [])
 
+  const openView = useCallback((nextView: RightSidebarView) => {
+    setView(nextView)
+    setIsCollapsed(false)
+    try {
+      localStorage.setItem(PANEL_COLLAPSED_KEY, "false")
+    } catch {}
+  }, [])
+
   const consumeComposerDraft = useCallback((id: string) => {
     setView((current) =>
       current?.type === "thread" && current.composerDraft?.id === id
@@ -239,6 +254,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       file,
       sizeClass,
       setView,
+      openView,
       clearView,
       consumeComposerDraft,
       isCollapsed,
@@ -251,6 +267,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       view,
       file,
       sizeClass,
+      openView,
       clearView,
       consumeComposerDraft,
       isCollapsed,

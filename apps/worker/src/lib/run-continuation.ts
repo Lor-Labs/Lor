@@ -1,6 +1,5 @@
 import {
   and,
-  asc,
   db,
   desc,
   eq,
@@ -14,32 +13,15 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import type {
-  AgentRunApprovalResume,
-  AgentRunCompaction,
-  AgentRunContext,
-} from "@repo/db/schema"
-import {
-  buildInitialUserMessage,
-  estimateMessagesTokens,
-  formatSpeakerLine,
-  isSafeSplit,
-  type ModelMessage,
-  userDisplayName,
-} from "@repo/lor"
-import { logger } from "@/lib/logger"
+import type { AgentRunContext } from "@repo/db/schema"
+import { formatSpeakerLine, userDisplayName } from "@repo/lor"
+import { SessionCoreError } from "@repo/lor/session-core"
 
 // A thread is one continuous conversation however long the gaps between
 // replies, so there is no age cutoff on continuing it. Elapsed time is told to
 // the model instead (see formatDelta) — a long gap means "re-check what may
 // have changed", not "forget what you did".
 //
-// How far back a chain of continued runs is replayed. Each run's steps hold
-// only its own messages, so the whole chain is walked to reconstruct the full
-// history; these bound the walk for pathological threads. The compactor prunes
-// old tool calls beyond this anyway.
-const MAX_CHAIN_HOPS = 20
-const MAX_INHERITED_STEPS = 400
 // Not a window: a thread is what the person is looking at, so every message in
 // it since the last run goes in. This is a runaway guard only, and if it ever
 // trips the delta says so out loud rather than quietly dropping messages.
@@ -47,34 +29,9 @@ const MAX_DELTA_MESSAGES = 1000
 // Below this the gap is conversational, not a resumption worth flagging.
 const ELAPSED_NOTE_MIN_MS = 30 * 60 * 1000
 
-export type Continuation = {
-  predecessorRunId: string
-  messages: ModelMessage[]
-  // Turns the delta rendered, stored as the new run's context.conversation so
-  // this run's own successor can replay them (and a crash can rebuild).
-  conversation: AgentRunContext["conversation"]
-  coveredMessageIds: string[]
-  // The rendered delta, persisted verbatim so a recovered attempt replays the
-  // identical message (it embeds elapsed time, which would otherwise drift).
-  // Null on an approval resume, which ends in a tool message instead.
-  deltaText: string | null
-  // Set instead of deltaText when this continuation resumes a parked approval.
-  approvalResume: AgentRunApprovalResume | null
-  // Predecessor's last step input size, so the first prepareStep can compact
-  // an already-heavy inherited transcript before growing it further.
-  lastInputTokens: number
-  // Working notes from the newest compacted run in the chain — seeds the new
-  // run's compactor so facts merge forward instead of being rebuilt from a
-  // clipped digest.
-  compaction: { summary: string | null; summaryFailures: number } | null
-}
-
-type ChainRun = {
-  id: string
-  context: AgentRunContext | null
-  continuedFromRunId: string | null
-  compaction: AgentRunCompaction | null
-}
+// A turn with no new messages.
+const NOTHING_NEW =
+  "Nothing new was said since you last worked. Continue where you left off."
 
 type DeltaRow = {
   id: string
@@ -90,109 +47,10 @@ type DeltaRow = {
 // as coming from the schedule.
 export const LOOP_SCHEDULE_SPEAKER = "Loop schedule"
 
-// Newest finished run in this scope worth continuing. `failed` qualifies on
-// purpose: a run that tripped a budget rail mid-work is exactly the one whose
-// transcript the follow-up should inherit.
-export async function findPredecessor(args: {
-  scopeKey: string
-  channelId: string
-  excludeRunId: string | undefined
-}) {
-  return await db
-    .select({
-      id: schema.agentRun.id,
-      context: schema.agentRun.context,
-      continuedFromRunId: schema.agentRun.continuedFromRunId,
-      startedAt: schema.agentRun.startedAt,
-      createdAt: schema.agentRun.createdAt,
-      finishedAt: schema.agentRun.finishedAt,
-      stopReason: schema.agentRun.stopReason,
-    })
-    .from(schema.agentRun)
-    .where(
-      and(
-        eq(schema.agentRun.scopeKey, args.scopeKey),
-        eq(schema.agentRun.channelId, args.channelId),
-        inArray(schema.agentRun.state, ["complete", "stopped", "failed"]),
-        isNotNull(schema.agentRun.context),
-        gt(schema.agentRun.steps, 0),
-        isNotNull(schema.agentRun.finishedAt),
-        args.excludeRunId
-          ? ne(schema.agentRun.id, args.excludeRunId)
-          : sql`true`
-      )
-    )
-    .orderBy(desc(schema.agentRun.finishedAt))
-    .limit(1)
-    .then((rows) => rows[0])
-}
-
-// The message that resumes a parked tool call. The AI SDK only looks at the
-// LAST message for approval responses and requires role "tool", so this must
-// always be appended last — the human's own words ride the step-boundary
-// steering injection instead of a trailing user message.
-export function approvalResponseMessage(
-  resume: AgentRunApprovalResume
-): ModelMessage {
-  return {
-    role: "tool",
-    content: [
-      {
-        type: "tool-approval-response",
-        approvalId: resume.approvalId,
-        approved: resume.approved,
-        ...(resume.reason ? { reason: resume.reason } : {}),
-      },
-    ],
-  }
-}
-
-function hasValidBaseline(run: ChainRun): boolean {
-  const compaction = run.compaction
-  return Boolean(
-    compaction &&
-      Array.isArray(compaction.baselineMessages) &&
-      Number.isInteger(compaction.atStep) &&
-      compaction.atStep >= 0
-  )
-}
-
-// Walk continuedFromRunId back to the run that started the chain. Returned
-// oldest first: the head of this list holds the original fresh snapshot, and
-// every run after it contributed a delta. A compaction baseline is also a
-// complete root: it embeds everything older, so traversal can stop there.
-async function loadChain(head: ChainRun): Promise<ChainRun[] | null> {
-  const chain: ChainRun[] = [head]
-  if (hasValidBaseline(head)) return chain
-
-  let cursor = head.continuedFromRunId
-  const seen = new Set([head.id])
-  while (cursor) {
-    // Never replay a partial chain. A cycle or overlong chain without a
-    // compaction baseline falls back to the fresh context path.
-    if (chain.length >= MAX_CHAIN_HOPS || seen.has(cursor)) return null
-    seen.add(cursor)
-    const row = await db
-      .select({
-        id: schema.agentRun.id,
-        context: schema.agentRun.context,
-        continuedFromRunId: schema.agentRun.continuedFromRunId,
-        compaction: schema.agentRun.compaction,
-      })
-      .from(schema.agentRun)
-      .where(eq(schema.agentRun.id, cursor))
-      .limit(1)
-      .then((rows) => rows[0])
-    if (!row?.context) return null
-    chain.unshift(row)
-    if (hasValidBaseline(row)) return chain
-    cursor = row.continuedFromRunId
-  }
-  return chain
-}
-
 function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
   return {
+    // The sandbox classifier finds the person's request by trigger id.
+    messageId: row.id,
     authorName:
       row.eventType === "loop_run"
         ? LOOP_SCHEDULE_SPEAKER
@@ -217,30 +75,35 @@ function toTurn(row: DeltaRow): AgentRunContext["conversation"][number] {
   }
 }
 
-// Messages that landed in the scope after the predecessor started, minus every
-// message durably covered by its transcript and minus Lor's own placeholders.
+// Messages that landed in the scope after the predecessors started, plus the
+// run's own trigger (a queued message can predate them), minus every message
+// durably covered by their requests and minus Lor's own placeholders.
 async function loadDelta(args: {
-  predecessorRunId: string
-  predecessorStartedAt: Date
-  predecessorContext: AgentRunContext
+  predecessorRunIds: string[]
+  since: Date
+  covered: string[]
+  triggerMessageId: string | null
   scopeKey: string
   channelId: string
   lorMessageId: string
 }) {
-  // Queue rows cover guaranteed steers. The checkpointed context IDs cover
-  // ambient injections, which have no agentRunQueue row.
-  const consumed = await db
-    .select({ messageId: schema.agentRunQueue.messageId })
-    .from(schema.agentRunQueue)
-    .where(
-      and(
-        eq(schema.agentRunQueue.runId, args.predecessorRunId),
-        eq(schema.agentRunQueue.state, "consumed"),
-        isNotNull(schema.agentRunQueue.consumedAtStep)
-      )
-    )
+  // Queue rows cover guaranteed steers. The saved context IDs cover the
+  // messages the predecessors' requests rendered.
+  const consumed =
+    args.predecessorRunIds.length === 0
+      ? []
+      : await db
+          .select({ messageId: schema.agentRunQueue.messageId })
+          .from(schema.agentRunQueue)
+          .where(
+            and(
+              inArray(schema.agentRunQueue.runId, args.predecessorRunIds),
+              eq(schema.agentRunQueue.state, "consumed"),
+              isNotNull(schema.agentRunQueue.consumedAtStep)
+            )
+          )
   const alreadyCovered = new Set([
-    ...(args.predecessorContext.coveredMessageIds ?? []),
+    ...args.covered,
     ...consumed.map((c) => c.messageId),
   ])
 
@@ -261,9 +124,14 @@ async function loadDelta(args: {
           eq(schema.message.id, args.scopeKey),
           eq(schema.message.threadRootId, args.scopeKey)
         ),
-        gt(schema.message.createdAt, args.predecessorStartedAt),
+        args.triggerMessageId
+          ? or(
+              gt(schema.message.createdAt, args.since),
+              eq(schema.message.id, args.triggerMessageId)
+            )
+          : gt(schema.message.createdAt, args.since),
         ne(schema.message.id, args.lorMessageId),
-        // Lor's own answers are already in the transcript as assistant
+        // Lor's own answers are already in the conversation as assistant
         // turns; re-adding them as user text would double them. A loop's
         // fire line is the exception: it is the new turn's request.
         or(
@@ -346,360 +214,110 @@ export function formatDelta(
   return `The conversation continued since you last worked. Pick up where you left off — everything above is still your context.${gap}${omitted}\n\n${lines.join("\n")}`
 }
 
-// Replay a finished run and everything it continued from: the chain head's
-// original snapshot, then each later hop's delta and steps. Deterministic —
-// every run involved is terminal, so its steps and stored delta never change.
-// Shared by the build path and by crash recovery of a continued run.
-export async function replayChain(headRunId: string): Promise<{
-  messages: ModelMessage[]
-  lastInputTokens: number
-  compaction: { summary: string | null; summaryFailures: number } | null
-} | null> {
-  const head = await db
-    .select({
-      id: schema.agentRun.id,
-      context: schema.agentRun.context,
-      continuedFromRunId: schema.agentRun.continuedFromRunId,
-      compaction: schema.agentRun.compaction,
-    })
-    .from(schema.agentRun)
-    .where(eq(schema.agentRun.id, headRunId))
-    .limit(1)
-    .then((rows) => rows[0])
-  if (!head?.context) return null
-
-  const chain = await loadChain(head)
-  if (!chain) return null
-  // Newest compacted projection in the chain. Its baseline embeds everything
-  // sent up to that point — the original snapshot, earlier hops, its own
-  // pre-compaction steps — so replay starts there and earlier hops are never
-  // loaded. This is what keeps a long-lived thread's replay bounded: raw
-  // history grows without limit, the baseline never exceeds one context.
-  let baseIndex = -1
-  for (let i = chain.length - 1; i >= 0; i--) {
-    const run = chain[i]
-    if (run && hasValidBaseline(run)) {
-      baseIndex = i
-      break
-    }
-  }
-  const base = baseIndex >= 0 ? chain[baseIndex]?.compaction : null
-  const replayed = chain.slice(Math.max(baseIndex, 0))
-
-  const stepRows = await db
-    .select({
-      runId: schema.agentRunStep.runId,
-      step: schema.agentRunStep.step,
-      messages: schema.agentRunStep.messages,
-      inputTokens: schema.agentRunStep.inputTokens,
-    })
-    .from(schema.agentRunStep)
-    .where(
-      inArray(
-        schema.agentRunStep.runId,
-        replayed.map((c) => c.id)
-      )
+// The run that saved the conversation last; its request's coverage and start
+// time bound the next delta.
+export async function loadPredecessorRun(runId: string | null) {
+  const run = runId
+    ? await db
+        .select({
+          id: schema.agentRun.id,
+          context: schema.agentRun.context,
+          startedAt: schema.agentRun.startedAt,
+          createdAt: schema.agentRun.createdAt,
+          finishedAt: schema.agentRun.finishedAt,
+          continuedFromRunId: schema.agentRun.continuedFromRunId,
+        })
+        .from(schema.agentRun)
+        .where(eq(schema.agentRun.id, runId))
+        .then((rows) => rows[0])
+    : undefined
+  if (!run?.context) {
+    throw new SessionCoreError(
+      "corrupt_state",
+      "The saved conversation has no last run to continue from"
     )
-    .orderBy(asc(schema.agentRunStep.step))
-  if (stepRows.length === 0) return null
-
-  const stepsByRun = new Map<string, typeof stepRows>()
-  for (const row of stepRows) {
-    const list = stepsByRun.get(row.runId) ?? []
-    list.push(row)
-    stepsByRun.set(row.runId, list)
   }
-
-  // Oldest first: the first replayed run carries its baseline (or the
-  // original snapshot); every later hop replays the stored delta that started
-  // it, so no history is skipped.
-  const messages: ModelMessage[] = []
-  for (const [index, run] of replayed.entries()) {
-    if (!run.context) continue
-    if (index === 0 && base) {
-      messages.push(...(base.baselineMessages as ModelMessage[]))
-    } else if (index === 0 && baseIndex < 0) {
-      messages.push(await buildInitialUserMessage(run.context))
-    } else if (run.context.approvalResume) {
-      messages.push(approvalResponseMessage(run.context.approvalResume))
-    } else if (run.context.continuationDelta) {
-      messages.push({ role: "user", content: run.context.continuationDelta })
-    }
-    const rows = stepsByRun.get(run.id) ?? []
-    const afterBaseline =
-      index === 0 && base ? rows.filter((r) => r.step > base.atStep) : rows
-    for (const row of afterBaseline) {
-      messages.push(...(row.messages as ModelMessage[]))
-    }
-  }
-  // Keep the head (the original ask) and the most recent history when a chain
-  // runs long; the compactor thins what remains. The cut slides forward to a
-  // boundary where no dropped tool call leaves its result orphaned in the kept
-  // suffix — providers reject a request with an unpaired tool message.
-  let trimmed = messages
-  if (messages.length > MAX_INHERITED_STEPS) {
-    let cut = messages.length - MAX_INHERITED_STEPS + 1
-    // Move backward to retain the assistant tool-call turn and every result it
-    // owns. Moving forward can leave a suffix beginning with a tool message or
-    // discard the complete pair despite room to retain it.
-    while (
-      cut > 1 &&
-      (messages[cut]?.role === "tool" || !isSafeSplit(messages, cut))
-    ) {
-      cut--
-    }
-    trimmed = [messages[0] as ModelMessage, ...messages.slice(cut)]
-  }
-  // What the inherited transcript will actually WEIGH on the next request —
-  // not what the predecessor's last step weighed. Those differ badly when the
-  // predecessor compacted: its final steps were small precisely because the
-  // bulk had been projected away, while the transcript replayed here still
-  // holds all of it. Seeding the compaction trigger with the small number
-  // would send the whole thing uncompacted.
-  return {
-    messages: trimmed,
-    lastInputTokens: Math.max(
-      estimateMessagesTokens(trimmed),
-      stepRows.at(-1)?.inputTokens ?? 0
-    ),
-    // Failures reset to zero: they counted retries against one run's
-    // summarizer, not against the notes themselves.
-    compaction: base ? { summary: base.summary, summaryFailures: 0 } : null,
-  }
+  return { ...run, context: run.context }
 }
 
-// Rebuild a continued run's exact prefix after a crash: the chain it inherited
-// plus the delta it was started with, replayed verbatim from its snapshot.
-export async function replayContinuedPrefix(args: {
-  continuedFromRunId: string
-  context: AgentRunContext
-}): Promise<ModelMessage[] | null> {
-  const replayed = await replayChain(args.continuedFromRunId).catch(() => null)
-  if (!replayed) return null
-  const resume = args.context.approvalResume
-  if (resume) {
-    return [...replayed.messages, approvalResponseMessage(resume)]
-  }
-  const delta = args.context.continuationDelta
-  return delta
-    ? [...replayed.messages, { role: "user", content: delta }]
-    : replayed.messages
+export type TurnDelta = {
+  text: string
+  turns: AgentRunContext["conversation"]
+  coveredMessageIds: string[]
 }
 
-// The SDK's approval id for a parked call, read back out of the replayed
-// transcript. It is generated per request and only ever exists there, and
-// collectToolApprovals matches responses to requests by it — deriving it from
-// the same array we are about to send is what keeps the two consistent.
-function findApprovalId(
-  messages: ModelMessage[],
-  toolCallId: string
-): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
-    if (message?.role !== "assistant" || typeof message.content === "string") {
-      continue
-    }
-    for (const part of message.content) {
-      if (
-        part.type === "tool-approval-request" &&
-        part.toolCallId === toolCallId
-      ) {
-        return part.approvalId
-      }
-    }
-  }
-  return null
-}
-
-// Resume a run parked on a policy gate (LOR-81): replay the parked run's
-// transcript and answer its approval request. Nothing new is appended after
-// the tool message — messages that landed meanwhile ride the ordinary
-// step-boundary steering injection, which is the only order the SDK accepts.
-// Returns null whenever the resume can't be assembled safely; the caller then
-// builds a fresh context, which is always sound (the model simply re-decides).
-export async function buildApprovalContinuation(args: {
-  approvalId: string
-}): Promise<Continuation | null> {
-  try {
-    const approval = await db
-      .select({
-        runId: schema.approval.runId,
-        status: schema.approval.status,
-        toolCallId: schema.approval.toolCallId,
-        toolName: schema.approval.toolName,
-        target: schema.approval.target,
-      })
-      .from(schema.approval)
-      .where(eq(schema.approval.id, args.approvalId))
-      .limit(1)
-      .then((rows) => rows[0])
-    if (
-      !approval?.runId ||
-      !approval.toolCallId ||
-      !approval.toolName ||
-      !approval.target
-    )
-      return null
-    if (approval.status !== "approved" && approval.status !== "rejected") {
-      return null
-    }
-
-    const parked = await db
-      .select({
-        state: schema.agentRun.state,
-        stopReason: schema.agentRun.stopReason,
-      })
-      .from(schema.agentRun)
-      .where(eq(schema.agentRun.id, approval.runId))
-      .limit(1)
-      .then((rows) => rows[0])
-    // Only a run that actually parked holds an unanswered approval request.
-    if (parked?.stopReason !== "awaiting_approval") return null
-    if (parked.state === "working" || parked.state === "queued") return null
-
-    const replayed = await replayChain(approval.runId)
-    if (!replayed) return null
-    const approvalId = findApprovalId(replayed.messages, approval.toolCallId)
-    // The request part was trimmed out of the replay (very long chain) — the
-    // SDK would throw InvalidToolApprovalError on the response.
-    if (!approvalId) {
-      logger.warn(
-        { approvalId: args.approvalId, runId: approval.runId },
-        "Parked approval request missing from the replayed transcript"
-      )
-      return null
-    }
-
-    const resume: AgentRunApprovalResume = {
-      approvalId,
-      approved: approval.status === "approved",
-      toolName: approval.toolName,
-      target: approval.target,
-    }
-    return {
-      predecessorRunId: approval.runId,
-      messages: [...replayed.messages, approvalResponseMessage(resume)],
-      conversation: [],
-      coveredMessageIds: [],
-      deltaText: null,
-      approvalResume: resume,
-      lastInputTokens: replayed.lastInputTokens,
-      compaction: replayed.compaction,
-    }
-  } catch (err) {
-    logger.warn(
-      { err, approvalId: args.approvalId },
-      "Approval resume failed; falling back to a fresh context"
-    )
-    return null
-  }
-}
-
-export const APPROVAL_SPEAKER = "Approval"
-
-// request_approval parks no tool call, so its decision reaches the
-// continuation as a line in the delta; nothing posts in the chat. Null for
-// policy gates, which resume with the AI SDK approval response instead.
-export async function approvalDecisionTurn(
-  approvalId: string
-): Promise<AgentRunContext["conversation"][number] | null> {
-  const row = await db
-    .select({
-      status: schema.approval.status,
-      description: schema.approval.description,
-      toolCallId: schema.approval.toolCallId,
-      resolverName: schema.user.name,
-    })
-    .from(schema.approval)
-    .leftJoin(schema.user, eq(schema.user.id, schema.approval.resolvedBy))
-    .where(eq(schema.approval.id, approvalId))
-    .limit(1)
-    .then((rows) => rows[0])
-  if (!row || row.toolCallId) return null
-  if (row.status !== "approved" && row.status !== "rejected") return null
-  const who = row.resolverName ?? "Someone"
-  return {
-    authorName: APPROVAL_SPEAKER,
-    content:
-      row.status === "approved"
-        ? `${who} approved: ${row.description}`
-        : `${who} rejected: ${row.description}. Do not take this action.`,
-    images: [],
-    files: [],
-  }
-}
-
-// Assemble a continued context: the full chain of prior runs in this scope
-// (the original snapshot, then each hop's delta and steps) plus one user
-// message carrying what has been said since. Returns null whenever the
-// fresh-snapshot path should be used instead — no predecessor, nothing new to
-// say, or missing steps.
-export async function buildContinuation(args: {
+// The prompt of a Pi turn after the session's first: what was said in the
+// thread since the last saved turn. Pi's saved state holds everything before
+// it (reference/planned/pi-harness-runbook.md §4.3).
+export async function buildTurnDelta(args: {
+  predecessorRunId: string | null
+  triggerMessageId: string | null
   scopeKey: string
   channelId: string
   lorMessageId: string
-  runId: string | undefined
-  // Appended after the delta's messages (an approval decision).
-  extraTurns?: AgentRunContext["conversation"]
-}): Promise<Continuation | null> {
-  try {
-    const predecessor = await findPredecessor({
-      scopeKey: args.scopeKey,
-      channelId: args.channelId,
-      excludeRunId: args.runId,
-    })
-    if (!predecessor?.context) return null
-    // A parked run's transcript ends in an unanswered approval request, which
-    // the provider rejects as an unpaired tool call. Only the approval resume
-    // (buildApprovalContinuation) may replay it; everything else — a new
-    // message while the gate is still open, or a resume that never started —
-    // starts fresh.
-    if (predecessor.stopReason === "awaiting_approval") return null
-
-    const replayed = await replayChain(predecessor.id)
-    if (!replayed) return null
-
-    const since = predecessor.startedAt ?? predecessor.createdAt
+}): Promise<TurnDelta> {
+  // A fork's first turn: Pi's saved state ends at the fork point and no run
+  // of this session saved yet, so the prompt is everything said here.
+  if (!args.predecessorRunId) {
     const delta = await loadDelta({
-      predecessorRunId: predecessor.id,
-      predecessorStartedAt: since,
-      predecessorContext: predecessor.context,
+      predecessorRunIds: [],
+      since: new Date(0),
+      covered: [],
+      triggerMessageId: args.triggerMessageId,
       scopeKey: args.scopeKey,
       channelId: args.channelId,
       lorMessageId: args.lorMessageId,
     })
-    const { omitted, coveredMessageIds } = delta
-    const turns = [...delta.turns, ...(args.extraTurns ?? [])]
-    const finishedAt = predecessor.finishedAt ?? since
-    const deltaText = formatDelta(
-      turns,
-      Date.now() - finishedAt.getTime(),
-      omitted
-    )
-    // Nothing new since the predecessor: this run was triggered by something
-    // the transcript already covers, so continuing would just re-ask the same
-    // question. Let the fresh path build a normal snapshot.
-    if (!deltaText) return null
-
     return {
-      predecessorRunId: predecessor.id,
-      messages: [
-        ...replayed.messages,
-        { role: "user", content: deltaText } satisfies ModelMessage,
-      ],
-      conversation: turns,
-      coveredMessageIds,
-      deltaText,
-      approvalResume: null,
-      lastInputTokens: replayed.lastInputTokens,
-      compaction: replayed.compaction,
+      text: formatDelta(delta.turns, undefined, delta.omitted) ?? NOTHING_NEW,
+      turns: delta.turns,
+      coveredMessageIds: delta.coveredMessageIds,
     }
-  } catch (err) {
-    // Continuation is an optimization; any failure falls back to a fresh run.
-    logger.warn(
-      { err, scopeKey: args.scopeKey },
-      "Run continuation failed; falling back to a fresh context"
+  }
+  const predecessor = await loadPredecessorRun(args.predecessorRunId)
+  // A run that only finished a paused turn sent no prompt: what was said
+  // while that turn waited still dates from the paused run, so the bound and
+  // coverage walk back to it.
+  const chain = [predecessor]
+  let earliest = predecessor
+  while (earliest.context.continueOnly && earliest.continuedFromRunId) {
+    earliest = await loadPredecessorRun(earliest.continuedFromRunId)
+    chain.push(earliest)
+  }
+  const since = earliest.startedAt ?? earliest.createdAt
+  // A rewind since then: what was said before it belongs to the turns it set
+  // aside, so the prompt starts with the rewind's own line
+  // (code-sessions-runbook.md chunk 6).
+  const [rewind] = await db
+    .select({ createdAt: schema.message.createdAt })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.threadRootId, args.scopeKey),
+        eq(schema.message.eventType, "session_rewound"),
+        gt(schema.message.createdAt, since)
+      )
     )
-    return null
+    .orderBy(desc(schema.message.createdAt))
+    .limit(1)
+  const delta = await loadDelta({
+    predecessorRunIds: chain.map((run) => run.id),
+    since: rewind ? new Date(rewind.createdAt.getTime() - 1) : since,
+    covered: chain.flatMap((run) => run.context.coveredMessageIds ?? []),
+    triggerMessageId: args.triggerMessageId,
+    scopeKey: args.scopeKey,
+    channelId: args.channelId,
+    lorMessageId: args.lorMessageId,
+  })
+  const finishedAt = predecessor.finishedAt ?? since
+  return {
+    text:
+      formatDelta(
+        delta.turns,
+        Date.now() - finishedAt.getTime(),
+        delta.omitted
+      ) ?? NOTHING_NEW,
+    turns: delta.turns,
+    coveredMessageIds: delta.coveredMessageIds,
   }
 }

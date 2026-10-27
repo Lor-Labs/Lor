@@ -20,6 +20,15 @@ const SEGMENT_META = [
   { key: "messages", label: "Messages", className: "bg-primary" },
 ] as const
 
+// Claude Code's own rows, in its order (Messages last, as in Pi's meter).
+const CATEGORY_SHADES = [
+  "bg-primary/30",
+  "bg-primary/45",
+  "bg-primary/60",
+  "bg-primary/75",
+  "bg-primary/90",
+] as const
+
 function Ring({ fraction }: { fraction: number }) {
   const radius = 6
   const circumference = 2 * Math.PI * radius
@@ -68,10 +77,23 @@ export function ContextMeter({
 
   const fraction = Math.min(1, data.usedTokens / data.windowTokens)
   const percent = Math.round(fraction * 100)
-  const segments = SEGMENT_META.map((meta) => ({
-    ...meta,
-    value: data.segments[meta.key],
-  })).filter((s) => s.value > 0)
+  const categories = data.categories
+  const segments = (
+    categories
+      ? categories.map((category, i) => ({
+          key: category.name,
+          label: category.name,
+          className:
+            i === categories.length - 1
+              ? "bg-primary"
+              : CATEGORY_SHADES[i % CATEGORY_SHADES.length],
+          value: category.tokens,
+        }))
+      : SEGMENT_META.map((meta) => ({
+          ...meta,
+          value: data.segments[meta.key],
+        }))
+  ).filter((s) => s.value > 0)
 
   return (
     <Tooltip>
@@ -147,13 +169,15 @@ export function ContextMeter({
             </p>
           )}
 
-          <div className="flex items-center justify-between border-t pt-2">
-            <span className="text-muted-foreground">Cost</span>
-            <span className="tabular-nums text-foreground">
-              {data.creditsSpent.toLocaleString()}{" "}
-              {data.creditsSpent === 1 ? "credit" : "credits"}
-            </span>
-          </div>
+          {data.creditsSpent !== null && (
+            <div className="flex items-center justify-between border-t pt-2">
+              <span className="text-muted-foreground">Cost</span>
+              <span className="tabular-nums text-foreground">
+                {data.creditsSpent.toLocaleString()}{" "}
+                {data.creditsSpent === 1 ? "credit" : "credits"}
+              </span>
+            </div>
+          )}
         </div>
       </TooltipContent>
     </Tooltip>

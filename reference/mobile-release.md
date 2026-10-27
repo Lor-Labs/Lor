@@ -43,12 +43,12 @@ comment CI posts on every PR into `main`:
 `.github/workflows/release-mobile.yml` mirrors that checkbox to the
 `mobile:testflight` label so the state is visible next to the merge box; adding
 the label by hand works too, and nothing removes it except unticking the box.
-The label sync is best-effort: Issues are disabled on this repo, so the
-workflow token can't create the label itself (that needs `issues: write`,
-which GitHub silently drops for a disabled feature — PR comment/label calls go
-through `pull-requests` instead). If the label is missing, create it once at
-github.com/BuckyMcYolo/Lor/labels; the checkbox alone still triggers the
-release either way.
+Checkbox changes are accepted only on the `github-actions[bot]` comment and
+only from an actor with repository write, maintain, or admin permission. The
+release decision reads the label, never the PR body or arbitrary comments.
+If label sync fails, apply the label manually before merging. If the label is
+missing, create it once at github.com/BuckyMcYolo/Lor/labels; Issues are disabled,
+so the workflow token cannot create repository labels itself.
 
 The checkbox lives in a CI-owned comment rather than the PR description because
 CodeRabbit rewrites descriptions and would wipe it. `issue_comment` events only
@@ -203,6 +203,23 @@ device build.
   often just the symptom; the real error is ~100 lines earlier in the log.
 - **Sanity-check the bundle locally** before burning a 20-min EAS build:
   `pnpm expo export:embed --eager --platform ios --dev false`.
+- **Xcode 27 (Swift 6.4, iOS 27 SDK), 2026-10-26.** Two failures on the
+  first local build with Xcode 27.1:
+  - `cannot find type '__ObjC::expo' in scope` in
+    `ExpoModulesJSI.swiftinterface`: Expo SDK 57.0.6's script didn't strip a
+    C++ extension printed in Swift 6.4's new `::` form. Fixed by the latest
+    SDK 57 patches (`expo install --fix`: expo 57.0.31, expo-modules-jsi
+    57.1.3).
+  - The app then crashed at launch in
+    `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`: iOS 27
+    stops apps built with its SDK unless they adopt the UIScene life cycle.
+    SDK 57's template doesn't; `plugins/with-scene-lifecycle.js` copies SDK
+    58's wiring (`SceneDelegate` on `ExpoAppSceneDelegate`, the scene
+    manifest, an app delegate that no longer creates the window). Delete it
+    after upgrading to SDK 58, whose template does this itself.
+  - Crash reports from a device:
+    `xcrun devicectl device info files --device <udid> --domain-type systemCrashLogs`,
+    then `xcrun devicectl device copy from … --source <file>.ips`.
 
 ## Apple review notes
 

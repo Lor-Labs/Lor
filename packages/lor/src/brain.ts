@@ -24,7 +24,6 @@ import {
   withIterativeScan,
 } from "./retrieval"
 
-const TREE_DEFAULT_DEPTH = 2
 const TREE_MAX_DEPTH = 4
 
 type NodeKind = "folder" | "page"
@@ -191,7 +190,7 @@ async function listedFolders(
   const folders = matches.filter((m) => m.kind === "folder").map((m) => m.id)
   if (folders.length > 0) return folders
   return matches.length > 0
-    ? `${path} is a page — use read`
+    ? `${path} is a page — use memory_read`
     : `no such path: ${path}`
 }
 
@@ -251,14 +250,15 @@ async function ensureFolderPath(
 export async function ls(
   workspaceId: string,
   path: string,
+  depth: number,
   scopeChannelId: MemoryScope = null
 ) {
   const folders = await listedFolders(workspaceId, path, scopeChannelId)
   if (typeof folders === "string") return { error: folders }
-  const entries = await childrenOf(workspaceId, folders, scopeChannelId)
+  const clamped = Math.max(1, Math.min(depth, TREE_MAX_DEPTH))
   return {
     path,
-    entries: groupByName(entries).map((e) => ({ name: e.name, kind: e.kind })),
+    entries: await buildTree(workspaceId, folders, clamped, scopeChannelId),
   }
 }
 
@@ -309,7 +309,7 @@ export async function readPage(
   )
   if (resolved === null) return { error: `no such path: ${path}` }
   if (resolved === "root" || resolved.kind === "folder") {
-    return { error: `${path} is a folder — use ls` }
+    return { error: `${path} is a folder — use memory_ls` }
   }
   const page = await db
     .select({
@@ -351,21 +351,6 @@ async function buildTree(
     out.push(entry)
   }
   return out
-}
-
-export async function tree(
-  workspaceId: string,
-  path: string,
-  depth: number,
-  scopeChannelId: MemoryScope = null
-) {
-  const folders = await listedFolders(workspaceId, path, scopeChannelId)
-  if (typeof folders === "string") return { error: folders }
-  const clamped = Math.max(1, Math.min(depth, TREE_MAX_DEPTH))
-  return {
-    path,
-    tree: await buildTree(workspaceId, folders, clamped, scopeChannelId),
-  }
 }
 
 async function pagePath(nodeId: string): Promise<string> {
@@ -616,7 +601,7 @@ function scopedSegments(path: string, scope: BrainWriteScope | null) {
 }
 
 const alreadyExists = (path: string) =>
-  `${path} already exists. Read it, then use edit to change it.`
+  `${path} already exists. Read it with memory_read, then use memory_edit to change it.`
 
 // Create only: changing an existing page goes through editPage, so a rewrite
 // can never silently drop facts (session-memory.md decision 10).
@@ -804,69 +789,6 @@ async function recordProjectBrainFolder(
     .catch(() => {})
 }
 
-export async function mkdir(
-  workspaceId: string,
-  path: string,
-  scopeChannelId: MemoryScope = null
-) {
-  const segments = segmentsOf(path)
-  if (segments.length === 0) return { error: "the root already exists" }
-  await ensureFolderPath(workspaceId, segments, scopeChannelId)
-  return { path, ok: true }
-}
-
-export async function move(
-  workspaceId: string,
-  src: string,
-  dst: string,
-  scopeChannelId: MemoryScope = null
-) {
-  // Scope-strict like every write: a scoped run can't move workspace memory.
-  const node = await resolvePath(workspaceId, src, scopeChannelId, true)
-  if (node === null || node === "root") return { error: `no such path: ${src}` }
-
-  const dstSegments = segmentsOf(dst)
-  if (dstSegments.length === 0) return { error: "cannot move to the root" }
-  if (isPrefix(segmentsOf(src), dstSegments)) {
-    return { error: "cannot move a node into itself" }
-  }
-
-  const dstLeaf = dstSegments[dstSegments.length - 1] as string
-  const dstParentId = await ensureFolderPath(
-    workspaceId,
-    dstSegments.slice(0, -1),
-    scopeChannelId
-  )
-  if (await findChild(workspaceId, dstParentId, dstLeaf, scopeChannelId)) {
-    return { error: `${dst} already exists` }
-  }
-
-  await db
-    .update(schema.brainNode)
-    .set({ parentId: dstParentId, name: dstLeaf })
-    .where(eq(schema.brainNode.id, node.id))
-
-  // Page embeddings include paths; refresh moved pages.
-  if (node.kind === "page") {
-    const cdst = `/${dstSegments.join("/")}`
-    const page = await db
-      .select({ body: schema.brainNode.body })
-      .from(schema.brainNode)
-      .where(eq(schema.brainNode.id, node.id))
-      .then((r) => r[0])
-    const embedding = await embedDocument(
-      `${cdst}\n\n${page?.body ?? ""}`
-    ).catch(() => null)
-    if (embedding) {
-      await db
-        .update(schema.brainNode)
-        .set({ embedding })
-        .where(eq(schema.brainNode.id, node.id))
-    }
-  }
-  return { from: src, to: dst }
-}
-
 export async function link(
   workspaceId: string,
   from: string,
@@ -956,19 +878,32 @@ function writeScopeOf(context: {
     : null
 }
 
+// Named memory_* because Pi's sandbox file tools own ls/read/write/edit
+// (reference/planned/pi-harness-runbook.md §4.6).
 export const brainReadTools = {
-  ls: tool({
+  memory_ls: tool({
     description:
-      "List the immediate children (folders and pages) of a brain folder. Path '/' is the root.",
+      "List the folders and pages in a brain folder. Path '/' is the root. Pass depth (up to 4) to also list what is inside the subfolders.",
     inputSchema: z.object({
       path: z.string().describe("folder path, e.g. /people"),
+      depth: z
+        .number()
+        .optional()
+        .describe("levels to list; default 1 (this folder only)"),
     }),
     contextSchema: workspaceContext,
-    execute: ({ path }, { context }) =>
-      wrap(() => ls(context.workspaceId, path, context.scopeChannelId ?? null)),
+    execute: ({ path, depth }, { context }) =>
+      wrap(() =>
+        ls(
+          context.workspaceId,
+          path,
+          depth ?? 1,
+          context.scopeChannelId ?? null
+        )
+      ),
     strict: true,
   }),
-  read: tool({
+  memory_read: tool({
     description: "Read a brain page's contents and its linked pages, by path.",
     inputSchema: z.object({
       path: z.string().describe("page path, e.g. /people/alice"),
@@ -980,31 +915,12 @@ export const brainReadTools = {
       ),
     strict: true,
   }),
-  tree: tool({
-    description:
-      "Show the brain's folder/page structure under a path, nested to a depth (default 2).",
-    inputSchema: z.object({
-      path: z.string().describe("root path, e.g. / or /services"),
-      depth: z.number().optional(),
-    }),
-    contextSchema: workspaceContext,
-    execute: ({ path, depth }, { context }) =>
-      wrap(() =>
-        tree(
-          context.workspaceId,
-          path,
-          depth ?? TREE_DEFAULT_DEPTH,
-          context.scopeChannelId ?? null
-        )
-      ),
-    strict: true,
-  }),
 }
 
 export const brainWriteTools = {
-  write: tool({
+  memory_write: tool({
     description:
-      "Create a new brain page at a path (parent folders are created automatically). Fails if the page already exists; change an existing page with edit.",
+      "Create a new brain page at a path (parent folders are created automatically). Fails if the page already exists; change an existing page with memory_edit.",
     inputSchema: z.object({
       path: z.string().describe("page path, e.g. /decisions/auth"),
       body: z.string().describe("the page contents (Markdown)"),
@@ -1029,7 +945,7 @@ export const brainWriteTools = {
     },
     strict: true,
   }),
-  edit: tool({
+  memory_edit: tool({
     description:
       "Change part of an existing brain page: replace oldText, which must appear exactly once in the page, with newText. The rest of the page stays as it is. Read the page first and copy oldText exactly.",
     inputSchema: z.object({
@@ -1062,32 +978,7 @@ export const brainWriteTools = {
     },
     strict: true,
   }),
-  mkdir: tool({
-    description: "Create a brain folder (and any missing parent folders).",
-    inputSchema: z.object({
-      path: z.string().describe("folder path"),
-    }),
-    contextSchema: workspaceContext,
-    execute: ({ path }, { context }) =>
-      wrap(() =>
-        mkdir(context.workspaceId, path, context.scopeChannelId ?? null)
-      ),
-    strict: true,
-  }),
-  move: tool({
-    description: "Move or rename a brain node (folder or page).",
-    inputSchema: z.object({
-      from: z.string().describe("current path"),
-      to: z.string().describe("new path"),
-    }),
-    contextSchema: workspaceContext,
-    execute: ({ from, to }, { context }) =>
-      wrap(() =>
-        move(context.workspaceId, from, to, context.scopeChannelId ?? null)
-      ),
-    strict: true,
-  }),
-  link: tool({
+  memory_link: tool({
     description:
       "Create a typed link between two brain pages from the fixed set of edge types. For supersedes, link from the newer page to the page it replaces; the old page then shows as outdated in search.",
     inputSchema: z.object({

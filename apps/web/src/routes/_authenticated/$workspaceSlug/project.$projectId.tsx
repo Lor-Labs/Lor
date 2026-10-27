@@ -9,6 +9,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { ProjectArchiveProgressEvent } from "@repo/realtime-types/events"
 import { Badge } from "@repo/ui/components/badge"
+import { isChannelFeatureEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
@@ -150,14 +151,6 @@ function ProjectOverview() {
 
   const archivedDate = formatDate(data.archivedAt)
   const memories = data.status === "archived" ? data.memories : liveMemories
-  const topLevelTools = liveTools.filter((t) => !t.parentToolCallId)
-  const childrenByParent = new Map<string, LorToolCallView[]>()
-  for (const t of liveTools) {
-    if (!t.parentToolCallId) continue
-    const list = childrenByParent.get(t.parentToolCallId) ?? []
-    list.push(t)
-    childrenByParent.set(t.parentToolCallId, list)
-  }
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -241,12 +234,8 @@ function ProjectOverview() {
                   Lor is reviewing this project — reading the channels, checking
                   what shipped, and saving what matters.
                 </div>
-                {topLevelTools.length > 0 && (
-                  <LorToolTrail
-                    toolCalls={topLevelTools}
-                    childrenByParent={childrenByParent}
-                    streaming
-                  />
+                {liveTools.length > 0 && (
+                  <LorToolTrail toolCalls={liveTools} streaming />
                 )}
               </div>
             ) : data.summary ? (
@@ -285,7 +274,7 @@ function ProjectOverview() {
             Channels
           </h2>
           <div className="mt-2 overflow-hidden rounded-xl border border-border">
-            {data.channels.map((ch) => (
+            {data.channels.filter(isChannelFeatureEnabled).map((ch) => (
               <Link
                 key={ch.id}
                 to="/$workspaceSlug/$channelId"

@@ -217,10 +217,12 @@ export const updateCustomTool: AppRouteHandler<UpdateCustomToolRoute> = async (
 
   // Enforce the JSON contract on the EFFECTIVE post-patch body + headers
   // (either side may change independently).
+  const endpointChanged =
+    body.urlTemplate !== undefined && body.urlTemplate !== existing.urlTemplate
   const effectiveBody =
     body.bodyTemplate !== undefined ? body.bodyTemplate : existing.bodyTemplate
   const effectiveHeaders =
-    body.headers !== undefined ? body.headers : existing.headers
+    body.headers ?? (endpointChanged ? {} : existing.headers)
   if (effectiveBody && bodyMustBeJson(effectiveHeaders)) {
     const bodyIssue = bodyTemplateJsonIssue(effectiveBody)
     if (bodyIssue) {
@@ -234,10 +236,12 @@ export const updateCustomTool: AppRouteHandler<UpdateCustomToolRoute> = async (
     }
   }
 
-  // Merge semantics: string sets (encrypted), null deletes, absent keeps.
-  let secrets: Record<string, string> | undefined
+  // Changing the endpoint must never forward previously stored credentials.
+  let secrets: Record<string, string> | undefined = endpointChanged
+    ? {}
+    : undefined
   if (body.secrets !== undefined) {
-    secrets = { ...existing.secrets }
+    secrets = endpointChanged ? {} : { ...existing.secrets }
     for (const [name, value] of Object.entries(body.secrets)) {
       if (value === null) delete secrets[name]
       else secrets[name] = encryptSecret(value, key)
@@ -262,13 +266,24 @@ export const updateCustomTool: AppRouteHandler<UpdateCustomToolRoute> = async (
       ...(body.urlTemplate !== undefined
         ? { urlTemplate: body.urlTemplate }
         : {}),
-      ...(body.headers !== undefined ? { headers: body.headers } : {}),
+      ...(body.headers !== undefined
+        ? { headers: body.headers }
+        : endpointChanged
+          ? { headers: {} }
+          : {}),
       ...(body.bodyTemplate !== undefined
         ? { bodyTemplate: body.bodyTemplate }
         : {}),
       ...(secrets !== undefined ? { secrets } : {}),
     })
-    .where(eq(schema.customTool.id, existing.id))
+    .where(
+      and(
+        eq(schema.customTool.id, existing.id),
+        eq(schema.customTool.urlTemplate, existing.urlTemplate),
+        eq(schema.customTool.headers, existing.headers),
+        eq(schema.customTool.secrets, existing.secrets)
+      )
+    )
     .returning()
     .then((rows) => rows[0] ?? null)
     .catch((err) => {

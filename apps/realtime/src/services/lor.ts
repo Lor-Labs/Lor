@@ -13,7 +13,9 @@ import {
   chatFeedMessage,
   findAgentSessionByThreadRoot,
 } from "@repo/db/queries/agent-sessions"
+import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { env } from "@repo/env/server"
+import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 import { extractDirectMentionUserIds } from "@repo/messaging"
 import {
   type RealtimeMessage,
@@ -56,6 +58,51 @@ async function loadThreadContextIds(threadRootId: string) {
   return [threadRootId, ...replies.map((row) => row.id)]
 }
 
+// "Continue in Code": the source session's newest messages become the new
+// session's context, like `@Lor` in a human thread. Context must come from
+// the new session's own channel.
+async function continuedSession(sessionId: string, channelId: string) {
+  const source = await db
+    .select({
+      id: schema.agentSession.id,
+      channelId: schema.agentSession.channelId,
+      threadRootId: schema.agentSession.threadRootId,
+    })
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.id, sessionId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!source || source.channelId !== channelId) {
+    throw new Error("That session can't be continued here")
+  }
+  const replies = await db
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(eq(schema.message.threadRootId, source.threadRootId))
+    .orderBy(desc(schema.message.createdAt))
+    .limit(THREAD_CONTEXT_LIMIT)
+  return { ...source, contextMessageIds: replies.map((row) => row.id) }
+}
+
+// The picker only offers allowed repos, so a refusal here means the channel's
+// tools or the GitHub connection changed since it loaded.
+async function codeSessionStart(
+  workspaceId: string,
+  channelId: string,
+  code: { repo: string; branch: string }
+) {
+  if (!isSafeBranch(code.branch)) {
+    throw new Error(`"${code.branch}" can't be used as a base branch`)
+  }
+  const allowed = await channelCodeRepo(workspaceId, channelId, code.repo)
+  if (!allowed) {
+    throw new Error(
+      `${code.repo} isn't available for code sessions in this channel`
+    )
+  }
+  return { repoFullName: allowed.repo.fullName, baseBranch: code.branch }
+}
+
 // `@Lor` in channel chat or a human thread starts a session seeded with what
 // led up to it, and nothing posts where it was sent
 // (reference/workspace-model.md). Undefined = a normal send.
@@ -77,14 +124,49 @@ export async function sessionStartFor(args: {
     threadRootId: payload.newSession?.threadRootId,
   }
   if (payload.startSession && !payload.threadRootId) {
+    const code = payload.code
+      ? await codeSessionStart(
+          channel.workspaceId,
+          payload.channelId,
+          payload.code
+        )
+      : undefined
+    const source = payload.continueFrom
+      ? await continuedSession(payload.continueFrom, payload.channelId)
+      : null
+    // Claude Code and Codex: code sessions only for now; Claude Code on the
+    // starter's own Claude subscription (code-sessions-runbook.md chunks 7
+    // and 8).
+    const claudeCode = payload.harness === "claude_code"
+    const codex = payload.harness === "codex"
+    if ((claudeCode || codex) && !code) {
+      throw new Error(
+        `${claudeCode ? "Claude Code" : "Codex"} sessions need a repository`
+      )
+    }
+    if (claudeCode && !(await hasPersonalAccount(args.senderId, "claude"))) {
+      throw new Error(
+        "Connect your Claude subscription in Settings → Linked accounts to start a Claude Code session"
+      )
+    }
     return {
       ...ids,
       origin: "new",
+      ...(code ? { code } : {}),
+      ...(claudeCode ? { harness: "claude_code" as const } : {}),
+      ...(codex ? { harness: "codex" as const } : {}),
+      ...(source
+        ? {
+            sourceSessionId: source.id,
+            sourceThreadRootId: source.threadRootId,
+          }
+        : {}),
       title: sessionTitleFromPrompt(payload.content ?? ""),
       // "Ask Lor about this": the quoted message is the only context.
-      contextMessageIds: payload.referencedMessageId
-        ? [payload.referencedMessageId]
-        : [],
+      contextMessageIds: [
+        ...(source?.contextMessageIds ?? []),
+        ...(payload.referencedMessageId ? [payload.referencedMessageId] : []),
+      ],
       subscriberIds,
     }
   }
@@ -130,8 +212,8 @@ export async function createLorPlaceholder(args: {
 }
 
 // Durable agent_run row backing a Lor response (see
-// reference/agent-harness.md). Budgets are snapshotted from env here so
-// an in-flight run keeps its ceilings across retries and config changes.
+// reference/agent-harness.md). Limits are snapshotted from env here so an
+// in-flight run keeps them across retries and config changes.
 // "conflict" = the scope's one-active-run index rejected the insert (another
 // mention won the race) — the caller re-routes at the winner. Other failures
 // are propagated so the caller can compensate its placeholder.
@@ -152,11 +234,6 @@ export async function createAgentRun(args: {
         threadRootId: args.threadRootId,
         triggerMessageId: args.triggerMessageId,
         scopeKey: args.threadRootId ?? args.channelId,
-        budgetSteps: env.AGENT_RUN_MAX_STEPS,
-        budgetInputTokens: env.AGENT_RUN_MAX_INPUT_TOKENS,
-        budgetOutputTokens: env.AGENT_RUN_MAX_OUTPUT_TOKENS,
-        budgetToolCalls: env.AGENT_RUN_MAX_TOOL_CALLS,
-        budgetToolOutputBytes: env.AGENT_RUN_MAX_TOOL_OUTPUT_BYTES,
         budgetWallMs: env.AGENT_RUN_MAX_WALL_MS,
         budgetCredits: env.AGENT_RUN_MAX_CREDITS,
       })

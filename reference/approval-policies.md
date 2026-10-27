@@ -50,6 +50,43 @@ an otherwise disabled tool.
   `tool_access` (built-in web/artifacts, connectors, MCP servers, API tools),
   where a missing entry follows the workspace. See `connector-tools.md`.
 
+### Run mechanics on the Pi path (2026-10-22)
+
+Since phase 1 ([pi-harness-runbook.md](planned/pi-harness-runbook.md) 1.3e,
+1.3f, §4.2, §4.6) a pause is a paused Pi turn, not a parked AI SDK transcript.
+The historical sections below (parked steps, `experimental_toolApprovalSecret`
+and `LOR_TOOL_APPROVAL_SECRET`, transcript replay, `prepareStep`) describe the
+deleted engine.
+
+- **What asks:** a Lor tool whose target has an approval policy, and
+  `request_approval`. Pi's `bash`, `write` and `edit` are not policy targets:
+  the turn starter's sandbox mode decides them (manual asks every call; auto
+  asks when the rules or the classifier flag the call; bypass allows all).
+  Loop and Act runs are autonomous: a flagged call is refused, not asked.
+  Voice uses the speaker's mode; when no one in the call can approve, the
+  call is refused.
+- **Pause:** the turn stops at the gated calls. The adapter's continue state
+  (with finished sibling results) is saved as `harness_state.continuation`,
+  and one `approval` row per pending call (the set) is written in the same
+  transaction, with tool name, target, input and `inputSha256`. The run
+  settles `complete` with `awaiting_approval`; a plan moves to
+  `waiting_for_approval`.
+- **Resolve:** anyone allowed decides each row. When the whole set is
+  decided, a resume run (`resumeApprovalId`) finishes the paused turn with
+  one decision per row, then sends its own prompt if it has one.
+- **Guards at resume:** a call whose tool is gone, whose input no longer
+  matches, or whose target changed is refused. Approved rows are claimed
+  (`approval.consumed_by_run_id`), so a retried resume never runs an approved
+  call twice; a row already claimed reads as "may already have run".
+- **A new message while paused** denies the pending set (`approval.steered`,
+  so it never reads as a person's rejection) and runs next; a queued message
+  waits for the decision. **Stop** denies the set and drops the paused turn;
+  the next run is told the calls did not run.
+- **Adapter upgrades:** a continuation saved by another adapter version
+  expires its approvals; the paused turn is dropped with a note.
+- The delivered decision is checked by the patched adapter before any policy
+  (`builtinToolApproval`); no signing secret is involved.
+
 ### Breaking rollout
 
 Once per environment, in this order:
@@ -520,3 +557,11 @@ Manual QA checklist (live, after db:push):
   `request_approval` resolver = any member; no forced sandbox gate;
   `approval:resolve` is a blanket permission with no underlying-permission
   matching (no fragmented "5 of 6" approvals).
+- 2026-10-22 — Pi path (pi-harness-runbook.md 1.3e, 1.3f, 1.6): a pause is
+  a paused Pi turn saved in `harness_state.continuation`, resolved by a
+  resume run that finishes it; see "Run mechanics on the Pi path". Approval
+  sets (one row per pending call), `approval.steered` and
+  `approval.consumed_by_run_id` added; `LOR_TOOL_APPROVAL_SECRET`,
+  `approvalResume` replay and `propose_code_change` (with its
+  `authorizePublish` seam) are deleted. Sandbox asks come from the sandbox
+  mode and classifier, not from policies.
