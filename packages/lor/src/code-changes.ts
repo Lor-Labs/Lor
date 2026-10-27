@@ -132,11 +132,8 @@ async function runLarge(sandbox: CodeSandbox, command: string) {
   if (size <= MAX_LOG_OUTPUT_BYTES) return { ...result, stderr }
   try {
     const bytes = await sandbox.readBinaryFile(file)
-    return {
-      ...result,
-      stderr,
-      stdout: bytes ? Buffer.from(bytes).toString("utf8") : "",
-    }
+    if (!bytes) throw new Error("The command's output file couldn't be read")
+    return { ...result, stderr, stdout: Buffer.from(bytes).toString("utf8") }
   } finally {
     await sandbox.run(`rm -f ${file}`).catch(() => {})
   }

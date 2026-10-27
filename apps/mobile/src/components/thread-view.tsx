@@ -653,6 +653,7 @@ export function ThreadView({
                 lorSession ? "session" : startsSessions ? "thread" : undefined
               }
               initialDraft={composerDraft}
+              peopleOnly={!harnessEnabled || withoutClaude}
               subscribers={otherSubscribers}
               channelId={channelId}
               channelName={channelName}
@@ -693,13 +694,13 @@ export function ThreadView({
                     attachments,
                     {
                       onOptimistic:
-                        pendingLorMessageId && !toPeople && harnessEnabled
+                        pendingLorMessageId && !toPeople
                           ? (id) => {
                               nonce = id
                               addOptimistic(id)
                             }
                           : undefined,
-                      toPeople: toPeople || !harnessEnabled,
+                      toPeople,
                     }
                   )
                 } catch (error) {

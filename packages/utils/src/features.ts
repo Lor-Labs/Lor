@@ -21,12 +21,17 @@ export function isHarnessEnabled(harness: string): boolean {
   return false
 }
 
-export function assertHarnessEnabled(harness: string): void {
-  if (!isHarnessEnabled(harness)) {
-    throw new Error(
+export class HarnessDisabledError extends Error {
+  constructor() {
+    super(
       "This agent is temporarily unavailable. Start a session with Lor instead."
     )
+    this.name = "HarnessDisabledError"
   }
+}
+
+export function assertHarnessEnabled(harness: string): void {
+  if (!isHarnessEnabled(harness)) throw new HarnessDisabledError()
 }
 
 export function isChannelFeatureEnabled(channel: { type: string }): boolean {

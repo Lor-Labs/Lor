@@ -285,6 +285,10 @@ export function SessionDocument({
 
   // Local Lor turns by the nonce of the send that showed them.
   const lorTurnsRef = useRef(new Map<string, string>())
+  // The server sends a message to the agent only while its harness is on
+  // and, in Claude Code, from someone with their own Claude subscription.
+  const agentAnswers = (harness: string) =>
+    isHarnessEnabled(harness) && (harness !== "claude_code" || claudeCode)
   // What a send changes before the server answers. The writer and the people
   // they mention join the subscribers (and the writer's sidebar gets the
   // session). A follow-up to an idle Lor shows Lor working: its turn, Stop
@@ -313,13 +317,10 @@ export function SessionDocument({
     )
     const agentSession = cachedSessionForThread(queryClient, threadRootId)
     if (!agentSession || agentSession.archivedAt) return
-    // Without the sender's Claude subscription the server sends a Claude
-    // Code session's message to its people only.
     const toLor =
-      isHarnessEnabled(agentSession.harness) &&
+      agentAnswers(agentSession.harness) &&
       !options?.toPeople &&
-      !pendingLorMessage &&
-      (agentSession.harness !== "claude_code" || claudeCode)
+      !pendingLorMessage
     if (toLor) {
       const lorAuthor = messages.find((m) => m.authorId === LOR_USER_ID)
         ?.author ?? { id: LOR_USER_ID, name: "Lor", image: null }
@@ -576,7 +577,14 @@ export function SessionDocument({
           scroll.scrollAfterSend()
           // Lor is mid-answer, so a message for Lor will queue — show it in
           // the pill now instead of waiting for the routed round trip.
-          if (nonce && pendingLorMessage && !options?.toPeople) {
+          const agentSession = cachedSessionForThread(queryClient, threadRootId)
+          if (
+            nonce &&
+            pendingLorMessage &&
+            !options?.toPeople &&
+            agentSession &&
+            agentAnswers(agentSession.harness)
+          ) {
             lorRun.addOptimistic(nonce)
           }
         }}
