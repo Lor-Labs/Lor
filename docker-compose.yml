@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: lor
+      # Changing this does not update an existing postgres_data volume. Keep
+      # its old password, or update the lor role's password inside the running
+      # container before switching services to the new value.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a random URL-safe password}
       POSTGRES_DB: lor
     ports:

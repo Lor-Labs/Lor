@@ -83,6 +83,7 @@ export const CUSTOM_TOOLS_PROMPT_LINE =
 
 const REQUEST_TIMEOUT_MS = 15_000
 const RESPONSE_MAX_CHARS = 256 * 1024
+const RESPONSE_MAX_BYTES = 4 * RESPONSE_MAX_CHARS
 
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH"])
 
@@ -295,7 +296,7 @@ async function executeCustomTool(
         redirect: "error",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       },
-      { maxBytes: RESPONSE_MAX_CHARS, timeoutMs: REQUEST_TIMEOUT_MS }
+      { maxBytes: RESPONSE_MAX_BYTES, timeoutMs: REQUEST_TIMEOUT_MS }
     )
     const text = await readBodyCapped(response, RESPONSE_MAX_CHARS)
     let body: unknown = text
