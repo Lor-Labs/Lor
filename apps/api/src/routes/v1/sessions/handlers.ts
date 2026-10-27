@@ -617,11 +617,13 @@ async function lorWorkingIn(threadRootId: string): Promise<boolean> {
   return Boolean(run)
 }
 
-// Why there is no work folder to use: gone for good (no checkpoint), being
-// rebuilt from the newest checkpoint, or that rebuild just failed.
-type FolderGap = "gone" | "restoring" | "restore_failed"
+// Why there is no work folder to use: gone for good (no checkpoint), not set
+// up yet (a new session's first turn clones it), being rebuilt from the
+// newest checkpoint, or that rebuild just failed.
+type FolderGap = "gone" | "preparing" | "restoring" | "restore_failed"
 const FOLDER_GAPS: ReadonlySet<unknown> = new Set([
   "gone",
+  "preparing",
   "restoring",
   "restore_failed",
 ])
@@ -629,6 +631,7 @@ const isGap = (value: unknown): value is FolderGap => FOLDER_GAPS.has(value)
 
 const gapMessage: Record<FolderGap, string> = {
   gone: "This session's sandbox no longer exists",
+  preparing: "The session's files are being set up. Try again in a moment",
   restoring: "The session's files are being restored. Try again in a moment",
   restore_failed: "Couldn't restore the session's files. Try again shortly",
 }
@@ -647,7 +650,10 @@ async function startRestore(session: CodeSession): Promise<FolderGap> {
   if (failedAt && Date.now() - failedAt < RESTORE_RETRY_MS) {
     return "restore_failed"
   }
-  if (!(await hasCheckpoint(session.id))) return "gone"
+  // Without a checkpoint, a turn that is running sets the folder up itself.
+  if (!(await hasCheckpoint(session.id))) {
+    return (await lorWorkingIn(session.threadRootId)) ? "preparing" : "gone"
+  }
   const job = restoreSessionFiles({
     sessionId: session.id,
     repoFullName: session.repoFullName,

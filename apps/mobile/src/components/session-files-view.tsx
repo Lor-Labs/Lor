@@ -317,13 +317,16 @@ function FileView({
         ? "This file is too large to show here."
         : file.data?.kind === "missing"
           ? "This file isn't in the repository anymore."
-          : file.data?.kind === "restoring"
-            ? "Restoring the session's files…"
-            : file.data?.kind === "gone" || file.data?.kind === "restore_failed"
-              ? "Couldn't read this file."
-              : file.isError
-                ? "Couldn't load the file."
-                : null
+          : file.data?.kind === "preparing"
+            ? "Setting up the session's files…"
+            : file.data?.kind === "restoring"
+              ? "Restoring the session's files…"
+              : file.data?.kind === "gone" ||
+                  file.data?.kind === "restore_failed"
+                ? "Couldn't read this file."
+                : file.isError
+                  ? "Couldn't load the file."
+                  : null
   const digits = String(lines?.length ?? 0).length
 
   return (

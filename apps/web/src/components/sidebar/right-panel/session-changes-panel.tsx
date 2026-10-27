@@ -24,8 +24,7 @@ import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-h
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type {
   SessionChangesSidebarView,
-  SessionFilesSidebarView,
-  SessionWorkSidebarView,
+  SessionPanelView,
 } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useDiffHighlighter } from "@/hooks/use-diff-highlighter"
 import {
@@ -80,13 +79,8 @@ export const DIFF_CSS = `:host {
   --diffs-line-height: 20px;
 }`
 
-type SessionPanelView =
-  | SessionWorkSidebarView
-  | SessionChangesSidebarView
-  | SessionFilesSidebarView
-
-// Details | Changes, the title of a code session's panel. The count shows
-// once the Changes view has read the sandbox.
+// Changes | Files, the title of a code session's panel (no Details tab for
+// now). The count shows once the Changes view has read the sandbox.
 export function SessionPanelTabs({ view }: { view: SessionPanelView }) {
   const { setView } = useRightSidebar()
   const { data } = useQuery({
@@ -95,7 +89,6 @@ export function SessionPanelTabs({ view }: { view: SessionPanelView }) {
   })
   const count = data?.state === "ready" ? data.files.length : 0
   const tabs = [
-    { type: "session-work", label: "Details" },
     { type: "session-changes", label: "Changes" },
     { type: "session-files", label: "Files" },
   ] as const
@@ -192,15 +185,24 @@ export function PanelNote({ children }: { children: ReactNode }) {
   )
 }
 
-// No work folder to read: gone for good (no checkpoint), being rebuilt from
-// the last checkpoint (a broadcast refetches when it ends), or that failed.
+// No work folder to read: gone for good (no checkpoint), not cloned yet by
+// a new session's first turn, being rebuilt from the last checkpoint (a
+// broadcast refetches when it ends), or that failed.
 export function FolderGapNote({
   gap,
   onRetry,
 }: {
-  gap: "gone" | "restoring" | "restore_failed"
+  gap: "gone" | "preparing" | "restoring" | "restore_failed"
   onRetry: () => void
 }) {
+  if (gap === "preparing") {
+    return (
+      <PanelNote>
+        <Spinner className="size-4" />
+        Setting up the session's files…
+      </PanelNote>
+    )
+  }
   if (gap === "restoring") {
     return (
       <PanelNote>
@@ -578,6 +580,7 @@ export function ChangeDiff({
   }
   if (
     diff.data.kind === "gone" ||
+    diff.data.kind === "preparing" ||
     diff.data.kind === "restoring" ||
     diff.data.kind === "restore_failed"
   ) {

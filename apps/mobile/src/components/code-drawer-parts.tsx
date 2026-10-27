@@ -28,13 +28,20 @@ export function Note({ children }: { children: ReactNode }) {
 }
 
 // Loading, a failed read, or no work folder to read: gone for good (no
-// checkpoint), being rebuilt from the last checkpoint, or that failed.
+// checkpoint), not cloned yet by a new session's first turn, being rebuilt
+// from the last checkpoint, or that failed.
 export function FolderNote({
   state,
   what,
   onRetry,
 }: {
-  state: "loading" | "error" | "gone" | "restoring" | "restore_failed"
+  state:
+    | "loading"
+    | "error"
+    | "gone"
+    | "preparing"
+    | "restoring"
+    | "restore_failed"
   // "the changes", "the files".
   what: string
   onRetry: () => void
@@ -46,16 +53,20 @@ export function FolderNote({
   )
   return (
     <Note>
-      {state === "loading" || state === "restoring" ? <Spinner /> : null}
+      {state === "loading" || state === "preparing" || state === "restoring" ? (
+        <Spinner />
+      ) : null}
       {state === "loading" ? null : (
         <Text className="text-center text-sm text-muted">
           {state === "error"
             ? `Couldn't load ${what}.`
-            : state === "restoring"
-              ? "Restoring the session's files…"
-              : state === "restore_failed"
-                ? "Couldn't restore the session's files."
-                : "This session's sandbox no longer exists, and it has no checkpoint to restore its files from."}
+            : state === "preparing"
+              ? "Setting up the session's files…"
+              : state === "restoring"
+                ? "Restoring the session's files…"
+                : state === "restore_failed"
+                  ? "Couldn't restore the session's files."
+                  : "This session's sandbox no longer exists, and it has no checkpoint to restore its files from."}
         </Text>
       )}
       {state === "error" || state === "restore_failed" ? retry : null}

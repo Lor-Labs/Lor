@@ -67,7 +67,12 @@ export function RightPanelToggle({
   tooltipHandle: TooltipPrimitive.Handle<string>
   className?: string
 }) {
-  const { view, setView, isCollapsed, toggleCollapsed } = useRightSidebar()
+  const {
+    view,
+    openView: showView,
+    isCollapsed,
+    toggleCollapsed,
+  } = useRightSidebar()
   const isMobileSidebar = useSidebar().isMobile
 
   const isOpen = !!view && (isMobileSidebar || !isCollapsed)
@@ -78,7 +83,10 @@ export function RightPanelToggle({
       toggleCollapsed()
       return
     }
-    setView(openView ?? { type: "workspace-members", workspaceSlug, channelId })
+    // No view yet (a page that hasn't set one): show it even if collapsed.
+    showView(
+      openView ?? { type: "workspace-members", workspaceSlug, channelId }
+    )
   }
 
   return (

@@ -9,6 +9,10 @@ import {
   type AgentSessionDetail,
   agentSessionQueryOptions,
 } from "@/hooks/use-agent-session"
+import {
+  type SessionChanges,
+  sessionChangesKey,
+} from "@/hooks/use-session-changes"
 import type { ThreadPage, ThreadPageParam } from "@/hooks/use-thread-messages"
 import {
   type ThreadSubscriber,
@@ -149,6 +153,15 @@ export function useSessionStart({
       ],
       { updatedAt }
     )
+    // Its first turn clones the repo; the session page waits for that to
+    // open the panel.
+    if (start.code) {
+      queryClient.setQueryData<SessionChanges>(
+        sessionChangesKey(start.id),
+        { state: "preparing" },
+        { updatedAt }
+      )
+    }
     void cancelSidebarFetch(queryClient, wsId).then(() =>
       patchSidebarSession(queryClient, sidebarTarget(session), {
         show: { ...sidebarRowFor(session), state: "running" },
@@ -181,6 +194,7 @@ export function useSessionStart({
       agentSessionQueryOptions(start.id).queryKey,
       ["thread", start.threadRootId],
       threadSubscribersKey(start.threadRootId),
+      sessionChangesKey(start.id),
     ]) {
       queryClient.removeQueries({ queryKey, exact: true })
     }

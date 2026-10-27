@@ -325,8 +325,8 @@ export function SessionTabView({
   )
 }
 
-// Loading, failed, or no work folder (gone or restoring): the note shown
-// instead.
+// Loading, failed, or no work folder (gone, not set up yet, or restoring):
+// the note shown instead.
 function changesNote(changes: ReturnType<typeof useSessionChanges>) {
   if (changes.isPending) {
     return (
