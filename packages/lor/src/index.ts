@@ -171,7 +171,9 @@ import { jevSandboxClassifier } from "./sandbox/jev-classifier"
 import {
   claudeCodeToolDetail,
   claudeCodeToolLabel,
+  codexToolDetail,
   deniedReason,
+  harnessToolLabel,
   notRunDetail,
   piToolLabel,
   sandboxToolDetail,
@@ -1730,7 +1732,11 @@ export function toolLabel(toolName: string, input: unknown): string {
     case "glob":
       return piToolLabel("find", input)
     default:
-      return claudeCodeToolLabel(toolName, input) ?? `Working (${toolName})`
+      return (
+        claudeCodeToolLabel(toolName, input) ??
+        harnessToolLabel(toolName, input) ??
+        `Working (${toolName})`
+      )
   }
 }
 
@@ -3486,7 +3492,7 @@ export async function respond(
               : ctx.claudeCode && part.providerExecuted
                 ? claudeCodeToolDetail(part.toolName, part.input, part.output)
                 : ctx.codex && part.providerExecuted
-                  ? toolDetail(part.toolName, part.output)
+                  ? codexToolDetail(part.toolName, part.output)
                   : SANDBOX_TOOL_NAMES.has(part.toolName)
                     ? sandboxToolDetail(part.toolName, part.input, part.output)
                     : toolDetail(part.toolName, part.output)

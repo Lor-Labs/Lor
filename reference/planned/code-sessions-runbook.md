@@ -933,6 +933,22 @@ may lag web), a Lor-offered "Continue in Code" card.
       carried between calls: a turn, a turn paused on a gated Lor tool, its
       continuation after the approval, then a resume in a new sandbox from
       the saved rollout, which still knew both earlier turns.
+  - [x] **8d-2** the trail and the context meter, built 2026-10-26:
+    - Codex's patches reach Lor as one `fileChange` part per file
+      (`{ event, path }`, the harness's own part), not as `apply_patch`
+      calls; the trail reads "Created / Edited / Deleted <path>"
+      (`harnessToolLabel`, which also names `compaction` and
+      `view_image`). The diffs stay in the Changes panel. bash shows the
+      command inside Codex's login-shell wrapper, and its detail is the
+      output's tail, an error when the exit code is not 0
+      (`codexToolDetail`).
+    - The context meter reads the rollout's last `token_count` event: the
+      last request's `total_tokens` against Codex's `model_context_window`
+      (258,400 for GPT-6.1 Sol, Codex's own limit), compacting at about
+      90%. Credits show, as for Pi; the meter's segments are Lor's
+      estimate (Codex's base prompt counts as messages).
+    - Checked against real Codex output in a throwaway sandbox: labels,
+      bash details and the meter.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
 

@@ -25,6 +25,7 @@ import {
 } from "./harness-state"
 import {
   missingToolStubs,
+  type PiContextUsage,
   type PiTurnResult,
   type PiTurnSave,
   prepareTools,
@@ -246,7 +247,7 @@ export async function runCodexTurn(
     const state = continuation ?? (await session.stop())
     settled = true
     const threadId = (state.data as { threadId?: unknown } | null)?.threadId
-    const log = await readRollout(
+    const rollout = await readRollout(
       sandbox,
       codexHome,
       typeof threadId === "string"
@@ -259,10 +260,10 @@ export async function runCodexTurn(
       usage,
       modelId: totals.at(-1)?.[1]?.modelId ?? null,
       responseMessages: totals.flatMap(([, , messages]) => messages),
-      save: withContinuation(log, saved, continuation),
+      save: withContinuation(rollout.save, saved, continuation),
       pendingApprovals: [...(continuation?.pendingToolApprovals ?? [])],
       pendingToolResults: [...(continuation?.pendingToolResults ?? [])],
-      contextUsage: null,
+      contextUsage: rollout.text ? codexContextUsage(rollout.text) : null,
     }
   } finally {
     // Lor supplies the sandbox, so neither leaves it running down.
@@ -307,6 +308,40 @@ function codexHeadOf(
   }
 }
 
+// Codex's own count after the turn, from the rollout's last token_count
+// event: the last request's tokens are what fills the window (its
+// tokens_in_context_window). Codex compacts at about 90% of the window.
+function codexContextUsage(text: string): PiContextUsage | null {
+  const lines = text.split("\n")
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i] ?? ""
+    if (!line.includes('"token_count"')) continue
+    try {
+      const entry = JSON.parse(line) as {
+        payload?: {
+          type?: unknown
+          info?: {
+            last_token_usage?: { total_tokens?: unknown }
+            model_context_window?: unknown
+          } | null
+        }
+      }
+      if (entry.payload?.type !== "token_count") continue
+      const tokens = entry.payload.info?.last_token_usage?.total_tokens
+      const window = entry.payload.info?.model_context_window
+      if (typeof tokens !== "number" || typeof window !== "number") continue
+      if (window <= 0) continue
+      return {
+        tokens,
+        windowTokens: window,
+        compactAtTokens: Math.round(window * 0.9),
+        compacted: false,
+      }
+    } catch {}
+  }
+  return null
+}
+
 // The rollout after the turn, as the bytes to save: appended to the saved
 // file, or the whole file when Codex rewrote it. Its name ends in the
 // thread's id; the path saved is relative to ~/.codex.
@@ -315,10 +350,14 @@ async function readRollout(
   codexHome: string,
   threadId: string | null,
   saved: SavedHarnessState | null
-): Promise<Omit<PiTurnSave, "continuation"> | null> {
+): Promise<{
+  save: Omit<PiTurnSave, "continuation"> | null
+  text: string | null
+}> {
+  const none = { save: null, text: null }
   if (!threadId) {
     // Codex never started a thread: a turn stopped before it started.
-    if (!saved) return null
+    if (!saved) return none
     throw new SessionCoreError(
       "corrupt_state",
       "Codex's thread id is missing after the turn"
@@ -336,24 +375,26 @@ async function readRollout(
     ? await sandbox.readTextFile({ path: `${codexHome}/${logFileName}` })
     : null
   if (text === null) {
-    if (!saved) return null
+    if (!saved) return none
     throw new SessionCoreError(
       "corrupt_state",
       "Codex's rollout file is missing after the turn"
     )
   }
   const head = codexHeadOf(text, logFileName, threadId)
-  if (!head) return null
-  if (saved && text === saved.log) return null
+  if (!head || (saved && text === saved.log)) return { save: null, text }
   const appended = saved !== null && text.startsWith(saved.log)
   return {
-    binding: CODEX_BINDING,
-    expected: saved?.head ?? null,
-    head,
-    log: appended
-      ? { kind: "append", text: text.slice(saved.log.length) }
-      : saved
-        ? { kind: "replace", text }
-        : { kind: "append", text },
+    save: {
+      binding: CODEX_BINDING,
+      expected: saved?.head ?? null,
+      head,
+      log: appended
+        ? { kind: "append", text: text.slice(saved.log.length) }
+        : saved
+          ? { kind: "replace", text }
+          : { kind: "append", text },
+    },
+    text,
   }
 }
