@@ -1,5 +1,6 @@
 import { authClient } from "@repo/auth/client"
 import { LOR_USER_ID } from "@repo/db/constants"
+import type { RealtimeAgentSession } from "@repo/realtime-types"
 import {
   MessageScroller,
   MessageScrollerContent,
@@ -112,12 +113,14 @@ export function SessionDocument({
   onRewind,
   rewindRestoresFiles,
   composerNote,
+  harness,
   claudeCode = false,
   codex = false,
 }: {
   workspaceSlug: string
   channelId: string
   threadRootId: string
+  harness: RealtimeAgentSession["harness"]
   // Above the reply line: why the agent won't answer this person (a Claude
   // Code session without their Claude subscription).
   composerNote?: ReactNode
@@ -287,7 +290,7 @@ export function SessionDocument({
   const lorTurnsRef = useRef(new Map<string, string>())
   // The server sends a message to the agent only while its harness is on
   // and, in Claude Code, from someone with their own Claude subscription.
-  const agentAnswers = (harness: string) =>
+  const agentAnswers =
     isHarnessEnabled(harness) && (harness !== "claude_code" || claudeCode)
   // What a send changes before the server answers. The writer and the people
   // they mention join the subscribers (and the writer's sidebar gets the
@@ -317,10 +320,7 @@ export function SessionDocument({
     )
     const agentSession = cachedSessionForThread(queryClient, threadRootId)
     if (!agentSession || agentSession.archivedAt) return
-    const toLor =
-      agentAnswers(agentSession.harness) &&
-      !options?.toPeople &&
-      !pendingLorMessage
+    const toLor = agentAnswers && !options?.toPeople && !pendingLorMessage
     if (toLor) {
       const lorAuthor = messages.find((m) => m.authorId === LOR_USER_ID)
         ?.author ?? { id: LOR_USER_ID, name: "Lor", image: null }
@@ -521,6 +521,7 @@ export function SessionDocument({
         }
         placeholder="Reply…"
         destination="session"
+        peopleOnly={!agentAnswers}
         subscribers={otherSubscribers}
         variant="inline"
         toolbarTarget={toolbarTarget}
@@ -577,13 +578,11 @@ export function SessionDocument({
           scroll.scrollAfterSend()
           // Lor is mid-answer, so a message for Lor will queue — show it in
           // the pill now instead of waiting for the routed round trip.
-          const agentSession = cachedSessionForThread(queryClient, threadRootId)
           if (
             nonce &&
             pendingLorMessage &&
             !options?.toPeople &&
-            agentSession &&
-            agentAnswers(agentSession.harness)
+            agentAnswers
           ) {
             lorRun.addOptimistic(nonce)
           }

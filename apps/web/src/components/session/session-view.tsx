@@ -244,6 +244,7 @@ function SessionConversation({
 
   return (
     <SessionDocument
+      harness={session.harness}
       claudeCode={
         harnessEnabled && session.harness === "claude_code" && !withoutClaude
       }
