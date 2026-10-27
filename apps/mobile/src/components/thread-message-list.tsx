@@ -28,6 +28,11 @@ import {
   ThreadRootMessage,
 } from "@/components/message-row"
 import { MobileMessageScroller } from "@/components/mobile-message-scroller"
+import {
+  type RewoundGroup,
+  RewoundTurnsRow,
+  rewoundGroups,
+} from "@/components/rewound-turns"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMessageActionPress } from "@/hooks/use-message-action-press"
@@ -35,7 +40,14 @@ import type { Message } from "@/lib/api-types"
 import { isOptimisticMessage } from "@/lib/messages"
 
 type ThreadListItem =
-  | { kind: "reply"; message: Message; replyIndex: number }
+  | {
+      kind: "reply"
+      message: Message
+      replyIndex: number
+      // An unfolded rewind's set-aside message, on the fold's surface.
+      history?: "middle" | "last"
+    }
+  | { kind: "rewound"; group: RewoundGroup; open: boolean }
   | { kind: "pagination" }
   | { kind: "count" }
   | { kind: "root"; message: Message }
@@ -115,6 +127,21 @@ export function ThreadMessageList({
     useMessageActionPress(setSelectedMessage)
 
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
+  // Sessions fold the turns a rewind set aside (rewound-turns.tsx).
+  const groups = useMemo(
+    () => (layout === "document" ? rewoundGroups(orderedMessages) : []),
+    [layout, orderedMessages]
+  )
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set())
+  const toggleGroup = useCallback(
+    (id: string) =>
+      setUnfolded((current) => {
+        const next = new Set(current)
+        if (!next.delete(id)) next.add(id)
+        return next
+      }),
+    []
+  )
   const items = useMemo<ThreadListItem[]>(() => {
     // A call chat's root is the session itself, with nothing to read.
     const next: ThreadListItem[] =
@@ -125,16 +152,34 @@ export function ThreadMessageList({
     if (hasOlder || isLoadingOlder || paginationError) {
       next.push({ kind: "pagination" })
     }
-    next.push(
-      ...orderedMessages.map((message, replyIndex) => ({
-        kind: "reply" as const,
-        message,
-        replyIndex,
-      }))
-    )
+    for (const [replyIndex, message] of orderedMessages.entries()) {
+      const group = groups.find(
+        (g) => replyIndex >= g.start && replyIndex <= g.end
+      )
+      if (!group) {
+        next.push({ kind: "reply", message, replyIndex })
+        continue
+      }
+      // The fold's row sits under the reply rewound to; the rewind event
+      // itself is that row.
+      const open = group.count > 0 && unfolded.has(group.event.id)
+      if (replyIndex === group.start) {
+        next.push({ kind: "rewound", group, open })
+      }
+      if (open && replyIndex < group.end) {
+        next.push({
+          kind: "reply",
+          message,
+          replyIndex,
+          history: replyIndex === group.end - 1 ? "last" : "middle",
+        })
+      }
+    }
     return next
   }, [
     orderedMessages,
+    groups,
+    unfolded,
     hasOlder,
     isLoadingOlder,
     paginationError,
@@ -268,6 +313,7 @@ export function ThreadMessageList({
             if (item.kind === "reply" || item.kind === "root") {
               return `${item.kind}-${item.message.id}`
             }
+            if (item.kind === "rewound") return `rewound-${item.group.event.id}`
             return item.kind
           }}
           newestItemKey={orderedMessages.at(-1)?.id ?? `root-${root?.id}`}
@@ -279,6 +325,15 @@ export function ThreadMessageList({
           onStartReachedThreshold={0.25}
           renderItem={({ item }) => {
             if (item.kind === "heading") return <View>{heading}</View>
+            if (item.kind === "rewound") {
+              return (
+                <RewoundTurnsRow
+                  expanded={item.open}
+                  group={item.group}
+                  onToggle={() => toggleGroup(item.group.event.id)}
+                />
+              )
+            }
             if (item.kind === "root") {
               const canManageMessage =
                 Boolean(currentUserId) &&
@@ -377,7 +432,14 @@ export function ThreadMessageList({
               )
             }
 
-            const { message, replyIndex } = item
+            const { message, replyIndex, history } = item
+            const historyClassName = history
+              ? `mx-four border-x border-border bg-surface-secondary ${
+                  history === "last"
+                    ? "mb-three rounded-b-xl border-b pb-three"
+                    : ""
+                }`
+              : ""
             const older = orderedMessages[replyIndex - 1]
             // The oldest loaded reply compares against the root only once all
             // older replies are loaded — unloaded days may sit in between. A
@@ -391,12 +453,13 @@ export function ThreadMessageList({
             // message (its content is the payload Lor reads).
             if (message.type === "event") {
               return (
-                <View>
+                <View className={historyClassName}>
                   {showDate ? (
                     <MessageDateDivider date={message.createdAt} />
                   ) : null}
                   <ChannelEventRow
                     events={[message]}
+                    layout={layout}
                     resolveUserName={resolveUserName}
                   />
                 </View>
@@ -451,7 +514,7 @@ export function ThreadMessageList({
                 }}
                 onLongPress={() => handleLongPress(message)}
               >
-                <View>
+                <View className={historyClassName}>
                   {showDate ? (
                     <MessageDateDivider date={message.createdAt} />
                   ) : null}

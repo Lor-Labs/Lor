@@ -27,6 +27,16 @@ The phone matches web's session model: `@Lor` starts a session, Lor works only i
 - [ ] Approve or reject doesn't move the Channels-tab row (needs you → running) at once; the server's activity push moves it a moment later.
 - [ ] Search has no Sessions group for title matches (web ⌘K shows one; the API already returns `sessions` on page 1). Mobile shows the session title on message hits — `planned/session-memory.md` Step 2.
 
+## Code sessions (catch-up pass started 2026-10-26, `reference/planned/code-sessions-runbook.md`)
+
+Goal (Jacob): mobile works with code sessions, including starting one, without web's full capability yet.
+
+- [x] M1: readable session event rows (continued, committed, pushed, forked, rewound) with their icons and links to the other session or the GitHub commit; a rewind's set-aside turns folded under a "Previous history" row.
+- [ ] M2: Claude Code plan card and question stepper (approve-plan and answer endpoints).
+- [ ] M3: code, repo, branch and harness labels on session rows, heading and sheet; the people-only notice for senders without a Claude subscription; "Forked from" link; Claude Code and Codex tool icons.
+- [ ] M4: starting a code session: Chat | Code, repo and branch picker, harness picker (Claude Code needs a linked account).
+- [ ] Later: Changes panel (stage, commit, push, pull), Files tab, fork and rewind actions, composer mode and model pickers, context meter.
+
 ## Post-launch — onboarding (web shipped 2026-10-08, `reference/onboarding.md`)
 
 - [ ] `lor_reply` hint. Web shows it on the tool trail of the first Lor reply you watched finish ("Lor shows its work…"); mobile never built it (`MobileHintKey` has no `lor_reply`).
