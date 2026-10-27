@@ -144,19 +144,32 @@ export function useResolveChannelApproval(channelId: string) {
     mutationFn: async (args: {
       approvalId: string
       resolution: "approve" | "reject"
+      // Approving a Claude Code plan: the mode its turn goes on in.
+      claudeCodeMode?: "acceptEdits" | "default"
+      // Answering a Claude Code question.
+      answers?: NonNullable<ChannelApproval["answers"]>
     }) => {
-      const endpoint =
-        api.v1.approvals[":approvalId"][
-          args.resolution === "approve" ? "approve" : "reject"
-        ]
-      const res = await endpoint.$post({
-        param: { approvalId: args.approvalId },
-      })
+      const approval = api.v1.approvals[":approvalId"]
+      const param = { approvalId: args.approvalId }
+      const res =
+        args.resolution === "reject"
+          ? await approval.reject.$post({ param })
+          : args.answers
+            ? await approval.answer.$post({
+                param,
+                json: { answers: args.answers },
+              })
+            : args.claudeCodeMode
+              ? await approval["approve-plan"].$post({
+                  param,
+                  json: { mode: args.claudeCodeMode },
+                })
+              : await approval.approve.$post({ param })
       if (!res.ok) throw new Error("Failed to resolve approval")
       return res.json()
     },
     // The card shows the decision at once; a failure puts it back.
-    onMutate: async ({ approvalId, resolution }) => {
+    onMutate: async ({ approvalId, resolution, answers }) => {
       await queryClient.cancelQueries({ queryKey })
       const previous = queryClient.getQueriesData<ChannelApproval[]>({
         queryKey,
@@ -170,6 +183,7 @@ export function useResolveChannelApproval(channelId: string) {
                 status,
                 resolvedBy: auth?.user.id ?? null,
                 resolvedAt: new Date().toISOString(),
+                ...(answers ? { answers } : {}),
               }
             : approval
         )
@@ -181,7 +195,11 @@ export function useResolveChannelApproval(channelId: string) {
         queryClient.setQueryData(key, data)
       }
       Alert.alert(
-        args.resolution === "approve" ? "Couldn't approve" : "Couldn't reject",
+        args.answers
+          ? "Couldn't send your answers"
+          : args.resolution === "approve"
+            ? "Couldn't approve"
+            : "Couldn't reject",
         "Please try again in a moment."
       )
     },
