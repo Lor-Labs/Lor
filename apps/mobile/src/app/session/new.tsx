@@ -304,12 +304,16 @@ function NewSessionComposer({
               {codeTargetNote(code.status)}
             </Text>
           )}
-          <Text className="text-[13px] text-muted">with</Text>
-          <TargetChip
-            hint="Chooses the agent that runs the session"
-            label={HARNESS_LABELS[harness]}
-            onPress={() => setSheet("harness")}
-          />
+          {HARNESS_OPTIONS.length > 1 && (
+            <>
+              <Text className="text-[13px] text-muted">with</Text>
+              <TargetChip
+                hint="Chooses the agent that runs the session"
+                label={HARNESS_LABELS[harness]}
+                onPress={() => setSheet("harness")}
+              />
+            </>
+          )}
         </View>
       ) : null}
     </View>

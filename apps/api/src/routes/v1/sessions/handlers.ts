@@ -52,6 +52,7 @@ import {
 import { channelEventContent } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
+import { isHarnessEnabled } from "@repo/utils/features"
 import { getEmitter } from "@/lib/bot-messages"
 import { githubAccountToken } from "@/lib/github-account"
 import { pullRequestLink, pushCommits } from "@/lib/github-push"
@@ -450,6 +451,16 @@ export const forkAgentSession: AppRouteHandler<ForkAgentSessionRoute> = async (
   }
   if (source === "forbidden") {
     return c.json(forbidden, HttpStatusCodes.FORBIDDEN)
+  }
+
+  if (!isHarnessEnabled(source.harness)) {
+    return c.json(
+      {
+        success: false as const,
+        message: "This agent is temporarily unavailable",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
   }
 
   let fork: AgentSession

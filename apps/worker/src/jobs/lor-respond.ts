@@ -58,6 +58,7 @@ import {
   userRoom,
   workspaceRoom,
 } from "@repo/realtime-types/rooms"
+import { assertHarnessEnabled } from "@repo/utils/features"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Job, Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -557,6 +558,7 @@ export function createLorRespondProcessor(
                   .then((rows) => rows[0])
               : undefined
             if (!session) throw new Error("This Lor run has no session")
+            assertHarnessEnabled(session.harness)
             const owner = { sessionId: session.id }
             const harnessState = await loadHarnessState(
               owner,

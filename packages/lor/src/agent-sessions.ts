@@ -11,6 +11,7 @@ import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, Loop } from "@repo/db/schema"
 import type { RealtimeAgentSession } from "@repo/realtime-types/events"
+import { assertHarnessEnabled } from "@repo/utils/features"
 import type { Exact, SerializedDates } from "./wire-guard"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -80,6 +81,7 @@ export async function createSession(
   tx: Tx,
   args: CreateSessionArgs
 ): Promise<AgentSession> {
+  assertHarnessEnabled(args.harness ?? "pi")
   const [anchor] = await tx
     .insert(schema.message)
     .values({

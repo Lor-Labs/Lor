@@ -17,6 +17,7 @@
     "@repo/lor": "workspace:^",
     "@repo/messaging": "workspace:^",
     "@repo/realtime-types": "workspace:*",
+    "@repo/utils": "workspace:*",
     "@socket.io/redis-adapter": "^8.3.0",
     "bullmq": "^5.52.2",
     "redis": "^4.7.0",

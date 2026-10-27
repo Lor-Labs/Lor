@@ -8,6 +8,7 @@ import {
   MessageScrollerViewport,
 } from "@repo/ui/components/message-scroller"
 import { cn } from "@repo/ui/lib/utils"
+import { isHarnessEnabled } from "@repo/utils/features"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type DragEvent,
@@ -315,6 +316,7 @@ export function SessionDocument({
     // Without the sender's Claude subscription the server sends a Claude
     // Code session's message to its people only.
     const toLor =
+      isHarnessEnabled(agentSession.harness) &&
       !options?.toPeople &&
       !pendingLorMessage &&
       (agentSession.harness !== "claude_code" || claudeCode)

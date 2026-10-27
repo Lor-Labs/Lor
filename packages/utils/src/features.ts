@@ -1,11 +1,32 @@
-// Launch gates. Re-enable either feature here and rebuild the affected apps.
-// These control product visibility, not API authorization.
+// Launch gates. Re-enable individually after approval and redeploy consumers.
+// Signup and harness gates are also enforced on the server.
 export const features: Readonly<{
+  selfSignups: boolean
+  claudeCodeHarness: boolean
+  codexHarness: boolean
   directMessages: boolean
   voiceChannels: boolean
 }> = {
+  selfSignups: false,
+  claudeCodeHarness: false,
+  codexHarness: false,
   directMessages: false,
   voiceChannels: false,
+}
+
+export function isHarnessEnabled(harness: string): boolean {
+  if (harness === "pi") return true
+  if (harness === "claude_code") return features.claudeCodeHarness
+  if (harness === "codex") return features.codexHarness
+  return false
+}
+
+export function assertHarnessEnabled(harness: string): void {
+  if (!isHarnessEnabled(harness)) {
+    throw new Error(
+      "This agent is temporarily unavailable. Start a session with Lor instead."
+    )
+  }
 }
 
 export function isChannelFeatureEnabled(channel: { type: string }): boolean {

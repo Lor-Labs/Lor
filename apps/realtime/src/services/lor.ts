@@ -22,6 +22,7 @@ import {
   type SendMessagePayload,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
+import { assertHarnessEnabled } from "@repo/utils/features"
 import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
 import { isLorMentioned } from "@/services/lor-routing"
@@ -124,6 +125,7 @@ export async function sessionStartFor(args: {
     threadRootId: payload.newSession?.threadRootId,
   }
   if (payload.startSession && !payload.threadRootId) {
+    assertHarnessEnabled(payload.harness ?? "pi")
     const code = payload.code
       ? await codeSessionStart(
           channel.workspaceId,

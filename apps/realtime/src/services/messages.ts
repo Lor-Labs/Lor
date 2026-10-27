@@ -31,6 +31,7 @@ import type {
   SendMessagePayload,
   ToggleMessageReactionPayload,
 } from "@repo/realtime-types"
+import { isHarnessEnabled } from "@repo/utils/features"
 import {
   type AccessibleChannel,
   assertUserCanAccessChannel,
@@ -546,7 +547,11 @@ export async function createMessage(
       const routedToLor = isPersonInSession
         ? sessionMessageRunsLor({
             content: input.payload.content,
-            toPeople: input.payload.toPeople || withoutClaude,
+            toPeople:
+              input.payload.toPeople ||
+              withoutClaude ||
+              (existingSession != null &&
+                !isHarnessEnabled(existingSession.harness)),
             replyAuthorId,
             senderId: input.userId,
             startsSession: Boolean(input.newSession),
