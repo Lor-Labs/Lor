@@ -1,7 +1,6 @@
 import {
   Archive02Icon,
   BubbleChatIcon,
-  CommandLineIcon,
   GitBranchIcon,
   GitForkIcon,
   HashtagIcon,
@@ -40,6 +39,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
+import { HarnessLogo } from "@/components/session/harness-logo"
 import { HARNESS_LABELS } from "@/components/session/harness-picker"
 import { SessionDocument } from "@/components/session/session-document"
 import {
@@ -639,11 +639,7 @@ function SessionHeading({
           <>
             <span aria-hidden="true">·</span>
             <span className="inline-flex items-center gap-1">
-              <HugeiconsIcon
-                icon={CommandLineIcon}
-                className="size-3.5"
-                strokeWidth={2}
-              />
+              <HarnessLogo harness={session.harness} className="size-3.5" />
               {HARNESS_LABELS[session.harness]}
             </span>
           </>
