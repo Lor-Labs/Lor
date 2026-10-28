@@ -1,6 +1,7 @@
 import {
   sendAutoTopupChargedEmail,
   sendAutoTopupFailedEmail,
+  syncBetaCredits,
 } from "@repo/billing"
 import { env } from "@repo/env/server"
 import type { BillingUpdatedEvent } from "@repo/realtime-types"
@@ -114,6 +115,11 @@ billingRouter.post("/billing/webhook", async (c) => {
       )
       .catch((err) =>
         logger.error({ err, workspaceId }, "billing:updated emit failed")
+      )
+    // Subscribing ends beta mode; the minute sweep is the fallback.
+    if (reason === "subscription_changed")
+      void syncBetaCredits(workspaceId).catch((err) =>
+        logger.error({ err, workspaceId }, "Beta subscription sync failed")
       )
     // Auto top-ups charge the owner's card without them acting — email them.
     if (reason === "auto_topup_succeeded" && event.data?.quantity_granted) {

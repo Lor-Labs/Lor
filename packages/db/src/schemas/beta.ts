@@ -103,6 +103,9 @@ export const workspaceBetaTrial = pgTable(
       withTimezone: true,
     }),
     aiExhaustedAt: timestamp("ai_exhausted_at", { withTimezone: true }),
+    // Set while the team holds an active seat subscription, synced from
+    // Autumn. Subscribing ends beta mode: no beta limits apply.
+    subscribedAt: timestamp("subscribed_at", { withTimezone: true }),
     exhaustionEmailAttemptedAt: timestamp("exhaustion_email_attempted_at", {
       withTimezone: true,
     }),

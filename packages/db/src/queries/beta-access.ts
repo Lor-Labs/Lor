@@ -17,8 +17,18 @@ export async function isBetaExempt(workspaceId: string) {
   return Boolean(row)
 }
 
-// Active with no trial: beta off, or an exempt internal workspace (normal
-// access and billing, no beta limits).
+// Normal access and billing under the hosted beta: an exempt internal
+// workspace, or a trial team that subscribed (subscribing ends beta mode).
+export async function betaLimitsLifted(workspaceId: string) {
+  const [trial] = await db
+    .select({ subscribedAt: schema.workspaceBetaTrial.subscribedAt })
+    .from(schema.workspaceBetaTrial)
+    .where(eq(schema.workspaceBetaTrial.workspaceId, workspaceId))
+  return trial ? Boolean(trial.subscribedAt) : isBetaExempt(workspaceId)
+}
+
+// Active with no trial: beta off, an exempt internal workspace, or a
+// subscribed team (normal access and billing, no beta limits).
 export async function workspaceBetaAccess(workspaceId: string) {
   if (!hostedBetaEnabled()) return { state: "active" as const, trial: null }
   const trial = await db
@@ -26,6 +36,7 @@ export async function workspaceBetaAccess(workspaceId: string) {
     .from(schema.workspaceBetaTrial)
     .where(eq(schema.workspaceBetaTrial.workspaceId, workspaceId))
     .then((rows) => rows[0] ?? null)
+  if (trial?.subscribedAt) return { state: "active" as const, trial: null }
   if (!trial)
     return (await isBetaExempt(workspaceId))
       ? { state: "active" as const, trial: null }
@@ -44,7 +55,7 @@ export async function assertWorkspaceActive(workspaceId: string) {
   if (access.state !== "active")
     throw new BetaAccessError(
       access.state === "expired"
-        ? "This team's beta has ended. Saved work remains readable; new work is paused."
+        ? "This team's beta has ended. Saved work remains readable; subscribe in billing to keep working."
         : "This workspace is not enrolled in the hosted beta."
     )
   return access.trial

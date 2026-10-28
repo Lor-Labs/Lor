@@ -16,9 +16,9 @@ export function BetaStatus({ workspaceSlug }: { workspaceSlug: string }) {
   if (!data?.enabled) return null
   const text =
     data.state !== "active"
-      ? "This workspace's beta is not active. Saved work remains readable; new work is paused."
+      ? "This workspace's beta has ended. Saved work remains readable; subscribe in billing to keep working."
       : data.compute?.sandboxRemainingSeconds === 0
-        ? "Your team's sandbox allowance is used up. Compute is paused; contact Lor for an extension."
+        ? "Your team's sandbox allowance is used up. Subscribe in billing to keep working."
         : `Private beta · Free until ${new Date(data.expiresAt ?? "").toLocaleDateString()} · ${((data.compute?.sandboxRemainingSeconds ?? 0) / 3600).toFixed(1)} sandbox hours remaining`
   return (
     <output className="shrink-0 border-b bg-muted/50 px-4 py-2 text-center text-xs text-muted-foreground">

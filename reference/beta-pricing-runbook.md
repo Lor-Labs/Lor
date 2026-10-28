@@ -158,7 +158,12 @@ Agreed with Jacob, not built. Vendor prices were checked on 2026-10-28.
 
 Infrastructure: launch the beta on Blaxel. Within weeks, move to Boat after (1) confirming start/resume quotas at Lor's volume and whether plan fees count toward usage, (2) measuring resume latency and file persistence, and (3) restarting in-sandbox processes after a resume (Boat keeps disk, not memory) and using named snapshots for sessions idle over 14 days. Boat counts every start against account limits (200/day on the $20 plan, 840 on $100, 1,680 on $500); Lor's post-turn idle window keeps starts to returning users. Self-hosting (E2B's Apache-2.0 runtime) is reconsidered at about $10k/month of sandbox spend. Before launch, check whether Blaxel's keep-alive bills while Lor waits on the model.
 
-Build order (not started): actual Gateway cost per request; subscription exits beta mode (local subscribed marker from the Autumn webhook; grandfathered $20 plan version); sandbox time debits the shared pool; subscribe prompts on web and mobile.
+Build order:
+- [x] Actual Gateway cost per request (2026-10-28, see Cost data).
+- [x] Subscription exits beta mode (2026-10-28). `workspace_beta_trial.subscribed_at` mirrors an active `pro` subscription. `syncBetaCredits` sets or clears it from the Autumn customer it already fetches: on the minute sweep, on the billing page (so returning from checkout applies at once) and on a `subscription_changed` webhook. While set, the trial behaves like an exempt workspace: normal access, membership, credit billing and purchases, with no member cap, compute meter, expiry lock, banner or exhaustion email. Cancelling clears it and the trial's terms apply again (an expired trial is read-only). Trial teams may subscribe at any time; the web billing page makes Subscribe the main action when the trial has ended or the AI or sandbox allowance is used up, and expiry messages point to it. Leftover beta credits stay in Autumn until they expire.
+- [ ] Lifetime $20: the current `pro` plan is $20. Before raising the seat price, version the Autumn plan so existing beta subscribers keep $20 (Autumn plan versioning is not yet verified).
+- [ ] Sandbox time debits the shared credit pool.
+- [ ] Mobile subscribe: mobile points admins to web billing; no in-app checkout.
 
 **Paid conversion:** version the Autumn offer and avoid mutating existing purchased-credit promises. Paid conversion requires an affirmative purchase, not elapsed trial time.
 

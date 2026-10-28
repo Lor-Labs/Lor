@@ -297,12 +297,12 @@ function WorkspaceSettingsForm({
             <Text className="font-semibold text-foreground">Private beta</Text>
             <Text className="text-muted-foreground">
               {beta.state !== "active"
-                ? "Your beta has ended. Saved work remains readable; new work is paused."
+                ? "Your beta has ended. Saved work remains readable; subscribe to keep working."
                 : `Free until ${new Date(beta.expiresAt ?? "").toLocaleDateString()}. ${((beta.compute?.sandboxRemainingSeconds ?? 0) / 3600).toFixed(1)} sandbox hours remaining for your team.`}
             </Text>
             <Text className="text-muted-foreground">
-              Your workspace admin manages AI credits and provider API keys in
-              workspace billing on the web.
+              Your workspace admin subscribes and manages AI credits and
+              provider API keys in workspace billing on the web.
             </Text>
           </View>
         )}

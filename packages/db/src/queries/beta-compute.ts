@@ -38,7 +38,7 @@ export async function betaComputeSummary(workspaceId: string) {
       .from(schema.workspaceBetaTrial)
       .where(eq(schema.workspaceBetaTrial.workspaceId, workspaceId))
       .for("update")
-    if (!trial) return null
+    if (!trial || trial.subscribedAt) return null
     const used = await meter(tx, trial, new Date())
     return {
       sandboxGrantSeconds: trial.sandboxGrantSeconds,
@@ -60,7 +60,7 @@ export async function assertBetaCompute(workspaceId: string, name?: string) {
       .from(schema.workspaceBetaTrial)
       .where(eq(schema.workspaceBetaTrial.workspaceId, workspaceId))
       .for("update")
-    if (!trial && (await isBetaExempt(workspaceId)))
+    if (trial?.subscribedAt || (!trial && (await isBetaExempt(workspaceId))))
       return { remainingSeconds: undefined }
     if (!trial || trial.expiresAt <= new Date())
       return {
@@ -73,7 +73,7 @@ export async function assertBetaCompute(workspaceId: string, name?: string) {
     if (remaining <= 0)
       return {
         error:
-          "Your team's included sandbox time is used up. AI credit purchases do not add compute time. Contact Lor to extend the beta allowance.",
+          "Your team's included sandbox time is used up. Subscribe in billing to keep working; AI credit purchases do not add compute time.",
       }
     if (name) {
       const [existing] = await tx

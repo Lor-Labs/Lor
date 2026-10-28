@@ -7,7 +7,12 @@ import { createLogger } from "@repo/logger"
 import { getWorkspaceBetaTrial, hostedBetaConfig } from "./beta"
 import { MICRO_USD } from "./beta-policy"
 import { getAutumn } from "./client"
-import { CREDIT_USD, CREDITS_FEATURE_ID, TOPUP_PLAN_ID } from "./constants"
+import {
+  CREDIT_USD,
+  CREDITS_FEATURE_ID,
+  PRO_PLAN_ID,
+  TOPUP_PLAN_ID,
+} from "./constants"
 import { sendBetaCreditsExhaustedEmail } from "./emails"
 
 const logger = createLogger("beta-billing")
@@ -24,16 +29,26 @@ export async function syncBetaCredits(workspaceId: string) {
       .for("update")
       .then((rows) => rows[0])
     if (!trial) return null
-    const base = {
-      expiresAt: trial.expiresAt.toISOString(),
-      aiGrantUsd: trial.aiGrantMicroUsd / MICRO_USD,
-    }
     const autumn = getAutumn()
     if (!autumn) throw new Error("Beta credits require Autumn")
     const balanceId = `beta_${trial.id}`
     let customer = await autumn.customers.getOrCreate({
       customerId: workspaceId,
     })
+    // Subscribing ends beta mode; cancelling brings the trial's terms back.
+    const subscribed = customer.subscriptions.some(
+      (s) => s.planId === PRO_PLAN_ID && s.status === "active"
+    )
+    if (subscribed !== Boolean(trial.subscribedAt))
+      await tx
+        .update(schema.workspaceBetaTrial)
+        .set({ subscribedAt: subscribed ? new Date() : null })
+        .where(eq(schema.workspaceBetaTrial.id, trial.id))
+    const base = {
+      expiresAt: trial.expiresAt.toISOString(),
+      aiGrantUsd: trial.aiGrantMicroUsd / MICRO_USD,
+      subscribed,
+    }
     const purchasedUsd = () =>
       (customer.balances[CREDITS_FEATURE_ID]?.breakdown
         ?.filter((b) => b.planId === TOPUP_PLAN_ID)
@@ -92,7 +107,7 @@ export async function syncBetaCredits(workspaceId: string) {
         autumnGrantExpiresAt: trial.expiresAt,
       })
       .where(eq(schema.workspaceBetaTrial.id, trial.id))
-    if (grant.remaining <= 0 && !trial.aiExhaustedAt) {
+    if (grant.remaining <= 0 && !trial.aiExhaustedAt && !subscribed) {
       const owner = await tx
         .select({
           email: schema.user.email,
@@ -257,7 +272,8 @@ export async function sweepBetaBilling() {
         isNotNull(schema.workspaceBetaTrial.exhaustionEmail),
         isNotNull(schema.workspaceBetaTrial.workspaceId),
         gt(schema.workspaceBetaTrial.expiresAt, new Date()),
-        isNull(schema.workspaceBetaTrial.exhaustionEmailSentAt)
+        isNull(schema.workspaceBetaTrial.exhaustionEmailSentAt),
+        isNull(schema.workspaceBetaTrial.subscribedAt)
       )
     )
     .limit(100)
@@ -283,6 +299,7 @@ export async function sweepBetaBilling() {
         if (
           !trial?.exhaustionEmail ||
           trial.exhaustionEmailSentAt ||
+          trial.subscribedAt ||
           !trial.workspaceId ||
           trial.expiresAt <= new Date()
         )
@@ -310,9 +327,9 @@ export async function sweepBetaBilling() {
   }
 }
 
+// A trial team still in beta mode (not subscribed).
 export async function isBetaWorkspace(workspaceId: string) {
-  return (
-    hostedBetaConfig().enabled &&
-    Boolean(await getWorkspaceBetaTrial(workspaceId))
-  )
+  if (!hostedBetaConfig().enabled) return false
+  const trial = await getWorkspaceBetaTrial(workspaceId)
+  return Boolean(trial && !trial.subscribedAt)
 }

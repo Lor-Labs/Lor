@@ -124,6 +124,34 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
   if (billing.beta) {
     const beta = billing.beta
     const expires = new Date(beta.expiresAt).toLocaleString()
+    const blocked =
+      beta.expired ||
+      (beta.available &&
+        beta.freeRemainingUsd + beta.purchasedRemainingUsd <= 0) ||
+      (billing.compute?.sandboxRemainingSeconds ?? 1) <= 0
+    const subscribeCard = (
+      <div className="rounded-lg border border-border p-5">
+        <div className="text-base font-semibold">Keep working with Lor Pro</div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          ${billing.seatPriceUsd} per member per month, kept for life as a beta
+          team. Subscribing ends the beta limits: invite your whole team, with
+          usage pooled across it. Unused beta credits stay on your account.
+        </p>
+        <div className="mt-3 text-sm text-muted-foreground">
+          {billing.seats} {billing.seats === 1 ? "member" : "members"} · $
+          {billing.seats * billing.seatPriceUsd}/month
+        </div>
+        <Button
+          className="mt-4"
+          variant={blocked ? "default" : "outline"}
+          onClick={() => subscribe.mutate()}
+          disabled={!billing.enabled || subscribe.isPending}
+        >
+          {subscribe.isPending && <Spinner className="size-4" />}
+          Subscribe
+        </Button>
+      </div>
+    )
     return (
       <div className="space-y-5">
         <div>
@@ -134,6 +162,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
             extend this date.
           </p>
         </div>
+        {blocked && subscribeCard}
         {beta.available ? (
           <div className="rounded-lg border p-5 space-y-2">
             <p>
@@ -200,8 +229,8 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
             </p>
             {billing.compute.sandboxRemainingSeconds <= 0 && (
               <p className="text-sm">
-                Compute is paused. Contact Lor for an allowance extension; AI
-                credit purchases add AI only.
+                Compute is paused. Subscribe to keep working; AI credit
+                purchases add AI only.
               </p>
             )}
           </div>
@@ -215,6 +244,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
           time is separate from AI credits. Browser automation is not included
           in this launch.
         </p>
+        {!blocked && subscribeCard}
       </div>
     )
   }

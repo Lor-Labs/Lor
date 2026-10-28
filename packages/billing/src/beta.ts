@@ -113,7 +113,8 @@ export async function assertBetaMemberCapacity(
     .from(schema.workspaceBetaTrial)
     .where(eq(schema.workspaceBetaTrial.workspaceId, workspaceId))
     .then((rows) => rows[0])
-  if (!trial && (await isBetaExempt(workspaceId))) return
+  if (trial?.subscribedAt || (!trial && (await isBetaExempt(workspaceId))))
+    return
   if (!trial || trial.expiresAt <= new Date())
     throw new BetaAdmissionError(
       "This workspace does not have an active beta trial"

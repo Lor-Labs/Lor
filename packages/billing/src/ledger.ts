@@ -1,5 +1,5 @@
 import { db, eq, schema } from "@repo/db"
-import { isBetaExempt } from "@repo/db/queries/beta-access"
+import { betaLimitsLifted } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
 import { createLogger } from "@repo/logger"
 import { trackCredits } from "./autumn"
@@ -82,7 +82,7 @@ export async function recordUsage(
       billable &&
       hostedBetaConfig().enabled &&
       !beta &&
-      !(await isBetaExempt(u.workspaceId))
+      !(await betaLimitsLifted(u.workspaceId))
     )
       throw new Error("Hosted usage has no beta trial")
     if (costUsd != null && (!Number.isFinite(costUsd) || costUsd < 0))

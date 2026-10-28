@@ -12,7 +12,7 @@ import {
   setAutoTopup,
   syncBetaCredits,
 } from "@repo/billing"
-import { isBetaExempt } from "@repo/db/queries/beta-access"
+import { betaLimitsLifted } from "@repo/db/queries/beta-access"
 import { betaComputeSummary } from "@repo/db/queries/beta-compute"
 import { env } from "@repo/env/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -32,9 +32,9 @@ function billingReturnUrl(slug: string) {
   return `${env.APP_BASE_URL}/${slug}?settings=workspace&tab=billing`
 }
 
-// Hosted-beta purchase limits; exempt internal workspaces buy normally.
+// Hosted-beta purchase limits; exempt and subscribed workspaces buy normally.
 async function betaLimited(workspaceId: string) {
-  return hostedBetaConfig().enabled && !(await isBetaExempt(workspaceId))
+  return hostedBetaConfig().enabled && !(await betaLimitsLifted(workspaceId))
 }
 
 const BILLING_DISABLED = {
@@ -49,10 +49,12 @@ export const getBilling: AppRouteHandler<GetBillingRoute> = async (c) => {
   const trial = hostedBetaConfig().enabled
     ? await getWorkspaceBetaTrial(workspace.id)
     : null
+  // Also syncs the subscription, so returning from checkout ends beta mode.
   const beta = trial
     ? await syncBetaCredits(workspace.id).catch(() => ({
         expiresAt: trial.expiresAt.toISOString(),
         aiGrantUsd: trial.aiGrantMicroUsd / 1_000_000,
+        subscribed: Boolean(trial.subscribedAt),
         expired: trial.expiresAt <= new Date(),
         freeRemainingUsd: 0,
         purchasedRemainingUsd: 0,
@@ -60,7 +62,7 @@ export const getBilling: AppRouteHandler<GetBillingRoute> = async (c) => {
       }))
     : null
   const base = {
-    beta,
+    beta: beta?.subscribed ? null : beta,
     compute: await betaComputeSummary(workspace.id),
     enabled: billingEnabled,
     seats: await countSeats(workspace.id),
@@ -123,11 +125,16 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
 export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
-  if (await betaLimited(workspace.id))
+  // Beta teams may subscribe at any time (it ends beta mode); a workspace
+  // with no trial and no exemption cannot.
+  if (
+    (await betaLimited(workspace.id)) &&
+    !(await getWorkspaceBetaTrial(workspace.id))
+  )
     return c.json(
       {
         success: false,
-        message: "The beta workspace stays free; buy AI credits instead",
+        message: "This workspace is not enrolled in the hosted beta",
       },
       HttpStatusCodes.BAD_REQUEST
     )
