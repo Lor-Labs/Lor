@@ -11,7 +11,8 @@ import {
 import { user } from "./users"
 
 // One model a harness offered the person, as its SDK reports it (Claude
-// Code's supportedModels), with the effort levels and fast mode it takes.
+// Code's supportedModels) or the provider's models API lists it, with the
+// effort levels and fast mode it takes.
 export type ReportedHarnessModel = {
   value: string
   displayName: string
@@ -63,8 +64,9 @@ export const personalAccount = pgTable(
     refreshToken: text("refresh_token"),
     refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
     // Claude: the models the person's Claude Code offered on their last turn
-    // (their plan decides the list), for the composer's picker. Null until a
-    // turn reports them; cleared when another token is connected.
+    // (their plan decides the list), for the composer's picker. Before a
+    // first turn, a starting list from Anthropic's models API. Cleared when
+    // another token is connected.
     models: jsonb("models").$type<ReportedHarnessModel[]>(),
   },
   (table) => [

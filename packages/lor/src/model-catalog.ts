@@ -1,6 +1,6 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
-import { claudeModels } from "./claude-account"
+import { claudeModels, startingClaudeModels } from "./claude-account"
 import { LOR_FALLBACK_MODELS, LOR_MODEL } from "./models"
 import { CODEX_DEFAULT_MODEL } from "./session-core/codex-runtime"
 
@@ -66,8 +66,8 @@ function lorCatalog(): AgentModelCatalog {
   return { models, defaultModel: LOR_MODEL, defaultEffort: "high" }
 }
 
-// Until a turn reports Claude Code's own list for the person (their account
-// decides it), its model aliases, with no effort or fast choice yet.
+// With no Claude account connected, or Anthropic unreachable: Claude Code's
+// model aliases, with no effort or fast choice.
 const CLAUDE_CODE_ALIASES = [
   ["opus", "Opus"],
   ["sonnet", "Sonnet"],
@@ -96,9 +96,11 @@ function namedOnly(
 }
 
 // Claude Code: the list the person's own Claude Code reported on their last
-// turn, with its effort levels and fast mode per model.
+// turn, with its effort levels and fast mode per model; before a first turn,
+// the starting list from Anthropic. Opus is first in both.
 async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
-  const reported = await claudeModels(userId)
+  const reported =
+    (await claudeModels(userId)) ?? (await startingClaudeModels(userId))
   const models = reported
     ? reported.map((model) => ({
         id: model.value,
