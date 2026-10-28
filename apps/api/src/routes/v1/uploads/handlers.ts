@@ -27,15 +27,13 @@ import {
 async function createPresignedUpload(
   key: string,
   contentType: string,
-  size: number,
-  metadata?: Record<string, string>
+  size: number
 ) {
   const command = new PutObjectCommand({
     Bucket: env.S3_BUCKET_NAME,
     Key: key,
     ContentType: contentType,
     ContentLength: size,
-    Metadata: metadata,
   })
   const uploadUrl = await getSignedUrl(s3Client, command, {
     expiresIn: PRESIGNED_URL_EXPIRY_SECONDS,
@@ -65,12 +63,13 @@ export const presign: AppRouteHandler<PresignRoute> = async (c) => {
 
   const fileId = crypto.randomUUID()
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
-  const key = `attachments/${channelId}/${fileId}/${sanitizedFilename}`
+  // The uploader segment is how message send verifies upload ownership
+  // (validateMessageAttachments in @repo/lor).
+  const key = `attachments/${channelId}/${user.id}/${fileId}/${sanitizedFilename}`
   const { uploadUrl, fileUrl } = await createPresignedUpload(
     key,
     contentType,
-    size,
-    { "uploader-id": user.id, "channel-id": channelId }
+    size
   )
 
   return c.json({ uploadUrl, fileUrl, key }, HttpStatusCodes.OK)
