@@ -105,8 +105,8 @@ export async function probeSandbox(
 // close it. The SDK pools one session per region for every sandbox in this
 // process (h2pool) and reuses it, pinging it first after 5 seconds idle;
 // closing it would break other runs' requests. Same as the SDK's own
-// delete(). Whether an idle pooled session keeps a sandbox billed is open
-// (reference/beta-pricing-runbook.md).
+// delete(). Standby is per sandbox: it follows requests forwarded to that
+// sandbox by Blaxel's edge, so the idle shared session keeps nothing billed.
 export function closeConnection(sandbox: SandboxInstance): void {
   sandbox.h2Session = null
 }
