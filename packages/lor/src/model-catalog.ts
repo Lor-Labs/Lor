@@ -1,5 +1,6 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
+import { claudeModels } from "./claude-account"
 import { LOR_FALLBACK_MODELS, LOR_MODEL } from "./models"
 import { CODEX_DEFAULT_MODEL } from "./session-core/codex-runtime"
 
@@ -90,14 +91,33 @@ function namedOnly(
   }))
 }
 
-export function agentModelCatalog(harness: CatalogHarness): AgentModelCatalog {
-  if (harness === "claude_code") {
-    return {
-      models: namedOnly(CLAUDE_CODE_ALIASES),
-      defaultModel: "opus",
-      defaultEffort: null,
-    }
+// Claude Code: the list the person's own Claude Code reported on their last
+// turn, with its effort levels and fast mode per model.
+async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
+  const reported = await claudeModels(userId)
+  const models = reported
+    ? reported.map((model) => ({
+        id: model.value,
+        name: model.displayName,
+        provider: null,
+        efforts: model.supportedEffortLevels,
+        fast: model.supportsFastMode,
+      }))
+    : namedOnly(CLAUDE_CODE_ALIASES)
+  return {
+    models,
+    defaultModel: models.some((model) => model.id === "opus")
+      ? "opus"
+      : (models[0]?.id ?? "opus"),
+    defaultEffort: null,
   }
+}
+
+export async function agentModelCatalog(
+  harness: CatalogHarness,
+  userId: string
+): Promise<AgentModelCatalog> {
+  if (harness === "claude_code") return claudeCodeCatalog(userId)
   if (harness === "codex") {
     return {
       models: namedOnly(CODEX_MODELS),

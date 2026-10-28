@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm"
 import {
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -8,6 +9,17 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { user } from "./users"
+
+// One model a harness offered the person, as its SDK reports it (Claude
+// Code's supportedModels), with the effort levels and fast mode it takes.
+export type ReportedHarnessModel = {
+  value: string
+  displayName: string
+  resolvedModel?: string
+  description?: string
+  supportedEffortLevels: string[]
+  supportsFastMode: boolean
+}
 
 // A person's own account at a provider ("Your accounts" in user settings),
 // never shared with the workspace: used only for turns the person starts and
@@ -50,6 +62,10 @@ export const personalAccount = pgTable(
     accessTokenExpiresAt: timestamp("access_token_expires_at"),
     refreshToken: text("refresh_token"),
     refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+    // Claude: the models the person's Claude Code offered on their last turn
+    // (their plan decides the list), for the composer's picker. Null until a
+    // turn reports them; cleared when another token is connected.
+    models: jsonb("models").$type<ReportedHarnessModel[]>(),
   },
   (table) => [
     uniqueIndex("personal_account_user_provider_uidx").on(

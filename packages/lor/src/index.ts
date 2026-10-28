@@ -89,6 +89,7 @@ import {
   rewriteCitations,
   splitCallToken,
 } from "./citations"
+import { saveClaudeModels } from "./claude-account"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { cloneRepoTool } from "./code"
 import { codeSandboxIn } from "./code-changes"
@@ -3562,6 +3563,7 @@ export async function respond(
       // for this turn only (code-sessions-runbook.md chunk 7).
       const claudeCodeTurn = async (claude: {
         token: string
+        userId: string
         mode: ClaudeCodeMode
       }) => {
         const access = grantHarnessAccess(harness.owner, {
@@ -3581,6 +3583,15 @@ export async function respond(
             mode: claude.mode,
             ...(ctx.turn?.model ? { model: ctx.turn.model } : {}),
             ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
+            ...(ctx.turn?.fast ? { fast: true } : {}),
+            // The composer offers the models the person's plan has.
+            onModels: (models) =>
+              void saveClaudeModels(claude.userId, models).catch((err) =>
+                logger.warn(
+                  { err, sessionId: conversationId },
+                  "Saving the Claude Code model list failed"
+                )
+              ),
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(answers && !pausedDropped ? { answers } : {}),

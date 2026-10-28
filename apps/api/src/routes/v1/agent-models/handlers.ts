@@ -7,5 +7,8 @@ export const listAgentModels: AppRouteHandler<ListAgentModelsRoute> = async (
   c
 ) => {
   const { harness } = c.req.valid("query")
-  return c.json(agentModelCatalog(harness), HttpStatusCodes.OK)
+  return c.json(
+    await agentModelCatalog(harness, c.var.user.id),
+    HttpStatusCodes.OK
+  )
 }

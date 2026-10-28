@@ -133,6 +133,8 @@ export const connectClaudeAccount: AppRouteHandler<
     avatarUrl: null,
     refreshToken: null,
     refreshTokenExpiresAt: null,
+    // Another subscription can offer other models: the next turn reports them.
+    models: null,
   }
   const [row] = await db
     .insert(schema.personalAccount)

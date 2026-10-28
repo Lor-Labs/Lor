@@ -9,6 +9,7 @@ import {
   type ClaudeCodeHarnessSettings,
   createClaudeCode,
 } from "@ai-sdk/harness-claude-code"
+import type { ReportedHarnessModel } from "@repo/db/schema"
 import type {
   Experimental_SandboxSession as SandboxSession,
   TextStreamPart,
@@ -105,6 +106,10 @@ export type ClaudeCodeTurnInput = {
   model?: string
   // The sender's effort pick; one Claude Code doesn't name is dropped.
   effort?: string
+  // Fast mode for the turn, on the sender's own subscription.
+  fast?: boolean
+  // The models the sender's Claude Code offers, reported at the turn's end.
+  onModels?: (models: ReportedHarnessModel[]) => void
   // Appended to Claude Code's own system prompt (it cannot be replaced).
   instructions: string
   // A paused turn in `saved` continues first, through its bridge process,
@@ -189,6 +194,7 @@ export async function runClaudeCodeTurn(
       // the file there (adapter patch, the SDK's resumeSessionAt).
       ...(rewindTo ? { resumeSessionAt: rewindTo } : {}),
       ...(effort ? { effort } : {}),
+      ...(input.fast ? { fastMode: true } : {}),
     }),
     // Without a model the bridge's Claude Code picks Sonnet, so Lor always
     // sends one: Opus is Claude Code's documented default.
@@ -254,10 +260,11 @@ export async function runClaudeCodeTurn(
         if (part.type === "abort") aborted = true
         if (part.type === "finish") {
           // The harness sets it on finish; the AI SDK type does not declare it.
-          contextUsage =
-            claudeContextUsage(
-              (part as { providerMetadata?: unknown }).providerMetadata
-            ) ?? contextUsage
+          const metadata = (part as { providerMetadata?: unknown })
+            .providerMetadata
+          contextUsage = claudeContextUsage(metadata) ?? contextUsage
+          const models = claudeReportedModels(metadata)
+          if (models) input.onModels?.(models)
         }
         await input.onPart(part)
       }
@@ -361,6 +368,40 @@ function withContinuation(
     log: { kind: "append", text: "" },
     continuation,
   }
+}
+
+// The models the person's Claude Code offers, which Lor's bridge patch puts
+// on the finish part (the SDK's initializationResult().models).
+function claudeReportedModels(
+  metadata: unknown
+): ReportedHarnessModel[] | null {
+  const models = (
+    metadata as { "claude-code"?: { models?: unknown } } | null
+  )?.["claude-code"]?.models
+  if (!Array.isArray(models)) return null
+  const reported = models.flatMap((model: Record<string, unknown>) =>
+    typeof model?.value === "string" && typeof model.displayName === "string"
+      ? [
+          {
+            value: model.value,
+            displayName: model.displayName,
+            ...(typeof model.resolvedModel === "string"
+              ? { resolvedModel: model.resolvedModel }
+              : {}),
+            ...(typeof model.description === "string"
+              ? { description: model.description }
+              : {}),
+            supportedEffortLevels: Array.isArray(model.supportedEffortLevels)
+              ? model.supportedEffortLevels.filter(
+                  (level): level is string => typeof level === "string"
+                )
+              : [],
+            supportsFastMode: model.supportsFastMode === true,
+          },
+        ]
+      : []
+  )
+  return reported.length > 0 ? reported : null
 }
 
 // Claude Code's own /context count, which Lor's bridge patch puts on the
