@@ -44,6 +44,10 @@ import {
   sweepDeadRuns,
   sweepOrphanedPlaceholders,
 } from "@/jobs/prune-run-events"
+import {
+  SANDBOX_USAGE_SWEEP_EVERY_MS,
+  sweepSandboxUsage,
+} from "@/jobs/sandbox-usage"
 import { createSourceIngestProcessor } from "@/jobs/source-ingest"
 import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
@@ -395,6 +399,7 @@ async function bootstrap() {
     async (job) => {
       if (job.name === "sweep-beta-compute") await sweepBetaCompute()
       else if (job.name === "sweep-beta-billing") await sweepBetaBilling()
+      else if (job.name === "sweep-sandbox-usage") await sweepSandboxUsage()
       else if (job.name === "prune-run-events") await pruneRunEvents()
       else if (job.name === "sweep-dead-runs") {
         await sweepDeadRuns(
@@ -460,6 +465,9 @@ async function bootstrap() {
   // Redis, first run fires immediately, then every interval.
   await maintenanceQueue.upsertJobScheduler("sweep-beta-compute", {
     every: 30_000,
+  })
+  await maintenanceQueue.upsertJobScheduler("sweep-sandbox-usage", {
+    every: SANDBOX_USAGE_SWEEP_EVERY_MS,
   })
   await maintenanceQueue.upsertJobScheduler("sweep-beta-billing", {
     every: 60_000,
