@@ -23,7 +23,8 @@ export const sandboxUsage = feature({
 })
 
 export const credits = feature({
-  id: "credits",
+  // Must match CREDITS_FEATURE_ID in packages/billing/src/constants.ts.
+  id: "lor_credits",
   name: "Lor credits",
   type: "credit_system",
   creditSchema: [
@@ -57,8 +58,9 @@ export const pro = plan({
   ],
 })
 
-// Manual top-ups: one add-on, quantity chosen from UI presets (2,500 / 10,000 /
-// 50,000 — all multiples of billingUnits). One-off prepaid → never expires.
+// Manual top-ups: one add-on, any whole-dollar amount ($1 = 100 credits, the
+// billing unit; range in packages/billing constants). One-off prepaid → never
+// expires.
 export const topup = plan({
   id: "topup",
   name: "Credit top-up",
@@ -70,8 +72,8 @@ export const topup = plan({
       // shorter intervals first, so the monthly grant is always spent
       // before these.
       price: {
-        amount: 25,
-        billingUnits: 2500,
+        amount: 1,
+        billingUnits: 100,
         billingMethod: "prepaid",
         interval: "one_off",
       },

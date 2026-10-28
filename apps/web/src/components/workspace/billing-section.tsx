@@ -12,6 +12,7 @@ import { Skeleton } from "@repo/ui/components/skeleton"
 import { Spinner } from "@repo/ui/components/spinner"
 import { Switch } from "@repo/ui/components/switch"
 import { toast } from "@repo/ui/components/toast"
+import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { type ReactNode, useEffect, useState } from "react"
 import { useSocket } from "@/context/socket-context"
@@ -25,13 +26,92 @@ import {
   SettingsSection,
 } from "./settings-group"
 
+// Auto top-up presets; manual top-ups take any whole-dollar amount.
 const TOPUPS = [
-  { size: "small", credits: 2_500, label: "2,500", price: "$25" },
-  { size: "medium", credits: 10_000, label: "10,000", price: "$100" },
-  { size: "large", credits: 50_000, label: "50,000", price: "$500" },
+  { credits: 2_500, label: "2,500", price: "$25" },
+  { credits: 10_000, label: "10,000", price: "$100" },
+  { credits: 50_000, label: "50,000", price: "$500" },
 ] as const
 
 type PackCredits = (typeof TOPUPS)[number]["credits"]
+
+// $1 = 100 credits; the API accepts any whole-dollar amount from $5.
+const TOPUP_MIN_USD = 5
+const TOPUP_PRESETS_USD = [10, 20, 50] as const
+
+function BuyCreditsSection({
+  caption,
+  onBuy,
+  pending,
+  disabled,
+}: {
+  caption: string
+  onBuy: (usd: number) => void
+  pending: boolean
+  disabled?: boolean
+}) {
+  const [choice, setChoice] = useState<number | "custom">(20)
+  const [custom, setCustom] = useState("")
+  const usd = choice === "custom" ? Number(custom) : choice
+  const valid = Number.isSafeInteger(usd) && usd >= TOPUP_MIN_USD
+  const option = (selected: boolean) =>
+    cn(PILL_BUTTON, selected && "border-primary bg-primary/10")
+  return (
+    <SettingsSection title="Buy credits" caption={caption}>
+      <SettingsCard>
+        <div className="flex flex-wrap items-center gap-2">
+          {TOPUP_PRESETS_USD.map((amount) => (
+            <Button
+              key={amount}
+              variant="outline"
+              className={option(choice === amount)}
+              aria-pressed={choice === amount}
+              onClick={() => setChoice(amount)}
+            >
+              ${amount}
+            </Button>
+          ))}
+          <Button
+            variant="outline"
+            className={option(choice === "custom")}
+            aria-pressed={choice === "custom"}
+            onClick={() => setChoice("custom")}
+          >
+            Custom
+          </Button>
+          {choice === "custom" && (
+            <div className="relative">
+              <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-muted-foreground">
+                $
+              </span>
+              <Input
+                autoFocus
+                inputMode="numeric"
+                aria-label="Amount in dollars"
+                placeholder={`${TOPUP_MIN_USD} or more`}
+                className="w-32 pl-6"
+                value={custom}
+                onChange={(event) =>
+                  setCustom(event.target.value.replace(/\D/g, ""))
+                }
+              />
+            </div>
+          )}
+        </div>
+        <Button
+          className={PILL_BUTTON}
+          disabled={disabled || pending || !valid}
+          onClick={() => onBuy(usd)}
+        >
+          {pending && <Spinner className="size-4" />}
+          {valid
+            ? `Buy ${(usd * 100).toLocaleString()} credits for $${usd.toLocaleString()}`
+            : `Minimum $${TOPUP_MIN_USD}`}
+        </Button>
+      </SettingsCard>
+    </SettingsSection>
+  )
+}
 
 const shortDate = (value: string | number) =>
   new Date(value).toLocaleDateString(undefined, {
@@ -116,10 +196,10 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
   })
 
   const topup = useMutation({
-    mutationFn: async (size: "small" | "medium" | "large") => {
+    mutationFn: async (usd: number) => {
       const res = await apiClient.v1.workspaces[
         ":workspaceSlug"
-      ].billing.topup.$post({ param: { workspaceSlug }, json: { size } })
+      ].billing.topup.$post({ param: { workspaceSlug }, json: { usd } })
       if (!res.ok) throw new Error("Failed to start checkout")
       return res.json()
     },
@@ -205,21 +285,6 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
                   ? `${credits(beta.creditGrantUsd)} included${beta.purchasedRemainingUsd > 0 ? ` · ${credits(beta.purchasedRemainingUsd)} bought` : ""}`
                   : "AI is paused until billing recovers"
               }
-              action={
-                !beta.expired && (
-                  <Button
-                    variant="outline"
-                    className={PILL_BUTTON}
-                    onClick={() => topup.mutate("small")}
-                    disabled={
-                      !billing.enabled || !beta.available || topup.isPending
-                    }
-                  >
-                    {topup.isPending && <Spinner className="size-4" />}
-                    Buy 2,500 · $25
-                  </Button>
-                )
-              }
             >
               {beta.available && (
                 <Progress
@@ -230,13 +295,28 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
                 />
               )}
             </Row>
+          </SettingsGroup>
+        </SettingsSection>
+        <SettingsSection
+          title="Lor Pro"
+          caption="Subscribing ends the beta limits. Unused credits stay."
+        >
+          <SettingsGroup>
             <Row
-              title="Lor Pro"
-              detail={`$${billing.seatPriceUsd}/member a month, yours for life`}
+              title={`$${billing.seatPriceUsd}/member a month`}
+              detail="Yours for life as a beta team"
               action={subscribeButton(blocked)}
             />
           </SettingsGroup>
         </SettingsSection>
+        {!beta.expired && (
+          <BuyCreditsSection
+            caption="$1 = 100 credits. No automatic refill."
+            onBuy={(usd) => topup.mutate(usd)}
+            pending={topup.isPending}
+            disabled={!billing.enabled || !beta.available}
+          />
+        )}
         {keySettings(beta.expired)}
       </div>
     )
@@ -316,27 +396,13 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
               }
             />
           </Row>
-          <Row
-            title="Top up"
-            detail="Bought credits never expire"
-            action={
-              <div className="flex gap-2">
-                {TOPUPS.map((pack) => (
-                  <Button
-                    key={pack.size}
-                    variant="outline"
-                    className={PILL_BUTTON}
-                    onClick={() => topup.mutate(pack.size)}
-                    disabled={topup.isPending}
-                  >
-                    {pack.price}
-                  </Button>
-                ))}
-              </div>
-            }
-          />
         </SettingsGroup>
       </SettingsSection>
+      <BuyCreditsSection
+        caption="$1 = 100 credits. Bought credits never expire."
+        onBuy={(usd) => topup.mutate(usd)}
+        pending={topup.isPending}
+      />
       <AutoTopup
         workspaceSlug={workspaceSlug}
         autoTopup={billing.autoTopup}

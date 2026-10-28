@@ -159,15 +159,14 @@ export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
 export const topup: AppRouteHandler<TopupRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
-  const { size } = c.req.valid("json")
+  const { usd } = c.req.valid("json")
   if (await betaLimited(workspace.id)) {
     const trial = await getWorkspaceBetaTrial(workspace.id)
-    if (!trial || trial.expiresAt <= new Date() || size !== "small")
+    if (!trial || trial.expiresAt <= new Date())
       return c.json(
         {
           success: false,
-          message:
-            "Only $25 credit packs are available during an active beta trial",
+          message: "Credits can be bought while the beta trial is active",
         },
         HttpStatusCodes.BAD_REQUEST
       )
@@ -179,7 +178,7 @@ export const topup: AppRouteHandler<TopupRoute> = async (c) => {
   try {
     const { url } = await attachTopup(
       workspace.id,
-      size,
+      usd,
       billingReturnUrl(workspace.slug)
     )
     return c.json({ url }, HttpStatusCodes.OK)

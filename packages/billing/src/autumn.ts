@@ -7,12 +7,12 @@ import {
   AI_USAGE_FEATURE_ID,
   CREDITS_FEATURE_ID,
   CREDITS_PER_SEAT,
+  CREDITS_PER_USD,
   PRO_PLAN_ID,
   PROMO_CREDITS,
   SANDBOX_USAGE_FEATURE_ID,
+  TOPUP_MIN_USD,
   TOPUP_PLAN_ID,
-  TOPUP_SIZES,
-  type TopupSize,
 } from "./constants"
 
 const logger = createLogger("billing")
@@ -186,14 +186,16 @@ export async function attachPro(
 
 export async function attachTopup(
   workspaceId: string,
-  size: TopupSize,
+  usd: number,
   successUrl: string
 ): Promise<CheckoutResult> {
+  if (!Number.isSafeInteger(usd) || usd < TOPUP_MIN_USD)
+    throw new Error("Invalid top-up amount")
   const res = await mustAutumn().billing.attach({
     customerId: workspaceId,
     planId: TOPUP_PLAN_ID,
     featureQuantities: [
-      { featureId: CREDITS_FEATURE_ID, quantity: TOPUP_SIZES[size] },
+      { featureId: CREDITS_FEATURE_ID, quantity: usd * CREDITS_PER_USD },
     ],
     successUrl,
   })

@@ -55,10 +55,10 @@ export async function sendBetaCreditsExhaustedEmail(
       from: env.EMAIL_FROM,
       to: notice.to,
       subject: `Your included Lor credits are used up`,
-      text: `${notice.name} has used its included credits for AI and sandbox time. To keep working, subscribe to Lor Pro ($20 per member per month, kept for life as a beta team) or buy $25 of credits in billing. Your beta runs until ${notice.expiresAt.slice(0, 10)} (UTC). No automatic refill is enabled.\n\n${notice.url}`,
+      text: `${notice.name} has used its included credits for AI and sandbox time. To keep working, subscribe to Lor Pro ($20 per member per month, kept for life as a beta team) or buy credits in billing ($1 = 100 credits). Your beta runs until ${notice.expiresAt.slice(0, 10)} (UTC). No automatic refill is enabled.\n\n${notice.url}`,
       html: EMAIL_WRAP(`<h2>Your included credits are used up</h2>
       <p><strong>${escapeHtml(notice.name)}</strong> has used its included credits for AI and sandbox time.</p>
-      <p>To keep working, subscribe to Lor Pro ($20 per member per month, kept for life as a beta team) or buy $25 of credits. Your beta runs until ${escapeHtml(notice.expiresAt.slice(0, 10))} (UTC).</p>
+      <p>To keep working, subscribe to Lor Pro ($20 per member per month, kept for life as a beta team) or buy credits ($1 = 100 credits). Your beta runs until ${escapeHtml(notice.expiresAt.slice(0, 10))} (UTC).</p>
       <p>No automatic refill is enabled. If your team has already bought more credits, you can keep using them.</p>
       <a href="${escapeHtml(notice.url)}">Open billing</a>`),
     },

@@ -125,7 +125,8 @@ and sandbox time (browser time will use the same pool; no separate grants). Sand
 an hour, chat sandbox 5), read from Blaxel's Billing API and charged per closed
 hour to an Autumn credit system (no Lor-side usage table).
 Subscribing ($20/seat, for life for beta teams) ends beta mode.
-Autumn owns free/purchased credit balances; Stripe handles explicit $25 purchases.
+Autumn owns free/purchased credit balances; Stripe handles explicit top-ups of
+any whole-dollar amount ($5 minimum, no maximum, $1 = 100 credits).
 Live Gateway prices replace seeded rates; every request is priced at the most
 expensive listed route for the served model ($3/$0.30/$15 per Mtok when the
 Gateway lists none), and beta adds no extra multiplier. Each request's cost

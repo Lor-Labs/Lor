@@ -49,8 +49,8 @@ export const billingSummaryResponseSchema = z.object({
 export const autoTopupBodySchema = z.object({
   enabled: z.boolean(),
   threshold: z.number().int().min(100).max(50_000),
-  // Pack sizes are multiples of the plan's 2,500-credit billing unit.
-  quantity: z.union([z.literal(2_500), z.literal(10_000), z.literal(50_000)]),
+  // Whole dollars of credits: a multiple of the topup plan's 100-credit unit.
+  quantity: z.number().int().min(500).max(100_000).multipleOf(100),
 })
 
 // Null when the charge went straight to a saved payment method — no redirect.
@@ -58,8 +58,9 @@ export const checkoutResponseSchema = z.object({
   url: z.string().nullable(),
 })
 
+// Any whole-dollar amount from $5; 1 USD buys 100 credits.
 export const topupBodySchema = z.object({
-  size: z.enum(["small", "medium", "large"]),
+  usd: z.number().int().min(5),
 })
 
 export const portalResponseSchema = z.object({
