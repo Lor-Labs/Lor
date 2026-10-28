@@ -64,6 +64,10 @@ export const betaCampaign = pgTable(
     }).notNull(),
     // Operator enrollment switch; never affects already-activated trials.
     paused: boolean("paused").default(true).notNull(),
+    // Emergency stop (`pnpm beta halt`): no Lor-funded AI or sandbox use for
+    // this campaign's trial teams until resumed. Subscribed and exempt
+    // workspaces are unaffected.
+    usageHaltedAt: timestamp("usage_halted_at", { withTimezone: true }),
   },
   (table) => [
     check(

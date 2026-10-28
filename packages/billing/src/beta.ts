@@ -85,6 +85,19 @@ export async function getBetaAvailability() {
   }
 }
 
+// Emergency stop for the campaign's trial teams; workers notice within about
+// 10 seconds and the usage sweep stops running sandboxes.
+export async function setBetaUsageHalted(key: string, halt: boolean) {
+  const campaign = await db
+    .update(schema.betaCampaign)
+    .set({ usageHaltedAt: halt ? new Date() : null })
+    .where(eq(schema.betaCampaign.key, key))
+    .returning()
+    .then((rows) => rows[0])
+  if (!campaign) throw new Error("Beta campaign not found")
+  return campaign
+}
+
 export async function setBetaEnrollment(key: string, paused: boolean) {
   const campaign = await db
     .update(schema.betaCampaign)

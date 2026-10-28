@@ -1,7 +1,12 @@
+import { randomUUID } from "node:crypto"
 import { and, db, eq, gt, isNotNull, isNull, schema } from "@repo/db"
-import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
+import {
+  betaUsageHalted,
+  workspaceBetaAccess,
+} from "@repo/db/queries/beta-access"
 import { workspaceInferenceFunding } from "@repo/db/queries/inference"
 import { env } from "@repo/env/server"
+import { readServerEnv } from "@repo/env/server-fields"
 import { createLogger } from "@repo/logger"
 import { getWorkspaceBetaTrial, hostedBetaConfig } from "./beta"
 import { MICRO_USD } from "./beta-policy"
@@ -146,20 +151,36 @@ export async function syncBetaCredits(workspaceId: string) {
   })
 }
 
-export async function checkBetaCredits(workspaceId: string) {
+// `sync` reads Autumn (run start). Without it the check is database only:
+// credits_empty_at, kept current by each step's debit and the minute sweep,
+// so model requests and heartbeats never call Autumn.
+export async function checkBetaCredits(
+  workspaceId: string,
+  { sync = false }: { sync?: boolean } = {}
+) {
   if (!hostedBetaConfig().enabled) return null
   try {
     const access = await workspaceBetaAccess(workspaceId)
     if (access.state !== "active") return { allowed: false, failOpen: false }
     // Exempt or subscribed: normal credit billing applies.
     if (!access.trial) return null
+    if (await betaUsageHalted(access.trial.campaignKey))
+      return { allowed: false, failOpen: false }
     // A workspace key pays for AI, but the run's sandbox still draws on the
     // pool.
     if (access.trial.creditsEmptyAt) return { allowed: false, failOpen: false }
     if ((await workspaceInferenceFunding(workspaceId)).source === "byok")
       return { allowed: true, failOpen: false }
-    const balance = await syncBetaCredits(workspaceId)
-    if (!balance) return { allowed: false, failOpen: false }
+    // A new team's grant is created on its first sync.
+    if (sync || !access.trial.autumnGrantCreatedAt) {
+      const balance = await syncBetaCredits(workspaceId)
+      if (
+        !balance ||
+        balance.expired ||
+        balance.freeRemainingUsd + balance.purchasedRemainingUsd <= 0
+      )
+        return { allowed: false, failOpen: false }
+    }
     const pending = await db
       .select({ id: schema.usageEvent.id })
       .from(schema.usageEvent)
@@ -171,13 +192,7 @@ export async function checkBetaCredits(workspaceId: string) {
         )
       )
       .limit(1)
-    return {
-      allowed:
-        !balance.expired &&
-        balance.freeRemainingUsd + balance.purchasedRemainingUsd > 0 &&
-        pending.length === 0,
-      failOpen: false,
-    }
+    return { allowed: pending.length === 0, failOpen: false }
   } catch (error) {
     logger.error(
       { err: error, workspaceId },
@@ -198,8 +213,11 @@ export async function settleBetaUsage(id: string) {
   const debitMicroUsd = row.betaDebitMicroUsd
   const autumn = getAutumn()
   if (!autumn) throw new Error("Autumn is unavailable")
+  const trial = await getWorkspaceBetaTrial(row.workspaceId)
   // Ensure a new team's grant exists before its first debit.
-  await syncBetaCredits(row.workspaceId)
+  if (!trial?.autumnGrantCreatedAt) await syncBetaCredits(row.workspaceId)
+  // Assigned inside the transaction callback.
+  let remaining = null as number | null
   await db.transaction(async (tx) => {
     const current = await tx
       .select()
@@ -223,6 +241,7 @@ export async function settleBetaUsage(id: string) {
         throw new Error(
           "Autumn has not confirmed the beta debit; keep inference paused"
         )
+      remaining = tracked.balance.remaining
     } catch (error) {
       // Autumn's Track API documents 409 for a previously accepted idempotency key.
       if ((error as { statusCode?: number }).statusCode !== 409) throw error
@@ -232,7 +251,47 @@ export async function settleBetaUsage(id: string) {
       .set({ debitStatus: "debited" })
       .where(eq(schema.usageEvent.id, id))
   })
-  await syncBetaCredits(row.workspaceId)
+  // The debit's own balance marks the pool empty at once; a replayed debit
+  // (409) has none, so read it from Autumn.
+  if (remaining === null) await syncBetaCredits(row.workspaceId)
+  else if (remaining <= 0)
+    await db
+      .update(schema.workspaceBetaTrial)
+      .set({ creditsEmptyAt: new Date() })
+      .where(
+        and(
+          eq(schema.workspaceBetaTrial.workspaceId, row.workspaceId),
+          isNull(schema.workspaceBetaTrial.creditsEmptyAt)
+        )
+      )
+}
+
+// Local testing only (`pnpm beta drain`): uses up a trial team's whole
+// balance so the out-of-credits flow can be tried without spending it.
+export async function drainBetaCredits(workspaceId: string) {
+  if (readServerEnv("NODE_ENV").NODE_ENV === "production")
+    throw new Error("drain is for local testing only")
+  const autumn = getAutumn()
+  if (!autumn) throw new Error("Beta credits require Autumn")
+  if (!(await getWorkspaceBetaTrial(workspaceId)))
+    throw new Error("Workspace has no beta trial")
+  await syncBetaCredits(workspaceId)
+  const customer = await autumn.customers.getOrCreate({
+    customerId: workspaceId,
+  })
+  const remaining = customer.balances[CREDITS_FEATURE_ID]?.remaining ?? 0
+  if (remaining > 0)
+    await autumn.track(
+      {
+        customerId: workspaceId,
+        featureId: CREDITS_FEATURE_ID,
+        value: remaining,
+        overageBehavior: "cap",
+        async: false,
+      },
+      { headers: { "Idempotency-Key": `drain-${randomUUID()}` } }
+    )
+  return syncBetaCredits(workspaceId)
 }
 
 // Durable retries for provider outages and exhaustion notices; no dependency on a next user request.

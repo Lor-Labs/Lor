@@ -61,10 +61,32 @@ export async function assertWorkspaceActive(workspaceId: string) {
   return access.trial
 }
 
+// Emergency stop per campaign, cached briefly: it is read on every model
+// request and sandbox call.
+const HALT_TTL_MS = 10_000
+const halted = new Map<string, { value: boolean; until: number }>()
+
+export async function betaUsageHalted(campaignKey: string) {
+  const cached = halted.get(campaignKey)
+  if (cached && cached.until > Date.now()) return cached.value
+  const [campaign] = await db
+    .select({ usageHaltedAt: schema.betaCampaign.usageHaltedAt })
+    .from(schema.betaCampaign)
+    .where(eq(schema.betaCampaign.key, campaignKey))
+  const value = Boolean(campaign?.usageHaltedAt)
+  halted.set(campaignKey, { value, until: Date.now() + HALT_TTL_MS })
+  return value
+}
+
+export const BETA_HALTED_MESSAGE =
+  "Lor is briefly paused for beta teams. Saved work stays available; try again soon."
+
 // Sandbox work needs an active workspace and, in beta mode, credits left in
 // the shared pool. Database only: credits_empty_at is synced from Autumn.
 export async function assertBetaSandbox(workspaceId: string) {
   const trial = await assertWorkspaceActive(workspaceId)
+  if (trial && (await betaUsageHalted(trial.campaignKey)))
+    throw new BetaAccessError(BETA_HALTED_MESSAGE)
   if (trial?.creditsEmptyAt)
     throw new BetaAccessError(
       "Your team's included credits are used up. Subscribe in billing to keep working."

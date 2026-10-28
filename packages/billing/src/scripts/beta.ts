@@ -13,11 +13,14 @@ const HELP = `Usage: pnpm beta <command>
   configure <campaign-key> <UTC-start>
   open <campaign-key>
   pause <campaign-key>
+  halt <campaign-key>      emergency stop: no AI or sandbox use for trial teams
+  resume <campaign-key>    undo halt
   show <workspace slug or id>
   adjust <workspace slug or id> --request-id <id> --operator <name> --reason <text>
     [--expires <UTC-time>] [--members <total>] [--credits <total>]
   exempt <workspace slug or id> --operator <name> --reason <text>
   unexempt <workspace slug or id>
+  drain <workspace slug or id>   local testing only: use up a team's credits
 
 Configure creates a paused campaign. Open/pause controls enrollment, not existing trials.
 Keep LOR_HOSTED_BETA=false until all launch gates in the runbook are complete.
@@ -64,6 +67,9 @@ async function main() {
       "configure",
       "open",
       "pause",
+      "halt",
+      "resume",
+      "drain",
       "show",
       "adjust",
       "exempt",
@@ -112,9 +118,11 @@ async function main() {
       getWorkspaceBetaTrial,
       adjustBetaTrial,
       setBetaEnrollment,
+      setBetaUsageHalted,
       exemptFromBeta,
       removeBetaExemption,
     } = await import("../beta")
+    const { drainBetaCredits } = await import("../beta-credits")
     const { isBetaExempt } = await import("@repo/db/queries/beta-access")
     if (command === "configure" && start) {
       console.log(
@@ -129,6 +137,15 @@ async function main() {
           null,
           2
         )
+      )
+      return
+    }
+    if (command === "halt" || command === "resume") {
+      const campaign = await setBetaUsageHalted(target, command === "halt")
+      console.log(
+        command === "halt"
+          ? `Halted ${campaign.key}: trial teams stop within about a minute.`
+          : `Resumed ${campaign.key}.`
       )
       return
     }
@@ -164,6 +181,10 @@ async function main() {
         reason: values.reason,
       })
       console.log(`Exempt: ${target}`)
+      return
+    }
+    if (command === "drain") {
+      console.log(JSON.stringify(await drainBetaCredits(workspace.id), null, 2))
       return
     }
     if (command === "unexempt") {

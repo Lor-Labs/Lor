@@ -47,7 +47,8 @@ export async function ensureCustomer(workspaceId: string, name?: string) {
 // Other errors fail open immediately rather than doubling the latency hit
 // with a pointless retry.
 export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
-  const beta = await checkBetaCredits(workspaceId)
+  // Run preflight: the one check per run that reads Autumn.
+  const beta = await checkBetaCredits(workspaceId, { sync: true })
   if (beta) return beta
   if ((await workspaceInferenceFunding(workspaceId)).source === "byok")
     return { allowed: true, failOpen: false }
