@@ -15,8 +15,10 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useCallback, useState } from "react"
+import { useDropzone } from "react-dropzone"
 import { MessageInput } from "@/components/chat/composer/message-input"
+import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { AgentPicker } from "@/components/session/agent-picker"
 import {
@@ -107,26 +109,24 @@ export function NewSessionView({
         <HeaderNavControls className="-ml-2" withDivider />
         <span className="font-semibold">New session</span>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto pb-24">
-        <div className="w-full max-w-3xl">
-          {channel ? (
-            <NewSessionComposer
-              workspaceSlug={workspaceSlug}
-              channel={channel}
-              options={options}
-              onPickChannel={setPickedChannelId}
-              aboutMessageId={aboutMessageId}
-              continueFromSessionId={continueFromSessionId}
-              startHarness={startHarness}
-              draft={draft}
-            />
-          ) : (
-            <p className="px-4 text-center text-sm text-muted-foreground">
-              {isPending ? "Loading…" : "Create a channel to start a session."}
-            </p>
-          )}
+      {channel ? (
+        <NewSessionComposer
+          workspaceSlug={workspaceSlug}
+          channel={channel}
+          options={options}
+          onPickChannel={setPickedChannelId}
+          aboutMessageId={aboutMessageId}
+          continueFromSessionId={continueFromSessionId}
+          startHarness={startHarness}
+          draft={draft}
+        />
+      ) : (
+        <div className="flex min-h-0 flex-1 items-center justify-center pb-24">
+          <p className="px-4 text-center text-sm text-muted-foreground">
+            {isPending ? "Loading…" : "Create a channel to start a session."}
+          </p>
         </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -241,155 +241,177 @@ function NewSessionComposer({
       </DropdownMenu>
     )
 
+  // Files dropped anywhere on the page attach to the first message, as in a
+  // channel or session.
+  const onDrop = useCallback(
+    (files: File[]) => {
+      if (files.length > 0) void fileUpload.addFiles(files)
+    },
+    [fileUpload.addFiles]
+  )
+  const { getRootProps, isDragActive } = useDropzone({
+    onDrop,
+    noClick: true,
+    noKeyboard: true,
+  })
+
   return (
-    <>
-      <h1 className="mb-8 px-4 text-center font-semibold text-[28px] leading-tight tracking-tight text-balance">
-        What should we work on in {channelPicker}?
-      </h1>
-      {aboutMessageId && (
-        <StartContextChip
-          label="About"
-          removeLabel="Remove the attached message"
-          onRemove={clearStartContext}
-        >
-          {aboutMessage ? (
-            <span className="min-w-0 truncate">
-              <span className="font-medium">
-                {aboutMessage.overrideName ?? aboutMessage.author.name}
-              </span>{" "}
-              <span className="text-muted-foreground">
-                {toSearchPreviewText(
-                  aboutMessage.content,
-                  aboutMessage.mentions
-                )}
+    <div
+      {...getRootProps()}
+      className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto pb-24"
+    >
+      <DropZoneOverlay isDragActive={isDragActive} />
+      <div className="w-full max-w-3xl">
+        <h1 className="mb-8 px-4 text-center font-semibold text-[28px] leading-tight tracking-tight text-balance">
+          What should we work on in {channelPicker}?
+        </h1>
+        {aboutMessageId && (
+          <StartContextChip
+            label="About"
+            removeLabel="Remove the attached message"
+            onRemove={clearStartContext}
+          >
+            {aboutMessage ? (
+              <span className="min-w-0 truncate">
+                <span className="font-medium">
+                  {aboutMessage.overrideName ?? aboutMessage.author.name}
+                </span>{" "}
+                <span className="text-muted-foreground">
+                  {toSearchPreviewText(
+                    aboutMessage.content,
+                    aboutMessage.mentions
+                  )}
+                </span>
               </span>
+            ) : (
+              <span className="min-w-0 truncate text-muted-foreground">
+                a message in #{channelName}
+              </span>
+            )}
+          </StartContextChip>
+        )}
+        {continueFromSessionId && (
+          <StartContextChip
+            label="Continuing"
+            removeLabel="Start without the earlier session"
+            onRemove={clearStartContext}
+          >
+            <span className="min-w-0 truncate font-medium">{sourceTitle}</span>
+          </StartContextChip>
+        )}
+        {needsClaude && (
+          <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              Claude Code runs on your own Claude subscription.
             </span>
-          ) : (
-            <span className="min-w-0 truncate text-muted-foreground">
-              a message in #{channelName}
-            </span>
-          )}
-        </StartContextChip>
-      )}
-      {continueFromSessionId && (
-        <StartContextChip
-          label="Continuing"
-          removeLabel="Start without the earlier session"
-          onRemove={clearStartContext}
-        >
-          <span className="min-w-0 truncate font-medium">{sourceTitle}</span>
-        </StartContextChip>
-      )}
-      {needsClaude && (
-        <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] px-3 py-2 text-sm">
-          <span className="min-w-0 flex-1 text-muted-foreground">
-            Claude Code runs on your own Claude subscription.
-          </span>
-          <Button size="xs" onClick={() => setConnectingClaude(true)}>
-            Connect
-          </Button>
-        </div>
-      )}
-      <ClaudeConnectDialog
-        open={connectingClaude}
-        onOpenChange={setConnectingClaude}
-      />
-      {/* What kind of session and where its code is, on the prompt's top
+            <Button size="xs" onClick={() => setConnectingClaude(true)}>
+              Connect
+            </Button>
+          </div>
+        )}
+        <ClaudeConnectDialog
+          open={connectingClaude}
+          onOpenChange={setConnectingClaude}
+        />
+        {/* What kind of session and where its code is, on the prompt's top
           edge; the prompt keeps only how it runs. */}
-      <div className="mx-6 flex min-h-9 min-w-0 items-center gap-1 rounded-t-lg border border-input border-b-0 bg-muted/30 px-1.5 py-1 text-xs">
-        <SessionModeSwitch mode={mode} onChange={setMode} />
-        {mode === "code" && (
-          <>
-            <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
-            <CodeTargetPicker
+        <div className="mx-6 flex min-h-9 min-w-0 items-center gap-1 rounded-t-lg border border-input border-b-0 bg-muted/30 px-1.5 py-1 text-xs">
+          <SessionModeSwitch mode={mode} onChange={setMode} />
+          {mode === "code" && (
+            <>
+              <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
+              <CodeTargetPicker
+                workspaceSlug={workspaceSlug}
+                channelId={channel.id}
+                code={code}
+              />
+            </>
+          )}
+        </div>
+        <MessageInput
+          composerDraft={composerDraft}
+          onComposerDraftConsumed={() => setComposerDraft(undefined)}
+          context={{ type: "channel", name: channelName }}
+          channelId={channel.id}
+          destination="new"
+          notice={
+            <SessionStartedNote
+              session={sessionStart.started}
               workspaceSlug={workspaceSlug}
-              channelId={channel.id}
-              code={code}
             />
-          </>
+          }
+          leadingTools={
+            claudeCode ? (
+              <ClaudeCodeModePicker
+                value={claudeMode.mode}
+                onChange={claudeMode.setMode}
+              />
+            ) : undefined
+          }
+          placeholder={
+            mode === "code"
+              ? `Ask ${HARNESS_LABELS[harness]} for changes, or attach screenshots`
+              : "Describe the work, or @mention a teammate"
+          }
+          sendBlocked={(mode === "code" && !code.target) || needsClaude}
+          tools={
+            mode === "code" ? (
+              <AgentPicker
+                harness={harness}
+                onHarness={setHarness}
+                claudeModel={claudeModel.model}
+                onClaudeModel={claudeModel.setModel}
+                codexModel={codexModel.model}
+                onCodexModel={codexModel.setModel}
+              />
+            ) : undefined
+          }
+          onShiftTab={claudeCode ? claudeMode.cycle : undefined}
+          onSend={(content, options) =>
+            handleSend(content, {
+              mentions: [],
+              ...options,
+              startSession: true,
+              contextMessageId: aboutMessageId,
+              ...(mode === "code" && code.target
+                ? { code: code.target, harness }
+                : {}),
+              ...(claudeCode
+                ? {
+                    claudeCodeMode: claudeMode.mode,
+                    claudeModel: claudeModel.model,
+                  }
+                : {}),
+              ...(codex ? { codexModel: codexModel.model } : {}),
+              ...(continueFromSessionId
+                ? {
+                    continueFrom: {
+                      id: continueFromSessionId,
+                      title: sourceTitle,
+                    },
+                  }
+                : {}),
+            })
+          }
+          currentUserId={authSession?.user.id}
+          mentionCandidates={mentionCandidates}
+          pendingAttachments={fileUpload.attachments}
+          addFiles={fileUpload.addFiles}
+          removeAttachment={fileUpload.removeAttachment}
+          clearAttachments={fileUpload.clearAttachments}
+          getUploadedAttachments={fileUpload.getUploadedAttachments}
+          isUploading={fileUpload.isUploading}
+        />
+        {!(aboutMessageId || continueFromSessionId) && mode === "chat" && (
+          <SessionExamples
+            examples={sessionExamples(channelName)}
+            onPick={(text) =>
+              setComposerDraft({ id: crypto.randomUUID(), text })
+            }
+          />
         )}
       </div>
-      <MessageInput
-        composerDraft={composerDraft}
-        onComposerDraftConsumed={() => setComposerDraft(undefined)}
-        context={{ type: "channel", name: channelName }}
-        channelId={channel.id}
-        destination="new"
-        notice={
-          <SessionStartedNote
-            session={sessionStart.started}
-            workspaceSlug={workspaceSlug}
-          />
-        }
-        leadingTools={
-          claudeCode ? (
-            <ClaudeCodeModePicker
-              value={claudeMode.mode}
-              onChange={claudeMode.setMode}
-            />
-          ) : undefined
-        }
-        placeholder={
-          mode === "code"
-            ? `Ask ${HARNESS_LABELS[harness]} for changes, or attach screenshots`
-            : "Describe the work, or @mention a teammate"
-        }
-        sendBlocked={(mode === "code" && !code.target) || needsClaude}
-        tools={
-          mode === "code" ? (
-            <AgentPicker
-              harness={harness}
-              onHarness={setHarness}
-              claudeModel={claudeModel.model}
-              onClaudeModel={claudeModel.setModel}
-              codexModel={codexModel.model}
-              onCodexModel={codexModel.setModel}
-            />
-          ) : undefined
-        }
-        onShiftTab={claudeCode ? claudeMode.cycle : undefined}
-        onSend={(content, options) =>
-          handleSend(content, {
-            mentions: [],
-            ...options,
-            startSession: true,
-            contextMessageId: aboutMessageId,
-            ...(mode === "code" && code.target
-              ? { code: code.target, harness }
-              : {}),
-            ...(claudeCode
-              ? {
-                  claudeCodeMode: claudeMode.mode,
-                  claudeModel: claudeModel.model,
-                }
-              : {}),
-            ...(codex ? { codexModel: codexModel.model } : {}),
-            ...(continueFromSessionId
-              ? {
-                  continueFrom: {
-                    id: continueFromSessionId,
-                    title: sourceTitle,
-                  },
-                }
-              : {}),
-          })
-        }
-        currentUserId={authSession?.user.id}
-        mentionCandidates={mentionCandidates}
-        pendingAttachments={fileUpload.attachments}
-        addFiles={fileUpload.addFiles}
-        removeAttachment={fileUpload.removeAttachment}
-        clearAttachments={fileUpload.clearAttachments}
-        getUploadedAttachments={fileUpload.getUploadedAttachments}
-        isUploading={fileUpload.isUploading}
-      />
-      {!(aboutMessageId || continueFromSessionId) && mode === "chat" && (
-        <SessionExamples
-          examples={sessionExamples(channelName)}
-          onPick={(text) => setComposerDraft({ id: crypto.randomUUID(), text })}
-        />
-      )}
-    </>
+    </div>
   )
 }
 
