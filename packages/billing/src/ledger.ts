@@ -1,6 +1,10 @@
 import { db, eq, schema } from "@repo/db"
+import { env } from "@repo/env/server"
 import { createLogger } from "@repo/logger"
 import { trackCredits } from "./autumn"
+import { hostedBetaConfig } from "./beta"
+import { isBetaWorkspace, settleBetaUsage } from "./beta-credits"
+import { MICRO_USD } from "./beta-policy"
 import { computeCostUsd, creditsForCost } from "./credits"
 import { isBillableTool, usageDebitKey } from "./policy"
 import { getRate } from "./rates"
@@ -29,6 +33,7 @@ export type UsageRefs = {
   messageId?: string | null
   channelId?: string | null
   userId?: string | null
+  betaStep?: boolean
   // Scopes the debit key when there is no message (voice requests).
   debitScope?: string
 }
@@ -55,19 +60,39 @@ export async function recordUsage(
   refs: UsageRefs = {}
 ): Promise<void> {
   try {
+    const beta =
+      isBillableTool(u.tool) && (await isBetaWorkspace(u.workspaceId))
+    // Beta steps already settled; the aggregate must never debit again.
+    if (beta && !refs.betaStep) return
+    const billable = isBillableTool(u.tool)
+    if (beta && u.costUsd == null)
+      throw new Error("Beta usage requires the per-request price")
     const tokens = {
       inputTokens: u.inputTokens,
       cachedInputTokens: u.cachedInputTokens,
       outputTokens: u.outputTokens,
     }
-    const rate = u.model ? await getRate(u.model, tokens) : null
+    const rate =
+      u.model && u.costUsd == null ? await getRate(u.model, tokens) : null
     // A turn passes the cost its spend counter summed call by call (each at
     // its own long-context tier), so the debit matches it.
     const costUsd = u.costUsd ?? (rate ? computeCostUsd(tokens, rate) : null)
-    const billable = isBillableTool(u.tool)
+    if (billable && hostedBetaConfig().enabled && !beta)
+      throw new Error("Hosted usage has no beta trial")
+    if (costUsd != null && (!Number.isFinite(costUsd) || costUsd < 0))
+      throw new Error("Invalid inference cost")
+    if (beta && costUsd == null)
+      throw new Error("Beta inference cost is unavailable")
+    const betaDebitMicroUsd =
+      beta && costUsd != null ? Math.round(costUsd * MICRO_USD) : null
+    if (
+      betaDebitMicroUsd !== null &&
+      (!Number.isSafeInteger(betaDebitMicroUsd) || betaDebitMicroUsd < 0)
+    )
+      throw new Error("Invalid beta inference cost")
     const credits =
-      billable && rate && costUsd !== null
-        ? creditsForCost(costUsd, rate.conversionRate)
+      !beta && billable && costUsd !== null
+        ? creditsForCost(costUsd, env.CREDIT_CONVERSION_RATE)
         : 0
     const debitKey = usageDebitKey({
       billingKey: u.billingKey,
@@ -76,6 +101,7 @@ export async function recordUsage(
     })
     const selection = {
       creditsDebited: schema.usageEvent.creditsDebited,
+      betaDebitMicroUsd: schema.usageEvent.betaDebitMicroUsd,
       debitStatus: schema.usageEvent.debitStatus,
       id: schema.usageEvent.id,
       workspaceId: schema.usageEvent.workspaceId,
@@ -97,7 +123,9 @@ export async function recordUsage(
         toolCalls: u.toolCalls ?? null,
         costUsd: costUsd != null ? costUsd.toFixed(6) : null,
         creditsDebited: credits,
-        debitStatus: credits > 0 ? "pending" : "free",
+        betaDebitMicroUsd,
+        debitStatus:
+          credits > 0 || (betaDebitMicroUsd ?? 0) > 0 ? "pending" : "free",
         messageId: refs.messageId ?? null,
         idempotencyKey: debitKey,
       })
@@ -113,7 +141,9 @@ export async function recordUsage(
             .limit(1)
             .then((rows) => rows[0])
     const row = inserted[0] ?? existing
-    if (row?.debitStatus === "pending" && row.creditsDebited > 0) {
+    if (row?.debitStatus === "pending" && row.betaDebitMicroUsd !== null) {
+      await settleBetaUsage(row.id)
+    } else if (row?.debitStatus === "pending" && row.creditsDebited > 0) {
       const status = await trackCredits(
         row.workspaceId,
         row.creditsDebited,
@@ -126,5 +156,6 @@ export async function recordUsage(
     }
   } catch (err) {
     logger.error({ err, tool: u.tool }, "Failed to record usage")
+    if (refs.betaStep) throw err
   }
 }

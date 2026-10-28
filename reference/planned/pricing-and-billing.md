@@ -1,6 +1,6 @@
 # Lor pricing and billing proposal
 
-Status: proposal for LOR-16, 2026-10-16. Prices below are USD, before tax. Product prices and workload volumes are proposed assumptions; vendor rates are public prices checked on this date. This does not change the live billing configuration.
+Status: historical proposal for LOR-16, 2026-10-16. The [private beta implementation plan](../beta-pricing-runbook.md), agreed in direction on 2026-10-27, supersedes this document's launch recommendations: free 25-team beta, future $20 seats, provider-price inference without a blanket 3× markup, and 8 GB code sandboxes. The spreadsheet and margins below retain their original assumptions and have not been recalculated for that offer. Prices below are USD, before tax. This does not change the live billing configuration.
 
 **Include search, voice transcription and code storage in the seat price, with no credit debits or per-unit overage for those features. AI inference uses a separate allowance and purchased credits, or the customer's own API key or eligible subscription. Include normal browser and sandbox use; charge infrastructure overage only after a pooled runtime allowance.**
 
@@ -263,9 +263,9 @@ US domestic card pricing is 2.9% + $0.30; Stripe Billing adds 0.7%. Autumn confi
 
 Additional international-card, currency-conversion, dispute, tax-product and unusual payment-method costs are outside the US domestic baseline. Several top-up payments also create more fixed transaction fees than the one-invoice model. A $25 minimum pack avoids excessive fixed fees on tiny purchases.
 
-Since 2026-10-27 the model rates are no longer seeded: `packages/billing/src/rates.ts` reads each model's providers from the AI Gateway (`/v1/models/{model}/endpoints`) and prices a request at the most expensive provider at that time, with peak-hour multipliers and long-context tiers. The USD-to-credit conversion factor is the `CREDIT_CONVERSION_RATE` setting (default 1). The `model_rate` table and its seeds are gone; each usage event keeps its own `costUsd`.
+Since 2026-10-27 the model rates are no longer seeded: `packages/billing/src/rates.ts` reads each model's providers from the AI Gateway (`/v1/models/{model}/endpoints`) and prices a request at its own long-context tier. Every request, beta included, is priced at the most expensive listed provider, including applicable peak rates, so a fallback route never under-bills; a model the Gateway does not list uses the $3/$0.30/$15 per Mtok fallback rate. The legacy USD-to-credit conversion factor is `CREDIT_CONVERSION_RATE` (default 1); beta ignores that multiplier. The `model_rate` table and its seeds are gone; each usage event keeps its own `costUsd`.
 
-The reviewed code has useful foundations: append-only model rates, usage events, stable invocation debit keys, a monthly allowance and non-expiring top-ups. It also needs changes before the proposed economics are enforceable:
+The original review below predates the beta integration; use [the beta runbook](../beta-pricing-runbook.md) for current behavior. Its useful foundations include usage events, stable invocation debit keys, a monthly allowance and non-expiring top-ups. It also needs changes before the proposed economics are enforceable:
 
 | Area | Current behavior and required change |
 |---|---|

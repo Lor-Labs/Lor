@@ -1,6 +1,7 @@
 import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
 import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import type { Embed, IntegrationProvider } from "@repo/db/schema"
 import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/lor/act-runs"
 import { enrichMeetingEmbed } from "@repo/lor/meeting-insights"
@@ -119,6 +120,11 @@ export async function dispatchConnectorEvent(input: {
     .limit(1)
     .then((rows) => rows[0])
   if (!target?.trigger.enabled) return null
+  if (
+    (await workspaceBetaAccess(target.connection.workspaceId)).state !==
+    "active"
+  )
+    return null
 
   let postedMessageId: string | null = null
   if (target.trigger.post) {

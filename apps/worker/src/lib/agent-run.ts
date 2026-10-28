@@ -1,4 +1,11 @@
-import { CREDIT_USD, computeCostUsd, getRate } from "@repo/billing"
+import {
+  CREDIT_USD,
+  checkBetaCredits,
+  computeCostUsd,
+  getRate,
+  hostedBetaConfig,
+  recordUsage as recordBillingUsage,
+} from "@repo/billing"
 import {
   and,
   asc,
@@ -18,6 +25,12 @@ import {
   sql,
 } from "@repo/db"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
+import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
+import { assertBetaCompute } from "@repo/db/queries/beta-compute"
+import {
+  assertInferenceFundingCurrent,
+  workspaceInferenceFunding,
+} from "@repo/db/queries/inference"
 import type {
   AgentRunContext,
   LorMemory,
@@ -367,6 +380,29 @@ export async function claimAgentRun(
   // re-emit is harmless — the snapshot recomputes and clients dedupe).
   notifyWorkspaceActivity(claimed.workspaceId)
 
+  let funding =
+    claimed.inferenceFunding ??
+    (await workspaceInferenceFunding(claimed.workspaceId))
+  if (!claimed.inferenceFunding)
+    await db
+      .update(schema.agentRun)
+      .set({ inferenceFunding: funding })
+      .where(
+        and(
+          eq(schema.agentRun.id, runId),
+          eq(schema.agentRun.leaseOwner, WORKER_ID)
+        )
+      )
+  const assertCanInfer = async () => {
+    await assertWorkspaceActive(claimed.workspaceId)
+    await assertInferenceFundingCurrent(claimed.workspaceId, funding)
+    await assertBetaCompute(claimed.workspaceId)
+    const check = await checkBetaCredits(claimed.workspaceId)
+    if (check && !check.allowed)
+      throw new Error(
+        "AI is paused. Check your team's credits, compute allowance and beta expiry in billing."
+      )
+  }
   const writer = createRunEventWriter({
     runId,
     workerId: WORKER_ID,
@@ -396,6 +432,16 @@ export async function claimAgentRun(
   // The stop flag rides the heartbeat and every checkpoint, so a working run
   // notices within one step boundary or one heartbeat, whichever is sooner.
   const heartbeat = setInterval(() => {
+    if (hostedBetaConfig().enabled || funding.source === "byok") {
+      void assertWorkspaceActive(claimed.workspaceId)
+        .then(() => assertInferenceFundingCurrent(claimed.workspaceId, funding))
+        .then(() => assertBetaCompute(claimed.workspaceId))
+        .then(() => checkBetaCredits(claimed.workspaceId))
+        .then((check) => {
+          if (check && !check.allowed) requestStop()
+        })
+        .catch(() => requestStop())
+    }
     void db
       .update(schema.agentRun)
       .set({ leaseExpiresAt: new Date(Date.now() + LEASE_TTL_MS) })
@@ -439,7 +485,7 @@ export async function claimAgentRun(
     outputTokens?: number
   }
   const priceFor = async (u: Priced, oneRequest: boolean) => {
-    if (!u.model) return null
+    if (funding.source === "byok" || !u.model) return null
     if ((u.inputTokens ?? 0) === 0 && (u.outputTokens ?? 0) === 0) return null
     const tokens = {
       inputTokens: u.inputTokens,
@@ -460,7 +506,10 @@ export async function claimAgentRun(
   ): Promise<{ credits: number; usd: number }> => {
     const price = await priceFor(u, oneRequest)
     if (!price) return { credits: 0, usd: 0 }
-    attemptCredits += (price.usd * price.rate.conversionRate) / CREDIT_USD
+    attemptCredits +=
+      (price.usd *
+        (hostedBetaConfig().enabled ? 1 : price.rate.conversionRate)) /
+      CREDIT_USD
     const whole = Math.ceil(attemptCredits)
     const added = whole - attemptCounted
     attemptCounted = whole
@@ -469,6 +518,30 @@ export async function claimAgentRun(
 
   let runContext = claimed.context
 
+  let betaUsageSequence = 0
+  const settleBetaStep = async (usage: RunStepRecord, costUsd: number) => {
+    if (funding.source === "byok" || !hostedBetaConfig().enabled) return
+    betaUsageSequence += 1
+    try {
+      await recordBillingUsage(
+        {
+          ...usage,
+          costUsd,
+          requestedModel: funding.model,
+          workspaceId: claimed.workspaceId,
+          tool: "lor.respond",
+          billingKey: `${runId}:attempt:${claimed.attempt}:usage:${betaUsageSequence}`,
+        },
+        { betaStep: true, debitScope: runId }
+      )
+      const creditCheck = await checkBetaCredits(claimed.workspaceId)
+      if (creditCheck && !creditCheck.allowed) requestStop()
+    } catch (error) {
+      requestStop()
+      throw error
+    }
+  }
+
   // One model call as it finishes, so the spend limit is checked inside the
   // turn (pi-harness-runbook.md §4.5). A compaction summary is not a step.
   const recordUsage = async (
@@ -476,6 +549,7 @@ export async function claimAgentRun(
     kind: "step" | "compaction"
   ): Promise<RunCounters & { costUsd: number }> => {
     const { credits, usd } = await creditsFor(usage, true)
+    await settleBetaStep(usage, usd)
     const row = await db
       .update(schema.agentRun)
       .set(usageIncrements(kind === "step" ? 1 : 0, usage, credits))
@@ -503,9 +577,10 @@ export async function claimAgentRun(
     owner: HarnessOwner,
     turn: RunTurnRecord
   ): Promise<RunCounters> => {
-    const { credits } = turn.extraUsage
+    const { credits, usd } = turn.extraUsage
       ? await creditsFor(turn.extraUsage)
-      : { credits: 0 }
+      : { credits: 0, usd: 0 }
+    if (turn.extraUsage) await settleBetaStep(turn.extraUsage, usd)
     // The turn's coverage, paused sandbox state and context count ride the
     // save, so a lost lease never records one without the other.
     const context =
@@ -699,6 +774,27 @@ export async function claimAgentRun(
   }
 
   const handle: RunHandle = {
+    funding,
+    selectInferenceModel: async (model) => {
+      if (funding.modelResolved) return funding
+      const resolved = { ...funding, model, modelResolved: true }
+      const rows = await db
+        .update(schema.agentRun)
+        .set({ inferenceFunding: resolved })
+        .where(
+          and(
+            eq(schema.agentRun.id, runId),
+            eq(schema.agentRun.leaseOwner, WORKER_ID),
+            eq(schema.agentRun.state, "working")
+          )
+        )
+        .returning({ id: schema.agentRun.id })
+      if (!rows[0]) throw new LeaseLostError()
+      funding = resolved
+      handle.funding = resolved
+      return resolved
+    },
+    assertCanInfer,
     runId,
     budgets: {
       credits: claimed.budgetCredits,

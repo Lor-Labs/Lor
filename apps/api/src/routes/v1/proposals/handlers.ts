@@ -293,7 +293,10 @@ export const rejectProposal: AppRouteHandler<RejectProposalRoute> = async (
   }
   if (auth.kind === "archived") {
     return c.json(
-      { success: false as const, message: "Channel is archived" },
+      {
+        success: false as const,
+        message: "Channel is read-only (archived or beta access ended)",
+      },
       HttpStatusCodes.BAD_REQUEST
     )
   }
@@ -473,7 +476,10 @@ export const approveProposal: AppRouteHandler<ApproveProposalRoute> = async (
   }
   if (auth.kind === "archived") {
     return c.json(
-      { success: false as const, message: "Channel is archived" },
+      {
+        success: false as const,
+        message: "Channel is read-only (archived or beta access ended)",
+      },
       HttpStatusCodes.BAD_REQUEST
     )
   }

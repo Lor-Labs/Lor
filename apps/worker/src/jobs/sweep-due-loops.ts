@@ -1,4 +1,5 @@
 import { and, db, eq, isNotNull, lte, schema } from "@repo/db"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { nextLoopRunAt } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
@@ -23,6 +24,10 @@ export async function sweepDueLoops(
   emitter: Emitter<ServerToClientEvents>,
   loopRunQueue: Queue<LoopRunJobData>
 ): Promise<void> {
+  const emitBetaPaused = (loop: typeof schema.loop.$inferSelect) =>
+    emitter
+      .to(channelRoom(loop.channelId))
+      .emit("loop:updated", { loop: toRealtimeLoop(loop) })
   const due = await db
     .select({
       id: schema.loop.id,
@@ -44,6 +49,17 @@ export async function sweepDueLoops(
     .limit(SWEEP_BATCH)
 
   for (const loop of due) {
+    if ((await workspaceBetaAccess(loop.workspaceId)).state !== "active") {
+      const [paused] = await db
+        .update(schema.loop)
+        .set({ status: "paused", pausedReason: "manual", nextRunAt: null })
+        .where(
+          and(eq(schema.loop.id, loop.id), eq(schema.loop.status, "active"))
+        )
+        .returning()
+      if (paused) emitBetaPaused(paused)
+      continue
+    }
     // Date end (endAt) is enforced mechanically here: a due fire scheduled
     // past the end date completes the loop instead of running — no model
     // judgment involved. Fires scheduled before the end still run.

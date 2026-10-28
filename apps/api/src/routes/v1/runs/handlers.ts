@@ -12,6 +12,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import type { AgentRunContextUsage } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { settleAbandonedRunPlan } from "@repo/lor/plans"
@@ -532,6 +533,7 @@ export const steerQueuedMessage: AppRouteHandler<
     )
   }
 
+  await assertWorkspaceActive(row.workspaceId)
   // Jump the line: the drain pops promoted rows before arrival order, so
   // this message is what the follow-up run answers first.
   await db

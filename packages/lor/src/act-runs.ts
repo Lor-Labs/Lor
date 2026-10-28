@@ -17,6 +17,7 @@ import {
   sql,
 } from "@repo/db"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
 import { logger } from "./logger"
 
@@ -129,6 +130,8 @@ export async function createActRun(input: {
   workspaceId: string
   channelId: string
 }): Promise<{ id: string } | "in_flight" | null> {
+  if ((await workspaceBetaAccess(input.workspaceId)).state !== "active")
+    return null
   try {
     return await db
       .insert(schema.agentRun)

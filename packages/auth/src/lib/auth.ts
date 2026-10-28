@@ -1,17 +1,23 @@
 import { expo } from "@better-auth/expo"
 import { redisStorage } from "@better-auth/redis-storage"
 import { ensureCustomer, grantSignupPromo, syncSeats } from "@repo/billing"
+import { getBetaAvailability, hostedBetaConfig } from "@repo/billing/beta"
 import { and, db, eq, LOR_USER_ID, ne, schema } from "@repo/db"
+import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { features } from "@repo/utils/features"
 import { escapeHtml } from "@repo/utils/html"
-import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { APIError, createAuthMiddleware } from "better-auth/api"
+import {
+  APIError,
+  createAuthMiddleware,
+  getSessionFromCtx,
+} from "better-auth/api"
 import { betterAuth } from "better-auth/minimal"
 import { admin, organization, twoFactor } from "better-auth/plugins"
 import Redis from "ioredis"
 import { Resend } from "resend"
+import { betaAdapter } from "./beta-adapter"
 import { invitationUrl, verifyInvitationSignature } from "./invitations"
 import { logger } from "./logger"
 import {
@@ -111,7 +117,7 @@ async function seedBrainTaxonomy(workspaceId: string) {
 
 export const auth = betterAuth({
   baseURL: env.NEXT_PUBLIC_API_URL,
-  database: drizzleAdapter(db, { provider: "pg", schema }),
+  database: betaAdapter,
   secret: env.BETTER_AUTH_SECRET,
   secondaryStorage,
   // Clients use /v1 for moderation and role deletion, which enforce Lor's
@@ -231,6 +237,53 @@ export const auth = betterAuth({
     },
   },
   hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (
+        !hostedBetaConfig().enabled ||
+        !ctx.path?.startsWith("/organization/") ||
+        ctx.request?.method !== "POST"
+      )
+        return
+      const operation = ctx.path.slice("/organization/".length)
+      if (
+        [
+          "create",
+          "set-active",
+          "leave",
+          "delete",
+          "remove-member",
+          "reject-invitation",
+          "cancel-invitation",
+          "has-permission",
+        ].includes(operation)
+      )
+        return
+      const session = await getSessionFromCtx(ctx)
+      if (!session) return
+      let organizationId: unknown =
+        ctx.body?.organizationId ??
+        (session.session as { activeOrganizationId?: string })
+          .activeOrganizationId
+      if (ctx.body?.invitationId) {
+        const [invite] = await db
+          .select({ workspaceId: schema.invitation.workspaceId })
+          .from(schema.invitation)
+          .where(eq(schema.invitation.id, ctx.body.invitationId))
+        organizationId = invite?.workspaceId
+      }
+      if (typeof organizationId !== "string")
+        throw new APIError("FORBIDDEN", {
+          message: "Choose an active beta workspace",
+        })
+      try {
+        await assertWorkspaceActive(organizationId)
+      } catch {
+        throw new APIError("FORBIDDEN", {
+          message:
+            "This workspace's beta is not active. Saved work remains readable.",
+        })
+      }
+    }),
     after: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== "/sign-up/email") return
       if (ctx.context.returned instanceof APIError) return
@@ -245,8 +298,9 @@ export const auth = betterAuth({
         // account starts verified.
         before: async (user, ctx) => {
           if (ctx?.path !== "/sign-up/email") return
-          const refuseSelfSignup = () => {
-            if (!features.selfSignups) {
+          const refuseSelfSignup = async () => {
+            const beta = await getBetaAvailability()
+            if (beta.enabled ? !beta.open : !features.selfSignups) {
               throw new APIError("FORBIDDEN", {
                 message:
                   "Self signups are temporarily closed. Ask your workspace admin for an email invitation.",
@@ -259,7 +313,7 @@ export const auth = betterAuth({
             typeof invitationSig !== "string" ||
             !verifyInvitationSignature(invitationId, invitationSig)
           ) {
-            refuseSelfSignup()
+            await refuseSelfSignup()
             return
           }
           const invitation = await db
@@ -277,7 +331,7 @@ export const auth = betterAuth({
             invitation.expiresAt <= new Date() ||
             invitation.email !== user.email
           ) {
-            refuseSelfSignup()
+            await refuseSelfSignup()
             return
           }
           return { data: { ...user, emailVerified: true } }
@@ -438,6 +492,10 @@ export const auth = betterAuth({
           void syncSeats(member.organizationId)
         },
         beforeCreateOrganization: async ({ organization, user }) => {
+          if (hostedBetaConfig().enabled && !user.emailVerified)
+            throw new APIError("FORBIDDEN", {
+              message: "Verify your email before creating a beta team",
+            })
           return { data: { ...organization, ownerId: user.id } }
         },
         beforeUpdateOrganization: async ({ organization, member }) => {
@@ -543,7 +601,8 @@ export const auth = betterAuth({
           // No-ops when billing is disabled; every later Autumn call also
           // falls back to get-or-create, so a failure here self-heals.
           await ensureCustomer(organization.id, organization.name)
-          await grantSignupPromo(organization.id)
+          if (!hostedBetaConfig().enabled)
+            await grantSignupPromo(organization.id)
         },
       },
       dynamicAccessControl: {

@@ -1,6 +1,10 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { db } from "@repo/db"
+import {
+  assertChannelActive,
+  assertWorkspaceActive,
+} from "@repo/db/queries/beta-access"
 import { channel, workspace, workspaceMember } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { and, eq } from "drizzle-orm"
@@ -63,6 +67,7 @@ export const presign: AppRouteHandler<PresignRoute> = async (c) => {
     )
   }
 
+  await assertChannelActive(channelId)
   const fileId = crypto.randomUUID()
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_")
   const key = `attachments/${channelId}/${fileId}/${sanitizedFilename}`
@@ -130,6 +135,7 @@ export const webhookAvatarPresign: AppRouteHandler<
     )
   }
 
+  await assertWorkspaceActive(ch.workspaceId)
   const member = await db
     .select({ role: workspaceMember.role, userId: workspaceMember.userId })
     .from(workspaceMember)
@@ -195,6 +201,7 @@ export const workspaceIconPresign: AppRouteHandler<
     )
   }
 
+  await assertWorkspaceActive(workspaceId)
   const member = await db
     .select({ role: workspaceMember.role, userId: workspaceMember.userId })
     .from(workspaceMember)

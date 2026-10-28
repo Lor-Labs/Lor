@@ -1,5 +1,6 @@
 import { isHarnessEnabled } from "@repo/utils/features"
 import { useState } from "react"
+import { useBetaAvailability } from "@/hooks/use-beta-availability"
 
 // Which agent runs a code session, fixed at its start
 // (reference/planned/code-sessions-runbook.md chunks 7 and 8): Lor's own,
@@ -19,7 +20,7 @@ export const HARNESS_LABELS: Record<SessionHarness, string> = {
 }
 
 export const HARNESS_TOOLTIPS: Record<SessionHarness, string> = {
-  pi: "Lor's own agent, on Lor credits.",
+  pi: "Lor's own agent, using workspace credits or its API key.",
   claude_code:
     "Runs on your own Claude Pro or Max plan. Each person's messages use their own plan.",
   codex: "OpenAI's coding agent, on Lor credits.",
@@ -32,6 +33,7 @@ const HARNESS_KEY = "lor:new-session-harness"
 export function useSessionHarness(
   start?: SessionHarness
 ): [SessionHarness, (harness: SessionHarness) => void] {
+  const { data: beta } = useBetaAvailability()
   const [harness, setHarness] = useState<SessionHarness>(() => {
     if (start && isHarnessEnabled(start)) return start
     try {
@@ -48,5 +50,5 @@ export function useSessionHarness(
       localStorage.setItem(HARNESS_KEY, next)
     } catch {}
   }
-  return [harness, change]
+  return [!beta || beta.enabled ? "pi" : harness, change]
 }

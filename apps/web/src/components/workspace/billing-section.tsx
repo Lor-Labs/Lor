@@ -19,6 +19,7 @@ import { useEffect, useState } from "react"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
+import { InferenceSettings } from "./inference-settings"
 
 const TOPUPS = [
   { size: "small", credits: 2_500, label: "2,500", price: "$25" },
@@ -33,6 +34,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
 
   const { data: billing, isPending } = useQuery({
+    refetchInterval: 30_000,
     queryKey: ["billing", workspaceSlug],
     queryFn: async () => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].billing.$get({
@@ -115,6 +117,104 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
       <div className="space-y-4">
         <Skeleton className="h-24 w-full" />
         <Skeleton className="h-24 w-full" />
+      </div>
+    )
+  }
+
+  if (billing.beta) {
+    const beta = billing.beta
+    const expires = new Date(beta.expiresAt).toLocaleString()
+    return (
+      <div className="space-y-5">
+        <div>
+          <h3 className="text-base font-semibold">Private beta</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {beta.expired ? "Your beta ended" : "Your workspace is free until"}{" "}
+            {expires}. Buying AI credits does not start a seat subscription or
+            extend this date.
+          </p>
+        </div>
+        {beta.available ? (
+          <div className="rounded-lg border p-5 space-y-2">
+            <p>
+              Included AI: <strong>${beta.freeRemainingUsd.toFixed(2)}</strong>{" "}
+              of ${beta.aiGrantUsd.toFixed(2)} remaining
+            </p>
+            <p>
+              Purchased AI:{" "}
+              <strong>${beta.purchasedRemainingUsd.toFixed(2)}</strong>
+              {beta.expired
+                ? " available again when workspace access resumes"
+                : " remaining"}
+            </p>
+            {!beta.expired &&
+              beta.freeRemainingUsd + beta.purchasedRemainingUsd <= 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Your AI credits are used up. Buy more to resume Lor-funded AI.
+                </p>
+              )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Credit balances are temporarily unavailable. New Lor-funded AI work
+            is paused until billing recovers.
+          </p>
+        )}
+        <p className="text-sm text-muted-foreground">
+          AI credits use the highest listed Gateway provider token price for the
+          model that answers, including applicable long-context and peak rates.
+          There is no added beta markup or per-request minimum. Your own API key
+          uses no Lor AI credits.
+        </p>
+        {!beta.expired && (
+          <div className="space-y-2">
+            <Button
+              onClick={() => topup.mutate("small")}
+              disabled={!billing.enabled || !beta.available || topup.isPending}
+            >
+              {topup.isPending && <Spinner className="size-4" />} Buy $25 of AI
+              credits
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              One-time purchase. No automatic refill. Unused purchased credits
+              remain on your account after the beta; access after the beta is
+              separate.
+            </p>
+          </div>
+        )}
+        {billing.compute && (
+          <div className="space-y-2 rounded-lg border p-5">
+            <p>
+              Sandbox time:{" "}
+              <strong>
+                {(billing.compute.sandboxRemainingSeconds / 3600).toFixed(1)}{" "}
+                hours
+              </strong>{" "}
+              of {(billing.compute.sandboxGrantSeconds / 3600).toFixed(0)}{" "}
+              remaining for your team
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Shared across all sessions, including 8 GB code sandboxes. Standby
+              is free. Active time is estimated from sandbox activity. No
+              automatic overage charges.
+            </p>
+            {billing.compute.sandboxRemainingSeconds <= 0 && (
+              <p className="text-sm">
+                Compute is paused. Contact Lor for an allowance extension; AI
+                credit purchases add AI only.
+              </p>
+            )}
+          </div>
+        )}
+        <InferenceSettings
+          workspaceSlug={workspaceSlug}
+          expired={beta.expired}
+        />
+        <p className="text-sm text-muted-foreground">
+          Search, voice transcription and code storage are included. Sandbox
+          time is separate from AI credits. Browser automation is not included
+          in this launch.
+        </p>
       </div>
     )
   }

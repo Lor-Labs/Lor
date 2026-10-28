@@ -1,5 +1,8 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
+import { assertHostedHarness } from "@repo/db/queries/beta-access"
+import { workspaceInferenceFunding } from "@repo/db/queries/inference"
+import { assertHarnessEnabled } from "@repo/utils/features"
 import { claudeModels, startingClaudeModels } from "./claude-account"
 import { harnessModels } from "./harness-models"
 import { LOR_FALLBACK_MODELS, LOR_MODEL } from "./models"
@@ -177,8 +180,32 @@ async function codexCatalog(): Promise<AgentModelCatalog> {
 
 export async function agentModelCatalog(
   harness: CatalogHarness,
-  userId: string
+  userId: string,
+  workspaceId: string
 ): Promise<AgentModelCatalog> {
+  assertHarnessEnabled(harness)
+  assertHostedHarness(harness)
+  const funding = await workspaceInferenceFunding(workspaceId)
+  if (funding.source === "byok") {
+    if (harness !== "pi")
+      throw new Error("Workspace API keys require a Lor session")
+    return {
+      models: getBuiltinModels(funding.provider).map((model) => {
+        const levels = getSupportedThinkingLevels(model)
+        return {
+          id: model.id,
+          name: model.name,
+          description: null,
+          resolvedModel: null,
+          provider: funding.provider,
+          efforts: levels.length > 1 ? levels : [],
+          fast: false,
+        }
+      }),
+      defaultModel: funding.model,
+      defaultEffort: "high",
+    }
+  }
   if (harness === "claude_code") return claudeCodeCatalog(userId)
   if (harness === "codex") return codexCatalog()
   return lorCatalog()

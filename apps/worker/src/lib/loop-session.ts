@@ -9,6 +9,7 @@ import {
   sql,
 } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import type { Loop } from "@repo/db/schema"
 import type { RunLoopContext } from "@repo/lor"
 import {
@@ -59,6 +60,8 @@ export async function fireLoop(
   loop: Loop,
   scheduledFor: Date
 ): Promise<"started" | "queued" | "skipped" | "failed"> {
+  if ((await workspaceBetaAccess(loop.workspaceId)).state !== "active")
+    return "skipped"
   const session = await ensureLoopSession(loop)
   deps.emitter
     .to(channelRoom(loop.channelId))

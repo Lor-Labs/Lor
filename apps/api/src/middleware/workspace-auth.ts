@@ -1,5 +1,6 @@
 import { auth } from "@repo/auth"
 import { db } from "@repo/db"
+import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import { workspace, workspaceMember } from "@repo/db/schema"
 import { setContext } from "@repo/logger"
 import { and, eq } from "drizzle-orm"
@@ -88,5 +89,8 @@ export const workspaceAuthMiddleware = async (
     workspaceId: workspaceRecord.id,
   })
 
+  const read = ["GET", "HEAD", "OPTIONS"].includes(c.req.method)
+  const billing = c.req.path.includes("/billing")
+  if (!read && !billing) await assertWorkspaceActive(workspaceRecord.id)
   await next()
 }

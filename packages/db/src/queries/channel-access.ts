@@ -4,6 +4,7 @@ import { channel, channelMember } from "../schemas/channels"
 import { project } from "../schemas/projects"
 import { workspaceMember } from "../schemas/workspace-members"
 import { workspace } from "../schemas/workspaces"
+import { workspaceBetaAccess } from "./beta-access"
 
 // THE channel-audience resolver — every surface that asks "who can see this
 // channel / who receives its fanout" goes through here (API, realtime,
@@ -118,7 +119,9 @@ export async function resolveChannelAccess(
       audience: container.audience,
       memberRole: member.role,
       memberIsOwner: row.workspaceOwnerId === userId,
-      canWrite: row.archivedAt === null,
+      canWrite:
+        row.archivedAt === null &&
+        (await workspaceBetaAccess(row.workspaceId)).state === "active",
     },
   }
 }

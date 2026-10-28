@@ -4,13 +4,16 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./beta": "./src/beta.ts",
+    "./beta-policy": "./src/beta-policy.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
     "credits:grant": "tsx src/scripts/grant-credits.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "beta": "tsx src/scripts/beta.ts"
   },
   "dependencies": {
     "@repo/db": "workspace:^",

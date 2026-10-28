@@ -1,5 +1,7 @@
 import { db, eq, schema } from "@repo/db"
+import { workspaceInferenceFunding } from "@repo/db/queries/inference"
 import { createLogger } from "@repo/logger"
+import { checkBetaCredits } from "./beta-credits"
 import { getAutumn } from "./client"
 import {
   CREDITS_FEATURE_ID,
@@ -45,6 +47,10 @@ export async function ensureCustomer(workspaceId: string, name?: string) {
 // Other errors fail open immediately rather than doubling the latency hit
 // with a pointless retry.
 export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
+  const beta = await checkBetaCredits(workspaceId)
+  if (beta) return beta
+  if ((await workspaceInferenceFunding(workspaceId)).source === "byok")
+    return { allowed: true, failOpen: false }
   const autumn = getAutumn()
   if (!autumn) return { allowed: true, failOpen: false }
   try {

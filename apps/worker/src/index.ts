@@ -1,4 +1,6 @@
+import { sweepBetaCompute } from "@repo/lor/beta-compute"
 import "./instrumentation"
+import { sweepBetaBilling } from "@repo/billing"
 import { env } from "@repo/env/server"
 import { flushErrorReports } from "@repo/logger"
 import { claimOverdueActWindows } from "@repo/lor/act-runs"
@@ -391,7 +393,9 @@ async function bootstrap() {
   const maintenanceWorker = new Worker(
     MAINTENANCE_QUEUE,
     async (job) => {
-      if (job.name === "prune-run-events") await pruneRunEvents()
+      if (job.name === "sweep-beta-compute") await sweepBetaCompute()
+      else if (job.name === "sweep-beta-billing") await sweepBetaBilling()
+      else if (job.name === "prune-run-events") await pruneRunEvents()
       else if (job.name === "sweep-dead-runs") {
         await sweepDeadRuns(
           emitter,
@@ -454,6 +458,12 @@ async function bootstrap() {
 
   // Upsert (idempotent across replicas/restarts): one shared schedule in
   // Redis, first run fires immediately, then every interval.
+  await maintenanceQueue.upsertJobScheduler("sweep-beta-compute", {
+    every: 30_000,
+  })
+  await maintenanceQueue.upsertJobScheduler("sweep-beta-billing", {
+    every: 60_000,
+  })
   await maintenanceQueue.upsertJobScheduler("prune-run-events", {
     every: RUN_EVENT_PRUNE_EVERY_MS,
   })

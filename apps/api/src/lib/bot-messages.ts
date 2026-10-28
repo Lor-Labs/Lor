@@ -1,4 +1,5 @@
 import { db, schema } from "@repo/db"
+import { assertChannelActive } from "@repo/db/queries/beta-access"
 import type {
   ChannelEventPayload,
   ChannelEventType,
@@ -89,6 +90,7 @@ export async function postBotMessage(
   if (!target) throw new Error("Channel not found")
   if (target.archivedAt) throw new Error("This channel is archived")
 
+  await assertChannelActive(input.channel.id)
   const inserted = await db
     .insert(schema.message)
     .values({

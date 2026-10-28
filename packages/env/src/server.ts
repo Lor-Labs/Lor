@@ -158,10 +158,6 @@ const serverSchema = z.object({
   ATTIO_CLIENT_SECRET: z.string().min(1).optional(),
   NOTION_CLIENT_ID: z.string().min(1).optional(),
   NOTION_CLIENT_SECRET: z.string().min(1).optional(),
-  INTEGRATION_ENCRYPTION_KEY: z
-    .string()
-    .regex(/^[0-9a-f]{64}$/i)
-    .optional(),
   NEXT_PUBLIC_SELF_HOSTED: z
     .preprocess((v) => v === "true" || v === "1", z.boolean())
     .default(false),

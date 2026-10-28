@@ -18,6 +18,7 @@ import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useWorkspace, type Workspace } from "@/context/workspace-context"
+import { useBetaEntitlements } from "@/hooks/use-beta"
 import { api } from "@/lib/api"
 import { confirmDiscard } from "@/lib/confirm-discard"
 
@@ -106,6 +107,7 @@ function WorkspaceSettingsForm({
   reloadWorkspaces: (activateWorkspaceId?: string) => Promise<void>
   workspace: Workspace
 }) {
+  const { data: beta } = useBetaEntitlements(workspace.slug)
   const foreground = useThemeColor("foreground")
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -117,7 +119,11 @@ function WorkspaceSettingsForm({
 
   const nameValid = name.trim().length > 0
   const dirty = pickedIcon !== null || name.trim() !== workspace.name
-  const canSave = dirty && nameValid && !isSaving
+  const canSave =
+    dirty &&
+    nameValid &&
+    !isSaving &&
+    (!beta?.enabled || beta.state === "active")
 
   const goBack = () => {
     if (isSaving) return
@@ -286,6 +292,20 @@ function WorkspaceSettingsForm({
             <FieldError>Workspace name can’t be empty.</FieldError>
           )}
         </TextField>
+        {beta?.enabled && (
+          <View className="gap-two px-five py-four">
+            <Text className="font-semibold text-foreground">Private beta</Text>
+            <Text className="text-muted-foreground">
+              {beta.state !== "active"
+                ? "Your beta has ended. Saved work remains readable; new work is paused."
+                : `Free until ${new Date(beta.expiresAt ?? "").toLocaleDateString()}. ${((beta.compute?.sandboxRemainingSeconds ?? 0) / 3600).toFixed(1)} sandbox hours remaining for your team.`}
+            </Text>
+            <Text className="text-muted-foreground">
+              Your workspace admin manages AI credits and provider API keys in
+              workspace billing on the web.
+            </Text>
+          </View>
+        )}
       </KeyboardAwareScrollView>
     </Screen>
   )

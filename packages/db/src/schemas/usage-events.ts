@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm"
 import {
+  bigint,
   index,
   integer,
   numeric,
@@ -65,6 +66,7 @@ export const usageEvent = pgTable(
     wallMs: integer("wall_ms"),
     toolCalls: integer("tool_calls"),
     costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    betaDebitMicroUsd: bigint("beta_debit_micro_usd", { mode: "number" }),
     creditsDebited: integer("credits_debited").notNull().default(0),
     debitStatus: debitStatusEnum("debit_status").notNull().default("free"),
     // Loose reference — messages can be deleted, the ledger row stays.

@@ -62,12 +62,16 @@ export async function removeFromRoom(
 
 export function createJoinToken(
   config: LiveKitConfig,
-  input: { room: string; identity: string; name: string }
+  input: { room: string; identity: string; name: string; expiresAt?: Date }
 ) {
+  const ttl = input.expiresAt
+    ? Math.min(600, Math.floor((input.expiresAt.getTime() - Date.now()) / 1000))
+    : 600
+  if (ttl < 1) throw new Error("This workspace beta has ended")
   const token = new AccessToken(config.apiKey, config.apiSecret, {
     identity: input.identity,
     name: input.name,
-    ttl: "10m",
+    ttl,
   })
   token.addGrant({
     room: input.room,

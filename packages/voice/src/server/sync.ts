@@ -1,4 +1,8 @@
 import { and, db, eq, isNotNull, isNull, lte, schema } from "@repo/db"
+import {
+  hostedBetaEnabled,
+  workspaceBetaAccess,
+} from "@repo/db/queries/beta-access"
 import { ServerError } from "livekit-server-sdk"
 import { VOICE_SESSION_GRACE_MS } from "../index"
 import {
@@ -214,4 +218,28 @@ export async function auditLiveSessions(config: LiveKitConfig) {
     }
   }
   return { checked: live.length, dispatched, failed }
+}
+
+export async function endInactiveBetaSessions(config: LiveKitConfig) {
+  if (!hostedBetaEnabled()) return
+  const sessions = await db
+    .select({ id: voiceSession.id, workspaceId: voiceSession.workspaceId })
+    .from(voiceSession)
+    .where(isNull(voiceSession.endedAt))
+  for (const session of sessions) {
+    if ((await workspaceBetaAccess(session.workspaceId)).state === "active")
+      continue
+    try {
+      await getRoomService(config).deleteRoom(session.id)
+    } catch (error) {
+      if (!(error instanceof ServerError && error.status === 404)) throw error
+    }
+    await reconcileSession(config, session.id)
+    const now = new Date()
+    await db
+      .update(voiceSession)
+      .set({ emptySince: now })
+      .where(and(eq(voiceSession.id, session.id), isNull(voiceSession.endedAt)))
+    await endSession(session.id, now)
+  }
 }

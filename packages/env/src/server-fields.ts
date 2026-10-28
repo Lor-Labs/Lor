@@ -19,6 +19,29 @@ export const blankToUndefined = (value: unknown) => {
 // transcriber runs with just its own few variables instead of every server
 // secret. The full server schema (server.ts) includes all of these.
 export const sharedServerFields = {
+  INTEGRATION_ENCRYPTION_KEY: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .regex(/^[0-9a-f]{64}$/i)
+      .optional()
+  ),
+  // Independent of paid billing. Admission/runtime consumers land after the
+  // beta policy foundation; leave off until those gates are deployed.
+  LOR_HOSTED_BETA: z.preprocess(
+    blankToUndefined,
+    z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true")
+  ),
+  LOR_BETA_CAMPAIGN: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
+      .optional()
+  ),
   BETTERSTACK_ERRORS_DSN: z.preprocess(
     blankToUndefined,
     z.string().url().optional()

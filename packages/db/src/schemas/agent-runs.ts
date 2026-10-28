@@ -1,3 +1,4 @@
+import type { InferenceFunding } from "@repo/utils/inference"
 import { relations, sql } from "drizzle-orm"
 import {
   type AnyPgColumn,
@@ -159,6 +160,7 @@ export const agentRun = pgTable(
     // without re-querying — no drift, no double embed billing. Image bytes are
     // re-fetched from their URLs.
     context: jsonb("context").$type<AgentRunContext>(),
+    inferenceFunding: jsonb("inference_funding").$type<InferenceFunding>(),
     instructions: text("instructions"),
 
     startedAt: timestamp("started_at"),

@@ -5,10 +5,14 @@ import {
   CREDITS_PER_SEAT,
   countSeats,
   getBillingSummary,
+  getWorkspaceBetaTrial,
+  hostedBetaConfig,
   portalUrl,
   SEAT_PRICE_USD,
   setAutoTopup,
+  syncBetaCredits,
 } from "@repo/billing"
+import { betaComputeSummary } from "@repo/db/queries/beta-compute"
 import { env } from "@repo/env/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -36,7 +40,22 @@ export const getBilling: AppRouteHandler<GetBillingRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
 
+  const trial = hostedBetaConfig().enabled
+    ? await getWorkspaceBetaTrial(workspace.id)
+    : null
+  const beta = trial
+    ? await syncBetaCredits(workspace.id).catch(() => ({
+        expiresAt: trial.expiresAt.toISOString(),
+        aiGrantUsd: trial.aiGrantMicroUsd / 1_000_000,
+        expired: trial.expiresAt <= new Date(),
+        freeRemainingUsd: 0,
+        purchasedRemainingUsd: 0,
+        available: false,
+      }))
+    : null
   const base = {
+    beta,
+    compute: await betaComputeSummary(workspace.id),
     enabled: billingEnabled,
     seats: await countSeats(workspace.id),
     seatPriceUsd: SEAT_PRICE_USD,
@@ -68,6 +87,11 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   const config = c.req.valid("json")
+  if (hostedBetaConfig().enabled && config.enabled)
+    return c.json(
+      { success: false, message: "Auto-refill is not offered during the beta" },
+      HttpStatusCodes.BAD_REQUEST
+    )
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
@@ -91,6 +115,14 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
 }
 
 export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
+  if (hostedBetaConfig().enabled)
+    return c.json(
+      {
+        success: false,
+        message: "The beta workspace stays free; buy AI credits instead",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   if (!billingEnabled) {
@@ -117,6 +149,19 @@ export const topup: AppRouteHandler<TopupRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   const { size } = c.req.valid("json")
+  if (hostedBetaConfig().enabled) {
+    const trial = await getWorkspaceBetaTrial(workspace.id)
+    if (!trial || trial.expiresAt <= new Date() || size !== "small")
+      return c.json(
+        {
+          success: false,
+          message:
+            "Only $25 credit packs are available during an active beta trial",
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    await syncBetaCredits(workspace.id)
+  }
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }

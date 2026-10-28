@@ -1,4 +1,3 @@
-import { features } from "@repo/utils/features"
 import { Redirect, router } from "expo-router"
 import { useRef, useState } from "react"
 import {
@@ -13,6 +12,7 @@ import {
   View,
 } from "react-native"
 import { Screen } from "@/components/ui/screen"
+import { useBetaAvailability } from "@/hooks/use-beta"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 import { consumePendingInviteCode } from "@/lib/invites"
@@ -21,7 +21,14 @@ import lorMark from "../../assets/images/splash-icon.png"
 const MIN_PASSWORD_LENGTH = 8
 
 export default function SignupRoute() {
-  if (features.selfSignups) return <SignUpScreen />
+  const { data: beta, isPending } = useBetaAvailability()
+  if (isPending)
+    return (
+      <Screen>
+        <ActivityIndicator />
+      </Screen>
+    )
+  if (beta?.open) return <SignUpScreen />
   return (
     <Screen className="bg-lor-bg dark:bg-lor-bg-dark">
       <View className="flex-1 justify-center gap-four px-seven">
@@ -29,7 +36,9 @@ export default function SignupRoute() {
           Signups are temporarily closed
         </Text>
         <Text className="text-base text-lor-text-secondary dark:text-lor-text-secondary-dark">
-          Ask your workspace admin for an email invitation to join Lor.
+          {beta?.enabled
+            ? "All available beta places are taken or enrollment is paused. Existing teams can still invite members. Join the waitlist on the Lor website."
+            : "Ask your workspace admin for an email invitation to join Lor."}
         </Text>
         <Pressable
           accessibilityRole="button"

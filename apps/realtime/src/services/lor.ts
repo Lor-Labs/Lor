@@ -13,6 +13,7 @@ import {
   chatFeedMessage,
   findAgentSessionByThreadRoot,
 } from "@repo/db/queries/agent-sessions"
+import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { env } from "@repo/env/server"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
@@ -135,6 +136,7 @@ export async function sessionStartFor(args: {
     threadRootId: payload.newSession?.threadRootId,
   }
   if (payload.startSession && !payload.threadRootId) {
+    assertHostedHarness(payload.harness ?? "pi")
     assertHarnessEnabled(payload.harness ?? "pi")
     const code = payload.code
       ? await codeSessionStart(

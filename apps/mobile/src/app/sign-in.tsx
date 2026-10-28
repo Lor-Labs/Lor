@@ -1,4 +1,3 @@
-import { features } from "@repo/utils/features"
 import { Redirect, router } from "expo-router"
 import { useRef, useState } from "react"
 import {
@@ -12,12 +11,14 @@ import {
   View,
 } from "react-native"
 import { Screen } from "@/components/ui/screen"
+import { useBetaAvailability } from "@/hooks/use-beta"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 import { consumePendingInviteCode } from "@/lib/invites"
 import lorMark from "../../assets/images/splash-icon.png"
 
 export default function SignInScreen() {
+  const { data: beta } = useBetaAvailability()
   const theme = useTheme()
   const { data: session } = authClient.useSession()
   const [email, setEmail] = useState("")
@@ -155,7 +156,7 @@ export default function SignInScreen() {
                 </Text>
               )}
             </Pressable>
-            {features.selfSignups && (
+            {beta?.open && (
               <Pressable
                 accessibilityRole="button"
                 className="min-h-11 items-center justify-center active:opacity-70"

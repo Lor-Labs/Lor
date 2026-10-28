@@ -13,7 +13,6 @@ import { Input } from "@repo/ui/components/input"
 import { InlineValidation } from "@repo/ui/components/interior/inline-validation"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
-import { features } from "@repo/utils/features"
 import { useMutation } from "@tanstack/react-query"
 import {
   createFileRoute,
@@ -22,8 +21,10 @@ import {
   useRouter,
 } from "@tanstack/react-router"
 import { type FormEvent, useEffect, useState } from "react"
+import { BetaWaitlist } from "@/components/auth/beta-waitlist"
 import { PasswordInput } from "@/components/auth/password-input"
 import { OfflineScreen } from "@/components/offline-screen"
+import { useBetaAvailability } from "@/hooks/use-beta-availability"
 import { useConnectivity } from "@/hooks/use-connectivity"
 import { sanitizeRedirect } from "@/lib/auth-redirect"
 import { validateEmail } from "@/lib/email-validation"
@@ -38,17 +39,34 @@ export const Route = createFileRoute("/signup")({
 
 function SignupRoute() {
   const { redirect } = Route.useSearch()
-  if (features.selfSignups) return <SignUpPage />
+  const availability = useBetaAvailability()
+  if (availability.isPending)
+    return (
+      <div className="grid min-h-svh place-items-center">
+        <Spinner />
+      </div>
+    )
+  if (availability.data?.open) return <SignUpPage />
   return (
     <div className="flex min-h-svh items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Signups are temporarily closed</CardTitle>
+          <CardTitle>
+            {availability.isError
+              ? "Unable to check signup availability"
+              : "Beta enrollment is closed"}
+          </CardTitle>
           <CardDescription>
-            Ask your workspace admin for an email invitation to join Lor.
+            The beta is first come, first served for 25 teams. Existing teams
+            can still invite their teammates.
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {availability.isError ? (
+            <Button onClick={() => availability.refetch()}>Try again</Button>
+          ) : (
+            <BetaWaitlist />
+          )}
           <Button render={<Link to="/login" search={{ redirect }} />}>
             Sign in
           </Button>
@@ -118,7 +136,8 @@ function SignUpPage() {
             <CardHeader className="text-center">
               <CardTitle className="text-xl">Create your account</CardTitle>
               <CardDescription>
-                Enter your information below to get started
+                Create your account, verify your email, then create a team to
+                claim a beta place. Places are first come, first served.
               </CardDescription>
             </CardHeader>
             <CardContent>

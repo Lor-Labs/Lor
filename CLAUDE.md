@@ -112,6 +112,26 @@ there; update them as steps land.
 
 Loops work is executed phase-by-phase from the runbook at `reference/loops.md` — locked architecture decisions, per-phase file lists, and status checkboxes live there. Update its checkboxes and deviations log as phases land.
 
+### Private beta pricing
+
+The LOR-115 runbook is `reference/beta-pricing-runbook.md`. Admission, Autumn AI
+grants/top-ups, native Anthropic/OpenAI workspace BYOK, estimated pooled sandbox
+usage and expiry enforcement are implemented but not deployed. Keep
+`LOR_HOSTED_BETA=false` until schema/configuration, internal-account migration
+and provider shutdown/checkout verification are complete. Blaxel process cleanup
+and preview revocation are not a hard vendor spending cap. The offer is 25 teams,
+five members, 30 days, $25 AI and 50 hours on the standard 8 GB code sandbox.
+Autumn owns free/purchased AI balances; Stripe handles explicit $25 purchases.
+Live Gateway prices replace seeded rates; every request is priced at the most
+expensive listed route for the served model ($3/$0.30/$15 per Mtok when the
+Gateway lists none), and beta adds no extra multiplier. Each request's cost
+is settled once. An unsupported model pick quietly runs on the default model. Native credentials
+are encrypted; payer, key identity and the per-message model are pinned across retries;
+BYOK never consumes Lor AI credits but still follows compute/expiry limits.
+Hosted beta permits only Pi, and saved content remains readable after expiry.
+`pnpm beta` manages policy/campaign records; `open`/`pause` change enrollment only.
+A purchase never starts a seat subscription or changes trial dates.
+
 ### Launch feature flags
 
 `packages/utils/src/features.ts` is the shared launch configuration. DMs and

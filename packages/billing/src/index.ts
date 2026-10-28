@@ -1,4 +1,7 @@
 export * from "./autumn"
+export * from "./beta"
+export * from "./beta-credits"
+export * from "./beta-policy"
 export * from "./client"
 export * from "./constants"
 export * from "./credits"

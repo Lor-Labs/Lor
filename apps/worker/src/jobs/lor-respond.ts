@@ -11,6 +11,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import {
   EMPTY_LOR_RUN_SCOPE,
   resolveLorRunScope,
@@ -563,6 +564,7 @@ export function createLorRespondProcessor(
                   .then((rows) => rows[0])
               : undefined
             if (!session) throw new Error("This Lor run has no session")
+            assertHostedHarness(session.harness)
             assertHarnessEnabled(session.harness)
             const owner = { sessionId: session.id }
             const harnessState = await loadHarnessState(
@@ -735,8 +737,8 @@ export function createLorRespondProcessor(
               )
               .catch(() => [])
 
-            // Pre-flight credit gate. Autumn failures never land here — the
-            // check fails open inside @repo/billing (serve, log, skip debit).
+            // Hosted beta fails closed on unavailable billing or pending debits.
+            // Legacy billing retains its existing outage behavior.
             // Claude Code turns run on the sender's subscription instead.
             const gate =
               session.harness === "claude_code"

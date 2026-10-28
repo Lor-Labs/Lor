@@ -11,7 +11,10 @@
     "./queries/channel-access": "./src/queries/channel-access.ts",
     "./queries/personal-accounts": "./src/queries/personal-accounts.ts",
     "./queries/session-chat-access": "./src/queries/session-chat-access.ts",
-    "./queries/thread-subscriptions": "./src/queries/thread-subscriptions.ts"
+    "./queries/thread-subscriptions": "./src/queries/thread-subscriptions.ts",
+    "./queries/beta-access": "./src/queries/beta-access.ts",
+    "./queries/inference": "./src/queries/inference.ts",
+    "./queries/beta-compute": "./src/queries/beta-compute.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

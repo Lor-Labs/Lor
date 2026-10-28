@@ -1,6 +1,7 @@
 import {
   auditLiveSessions,
   endExpiredSessions,
+  endInactiveBetaSessions,
   getLiveKitConfig,
 } from "@repo/voice/server"
 import { queueMissedCallMemory } from "@/jobs/voice-session-memory"
@@ -17,6 +18,7 @@ export async function sweepVoiceSessions() {
   const livekit = getLiveKitConfig()
   if (!livekit) return
 
+  await endInactiveBetaSessions(livekit)
   const { ended, failed } = await endExpiredSessions(livekit)
   if (ended.length > 0) logger.info({ ended }, "voice: sessions ended")
   for (const { sessionId, err } of failed) {

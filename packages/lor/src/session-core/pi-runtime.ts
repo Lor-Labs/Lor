@@ -133,11 +133,15 @@ const isPiThinkingLevel = (
 // Pi's catalog with each window capped at the smallest window in Lor's
 // fallback chain, so a fallback model never receives an oversize request.
 // This list replaces the provider's whole model list.
-function gatewayModels(ids: string[], contextWindow: number) {
-  const catalog = getBuiltinModels(GATEWAY_PROVIDER)
+function providerModels(
+  provider: "vercel-ai-gateway" | "anthropic" | "openai",
+  ids: string[],
+  contextWindow: number
+) {
+  const catalog = getBuiltinModels(provider)
   return ids.map((id) => {
     const model = catalog.find((entry) => entry.id === id)
-    if (!model) throw new Error(`Model ${id} is not in Pi's gateway catalog`)
+    if (!model) throw new Error(`Model ${id} is not in Pi's provider catalog`)
     return {
       ...model,
       contextWindow: Math.min(model.contextWindow, contextWindow),
@@ -251,6 +255,7 @@ export type PiContextUsage = {
 type TurnProbe = {
   logFile?: string
   loadMismatch?: boolean
+  accessError?: string
   contextUsage?: PiContextUsage
 }
 
@@ -314,7 +319,8 @@ function turnUsage(usage: Usage): PiTurnUsage {
 // `tool_call`, which fails closed), so a mismatch sets a flag and aborts
 // instead of throwing.
 function lorPiExtension(input: {
-  gateway: Record<string, unknown>
+  beforeRequest?: () => Promise<void>
+  gateway: Record<string, unknown> | null
   sessionKey: string
   expected: HarnessHead | null
   convertsFormat: boolean
@@ -338,14 +344,29 @@ function lorPiExtension(input: {
         )
       }
     })
-    pi.on("before_provider_request", (event) =>
-      withGatewayOptions(event.payload, input.gateway)
-    )
+    const canRequest = async (ctx: ExtensionContext) => {
+      try {
+        await input.beforeRequest?.()
+        return true
+      } catch (error) {
+        input.probe.accessError =
+          error instanceof Error ? error.message : "AI access is paused"
+        ctx.abort()
+        return false
+      }
+    }
+    pi.on("before_provider_request", async (event, ctx) => {
+      if (!(await canRequest(ctx))) return
+      return input.gateway
+        ? withGatewayOptions(event.payload, input.gateway)
+        : undefined
+    })
     // Pi's cut point and iterative summary with Lor's focus (§4.4). Summary
     // requests skip before_provider_request, so they get the gateway options
     // here. If this throws, Pi falls back to its own summary.
     let compacted = false
     pi.on("session_before_compact", async (event, ctx) => {
+      if (!(await canRequest(ctx))) return { cancel: true }
       const { compaction: lor } = input
       lor?.onStart?.()
       if (!lor || !ctx.model) return
@@ -362,10 +383,13 @@ function lorPiExtension(input: {
           const stream = ctx.modelRegistry.streamSimple(model, context, {
             ...options,
             onPayload: async (payload, payloadModel) =>
-              withGatewayOptions(
-                (await options?.onPayload?.(payload, payloadModel)) ?? payload,
-                input.gateway
-              ),
+              input.gateway
+                ? withGatewayOptions(
+                    (await options?.onPayload?.(payload, payloadModel)) ??
+                      payload,
+                    input.gateway
+                  )
+                : payload,
           })
           void stream.result().then(
             (message) => {
@@ -546,7 +570,8 @@ export type PiTurnInput = {
   // Without it every call is allowed.
   builtinToolApproval?: PiBuiltinToolApproval
   model: { id: string; fallbacks: string[]; contextWindow: number }
-  // The sender's thinking level pick; unset or a name Pi doesn't know: high.
+  nativeProvider?: "anthropic" | "openai"
+  beforeRequest?: () => Promise<void>
   thinkingLevel?: string
   gatewayAuth: Record<string, string>
   gatewayOptions: Record<string, unknown>
@@ -625,14 +650,16 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
     await restoreLog(input.sandbox, home, input.sessionId, input.saved)
   }
 
+  const provider = input.nativeProvider ?? GATEWAY_PROVIDER
   const probe: TurnProbe = {}
   const agent = new HarnessAgent({
     harness: createPi({
       auth: input.gatewayAuth,
       reattachInProcess: false,
       providers: {
-        [GATEWAY_PROVIDER]: {
-          models: gatewayModels(
+        [provider]: {
+          models: providerModels(
+            provider,
             [input.model.id, ...input.model.fallbacks],
             input.model.contextWindow
           ),
@@ -647,7 +674,10 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         : {}),
       extensionFactories: [
         lorPiExtension({
-          gateway: { ...input.gatewayOptions, sessionId: input.sessionKey },
+          beforeRequest: input.beforeRequest,
+          gateway: input.nativeProvider
+            ? null
+            : { ...input.gatewayOptions, sessionId: input.sessionKey },
           sessionKey: input.sessionKey,
           expected: input.saved?.head ?? null,
           convertsFormat,
@@ -662,7 +692,9 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         ? input.thinkingLevel
         : "high",
     }),
-    model: input.model.id,
+    model: input.nativeProvider
+      ? `${input.nativeProvider}/${input.model.id}`
+      : input.model.id,
     tools: prepareTools(
       { ...missingToolStubs(paused, input.tools), ...input.tools },
       input.toolsContext,
@@ -745,6 +777,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         await agent.stream({ session, messages: [input.prompt], ...abort })
       )
     }
+    if (probe.accessError) throw new Error(probe.accessError)
     if (probe.loadMismatch) {
       throw new SessionCoreError(
         "corrupt_state",

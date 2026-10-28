@@ -19,6 +19,10 @@ import {
   sql,
 } from "@repo/db"
 import {
+  assertHostedHarness,
+  assertWorkspaceActive,
+} from "@repo/db/queries/beta-access"
+import {
   EMPTY_LOR_RUN_SCOPE,
   type LorRunScope,
   resolveLorRunScope,
@@ -70,6 +74,7 @@ import {
   pageExists,
   supersededPageIds,
 } from "./brain"
+import { isByokModel, nativeInference } from "./byok"
 import {
   parseCallTime,
   readCall,
@@ -2521,6 +2526,34 @@ export async function respond(
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
+  await assertWorkspaceActive(ctx.workspaceId)
+  await run?.assertCanInfer?.()
+  assertHostedHarness(
+    ctx.claudeCode ? "claude_code" : ctx.codex ? "codex" : "pi"
+  )
+  if (run?.funding?.source === "byok" && (ctx.claudeCode || ctx.codex))
+    throw new Error("Workspace API keys are supported by Lor sessions only")
+  if (!ctx.claudeCode && !ctx.codex) {
+    const funding = run?.funding
+    const picked = funding?.modelResolved ? funding.model : ctx.turn?.model
+    // A pick the payer can't serve quietly runs on the default model: the
+    // workspace key's model, or Lor's.
+    const model =
+      funding?.source === "byok"
+        ? picked && isByokModel(funding.provider, picked)
+          ? picked
+          : funding.model
+        : picked && inGatewayCatalog(picked)
+          ? picked
+          : LOR_MODEL
+    const resolved = await run?.selectInferenceModel?.(model)
+    if (run && resolved) run.funding = resolved
+    ctx = { ...ctx, turn: { ...ctx.turn, model: resolved?.model ?? model } }
+  }
+  const native =
+    run?.funding?.source === "byok"
+      ? await nativeInference(ctx.workspaceId, run.funding)
+      : null
   assertHarnessEnabled(
     ctx.claudeCode ? "claude_code" : ctx.codex ? "codex" : "pi"
   )
@@ -3363,21 +3396,12 @@ export async function respond(
         addTo(total, usage, reasoningTokens)
         byModel.set(usage.model, total)
       }
-      // The model the sender picked, when the Gateway serves it: Codex's
-      // name for it, or for Lor's own agent a model in Pi's Gateway catalog
-      // (anything else runs on the harness's default model).
       const codexModel =
         ctx.turn?.model && inGatewayCatalog(codexGatewayModel(ctx.turn.model))
           ? ctx.turn.model
           : CODEX_DEFAULT_MODEL
-      const piModel =
-        !ctx.claudeCode &&
-        !ctx.codex &&
-        ctx.turn?.model &&
-        inGatewayCatalog(ctx.turn.model)
-          ? ctx.turn.model
-          : LOR_MODEL
-      let stepModel = piModel
+      const piModel = native?.model ?? ctx.turn?.model ?? LOR_MODEL
+      let stepModel = native ? `${native.provider}/${native.model}` : piModel
       // Set by the first finish-step of an assistant message, cleared when
       // the next message ends.
       let stepBilled = false
@@ -3406,14 +3430,17 @@ export async function respond(
         addToModel(usage, reasoningTokens)
         const { creditsSpent, costUsd } = await harness.recordUsage(usage, kind)
         addCost(usage.model, costUsd)
-        if (creditsSpent >= budgets.credits) spendStop.abort()
-        else if (creditsSpent >= budgets.credits * SPEND_ANSWER_SHARE) {
+        if (!native && creditsSpent >= budgets.credits) spendStop.abort()
+        else if (
+          !native &&
+          creditsSpent >= budgets.credits * SPEND_ANSWER_SHARE
+        ) {
           nearSpendLimit = true
         }
       }
       let charged = false
       const chargeTurn = async (extra: RunStepRecord | null) => {
-        if (charged || !billed) return
+        if (charged || !billed || native) return
         charged = true
         if (extra) {
           addToModel(extra, 0)
@@ -3737,12 +3764,16 @@ export async function respond(
               },
               model: {
                 id: piModel,
-                fallbacks: LOR_FALLBACK_MODELS.filter((id) => id !== piModel),
+                fallbacks: native
+                  ? []
+                  : LOR_FALLBACK_MODELS.filter((id) => id !== piModel),
                 contextWindow: env.LOR_CONTEXT_WINDOW,
               },
+              ...(native ? { nativeProvider: native.provider } : {}),
               ...(ctx.turn?.effort ? { thinkingLevel: ctx.turn.effort } : {}),
-              gatewayAuth: piGatewayAuth(),
+              gatewayAuth: native?.auth ?? piGatewayAuth(),
               gatewayOptions: mainGatewayOptions,
+              beforeRequest: run.assertCanInfer,
               abortSignal,
               onAssistantModel: (model) => {
                 stepModel = billedModel(model)
