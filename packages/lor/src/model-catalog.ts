@@ -5,6 +5,7 @@ import { harnessModels } from "./harness-models"
 import { LOR_FALLBACK_MODELS, LOR_MODEL } from "./models"
 import {
   CODEX_DEFAULT_MODEL,
+  codexGatewayModel,
   isCodexEffort,
 } from "./session-core/codex-runtime"
 import { inGatewayCatalog } from "./session-core/pi-runtime"
@@ -149,9 +150,7 @@ async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
 async function codexCatalog(): Promise<AgentModelCatalog> {
   const reported = (await harnessModels("codex")) ?? []
   const served = reported.filter((model) =>
-    inGatewayCatalog(
-      model.value.includes("/") ? model.value : `openai/${model.value}`
-    )
+    inGatewayCatalog(codexGatewayModel(model.value))
   )
   const models =
     served.length > 0

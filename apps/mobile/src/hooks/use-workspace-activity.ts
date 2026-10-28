@@ -86,9 +86,17 @@ export function useWorkspaceActivity(workspaceId?: string) {
       if (payload.workspaceId === workspaceId) refresh()
     }
     // A code session's +/− moves with every edit: patched, not refetched.
+    // The count is saved before this push, so before the first snapshot
+    // lands, or while one is in flight that may predate it, fetch again.
     const onUncommitted = (payload: SessionUncommittedUpdated) => {
-      if (payload.workspaceId === workspaceId) {
-        patchUncommittedLines(queryClient, payload)
+      if (payload.workspaceId !== workspaceId) return
+      patchUncommittedLines(queryClient, payload)
+      const key = workspaceActivityKey(workspaceId)
+      if (
+        !queryClient.getQueryData(key) ||
+        queryClient.isFetching({ queryKey: key }) > 0
+      ) {
+        refresh()
       }
     }
     const appState = AppState.addEventListener("change", (state) => {

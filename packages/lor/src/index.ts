@@ -208,6 +208,7 @@ import {
 import {
   CODEX_BINDING,
   CODEX_DEFAULT_MODEL,
+  codexGatewayModel,
   runCodexTurn,
 } from "./session-core/codex-runtime"
 import {
@@ -3362,10 +3363,13 @@ export async function respond(
         addTo(total, usage, reasoningTokens)
         byModel.set(usage.model, total)
       }
-      // The model the sender picked: Codex's name for it, or for Lor's own
-      // agent a model in Pi's Gateway catalog (anything else runs on Lor's
-      // main model).
-      const codexModel = ctx.turn?.model ?? CODEX_DEFAULT_MODEL
+      // The model the sender picked, when the Gateway serves it: Codex's
+      // name for it, or for Lor's own agent a model in Pi's Gateway catalog
+      // (anything else runs on the harness's default model).
+      const codexModel =
+        ctx.turn?.model && inGatewayCatalog(codexGatewayModel(ctx.turn.model))
+          ? ctx.turn.model
+          : CODEX_DEFAULT_MODEL
       const piModel =
         !ctx.claudeCode &&
         !ctx.codex &&
@@ -3381,7 +3385,7 @@ export async function respond(
       // credits, no spend limit. A Codex turn's usage comes whole at its end
       // (extraTurnUsage), at its own model's rate.
       const billed = !ctx.claudeCode
-      const answeringModel = ctx.codex ? `openai/${codexModel}` : piModel
+      const answeringModel = ctx.codex ? codexGatewayModel(codexModel) : piModel
       // Each model's summed USD, as the spend counter priced it; null once a
       // price is missing, so the ledger prices that model's tokens itself.
       const costByModel = new Map<string, number | null>()

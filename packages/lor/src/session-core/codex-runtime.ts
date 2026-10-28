@@ -52,6 +52,11 @@ export const CODEX_BINDING: HarnessBinding = {
 // A Codex session's model when the sender picked none.
 export const CODEX_DEFAULT_MODEL = "gpt-6.1-sol"
 
+// The Gateway's id for a Codex model: Codex names it bare ("gpt-6.1-sol"),
+// the Gateway under its creator ("openai/gpt-6.1-sol").
+export const codexGatewayModel = (model: string) =>
+  model.includes("/") ? model : `openai/${model}`
+
 type CodexEffort = NonNullable<CodexHarnessSettings["reasoningEffort"]>
 // The adapter's effort names; which ones a model takes comes from Codex's
 // own model list.

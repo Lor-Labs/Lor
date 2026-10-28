@@ -146,41 +146,28 @@ export async function prepareCodeWorkFolder(input: {
   if (!token) {
     return { status: "failed", error: "couldn't authenticate with GitHub" }
   }
+  // A new branch is made in the same command as the clone, so no turn can
+  // find the clone still on the base branch. Its remote-tracking ref starts
+  // at the base commit, so its unpushed commits, checkpoints and restores
+  // count from the base like an existing branch's; the first push creates it
+  // on GitHub (github-push.ts). When it fails the fresh clone goes; a failed
+  // clone leaves nothing (git removes the folder it made).
+  const q = shellQuote
+  const newBranch = code.newBranch
+    ? ` && { git -C ${q(workDir)} switch --quiet --create ${q(code.newBranch)} && git -C ${q(workDir)} update-ref ${q(`refs/remotes/origin/${code.newBranch}`)} HEAD || { rc=$?; rm -rf ${q(workDir)}; exit "$rc"; }; }`
+    : ""
   const clone = await sandbox.run({
-    command: shallowCloneCommand({
+    command: `${shallowCloneCommand({
       dir: workDir,
       fullName: code.repoFullName,
       branch: code.baseBranch,
-    }),
+    })}${newBranch}`,
     env: { GIT_TOKEN: token },
     ...(abortSignal ? { abortSignal } : {}),
   })
   if (clone.exitCode !== 0) {
     const error = clone.stderr.split(token).join("***").trim().slice(0, 300)
     return { status: "failed", error: error || "git clone failed" }
-  }
-  // A new branch's remote-tracking ref starts at the base commit, so its
-  // unpushed commits, checkpoints and restores count from the base like an
-  // existing branch's. The first push creates it on GitHub (github-push.ts).
-  // On failure the fresh clone goes, so the next turn doesn't work on the
-  // base branch instead.
-  if (code.newBranch) {
-    const q = shellQuote
-    const created = await sandbox.run({
-      command: [
-        `git -C ${q(workDir)} switch --quiet --create ${q(code.newBranch)}`,
-        `git -C ${q(workDir)} update-ref ${q(`refs/remotes/origin/${code.newBranch}`)} HEAD`,
-      ]
-        .join(" && ")
-        .concat(` || { rc=$?; rm -rf ${q(workDir)}; exit "$rc"; }`),
-      ...(abortSignal ? { abortSignal } : {}),
-    })
-    if (created.exitCode !== 0) {
-      return {
-        status: "failed",
-        error: created.stderr.trim().slice(0, 300) || "git switch failed",
-      }
-    }
   }
   const cloned = await readInstructions(sandbox, workDir, abortSignal)
   return {
