@@ -32,6 +32,7 @@
     "./providers": "./src/providers/index.ts",
     "./session-core": "./src/session-core/index.ts",
     "./session-branches": "./src/session-branches.ts",
+    "./model-catalog": "./src/model-catalog.ts",
     "./sources": "./src/sources.ts",
     "./touches": "./src/touches.ts",
     "./voice-entities": "./src/voice-entities.ts",
