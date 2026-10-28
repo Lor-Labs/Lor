@@ -30,8 +30,10 @@ export function SessionHeading({
   // Lor's title types out; a person's rename shows at once.
   generatedTitle: boolean
   channelName: string
-  // A code session's repo and branch; a tap opens it on GitHub.
-  repo: { fullName: string; branch: string } | null
+  // A code session's repo and branch; a tap opens it on GitHub. A new
+  // branch shows by name, but the link stays on its base: the branch is on
+  // GitHub only after the session's first push.
+  repo: { fullName: string; branch: string; newBranch: string | null } | null
   // Claude Code or Codex; none for Lor's own agent.
   harnessLabel: string | null
   // "Continue in Code" or a fork: the session this one comes from. A fork
@@ -82,7 +84,9 @@ export function SessionHeading({
                 size={14}
                 strokeWidth={2}
               />
-              <Text className="text-sm text-muted">{repo.branch}</Text>
+              <Text className="text-sm text-muted">
+                {repo.newBranch ?? repo.branch}
+              </Text>
             </Pressable>
           </>
         ) : null}

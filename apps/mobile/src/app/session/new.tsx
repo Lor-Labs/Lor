@@ -5,6 +5,7 @@ import GitBranchIcon from "@hugeicons/core-free-icons/GitBranchIcon"
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { isValidNewBranchName } from "@repo/utils/github"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { router, useLocalSearchParams } from "expo-router"
 import * as SecureStore from "expo-secure-store"
@@ -154,7 +155,7 @@ function NewSessionComposer({
   const { workspace } = useWorkspace()
   const { data: auth } = authClient.useSession()
   const [sheet, setSheet] = useState<
-    "channel" | "repo" | "branch" | "harness" | null
+    "channel" | "repo" | "branch" | "base" | "harness" | null
   >(null)
   const [isSending, setIsSending] = useState(false)
   const workspaceSlug = workspace?.slug ?? ""
@@ -179,16 +180,33 @@ function NewSessionComposer({
     const timer = setTimeout(() => setDebouncedBranchQuery(branchQuery), 200)
     return () => clearTimeout(timer)
   }, [branchQuery])
-  const branches = useQuery({
-    ...branchesQueryOptions(
-      workspaceSlug,
-      channel.id,
-      code.repo,
-      debouncedBranchQuery
-    ),
-    enabled: sheet === "branch" && Boolean(code.repo),
+  // Typing filters the branches already loaded at once; GitHub's name search
+  // runs behind it and adds the ones past the first page.
+  const branchSheetOpen = sheet === "branch" || sheet === "base"
+  const listedBranches = useQuery({
+    ...branchesQueryOptions(workspaceSlug, channel.id, code.repo, ""),
+    enabled: branchSheetOpen && Boolean(code.repo),
+  })
+  const branchSearch = debouncedBranchQuery.trim()
+  const searchedBranches = useQuery({
+    ...branchesQueryOptions(workspaceSlug, channel.id, code.repo, branchSearch),
+    enabled: branchSheetOpen && Boolean(code.repo) && branchSearch !== "",
     placeholderData: (previous) => previous,
   })
+  const branchOptions = [
+    ...new Set([
+      ...(listedBranches.data?.branches ?? []),
+      ...(searchedBranches.data?.branches ?? []),
+      ...(code.branch ? [code.branch] : []),
+    ]),
+  ].map((branch) => ({
+    value: branch,
+    label: branch,
+    badge: branch === code.defaultBranch ? "default" : null,
+  }))
+  const searchingBranches =
+    searchedBranches.isFetching ||
+    branchQuery.trim() !== debouncedBranchQuery.trim()
   // Picking an example remounts the composer with it as the draft.
   const [prefill, setPrefill] = useState({ key: 0, text: draft ?? "" })
   const send = useSendNewSession(channel)
@@ -294,12 +312,27 @@ function NewSessionComposer({
                 onPress={() => setSheet("repo")}
               />
               {code.branch ? (
-                <TargetChip
-                  hint="Chooses the branch the session starts from"
-                  icon={GitBranchIcon}
-                  label={code.branch}
-                  onPress={() => setSheet("branch")}
-                />
+                <>
+                  <TargetChip
+                    hint="Chooses the branch the session works on, or makes a new one"
+                    icon={GitBranchIcon}
+                    label={code.newBranch ?? code.branch}
+                    onPress={() => setSheet("branch")}
+                  />
+                  {/* A new branch's base, in sight: the session's diff and
+                    pull request count from it. */}
+                  {code.newBranch ? (
+                    <>
+                      <Text className="text-[13px] text-muted">new from</Text>
+                      <TargetChip
+                        hint="Chooses the branch the new one is made from"
+                        icon={GitBranchIcon}
+                        label={code.branch}
+                        onPress={() => setSheet("base")}
+                      />
+                    </>
+                  ) : null}
+                </>
               ) : (
                 <Spinner size="sm" />
               )}
@@ -409,24 +442,44 @@ function NewSessionComposer({
         title="Repository"
       />
       <PickerSheet
-        emptyText="No branches found"
+        create={{
+          label: (name) =>
+            isValidNewBranchName(name) ? `Create ${name}` : null,
+          onCreate: (name) => {
+            code.createBranch(name)
+            setSheet(null)
+          },
+        }}
+        emptyText={
+          searchingBranches ? "Searching GitHub…" : "No branches found"
+        }
         isOpen={sheet === "branch"}
-        loading={branches.isFetching}
+        loading={searchingBranches && branchQuery.trim() !== ""}
         onOpenChange={(open) => setSheet(open ? "branch" : null)}
         onPick={(branch) => {
           code.pickBranch(branch)
           setSheet(null)
         }}
-        options={(
-          branches.data?.branches ?? (code.branch ? [code.branch] : [])
-        ).map((branch) => ({
-          value: branch,
-          label: branch,
-          badge: branch === code.defaultBranch ? "default" : null,
-        }))}
+        options={branchOptions}
+        search={{ placeholder: "Find a branch", onQueryChange: setBranchQuery }}
+        selected={code.newBranch ? null : code.branch}
+        title="Branch"
+      />
+      <PickerSheet
+        emptyText={
+          searchingBranches ? "Searching GitHub…" : "No branches found"
+        }
+        isOpen={sheet === "base"}
+        loading={searchingBranches && branchQuery.trim() !== ""}
+        onOpenChange={(open) => setSheet(open ? "base" : null)}
+        onPick={(branch) => {
+          code.pickBase(branch)
+          setSheet(null)
+        }}
+        options={branchOptions}
         search={{ placeholder: "Find a branch", onQueryChange: setBranchQuery }}
         selected={code.branch}
-        title="Branch"
+        title="New branch from"
       />
       <PickerSheet
         isOpen={sheet === "harness"}

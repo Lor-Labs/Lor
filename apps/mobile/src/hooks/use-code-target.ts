@@ -10,13 +10,16 @@ import { HARNESS_LABELS, type SessionHarness } from "@/lib/harness"
 // harness-picker.tsx; the picks are remembered on the device.
 
 export type SessionMode = "chat" | "code"
-export type CodeTarget = { repo: string; branch: string }
+// `newBranch`: a branch the session makes from `branch` at its start.
+export type CodeTarget = { repo: string; branch: string; newBranch?: string }
 
 const MODE_KEY = "lor.new-session-mode"
 const HARNESS_KEY = "lor.new-session-harness"
 // SecureStore keys allow letters, digits, ".", "-" and "_" only.
 const repoKey = (workspaceSlug: string) =>
   `lor.code-repo.${workspaceSlug.replace(/[^\w.-]/g, "_")}`
+const branchKey = (workspaceSlug: string, repo: string) =>
+  `lor.code-branch.${`${workspaceSlug}.${repo}`.replace(/[^\w.-]/g, "_")}`
 const REPOS_STALE_MS = 5 * 60 * 1000
 const BRANCHES_STALE_MS = 30 * 1000
 
@@ -114,6 +117,7 @@ export function useCodeTarget({
   const [picked, setPicked] = useState<{
     repo: string
     branch: string | null
+    newBranch?: string
   } | null>(null)
   const repos = useQuery({
     queryKey: ["code-repos", workspaceSlug, channelId],
@@ -145,7 +149,27 @@ export function useCodeTarget({
     enabled: enabled && Boolean(repo),
   })
   const defaultBranch = defaults.data?.defaultBranch ?? null
-  const branch = (picked?.repo === repo ? picked.branch : null) ?? defaultBranch
+  // The person's last branch for this repo, checked on GitHub first: a
+  // deleted or merged one falls back to the default.
+  const stored = repo ? readStored(branchKey(workspaceSlug, repo)) : null
+  const storedCheck = useQuery({
+    ...branchesQueryOptions(workspaceSlug, channelId, repo, stored ?? ""),
+    enabled: enabled && Boolean(repo && stored),
+  })
+  const remembered =
+    stored && storedCheck.data?.branches.includes(stored) ? stored : null
+  const checking = Boolean(stored) && storedCheck.isPending
+  const own = picked?.repo === repo ? picked : null
+  const newBranch = own?.newBranch ?? null
+  // With a new branch, `branch` is its base: the repo's default branch until
+  // one is picked in "from".
+  const branch =
+    own?.branch ??
+    (newBranch
+      ? defaultBranch
+      : checking
+        ? null
+        : (remembered ?? defaultBranch))
   const status = repos.isPending
     ? "loading"
     : repos.isError
@@ -161,14 +185,27 @@ export function useCodeTarget({
     repos: list,
     repo,
     branch,
+    newBranch,
     defaultBranch,
-    target: repo && branch ? { repo, branch } : null,
+    target:
+      repo && branch
+        ? { repo, branch, ...(newBranch ? { newBranch } : {}) }
+        : null,
     pickRepo: (next: string) => {
       setPicked({ repo: next, branch: null })
       writeStored(repoKey(workspaceSlug), next)
     },
     pickBranch: (next: string) => {
-      if (repo) setPicked({ repo, branch: next })
+      if (!repo) return
+      setPicked({ repo, branch: next })
+      writeStored(branchKey(workspaceSlug, repo), next)
+    },
+    // Not remembered: it isn't on GitHub until the session's first push.
+    createBranch: (name: string) => {
+      if (repo) setPicked({ repo, branch: null, newBranch: name })
+    },
+    pickBase: (next: string) => {
+      if (repo && newBranch) setPicked({ repo, branch: next, newBranch })
     },
   }
 }

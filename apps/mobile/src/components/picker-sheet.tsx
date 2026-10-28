@@ -2,6 +2,7 @@ import {
   BottomSheetScrollView,
   BottomSheetTextInput,
 } from "@gorhom/bottom-sheet"
+import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
@@ -21,8 +22,10 @@ export type PickerOption = {
 }
 
 // One choice from a list in a bottom sheet (a session's repo, branch or
-// agent), with a search field when `search` is set. With `onQueryChange` the
-// caller filters on the server; otherwise the list filters here.
+// agent), with a search field when `search` is set. The list filters here as
+// you type; `onQueryChange` lets the caller also search the server and add
+// its results. With `create`, a typed name that matches no option gets a
+// last row to make it.
 export function PickerSheet({
   isOpen,
   onOpenChange,
@@ -31,6 +34,7 @@ export function PickerSheet({
   selected,
   onPick,
   search,
+  create,
   loading = false,
   emptyText = "Nothing found",
 }: {
@@ -41,6 +45,11 @@ export function PickerSheet({
   selected: string | null
   onPick: (value: string) => void
   search?: { placeholder: string; onQueryChange?: (query: string) => void }
+  create?: {
+    // The row's text for a typed name; null: the name can't be made.
+    label: (name: string) => string | null
+    onCreate: (name: string) => void
+  }
   loading?: boolean
   emptyText?: string
 }) {
@@ -50,11 +59,16 @@ export function PickerSheet({
     setQuery(next)
     search?.onQueryChange?.(next)
   }
-  const needle = query.trim().toLowerCase()
+  const typed = query.trim()
+  const needle = typed.toLowerCase()
   const shown =
-    search && !search.onQueryChange && needle
+    search && needle
       ? options.filter((option) => option.label.toLowerCase().includes(needle))
       : options
+  const createLabel =
+    create && typed && !options.some((option) => option.value === typed)
+      ? create.label(typed)
+      : null
 
   return (
     <BottomSheet
@@ -107,7 +121,7 @@ export function PickerSheet({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {shown.length === 0 && !loading ? (
+            {shown.length === 0 && !loading && !createLabel ? (
               <Text className="px-three py-three text-sm text-muted">
                 {emptyText}
               </Text>
@@ -145,6 +159,24 @@ export function PickerSheet({
                 ) : null}
               </Pressable>
             ))}
+            {create && createLabel ? (
+              <Pressable
+                accessibilityRole="button"
+                className="min-h-12 flex-row items-center gap-two rounded-lor-sm px-three py-two active:bg-surface-secondary"
+                onPress={() => {
+                  create.onCreate(typed)
+                  changeQuery("")
+                }}
+              >
+                <HugeiconsIcon color={accent} icon={PlusSignIcon} size={18} />
+                <Text
+                  className="min-w-0 flex-1 text-[15px] text-foreground"
+                  numberOfLines={1}
+                >
+                  {createLabel}
+                </Text>
+              </Pressable>
+            ) : null}
           </BottomSheetScrollView>
         </BottomSheet.Content>
       </BottomSheet.Portal>

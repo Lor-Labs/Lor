@@ -339,6 +339,7 @@ export function ThreadView({
             ? {
                 fullName: lorSession.repoFullName,
                 branch: lorSession.baseBranch,
+                newBranch: lorSession.newBranch,
               }
             : null
         }

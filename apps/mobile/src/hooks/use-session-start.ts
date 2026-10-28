@@ -43,7 +43,13 @@ export type SessionStart = {
   // The sender's message, the session's first turn.
   message: Message
   // A code session: its repo, base branch and agent.
-  code?: { repo: string; branch: string; harness: SessionHarness }
+  // `newBranch`: made from `branch` at the start.
+  code?: {
+    repo: string
+    branch: string
+    newBranch?: string
+    harness: SessionHarness
+  }
 }
 
 export type SessionStartHandlers = {
@@ -102,7 +108,7 @@ export function useSessionStart(
       harness: start.code?.harness ?? "pi",
       repoFullName: start.code?.repo ?? null,
       baseBranch: start.code?.branch ?? null,
-      newBranch: null,
+      newBranch: start.code?.newBranch ?? null,
       uncommittedAdditions: null,
       uncommittedDeletions: null,
       sourceSessionId: null,
@@ -247,7 +253,8 @@ export function useSendNewSession(channel: {
     content: string,
     attachments: NonNullable<Message["attachments"]>,
     contextMessageId: string | undefined,
-    // Code mode: the session's repo, base branch and agent.
+    // Code mode: the session's repo, base branch (or a new branch from it)
+    // and agent.
     code?: SessionStart["code"],
     // The model, effort and fast mode for its first turn.
     turn?: Pick<SendMessagePayload, "model" | "effort" | "fast">
@@ -290,7 +297,11 @@ export function useSendNewSession(channel: {
         referencedMessageId: contextMessageId,
         ...(code
           ? {
-              code: { repo: code.repo, branch: code.branch },
+              code: {
+                repo: code.repo,
+                branch: code.branch,
+                ...(code.newBranch ? { newBranch: code.newBranch } : {}),
+              },
               harness: code.harness,
             }
           : {}),
