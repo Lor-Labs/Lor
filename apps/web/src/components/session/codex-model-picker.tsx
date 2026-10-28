@@ -1,6 +1,5 @@
 import { ArrowDown01Icon, Tick02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import type { SendMessagePayload } from "@repo/realtime-types"
 import { CustomMenuItem } from "@repo/ui/components/custom-menu-item"
 import {
   DropdownMenu,
@@ -13,7 +12,8 @@ import { useSyncExternalStore } from "react"
 // message (code-sessions-runbook.md chunk 8). Remembered per person, first
 // GPT-6.1 Sol.
 
-export type CodexModel = NonNullable<SendMessagePayload["codexModel"]>
+// Until the model catalog lands (Codex's own list), its three models.
+export type CodexModel = "gpt-6.1-sol" | "gpt-6-astra" | "gpt-6-luna"
 
 const MODELS: CodexModel[] = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"]
 

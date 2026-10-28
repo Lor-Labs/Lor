@@ -567,12 +567,9 @@ export function SessionDocument({
             mentions: [],
             ...options,
             ...(claudeCode
-              ? {
-                  claudeCodeMode: claudeMode.mode,
-                  claudeModel: claudeModel.model,
-                }
+              ? { claudeCodeMode: claudeMode.mode, model: claudeModel.model }
               : {}),
-            ...(codex ? { codexModel: codexModel.model } : {}),
+            ...(codex ? { model: codexModel.model } : {}),
           })
           if (nonce) showSendEffects(nonce, options)
           scroll.scrollAfterSend()

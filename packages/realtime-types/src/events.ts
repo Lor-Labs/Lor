@@ -187,11 +187,13 @@ export const sendMessagePayloadSchema = z
     claudeCodeMode: z
       .enum(["auto", "default", "acceptEdits", "plan", "bypassPermissions"])
       .optional(),
-    // Likewise the Claude model, as Claude Code's alias. Default: Opus.
-    claudeModel: z.enum(["opus", "sonnet", "haiku", "fable"]).optional(),
-    // In a Codex session: the model for the turn this message starts.
-    // Default: GPT-6.1 Sol.
-    codexModel: z.enum(["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"]).optional(),
+    // In a session: the model, effort and fast mode for the turn this
+    // message starts, as the session's harness names them (its catalog
+    // lists the choices; the worker drops what the harness can't take).
+    // Unset: the harness's default.
+    model: z.string().trim().min(1).max(200).optional(),
+    effort: z.string().trim().min(1).max(32).optional(),
+    fast: z.boolean().optional(),
     // Ids the sender chose for the session this send starts (New session or
     // @Lor), so it can show the session before the ack. Ignored when the
     // send starts none.

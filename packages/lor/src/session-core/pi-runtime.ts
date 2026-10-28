@@ -14,6 +14,7 @@ import {
   VERSION as PI_ADAPTER_VERSION,
   type PiBuiltinToolApproval,
   type PiHarnessExtensionFactory,
+  type PiHarnessSettings,
 } from "@ai-sdk/harness-pi"
 import type { Usage } from "@earendil-works/pi-ai"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
@@ -107,6 +108,27 @@ async function restoreLog(
   if (current.stdout.trim() === saved.head.sha256) return
   await sandbox.writeTextFile({ path, content: saved.log })
 }
+
+// Whether Pi's AI Gateway catalog has the model, so a turn can run on it.
+export function inGatewayCatalog(id: string): boolean {
+  return getBuiltinModels(GATEWAY_PROVIDER).some((entry) => entry.id === id)
+}
+
+type PiThinkingLevel = NonNullable<PiHarnessSettings["thinkingLevel"]>
+// Pi's thinking level names; Pi clamps a level to what the model supports.
+const PI_THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const
+const isPiThinkingLevel = (
+  value: string | undefined
+): value is PiThinkingLevel =>
+  PI_THINKING_LEVELS.some((level) => level === value)
 
 // Pi's catalog with each window capped at the smallest window in Lor's
 // fallback chain, so a fallback model never receives an oversize request.
@@ -524,6 +546,8 @@ export type PiTurnInput = {
   // Without it every call is allowed.
   builtinToolApproval?: PiBuiltinToolApproval
   model: { id: string; fallbacks: string[]; contextWindow: number }
+  // The sender's thinking level pick; unset or a name Pi doesn't know: high.
+  thinkingLevel?: string
   gatewayAuth: Record<string, string>
   gatewayOptions: Record<string, unknown>
   abortSignal?: AbortSignal
@@ -634,7 +658,9 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
           onBoundary: input.onBoundary,
         }),
       ],
-      thinkingLevel: "high",
+      thinkingLevel: isPiThinkingLevel(input.thinkingLevel)
+        ? input.thinkingLevel
+        : "high",
     }),
     model: input.model.id,
     tools: prepareTools(

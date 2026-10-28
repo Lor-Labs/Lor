@@ -1,6 +1,5 @@
 import { ArrowDown01Icon, Tick02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import type { SendMessagePayload } from "@repo/realtime-types"
 import { CustomMenuItem } from "@repo/ui/components/custom-menu-item"
 import {
   DropdownMenu,
@@ -13,7 +12,8 @@ import { useSyncExternalStore } from "react"
 // per message as Claude Code's own aliases, on the sender's subscription.
 // Remembered per person, first Opus.
 
-export type ClaudeModel = NonNullable<SendMessagePayload["claudeModel"]>
+// Until the model catalog lands (Claude Code's own list), the four aliases.
+export type ClaudeModel = "opus" | "sonnet" | "haiku" | "fable"
 
 const MODELS: ClaudeModel[] = ["opus", "sonnet", "haiku", "fable"]
 

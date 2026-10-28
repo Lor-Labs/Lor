@@ -27,8 +27,6 @@ import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-acce
 import type {
   AgentRunContext,
   ClaudeCodeMode,
-  ClaudeModel,
-  CodexModel,
   LorToolCall,
   LorToolCallUpdate,
   SandboxTurnContext,
@@ -205,8 +203,13 @@ import {
   CLAUDE_CODE_BINDING,
   runClaudeCodeTurn,
 } from "./session-core/claude-runtime"
-import { CODEX_BINDING, runCodexTurn } from "./session-core/codex-runtime"
 import {
+  CODEX_BINDING,
+  CODEX_DEFAULT_MODEL,
+  runCodexTurn,
+} from "./session-core/codex-runtime"
+import {
+  inGatewayCatalog,
   PI_BINDING,
   PI_BUILTIN_NAMES,
   type PiCompaction,
@@ -597,19 +600,22 @@ export type RespondContext = {
   code?: RunCodeContext
   // A Claude Code session's turn (code-sessions-runbook.md chunk 7d): the
   // turn starter's own Claude subscription token, who that is and the mode
-  // and model they picked (saved with the request, so a paused turn
-  // continues on the same person's subscription, mode and model). Claude
-  // Code runs the turn instead of Pi, and Lor credits are not charged.
+  // they picked (saved with the request, so a paused turn continues on the
+  // same person's subscription and mode). Claude Code runs the turn instead
+  // of Pi, and Lor credits are not charged.
   claudeCode?: {
     token: string
     userId: string
     mode: ClaudeCodeMode
-    model: ClaudeModel
   }
-  // A Codex session's turn (chunk 8d): the model the sender picked, saved
-  // with the request so a paused turn continues on it. Codex runs the turn
-  // instead of Pi, on Lor credits.
-  codex?: { model: CodexModel }
+  // A Codex session's turn (chunk 8d). Codex runs the turn instead of Pi, on
+  // Lor credits.
+  codex?: true
+  // The model, effort and fast mode the turn's sender picked, as the
+  // session's harness names them. Saved with the request so a paused turn
+  // continues on them. Unset parts take the harness's default; a model Pi's
+  // catalog lacks runs on Lor's main model.
+  turn?: { model?: string; effort?: string; fast?: boolean }
   // "Continue in Code": names the session whose messages are the background.
   continuesSession?: { title: string }
   // A fork's first turn: the session it was forked from.
@@ -3002,10 +3008,11 @@ export async function respond(
           ? {
               claudeCodeUserId: ctx.claudeCode.userId,
               claudeCodeMode: ctx.claudeCode.mode,
-              claudeModel: ctx.claudeCode.model,
             }
           : {}),
-        ...(ctx.codex ? { codexModel: ctx.codex.model } : {}),
+        ...(ctx.turn?.model ? { turnModel: ctx.turn.model } : {}),
+        ...(ctx.turn?.effort ? { turnEffort: ctx.turn.effort } : {}),
+        ...(ctx.turn?.fast ? { turnFast: true } : {}),
         sandboxMode: harness.sandboxMode,
         sandboxContext: harness.continueOnly
           ? (harness.pausedSandboxContext ?? { request: "" })
@@ -3333,7 +3340,18 @@ export async function respond(
         addTo(total, usage, reasoningTokens)
         byModel.set(usage.model, total)
       }
-      let stepModel = LOR_MODEL
+      // The model the sender picked: Codex's name for it, or for Lor's own
+      // agent a model in Pi's Gateway catalog (anything else runs on Lor's
+      // main model).
+      const codexModel = ctx.turn?.model ?? CODEX_DEFAULT_MODEL
+      const piModel =
+        !ctx.claudeCode &&
+        !ctx.codex &&
+        ctx.turn?.model &&
+        inGatewayCatalog(ctx.turn.model)
+          ? ctx.turn.model
+          : LOR_MODEL
+      let stepModel = piModel
       // Set by the first finish-step of an assistant message, cleared when
       // the next message ends.
       let stepBilled = false
@@ -3341,7 +3359,7 @@ export async function respond(
       // credits, no spend limit. A Codex turn's usage comes whole at its end
       // (extraTurnUsage), at its own model's rate.
       const billed = !ctx.claudeCode
-      const answeringModel = ctx.codex ? `openai/${ctx.codex.model}` : LOR_MODEL
+      const answeringModel = ctx.codex ? `openai/${codexModel}` : piModel
       const record = async (
         usage: RunStepRecord,
         kind: "step" | "compaction",
@@ -3545,7 +3563,6 @@ export async function respond(
       const claudeCodeTurn = async (claude: {
         token: string
         mode: ClaudeCodeMode
-        model: ClaudeModel
       }) => {
         const access = grantHarnessAccess(harness.owner, {
           claudeToken: claude.token,
@@ -3562,7 +3579,8 @@ export async function respond(
             bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
             tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
             mode: claude.mode,
-            model: claude.model,
+            ...(ctx.turn?.model ? { model: ctx.turn.model } : {}),
+            ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(answers && !pausedDropped ? { answers } : {}),
@@ -3585,7 +3603,7 @@ export async function respond(
       }
       // Codex reaches the AI Gateway on Lor's key, which the proxy adds for
       // this turn only (code-sessions-runbook.md chunk 8).
-      const codexTurn = async (codex: { model: CodexModel }) => {
+      const codexTurn = async () => {
         const access = grantHarnessAccess(harness.owner, {
           gatewayKey: piGatewayAuth().AI_GATEWAY_API_KEY ?? "",
         })
@@ -3600,7 +3618,8 @@ export async function respond(
             sandbox: sandbox.session,
             bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
             keyPlaceholder: GATEWAY_KEY_PLACEHOLDER,
-            model: codex.model,
+            model: codexModel,
+            ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(pausedDropped ? { dropPaused: true } : {}),
@@ -3623,7 +3642,7 @@ export async function respond(
       const turn = await (ctx.claudeCode
         ? claudeCodeTurn(ctx.claudeCode)
         : ctx.codex
-          ? codexTurn(ctx.codex)
+          ? codexTurn()
           : runPiTurn({
               sessionId: conversationId,
               sessionKey: conversationId,
@@ -3649,10 +3668,11 @@ export async function respond(
                 sandboxApproval = makeSandboxApproval(requestSandboxContext)
               },
               model: {
-                id: LOR_MODEL,
-                fallbacks: LOR_FALLBACK_MODELS,
+                id: piModel,
+                fallbacks: LOR_FALLBACK_MODELS.filter((id) => id !== piModel),
                 contextWindow: env.LOR_CONTEXT_WINDOW,
               },
+              ...(ctx.turn?.effort ? { thinkingLevel: ctx.turn.effort } : {}),
               gatewayAuth: piGatewayAuth(),
               gatewayOptions: mainGatewayOptions,
               abortSignal,

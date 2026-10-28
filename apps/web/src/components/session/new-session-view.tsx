@@ -377,12 +377,9 @@ function NewSessionComposer({
                 ? { code: code.target, harness }
                 : {}),
               ...(claudeCode
-                ? {
-                    claudeCodeMode: claudeMode.mode,
-                    claudeModel: claudeModel.model,
-                  }
+                ? { claudeCodeMode: claudeMode.mode, model: claudeModel.model }
                 : {}),
-              ...(codex ? { codexModel: codexModel.model } : {}),
+              ...(codex ? { model: codexModel.model } : {}),
               ...(continueFromSessionId
                 ? {
                     continueFrom: {

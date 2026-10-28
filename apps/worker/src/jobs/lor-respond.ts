@@ -17,8 +17,6 @@ import {
 } from "@repo/db/queries/channel-access"
 import type {
   ClaudeCodeMode,
-  ClaudeModel,
-  CodexModel,
   Loop,
   LorMemory,
   LorReasoningSegment,
@@ -782,10 +780,10 @@ export function createLorRespondProcessor(
             }
 
             // A Claude Code turn runs only on its sender's own subscription,
-            // in the mode and on the model they picked: never a Loop fire, an
-            // Act event or someone else's message. A run that continues a
-            // paused turn keeps that turn's sender, mode and model, whoever
-            // decided its approvals.
+            // in the mode they picked: never a Loop fire, an Act event or
+            // someone else's message. A run that continues a paused turn
+            // keeps that turn's sender and mode, whoever decided its
+            // approvals.
             const claudeTurn =
               session.harness !== "claude_code" || automated
                 ? null
@@ -796,7 +794,6 @@ export function createLorRespondProcessor(
                           string | null
                         >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
                         mode: sql<ClaudeCodeMode | null>`${schema.agentRun.context} ->> 'claudeCodeMode'`,
-                        model: sql<ClaudeModel | null>`${schema.agentRun.context} ->> 'claudeModel'`,
                       })
                       .from(schema.agentRun)
                       .where(eq(schema.agentRun.id, harnessState.lastRunId))
@@ -806,10 +803,7 @@ export function createLorRespondProcessor(
                         userId: triggerUserId,
                         ...(triggerMessageId
                           ? await db
-                              .select({
-                                mode: schema.message.claudeCodeMode,
-                                model: schema.message.claudeModel,
-                              })
+                              .select({ mode: schema.message.claudeCodeMode })
                               .from(schema.message)
                               .where(eq(schema.message.id, triggerMessageId))
                               .then((rows) => rows[0] ?? null)
@@ -827,26 +821,44 @@ export function createLorRespondProcessor(
                   ? "Claude Code sessions only run on a person's own messages."
                   : "This message needs its sender's Claude subscription. Connect it in Settings → Linked accounts, or continue in a Lor session."
                 : null
-            // A Codex turn runs on the model its sender picked; a run that
-            // continues a paused turn keeps that turn's model.
-            const codexModel: CodexModel | null =
-              session.harness !== "codex"
-                ? null
-                : continueOnly && harnessState?.lastRunId
+            // The model, effort and fast mode the turn's sender picked, for
+            // any harness; a run that continues a paused turn keeps that
+            // turn's picks. Fast mode is for subscription harnesses only.
+            const picks =
+              continueOnly && harnessState?.lastRunId
+                ? await db
+                    .select({
+                      model: sql<
+                        string | null
+                      >`${schema.agentRun.context} ->> 'turnModel'`,
+                      effort: sql<
+                        string | null
+                      >`${schema.agentRun.context} ->> 'turnEffort'`,
+                      fast: sql<
+                        boolean | null
+                      >`(${schema.agentRun.context} ->> 'turnFast')::boolean`,
+                    })
+                    .from(schema.agentRun)
+                    .where(eq(schema.agentRun.id, harnessState.lastRunId))
+                    .then((rows) => rows[0] ?? null)
+                : triggerMessageId
                   ? await db
                       .select({
-                        model: sql<CodexModel | null>`${schema.agentRun.context} ->> 'codexModel'`,
+                        model: schema.message.turnModel,
+                        effort: schema.message.turnEffort,
+                        fast: schema.message.turnFast,
                       })
-                      .from(schema.agentRun)
-                      .where(eq(schema.agentRun.id, harnessState.lastRunId))
-                      .then((rows) => rows[0]?.model ?? null)
-                  : triggerMessageId
-                    ? await db
-                        .select({ model: schema.message.codexModel })
-                        .from(schema.message)
-                        .where(eq(schema.message.id, triggerMessageId))
-                        .then((rows) => rows[0]?.model ?? null)
-                    : null
+                      .from(schema.message)
+                      .where(eq(schema.message.id, triggerMessageId))
+                      .then((rows) => rows[0] ?? null)
+                  : null
+            const turn = {
+              ...(picks?.model ? { model: picks.model } : {}),
+              ...(picks?.effort ? { effort: picks.effort } : {}),
+              ...(picks?.fast && session.harness === "claude_code"
+                ? { fast: true }
+                : {}),
+            }
             if (refusal) {
               await db
                 .update(schema.message)
@@ -1016,13 +1028,13 @@ export function createLorRespondProcessor(
                         token: claudeToken,
                         userId: claudeUserId,
                         mode: claudeCodeMode,
-                        model: claudeTurn?.model ?? "opus",
                       },
                     }
                   : {}),
                 ...(session.harness === "codex"
-                  ? { codex: { model: codexModel ?? "gpt-6.1-sol" } }
+                  ? { codex: true as const }
                   : {}),
+                turn,
                 ...(loopRun && threadRootId
                   ? {
                       loop: loopRunContext(

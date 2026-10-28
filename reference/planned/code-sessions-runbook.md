@@ -826,7 +826,10 @@ may lag web), a Lor-offered "Continue in Code" card.
       to 5.8 s; it is the same for Pi.
   - [x] **7g** Claude model picker and a trimmed Details tab, built
     2026-10-26 (additive `db:push`: the `claude_model` enum and
-    `message.claude_model`). Decided with Jacob the same day:
+    `message.claude_model`; replaced 2026-10-27 by `message.turn_model`,
+    `turn_effort` and `turn_fast` for every harness, with the model list
+    read from each harness, not a fixed enum). Decided with Jacob the same
+    day:
     - The composer's model picker beside the mode
       (`claude-model-picker.tsx`): Opus (default), Sonnet, Haiku and Fable,
       as Claude Code's own aliases, so they follow its newest models.
@@ -914,7 +917,8 @@ may lag web), a Lor-offered "Continue in Code" card.
       changed instructions kept the thread and its context, and `~/.codex`
       stayed about 4 MB (95 MB before).
   - [x] **8c** picking Codex, built 2026-10-26 (additive `db:push`: `codex`
-    in `harness_kind`, the `codex_model` enum and `message.codex_model`):
+    in `harness_kind`, the `codex_model` enum and `message.codex_model`;
+    the enum and column were replaced 2026-10-27, as in 7g):
     - The New session picker offers Codex ("OpenAI's coding agent, on Lor
       credits"), for code sessions only, like Claude Code; no linked
       account. The session header shows the harness's name.

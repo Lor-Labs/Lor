@@ -6,6 +6,7 @@ import {
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
   VERSION as CLAUDE_CODE_ADAPTER_VERSION,
+  type ClaudeCodeHarnessSettings,
   createClaudeCode,
 } from "@ai-sdk/harness-claude-code"
 import type {
@@ -76,6 +77,13 @@ const CLAUDE_CODE_INACTIVE_TOOLS = [
   "ShareOnboardingGuide",
 ]
 
+type ClaudeEffort = NonNullable<ClaudeCodeHarnessSettings["effort"]>
+// The adapter's effort names; which ones a model takes comes from Claude
+// Code's own model list.
+const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
+const isClaudeEffort = (value: string | undefined): value is ClaudeEffort =>
+  CLAUDE_EFFORTS.some((effort) => effort === value)
+
 export type ClaudeCodeTurnInput = {
   // Lor's session id: the harness session, and the work folder's name.
   sessionId: string
@@ -92,8 +100,11 @@ export type ClaudeCodeTurnInput = {
   // Claude Code's own permission mode. Its prompts pause the turn as builtin
   // approvals; Bypass raises none.
   mode: ClaudeCodeMode
-  // Claude Code's model alias ("opus", "sonnet"...).
+  // The model the sender picked, as Claude Code names it ("opus", or a full
+  // model id); unset: Opus.
   model?: string
+  // The sender's effort pick; one Claude Code doesn't name is dropped.
+  effort?: string
   // Appended to Claude Code's own system prompt (it cannot be replaced).
   instructions: string
   // A paused turn in `saved` continues first, through its bridge process,
@@ -151,6 +162,7 @@ export async function runClaudeCodeTurn(
   }
   const rewindTo =
     saved && !paused ? pendingRewind(saved.head, saved.log) : null
+  const effort = isClaudeEffort(input.effort) ? input.effort : null
   const claudeHome = `${await sandboxHome(sandbox)}/.claude`
   // Postgres is the authority: put the saved file back unless it matches. A
   // paused turn's bridge still holds the file and appends to it, so it stays.
@@ -176,8 +188,11 @@ export async function runClaudeCodeTurn(
       // After a rewind the next turn resumes from that entry and branches
       // the file there (adapter patch, the SDK's resumeSessionAt).
       ...(rewindTo ? { resumeSessionAt: rewindTo } : {}),
+      ...(effort ? { effort } : {}),
     }),
-    ...(input.model ? { model: input.model } : {}),
+    // Without a model the bridge's Claude Code picks Sonnet, so Lor always
+    // sends one: Opus is Claude Code's documented default.
+    model: input.model ?? "opus",
     instructions: input.instructions,
     tools: prepareTools(
       { ...missingToolStubs(paused, input.tools), ...input.tools },
