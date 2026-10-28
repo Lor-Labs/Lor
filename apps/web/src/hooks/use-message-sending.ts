@@ -183,8 +183,9 @@ export function useMessageSending({
         toPeople?: boolean
         // New session view: start a session in this channel.
         startSession?: boolean
-        // With startSession: start it in Code mode on this repo and branch.
-        code?: { repo: string; branch: string }
+        // With startSession: start it in Code mode on this repo and branch,
+        // or a new branch made from it.
+        code?: SendMessagePayload["code"]
         // With code: Claude Code or Codex runs it instead of Lor's own agent.
         harness?: SendMessagePayload["harness"]
         // A Claude Code session: the mode for the turn this message starts.

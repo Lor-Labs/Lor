@@ -13,6 +13,8 @@ import { getInstallationToken } from "./providers/github"
 export type RunCodeContext = {
   repoFullName: string
   baseBranch: string
+  // A branch the session made from baseBranch; null: it works on baseBranch.
+  newBranch?: string | null
 }
 
 // Pi's own candidates and order (pi-coding-agent loadContextFileFromDir),
@@ -157,6 +159,29 @@ export async function prepareCodeWorkFolder(input: {
     const error = clone.stderr.split(token).join("***").trim().slice(0, 300)
     return { status: "failed", error: error || "git clone failed" }
   }
+  // A new branch's remote-tracking ref starts at the base commit, so its
+  // unpushed commits, checkpoints and restores count from the base like an
+  // existing branch's. The first push creates it on GitHub (github-push.ts).
+  // On failure the fresh clone goes, so the next turn doesn't work on the
+  // base branch instead.
+  if (code.newBranch) {
+    const q = shellQuote
+    const created = await sandbox.run({
+      command: [
+        `git -C ${q(workDir)} switch --quiet --create ${q(code.newBranch)}`,
+        `git -C ${q(workDir)} update-ref ${q(`refs/remotes/origin/${code.newBranch}`)} HEAD`,
+      ]
+        .join(" && ")
+        .concat(` || { rc=$?; rm -rf ${q(workDir)}; exit "$rc"; }`),
+      ...(abortSignal ? { abortSignal } : {}),
+    })
+    if (created.exitCode !== 0) {
+      return {
+        status: "failed",
+        error: created.stderr.trim().slice(0, 300) || "git switch failed",
+      }
+    }
+  }
   const cloned = await readInstructions(sandbox, workDir, abortSignal)
   return {
     status: "ready",
@@ -179,7 +204,10 @@ export function codeSessionPromptSection(
       : harness === "codex"
         ? "The repository's AGENTS.md, when it has one, is loaded for you; when it has a CLAUDE.md instead, read it before you change code."
         : "The repository's instruction file, when it has one, is in the project context section."
-  return `Code session: this session works on the GitHub repository ${code.repoFullName}, cloned from its ${code.baseBranch} branch. Your sandbox work folder is the repository root, and your sandbox tools start there.
+  const branch = code.newBranch
+    ? `on a new branch, ${code.newBranch}, made from its ${code.baseBranch} branch`
+    : `cloned from its ${code.baseBranch} branch`
+  return `Code session: this session works on the GitHub repository ${code.repoFullName}, ${branch}. Your sandbox work folder is the repository root, and your sandbox tools start there.
 - Change files and run the project's own checks freely.
 - Leave your changes uncommitted on the checked-out branch. The people in this session review your changes, commit them and push from the session's Changes panel, so never commit, push, or create or switch branches yourself.
 - When the work is ready for review, mention the person who asked: say what you changed, why, and how you checked it.

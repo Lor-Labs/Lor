@@ -1,5 +1,8 @@
 import { authClient } from "@repo/auth/client"
-import type { RealtimeAgentSession } from "@repo/realtime-types"
+import type {
+  RealtimeAgentSession,
+  SendMessagePayload,
+} from "@repo/realtime-types"
 import { toast } from "@repo/ui/components/toast"
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useRouter } from "@tanstack/react-router"
@@ -34,7 +37,7 @@ export type SessionStart = {
   threadRootId: string
   origin: "chat" | "new"
   // New session in Code mode.
-  code?: { repo: string; branch: string }
+  code?: SendMessagePayload["code"]
   harness?: "pi" | "claude_code" | "codex"
   // "Continue in Code": the session it continues.
   source?: { id: string; title: string }
@@ -105,6 +108,7 @@ export function useSessionStart({
       harness: start.harness ?? "pi",
       repoFullName: start.code?.repo ?? null,
       baseBranch: start.code?.branch ?? null,
+      newBranch: start.code?.newBranch ?? null,
       sourceSessionId: start.source?.id ?? null,
       forkedFromMessageId: null,
       title: start.title,

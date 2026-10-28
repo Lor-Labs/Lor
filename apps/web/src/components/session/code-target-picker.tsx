@@ -3,6 +3,7 @@ import {
   BubbleChatIcon,
   GitBranchIcon,
   GithubIcon,
+  PlusSignIcon,
   SourceCodeIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
@@ -10,8 +11,9 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { Combobox, ComboboxPrimitive } from "@repo/ui/components/combobox"
 import { Spinner } from "@repo/ui/components/spinner"
 import { ToggleGroup, ToggleGroupItem } from "@repo/ui/components/toggle-group"
+import { isValidNewBranchName } from "@repo/utils/github"
 import { useQuery } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { apiClient } from "@/lib/api-client"
 
 // New session in Code mode: one repo and base branch, fixed for the session
@@ -123,6 +125,8 @@ export function useCodeTarget({
   const [picked, setPicked] = useState<{
     repo: string
     branch: string | null
+    // A branch the session makes from `branch` at its start.
+    newBranch?: string
   } | null>(null)
   const repos = useQuery({
     queryKey: ["code-repos", workspaceSlug, channelId],
@@ -164,9 +168,17 @@ export function useCodeTarget({
   const remembered =
     stored && storedCheck.data?.branches.includes(stored) ? stored : null
   const checking = Boolean(stored) && storedCheck.isPending
+  const own = picked?.repo === repo ? picked : null
+  const newBranch = own?.newBranch ?? null
+  // With a new branch, `branch` is its base: the repo's default branch until
+  // one is picked in "from".
   const branch =
-    (picked?.repo === repo ? picked.branch : null) ??
-    (checking ? null : (remembered ?? defaultBranch))
+    own?.branch ??
+    (newBranch
+      ? defaultBranch
+      : checking
+        ? null
+        : (remembered ?? defaultBranch))
   const status = repos.isPending
     ? "loading"
     : repos.isError
@@ -182,8 +194,12 @@ export function useCodeTarget({
     repos: list,
     repo,
     branch,
+    newBranch,
     defaultBranch,
-    target: repo && branch ? { repo, branch } : null,
+    target:
+      repo && branch
+        ? { repo, branch, ...(newBranch ? { newBranch } : {}) }
+        : null,
     pickRepo: (next: string) => {
       setPicked({ repo: next, branch: null })
       writeStored(repoKey(workspaceSlug), next)
@@ -192,6 +208,13 @@ export function useCodeTarget({
       if (!repo) return
       setPicked({ repo, branch: next })
       writeStored(branchKey(workspaceSlug, repo), next)
+    },
+    // Not remembered: it isn't on GitHub until the session's first push.
+    createBranch: (name: string) => {
+      if (repo) setPicked({ repo, branch: null, newBranch: name })
+    },
+    pickBase: (next: string) => {
+      if (repo && newBranch) setPicked({ repo, branch: next, newBranch })
     },
   }
 }
@@ -232,23 +255,57 @@ export function CodeTargetPicker({
         emptyText="No repositories found"
         onPick={code.pickRepo}
       />
-      <BranchPicker
-        workspaceSlug={workspaceSlug}
-        channelId={channelId}
-        code={code}
-      />
+      {code.branch ? (
+        <>
+          <BranchPicker
+            workspaceSlug={workspaceSlug}
+            channelId={channelId}
+            code={code}
+            value={code.newBranch ?? code.branch}
+            labelBadge={code.newBranch ? "new" : undefined}
+            onPick={code.pickBranch}
+            onCreate={code.createBranch}
+          />
+          {/* A new branch's base, in sight: the session's diff and pull
+            request count from it. */}
+          {code.newBranch && (
+            <>
+              <span className="text-muted-foreground">from</span>
+              <BranchPicker
+                workspaceSlug={workspaceSlug}
+                channelId={channelId}
+                code={code}
+                value={code.branch}
+                onPick={code.pickBase}
+              />
+            </>
+          )}
+        </>
+      ) : (
+        <Spinner className="size-3.5 text-muted-foreground" />
+      )}
     </>
   )
 }
 
+// One existing branch to pick; with onCreate, a typed name that matches none
+// can be made instead.
 function BranchPicker({
   workspaceSlug,
   channelId,
   code,
+  value,
+  labelBadge,
+  onPick,
+  onCreate,
 }: {
   workspaceSlug: string
   channelId: string
   code: CodeTargetState
+  value: string
+  labelBadge?: string
+  onPick: (branch: string) => void
+  onCreate?: (name: string) => void
 }) {
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
@@ -272,23 +329,32 @@ function BranchPicker({
   const searching =
     searched.isFetching || query.trim() !== debouncedQuery.trim()
 
-  if (!code.branch) {
-    return <Spinner className="size-3.5 text-muted-foreground" />
-  }
   return (
     <SearchPicker
       icon={GitBranchIcon}
-      value={code.branch}
+      value={value}
+      labelBadge={labelBadge}
+      create={
+        onCreate && {
+          label: (name) =>
+            isValidNewBranchName(name) ? (
+              <>
+                Create <span className="font-medium">{name}</span>
+              </>
+            ) : null,
+          onCreate,
+        }
+      }
       items={[
         ...new Set([
           ...(listed.data?.branches ?? []),
           ...(searched.data?.branches ?? []),
-          code.branch,
+          ...(code.branch ? [code.branch] : []),
         ]),
       ]}
       placeholder="Find a branch…"
       emptyText={searching ? "Searching GitHub…" : "No branches found"}
-      onPick={code.pickBranch}
+      onPick={onPick}
       onOpenChange={setOpen}
       onQueryChange={setQuery}
       loading={searching && query.trim() !== ""}
@@ -297,13 +363,18 @@ function BranchPicker({
   )
 }
 
+// The create row's value; the NUL keeps it from matching a real item.
+const CREATE_ITEM = "\u0000create:"
+
 // A Linear-style picker: search input in the popup, rows styled like
 // MenuItem (see thread-subscribers.tsx). The list filters as you type;
 // onQueryChange lets the caller also search the server and add its results.
+// With `create`, a typed name that matches no item gets a last row to make it.
 function SearchPicker({
   icon,
   value,
   label = value,
+  labelBadge,
   items,
   placeholder,
   emptyText,
@@ -312,11 +383,13 @@ function SearchPicker({
   onQueryChange,
   loading = false,
   badgeFor,
+  create,
 }: {
   icon: IconSvgElement
   value: string
   // Shown on the trigger; the full value is its tooltip.
   label?: string
+  labelBadge?: string
   items: string[]
   placeholder: string
   emptyText: string
@@ -325,19 +398,38 @@ function SearchPicker({
   onQueryChange?: (query: string) => void
   loading?: boolean
   badgeFor?: (item: string) => string | null
+  create?: {
+    // The row for a typed name; null: the name can't be made.
+    label: (name: string) => ReactNode | null
+    onCreate: (name: string) => void
+  }
 }) {
   const [query, setQuery] = useState("")
   const changeQuery = (next: string) => {
     setQuery(next)
     onQueryChange?.(next)
   }
+  const typed = query.trim()
+  const createLabel =
+    create && typed && !items.includes(typed) ? create.label(typed) : null
   return (
     <Combobox<string>
-      items={items}
+      items={createLabel ? [...items, `${CREATE_ITEM}${typed}`] : items}
       value={value}
       onValueChange={(next) => {
-        if (next) onPick(next)
+        if (!next) return
+        if (next.startsWith(CREATE_ITEM)) {
+          create?.onCreate(next.slice(CREATE_ITEM.length))
+        } else onPick(next)
       }}
+      filter={
+        create
+          ? (item: string, text: string) =>
+              item.startsWith(CREATE_ITEM) ||
+              item.toLowerCase().includes(text.trim().toLowerCase())
+          : undefined
+      }
+      autoHighlight
       inputValue={query}
       onInputValueChange={changeQuery}
       onOpenChange={(open) => {
@@ -355,6 +447,11 @@ function SearchPicker({
           strokeWidth={2}
         />
         <span className="max-w-48 truncate">{label}</span>
+        {labelBadge && (
+          <span className="shrink-0 text-muted-foreground/70">
+            {labelBadge}
+          </span>
+        )}
         <HugeiconsIcon
           icon={ArrowDown01Icon}
           className="size-3 shrink-0"
@@ -381,25 +478,40 @@ function SearchPicker({
               {emptyText}
             </ComboboxPrimitive.Empty>
             <ComboboxPrimitive.List className="max-h-64 overflow-y-auto p-1 empty:hidden">
-              {(item: string) => (
-                <ComboboxPrimitive.Item
-                  key={item}
-                  value={item}
-                  className="group flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
-                >
-                  <span className="min-w-0 truncate">{item}</span>
-                  {badgeFor?.(item) && (
-                    <span className="shrink-0 text-muted-foreground">
-                      {badgeFor(item)}
-                    </span>
-                  )}
-                  <HugeiconsIcon
-                    icon={Tick02Icon}
-                    className="ml-auto size-3.5 shrink-0 opacity-0 group-data-selected:opacity-100"
-                    strokeWidth={2}
-                  />
-                </ComboboxPrimitive.Item>
-              )}
+              {(item: string) =>
+                item.startsWith(CREATE_ITEM) ? (
+                  <ComboboxPrimitive.Item
+                    key={item}
+                    value={item}
+                    className="flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                  >
+                    <HugeiconsIcon
+                      icon={PlusSignIcon}
+                      className="size-3.5 shrink-0"
+                      strokeWidth={2}
+                    />
+                    <span className="min-w-0 truncate">{createLabel}</span>
+                  </ComboboxPrimitive.Item>
+                ) : (
+                  <ComboboxPrimitive.Item
+                    key={item}
+                    value={item}
+                    className="group flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                  >
+                    <span className="min-w-0 truncate">{item}</span>
+                    {badgeFor?.(item) && (
+                      <span className="shrink-0 text-muted-foreground">
+                        {badgeFor(item)}
+                      </span>
+                    )}
+                    <HugeiconsIcon
+                      icon={Tick02Icon}
+                      className="ml-auto size-3.5 shrink-0 opacity-0 group-data-selected:opacity-100"
+                      strokeWidth={2}
+                    />
+                  </ComboboxPrimitive.Item>
+                )
+              }
             </ComboboxPrimitive.List>
           </ComboboxPrimitive.Popup>
         </ComboboxPrimitive.Positioner>

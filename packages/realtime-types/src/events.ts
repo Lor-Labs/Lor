@@ -169,11 +169,13 @@ export const sendMessagePayloadSchema = z
     // no chat context, @Lor or not.
     startSession: z.boolean().optional(),
     // New session in Code mode: the repository (owner/repo) and base branch
-    // the session works in. Only read with startSession.
+    // the session works in, or a new branch it makes from the base. Only
+    // read with startSession.
     code: z
       .object({
         repo: z.string().min(3).max(200),
         branch: z.string().min(1).max(255),
+        newBranch: z.string().min(1).max(200).optional(),
       })
       .optional(),
     // With startSession: "Continue in Code" from this session (same channel),
@@ -987,6 +989,7 @@ export type RealtimeAgentSession = {
   harness: "pi" | "claude_code" | "codex"
   repoFullName: string | null
   baseBranch: string | null
+  newBranch: string | null
   sourceSessionId: string | null
   forkedFromMessageId: string | null
   title: string

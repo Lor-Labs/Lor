@@ -101,6 +101,7 @@ export function useSessionStart(
       harness: start.code?.harness ?? "pi",
       repoFullName: start.code?.repo ?? null,
       baseBranch: start.code?.branch ?? null,
+      newBranch: null,
       sourceSessionId: null,
       forkedFromMessageId: null,
       title: start.title,

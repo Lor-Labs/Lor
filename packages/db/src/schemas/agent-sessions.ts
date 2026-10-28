@@ -76,6 +76,9 @@ export const agentSession = pgTable(
     // and the branch it starts from. Null in chat sessions.
     repoFullName: text("repo_full_name"),
     baseBranch: text("base_branch"),
+    // A branch the session made from baseBranch at its start, pushed to
+    // GitHub by the session's first push. Null: it works on baseBranch.
+    newBranch: text("new_branch"),
     // "Continue in Code": the session this one continues, whose messages are
     // its starting context.
     sourceSessionId: uuid("source_session_id").references(

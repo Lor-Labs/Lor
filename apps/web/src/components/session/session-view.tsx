@@ -614,10 +614,17 @@ function SessionHeading({
         {session.repoFullName && session.baseBranch && (
           <>
             <span aria-hidden="true">·</span>
+            {/* A new branch is on GitHub only after its first push, so the
+              link stays on the base. */}
             <a
               href={`https://github.com/${session.repoFullName}/tree/${session.baseBranch}`}
               target="_blank"
               rel="noreferrer"
+              title={
+                session.newBranch
+                  ? `New branch from ${session.baseBranch}`
+                  : undefined
+              }
               className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
             >
               <HugeiconsIcon
@@ -631,7 +638,7 @@ function SessionHeading({
                 className="ml-1 size-3.5"
                 strokeWidth={2}
               />
-              {session.baseBranch}
+              {session.newBranch ?? session.baseBranch}
             </a>
           </>
         )}

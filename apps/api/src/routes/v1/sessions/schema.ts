@@ -26,6 +26,7 @@ export const agentSessionSchema = z
     harness: z.enum(harnessKindEnum.enumValues),
     repoFullName: z.string().nullable(),
     baseBranch: z.string().nullable(),
+    newBranch: z.string().nullable(),
     sourceSessionId: z.string().uuid().nullable(),
     forkedFromMessageId: z.string().uuid().nullable(),
     title: z.string(),

@@ -549,6 +549,7 @@ export function createLorRespondProcessor(
                     id: schema.agentSession.id,
                     repoFullName: schema.agentSession.repoFullName,
                     baseBranch: schema.agentSession.baseBranch,
+                    newBranch: schema.agentSession.newBranch,
                     sourceSessionId: schema.agentSession.sourceSessionId,
                     forkedFromMessageId:
                       schema.agentSession.forkedFromMessageId,
@@ -1019,6 +1020,7 @@ export function createLorRespondProcessor(
                       code: {
                         repoFullName: session.repoFullName,
                         baseBranch: session.baseBranch,
+                        newBranch: session.newBranch,
                       },
                     }
                   : {}),
