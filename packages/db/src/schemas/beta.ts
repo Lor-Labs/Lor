@@ -171,6 +171,28 @@ export const betaTrialAdjustment = pgTable(
   ]
 )
 
+// Internal workspaces (Lor's own team, demos) that keep normal access and
+// billing when the hosted beta is on. Operator-set with `pnpm beta exempt`.
+export const betaExemption = pgTable(
+  "beta_exemption",
+  {
+    workspaceId: uuid("workspace_id")
+      .primaryKey()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    operator: text("operator").notNull(),
+    reason: text("reason").notNull(),
+  },
+  (table) => [
+    check(
+      "beta_exemption_audit_check",
+      sql`length(trim(${table.operator})) > 0 AND length(trim(${table.reason})) > 0`
+    ),
+  ]
+)
+
 export type BetaPolicy = typeof betaPolicy.$inferSelect
 export type BetaCampaign = typeof betaCampaign.$inferSelect
 export type WorkspaceBetaTrial = typeof workspaceBetaTrial.$inferSelect

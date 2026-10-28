@@ -1,4 +1,5 @@
 import { and, count, db, eq, ne, schema } from "@repo/db"
+import { isBetaExempt } from "@repo/db/queries/beta-access"
 import type {
   BetaTrialChanges,
   BetaTrialTerms,
@@ -112,6 +113,7 @@ export async function assertBetaMemberCapacity(
     .from(schema.workspaceBetaTrial)
     .where(eq(schema.workspaceBetaTrial.workspaceId, workspaceId))
     .then((rows) => rows[0])
+  if (!trial && (await isBetaExempt(workspaceId))) return
   if (!trial || trial.expiresAt <= new Date())
     throw new BetaAdmissionError(
       "This workspace does not have an active beta trial"
@@ -211,6 +213,31 @@ export async function configureBetaCampaign(key: string, startsAt: Date) {
     }
     return campaign
   })
+}
+
+// A trial always wins over an exemption, so a trial workspace is refused.
+export async function exemptFromBeta(input: {
+  workspaceId: string
+  operator: string
+  reason: string
+}) {
+  const operator = requiredText(input.operator, "operator")
+  const reason = requiredText(input.reason, "reason")
+  if (await getWorkspaceBetaTrial(input.workspaceId))
+    throw new Error("This workspace has a beta trial; it cannot be exempt")
+  await db
+    .insert(schema.betaExemption)
+    .values({ workspaceId: input.workspaceId, operator, reason })
+    .onConflictDoUpdate({
+      target: schema.betaExemption.workspaceId,
+      set: { operator, reason },
+    })
+}
+
+export async function removeBetaExemption(workspaceId: string) {
+  await db
+    .delete(schema.betaExemption)
+    .where(eq(schema.betaExemption.workspaceId, workspaceId))
 }
 
 export async function getWorkspaceBetaTrial(workspaceId: string) {

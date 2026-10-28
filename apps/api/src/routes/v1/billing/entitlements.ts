@@ -33,9 +33,11 @@ export const entitlementsHandler: AppRouteHandler<typeof entitlements> = async (
 ) => {
   c.header("Cache-Control", "no-store")
   const access = await workspaceBetaAccess(c.var.workspace.id)
+  // Active without a trial is an exempt workspace: no beta banner.
+  const exempt = access.state === "active" && !access.trial
   return c.json(
     {
-      enabled: hostedBetaEnabled(),
+      enabled: hostedBetaEnabled() && !exempt,
       state: access.state,
       expiresAt: access.trial?.expiresAt.toISOString() ?? null,
       compute: await betaComputeSummary(c.var.workspace.id),

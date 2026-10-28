@@ -4,6 +4,7 @@ import {
   computeCostUsd,
   getRate,
   hostedBetaConfig,
+  isBetaWorkspace,
   recordUsage as recordBillingUsage,
 } from "@repo/billing"
 import {
@@ -389,6 +390,8 @@ export async function claimAgentRun(
   // re-emit is harmless — the snapshot recomputes and clients dedupe).
   notifyWorkspaceActivity(claimed.workspaceId)
 
+  // A trial workspace under the hosted beta; exempt ones bill normally.
+  const betaRun = await isBetaWorkspace(claimed.workspaceId)
   let funding =
     claimed.inferenceFunding ??
     (await workspaceInferenceFunding(claimed.workspaceId))
@@ -516,9 +519,7 @@ export async function claimAgentRun(
     const price = await priceFor(u, oneRequest)
     if (!price) return { credits: 0, usd: 0 }
     attemptCredits +=
-      (price.usd *
-        (hostedBetaConfig().enabled ? 1 : price.rate.conversionRate)) /
-      CREDIT_USD
+      (price.usd * (betaRun ? 1 : price.rate.conversionRate)) / CREDIT_USD
     const whole = Math.ceil(attemptCredits)
     const added = whole - attemptCounted
     attemptCounted = whole
@@ -529,7 +530,7 @@ export async function claimAgentRun(
 
   let betaUsageSequence = 0
   const settleBetaStep = async (usage: RunStepRecord, costUsd: number) => {
-    if (funding.source === "byok" || !hostedBetaConfig().enabled) return
+    if (funding.source === "byok" || !betaRun) return
     betaUsageSequence += 1
     try {
       await recordBillingUsage(

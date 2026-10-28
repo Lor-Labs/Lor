@@ -1,5 +1,5 @@
 import { and, db, eq, schema, sql } from "../index"
-import { BetaAccessError, hostedBetaEnabled } from "./beta-access"
+import { BetaAccessError, hostedBetaEnabled, isBetaExempt } from "./beta-access"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -60,6 +60,8 @@ export async function assertBetaCompute(workspaceId: string, name?: string) {
       .from(schema.workspaceBetaTrial)
       .where(eq(schema.workspaceBetaTrial.workspaceId, workspaceId))
       .for("update")
+    if (!trial && (await isBetaExempt(workspaceId)))
+      return { remainingSeconds: undefined }
     if (!trial || trial.expiresAt <= new Date())
       return {
         error:

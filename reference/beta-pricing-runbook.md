@@ -61,6 +61,8 @@ pnpm beta configure private-beta <enrollment-start-in-UTC>
 pnpm beta open private-beta
 pnpm beta pause private-beta
 pnpm beta show <workspace-slug-or-id>
+pnpm beta exempt <workspace-slug-or-id> --operator <name> --reason <text>
+pnpm beta unexempt <workspace-slug-or-id>
 pnpm beta adjust <workspace-slug-or-id> --request-id <stable-id> --operator <name> --reason <text> --expires <new-expiry-in-UTC>
 pnpm beta adjust <workspace-slug-or-id> --request-id <another-id> --operator <name> --reason <text> --ai-usd 35 --sandbox-hours 40 --members 8
 ```
@@ -76,7 +78,8 @@ Validation, 2026-10-27: Biome passes on the changed TypeScript and package files
 - [x] Suppress the legacy signup promo for hosted-beta workspaces. Provision the expiring $25 Autumn grant on the first billing check or the minute-by-minute worker sweep, with a stable grant ID.
 - [x] Expose public signup availability and reuse the waitlist in web/desktop. Do not reserve places for unverified account signups. Existing signed teammate invitations still work when full.
 - [x] Add mobile public-signup availability and workspace expiry/compute presentation. Native key management and credit purchases remain in web/desktop billing. Mobile signup closure directs users to the website waitlist; signed email invitations keep their existing flow.
-- [ ] Resolve migration/internal exemptions before enabling on an existing deployment. Existing workspaces without trials fail the hosted AI gate.
+- [x] Internal exemptions (2026-10-28): `pnpm beta exempt <workspace> --operator <name> --reason <text>` (and `unexempt`) writes `beta_exemption`. An exempt workspace has no trial and keeps normal access, membership, credit billing and purchases, with no beta banner, compute meter or member cap. A workspace with a trial cannot be exempt. Hosted-beta harness limits (Pi only) still apply.
+- [ ] Before enabling on an existing deployment, exempt every internal workspace. Any other existing workspace without a trial becomes read-only. New workspaces created by internal users still take a cohort place.
 
 Files: `packages/billing/src/beta.ts`, `packages/auth/src/lib/{auth,beta-adapter}.ts`, API workspace membership/public beta route, web signup/login/invite routes and waitlist component.
 

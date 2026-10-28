@@ -1,4 +1,5 @@
 import { db, eq, schema } from "@repo/db"
+import { isBetaExempt } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
 import { createLogger } from "@repo/logger"
 import { trackCredits } from "./autumn"
@@ -77,7 +78,12 @@ export async function recordUsage(
     // A turn passes the cost its spend counter summed call by call (each at
     // its own long-context tier), so the debit matches it.
     const costUsd = u.costUsd ?? (rate ? computeCostUsd(tokens, rate) : null)
-    if (billable && hostedBetaConfig().enabled && !beta)
+    if (
+      billable &&
+      hostedBetaConfig().enabled &&
+      !beta &&
+      !(await isBetaExempt(u.workspaceId))
+    )
       throw new Error("Hosted usage has no beta trial")
     if (costUsd != null && (!Number.isFinite(costUsd) || costUsd < 0))
       throw new Error("Invalid inference cost")

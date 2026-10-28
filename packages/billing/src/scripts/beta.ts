@@ -16,10 +16,13 @@ const HELP = `Usage: pnpm beta <command>
   adjust <workspace slug or id> --request-id <id> --operator <name> --reason <text>
     [--expires <UTC-time>] [--members <total>] [--ai-usd <total>]
     [--sandbox-hours <total>] [--browser-hours <total>]
+  exempt <workspace slug or id> --operator <name> --reason <text>
+  unexempt <workspace slug or id>
 
 Configure creates a paused campaign. Open/pause controls enrollment, not existing trials.
 Keep LOR_HOSTED_BETA=false until all launch gates in the runbook are complete.
 Adjust sets new total grants, not additions. Reuse the request id only for retries.
+Exempt keeps an internal workspace (no trial) on normal access and billing.
 These records do not enforce runtime limits until the remaining beta slices ship.`
 
 function positiveInteger(value: string, name: string): number {
@@ -68,7 +71,15 @@ async function main() {
   }
   if (
     !target ||
-    !["configure", "open", "pause", "show", "adjust"].includes(command) ||
+    ![
+      "configure",
+      "open",
+      "pause",
+      "show",
+      "adjust",
+      "exempt",
+      "unexempt",
+    ].includes(command) ||
     positionals.length !== (command === "configure" ? 3 : 2)
   )
     throw new Error(HELP)
@@ -94,7 +105,18 @@ async function main() {
   ) {
     throw new Error(HELP)
   }
-  if (command !== "adjust" && Object.keys(values).length > 0)
+  if (
+    command === "exempt" &&
+    (!values.operator ||
+      !values.reason ||
+      Object.keys(values).some((key) => key !== "operator" && key !== "reason"))
+  )
+    throw new Error(HELP)
+  if (
+    command !== "adjust" &&
+    command !== "exempt" &&
+    Object.keys(values).length > 0
+  )
     throw new Error(HELP)
   const start = command === "configure" && startsAt ? betaDate(startsAt) : null
 
@@ -105,7 +127,10 @@ async function main() {
       getWorkspaceBetaTrial,
       adjustBetaTrial,
       setBetaEnrollment,
+      exemptFromBeta,
+      removeBetaExemption,
     } = await import("../beta")
+    const { isBetaExempt } = await import("@repo/db/queries/beta-access")
     if (command === "configure" && start) {
       console.log(
         JSON.stringify(await configureBetaCampaign(target, start), null, 2)
@@ -139,13 +164,26 @@ async function main() {
     if (!workspace) throw new Error("Workspace not found")
     if (command === "show") {
       const trial = await getWorkspaceBetaTrial(workspace.id)
-      console.log(
-        JSON.stringify(
-          { trial, status: trial ? betaTrialStatus(trial) : "not_enrolled" },
-          null,
-          2
-        )
-      )
+      const status = trial
+        ? betaTrialStatus(trial)
+        : (await isBetaExempt(workspace.id))
+          ? "exempt"
+          : "not_enrolled"
+      console.log(JSON.stringify({ trial, status }, null, 2))
+      return
+    }
+    if (command === "exempt" && values.operator && values.reason) {
+      await exemptFromBeta({
+        workspaceId: workspace.id,
+        operator: values.operator,
+        reason: values.reason,
+      })
+      console.log(`Exempt: ${target}`)
+      return
+    }
+    if (command === "unexempt") {
+      await removeBetaExemption(workspace.id)
+      console.log(`No longer exempt: ${target}`)
       return
     }
     const requestId = values["request-id"]

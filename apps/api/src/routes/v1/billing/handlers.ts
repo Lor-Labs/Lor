@@ -12,6 +12,7 @@ import {
   setAutoTopup,
   syncBetaCredits,
 } from "@repo/billing"
+import { isBetaExempt } from "@repo/db/queries/beta-access"
 import { betaComputeSummary } from "@repo/db/queries/beta-compute"
 import { env } from "@repo/env/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
@@ -29,6 +30,11 @@ import type {
 // Stripe redirects land back on the billing tab of the settings dialog.
 function billingReturnUrl(slug: string) {
   return `${env.APP_BASE_URL}/${slug}?settings=workspace&tab=billing`
+}
+
+// Hosted-beta purchase limits; exempt internal workspaces buy normally.
+async function betaLimited(workspaceId: string) {
+  return hostedBetaConfig().enabled && !(await isBetaExempt(workspaceId))
 }
 
 const BILLING_DISABLED = {
@@ -87,7 +93,7 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   const config = c.req.valid("json")
-  if (hostedBetaConfig().enabled && config.enabled)
+  if (config.enabled && (await betaLimited(workspace.id)))
     return c.json(
       { success: false, message: "Auto-refill is not offered during the beta" },
       HttpStatusCodes.BAD_REQUEST
@@ -115,7 +121,9 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
 }
 
 export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
-  if (hostedBetaConfig().enabled)
+  const workspace = c.var.workspace
+  assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
+  if (await betaLimited(workspace.id))
     return c.json(
       {
         success: false,
@@ -123,8 +131,6 @@ export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
       },
       HttpStatusCodes.BAD_REQUEST
     )
-  const workspace = c.var.workspace
-  assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
@@ -149,7 +155,7 @@ export const topup: AppRouteHandler<TopupRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   const { size } = c.req.valid("json")
-  if (hostedBetaConfig().enabled) {
+  if (await betaLimited(workspace.id)) {
     const trial = await getWorkspaceBetaTrial(workspace.id)
     if (!trial || trial.expiresAt <= new Date() || size !== "small")
       return c.json(

@@ -132,6 +132,8 @@ export async function checkBetaCredits(workspaceId: string) {
   try {
     const access = await workspaceBetaAccess(workspaceId)
     if (access.state !== "active") return { allowed: false, failOpen: false }
+    // Exempt: normal credit billing applies.
+    if (!access.trial) return null
     await assertBetaCompute(workspaceId)
     if ((await workspaceInferenceFunding(workspaceId)).source === "byok")
       return { allowed: true, failOpen: false }
