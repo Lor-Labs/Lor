@@ -573,16 +573,13 @@ export async function createMessage(
           forwarded,
           threadRootId: session?.threadRootId ?? threadRootId,
           routedToLor,
-          // Read only by a Claude Code or Codex session's turn.
+          // Read only by the turn this message starts in a session.
           claudeCodeMode: isPersonInSession
             ? (input.payload.claudeCodeMode ?? null)
             : null,
-          claudeModel: isPersonInSession
-            ? (input.payload.claudeModel ?? null)
-            : null,
-          codexModel: isPersonInSession
-            ? (input.payload.codexModel ?? null)
-            : null,
+          turnModel: isPersonInSession ? (input.payload.model ?? null) : null,
+          turnEffort: isPersonInSession ? (input.payload.effort ?? null) : null,
+          turnFast: isPersonInSession ? (input.payload.fast ?? null) : null,
           attachments,
           status: input.status,
           clientKey: input.payload.nonce ?? null,

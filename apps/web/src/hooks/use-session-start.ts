@@ -1,5 +1,8 @@
 import { authClient } from "@repo/auth/client"
-import type { RealtimeAgentSession } from "@repo/realtime-types"
+import type {
+  RealtimeAgentSession,
+  SendMessagePayload,
+} from "@repo/realtime-types"
 import { toast } from "@repo/ui/components/toast"
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useRouter } from "@tanstack/react-router"
@@ -9,6 +12,10 @@ import {
   type AgentSessionDetail,
   agentSessionQueryOptions,
 } from "@/hooks/use-agent-session"
+import {
+  type SessionChanges,
+  sessionChangesKey,
+} from "@/hooks/use-session-changes"
 import type { ThreadPage, ThreadPageParam } from "@/hooks/use-thread-messages"
 import {
   type ThreadSubscriber,
@@ -30,7 +37,7 @@ export type SessionStart = {
   threadRootId: string
   origin: "chat" | "new"
   // New session in Code mode.
-  code?: { repo: string; branch: string }
+  code?: SendMessagePayload["code"]
   harness?: "pi" | "claude_code" | "codex"
   // "Continue in Code": the session it continues.
   source?: { id: string; title: string }
@@ -101,6 +108,9 @@ export function useSessionStart({
       harness: start.harness ?? "pi",
       repoFullName: start.code?.repo ?? null,
       baseBranch: start.code?.branch ?? null,
+      newBranch: start.code?.newBranch ?? null,
+      uncommittedAdditions: null,
+      uncommittedDeletions: null,
       sourceSessionId: start.source?.id ?? null,
       forkedFromMessageId: null,
       title: start.title,
@@ -149,6 +159,15 @@ export function useSessionStart({
       ],
       { updatedAt }
     )
+    // Its first turn clones the repo; the session page waits for that to
+    // open the panel.
+    if (start.code) {
+      queryClient.setQueryData<SessionChanges>(
+        sessionChangesKey(start.id),
+        { state: "preparing" },
+        { updatedAt }
+      )
+    }
     void cancelSidebarFetch(queryClient, wsId).then(() =>
       patchSidebarSession(queryClient, sidebarTarget(session), {
         show: { ...sidebarRowFor(session), state: "running" },
@@ -181,6 +200,7 @@ export function useSessionStart({
       agentSessionQueryOptions(start.id).queryKey,
       ["thread", start.threadRootId],
       threadSubscribersKey(start.threadRootId),
+      sessionChangesKey(start.id),
     ]) {
       queryClient.removeQueries({ queryKey, exact: true })
     }

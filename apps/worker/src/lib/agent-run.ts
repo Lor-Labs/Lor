@@ -1,9 +1,4 @@
-import {
-  CREDIT_USD,
-  type CreditRate,
-  computeCostUsd,
-  getRate,
-} from "@repo/billing"
+import { CREDIT_USD, computeCostUsd, getRate } from "@repo/billing"
 import {
   and,
   asc,
@@ -114,7 +109,9 @@ export type RunExecution = {
   recordUsage: (
     usage: RunStepRecord,
     kind: "step" | "compaction"
-  ) => Promise<RunCounters>
+  ) => Promise<RunCounters & { costUsd: number }>
+  // USD for usage over many calls (RunHarness.priceUsage).
+  priceUsage: (usage: RunStepRecord) => Promise<number>
   // Saves a finished Pi turn for the conversation `owner` (RunHarness.saveTurn).
   saveTurn: (owner: HarnessOwner, turn: RunTurnRecord) => Promise<RunCounters>
   // Post-answer usage (write-back) folds straight into the counters.
@@ -430,38 +427,44 @@ export async function claimAgentRun(
 
   // Spend toward the run's limit, summed exactly and rounded up once per
   // attempt: per-call rounding (at least 1 credit each) would inflate a long
-  // turn several times over. Returns the whole credits to add now. A failed
-  // rate lookup is not cached, so the next call tries again.
-  const rateCache = new Map<string, CreditRate>()
+  // turn several times over. Returns the whole credits to add now. A single
+  // model call (`oneRequest`) prices at its own long-context tier; a total
+  // over many calls at the base tier (getRate).
   let attemptCredits = 0
   let attemptCounted = 0
-  const creditsFor = async (u: {
+  type Priced = {
     model?: string
     inputTokens?: number
     cachedInputTokens?: number
     outputTokens?: number
-  }): Promise<number> => {
-    if (!u.model) return 0
-    if ((u.inputTokens ?? 0) === 0 && (u.outputTokens ?? 0) === 0) return 0
-    let rate = rateCache.get(u.model)
-    if (!rate) {
-      rate = (await getRate(u.model).catch(() => null)) ?? undefined
-      if (rate) rateCache.set(u.model, rate)
+  }
+  const priceFor = async (u: Priced, oneRequest: boolean) => {
+    if (!u.model) return null
+    if ((u.inputTokens ?? 0) === 0 && (u.outputTokens ?? 0) === 0) return null
+    const tokens = {
+      inputTokens: u.inputTokens,
+      cachedInputTokens: u.cachedInputTokens,
+      outputTokens: u.outputTokens,
     }
-    if (!rate) return 0
-    const usd = computeCostUsd(
-      {
-        inputTokens: u.inputTokens,
-        cachedInputTokens: u.cachedInputTokens,
-        outputTokens: u.outputTokens,
-      },
-      rate
+    const rate = await getRate(
+      u.model,
+      tokens,
+      oneRequest ? { requestInputTokens: u.inputTokens } : {}
     )
-    attemptCredits += (usd * rate.conversionRate) / CREDIT_USD
+    return { usd: computeCostUsd(tokens, rate), rate }
+  }
+  // Also the call's USD, which the turn's debit sums (RunHarness.recordUsage).
+  const creditsFor = async (
+    u: Priced,
+    oneRequest = false
+  ): Promise<{ credits: number; usd: number }> => {
+    const price = await priceFor(u, oneRequest)
+    if (!price) return { credits: 0, usd: 0 }
+    attemptCredits += (price.usd * price.rate.conversionRate) / CREDIT_USD
     const whole = Math.ceil(attemptCredits)
     const added = whole - attemptCounted
     attemptCounted = whole
-    return added
+    return { credits: added, usd: price.usd }
   }
 
   let runContext = claimed.context
@@ -471,8 +474,8 @@ export async function claimAgentRun(
   const recordUsage = async (
     usage: RunStepRecord,
     kind: "step" | "compaction"
-  ): Promise<RunCounters> => {
-    const credits = await creditsFor(usage)
+  ): Promise<RunCounters & { costUsd: number }> => {
+    const { credits, usd } = await creditsFor(usage, true)
     const row = await db
       .update(schema.agentRun)
       .set(usageIncrements(kind === "step" ? 1 : 0, usage, credits))
@@ -490,7 +493,7 @@ export async function claimAgentRun(
       throw new LeaseLostError()
     }
     counters = countersOf(row)
-    return counters
+    return { ...counters, costUsd: usd }
   }
 
   // One transaction: the Pi log under the lease and head checks, the approval
@@ -500,7 +503,9 @@ export async function claimAgentRun(
     owner: HarnessOwner,
     turn: RunTurnRecord
   ): Promise<RunCounters> => {
-    const credits = turn.extraUsage ? await creditsFor(turn.extraUsage) : 0
+    const { credits } = turn.extraUsage
+      ? await creditsFor(turn.extraUsage)
+      : { credits: 0 }
     // The turn's coverage, paused sandbox state and context count ride the
     // save, so a lost lease never records one without the other.
     const context =
@@ -756,12 +761,13 @@ export async function claimAgentRun(
       resume,
       counters: () => counters,
       recordUsage,
+      priceUsage: async (usage) => (await priceFor(usage, false))?.usd ?? 0,
       saveTurn,
       // Write-back runs after the answer is terminal, so this folds without a
       // lease guard — it only feeds observability and the skip floor.
       addUsage: (u) => {
         void (async () => {
-          const credits = await creditsFor(u)
+          const { credits } = await creditsFor(u)
           await db
             .update(schema.agentRun)
             .set({

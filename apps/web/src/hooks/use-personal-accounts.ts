@@ -2,6 +2,7 @@ import { authClient } from "@repo/auth/client"
 import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
+import { agentModelsKey } from "@/hooks/use-agent-models"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
 
@@ -77,8 +78,14 @@ export function useConnectClaudeAccount() {
       }
       return res.json()
     },
+    // A new token clears the Claude Code models the last one reported.
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
+        queryClient.invalidateQueries({
+          queryKey: agentModelsKey("claude_code"),
+        }),
+      ]),
   })
 }
 

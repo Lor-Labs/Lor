@@ -6,6 +6,7 @@ import createApp from "@/lib/helpers/app/create-app"
 import configureOpenAPI from "@/lib/helpers/openapi/configure-openapi"
 import { globalRateLimit } from "@/middleware/rate-limit"
 import index from "@/routes/index.route"
+import agentModelsRouter from "@/routes/v1/agent-models/index"
 import agentProfilesRouter from "@/routes/v1/agent-profiles/index"
 import approvalPoliciesRouter from "@/routes/v1/approval-policies/index"
 import approvalsRouter from "@/routes/v1/approvals/index"
@@ -97,6 +98,7 @@ const routes = app
   .route("/v1", notificationSettingsRouter)
   .route("/v1", sandboxSettingsRouter)
   .route("/v1", personalAccountsRouter)
+  .route("/v1", agentModelsRouter)
   .route("/v1", pushTokensRouter)
   .route("/v1", channelMutesRouter)
   .route("/v1", hintsRouter)

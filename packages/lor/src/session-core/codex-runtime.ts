@@ -5,8 +5,10 @@ import {
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
   VERSION as CODEX_ADAPTER_VERSION,
+  type CodexHarnessSettings,
   createCodex,
 } from "@ai-sdk/harness-codex"
+import type { ReportedHarnessModel } from "@repo/db/schema"
 import type {
   Experimental_SandboxSession as SandboxSession,
   TextStreamPart,
@@ -30,6 +32,7 @@ import {
   prepareTools,
   sandboxHome,
 } from "./pi-runtime"
+import { reportedModels } from "./reported-models"
 import { sessionWorkFolder } from "./work-dir"
 
 // One Codex turn through Vercel's adapter, on Lor credits through the AI
@@ -46,6 +49,22 @@ export const CODEX_BINDING: HarnessBinding = {
   formatVersion: 1,
 }
 
+// A Codex session's model when the sender picked none.
+export const CODEX_DEFAULT_MODEL = "gpt-6.1-sol"
+
+// The Gateway's id for a Codex model: Codex names it bare ("gpt-6.1-sol"),
+// the Gateway under its creator ("openai/gpt-6.1-sol").
+export const codexGatewayModel = (model: string) =>
+  model.includes("/") ? model : `openai/${model}`
+
+type CodexEffort = NonNullable<CodexHarnessSettings["reasoningEffort"]>
+// The adapter's effort names; which ones a model takes comes from Codex's
+// own model list.
+const CODEX_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
+export const isCodexEffort = (
+  value: string | undefined
+): value is CodexEffort => CODEX_EFFORTS.some((effort) => effort === value)
+
 export type CodexTurnInput = {
   // Lor's session id: the harness session, and the work folder's name.
   sessionId: string
@@ -59,8 +78,11 @@ export type CodexTurnInput = {
   // Lor's Gateway key reaches the Gateway through the sandbox proxy; Codex
   // only ever sees this placeholder.
   keyPlaceholder: string
-  // The model the sender picked, as Codex names it ("gpt-6.1-sol").
-  model: string
+  // The model the sender picked, as Codex names it ("gpt-6.1-sol"); unset:
+  // GPT-6.1 Sol.
+  model?: string
+  // The sender's reasoning effort pick; one Codex doesn't name is dropped.
+  effort?: string
   // Codex's developer instructions; its own base prompt stays.
   instructions: string
   // A paused turn in `saved` continues first, through its bridge process,
@@ -77,6 +99,9 @@ export type CodexTurnInput = {
   toolApproval?: Record<string, ToolApprovalStatus>
   abortSignal?: AbortSignal
   onPart: (part: TextStreamPart<ToolSet>) => void | Promise<void>
+  // Codex's own model list (model/list), which Lor's bridge patch puts on
+  // the turn's finish part.
+  onModels?: (models: ReportedHarnessModel[]) => void
 }
 
 export async function runCodexTurn(
@@ -130,8 +155,9 @@ export async function runCodexTurn(
       auth: { AI_GATEWAY_API_KEY: input.keyPlaceholder },
       port: input.bridge.port,
       portEndpoint: input.bridge.endpoint,
+      ...(isCodexEffort(input.effort) ? { reasoningEffort: input.effort } : {}),
     }),
-    model: input.model,
+    model: input.model ?? CODEX_DEFAULT_MODEL,
     instructions: input.instructions,
     tools: prepareTools(
       { ...missingToolStubs(paused, input.tools), ...input.tools },
@@ -187,6 +213,14 @@ export async function runCodexTurn(
       results.push(result)
       for await (const part of result.stream) {
         if (part.type === "abort") aborted = true
+        if (part.type === "finish") {
+          // The harness sets it on finish; the AI SDK type does not declare it.
+          const models = reportedModels(
+            (part as { providerMetadata?: unknown }).providerMetadata,
+            "codex"
+          )
+          if (models) input.onModels?.(models)
+        }
         await input.onPart(part)
       }
     }

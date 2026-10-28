@@ -826,9 +826,13 @@ may lag web), a Lor-offered "Continue in Code" card.
       to 5.8 s; it is the same for Pi.
   - [x] **7g** Claude model picker and a trimmed Details tab, built
     2026-10-26 (additive `db:push`: the `claude_model` enum and
-    `message.claude_model`). Decided with Jacob the same day:
+    `message.claude_model`; replaced 2026-10-27 by `message.turn_model`,
+    `turn_effort` and `turn_fast` for every harness, with the model list
+    read from each harness, not a fixed enum). Decided with Jacob the same
+    day:
     - The composer's model picker beside the mode
-      (`claude-model-picker.tsx`): Opus (default), Sonnet, Haiku and Fable,
+      (`claude-model-picker.tsx`, replaced 2026-10-27 by `model-picker.tsx`
+      for every harness): Opus (default), Sonnet, Haiku and Fable,
       as Claude Code's own aliases, so they follow its newest models.
       Remembered per person, kept on the message like the Codex model; a
       continued turn keeps its model.
@@ -914,19 +918,22 @@ may lag web), a Lor-offered "Continue in Code" card.
       changed instructions kept the thread and its context, and `~/.codex`
       stayed about 4 MB (95 MB before).
   - [x] **8c** picking Codex, built 2026-10-26 (additive `db:push`: `codex`
-    in `harness_kind`, the `codex_model` enum and `message.codex_model`):
+    in `harness_kind`, the `codex_model` enum and `message.codex_model`;
+    the enum and column were replaced 2026-10-27, as in 7g):
     - The New session picker offers Codex ("OpenAI's coding agent, on Lor
       credits"), for code sessions only, like Claude Code; no linked
       account. The session header shows the harness's name.
-    - The composer's model picker (`codex-model-picker.tsx`): GPT-6.1 Sol
+    - The composer's model picker (`codex-model-picker.tsx`, replaced
+      2026-10-27 by `model-picker.tsx`, as in 7g): GPT-6.1 Sol
       (default), GPT-6 Astra, GPT-6 Luna, remembered per person. Each
       message carries its pick (`codexModel` in the send payload, kept on
       the message like the Claude Code mode).
     - Until 8d a Codex session's message failed with "Codex sessions can't
       run turns yet" instead of running on Pi, whose saved state a Codex
       session could not read (removed in 8d-1).
-  - [x] **8d-1** the Codex turn, built 2026-10-26 (`db:seed` owed for the
-    model rates; not yet run live in Lor):
+  - [x] **8d-1** the Codex turn, built 2026-10-26 (not yet run live in Lor;
+    its model rates came from seeds until 2026-10-27, now from the AI
+    Gateway's prices, `packages/billing/src/rates.ts`):
     - **Spike** (throwaway sandboxes, deleted): turns append to one rollout
       file, a paused turn's lines included. A new sandbox given only the
       saved rollout (none of Codex's state databases) resumed the thread by

@@ -116,6 +116,7 @@ export function RepoFileView({
     return <PanelNote>This file no longer exists.</PanelNote>
   if (
     file.data.kind === "gone" ||
+    file.data.kind === "preparing" ||
     file.data.kind === "restoring" ||
     file.data.kind === "restore_failed"
   ) {

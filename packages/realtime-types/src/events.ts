@@ -22,7 +22,19 @@ export type SidebarSession = {
   state: SidebarSessionState
   loop: boolean
   code: boolean
+  // Code sessions: lines not committed yet. Null until first counted.
+  uncommitted: UncommittedLines | null
   lastActivityAt: string
+}
+
+export type UncommittedLines = { additions: number; deletions: number }
+
+// A code session's uncommitted lines changed. Sent to the user rooms of its
+// subscribers who can see the channel; clients patch the sidebar row.
+export type SessionUncommittedUpdated = UncommittedLines & {
+  workspaceId: string
+  channelId: string
+  sessionId: string
 }
 
 export type ChannelActivity = {
@@ -169,11 +181,13 @@ export const sendMessagePayloadSchema = z
     // no chat context, @Lor or not.
     startSession: z.boolean().optional(),
     // New session in Code mode: the repository (owner/repo) and base branch
-    // the session works in. Only read with startSession.
+    // the session works in, or a new branch it makes from the base. Only
+    // read with startSession.
     code: z
       .object({
         repo: z.string().min(3).max(200),
         branch: z.string().min(1).max(255),
+        newBranch: z.string().min(1).max(200).optional(),
       })
       .optional(),
     // With startSession: "Continue in Code" from this session (same channel),
@@ -187,11 +201,13 @@ export const sendMessagePayloadSchema = z
     claudeCodeMode: z
       .enum(["auto", "default", "acceptEdits", "plan", "bypassPermissions"])
       .optional(),
-    // Likewise the Claude model, as Claude Code's alias. Default: Opus.
-    claudeModel: z.enum(["opus", "sonnet", "haiku", "fable"]).optional(),
-    // In a Codex session: the model for the turn this message starts.
-    // Default: GPT-6.1 Sol.
-    codexModel: z.enum(["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"]).optional(),
+    // In a session: the model, effort and fast mode for the turn this
+    // message starts, as the session's harness names them (its catalog
+    // lists the choices; the worker drops what the harness can't take).
+    // Unset: the harness's default.
+    model: z.string().trim().min(1).max(200).optional(),
+    effort: z.string().trim().min(1).max(32).optional(),
+    fast: z.boolean().optional(),
     // Ids the sender chose for the session this send starts (New session or
     // @Lor), so it can show the session before the ack. Ignored when the
     // send starts none.
@@ -856,6 +872,7 @@ export interface ServerToClientEvents {
     byUserId: string
     filesChanged?: boolean
   }) => void
+  "session:uncommitted:updated": (payload: SessionUncommittedUpdated) => void
   // A run parked on an approval gate. Channel room; ids only — the
   // durable card data comes from the channel approvals query this invalidates.
   "approval:created": (payload: ApprovalCreatedEvent) => void
@@ -985,6 +1002,9 @@ export type RealtimeAgentSession = {
   harness: "pi" | "claude_code" | "codex"
   repoFullName: string | null
   baseBranch: string | null
+  newBranch: string | null
+  uncommittedAdditions: number | null
+  uncommittedDeletions: number | null
   sourceSessionId: string | null
   forkedFromMessageId: string | null
   title: string

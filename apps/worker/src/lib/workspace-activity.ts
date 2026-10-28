@@ -1,5 +1,6 @@
+import type { UncommittedLinesUpdate } from "@repo/lor/uncommitted-lines"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
-import { threadRoom, workspaceRoom } from "@repo/realtime-types/rooms"
+import { threadRoom, userRoom, workspaceRoom } from "@repo/realtime-types/rooms"
 import type { Emitter } from "@socket.io/redis-emitter"
 
 // Set once at worker bootstrap; run/plan lifecycle code deep in the call tree
@@ -30,6 +31,22 @@ export function notifyWorkspaceActivity(workspaceId: string) {
 export function notifyRunSettled(threadRootId: string) {
   try {
     emitter?.to(threadRoom(threadRootId)).emit("run:settled", { threadRootId })
+  } catch {
+    // swallow: delivery is best-effort by design
+  }
+}
+
+// A code session's uncommitted lines changed: its sidebar rows update in
+// place. Best-effort like the above.
+export function notifyUncommittedLines({
+  payload,
+  userIds,
+}: UncommittedLinesUpdate) {
+  if (userIds.length === 0) return
+  try {
+    emitter
+      ?.to(userIds.map(userRoom))
+      .emit("session:uncommitted:updated", payload)
   } catch {
     // swallow: delivery is best-effort by design
   }

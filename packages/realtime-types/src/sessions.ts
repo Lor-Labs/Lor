@@ -1,4 +1,18 @@
+import type { UncommittedLines } from "./events"
 import { MARKDOWN_USER_MENTION_REGEX, USER_MENTION_REGEX } from "./mentions"
+
+// A session row's sidebar +/−; null until first counted.
+export function uncommittedLinesOf(row: {
+  uncommittedAdditions: number | null
+  uncommittedDeletions: number | null
+}): UncommittedLines | null {
+  return row.uncommittedAdditions === null || row.uncommittedDeletions === null
+    ? null
+    : {
+        additions: row.uncommittedAdditions,
+        deletions: row.uncommittedDeletions,
+      }
+}
 
 const TITLE_WORDS = 6
 

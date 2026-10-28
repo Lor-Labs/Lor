@@ -36,17 +36,11 @@ import {
   ClaudeCodeModePicker,
   useClaudeCodeMode,
 } from "@/components/session/claude-code-mode-picker"
-import {
-  ClaudeModelPicker,
-  useClaudeModel,
-} from "@/components/session/claude-model-picker"
-import {
-  CodexModelPicker,
-  useCodexModel,
-} from "@/components/session/codex-model-picker"
+import { EffortPicker, ModelPicker } from "@/components/session/model-picker"
 import { SessionTurnRail } from "@/components/session/session-turn-rail"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
+import { useModelChoice } from "@/hooks/use-agent-models"
 import { cachedSessionForThread } from "@/hooks/use-agent-session"
 import { useConversationScroll } from "@/hooks/use-conversation-scroll"
 import { useFileUpload } from "@/hooks/use-file-upload"
@@ -115,7 +109,6 @@ export function SessionDocument({
   composerNote,
   harness,
   claudeCode = false,
-  codex = false,
 }: {
   workspaceSlug: string
   channelId: string
@@ -127,8 +120,6 @@ export function SessionDocument({
   // A Claude Code session this person can run turns in: each message carries
   // the Claude Code mode picked in the composer.
   claudeCode?: boolean
-  // A Codex session: each message carries the model picked in the composer.
-  codex?: boolean
   // "Fork from here" on Lor's finished replies; settles when the fork opens
   // or fails.
   onFork?: (message: Message) => Promise<unknown>
@@ -468,8 +459,7 @@ export function SessionDocument({
     null
   )
   const claudeMode = useClaudeCodeMode()
-  const claudeModel = useClaudeModel()
-  const codexModel = useCodexModel()
+  const modelChoice = useModelChoice(harness)
 
   // The heading renders once the oldest page is loaded; until then, and once
   // it scrolls away, the header carries the title.
@@ -543,22 +533,17 @@ export function SessionDocument({
           />
         }
         tools={
-          claudeCode ? (
+          agentAnswers ? (
             <>
-              <ClaudeModelPicker
-                value={claudeModel.model}
-                onChange={claudeModel.setModel}
-              />
-              <ClaudeCodeModePicker
-                value={claudeMode.mode}
-                onChange={claudeMode.setMode}
-              />
+              <ModelPicker choice={modelChoice} />
+              <EffortPicker choice={modelChoice} />
+              {claudeCode && (
+                <ClaudeCodeModePicker
+                  value={claudeMode.mode}
+                  onChange={claudeMode.setMode}
+                />
+              )}
             </>
-          ) : codex ? (
-            <CodexModelPicker
-              value={codexModel.model}
-              onChange={codexModel.setModel}
-            />
           ) : undefined
         }
         onShiftTab={claudeCode ? claudeMode.cycle : undefined}
@@ -566,13 +551,8 @@ export function SessionDocument({
           const nonce = handleSend(content, {
             mentions: [],
             ...options,
-            ...(claudeCode
-              ? {
-                  claudeCodeMode: claudeMode.mode,
-                  claudeModel: claudeModel.model,
-                }
-              : {}),
-            ...(codex ? { codexModel: codexModel.model } : {}),
+            ...(agentAnswers ? modelChoice.turn : {}),
+            ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
           })
           if (nonce) showSendEffects(nonce, options)
           scroll.scrollAfterSend()

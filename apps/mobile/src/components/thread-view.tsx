@@ -15,6 +15,7 @@ import {
   MessageComposer,
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
+import { ModelChips } from "@/components/model-chips"
 import { RunQueuePill } from "@/components/run-queue-pill"
 import { SessionCodeDrawer } from "@/components/session-code-drawer"
 import { SessionHeading } from "@/components/session-heading"
@@ -39,6 +40,7 @@ import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useModelChoice } from "@/hooks/use-agent-models"
 import {
   useAgentSession,
   useUpdateAgentSession,
@@ -313,6 +315,10 @@ export function ThreadView({
     !lorSession?.archivedAt &&
     accounts !== undefined &&
     accounts.claude.account == null
+  // The session's agent answers this person's messages, which carry the
+  // model, effort and fast mode picked in the composer.
+  const agentAnswers = Boolean(lorSession) && harnessEnabled && !withoutClaude
+  const modelChoice = useModelChoice(lorSession?.harness ?? "pi", agentAnswers)
   // Memoized: the list re-renders its rows only when its items change, and
   // the heading is one, so it changes them exactly when its content does.
   const sessionHeading = useMemo(() => {
@@ -333,6 +339,7 @@ export function ThreadView({
             ? {
                 fullName: lorSession.repoFullName,
                 branch: lorSession.baseBranch,
+                newBranch: lorSession.newBranch,
               }
             : null
         }
@@ -701,6 +708,7 @@ export function ThreadView({
                             }
                           : undefined,
                       toPeople,
+                      turn: agentAnswers ? modelChoice.turn : undefined,
                     }
                   )
                 } catch (error) {
@@ -731,7 +739,11 @@ export function ThreadView({
                         session. Connect yours in Lor on the web or desktop.
                       </Text>
                     </View>
-                  ) : undefined
+                  ) : (
+                    <View className="mb-one">
+                      <ModelChips choice={modelChoice} />
+                    </View>
+                  )
                 ) : (
                   <RunQueuePill
                     currentUserId={session?.user.id}

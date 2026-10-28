@@ -27,8 +27,6 @@ import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-acce
 import type {
   AgentRunContext,
   ClaudeCodeMode,
-  ClaudeModel,
-  CodexModel,
   LorToolCall,
   LorToolCallUpdate,
   SandboxTurnContext,
@@ -91,6 +89,7 @@ import {
   rewriteCitations,
   splitCallToken,
 } from "./citations"
+import { saveClaudeModels } from "./claude-account"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { cloneRepoTool } from "./code"
 import { codeSandboxIn } from "./code-changes"
@@ -105,6 +104,7 @@ import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
+import { saveHarnessModels } from "./harness-models"
 import { fetchImageForView, isViewableImage, MAX_IMAGE_BYTES } from "./images"
 import { buildInitialUserMessage } from "./initial-message"
 import {
@@ -205,8 +205,14 @@ import {
   CLAUDE_CODE_BINDING,
   runClaudeCodeTurn,
 } from "./session-core/claude-runtime"
-import { CODEX_BINDING, runCodexTurn } from "./session-core/codex-runtime"
 import {
+  CODEX_BINDING,
+  CODEX_DEFAULT_MODEL,
+  codexGatewayModel,
+  runCodexTurn,
+} from "./session-core/codex-runtime"
+import {
+  inGatewayCatalog,
   PI_BINDING,
   PI_BUILTIN_NAMES,
   type PiCompaction,
@@ -233,6 +239,11 @@ import {
   type RunTriggerContext,
   triggerSessionPromptSection,
 } from "./triggered"
+import {
+  trackUncommittedLines,
+  type UncommittedLinesTracker,
+  type UncommittedLinesUpdate,
+} from "./uncommitted-lines"
 import type { OnUsage } from "./usage"
 import { type RunVoiceContext, voicePromptSection, voiceTools } from "./voice"
 import { webTools } from "./web"
@@ -597,19 +608,22 @@ export type RespondContext = {
   code?: RunCodeContext
   // A Claude Code session's turn (code-sessions-runbook.md chunk 7d): the
   // turn starter's own Claude subscription token, who that is and the mode
-  // and model they picked (saved with the request, so a paused turn
-  // continues on the same person's subscription, mode and model). Claude
-  // Code runs the turn instead of Pi, and Lor credits are not charged.
+  // they picked (saved with the request, so a paused turn continues on the
+  // same person's subscription and mode). Claude Code runs the turn instead
+  // of Pi, and Lor credits are not charged.
   claudeCode?: {
     token: string
     userId: string
     mode: ClaudeCodeMode
-    model: ClaudeModel
   }
-  // A Codex session's turn (chunk 8d): the model the sender picked, saved
-  // with the request so a paused turn continues on it. Codex runs the turn
-  // instead of Pi, on Lor credits.
-  codex?: { model: CodexModel }
+  // A Codex session's turn (chunk 8d). Codex runs the turn instead of Pi, on
+  // Lor credits.
+  codex?: true
+  // The model, effort and fast mode the turn's sender picked, as the
+  // session's harness names them. Saved with the request so a paused turn
+  // continues on them. Unset parts take the harness's default; a model Pi's
+  // catalog lacks runs on Lor's main model.
+  turn?: { model?: string; effort?: string; fast?: boolean }
   // "Continue in Code": names the session whose messages are the background.
   continuesSession?: { title: string }
   // A fork's first turn: the session it was forked from.
@@ -652,6 +666,8 @@ export type RespondCallbacks = {
   // Sidebar invalidation for state changes with no plan to carry them (e.g. a
   // policy-parked approval on a plan-less run).
   notifyWorkspaceActivity?: (workspaceId: string) => void
+  // A code session's uncommitted lines changed during the turn.
+  onUncommittedLines?: (update: UncommittedLinesUpdate) => void
 }
 
 export { embedDocumentsWithUsage } from "./embeddings"
@@ -2501,6 +2517,7 @@ export async function respond(
     onMessageReaction,
     onPlanUpdated,
     notifyWorkspaceActivity,
+    onUncommittedLines,
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
@@ -3002,10 +3019,11 @@ export async function respond(
           ? {
               claudeCodeUserId: ctx.claudeCode.userId,
               claudeCodeMode: ctx.claudeCode.mode,
-              claudeModel: ctx.claudeCode.model,
             }
           : {}),
-        ...(ctx.codex ? { codexModel: ctx.codex.model } : {}),
+        ...(ctx.turn?.model ? { turnModel: ctx.turn.model } : {}),
+        ...(ctx.turn?.effort ? { turnEffort: ctx.turn.effort } : {}),
+        ...(ctx.turn?.fast ? { turnFast: true } : {}),
         sandboxMode: harness.sandboxMode,
         sandboxContext: harness.continueOnly
           ? (harness.pausedSandboxContext ?? { request: "" })
@@ -3126,7 +3144,9 @@ export async function respond(
     )
     const sandbox = await openSessionSandbox(harness.owner, {
       keepBridges: bridgePaused,
+      code: Boolean(ctx.code),
     })
+    let uncommitted: UncommittedLinesTracker | null = null
     try {
       // The bridge's preview link is made while the work folder is prepared;
       // the Claude Code or Codex turn awaits it.
@@ -3148,6 +3168,17 @@ export async function respond(
             ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
           })
         : null
+      if (ctx.code && workFolder?.status === "ready") {
+        uncommitted = trackUncommittedLines({
+          sandbox: codeSandboxIn(
+            sandbox.session,
+            piWorkDir(SESSION_WORK_DIR, conversationId)
+          ),
+          sessionId: conversationId,
+          baseBranch: ctx.code.baseBranch,
+          ...(onUncommittedLines ? { onUpdate: onUncommittedLines } : {}),
+        })
+      }
       const notes = run.resume ? [RETRY_NOTE] : []
       if (ctx.forkedFrom) {
         notes.push(
@@ -3303,8 +3334,8 @@ export async function respond(
       // Each step and compaction summary counts toward the spend limit as it
       // finishes, at the model that answered, so a stopped or timed-out turn
       // keeps what it used. The ledger is charged once per model at the end
-      // of the attempt (chargeTurn): one rounding per answer, as before
-      // per-step billing. A crashed attempt is not charged; its retry is.
+      // of the attempt (chargeTurn), at the sum of those calls' prices: one
+      // rounding per answer. A crashed attempt is not charged; its retry is.
       const recorded: PiTurnUsage = {
         inputTokens: 0,
         cachedInputTokens: 0,
@@ -3332,7 +3363,21 @@ export async function respond(
         addTo(total, usage, reasoningTokens)
         byModel.set(usage.model, total)
       }
-      let stepModel = LOR_MODEL
+      // The model the sender picked, when the Gateway serves it: Codex's
+      // name for it, or for Lor's own agent a model in Pi's Gateway catalog
+      // (anything else runs on the harness's default model).
+      const codexModel =
+        ctx.turn?.model && inGatewayCatalog(codexGatewayModel(ctx.turn.model))
+          ? ctx.turn.model
+          : CODEX_DEFAULT_MODEL
+      const piModel =
+        !ctx.claudeCode &&
+        !ctx.codex &&
+        ctx.turn?.model &&
+        inGatewayCatalog(ctx.turn.model)
+          ? ctx.turn.model
+          : LOR_MODEL
+      let stepModel = piModel
       // Set by the first finish-step of an assistant message, cleared when
       // the next message ends.
       let stepBilled = false
@@ -3340,7 +3385,17 @@ export async function respond(
       // credits, no spend limit. A Codex turn's usage comes whole at its end
       // (extraTurnUsage), at its own model's rate.
       const billed = !ctx.claudeCode
-      const answeringModel = ctx.codex ? `openai/${ctx.codex.model}` : LOR_MODEL
+      const answeringModel = ctx.codex ? codexGatewayModel(codexModel) : piModel
+      // Each model's summed USD, as the spend counter priced it; null once a
+      // price is missing, so the ledger prices that model's tokens itself.
+      const costByModel = new Map<string, number | null>()
+      const addCost = (model: string, usd: number | undefined) => {
+        const sum = costByModel.get(model)
+        costByModel.set(
+          model,
+          usd === undefined || sum === null ? null : (sum ?? 0) + usd
+        )
+      }
       const record = async (
         usage: RunStepRecord,
         kind: "step" | "compaction",
@@ -3349,26 +3404,35 @@ export async function respond(
         if (!billed) return
         addTo(recorded, usage, reasoningTokens)
         addToModel(usage, reasoningTokens)
-        const { creditsSpent } = await harness.recordUsage(usage, kind)
+        const { creditsSpent, costUsd } = await harness.recordUsage(usage, kind)
+        addCost(usage.model, costUsd)
         if (creditsSpent >= budgets.credits) spendStop.abort()
         else if (creditsSpent >= budgets.credits * SPEND_ANSWER_SHARE) {
           nearSpendLimit = true
         }
       }
       let charged = false
-      const chargeTurn = (extra: RunStepRecord | null) => {
+      const chargeTurn = async (extra: RunStepRecord | null) => {
         if (charged || !billed) return
         charged = true
-        if (extra) addToModel(extra, 0)
+        if (extra) {
+          addToModel(extra, 0)
+          addCost(
+            extra.model,
+            await harness.priceUsage?.(extra).catch(() => undefined)
+          )
+        }
         let first = true
         for (const [model, usage] of byModel) {
           if (usage.inputTokens === 0 && usage.outputTokens === 0) continue
+          const costUsd = costByModel.get(model)
           onUsage?.({
             workspaceId: ctx.workspaceId,
             tool: "lor.respond",
             model,
             requestedModel: answeringModel,
             ...usage,
+            ...(costUsd != null ? { costUsd } : {}),
             ...(first
               ? {
                   wallMs: Math.round(performance.now() - streamStart),
@@ -3496,6 +3560,9 @@ export async function respond(
             ...notRunDetail(part.reason),
           })
         } else if (part.type === "tool-result") {
+          if (part.providerExecuted || SANDBOX_TOOL_NAMES.has(part.toolName)) {
+            uncommitted?.changed()
+          }
           const denied = deniedReason(part.output)
           const resolved =
             denied !== null
@@ -3523,6 +3590,9 @@ export async function respond(
         } else if (part.type === "tool-error") {
           // Pi's and Claude Code's own tools report failures here, not as a
           // result.
+          if (part.providerExecuted || SANDBOX_TOOL_NAMES.has(part.toolName)) {
+            uncommitted?.changed()
+          }
           const error =
             part.error instanceof Error
               ? part.error.message
@@ -3543,8 +3613,8 @@ export async function respond(
       // for this turn only (code-sessions-runbook.md chunk 7).
       const claudeCodeTurn = async (claude: {
         token: string
+        userId: string
         mode: ClaudeCodeMode
-        model: ClaudeModel
       }) => {
         const access = grantHarnessAccess(harness.owner, {
           claudeToken: claude.token,
@@ -3561,7 +3631,17 @@ export async function respond(
             bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
             tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
             mode: claude.mode,
-            model: claude.model,
+            ...(ctx.turn?.model ? { model: ctx.turn.model } : {}),
+            ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
+            ...(ctx.turn?.fast ? { fast: true } : {}),
+            // The composer offers the models the person's plan has.
+            onModels: (models) =>
+              void saveClaudeModels(claude.userId, models).catch((err) =>
+                logger.warn(
+                  { err, sessionId: conversationId },
+                  "Saving the Claude Code model list failed"
+                )
+              ),
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(answers && !pausedDropped ? { answers } : {}),
@@ -3584,7 +3664,7 @@ export async function respond(
       }
       // Codex reaches the AI Gateway on Lor's key, which the proxy adds for
       // this turn only (code-sessions-runbook.md chunk 8).
-      const codexTurn = async (codex: { model: CodexModel }) => {
+      const codexTurn = async () => {
         const access = grantHarnessAccess(harness.owner, {
           gatewayKey: piGatewayAuth().AI_GATEWAY_API_KEY ?? "",
         })
@@ -3599,7 +3679,8 @@ export async function respond(
             sandbox: sandbox.session,
             bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
             keyPlaceholder: GATEWAY_KEY_PLACEHOLDER,
-            model: codex.model,
+            model: codexModel,
+            ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(pausedDropped ? { dropPaused: true } : {}),
@@ -3609,6 +3690,13 @@ export async function respond(
             toolApproval: limitedToolApproval,
             abortSignal,
             onPart,
+            onModels: (models) =>
+              void saveHarnessModels("codex", models).catch((err) =>
+                logger.warn(
+                  { err, sessionId: conversationId },
+                  "Saving the Codex model list failed"
+                )
+              ),
           })
         } finally {
           await revokeHarnessAccess(harness.owner).catch((err) =>
@@ -3622,7 +3710,7 @@ export async function respond(
       const turn = await (ctx.claudeCode
         ? claudeCodeTurn(ctx.claudeCode)
         : ctx.codex
-          ? codexTurn(ctx.codex)
+          ? codexTurn()
           : runPiTurn({
               sessionId: conversationId,
               sessionKey: conversationId,
@@ -3648,10 +3736,11 @@ export async function respond(
                 sandboxApproval = makeSandboxApproval(requestSandboxContext)
               },
               model: {
-                id: LOR_MODEL,
-                fallbacks: LOR_FALLBACK_MODELS,
+                id: piModel,
+                fallbacks: LOR_FALLBACK_MODELS.filter((id) => id !== piModel),
                 contextWindow: env.LOR_CONTEXT_WINDOW,
               },
+              ...(ctx.turn?.effort ? { thinkingLevel: ctx.turn.effort } : {}),
               gatewayAuth: piGatewayAuth(),
               gatewayOptions: mainGatewayOptions,
               abortSignal,
@@ -3664,9 +3753,9 @@ export async function respond(
               onBoundary,
               onPart,
             })
-      ).catch((err: unknown) => {
+      ).catch(async (err: unknown) => {
         // A failed turn still charges the steps that finished.
-        chargeTurn(null)
+        await chargeTurn(null)
         throw err
       })
 
@@ -3687,7 +3776,7 @@ export async function respond(
                     : undefined
       // Any other abort is a lost lease: another attempt owns the run.
       if (turn.aborted && !stoppedFor) {
-        chargeTurn(null)
+        await chargeTurn(null)
         throw new Error("Lor run aborted")
       }
 
@@ -3776,7 +3865,7 @@ export async function respond(
         turn.usage && billed
           ? extraTurnUsage(turn.usage, recorded, answeringModel)
           : null
-      chargeTurn(extraUsage)
+      await chargeTurn(extraUsage)
       await harness.saveTurn({
         save: turn.save,
         extraUsage,
@@ -3808,6 +3897,7 @@ export async function respond(
         ).catch((err) =>
           logger.warn({ err, sessionId: conversationId }, "Checkpoint failed")
         )
+        await uncommitted?.flush()
       }
       if (approvals.length > 0) {
         if (planRef.current) {
@@ -3827,6 +3917,7 @@ export async function respond(
         ...(stoppedFor ? { stoppedFor } : {}),
       }
     } finally {
+      await uncommitted?.stop()
       sandbox.close()
     }
   } finally {

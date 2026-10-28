@@ -79,6 +79,12 @@ export type SessionFilesSidebarView = {
   revealFolder?: { id: string; path: string }
 }
 
+// A session page's own panel views.
+export type SessionPanelView =
+  | SessionWorkSidebarView
+  | SessionChangesSidebarView
+  | SessionFilesSidebarView
+
 export type RightSidebarView =
   | WorkspaceMembersSidebarView
   | ThreadSidebarView

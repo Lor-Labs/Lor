@@ -1,6 +1,7 @@
 import {
   type RealtimeMessage,
   type RealtimeMessageThreadUpdated,
+  type SendMessagePayload,
   type ServerToClientEvents,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
@@ -771,6 +772,7 @@ export function useThreadMessages({
       {
         onOptimistic,
         toPeople = false,
+        turn,
       }: {
         // Invoked with the optimistic reply's id (the send nonce) before the
         // socket round trip — lets callers mirror the send into other
@@ -778,6 +780,8 @@ export function useThreadMessages({
         onOptimistic?: (id: string) => void
         // A session's "To subscribers": Lor doesn't run.
         toPeople?: boolean
+        // In a session: the model, effort and fast mode for the turn.
+        turn?: Pick<SendMessagePayload, "model" | "effort" | "fast">
       } = {}
     ) => {
       const trimmed = content.trim()
@@ -857,6 +861,7 @@ export function useThreadMessages({
             referencedMessageId: referencedMessage?.id,
             newSession: startIds ?? undefined,
             toPeople: toPeople || undefined,
+            ...turn,
           })
         if (!result.ok) throw new Error(result.error)
 

@@ -1,5 +1,4 @@
 import {
-  ArrowUp02Icon,
   Cancel01Icon,
   PlusSignIcon,
   SentIcon,
@@ -152,8 +151,9 @@ interface MessageInputProps {
   // Session only: the other subscribers, shown as faces when a message goes
   // to people.
   subscribers?: SubscriberFace[]
-  // New session only: chooses the session's channel, in the destination bar.
-  channelPicker?: ReactNode
+  // New session only: controls after the attach button, in the destination
+  // bar.
+  leadingTools?: ReactNode
   // Floats just above the composer, e.g. the "Started … · Open" note.
   notice?: ReactNode
   // Session document: no box; the editor is the next line of the transcript,
@@ -573,7 +573,7 @@ export function MessageInput({
   destination,
   peopleOnly = false,
   subscribers,
-  channelPicker,
+  leadingTools,
   notice,
   variant = "box",
   gutter,
@@ -1465,7 +1465,7 @@ export function MessageInput({
                   toLor={routing.toLor}
                   pinged={routing.pinged}
                   subscribers={subscribers}
-                  channelPicker={channelPicker}
+                  leadingTools={leadingTools}
                   lorPillRef={lorPillRef}
                   onSwitch={
                     routing.canSwitch
@@ -1507,14 +1507,7 @@ export function MessageInput({
                     !isStopMode &&
                     (showLorState
                       ? "bg-agent/12 text-agent hover:bg-agent/18 hover:text-agent"
-                      : "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"),
-                  // New session: a filled round button, like an agent prompt.
-                  destination === "new" &&
-                    cn(
-                      "rounded-full",
-                      canSend &&
-                        "bg-agent text-agent-foreground hover:bg-agent/90 hover:text-agent-foreground"
-                    )
+                      : "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")
                 )}
                 onClick={isStopMode ? onStop : () => handleSend()}
                 disabled={isStopMode ? isStopping : !canSend}
@@ -1529,13 +1522,7 @@ export function MessageInput({
                 }
               >
                 <HugeiconsIcon
-                  icon={
-                    isStopMode
-                      ? StopIcon
-                      : destination === "new"
-                        ? ArrowUp02Icon
-                        : SentIcon
-                  }
+                  icon={isStopMode ? StopIcon : SentIcon}
                   size={16}
                 />
               </Button>
@@ -1563,14 +1550,32 @@ function ToolsSlot({
   active: boolean
   children: ReactNode
 }) {
+  // A menu opened from the bar (model, effort) keeps it shown: the pointer and
+  // focus are in the menu's popup, outside the bar. Watched in JS, not with a
+  // `:has([data-popup-open])` rule (WebKit click lag, see packages/ui).
+  const [bar, setBar] = useState<HTMLDivElement | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  useEffect(() => {
+    if (!bar) return
+    const observer = new MutationObserver(() =>
+      setMenuOpen(bar.querySelector("[data-popup-open]") !== null)
+    )
+    observer.observe(bar, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-popup-open"],
+    })
+    return () => observer.disconnect()
+  }, [bar])
   if (!inline) return children
   if (!target) return null
   return createPortal(
     <div
+      ref={setBar}
       className={cn(
         "flex min-w-0 items-center gap-2 transition-opacity duration-300",
         // Shows at once; lingers a moment before fading after you stop.
-        active
+        active || menuOpen
           ? "opacity-100"
           : "opacity-0 delay-700 focus-within:opacity-100 focus-within:delay-0 hover:opacity-100 hover:delay-0"
       )}

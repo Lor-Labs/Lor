@@ -32,6 +32,9 @@ export function computeCostUsd(tokens: TokenCounts, rate: CreditRate): number {
 }
 
 export function computeCredits(tokens: TokenCounts, rate: CreditRate): number {
-  const usd = computeCostUsd(tokens, rate) * rate.conversionRate
-  return Math.max(1, Math.ceil(usd / CREDIT_USD))
+  return creditsForCost(computeCostUsd(tokens, rate), rate.conversionRate)
+}
+
+export function creditsForCost(costUsd: number, conversionRate: number) {
+  return Math.max(1, Math.ceil((costUsd * conversionRate) / CREDIT_USD))
 }

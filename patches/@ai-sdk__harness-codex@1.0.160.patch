@@ -1,3 +1,92 @@
+diff --git a/dist/bridge/index.mjs b/dist/bridge/index.mjs
+index e4c1e200e578fb80349944d30e2eb1f55fb9cc4f..66f1208139221c9248507c4b16b30705af203e4a 100644
+--- a/dist/bridge/index.mjs
++++ b/dist/bridge/index.mjs
+@@ -1339,11 +1339,48 @@ function asRecord$1(value) {
+ //#endregion
+ //#region src/bridge/codex-app-server-driver.ts
+ const CODEX_CLI_PATH = fileURLToPath(new URL("./node_modules/@openai/codex/bin/codex.js", import.meta.url));
++// Lor's patch: Codex's own model list (model/list) for the composer's model
++// and effort picker (packages/lor/src/model-catalog.ts), sent on each turn's
++// finish part.
++// Read once per bridge, so its first turn waits at most 5 s; null when Codex
++// lists none or the call fails, which never fails the turn.
++async function readCodexModels(client) {
++	let timer;
++	try {
++		const response = await Promise.race([client.request({
++			method: "model/list",
++			params: { limit: 100 }
++		}), new Promise((_, reject) => {
++			timer = setTimeout(() => reject(new Error("model/list timed out")), 5e3);
++		})]);
++		const data = asRecord$1(response)?.data;
++		if (!Array.isArray(data)) return null;
++		const models = data.flatMap((value) => {
++			const model = asRecord$1(value);
++			if (model == null || model.hidden === true || typeof model.model !== "string" || typeof model.displayName !== "string") return [];
++			const efforts = Array.isArray(model.supportedReasoningEfforts) ? model.supportedReasoningEfforts.map((option) => asRecord$1(option)?.reasoningEffort).filter((effort) => typeof effort === "string") : [];
++			return [{
++				value: model.model,
++				displayName: model.displayName,
++				...typeof model.description === "string" && model.description.length > 0 ? { description: model.description } : {},
++				supportedEffortLevels: efforts,
++				supportsFastMode: false,
++				isDefault: model.isDefault === true
++			}];
++		});
++		return models.length > 0 ? models : null;
++	} catch {
++		return null;
++	} finally {
++		clearTimeout(timer);
++	}
++}
+ function createCodexAppServerRuntime() {
+ 	let client;
+ 	let loadedThreadId;
+ 	let loadedConfig;
+ 	let activeTurn;
++	let models;
+ 	const close = async () => {
+ 		const previous = client;
+ 		client = void 0;
+@@ -1499,6 +1536,8 @@ function createCodexAppServerRuntime() {
+ 				clientName: "ai-sdk-harness-codex",
+ 				clientVersion: "1"
+ 			}) });
++			// Lor's patch: once per bridge.
++			if (models === void 0) models = await readCodexModels(runningClient);
+ 			if (start.restartThread && loadedThreadId != null) {
+ 				await raceWithProcess({ operation: runningClient.request({
+ 					method: "thread/unsubscribe",
+@@ -1594,7 +1633,8 @@ function createCodexAppServerRuntime() {
+ 	};
+ 	return {
+ 		runTurn,
+-		close
++		close,
++		models: () => models ?? null
+ 	};
+ }
+ function createCodexAppServerArgs({ cliOverrides = [] } = {}) {
+@@ -2146,13 +2186,15 @@ async function runTurn(start, turn) {
+ 		});
+ 		return;
+ 	}
++	const models = appServer.models();
+ 	emit({
+ 		type: "finish",
+ 		finishReason: {
+ 			unified: "stop",
+ 			raw: "stop"
+ 		},
+-		totalUsage: turnUsage
++		totalUsage: turnUsage,
++		...models ? { harnessMetadata: { codex: { models } } } : {}
+ 	});
+ }
+ function resolveCodexRuntime({ start }) {
 diff --git a/dist/index.js b/dist/index.js
 index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..41681c5f73f7c59e97525bc273a778d3a0a781bb 100644
 --- a/dist/index.js

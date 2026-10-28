@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   computeCostUsd: vi.fn(),
-  computeCredits: vi.fn(),
+  creditsForCost: vi.fn(),
   getRate: vi.fn(),
   insertReturning: vi.fn(),
   insertValues: vi.fn(),
@@ -39,7 +39,7 @@ vi.mock("@repo/db", () => {
 vi.mock("./autumn", () => ({ trackCredits: mocks.trackCredits }))
 vi.mock("./credits", () => ({
   computeCostUsd: mocks.computeCostUsd,
-  computeCredits: mocks.computeCredits,
+  creditsForCost: mocks.creditsForCost,
 }))
 vi.mock("./rates", () => ({ getRate: mocks.getRate }))
 
@@ -58,7 +58,7 @@ describe("recordUsage debit recovery", () => {
     vi.clearAllMocks()
     mocks.getRate.mockResolvedValue({})
     mocks.computeCostUsd.mockReturnValue(0.01)
-    mocks.computeCredits.mockReturnValue(7)
+    mocks.creditsForCost.mockReturnValue(7)
     mocks.insertValues.mockReturnValue({
       onConflictDoNothing: vi.fn(() => ({
         returning: mocks.insertReturning,

@@ -1,5 +1,5 @@
 diff --git a/dist/bridge/index.mjs b/dist/bridge/index.mjs
-index e21cffa448869313e6b9a136c91b69c60850cb26..53ee2bbf37c7c2312425c8d4908cbfe9ef1a90d5 100644
+index e21cffa448869313e6b9a136c91b69c60850cb26..9f4483c99df359142b20492d1adfaa7fff1ea3f8 100644
 --- a/dist/bridge/index.mjs
 +++ b/dist/bridge/index.mjs
 @@ -1461,25 +1461,35 @@ const mcpModule = mcpServerModule;
@@ -71,52 +71,105 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..53ee2bbf37c7c2312425c8d4908cbfe9
  			} : {
  				behavior: "deny",
  				message: decision.reason ?? "Denied",
-@@ -1757,6 +1775,8 @@ async function runTurn(start, turn) {
+@@ -1757,7 +1775,15 @@ async function runTurn(start, turn) {
  				}] }]
  			},
  			...start.resumeSessionId ?? lastClaudeSessionId ? { resume: start.resumeSessionId ?? lastClaudeSessionId } : start.continue === true || !turn.firstTurn ? { continue: true } : {},
 +			// Lor patch: a rewind resumes only up to this entry.
 +			...start.resumeSessionAt ? { resumeSessionAt: start.resumeSessionAt } : {},
  			...permissionOptions,
++			// Lor patch: fast mode for this turn, as Claude Code's own setting
++			// (which also opts the SDK session in).
++			...start.fastMode ? { settings: {
++				...permissionOptions.settings,
++				fastMode: true
++			} } : {},
  			mcpServers,
  			cwd: workdir,
-@@ -1770,6 +1790,7 @@ async function runTurn(start, turn) {
+ 			abortSignal: abortCtl.signal
+@@ -1770,6 +1796,10 @@ async function runTurn(start, turn) {
  	};
  	let turnUsage;
  	let totalCostUsd;
 +	let contextUsage;
++	let models;
++	let fastModeState;
++	let fastModeDisabledReason;
  	let emittedTerminalError = false;
  	let emittedTerminalFinish = false;
  	const emitTerminalError = (message) => {
-@@ -1838,6 +1859,7 @@ async function runTurn(start, turn) {
+@@ -1799,6 +1829,11 @@ async function runTurn(start, turn) {
+ 			if (type === "command_lifecycle") queryInput.handleLifecycle(msg);
+ 			const sessionId = msg.session_id;
+ 			if (typeof sessionId === "string" && sessionId.length > 0) lastClaudeSessionId = sessionId;
++			// Lor patch: init and results say whether fast mode is serving.
++			if (typeof msg.fast_mode_state === "string") {
++				fastModeState = msg.fast_mode_state;
++				fastModeDisabledReason = typeof msg.fast_mode_disabled_reason === "string" ? msg.fast_mode_disabled_reason : void 0;
++			}
+ 			emitStreamEvent(msg);
+ 			if (type === "result") {
+ 				if (msg.subtype === "success") {
+@@ -1838,6 +1873,8 @@ async function runTurn(start, turn) {
  					if (!queryInput.answersSentMessage(msg)) continue;
  					queryInput.observeResult();
  					if (!queryInput.hasActiveUserMessages()) {
 +						contextUsage = await readContextUsage(q);
++						models = await readModels(q);
  						queryInput.close();
  						break;
  					}
-@@ -1845,6 +1867,7 @@ async function runTurn(start, turn) {
+@@ -1845,6 +1882,8 @@ async function runTurn(start, turn) {
  				continue;
  			}
  			if (queryInput.hasObservedResult && !queryInput.hasActiveUserMessages()) {
 +				contextUsage = await readContextUsage(q);
++				models = await readModels(q);
  				queryInput.close();
  				break;
  			}
-@@ -1873,12 +1896,40 @@ async function runTurn(start, turn) {
+@@ -1873,12 +1912,69 @@ async function runTurn(start, turn) {
  			raw: "stop"
  		},
  		totalUsage: turnUsage ?? streamEventState.stepUsage ?? defaultUsage(),
 -		...totalCostUsd !== void 0 || lastClaudeSessionId !== void 0 ? { harnessMetadata: { "claude-code": {
-+		...totalCostUsd !== void 0 || lastClaudeSessionId !== void 0 || contextUsage !== void 0 ? { harnessMetadata: { "claude-code": {
++		...totalCostUsd !== void 0 || lastClaudeSessionId !== void 0 || contextUsage !== void 0 || models !== void 0 || fastModeState !== void 0 ? { harnessMetadata: { "claude-code": {
  			...totalCostUsd !== void 0 ? { costUsd: totalCostUsd } : {},
 -			...lastClaudeSessionId !== void 0 ? { sessionId: lastClaudeSessionId } : {}
 +			...lastClaudeSessionId !== void 0 ? { sessionId: lastClaudeSessionId } : {},
-+			...contextUsage !== void 0 ? { contextUsage } : {}
++			...contextUsage !== void 0 ? { contextUsage } : {},
++			...models !== void 0 ? { models } : {},
++			...fastModeState !== void 0 ? { fastMode: {
++				state: fastModeState,
++				...fastModeDisabledReason ? { disabledReason: fastModeDisabledReason } : {}
++			} } : {}
  		} } } : {}
  	});
  }
++// Lor patch: the models this person's Claude Code offers (their account
++// decides the list), with each model's effort levels and fast mode, for the
++// host's model picker. initializationResult() is the cached init response.
++async function readModels(q) {
++	let timer;
++	try {
++		const init = await Promise.race([q.initializationResult(), new Promise((resolve) => {
++			timer = setTimeout(resolve, 5e3);
++		})]);
++		if (!init || !Array.isArray(init.models)) return void 0;
++		return init.models.map((model) => ({
++			value: model.value,
++			displayName: model.displayName,
++			...model.resolvedModel ? { resolvedModel: model.resolvedModel } : {},
++			...model.description ? { description: model.description } : {},
++			supportedEffortLevels: model.supportsEffort && Array.isArray(model.supportedEffortLevels) ? model.supportedEffortLevels : [],
++			supportsFastMode: model.supportsFastMode === true
++		}));
++	} catch {
++		return void 0;
++	} finally {
++		clearTimeout(timer);
++	}
++}
 +// Lor patch: Claude Code's /context breakdown at the end of the turn, for the
 +// host's context meter. "full" counts each category with the token-count API
 +// (about 350 ms; its total matched the last request's input). "summary" only
@@ -148,10 +201,10 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..53ee2bbf37c7c2312425c8d4908cbfe9
  	let closed = false;
  	let observedResult = false;
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index 35c09984546c68938d5fed6ba90a829e9091662a..ecd6ab5256ce2657048c8bc97b4b39b2ec955685 100644
+index 35c09984546c68938d5fed6ba90a829e9091662a..341b08aec1541f8fd58ee3e7596988ce95bb4d54 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
-@@ -22,6 +22,17 @@ type ClaudeCodeHarnessSettings = {
+@@ -22,6 +22,23 @@ type ClaudeCodeHarnessSettings = {
     * discover, read, or otherwise access in the host process.
     */
    readonly credentialForwarding?: HarnessV1CredentialForwarding;
@@ -166,37 +219,45 @@ index 35c09984546c68938d5fed6ba90a829e9091662a..ecd6ab5256ce2657048c8bc97b4b39b2
 +   * entry (the SDK's `resumeSessionAt`): a rewind.
 +   */
 +  readonly resumeSessionAt?: string;
++  /**
++   * Lor patch: fast mode for the turn (Claude Code's `fastMode` setting, on
++   * the person's own subscription). The finish part's harness metadata
++   * reports whether it served, and the models the account offers.
++   */
++  readonly fastMode?: boolean;
    /**
     * MCP server definitions keyed by server name. Each definition uses the
     * underlying runtime's native MCP server configuration format.
 diff --git a/dist/index.js b/dist/index.js
-index 25fa866a95d96c9a3d2c3f0e338c6f525db01ef6..9ad8df58b35ca528fdd9a3eb82c8b24135ffa720 100644
+index 25fa866a95d96c9a3d2c3f0e338c6f525db01ef6..1b6613bdb958c8bff6d7e71920a284a449c2cc41 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -1106,6 +1106,8 @@ function createClaudeCode(settings = {}) {
+@@ -1106,6 +1106,9 @@ function createClaudeCode(settings = {}) {
  					sandboxCredentialEnvironment,
  					debug: startOpts.observability?.debug,
  					permissionMode: startOpts.permissionMode,
 +					nativePermissionMode: settings.nativePermissionMode,
 +					resumeSessionAt: settings.resumeSessionAt,
++					fastMode: settings.fastMode,
  					builtinToolFiltering: startOpts.builtinToolFiltering,
  					sandbox: toolSafeSandboxSession,
  					sandboxHomeDir,
-@@ -1221,6 +1223,8 @@ function createClaudeCode(settings = {}) {
+@@ -1221,6 +1224,9 @@ function createClaudeCode(settings = {}) {
  				sandboxCredentialEnvironment,
  				debug: startOpts.observability?.debug,
  				permissionMode: startOpts.permissionMode,
 +				nativePermissionMode: settings.nativePermissionMode,
 +				resumeSessionAt: settings.resumeSessionAt,
++				fastMode: settings.fastMode,
  				builtinToolFiltering: startOpts.builtinToolFiltering,
  				sandbox: toolSafeSandboxSession,
  				sandboxHomeDir,
-@@ -1406,11 +1410,13 @@ function formatUnknownError(error) {
+@@ -1406,11 +1412,13 @@ function formatUnknownError(error) {
  	if (error instanceof Error) return error.message;
  	return String(error);
  }
 -function createSession({ sessionId, channel, finishListenerAttachment, proc, maxTurns, agentProgressSummaries, forwardSubagentText, env, thinking, effort, isResume, continueOnFirstPrompt, resumeSessionId, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, builtinToolFiltering, sandbox, sandboxHomeDir, mcpServers, supportsUserMessageResponses }) {
-+function createSession({ sessionId, channel, finishListenerAttachment, proc, maxTurns, agentProgressSummaries, forwardSubagentText, env, thinking, effort, isResume, continueOnFirstPrompt, resumeSessionId, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, nativePermissionMode, resumeSessionAt, builtinToolFiltering, sandbox, sandboxHomeDir, mcpServers, supportsUserMessageResponses }) {
++function createSession({ sessionId, channel, finishListenerAttachment, proc, maxTurns, agentProgressSummaries, forwardSubagentText, env, thinking, effort, isResume, continueOnFirstPrompt, resumeSessionId, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, nativePermissionMode, resumeSessionAt, fastMode, builtinToolFiltering, sandbox, sandboxHomeDir, mcpServers, supportsUserMessageResponses }) {
  	let stopped = false;
  	let stopPromise;
  	let pendingResumeFlag = continueOnFirstPrompt;
@@ -206,11 +267,12 @@ index 25fa866a95d96c9a3d2c3f0e338c6f525db01ef6..9ad8df58b35ca528fdd9a3eb82c8b241
  	const wireTurn = (turnOpts) => {
  		let pendingResolve;
  		let pendingReject;
-@@ -1566,10 +1572,13 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
+@@ -1566,10 +1574,14 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
  				...promptOpts.skills.length > 0 ? { skills: promptOpts.skills.map((skill) => skill.name) } : {},
  				...mcpServers == null ? {} : { mcpServers },
  				...permissionMode ? { permissionMode } : {},
 +				...nativePermissionMode ? { nativePermissionMode } : {},
++				...fastMode ? { fastMode } : {},
  				...builtinToolFiltering ? { builtinToolFiltering } : {},
  				...debug ? { debug } : {},
 -				...lastClaudeSessionId ? { resumeSessionId: lastClaudeSessionId } : pendingResumeFlag ? { continue: true } : {}
@@ -221,11 +283,12 @@ index 25fa866a95d96c9a3d2c3f0e338c6f525db01ef6..9ad8df58b35ca528fdd9a3eb82c8b241
  			pendingResumeFlag = false;
  			rerunContinue = false;
  			channel.send(startMessage);
-@@ -1600,6 +1609,7 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
+@@ -1600,6 +1612,8 @@ function createSession({ sessionId, channel, finishListenerAttachment, proc, max
  					...continueOpts.skills.length > 0 ? { skills: continueOpts.skills.map((skill) => skill.name) } : {},
  					...mcpServers == null ? {} : { mcpServers },
  					...permissionMode ? { permissionMode } : {},
 +					...nativePermissionMode ? { nativePermissionMode } : {},
++					...fastMode ? { fastMode } : {},
  					...builtinToolFiltering ? { builtinToolFiltering } : {},
  					...debug ? { debug } : {},
  					...lastClaudeSessionId ? { resumeSessionId: lastClaudeSessionId } : { continue: true }

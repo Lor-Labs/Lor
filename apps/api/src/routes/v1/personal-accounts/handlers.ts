@@ -133,6 +133,8 @@ export const connectClaudeAccount: AppRouteHandler<
     avatarUrl: null,
     refreshToken: null,
     refreshTokenExpiresAt: null,
+    // Another subscription can offer other models: the picker reads them again.
+    models: null,
   }
   const [row] = await db
     .insert(schema.personalAccount)

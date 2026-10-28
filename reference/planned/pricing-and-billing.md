@@ -263,6 +263,8 @@ US domestic card pricing is 2.9% + $0.30; Stripe Billing adds 0.7%. Autumn confi
 
 Additional international-card, currency-conversion, dispute, tax-product and unusual payment-method costs are outside the US domestic baseline. Several top-up payments also create more fixed transaction fees than the one-invoice model. A $25 minimum pack avoids excessive fixed fees on tiny purchases.
 
+Since 2026-10-27 the model rates are no longer seeded: `packages/billing/src/rates.ts` reads each model's providers from the AI Gateway (`/v1/models/{model}/endpoints`) and prices a request at the most expensive provider at that time, with peak-hour multipliers and long-context tiers. The USD-to-credit conversion factor is the `CREDIT_CONVERSION_RATE` setting (default 1). The `model_rate` table and its seeds are gone; each usage event keeps its own `costUsd`.
+
 The reviewed code has useful foundations: append-only model rates, usage events, stable invocation debit keys, a monthly allowance and non-expiring top-ups. It also needs changes before the proposed economics are enforceable:
 
 | Area | Current behavior and required change |
@@ -278,7 +280,7 @@ The reviewed code has useful foundations: append-only model rates, usage events,
 | Auto top-up | The existing limit is a count of purchases, not a monthly dollar ceiling. Cap dollars explicitly; twenty $500 packs would allow $10k in recharges. |
 | Unknown models | The wildcard rate is a fallback estimate, not a safe ceiling for every premium route. Do not start an unpriced model/tool path automatically. |
 
-Code sources: [Autumn plans](../../autumn.config.ts), [billing constants](../../packages/billing/src/constants.ts), [policy](../../packages/billing/src/policy.ts), [credit math](../../packages/billing/src/credits.ts), [ledger](../../packages/billing/src/ledger.ts), [Autumn integration](../../packages/billing/src/autumn.ts), [model-rate seeds](../../packages/db/src/seeds/model-rates.ts).
+Code sources: [Autumn plans](../../autumn.config.ts), [billing constants](../../packages/billing/src/constants.ts), [policy](../../packages/billing/src/policy.ts), [credit math](../../packages/billing/src/credits.ts), [ledger](../../packages/billing/src/ledger.ts), [Autumn integration](../../packages/billing/src/autumn.ts), [Gateway rates](../../packages/billing/src/rates.ts).
 
 Implementation order: first make actual costs and retail debits complete and reconcilable; then enforce reservations and dollar budgets; then version the new plan, grant and customer-facing rates; finally enable paid pilots. BYOK and official-CLI subscription adapters can follow without blocking the managed launch.
 

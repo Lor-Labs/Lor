@@ -1,7 +1,6 @@
 import {
   Archive02Icon,
   BubbleChatIcon,
-  CommandLineIcon,
   GitBranchIcon,
   GitForkIcon,
   HashtagIcon,
@@ -33,13 +32,14 @@ import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { timeAgo } from "@repo/utils/date"
 import { isHarnessEnabled } from "@repo/utils/features"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
+import { HarnessLogo } from "@/components/session/harness-logo"
 import { HARNESS_LABELS } from "@/components/session/harness-picker"
 import { SessionDocument } from "@/components/session/session-document"
 import {
@@ -48,7 +48,7 @@ import {
 } from "@/components/session/session-tabs"
 import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
-import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import type { SessionPanelView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { RightPanelToggle } from "@/components/sidebar/sidebar-toggle"
 import { TypewriterText } from "@/components/ui/typewriter-text"
 import {
@@ -64,7 +64,12 @@ import { useChannelApprovals } from "@/hooks/use-approvals"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useChannelProposals } from "@/hooks/use-proposals"
-import { useLiveSessionChanges } from "@/hooks/use-session-changes"
+import {
+  type SessionChanges,
+  sessionChangesKey,
+  sessionChangesQueryOptions,
+  useLiveSessionChanges,
+} from "@/hooks/use-session-changes"
 import {
   parseTabId,
   sessionTabLink,
@@ -162,28 +167,61 @@ function SessionConversation({
     queryClient,
   ])
 
-  // The right panel shows this session's context, plan, files and activity
-  // while the page is open, the way a channel page sets its own panel view.
-  const { setView, openView, clearView, isHydrated } = useRightSidebar()
+  // The right panel shows this session's details while the page is open, the
+  // way a channel page sets its own panel view. A code session's panel has
+  // no Details for now: it opens on Changes.
+  const { view, setView, openView, clearView, isHydrated } = useRightSidebar()
   const isMobile = useIsMobile()
-  const workView = useMemo<SessionWorkSidebarView>(
+  const code = session.mode === "code"
+  const workView = useMemo<SessionPanelView>(
     () => ({
-      type: "session-work",
+      type: code ? "session-changes" : "session-work",
       workspaceSlug,
       channelId: session.channelId,
       sessionId: session.id,
       threadRootId: session.threadRootId,
     }),
-    [workspaceSlug, session.channelId, session.id, session.threadRootId]
+    [code, workspaceSlug, session.channelId, session.id, session.threadRootId]
   )
+  // A code session this person just started has no files until its first
+  // turn clones the repo: the panel stays closed until then, and opens on
+  // Files (Changes once there are any). Opened by hand, it shows the wait.
+  const [waitingForFiles, setWaitingForFiles] = useState(
+    () =>
+      code &&
+      queryClient.getQueryData<SessionChanges>(sessionChangesKey(session.id))
+        ?.state === "preparing"
+  )
+  const { data: changes } = useQuery({
+    ...sessionChangesQueryOptions(session.id),
+    enabled: waitingForFiles,
+  })
+  const openOn = useRef<SessionPanelView["type"] | null>(null)
+  const openedByHand =
+    view !== null && "sessionId" in view && view.sessionId === session.id
   useEffect(() => {
-    if (isMobile !== false) return
-    setView(workView)
+    if (!waitingForFiles) return
+    if (openedByHand) {
+      setWaitingForFiles(false)
+      return
+    }
+    if (!changes || changes.state === "preparing") return
+    if (changes.state === "ready") {
+      openOn.current =
+        changes.files.length > 0 ? "session-changes" : "session-files"
+    }
+    setWaitingForFiles(false)
+  }, [waitingForFiles, openedByHand, changes])
+  useEffect(() => {
+    if (isMobile !== false || waitingForFiles) return
+    const type = openOn.current
+    openOn.current = null
+    if (type) openView({ ...workView, type })
+    else setView(workView)
     return () => clearView()
-  }, [workView, isMobile, setView, clearView])
+  }, [workView, isMobile, waitingForFiles, setView, openView, clearView])
 
   // Code sessions: files and diffs open in tabs beside the chat.
-  const code = session.mode === "code"
   useLiveSessionChanges(session.id, session.threadRootId, code)
   const tabs = useSessionTabs(session.id)
   const activeTab = code && tabs.active ? parseTabId(tabs.active) : null
@@ -247,9 +285,6 @@ function SessionConversation({
       harness={session.harness}
       claudeCode={
         harnessEnabled && session.harness === "claude_code" && !withoutClaude
-      }
-      codex={
-        harnessEnabled && session.harness === "codex" && !session.archivedAt
       }
       composerNote={
         !harnessEnabled ? (
@@ -383,7 +418,7 @@ function SessionStrip({
   onArchive,
 }: {
   session: RealtimeAgentSession
-  workView: SessionWorkSidebarView
+  workView: SessionPanelView
   lorRunning: boolean
   showTitle: boolean
   // A code session's open tabs take the title's place.
@@ -579,10 +614,17 @@ function SessionHeading({
         {session.repoFullName && session.baseBranch && (
           <>
             <span aria-hidden="true">·</span>
+            {/* A new branch is on GitHub only after its first push, so the
+              link stays on the base. */}
             <a
               href={`https://github.com/${session.repoFullName}/tree/${session.baseBranch}`}
               target="_blank"
               rel="noreferrer"
+              title={
+                session.newBranch
+                  ? `New branch from ${session.baseBranch}`
+                  : undefined
+              }
               className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
             >
               <HugeiconsIcon
@@ -596,7 +638,7 @@ function SessionHeading({
                 className="ml-1 size-3.5"
                 strokeWidth={2}
               />
-              {session.baseBranch}
+              {session.newBranch ?? session.baseBranch}
             </a>
           </>
         )}
@@ -604,11 +646,7 @@ function SessionHeading({
           <>
             <span aria-hidden="true">·</span>
             <span className="inline-flex items-center gap-1">
-              <HugeiconsIcon
-                icon={CommandLineIcon}
-                className="size-3.5"
-                strokeWidth={2}
-              />
+              <HarnessLogo harness={session.harness} className="size-3.5" />
               {HARNESS_LABELS[session.harness]}
             </span>
           </>

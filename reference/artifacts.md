@@ -63,7 +63,9 @@ merges ("human wins, machine reconciles").
   a voice call. It is created on the conversation's first Lor run, reused on
   every later run, and in standby between turns (the run closes its
   connection). Loops share one per Loop session; Act gets one per event.
-- **Disk and lifetime:** a 2 GB `/workspace` volume (`LOR_SESSION_DISK_MB`),
+- **Disk and lifetime:** a 2 GB `/workspace` volume (`LOR_SESSION_DISK_MB`)
+  and 4 GB RAM; code sessions get 8 GB of each (`LOR_CODE_SANDBOX_DISK_MB`,
+  `LOR_CODE_SANDBOX_MEMORY_MB`, 4 CPU cores),
   deleted by Blaxel after 7 days idle (`LOR_SESSION_SANDBOX_TTL`) or by the
   `delete-session-sandbox` job 10 minutes after the session is archived
   (Loop sessions excepted).

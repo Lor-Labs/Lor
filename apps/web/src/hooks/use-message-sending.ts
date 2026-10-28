@@ -183,15 +183,18 @@ export function useMessageSending({
         toPeople?: boolean
         // New session view: start a session in this channel.
         startSession?: boolean
-        // With startSession: start it in Code mode on this repo and branch.
-        code?: { repo: string; branch: string }
+        // With startSession: start it in Code mode on this repo and branch,
+        // or a new branch made from it.
+        code?: SendMessagePayload["code"]
         // With code: Claude Code or Codex runs it instead of Lor's own agent.
         harness?: SendMessagePayload["harness"]
         // A Claude Code session: the mode for the turn this message starts.
         claudeCodeMode?: SendMessagePayload["claudeCodeMode"]
-        claudeModel?: SendMessagePayload["claudeModel"]
-        // A Codex session: the model for the turn this message starts.
-        codexModel?: SendMessagePayload["codexModel"]
+        // In a session: the model, effort and fast mode for that turn, as
+        // the session's harness names them.
+        model?: string
+        effort?: string
+        fast?: boolean
         // With startSession: "Continue in Code" from this session.
         continueFrom?: { id: string; title: string }
         // "Ask Lor about this": the message the new session starts with.
@@ -289,8 +292,9 @@ export function useMessageSending({
           code,
           harness,
           claudeCodeMode: options?.claudeCodeMode,
-          claudeModel: options?.claudeModel,
-          codexModel: options?.codexModel,
+          model: options?.model,
+          effort: options?.effort,
+          fast: options?.fast || undefined,
           continueFrom: source?.id,
           newSession: start
             ? { id: start.id, threadRootId: start.threadRootId }

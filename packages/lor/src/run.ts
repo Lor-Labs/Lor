@@ -162,11 +162,14 @@ export type RunHarness = {
   pausedSandboxMode?: TurnSandboxMode
   // Adds one model call (a step, or a compaction summary that is not a step)
   // to the run counters under the run's lease, so spend is checked inside
-  // the turn. Throws when the lease moved.
+  // the turn. Throws when the lease moved. `costUsd`: the call's own price,
+  // which the turn's debit sums so it matches the spend counted here.
   recordUsage: (
     usage: RunStepRecord,
     kind: "step" | "compaction"
-  ) => Promise<RunCounters>
+  ) => Promise<RunCounters & { costUsd?: number }>
+  // USD for usage over many calls the steps didn't record (a turn's extra).
+  priceUsage?: (usage: RunStepRecord) => Promise<number>
   // One transaction under the run's lease: the Pi log, the new head and the
   // counters. Throws when the lease or the saved head moved.
   saveTurn: (turn: RunTurnRecord) => Promise<RunCounters>

@@ -1,13 +1,23 @@
 import {
   Archive02Icon,
   ArrowDown01Icon,
+  Link01Icon,
   MessageMultiple01Icon,
+  PencilEdit02Icon,
   RepeatIcon,
   SourceCodeIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { SidebarSession } from "@repo/realtime-types"
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuPopup,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@repo/ui/components/context-menu"
 import { useSidebar } from "@repo/ui/components/sidebar"
+import { toast } from "@repo/ui/components/toast"
 import {
   Tooltip,
   TooltipContent,
@@ -18,7 +28,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "motion/react"
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
@@ -27,12 +37,14 @@ import {
   strongestSessionState,
   useActivityWorkspaceId,
 } from "@/components/sidebar/channel-panel/channel-activity"
+import { LineCounts } from "@/components/sidebar/right-panel/session-changes-panel"
 import { TypewriterText } from "@/components/ui/typewriter-text"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import {
   prefetchSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
+import { sessionTabLink } from "@/hooks/use-session-tabs"
 
 // Each channel lists at most this many of your sessions; a "N more" row
 // expands the rest in place.
@@ -83,17 +95,14 @@ export function useSessionCollapse(
   return { collapsed, toggle }
 }
 
-// The channel's icon doubles as the collapse toggle once it has sessions: it
-// turns into a chevron only while the pointer is on the icon itself or it has
-// keyboard focus, never on row hover.
+// The chevron at the end of a channel row with sessions: shows or hides them.
+// Above the row's click overlay, so it toggles without opening the channel.
 export function SessionCollapseToggle({
   collapsed,
   onToggle,
-  children,
 }: {
   collapsed: boolean
   onToggle: () => void
-  children: ReactNode
 }) {
   return (
     <button
@@ -101,15 +110,12 @@ export function SessionCollapseToggle({
       onClick={onToggle}
       aria-label={collapsed ? "Show sessions" : "Hide sessions"}
       aria-expanded={!collapsed}
-      className="group/toggle relative z-[1] flex size-4 shrink-0 cursor-pointer items-center justify-center outline-none"
+      className="relative z-[1] -mr-0.5 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/60 outline-none transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
     >
-      <span className="flex transition-opacity group-hover/toggle:opacity-0 group-focus-visible/toggle:opacity-0">
-        {children}
-      </span>
       <HugeiconsIcon
         icon={ArrowDown01Icon}
         className={cn(
-          "absolute inset-0 size-4 opacity-0 transition-[opacity,transform] group-hover/toggle:opacity-70 group-focus-visible/toggle:opacity-70",
+          "size-3.5 transition-transform duration-150 ease-out",
           collapsed && "-rotate-90"
         )}
         strokeWidth={2}
@@ -134,6 +140,10 @@ export function ChannelSessionRows({
   const { workspaceSlug, sessionId: openSessionId } = useParams({
     strict: false,
   })
+  const rename = (sessionId: string, title: string) => {
+    if (!workspaceId) return
+    updateSession.mutate({ workspaceId, channelId, sessionId, title })
+  }
   const archive = (sessionId: string) => {
     if (!workspaceId) return
     updateSession.mutate({ workspaceId, channelId, sessionId, archived: true })
@@ -178,6 +188,7 @@ export function ChannelSessionRows({
             <SessionRow
               session={session}
               channelId={channelId}
+              onRename={(title) => rename(session.id, title)}
               onArchive={() => archive(session.id)}
             />
           </motion.div>
@@ -205,14 +216,16 @@ function RollupIndicator({ sessions }: { sessions: SidebarSession[] }) {
 }
 
 // Hovering a row swaps its state indicator for an archive button, like
-// Codex's task list.
+// Codex's task list. Right-click: rename (in place), copy link, archive.
 function SessionRow({
   session,
   channelId,
+  onRename,
   onArchive,
 }: {
   session: SidebarSession
   channelId: string
+  onRename: (title: string) => void
   onArchive: () => void
 }) {
   const navigate = useNavigate()
@@ -228,6 +241,22 @@ function SessionRow({
   }
   const { setOpen: setMobileSidebarOpen } = useMobileSidebar()
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  // Rename moves focus to its field, so the closing menu must not take it
+  // back to the row.
+  const renameChosen = useRef(false)
+  const renameRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (renaming) renameRef.current?.select()
+  }, [renaming])
+  const commitRename = () => {
+    const next = renameRef.current?.value.trim() ?? ""
+    setRenaming(false)
+    if (next && next !== session.title) onRename(next)
+  }
+  const requestArchive = () =>
+    session.state === "running" ? setConfirmArchive(true) : onArchive()
   const active = sessionId === session.id
   // The session you're reading is read, before the read marker round trip.
   const state = active && session.state === "unread" ? "idle" : session.state
@@ -241,87 +270,162 @@ function SessionRow({
     isMobile ? openMobile : sidebarOpen
   )
 
+  const icon = (
+    <HugeiconsIcon
+      icon={
+        session.loop
+          ? RepeatIcon
+          : session.code
+            ? SourceCodeIcon
+            : MessageMultiple01Icon
+      }
+      className="size-3.5 shrink-0 opacity-60"
+      strokeWidth={2}
+    />
+  )
+
   return (
-    <div
-      ref={rowRef}
-      className="group/session relative ml-6 w-[calc(100%-1.5rem)]"
-    >
-      <HintPopover
-        open={sessionsHint.show}
-        anchor={rowRef}
-        side="right"
-        onDismiss={sessionsHint.dismiss}
+    <ContextMenu disabled={renaming} onOpenChange={setMenuOpen}>
+      <ContextMenuTrigger
+        ref={rowRef}
+        className="group/session relative ml-6 w-[calc(100%-1.5rem)]"
       >
-        Lor works in sessions, listed under their channel. Anyone in the channel
-        can open one and join in.
-      </HintPopover>
-      <button
-        type="button"
-        onPointerEnter={prefetch}
-        onFocus={prefetch}
-        onClick={() => {
-          sessionsHint.dismiss()
-          prefetch()
-          if (!workspaceSlug) return
-          void navigate({
-            to: "/$workspaceSlug/session/$sessionId",
-            params: { workspaceSlug, sessionId: session.id },
-          })
-          setMobileSidebarOpen(false)
-        }}
-        aria-current={active ? "page" : undefined}
-        className={cn(
-          "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left text-[13px] transition-colors group-hover/session:bg-foreground/[0.06] group-hover/session:pr-7",
-          active || emphasized ? "text-foreground" : "text-muted-foreground",
-          active && "bg-foreground/[0.06] font-medium"
-        )}
-      >
-        <HugeiconsIcon
-          icon={
-            session.loop
-              ? RepeatIcon
-              : session.code
-                ? SourceCodeIcon
-                : MessageMultiple01Icon
-          }
-          className="size-3.5 shrink-0 opacity-60"
-          strokeWidth={2}
-        />
-        <span className="min-w-0 flex-1 truncate">
-          <TypewriterText text={session.title} animate={!session.titleEdited} />
-        </span>
-        <span className="flex group-hover/session:hidden">
-          <SessionStateIndicator state={state} />
-        </span>
-      </button>
-      <Tooltip>
-        <TooltipTrigger
-          render={
+        <HintPopover
+          open={sessionsHint.show}
+          anchor={rowRef}
+          side="right"
+          onDismiss={sessionsHint.dismiss}
+        >
+          Lor works in sessions, listed under their channel. Anyone in the
+          channel can open one and join in.
+        </HintPopover>
+        {renaming ? (
+          <div className="flex w-full items-center gap-2 rounded-md bg-foreground/[0.06] px-2 py-[5px] text-[13px]">
+            {icon}
+            <input
+              ref={renameRef}
+              defaultValue={session.title}
+              maxLength={200}
+              aria-label="Session title"
+              onBlur={commitRename}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  commitRename()
+                } else if (event.key === "Escape") {
+                  event.preventDefault()
+                  setRenaming(false)
+                }
+              }}
+              className="min-w-0 flex-1 bg-transparent text-foreground outline-none"
+            />
+          </div>
+        ) : (
+          <>
             <button
               type="button"
-              aria-label="Archive session"
-              onClick={() =>
-                session.state === "running"
-                  ? setConfirmArchive(true)
-                  : onArchive()
-              }
-              className="absolute top-1/2 right-1 flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/session:opacity-100"
-            />
-          }
+              onPointerEnter={prefetch}
+              onFocus={prefetch}
+              onClick={() => {
+                sessionsHint.dismiss()
+                prefetch()
+                if (!workspaceSlug) return
+                void navigate({
+                  to: "/$workspaceSlug/session/$sessionId",
+                  params: { workspaceSlug, sessionId: session.id },
+                })
+                setMobileSidebarOpen(false)
+              }}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left text-[13px] transition-colors group-hover/session:bg-foreground/[0.06] group-hover/session:pr-7",
+                active || emphasized
+                  ? "text-foreground"
+                  : "text-muted-foreground",
+                (active || menuOpen) && "bg-foreground/[0.06]",
+                active && "font-medium"
+              )}
+            >
+              {icon}
+              <span className="min-w-0 flex-1 truncate">
+                <TypewriterText
+                  text={session.title}
+                  animate={!session.titleEdited}
+                />
+              </span>
+              <span className="flex items-center gap-2 group-hover/session:hidden">
+                {session.uncommitted && (
+                  <LineCounts
+                    {...session.uncommitted}
+                    className="gap-1 font-normal text-[11px]"
+                  />
+                )}
+                <SessionStateIndicator state={state} />
+              </span>
+            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Archive session"
+                    onClick={requestArchive}
+                    className="absolute top-1/2 right-1 flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/session:opacity-100"
+                  />
+                }
+              >
+                <HugeiconsIcon
+                  icon={Archive02Icon}
+                  className="size-3.5"
+                  strokeWidth={2}
+                />
+              </TooltipTrigger>
+              <TooltipContent side="right">Archive</TooltipContent>
+            </Tooltip>
+          </>
+        )}
+      </ContextMenuTrigger>
+      <ContextMenuPopup
+        align="start"
+        finalFocus={() => {
+          const keep = !renameChosen.current
+          renameChosen.current = false
+          return keep
+        }}
+      >
+        <ContextMenuItem
+          onClick={() => {
+            renameChosen.current = true
+            setRenaming(true)
+          }}
         >
-          <HugeiconsIcon
-            icon={Archive02Icon}
-            className="size-3.5"
-            strokeWidth={2}
-          />
-        </TooltipTrigger>
-        <TooltipContent side="right">Archive</TooltipContent>
-      </Tooltip>
+          <HugeiconsIcon icon={PencilEdit02Icon} strokeWidth={2} />
+          Rename
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => {
+            if (!workspaceSlug) return
+            void navigator.clipboard
+              .writeText(sessionTabLink(workspaceSlug, session.id, null))
+              .then(() => toast.success("Link copied"))
+          }}
+        >
+          <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
+          Copy link
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={requestArchive}>
+          <HugeiconsIcon icon={Archive02Icon} strokeWidth={2} />
+          Archive
+        </ContextMenuItem>
+      </ContextMenuPopup>
+      {/* Outside the trigger: a right-click in the dialog must not open the
+          row's menu. */}
       <ArchiveSessionDialog
         open={confirmArchive}
         onOpenChange={setConfirmArchive}
         onConfirm={onArchive}
       />
-    </div>
+    </ContextMenu>
   )
 }

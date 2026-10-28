@@ -76,6 +76,8 @@ const serverSchema = z.object({
   AGENT_RUN_MAX_WALL_MS: z.coerce.number().int().positive().default(7_200_000),
   AGENT_RUN_MAX_PROVIDER_RETRIES: z.coerce.number().int().min(0).default(3),
   AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(2_000),
+  // USD cost → credit conversion factor applied at debit time.
+  CREDIT_CONVERSION_RATE: z.coerce.number().positive().default(1),
   // Bounds one file share_file copies from a session sandbox into artifacts.
   LOR_WORKBENCH_MAX_FILE_BYTES: z.coerce
     .number()
@@ -97,6 +99,11 @@ const serverSchema = z.object({
   // theirs, so the disk is small and sandboxes are deleted after this long
   // idle. Blaxel expiration policies accept hours, days, or weeks only.
   LOR_SESSION_DISK_MB: z.coerce.number().int().positive().default(2048),
+  // Code sessions install and type check real repos: Blaxel gives 4 CPU
+  // cores at 8 GB (2 at 4 GB, measured 2026-10-27), and node_modules plus the
+  // package caches need more than 2 GB of disk.
+  LOR_CODE_SANDBOX_MEMORY_MB: z.coerce.number().int().positive().default(8192),
+  LOR_CODE_SANDBOX_DISK_MB: z.coerce.number().int().positive().default(8192),
   LOR_SESSION_SANDBOX_TTL: z
     .string()
     .regex(/^\d+[hdw]$/, "must be a duration like 24h, 7d, or 2w")

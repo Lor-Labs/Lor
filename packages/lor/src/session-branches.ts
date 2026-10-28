@@ -104,7 +104,11 @@ async function turnEnd(
   }
   const code =
     session.mode === "code" && session.repoFullName && session.baseBranch
-      ? { repoFullName: session.repoFullName, baseBranch: session.baseBranch }
+      ? {
+          repoFullName: session.repoFullName,
+          baseBranch: session.baseBranch,
+          newBranch: session.newBranch,
+        }
       : null
   const checkpoint = code ? await turnCheckpoint(session.id, run.id) : null
   if (code && !checkpoint) {

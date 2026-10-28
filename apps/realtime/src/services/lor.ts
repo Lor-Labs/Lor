@@ -23,6 +23,7 @@ import {
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
 import { assertHarnessEnabled } from "@repo/utils/features"
+import { isValidNewBranchName } from "@repo/utils/github"
 import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
 import { isLorMentioned } from "@/services/lor-routing"
@@ -90,10 +91,15 @@ async function continuedSession(sessionId: string, channelId: string) {
 async function codeSessionStart(
   workspaceId: string,
   channelId: string,
-  code: { repo: string; branch: string }
+  code: NonNullable<SendMessagePayload["code"]>
 ) {
   if (!isSafeBranch(code.branch)) {
     throw new Error(`"${code.branch}" can't be used as a base branch`)
+  }
+  const newBranch =
+    code.newBranch && code.newBranch !== code.branch ? code.newBranch : null
+  if (newBranch && !isValidNewBranchName(newBranch)) {
+    throw new Error(`"${newBranch}" can't be used as a branch name`)
   }
   const allowed = await channelCodeRepo(workspaceId, channelId, code.repo)
   if (!allowed) {
@@ -101,7 +107,11 @@ async function codeSessionStart(
       `${code.repo} isn't available for code sessions in this channel`
     )
   }
-  return { repoFullName: allowed.repo.fullName, baseBranch: code.branch }
+  return {
+    repoFullName: allowed.repo.fullName,
+    baseBranch: code.branch,
+    newBranch,
+  }
 }
 
 // `@Lor` in channel chat or a human thread starts a session seeded with what

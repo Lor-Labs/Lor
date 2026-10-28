@@ -49,6 +49,7 @@ import {
   forkSession,
   rewindSession,
 } from "@repo/lor/session-branches"
+import { recordUncommittedLines } from "@repo/lor/uncommitted-lines"
 import { channelEventContent } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
@@ -60,7 +61,10 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
-import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
+import {
+  notifyUncommittedLines,
+  notifyWorkspaceActivity,
+} from "@/lib/workspace-activity"
 import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
   CommitSessionChangesRoute,
@@ -617,11 +621,13 @@ async function lorWorkingIn(threadRootId: string): Promise<boolean> {
   return Boolean(run)
 }
 
-// Why there is no work folder to use: gone for good (no checkpoint), being
-// rebuilt from the newest checkpoint, or that rebuild just failed.
-type FolderGap = "gone" | "restoring" | "restore_failed"
+// Why there is no work folder to use: gone for good (no checkpoint), not set
+// up yet (a new session's first turn clones it), being rebuilt from the
+// newest checkpoint, or that rebuild just failed.
+type FolderGap = "gone" | "preparing" | "restoring" | "restore_failed"
 const FOLDER_GAPS: ReadonlySet<unknown> = new Set([
   "gone",
+  "preparing",
   "restoring",
   "restore_failed",
 ])
@@ -629,6 +635,7 @@ const isGap = (value: unknown): value is FolderGap => FOLDER_GAPS.has(value)
 
 const gapMessage: Record<FolderGap, string> = {
   gone: "This session's sandbox no longer exists",
+  preparing: "The session's files are being set up. Try again in a moment",
   restoring: "The session's files are being restored. Try again in a moment",
   restore_failed: "Couldn't restore the session's files. Try again shortly",
 }
@@ -647,7 +654,10 @@ async function startRestore(session: CodeSession): Promise<FolderGap> {
   if (failedAt && Date.now() - failedAt < RESTORE_RETRY_MS) {
     return "restore_failed"
   }
-  if (!(await hasCheckpoint(session.id))) return "gone"
+  // Without a checkpoint, a turn that is running sets the folder up itself.
+  if (!(await hasCheckpoint(session.id))) {
+    return (await lorWorkingIn(session.threadRootId)) ? "preparing" : "gone"
+  }
   const job = restoreSessionFiles({
     sessionId: session.id,
     repoFullName: session.repoFullName,
@@ -680,6 +690,12 @@ function startRewindFiles(
   })
     .then(() => {
       restoreFailedAt.delete(session.id)
+      void refreshUncommittedLines(session).catch((err) =>
+        logger.warn(
+          { err, sessionId: session.id },
+          "Uncommitted lines read failed"
+        )
+      )
     })
     .catch((err) => {
       logger.error({ err, sessionId: session.id }, "Session rewind failed")
@@ -713,11 +729,38 @@ async function withCodeSandbox<T>(
   return startRestore(session)
 }
 
+// The sidebar's +/− follows every read of the files. Never fails the caller.
+function syncUncommittedLines(
+  sessionId: string,
+  files: Parameters<typeof recordUncommittedLines>[1]
+) {
+  void recordUncommittedLines(sessionId, files)
+    .then((update) => {
+      if (update) notifyUncommittedLines(update)
+    })
+    .catch((err) =>
+      logger.warn({ err, sessionId }, "Uncommitted lines save failed")
+    )
+}
+
+// A rewind replaced the files outside a turn, maybe with no panel open.
+async function refreshUncommittedLines(session: CodeSession) {
+  const sandbox = await attachCodeSandbox(session.id)
+  if (!sandbox) return
+  try {
+    const changes = await readChanges(sandbox, session.baseBranch)
+    syncUncommittedLines(session.id, changes.files)
+  } finally {
+    sandbox.close()
+  }
+}
+
 async function changesBody(session: CodeSession, sandbox: CodeSandbox) {
   const [changes, lorWorking] = await Promise.all([
     readChanges(sandbox, session.baseBranch),
     lorWorkingIn(session.threadRootId),
   ])
+  syncUncommittedLines(session.id, changes.files)
   return {
     state: "ready" as const,
     repoFullName: session.repoFullName,

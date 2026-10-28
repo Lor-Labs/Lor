@@ -38,7 +38,7 @@ const STEPS: [Step, ...Step[]] = [
   },
   {
     title: "Lor works in sessions",
-    body: `Mention @Lor or ${isTauri ? "press ⌘N" : "click New session in the sidebar"} to start one. Each session belongs to a channel, and the chat stays for your team.`,
+    body: `Mention @Lor or ${isTauri ? "press ⌘N" : "click the pencil beside the search"} to start one. Each session belongs to a channel, and the chat stays for your team.`,
     Scene: SessionStartScene,
   },
   {
