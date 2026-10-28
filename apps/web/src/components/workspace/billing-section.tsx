@@ -234,20 +234,31 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
     )
   }
 
+  // A workspace's own provider key works in every billing mode.
+  const keySettings = (
+    <InferenceSettings workspaceSlug={workspaceSlug} expired={false} />
+  )
+
   if (!billing.enabled) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Billing is not enabled on this deployment.
-      </p>
+      <div className="space-y-5">
+        <p className="text-sm text-muted-foreground">
+          Billing is not enabled on this deployment.
+        </p>
+        {keySettings}
+      </div>
     )
   }
 
   if (!billing.available) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Billing is temporarily unavailable. Lor keeps working — try again in a
-        moment.
-      </p>
+      <div className="space-y-5">
+        <p className="text-sm text-muted-foreground">
+          Billing is temporarily unavailable. Lor keeps working — try again in a
+          moment.
+        </p>
+        {keySettings}
+      </div>
     )
   }
 
@@ -279,6 +290,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
             subscribe to keep Lor available once they run out.
           </p>
         )}
+        {keySettings}
       </div>
     )
   }
@@ -366,6 +378,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
         autoTopup={billing.autoTopup}
         canAutoTopup={billing.canAutoTopup}
       />
+      {keySettings}
     </div>
   )
 }
