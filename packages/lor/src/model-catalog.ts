@@ -14,6 +14,8 @@ export type AgentModelOption = {
   name: string
   // The harness's own line about the model (Claude Code has one).
   description: string | null
+  // The exact model an alias ("opus") runs, when the harness says.
+  resolvedModel: string | null
   // The vendor, to group a long list ("anthropic", "openai"); null in a
   // harness with one vendor.
   provider: string | null
@@ -52,6 +54,7 @@ function lorCatalog(): AgentModelCatalog {
         id: model.id,
         name: model.name,
         description: null,
+        resolvedModel: null,
         provider: model.id.split("/")[0] ?? null,
         efforts: levels.length > 1 ? levels : [],
         fast: false,
@@ -89,33 +92,47 @@ function namedOnly(
     id,
     name,
     description: null,
+    resolvedModel: null,
     provider: null,
     efforts: [],
     fast: false,
   }))
 }
 
+// The picker's order for Claude's model lines, by the name's first word
+// ("Opus (1M context)" is Opus); other names ("Default") after them.
+const CLAUDE_LINE_ORDER = ["fable", "opus", "sonnet", "haiku"]
+const claudeLine = (name: string) => name.split(" ")[0]?.toLowerCase() ?? ""
+const claudeLineRank = (name: string) => {
+  const at = CLAUDE_LINE_ORDER.indexOf(claudeLine(name))
+  return at === -1 ? CLAUDE_LINE_ORDER.length : at
+}
+
 // Claude Code: the list the person's own Claude Code reported on their last
 // turn, with its effort levels and fast mode per model; before a first turn,
-// the starting list from Anthropic. Opus is first in both.
+// the starting list from Anthropic. Opus is the default in both.
 async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
   const reported =
     (await claudeModels(userId)) ?? (await startingClaudeModels(userId))
-  const models = reported
-    ? reported.map((model) => ({
-        id: model.value,
-        name: model.displayName,
-        description: model.description ?? null,
-        provider: null,
-        efforts: model.supportedEffortLevels,
-        fast: model.supportsFastMode,
-      }))
-    : namedOnly(CLAUDE_CODE_ALIASES)
+  const models = (
+    reported
+      ? reported.map((model) => ({
+          id: model.value,
+          name: model.displayName,
+          description: model.description ?? null,
+          resolvedModel: model.resolvedModel ?? null,
+          provider: null,
+          efforts: model.supportedEffortLevels,
+          fast: model.supportsFastMode,
+        }))
+      : namedOnly(CLAUDE_CODE_ALIASES)
+  ).sort((a, b) => claudeLineRank(a.name) - claudeLineRank(b.name))
+  const opus =
+    models.find((model) => model.id === "opus") ??
+    models.find((model) => claudeLine(model.name) === "opus")
   return {
     models,
-    defaultModel: models.some((model) => model.id === "opus")
-      ? "opus"
-      : (models[0]?.id ?? "opus"),
+    defaultModel: opus?.id ?? models[0]?.id ?? "opus",
     defaultEffort: null,
   }
 }

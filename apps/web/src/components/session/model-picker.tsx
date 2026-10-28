@@ -18,14 +18,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
+import { cn } from "@repo/ui/lib/utils"
 import { useQueries } from "@tanstack/react-query"
-import { useState } from "react"
+import { type ReactNode, useRef, useState } from "react"
+import { HarnessLogo } from "@/components/session/harness-logo"
 import {
   HARNESS_LABELS,
   HARNESS_TOOLTIPS,
   type SessionHarness,
 } from "@/components/session/harness-picker"
 import {
+  type AgentModelOption,
   agentModelsQueryOptions,
   type ModelChoice,
   rememberEffort,
@@ -44,17 +47,33 @@ type ModelItem = {
   harness: SessionHarness
   id: string
   name: string
-  description: string | null
+  // Beside the row on hover: the exact model behind a name like "Opus".
+  detail: ReactNode
   search: string
 }
 
 // The combobox holds string keys, unique across harnesses, so its value
 // stays the same between renders.
-type ModelGroup = { harness: SessionHarness; items: string[] }
 const itemKey = (harness: SessionHarness, id: string) => `${harness}:${id}`
 
-// More than one harness (a new code session): picking a model also picks
-// its agent. Lor's long list goes last so the short ones stay in view.
+function modelDetail(model: AgentModelOption): ReactNode {
+  const exact =
+    model.resolvedModel && model.resolvedModel !== model.id
+      ? model.resolvedModel
+      : null
+  if (!model.description && !exact) return null
+  return (
+    <div className="flex flex-col gap-0.5">
+      {model.description && <span>{model.description}</span>}
+      {exact && <span className="text-muted-foreground text-xs">{exact}</span>}
+    </div>
+  )
+}
+
+// Laid out like T3 Code's picker. With more than one agent (a new code
+// session) their logos run down the left and the list shows one agent's
+// models; a search covers them all, Lor's long list last. Picking a model
+// also picks its agent.
 export function ModelPicker({
   choice,
   harnesses = [choice.harness],
@@ -65,42 +84,58 @@ export function ModelPicker({
   onHarness?: (harness: SessionHarness) => void
 }) {
   const [query, setQuery] = useState("")
-  const ordered = [...harnesses].sort(
-    (a, b) => Number(a === "pi") - Number(b === "pi")
-  )
+  const [shown, setShown] = useState(choice.harness)
+  const inputRef = useRef<HTMLInputElement>(null)
   const catalogs = useQueries({
-    queries: ordered.map((harness) => agentModelsQueryOptions(harness)),
+    queries: harnesses.map((harness) => agentModelsQueryOptions(harness)),
   })
   const byKey = new Map<string, ModelItem>()
-  const groups: ModelGroup[] = []
-  ordered.forEach((harness, index) => {
+  const keysOf = new Map<SessionHarness, string[]>()
+  harnesses.forEach((harness, index) => {
     const models = catalogs[index]?.data?.models ?? []
-    for (const model of models) {
-      byKey.set(itemKey(harness, model.id), {
-        harness,
-        id: model.id,
-        name: model.name,
-        description: model.description,
-        search: [model.name, model.id, model.provider, HARNESS_LABELS[harness]]
-          .join(" ")
-          .toLowerCase(),
+    keysOf.set(
+      harness,
+      models.map((model) => {
+        const key = itemKey(harness, model.id)
+        byKey.set(key, {
+          harness,
+          id: model.id,
+          name: model.name,
+          detail: modelDetail(model),
+          search: [
+            model.name,
+            model.id,
+            model.description,
+            model.provider,
+            HARNESS_LABELS[harness],
+          ]
+            .join(" ")
+            .toLowerCase(),
+        })
+        return key
       })
-    }
-    if (models.length > 0) {
-      groups.push({
-        harness,
-        items: models.map((model) => itemKey(harness, model.id)),
-      })
-    }
+    )
   })
+  const sidebar = harnesses.length > 1
+  const searching = query.trim() !== ""
+  const items =
+    sidebar && !searching
+      ? (keysOf.get(shown) ?? [])
+      : [...harnesses]
+          .sort((a, b) => Number(a === "pi") - Number(b === "pi"))
+          .flatMap((harness) => keysOf.get(harness) ?? [])
   const selected = choice.option
     ? itemKey(choice.harness, choice.option.id)
     : null
-  const showHarness = harnesses.length > 1
+  const showAgent = (harness: SessionHarness) => {
+    setQuery("")
+    setShown(harness)
+    inputRef.current?.focus()
+  }
 
   return (
     <Combobox<string>
-      items={groups}
+      items={items}
       value={selected}
       onValueChange={(key) => {
         const item = key ? byKey.get(key) : undefined
@@ -115,15 +150,15 @@ export function ModelPicker({
       inputValue={query}
       onInputValueChange={setQuery}
       onOpenChange={(open) => {
-        if (!open) setQuery("")
+        if (open) setShown(choice.harness)
+        else setQuery("")
       }}
     >
-      <ComboboxPrimitive.Trigger title="Model" className={TRIGGER_CLASS}>
-        {showHarness && (
-          <span className="shrink-0 text-foreground/80">
-            {HARNESS_LABELS[choice.harness]}
-          </span>
-        )}
+      <ComboboxPrimitive.Trigger
+        title={`${HARNESS_LABELS[choice.harness]} model`}
+        className={TRIGGER_CLASS}
+      >
+        <HarnessLogo harness={choice.harness} className="size-3.5" />
         <span className="max-w-40 truncate">
           {choice.option?.name ?? "Model"}
         </span>
@@ -139,56 +174,87 @@ export function ModelPicker({
           sideOffset={4}
           className="z-50"
         >
-          <ComboboxPrimitive.Popup className="w-64 origin-(--transform-origin) overflow-hidden rounded-lg border bg-popover text-foreground shadow-lg/5 outline-none not-dark:bg-clip-padding">
-            <div className="border-b border-border/70 py-1.5 ps-3 pe-2">
-              <ComboboxPrimitive.Input
-                placeholder="Search models"
-                className="h-6 w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
-              />
-            </div>
-            <ComboboxPrimitive.Empty className="px-3 py-2 text-[13px] text-muted-foreground empty:hidden">
-              No models match
-            </ComboboxPrimitive.Empty>
-            <ComboboxPrimitive.List className="max-h-80 overflow-y-auto p-1 empty:hidden">
-              {(group: ModelGroup) => (
-                <ComboboxPrimitive.Group
-                  key={group.harness}
-                  items={group.items}
-                  className="[[role=group]+&]:mt-1"
-                >
-                  {showHarness && (
-                    <ComboboxPrimitive.GroupLabel
-                      title={HARNESS_TOOLTIPS[group.harness]}
-                      className="px-2 py-1.5 font-medium text-muted-foreground text-xs"
+          <ComboboxPrimitive.Popup
+            className={cn(
+              "flex origin-(--transform-origin) overflow-hidden rounded-lg border bg-popover text-foreground shadow-lg/5 outline-none not-dark:bg-clip-padding",
+              sidebar ? "h-80 w-80" : "w-64"
+            )}
+          >
+            {sidebar && (
+              <div className="flex w-11 shrink-0 flex-col gap-1 border-r border-border/70 bg-muted/30 p-1">
+                {harnesses.map((harness) => (
+                  <HoverSideTooltip
+                    key={harness}
+                    side="left"
+                    tooltip={
+                      <div className="flex max-w-56 flex-col gap-0.5">
+                        <span className="font-medium">
+                          {HARNESS_LABELS[harness]}
+                        </span>
+                        <span className="text-muted-foreground text-xs">
+                          {HARNESS_TOOLTIPS[harness]}
+                        </span>
+                      </div>
+                    }
+                  >
+                    <button
+                      type="button"
+                      aria-label={HARNESS_LABELS[harness]}
+                      aria-pressed={!searching && shown === harness}
+                      onClick={() => showAgent(harness)}
+                      className="flex aspect-square w-full cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-foreground/[0.06] aria-pressed:bg-foreground/[0.08]"
                     >
-                      {HARNESS_LABELS[group.harness]}
-                    </ComboboxPrimitive.GroupLabel>
-                  )}
-                  <ComboboxPrimitive.Collection>
-                    {(key: string) => (
-                      <HoverSideTooltip
-                        key={key}
-                        tooltip={byKey.get(key)?.description}
+                      <HarnessLogo harness={harness} className="size-5" />
+                    </button>
+                  </HoverSideTooltip>
+                ))}
+              </div>
+            )}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="shrink-0 border-b border-border/70 py-1.5 ps-3 pe-2">
+                <ComboboxPrimitive.Input
+                  ref={inputRef}
+                  placeholder="Search models"
+                  className="h-6 w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+              <ComboboxPrimitive.Empty className="px-3 py-2 text-[13px] text-muted-foreground empty:hidden">
+                {searching ? "No models match" : "Loading models…"}
+              </ComboboxPrimitive.Empty>
+              <ComboboxPrimitive.List
+                className={cn(
+                  "overflow-y-auto p-1 empty:hidden",
+                  sidebar ? "min-h-0 flex-1" : "max-h-80"
+                )}
+              >
+                {(key: string) => {
+                  const item = byKey.get(key)
+                  return (
+                    <HoverSideTooltip key={key} tooltip={item?.detail}>
+                      <ComboboxPrimitive.Item
+                        value={key}
+                        className="group flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                       >
-                        <ComboboxPrimitive.Item
-                          value={key}
-                          className="group flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
-                        >
-                          <span className="min-w-0 truncate">
-                            {byKey.get(key)?.name ?? key}
-                          </span>
-                          <HugeiconsIcon
-                            icon={Tick02Icon}
-                            className="ml-auto size-3.5 shrink-0 opacity-0 group-data-selected:opacity-100"
-                            strokeWidth={2}
+                        {sidebar && searching && item && (
+                          <HarnessLogo
+                            harness={item.harness}
+                            className="size-3.5"
                           />
-                        </ComboboxPrimitive.Item>
-                      </HoverSideTooltip>
-                    )}
-                  </ComboboxPrimitive.Collection>
-                </ComboboxPrimitive.Group>
-              )}
-            </ComboboxPrimitive.List>
+                        )}
+                        <span className="min-w-0 truncate">
+                          {item?.name ?? key}
+                        </span>
+                        <HugeiconsIcon
+                          icon={Tick02Icon}
+                          className="ml-auto size-3.5 shrink-0 opacity-0 group-data-selected:opacity-100"
+                          strokeWidth={2}
+                        />
+                      </ComboboxPrimitive.Item>
+                    </HoverSideTooltip>
+                  )
+                }}
+              </ComboboxPrimitive.List>
+            </div>
           </ComboboxPrimitive.Popup>
         </ComboboxPrimitive.Positioner>
       </ComboboxPrimitive.Portal>

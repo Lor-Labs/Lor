@@ -47,10 +47,11 @@ type AnthropicModel = {
 }
 
 // Before the person's first Claude Code turn, so the picker has effort
-// levels from the start: the newest active model of each line (Opus,
-// Sonnet…) from Anthropic's models API, read with their own token. The full
-// id, not Claude Code's alias, which can run an older model with other
-// levels. It has no fast mode field; Claude Code's list replaces this one,
+// levels from the start: the newest active model of each line from
+// Anthropic's models API, read with their own token, named by its line
+// ("Opus") like Claude Code's own list, the exact model as its description.
+// It sends the full id, not Claude Code's alias, which can run an older
+// model with other levels. It has no fast mode field; Claude Code's list replaces this one,
 // fast mode included, when the first turn reports it. Saved only while no
 // turn has reported, so it never overwrites Claude Code's list.
 export async function startingClaudeModels(
@@ -75,22 +76,22 @@ export async function startingClaudeModels(
       if (model.line && model.lifecycle === "active" && !newest.has(model.line))
         newest.set(model.line, model)
     }
-    const models = [...newest.values()]
-      .sort((a, b) => Number(b.line === "opus") - Number(a.line === "opus"))
-      .map((model) => {
-        const effort = model.capabilities?.effort
-        const supported = (level: string) =>
-          (effort?.[level] as { supported?: boolean } | null | undefined)
-            ?.supported === true
-        return {
-          value: model.id,
-          displayName: model.display_name,
-          supportedEffortLevels: effort?.supported
-            ? ANTHROPIC_EFFORTS.filter(supported)
-            : [],
-          supportsFastMode: false,
-        }
-      })
+    const models = [...newest.values()].map((model) => {
+      const line = model.line ?? model.display_name
+      const effort = model.capabilities?.effort
+      const supported = (level: string) =>
+        (effort?.[level] as { supported?: boolean } | null | undefined)
+          ?.supported === true
+      return {
+        value: model.id,
+        displayName: line.charAt(0).toUpperCase() + line.slice(1),
+        description: model.display_name,
+        supportedEffortLevels: effort?.supported
+          ? ANTHROPIC_EFFORTS.filter(supported)
+          : [],
+        supportsFastMode: false,
+      }
+    })
     if (models.length === 0) return null
     await db
       .update(schema.personalAccount)
