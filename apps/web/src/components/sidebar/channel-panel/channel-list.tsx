@@ -22,7 +22,6 @@ import {
   Folder02Icon,
   HashtagIcon,
   Loading03Icon,
-  MoreHorizontalIcon,
   PlusSignIcon,
   SquareLock02Icon,
   VolumeHighIcon,
@@ -30,17 +29,17 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
-import { MentionBadge } from "@repo/ui/components/mention-badge"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@repo/ui/components/menu"
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuPopup,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubPopup,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@repo/ui/components/context-menu"
+import { MentionBadge } from "@repo/ui/components/mention-badge"
 import { Skeleton } from "@repo/ui/components/skeleton"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
@@ -729,72 +728,76 @@ function SortableCategorySection({
           "rounded-lg border border-dashed border-sidebar-border px-1 pt-1 pb-0.5"
       )}
     >
-      <div className="group/category flex w-full items-center gap-0.5 px-1 pb-1">
-        {isProject && projectStatus === "archiving" && (
-          // The header routes to the overview while archiving, so collapse
-          // needs its own affordance.
+      {/* Right-click for the category's options (managers only). */}
+      <ContextMenu disabled={!canManage} onOpenChange={setMenuOpen}>
+        <ContextMenuTrigger className="group/category flex w-full items-center gap-0.5 px-1 pb-1">
+          {isProject && projectStatus === "archiving" && (
+            // The header routes to the overview while archiving, so collapse
+            // needs its own affordance.
+            <button
+              type="button"
+              onClick={() => setCollapsed(!collapsed)}
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "Expand project" : "Collapse project"}
+              className="cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <motion.div
+                animate={{ rotate: collapsed ? -90 : 0 }}
+                transition={{ duration: 0.15, ease: EASE_OUT }}
+              >
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  className="size-3 shrink-0"
+                  strokeWidth={2}
+                />
+              </motion.div>
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => setCollapsed(!collapsed)}
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? "Expand project" : "Collapse project"}
-            className="cursor-pointer text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              // An archiving project's header opens the live overview — the
+              // synthesis progress lives there, not in a collapsed tree.
+              if (projectStatus === "archiving" && onOpenOverview) {
+                onOpenOverview()
+                return
+              }
+              setCollapsed(!collapsed)
+            }}
+            {...(canManage ? { ...attributes, ...listeners } : {})}
+            className={cn(
+              "flex flex-1 items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer",
+              menuOpen && "text-foreground"
+            )}
           >
-            <motion.div
-              animate={{ rotate: collapsed ? -90 : 0 }}
-              transition={{ duration: 0.15, ease: EASE_OUT }}
-            >
-              <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                className="size-3 shrink-0"
-                strokeWidth={2}
-              />
-            </motion.div>
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => {
-            // An archiving project's header opens the live overview — the
-            // synthesis progress lives there, not in a collapsed tree.
-            if (projectStatus === "archiving" && onOpenOverview) {
-              onOpenOverview()
-              return
-            }
-            setCollapsed(!collapsed)
-          }}
-          {...(canManage ? { ...attributes, ...listeners } : {})}
-          className="flex flex-1 items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
-        >
-          {isProject ? (
-            projectStatus === "archiving" ? (
-              <HugeiconsIcon
-                icon={Loading03Icon}
-                className="mr-1 size-3.5 shrink-0 animate-spin"
-                strokeWidth={2}
-              />
+            {isProject ? (
+              projectStatus === "archiving" ? (
+                <HugeiconsIcon
+                  icon={Loading03Icon}
+                  className="mr-1 size-3.5 shrink-0 animate-spin"
+                  strokeWidth={2}
+                />
+              ) : (
+                <HugeiconsIcon
+                  icon={collapsed ? Folder01Icon : Folder02Icon}
+                  className="mr-1 size-3.5 shrink-0"
+                  strokeWidth={2}
+                />
+              )
             ) : (
-              <HugeiconsIcon
-                icon={collapsed ? Folder01Icon : Folder02Icon}
-                className="mr-1 size-3.5 shrink-0"
-                strokeWidth={2}
-              />
-            )
-          ) : (
-            <motion.div
-              animate={{ rotate: collapsed ? -90 : 0 }}
-              transition={{ duration: 0.15, ease: EASE_OUT }}
-            >
-              <HugeiconsIcon
-                icon={ArrowDown01Icon}
-                className="size-3 shrink-0"
-                strokeWidth={2}
-              />
-            </motion.div>
-          )}
-          <span className="truncate">{name}</span>
-        </button>
-        <div className="flex items-center gap-0.5">
+              <motion.div
+                animate={{ rotate: collapsed ? -90 : 0 }}
+                transition={{ duration: 0.15, ease: EASE_OUT }}
+              >
+                <HugeiconsIcon
+                  icon={ArrowDown01Icon}
+                  className="size-3 shrink-0"
+                  strokeWidth={2}
+                />
+              </motion.div>
+            )}
+            <span className="truncate">{name}</span>
+          </button>
           {canCreate && (
             <Button
               variant="ghost"
@@ -807,75 +810,37 @@ function SortableCategorySection({
               <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
             </Button>
           )}
-          {canManage && (
-            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="Category options"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className={cn(
-                      "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/category:opacity-100 focus-visible:opacity-100",
-                      menuOpen && "opacity-100"
-                    )}
-                  />
-                }
-              >
-                <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="start">
-                {isProject && (
-                  <>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setMenuOpen(false)
-                        openProjectMembers(id)
-                      }}
-                    >
-                      Members
-                    </DropdownMenuItem>
-                    {projectId && projectStatus === "active" && (
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setMenuOpen(false)
-                          setArchiveOpen(true)
-                        }}
-                      >
-                        Archive Project
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-                <DropdownMenuItem
-                  onClick={() => {
-                    setMenuOpen(false)
-                    setEditOpen(true)
-                  }}
-                >
-                  Edit Category
-                </DropdownMenuItem>
-                {canDelete && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setMenuOpen(false)
-                        setDeleteOpen(true)
-                      }}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      Delete Category
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+        </ContextMenuTrigger>
+        <ContextMenuPopup align="start">
+          {isProject && (
+            <>
+              <ContextMenuItem onClick={() => openProjectMembers(id)}>
+                Members
+              </ContextMenuItem>
+              {projectId && projectStatus === "active" && (
+                <ContextMenuItem onClick={() => setArchiveOpen(true)}>
+                  Archive Project
+                </ContextMenuItem>
+              )}
+              <ContextMenuSeparator />
+            </>
           )}
-        </div>
-      </div>
+          <ContextMenuItem onClick={() => setEditOpen(true)}>
+            Edit Category
+          </ContextMenuItem>
+          {canDelete && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                variant="destructive"
+                onClick={() => setDeleteOpen(true)}
+              >
+                Delete Category
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuPopup>
+      </ContextMenu>
       <EditChannelDialog
         channel={categoryAsChannel}
         open={editOpen}
@@ -1055,13 +1020,6 @@ function SortableChannelItem({
   const rollup = sessionCollapse.collapsed
     ? strongestSessionState(sessions)
     : undefined
-  const hasChannelActivity = Boolean(rollup)
-  const channelIcon = (
-    <ChannelIcon
-      type={ch.type}
-      isPrivate={ch.audience === "members" && ch.parentId === null}
-    />
-  )
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -1072,155 +1030,101 @@ function SortableChannelItem({
   return (
     <>
       <div ref={setNodeRef} style={style}>
-        <div
-          className={cn(
-            "group/channel relative flex w-full items-center gap-2 rounded-lg px-2 py-[6px] text-[14px] hover:bg-foreground/[0.06] cursor-pointer",
-            active && "bg-foreground/[0.06] font-medium text-foreground",
-            !active && hasUnread && "font-medium text-foreground",
-            !active && !hasUnread && "text-muted-foreground",
-            menuOpen && "bg-foreground/[0.06]"
-          )}
-        >
-          {active && (
-            <div className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
-          )}
-          {!active && hasUnread && (
-            <div className="absolute left-0 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
-          )}
-          {sessions.length > 0 ? (
-            <SessionCollapseToggle
-              collapsed={sessionCollapse.collapsed}
-              onToggle={sessionCollapse.toggle}
-            >
-              {channelIcon}
-            </SessionCollapseToggle>
-          ) : (
-            channelIcon
-          )}
-          <button
-            type="button"
-            onClick={onClick}
-            {...(canManage ? { ...attributes, ...listeners } : {})}
-            aria-current={active ? "page" : undefined}
-            className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50"
+        {/* Right-click for the channel's options. */}
+        <ContextMenu onOpenChange={setMenuOpen}>
+          <ContextMenuTrigger
+            className={cn(
+              "group/channel relative flex w-full items-center gap-2 rounded-lg px-2 py-[6px] text-[14px] hover:bg-foreground/[0.06] cursor-pointer",
+              active && "bg-foreground/[0.06] font-medium text-foreground",
+              !active && hasUnread && "font-medium text-foreground",
+              !active && !hasUnread && "text-muted-foreground",
+              menuOpen && "bg-foreground/[0.06]"
+            )}
           >
-            {ch.name}
-          </button>
-          <div className="ml-auto flex shrink-0 items-center gap-1.5">
-            <MentionBadge count={mentionCount} />
-            {rollup && <SessionStateIndicator state={rollup} />}
-            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="Channel options"
-                    onClick={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    className={cn(
-                      "text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/channel:opacity-100 focus-visible:opacity-100",
-                      hasChannelActivity &&
-                        "absolute right-1 top-1/2 z-[1] -translate-y-1/2 rounded-md border-foreground/10 bg-sidebar/60 shadow-none hover:bg-sidebar/60 data-pressed:bg-sidebar/60",
-                      hasChannelActivity &&
-                        menuOpen &&
-                        "border-transparent bg-accent hover:bg-accent data-pressed:bg-accent",
-                      menuOpen && "opacity-100"
-                    )}
-                  />
-                }
-              >
-                <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="bottom" align="start">
-                {mute ? (
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      unmuteChannel(ch.id)
-                      setMenuOpen(false)
-                    }}
-                  >
-                    Unmute Channel
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger
-                      onClick={(e) => e.stopPropagation()}
-                      onPointerDown={(e) => e.stopPropagation()}
+            {active && (
+              <div className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+            )}
+            {!active && hasUnread && (
+              <div className="absolute left-0 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
+            )}
+            <ChannelIcon
+              type={ch.type}
+              isPrivate={ch.audience === "members" && ch.parentId === null}
+            />
+            <button
+              type="button"
+              onClick={onClick}
+              {...(canManage ? { ...attributes, ...listeners } : {})}
+              aria-current={active ? "page" : undefined}
+              className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50"
+            >
+              {ch.name}
+            </button>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <MentionBadge count={mentionCount} />
+              {rollup && <SessionStateIndicator state={rollup} />}
+              {sessions.length > 0 && (
+                <SessionCollapseToggle
+                  collapsed={sessionCollapse.collapsed}
+                  onToggle={sessionCollapse.toggle}
+                />
+              )}
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuPopup align="start">
+            {mute ? (
+              <ContextMenuItem onClick={() => unmuteChannel(ch.id)}>
+                Unmute Channel
+              </ContextMenuItem>
+            ) : (
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>Mute Channel</ContextMenuSubTrigger>
+                <ContextMenuSubPopup>
+                  {MUTE_DURATIONS.map((duration) => (
+                    <ContextMenuItem
+                      key={duration.label}
+                      onClick={() =>
+                        muteChannel({
+                          channelId: ch.id,
+                          minutes: duration.minutes,
+                        })
+                      }
                     >
-                      Mute Channel
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      {MUTE_DURATIONS.map((duration) => (
-                        <DropdownMenuItem
-                          key={duration.label}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            muteChannel({
-                              channelId: ch.id,
-                              minutes: duration.minutes,
-                            })
-                            setMenuOpen(false)
-                          }}
-                        >
-                          {duration.label}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )}
-                <DropdownMenuSeparator />
-                {ch.type === "text" && (
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setMenuOpen(false)
-                      openChannelSessions(ch.id)
-                    }}
-                  >
-                    View Sessions
-                  </DropdownMenuItem>
-                )}
-                {canEdit && (
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setMenuOpen(false)
-                      setEditOpen(true)
-                    }}
-                  >
-                    Edit Channel
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    navigator.clipboard.writeText(ch.id)
-                    setMenuOpen(false)
-                  }}
+                      {duration.label}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuSubPopup>
+              </ContextMenuSub>
+            )}
+            <ContextMenuSeparator />
+            {ch.type === "text" && (
+              <ContextMenuItem onClick={() => openChannelSessions(ch.id)}>
+                View Sessions
+              </ContextMenuItem>
+            )}
+            {canEdit && (
+              <ContextMenuItem onClick={() => setEditOpen(true)}>
+                Edit Channel
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem
+              onClick={() => void navigator.clipboard.writeText(ch.id)}
+            >
+              Copy Channel ID
+            </ContextMenuItem>
+            {canDelete && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  variant="destructive"
+                  onClick={() => setDeleteOpen(true)}
                 >
-                  Copy Channel ID
-                </DropdownMenuItem>
-                {canDelete && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setMenuOpen(false)
-                        setDeleteOpen(true)
-                      }}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      Delete Channel
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
+                  Delete Channel
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuPopup>
+        </ContextMenu>
         {ch.type === "voice" && (
           <VoiceParticipantRows channelId={ch.id} channelName={ch.name ?? ""} />
         )}

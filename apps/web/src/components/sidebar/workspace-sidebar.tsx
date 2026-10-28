@@ -409,6 +409,7 @@ function WorkspaceSidebarInner() {
           <div className="min-w-0 flex-1">
             <WorkspaceCommand />
           </div>
+          <NewSessionButton />
           {canCreate && (
             <span ref={createButtonRef} className="flex">
               <DropdownMenu
@@ -473,7 +474,6 @@ function WorkspaceSidebarInner() {
             Your starting channels. Rename, reorder, or add channels here.
           </HintPopover>
         </div>
-        <NewSessionButton />
         {workspaceSlug && (
           <InstructionsApprovalAlert
             workspaceSlug={workspaceSlug}
