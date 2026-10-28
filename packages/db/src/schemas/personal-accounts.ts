@@ -20,6 +20,8 @@ export type ReportedHarnessModel = {
   description?: string
   supportedEffortLevels: string[]
   supportsFastMode: boolean
+  // The harness's own default model (Codex marks one).
+  isDefault?: boolean
 }
 
 // A person's own account at a provider ("Your accounts" in user settings),

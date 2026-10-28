@@ -1,8 +1,13 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
 import { claudeModels, startingClaudeModels } from "./claude-account"
+import { harnessModels } from "./harness-models"
 import { LOR_FALLBACK_MODELS, LOR_MODEL } from "./models"
-import { CODEX_DEFAULT_MODEL } from "./session-core/codex-runtime"
+import {
+  CODEX_DEFAULT_MODEL,
+  isCodexEffort,
+} from "./session-core/codex-runtime"
+import { inGatewayCatalog } from "./session-core/pi-runtime"
 
 // What a session's composer offers for its harness: each model the harness
 // can run, the effort levels that model takes and whether it has fast mode.
@@ -78,7 +83,8 @@ const CLAUDE_CODE_ALIASES = [
   ["fable", "Fable"],
 ] as const
 
-// Until Codex's own model/list is read, the models Codex sessions offered.
+// Until a Codex turn reports its own model/list, the models Codex sessions
+// offered.
 const CODEX_MODELS = [
   ["gpt-6.1-sol", "GPT-6.1 Sol"],
   ["gpt-6-astra", "GPT-6 Astra"],
@@ -137,17 +143,44 @@ async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
   }
 }
 
+// Codex: the list its own model/list gave on its last turn, kept to models
+// the Gateway serves (Codex runs on Lor's Gateway key) and the efforts the
+// adapter can pass. "Default" effort leaves it to Codex's own per model.
+async function codexCatalog(): Promise<AgentModelCatalog> {
+  const reported = (await harnessModels("codex")) ?? []
+  const served = reported.filter((model) =>
+    inGatewayCatalog(
+      model.value.includes("/") ? model.value : `openai/${model.value}`
+    )
+  )
+  const models =
+    served.length > 0
+      ? served.map((model) => ({
+          id: model.value,
+          name: model.displayName,
+          description: model.description ?? null,
+          resolvedModel: null,
+          provider: null,
+          efforts: model.supportedEffortLevels.filter(isCodexEffort),
+          fast: false,
+        }))
+      : namedOnly(CODEX_MODELS)
+  const defaultModel = [
+    served.find((model) => model.isDefault)?.value,
+    CODEX_DEFAULT_MODEL,
+  ].find((id) => id && models.some((model) => model.id === id))
+  return {
+    models,
+    defaultModel: defaultModel ?? models[0]?.id ?? CODEX_DEFAULT_MODEL,
+    defaultEffort: null,
+  }
+}
+
 export async function agentModelCatalog(
   harness: CatalogHarness,
   userId: string
 ): Promise<AgentModelCatalog> {
   if (harness === "claude_code") return claudeCodeCatalog(userId)
-  if (harness === "codex") {
-    return {
-      models: namedOnly(CODEX_MODELS),
-      defaultModel: CODEX_DEFAULT_MODEL,
-      defaultEffort: null,
-    }
-  }
+  if (harness === "codex") return codexCatalog()
   return lorCatalog()
 }

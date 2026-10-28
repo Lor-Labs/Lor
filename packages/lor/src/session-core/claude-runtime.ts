@@ -34,6 +34,7 @@ import {
   prepareTools,
   sandboxHome,
 } from "./pi-runtime"
+import { reportedModels } from "./reported-models"
 import { sessionWorkFolder } from "./work-dir"
 
 // One Claude Code turn through Vercel's adapter, on the turn starter's own
@@ -263,7 +264,8 @@ export async function runClaudeCodeTurn(
           const metadata = (part as { providerMetadata?: unknown })
             .providerMetadata
           contextUsage = claudeContextUsage(metadata) ?? contextUsage
-          const models = claudeReportedModels(metadata)
+          // The SDK's initializationResult().models, per person.
+          const models = reportedModels(metadata, "claude-code")
           if (models) input.onModels?.(models)
         }
         await input.onPart(part)
@@ -368,40 +370,6 @@ function withContinuation(
     log: { kind: "append", text: "" },
     continuation,
   }
-}
-
-// The models the person's Claude Code offers, which Lor's bridge patch puts
-// on the finish part (the SDK's initializationResult().models).
-function claudeReportedModels(
-  metadata: unknown
-): ReportedHarnessModel[] | null {
-  const models = (
-    metadata as { "claude-code"?: { models?: unknown } } | null
-  )?.["claude-code"]?.models
-  if (!Array.isArray(models)) return null
-  const reported = models.flatMap((model: Record<string, unknown>) =>
-    typeof model?.value === "string" && typeof model.displayName === "string"
-      ? [
-          {
-            value: model.value,
-            displayName: model.displayName,
-            ...(typeof model.resolvedModel === "string"
-              ? { resolvedModel: model.resolvedModel }
-              : {}),
-            ...(typeof model.description === "string"
-              ? { description: model.description }
-              : {}),
-            supportedEffortLevels: Array.isArray(model.supportedEffortLevels)
-              ? model.supportedEffortLevels.filter(
-                  (level): level is string => typeof level === "string"
-                )
-              : [],
-            supportsFastMode: model.supportsFastMode === true,
-          },
-        ]
-      : []
-  )
-  return reported.length > 0 ? reported : null
 }
 
 // Claude Code's own /context count, which Lor's bridge patch puts on the

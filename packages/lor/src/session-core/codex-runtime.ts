@@ -8,6 +8,7 @@ import {
   type CodexHarnessSettings,
   createCodex,
 } from "@ai-sdk/harness-codex"
+import type { ReportedHarnessModel } from "@repo/db/schema"
 import type {
   Experimental_SandboxSession as SandboxSession,
   TextStreamPart,
@@ -31,6 +32,7 @@ import {
   prepareTools,
   sandboxHome,
 } from "./pi-runtime"
+import { reportedModels } from "./reported-models"
 import { sessionWorkFolder } from "./work-dir"
 
 // One Codex turn through Vercel's adapter, on Lor credits through the AI
@@ -54,8 +56,9 @@ type CodexEffort = NonNullable<CodexHarnessSettings["reasoningEffort"]>
 // The adapter's effort names; which ones a model takes comes from Codex's
 // own model list.
 const CODEX_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
-const isCodexEffort = (value: string | undefined): value is CodexEffort =>
-  CODEX_EFFORTS.some((effort) => effort === value)
+export const isCodexEffort = (
+  value: string | undefined
+): value is CodexEffort => CODEX_EFFORTS.some((effort) => effort === value)
 
 export type CodexTurnInput = {
   // Lor's session id: the harness session, and the work folder's name.
@@ -91,6 +94,9 @@ export type CodexTurnInput = {
   toolApproval?: Record<string, ToolApprovalStatus>
   abortSignal?: AbortSignal
   onPart: (part: TextStreamPart<ToolSet>) => void | Promise<void>
+  // Codex's own model list (model/list), which Lor's bridge patch puts on
+  // the turn's finish part.
+  onModels?: (models: ReportedHarnessModel[]) => void
 }
 
 export async function runCodexTurn(
@@ -202,6 +208,14 @@ export async function runCodexTurn(
       results.push(result)
       for await (const part of result.stream) {
         if (part.type === "abort") aborted = true
+        if (part.type === "finish") {
+          // The harness sets it on finish; the AI SDK type does not declare it.
+          const models = reportedModels(
+            (part as { providerMetadata?: unknown }).providerMetadata,
+            "codex"
+          )
+          if (models) input.onModels?.(models)
+        }
         await input.onPart(part)
       }
     }

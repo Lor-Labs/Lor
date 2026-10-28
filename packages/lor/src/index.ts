@@ -104,6 +104,7 @@ import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import { embedBrainQueryWithUsage } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
+import { saveHarnessModels } from "./harness-models"
 import { fetchImageForView, isViewableImage, MAX_IMAGE_BYTES } from "./images"
 import { buildInitialUserMessage } from "./initial-message"
 import {
@@ -3666,6 +3667,13 @@ export async function respond(
             toolApproval: limitedToolApproval,
             abortSignal,
             onPart,
+            onModels: (models) =>
+              void saveHarnessModels("codex", models).catch((err) =>
+                logger.warn(
+                  { err, sessionId: conversationId },
+                  "Saving the Codex model list failed"
+                )
+              ),
           })
         } finally {
           await revokeHarnessAccess(harness.owner).catch((err) =>
