@@ -156,15 +156,32 @@ export async function prepareCodeWorkFolder(input: {
   const newBranch = code.newBranch
     ? ` && { git -C ${q(workDir)} switch --quiet --create ${q(code.newBranch)} && git -C ${q(workDir)} update-ref ${q(`refs/remotes/origin/${code.newBranch}`)} HEAD || { rc=$?; rm -rf ${q(workDir)}; exit "$rc"; }; }`
     : ""
-  const clone = await sandbox.run({
-    command: `${shallowCloneCommand({
-      dir: workDir,
-      fullName: code.repoFullName,
-      branch: code.baseBranch,
-    })}${newBranch}`,
-    env: { GIT_TOKEN: token },
-    ...(abortSignal ? { abortSignal } : {}),
-  })
+  let clone: Awaited<ReturnType<typeof sandbox.run>>
+  try {
+    clone = await sandbox.run({
+      command: `${shallowCloneCommand({
+        dir: workDir,
+        fullName: code.repoFullName,
+        branch: code.baseBranch,
+      })}${newBranch}`,
+      env: { GIT_TOKEN: token },
+      ...(abortSignal ? { abortSignal } : {}),
+    })
+  } catch (err) {
+    // Stopped mid-command, it may have cloned without the new branch: a
+    // checkout on the base branch would be reused next turn. Only a
+    // checkout goes, never other files in the folder.
+    if (code.newBranch) {
+      try {
+        await sandbox.run({
+          command: `if [ "$(git -C ${q(workDir)} rev-parse --show-toplevel 2>/dev/null)" = ${q(workDir)} ]; then rm -rf ${q(workDir)}; fi`,
+        })
+      } catch {
+        // The sandbox is unreachable, so such a checkout can stay.
+      }
+    }
+    throw err
+  }
   if (clone.exitCode !== 0) {
     const error = clone.stderr.split(token).join("***").trim().slice(0, 300)
     return { status: "failed", error: error || "git clone failed" }
