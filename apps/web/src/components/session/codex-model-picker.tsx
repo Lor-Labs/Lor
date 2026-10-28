@@ -69,6 +69,12 @@ export function useCodexModel(): {
   return { model, setModel: rememberCodexModel }
 }
 
+export {
+  MODELS as CODEX_MODELS,
+  MODEL_LABELS as CODEX_MODEL_LABELS,
+  MODEL_TOOLTIPS as CODEX_MODEL_TOOLTIPS,
+}
+
 export function CodexModelPicker({
   value,
   onChange,

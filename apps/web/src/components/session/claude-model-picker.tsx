@@ -72,6 +72,12 @@ export function useClaudeModel(): {
   return { model, setModel: rememberClaudeModel }
 }
 
+export {
+  MODELS as CLAUDE_MODELS,
+  MODEL_LABELS as CLAUDE_MODEL_LABELS,
+  MODEL_TOOLTIPS as CLAUDE_MODEL_TOOLTIPS,
+}
+
 export function ClaudeModelPicker({
   value,
   onChange,

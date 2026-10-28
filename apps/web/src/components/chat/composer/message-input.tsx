@@ -152,8 +152,9 @@ interface MessageInputProps {
   // Session only: the other subscribers, shown as faces when a message goes
   // to people.
   subscribers?: SubscriberFace[]
-  // New session only: chooses the session's channel, in the destination bar.
-  channelPicker?: ReactNode
+  // New session only: controls after the attach button, in the destination
+  // bar.
+  leadingTools?: ReactNode
   // Floats just above the composer, e.g. the "Started … · Open" note.
   notice?: ReactNode
   // Session document: no box; the editor is the next line of the transcript,
@@ -573,7 +574,7 @@ export function MessageInput({
   destination,
   peopleOnly = false,
   subscribers,
-  channelPicker,
+  leadingTools,
   notice,
   variant = "box",
   gutter,
@@ -1465,7 +1466,7 @@ export function MessageInput({
                   toLor={routing.toLor}
                   pinged={routing.pinged}
                   subscribers={subscribers}
-                  channelPicker={channelPicker}
+                  leadingTools={leadingTools}
                   lorPillRef={lorPillRef}
                   onSwitch={
                     routing.canSwitch

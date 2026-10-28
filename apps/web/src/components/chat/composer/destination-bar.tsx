@@ -32,7 +32,7 @@ export function DestinationBar({
   pinged,
   subscribers = [],
   onSwitch,
-  channelPicker,
+  leadingTools,
   lorPillRef,
 }: {
   destination: ComposerDestination
@@ -43,8 +43,9 @@ export function DestinationBar({
   subscribers?: SubscriberFace[]
   // Session only, when nothing in the message decides the destination.
   onSwitch?: () => void
-  // New session only: chooses the session's channel.
-  channelPicker?: ReactNode
+  // New session only: its controls after the attach button (Claude Code's
+  // mode). Its channel is in the page's headline, so it has no pill.
+  leadingTools?: ReactNode
   // Anchors the session_reply hint on the Lor pill. Only the Lor state takes
   // it: the people state's exit would clear the ref after the swap.
   lorPillRef?: RefObject<HTMLSpanElement | null>
@@ -54,9 +55,7 @@ export function DestinationBar({
       ? "To Lor"
       : destination === "thread"
         ? "New session from this thread"
-        : destination === "new"
-          ? "New session in"
-          : `New session in #${channelName}`
+        : `New session in #${channelName}`
   const isSession = destination === "session"
   // A session message reaches its subscribers, and the people it mentions
   // follow once it sends: mentioned first, so "+N" never hides them.
@@ -84,20 +83,22 @@ export function DestinationBar({
           >
             {/* Quiet in a session, where Lor is the default; chat and threads
                 tint it, since there it changes what the send does. */}
-            <span ref={lorPillRef} className="flex shrink-0">
-              <DestinationPill
-                onSwitch={onSwitch}
-                className={
-                  isSession
-                    ? "text-muted-foreground hover:text-foreground"
-                    : "bg-agent/10 font-medium text-agent"
-                }
-              >
-                <img src="/lor-mark.svg" alt="" className="size-3.5" />
-                {lorLabel}
-              </DestinationPill>
-            </span>
-            {channelPicker}
+            {destination !== "new" && (
+              <span ref={lorPillRef} className="flex shrink-0">
+                <DestinationPill
+                  onSwitch={onSwitch}
+                  className={
+                    isSession
+                      ? "text-muted-foreground hover:text-foreground"
+                      : "bg-agent/10 font-medium text-agent"
+                  }
+                >
+                  <img src="/lor-mark.svg" alt="" className="size-3.5" />
+                  {lorLabel}
+                </DestinationPill>
+              </span>
+            )}
+            {leadingTools}
             {pinged.length > 0 && (
               <PingedPeople
                 people={pinged}

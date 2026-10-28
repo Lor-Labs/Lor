@@ -72,11 +72,11 @@ export function SessionModeSwitch({
         if (next === "chat" || next === "code") onChange(next)
       }}
     >
-      <ToggleGroupItem value="chat" className="px-2.5 text-[13px]">
+      <ToggleGroupItem value="chat" className="h-7 px-2 text-xs">
         <HugeiconsIcon icon={BubbleChatIcon} className="size-3.5" />
         Chat
       </ToggleGroupItem>
-      <ToggleGroupItem value="code" className="px-2.5 text-[13px]">
+      <ToggleGroupItem value="code" className="h-7 px-2 text-xs">
         <HugeiconsIcon icon={SourceCodeIcon} className="size-3.5" />
         Code
       </ToggleGroupItem>
@@ -182,7 +182,7 @@ export function useCodeTarget({
 
 export type CodeTargetState = ReturnType<typeof useCodeTarget>
 
-// Sits after the channel picker in the composer's destination bar.
+// Sits after Chat | Code in the strip above the New session composer.
 export function CodeTargetPicker({
   workspaceSlug,
   channelId,
@@ -207,10 +207,10 @@ export function CodeTargetPicker({
   }
   return (
     <>
-      <span className="shrink-0 text-muted-foreground">on</span>
       <SearchPicker
         icon={GithubIcon}
         value={code.repo}
+        label={code.repo.split("/")[1] ?? code.repo}
         items={code.repos}
         placeholder="Find a repository…"
         emptyText="No repositories found"
@@ -277,6 +277,7 @@ function BranchPicker({
 function SearchPicker({
   icon,
   value,
+  label = value,
   items,
   placeholder,
   emptyText,
@@ -288,6 +289,8 @@ function SearchPicker({
 }: {
   icon: IconSvgElement
   value: string
+  // Shown on the trigger; the full value is its tooltip.
+  label?: string
   items: string[]
   placeholder: string
   emptyText: string
@@ -317,13 +320,16 @@ function SearchPicker({
       }}
       {...(onQueryChange ? { filter: null } : {})}
     >
-      <ComboboxPrimitive.Trigger className="inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 font-medium text-agent transition-colors hover:bg-agent/10 data-popup-open:bg-agent/10">
+      <ComboboxPrimitive.Trigger
+        title={value}
+        className="inline-flex h-7 min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
+      >
         <HugeiconsIcon
           icon={icon}
           className="size-3.5 shrink-0"
           strokeWidth={2}
         />
-        <span className="max-w-48 truncate">{value}</span>
+        <span className="max-w-48 truncate">{label}</span>
         <HugeiconsIcon
           icon={ArrowDown01Icon}
           className="size-3 shrink-0"
