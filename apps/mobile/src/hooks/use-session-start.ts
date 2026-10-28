@@ -1,5 +1,6 @@
 import {
   type RealtimeAgentSession,
+  type SendMessagePayload,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
 import { useQueryClient } from "@tanstack/react-query"
@@ -247,7 +248,9 @@ export function useSendNewSession(channel: {
     attachments: NonNullable<Message["attachments"]>,
     contextMessageId: string | undefined,
     // Code mode: the session's repo, base branch and agent.
-    code?: SessionStart["code"]
+    code?: SessionStart["code"],
+    // The model, effort and fast mode for its first turn.
+    turn?: Pick<SendMessagePayload, "model" | "effort" | "fast">
   ) => {
     const user = auth?.user
     if (!socket?.connected) {
@@ -291,6 +294,7 @@ export function useSendNewSession(channel: {
               harness: code.harness,
             }
           : {}),
+        ...turn,
       })
       if (!result.ok) throw new Error(result.error)
       if (!result.session) throw new Error("Couldn't start the session")

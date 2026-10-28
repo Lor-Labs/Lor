@@ -4,7 +4,7 @@ import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
 import GitBranchIcon from "@hugeicons/core-free-icons/GitBranchIcon"
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
+import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { router, useLocalSearchParams } from "expo-router"
 import * as SecureStore from "expo-secure-store"
@@ -18,7 +18,9 @@ import { KeyboardController } from "react-native-keyboard-controller"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import { MessageComposer } from "@/components/message-composer"
 import { messageDisplayName } from "@/components/message-row"
+import { ModelChips } from "@/components/model-chips"
 import { PickerSheet } from "@/components/picker-sheet"
+import { TargetChip } from "@/components/target-chip"
 import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
@@ -26,6 +28,7 @@ import { Tabs } from "@/components/ui/tabs"
 import { LorMark } from "@/components/voice/lor-window"
 import { useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useModelChoice } from "@/hooks/use-agent-models"
 import {
   branchesQueryOptions,
   codeTargetNote,
@@ -165,6 +168,8 @@ function NewSessionComposer({
   // it is on web for now.
   const [harness, setHarness] = useSessionHarness()
   const claudeCode = mode === "code" && harness === "claude_code"
+  // A chat session always runs on Lor's own agent.
+  const modelChoice = useModelChoice(mode === "code" ? harness : "pi")
   const { data: accounts } = usePersonalAccounts(claudeCode)
   // Unknown while the accounts load.
   const needsClaude = claudeCode && accounts?.claude.account === null
@@ -316,6 +321,7 @@ function NewSessionComposer({
           )}
         </View>
       ) : null}
+      <ModelChips choice={modelChoice} lead="using" />
     </View>
   )
 
@@ -345,7 +351,8 @@ function NewSessionComposer({
                   aboutMessageId,
                   mode === "code" && code.target
                     ? { ...code.target, harness }
-                    : undefined
+                    : undefined,
+                  modelChoice.turn
                 )
               } finally {
                 setIsSending(false)
@@ -434,42 +441,6 @@ function NewSessionComposer({
         title="Agent"
       />
     </>
-  )
-}
-
-// A pick in the destination line (repo, branch, agent), styled like the
-// channel's.
-function TargetChip({
-  label,
-  icon,
-  hint,
-  onPress,
-}: {
-  label: string
-  icon?: IconSvgElement
-  hint: string
-  onPress: () => void
-}) {
-  const [accent, muted] = useThemeColor(["accent", "muted"])
-  return (
-    <Pressable
-      accessibilityHint={hint}
-      accessibilityRole="button"
-      className="min-h-8 max-w-full flex-row items-center gap-one rounded-lor-sm px-one active:bg-accent-soft"
-      hitSlop={6}
-      onPress={onPress}
-    >
-      {icon ? (
-        <HugeiconsIcon color={accent} icon={icon} size={13} strokeWidth={2} />
-      ) : null}
-      <Text
-        className="shrink text-[13px] font-semibold text-accent"
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
-      <HugeiconsIcon color={muted} icon={ArrowDown01Icon} size={12} />
-    </Pressable>
   )
 }
 

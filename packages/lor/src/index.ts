@@ -3333,8 +3333,8 @@ export async function respond(
       // Each step and compaction summary counts toward the spend limit as it
       // finishes, at the model that answered, so a stopped or timed-out turn
       // keeps what it used. The ledger is charged once per model at the end
-      // of the attempt (chargeTurn): one rounding per answer, as before
-      // per-step billing. A crashed attempt is not charged; its retry is.
+      // of the attempt (chargeTurn), at the sum of those calls' prices: one
+      // rounding per answer. A crashed attempt is not charged; its retry is.
       const recorded: PiTurnUsage = {
         inputTokens: 0,
         cachedInputTokens: 0,
@@ -3382,6 +3382,16 @@ export async function respond(
       // (extraTurnUsage), at its own model's rate.
       const billed = !ctx.claudeCode
       const answeringModel = ctx.codex ? `openai/${codexModel}` : piModel
+      // Each model's summed USD, as the spend counter priced it; null once a
+      // price is missing, so the ledger prices that model's tokens itself.
+      const costByModel = new Map<string, number | null>()
+      const addCost = (model: string, usd: number | undefined) => {
+        const sum = costByModel.get(model)
+        costByModel.set(
+          model,
+          usd === undefined || sum === null ? null : (sum ?? 0) + usd
+        )
+      }
       const record = async (
         usage: RunStepRecord,
         kind: "step" | "compaction",
@@ -3390,26 +3400,35 @@ export async function respond(
         if (!billed) return
         addTo(recorded, usage, reasoningTokens)
         addToModel(usage, reasoningTokens)
-        const { creditsSpent } = await harness.recordUsage(usage, kind)
+        const { creditsSpent, costUsd } = await harness.recordUsage(usage, kind)
+        addCost(usage.model, costUsd)
         if (creditsSpent >= budgets.credits) spendStop.abort()
         else if (creditsSpent >= budgets.credits * SPEND_ANSWER_SHARE) {
           nearSpendLimit = true
         }
       }
       let charged = false
-      const chargeTurn = (extra: RunStepRecord | null) => {
+      const chargeTurn = async (extra: RunStepRecord | null) => {
         if (charged || !billed) return
         charged = true
-        if (extra) addToModel(extra, 0)
+        if (extra) {
+          addToModel(extra, 0)
+          addCost(
+            extra.model,
+            await harness.priceUsage?.(extra).catch(() => undefined)
+          )
+        }
         let first = true
         for (const [model, usage] of byModel) {
           if (usage.inputTokens === 0 && usage.outputTokens === 0) continue
+          const costUsd = costByModel.get(model)
           onUsage?.({
             workspaceId: ctx.workspaceId,
             tool: "lor.respond",
             model,
             requestedModel: answeringModel,
             ...usage,
+            ...(costUsd != null ? { costUsd } : {}),
             ...(first
               ? {
                   wallMs: Math.round(performance.now() - streamStart),
@@ -3730,9 +3749,9 @@ export async function respond(
               onBoundary,
               onPart,
             })
-      ).catch((err: unknown) => {
+      ).catch(async (err: unknown) => {
         // A failed turn still charges the steps that finished.
-        chargeTurn(null)
+        await chargeTurn(null)
         throw err
       })
 
@@ -3753,7 +3772,7 @@ export async function respond(
                     : undefined
       // Any other abort is a lost lease: another attempt owns the run.
       if (turn.aborted && !stoppedFor) {
-        chargeTurn(null)
+        await chargeTurn(null)
         throw new Error("Lor run aborted")
       }
 
@@ -3842,7 +3861,7 @@ export async function respond(
         turn.usage && billed
           ? extraTurnUsage(turn.usage, recorded, answeringModel)
           : null
-      chargeTurn(extraUsage)
+      await chargeTurn(extraUsage)
       await harness.saveTurn({
         save: turn.save,
         extraUsage,

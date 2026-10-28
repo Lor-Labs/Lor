@@ -1,7 +1,7 @@
 import { db, eq, schema } from "@repo/db"
 import { createLogger } from "@repo/logger"
 import { trackCredits } from "./autumn"
-import { computeCostUsd, computeCredits } from "./credits"
+import { computeCostUsd, creditsForCost } from "./credits"
 import { isBillableTool, usageDebitKey } from "./policy"
 import { getRate } from "./rates"
 
@@ -61,9 +61,14 @@ export async function recordUsage(
       outputTokens: u.outputTokens,
     }
     const rate = u.model ? await getRate(u.model, tokens) : null
+    // A turn passes the cost its spend counter summed call by call (each at
+    // its own long-context tier), so the debit matches it.
     const costUsd = u.costUsd ?? (rate ? computeCostUsd(tokens, rate) : null)
     const billable = isBillableTool(u.tool)
-    const credits = billable && rate ? computeCredits(tokens, rate) : 0
+    const credits =
+      billable && rate && costUsd !== null
+        ? creditsForCost(costUsd, rate.conversionRate)
+        : 0
     const debitKey = usageDebitKey({
       billingKey: u.billingKey,
       messageId: refs.messageId ?? refs.debitScope,

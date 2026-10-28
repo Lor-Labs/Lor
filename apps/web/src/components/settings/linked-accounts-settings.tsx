@@ -1,5 +1,3 @@
-import { CommandLineIcon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { Separator } from "@repo/ui/components/separator"
@@ -7,6 +5,7 @@ import { Spinner } from "@repo/ui/components/spinner"
 import { formatDate } from "@repo/utils/date"
 import { features } from "@repo/utils/features"
 import { useState } from "react"
+import { HarnessLogo } from "@/components/session/harness-logo"
 import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import {
   useConnectGithubAccount,
@@ -94,12 +93,8 @@ export function LinkedAccountsSettings() {
 
       {(features.claudeCodeHarness || claude.account) && (
         <div className="flex items-center gap-3">
-          {/* Anthropic's logo needs their permission: a neutral mark. */}
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
-            <HugeiconsIcon
-              icon={CommandLineIcon}
-              className="size-5 text-foreground"
-            />
+            <HarnessLogo harness="claude_code" className="size-5" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="font-medium text-sm">Claude subscription</p>

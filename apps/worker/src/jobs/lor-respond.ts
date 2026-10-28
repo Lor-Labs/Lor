@@ -1186,6 +1186,7 @@ export function createLorRespondProcessor(
                   pausedSandboxMode: paused?.sandboxMode,
                   recordUsage: (usage, kind) =>
                     execution.recordUsage(usage, kind),
+                  priceUsage: (usage) => execution.priceUsage(usage),
                   saveTurn: (turn) => execution.saveTurn(owner, turn),
                 },
               }
