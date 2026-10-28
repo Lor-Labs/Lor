@@ -1,9 +1,8 @@
-import { and, db, eq, inArray, schema } from "@repo/db"
+import { db, inArray, schema } from "@repo/db"
 import { assertBetaSandbox } from "@repo/db/queries/beta-access"
 import { createLogger } from "@repo/logger"
-import { trackCredits } from "./autumn"
+import { trackSandboxUsage } from "./autumn"
 import { isBetaWorkspace } from "./beta-credits"
-import { SANDBOX_CREDITS_PER_GB_HOUR } from "./constants"
 
 const logger = createLogger("billing")
 
@@ -49,84 +48,55 @@ async function sandboxWorkspaces(names: string[]) {
   ])
 }
 
-// Charges each sandbox-hour's measured time to the workspace's shared credit
-// pool at the published rate, as the provider's totals grow. The Autumn key
-// names the hour's charged total, so a retry never debits twice. Beta-mode
-// debits cap at the balance (no customer debt). Returns this hour's
-// sandboxes whose workspace may no longer use one (expired or out of
-// credits), for the caller to stop.
+// Charges closed sandbox-hours to the workspace's shared credit pool: each
+// hour's final GB-hours go to Autumn once, whose credit system prices them
+// (autumn.config.ts). Usage history lives in Autumn and the provider's
+// billing data; the Autumn key names the sandbox-hour, so a repeat is
+// rejected (409) instead of charged twice. Beta-mode debits cap at the
+// balance (no customer debt).
 export async function chargeSandboxUsage(buckets: SandboxUsage[]) {
   const workspaces = await sandboxWorkspaces([
     ...new Set(buckets.map((b) => b.sandboxName)),
   ])
   const beta = new Map<string, boolean>()
-  const blocked = new Map<string, boolean>()
-  const toStop: { sandboxName: string; workspaceId: string }[] = []
-  const thisHour = Math.floor(Date.now() / 3_600_000) * 3_600_000
   for (const bucket of buckets) {
     const workspaceId = workspaces.get(bucket.sandboxName)
     if (!workspaceId) continue
     if (!beta.has(workspaceId))
       beta.set(workspaceId, await isBetaWorkspace(workspaceId))
-    try {
-      await db.transaction(async (tx) => {
-        const usage = schema.sandboxUsage
-        const [row] = await tx
-          .insert(usage)
-          .values({
-            sandboxName: bucket.sandboxName,
-            hourStart: bucket.hourStart,
-            workspaceId,
-            usageGbs: bucket.usageGbs,
-            providerCostUsd: bucket.costUsd,
-          })
-          .onConflictDoUpdate({
-            target: [usage.sandboxName, usage.hourStart],
-            set: {
-              usageGbs: bucket.usageGbs,
-              providerCostUsd: bucket.costUsd,
-              updatedAt: new Date(),
-            },
-          })
-          .returning({ creditsCharged: usage.creditsCharged })
-        if (!row) return
-        const total = Math.round(
-          (bucket.usageGbs / 3600) * SANDBOX_CREDITS_PER_GB_HOUR
-        )
-        const delta = total - row.creditsCharged
-        if (delta <= 0) return
-        const status = await trackCredits(
-          workspaceId,
-          delta,
-          `sandbox:${bucket.sandboxName}:${bucket.hourStart.toISOString()}:${total}`,
-          beta.get(workspaceId) ? "cap" : "overflow"
-        )
-        if (status !== "debited") return
-        await tx
-          .update(usage)
-          .set({ creditsCharged: total })
-          .where(
-            and(
-              eq(usage.sandboxName, bucket.sandboxName),
-              eq(usage.hourStart, bucket.hourStart)
-            )
-          )
-      })
-    } catch (err) {
+    const status = await trackSandboxUsage(
+      workspaceId,
+      bucket.usageGbs / 3600,
+      `sandbox:${bucket.sandboxName}:${bucket.hourStart.toISOString()}`,
+      beta.get(workspaceId) ? "cap" : "overflow"
+    )
+    if (status === "fail_open")
       logger.error(
-        { err, sandbox: bucket.sandboxName },
-        "Sandbox usage charge failed; the next sweep retries"
+        { sandbox: bucket.sandboxName, hour: bucket.hourStart },
+        "Sandbox usage charge failed; the next hourly run retries"
       )
-    }
-    if (bucket.hourStart.getTime() < thisHour || !beta.get(workspaceId))
-      continue
+  }
+}
+
+// Sandboxes running this hour in beta workspaces that may no longer use
+// one (expired, out of credits or halted), for the caller to stop.
+export async function blockedSandboxes(buckets: SandboxUsage[]) {
+  const workspaces = await sandboxWorkspaces([
+    ...new Set(buckets.map((b) => b.sandboxName)),
+  ])
+  const blocked = new Map<string, boolean>()
+  const toStop: { sandboxName: string; workspaceId: string }[] = []
+  for (const bucket of buckets) {
+    const workspaceId = workspaces.get(bucket.sandboxName)
+    if (!workspaceId) continue
     if (!blocked.has(workspaceId))
       blocked.set(
         workspaceId,
-        await assertBetaSandbox(workspaceId).then(
-          () => false,
-          () => true
-        )
+        (await isBetaWorkspace(workspaceId)) &&
+          (await assertBetaSandbox(workspaceId).then(
+            () => false,
+            () => true
+          ))
       )
     if (blocked.get(workspaceId))
       toStop.push({ sandboxName: bucket.sandboxName, workspaceId })

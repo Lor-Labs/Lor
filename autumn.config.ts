@@ -1,13 +1,35 @@
 import { feature, item, plan } from "atmn"
 
 // Source of truth for Lor pricing — push with `npx atmn push` (sandbox first).
-// The worker computes credit debits itself (token usage × model_rate),
-// so `credits` is a single metered feature, not an Autumn credit_system.
+// One credit pool (1 credit = $0.01) that AI, sandbox and later browser time
+// draw from. Code tracks the underlying features; Autumn prices them here.
+
+// AI, already priced by Lor (Gateway provider prices, packages/billing
+// rates.ts) and tracked as fractional credits.
+export const aiUsage = feature({
+  id: "ai_usage",
+  name: "AI",
+  type: "metered",
+  consumable: true,
+})
+
+// Sandbox running time in GB of RAM × hours, from the provider's billing
+// data. Code sandbox (8 GB): 10 credits an hour; chat sandbox (4 GB): 5.
+export const sandboxUsage = feature({
+  id: "sandbox_gb_hours",
+  name: "Sandbox time",
+  type: "metered",
+  consumable: true,
+})
+
 export const credits = feature({
   id: "credits",
   name: "Lor credits",
-  type: "metered",
-  consumable: true,
+  type: "credit_system",
+  creditSchema: [
+    { meteredFeatureId: aiUsage.id, creditCost: 1 },
+    { meteredFeatureId: sandboxUsage.id, creditCost: 1.25 },
+  ],
 })
 
 // Strategy A: one prepaid monthly item drives both price and grant.

@@ -122,7 +122,8 @@ exemptions and provider shutdown/checkout verification are complete. Blaxel
 process cleanup and preview revocation are not a hard vendor spending cap. The
 offer is 25 teams, five members, 30 days and 3,000 credits ($30) shared by AI
 and sandbox time (browser time will use the same pool; no separate grants). Sandbox time costs 1.25 credits per GB-hour (code sandbox 10
-an hour, chat sandbox 5), metered from Blaxel's Billing API every 5 minutes.
+an hour, chat sandbox 5), read from Blaxel's Billing API and charged per closed
+hour to an Autumn credit system (no Lor-side usage table).
 Subscribing ($20/seat, for life for beta teams) ends beta mode.
 Autumn owns free/purchased credit balances; Stripe handles explicit $25 purchases.
 Live Gateway prices replace seeded rates; every request is priced at the most

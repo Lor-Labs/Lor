@@ -44,8 +44,10 @@ import {
   sweepOrphanedPlaceholders,
 } from "@/jobs/prune-run-events"
 import {
-  SANDBOX_USAGE_SWEEP_EVERY_MS,
-  sweepSandboxUsage,
+  chargeClosedSandboxHours,
+  SANDBOX_CHARGE_EVERY_MS,
+  SANDBOX_STOP_SWEEP_EVERY_MS,
+  sweepBlockedSandboxes,
 } from "@/jobs/sandbox-usage"
 import { createSourceIngestProcessor } from "@/jobs/source-ingest"
 import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
@@ -397,7 +399,10 @@ async function bootstrap() {
     MAINTENANCE_QUEUE,
     async (job) => {
       if (job.name === "sweep-beta-billing") await sweepBetaBilling()
-      else if (job.name === "sweep-sandbox-usage") await sweepSandboxUsage()
+      else if (job.name === "sweep-blocked-sandboxes")
+        await sweepBlockedSandboxes()
+      else if (job.name === "charge-sandbox-hours")
+        await chargeClosedSandboxHours()
       else if (job.name === "prune-run-events") await pruneRunEvents()
       else if (job.name === "sweep-dead-runs") {
         await sweepDeadRuns(
@@ -461,10 +466,14 @@ async function bootstrap() {
 
   // Upsert (idempotent across replicas/restarts): one shared schedule in
   // Redis, first run fires immediately, then every interval.
-  // Replaced by sweep-sandbox-usage; drop the schedule left in Redis.
+  // Replaced schedules; drop what is left in Redis.
   await maintenanceQueue.removeJobScheduler("sweep-beta-compute")
-  await maintenanceQueue.upsertJobScheduler("sweep-sandbox-usage", {
-    every: SANDBOX_USAGE_SWEEP_EVERY_MS,
+  await maintenanceQueue.removeJobScheduler("sweep-sandbox-usage")
+  await maintenanceQueue.upsertJobScheduler("sweep-blocked-sandboxes", {
+    every: SANDBOX_STOP_SWEEP_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("charge-sandbox-hours", {
+    every: SANDBOX_CHARGE_EVERY_MS,
   })
   await maintenanceQueue.upsertJobScheduler("sweep-beta-billing", {
     every: 60_000,

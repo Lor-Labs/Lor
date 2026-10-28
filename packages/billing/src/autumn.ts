@@ -4,10 +4,12 @@ import { createLogger } from "@repo/logger"
 import { checkBetaCredits } from "./beta-credits"
 import { getAutumn } from "./client"
 import {
+  AI_USAGE_FEATURE_ID,
   CREDITS_FEATURE_ID,
   CREDITS_PER_SEAT,
   PRO_PLAN_ID,
   PROMO_CREDITS,
+  SANDBOX_USAGE_FEATURE_ID,
   TOPUP_PLAN_ID,
   TOPUP_SIZES,
   type TopupSize,
@@ -57,7 +59,7 @@ export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
   try {
     const res = await autumn.check({
       customerId: workspaceId,
-      featureId: CREDITS_FEATURE_ID,
+      featureId: AI_USAGE_FEATURE_ID,
     })
     return { allowed: res.allowed, failOpen: false }
   } catch (err) {
@@ -66,7 +68,7 @@ export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
         await ensureCustomer(workspaceId)
         const res = await autumn.check({
           customerId: workspaceId,
-          featureId: CREDITS_FEATURE_ID,
+          featureId: AI_USAGE_FEATURE_ID,
         })
         return { allowed: res.allowed, failOpen: false }
       } catch (retryErr) {
@@ -85,11 +87,37 @@ export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
 // "overflow" lets a request that straddles zero deduct fully (balance can go
 // negative), so the next check refuses instead of the overage being free.
 // `cap` debits at most the balance: beta teams never owe Lor.
-export async function trackCredits(
+export function trackCredits(
   workspaceId: string,
   credits: number,
   debitId: string,
   overage: "overflow" | "cap" = "overflow"
+): Promise<DebitStatus> {
+  return trackUsage(workspaceId, AI_USAGE_FEATURE_ID, credits, debitId, overage)
+}
+
+// Sandbox running time; the credit system prices GB-hours into pool credits.
+export function trackSandboxUsage(
+  workspaceId: string,
+  gbHours: number,
+  debitId: string,
+  overage: "overflow" | "cap" = "overflow"
+): Promise<DebitStatus> {
+  return trackUsage(
+    workspaceId,
+    SANDBOX_USAGE_FEATURE_ID,
+    gbHours,
+    debitId,
+    overage
+  )
+}
+
+async function trackUsage(
+  workspaceId: string,
+  featureId: string,
+  value: number,
+  debitId: string,
+  overage: "overflow" | "cap"
 ): Promise<DebitStatus> {
   const autumn = getAutumn()
   if (!autumn) return "free"
@@ -97,8 +125,8 @@ export async function trackCredits(
     await autumn.track(
       {
         customerId: workspaceId,
-        featureId: CREDITS_FEATURE_ID,
-        value: credits,
+        featureId,
+        value,
         overageBehavior: overage,
       },
       { headers: { "Idempotency-Key": debitId } }
@@ -109,7 +137,7 @@ export async function trackCredits(
     // was already accepted, so recovery can safely finalize our pending row.
     if ((err as { statusCode?: number }).statusCode === 409) return "debited"
     logger.error(
-      { err, workspaceId, credits, debitId },
+      { err, workspaceId, featureId, value, debitId },
       "Autumn track failed; failing open"
     )
     return "fail_open"

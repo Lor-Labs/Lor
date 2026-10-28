@@ -12,6 +12,7 @@ import { getWorkspaceBetaTrial, hostedBetaConfig } from "./beta"
 import { MICRO_USD } from "./beta-policy"
 import { getAutumn } from "./client"
 import {
+  AI_USAGE_FEATURE_ID,
   CREDIT_USD,
   CREDITS_FEATURE_ID,
   PRO_PLAN_ID,
@@ -230,7 +231,7 @@ export async function settleBetaUsage(id: string) {
       const tracked = await autumn.track(
         {
           customerId: row.workspaceId,
-          featureId: CREDITS_FEATURE_ID,
+          featureId: AI_USAGE_FEATURE_ID,
           value: debitMicroUsd / MICRO_USD_PER_CREDIT,
           overageBehavior: "cap",
           async: false,
@@ -284,7 +285,8 @@ export async function drainBetaCredits(workspaceId: string) {
     await autumn.track(
       {
         customerId: workspaceId,
-        featureId: CREDITS_FEATURE_ID,
+        // AI usage costs 1 credit per unit, so this empties the pool.
+        featureId: AI_USAGE_FEATURE_ID,
         value: remaining,
         overageBehavior: "cap",
         async: false,
