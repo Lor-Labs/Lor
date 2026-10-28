@@ -22,6 +22,8 @@ export type CodeTarget = { repo: string; branch: string }
 
 const MODE_KEY = "lor:new-session-mode"
 const repoKey = (workspaceSlug: string) => `lor:code-repo:${workspaceSlug}`
+const branchKey = (workspaceSlug: string, repo: string) =>
+  `lor:code-branch:${workspaceSlug}:${repo}`
 const SEARCH_DEBOUNCE_MS = 200
 const REPOS_STALE_MS = 5 * 60 * 1000
 const BRANCHES_STALE_MS = 30 * 1000
@@ -152,7 +154,19 @@ export function useCodeTarget({
     enabled: enabled && Boolean(repo),
   })
   const defaultBranch = defaults.data?.defaultBranch ?? null
-  const branch = (picked?.repo === repo ? picked.branch : null) ?? defaultBranch
+  // The person's last branch for this repo, checked on GitHub first: a
+  // deleted or merged one falls back to the default.
+  const stored = repo ? readStored(branchKey(workspaceSlug, repo)) : null
+  const storedCheck = useQuery({
+    ...branchesQueryOptions(workspaceSlug, channelId, repo, stored ?? ""),
+    enabled: enabled && Boolean(repo && stored),
+  })
+  const remembered =
+    stored && storedCheck.data?.branches.includes(stored) ? stored : null
+  const checking = Boolean(stored) && storedCheck.isPending
+  const branch =
+    (picked?.repo === repo ? picked.branch : null) ??
+    (checking ? null : (remembered ?? defaultBranch))
   const status = repos.isPending
     ? "loading"
     : repos.isError
@@ -175,7 +189,9 @@ export function useCodeTarget({
       writeStored(repoKey(workspaceSlug), next)
     },
     pickBranch: (next: string) => {
-      if (repo) setPicked({ repo, branch: next })
+      if (!repo) return
+      setPicked({ repo, branch: next })
+      writeStored(branchKey(workspaceSlug, repo), next)
     },
   }
 }
@@ -241,16 +257,20 @@ function BranchPicker({
     const timer = setTimeout(() => setDebouncedQuery(query), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [query])
-  const branches = useQuery({
-    ...branchesQueryOptions(
-      workspaceSlug,
-      channelId,
-      code.repo,
-      debouncedQuery
-    ),
+  // Typing filters the branches already loaded at once; GitHub's name search
+  // runs behind it and adds the ones past the first page.
+  const listed = useQuery({
+    ...branchesQueryOptions(workspaceSlug, channelId, code.repo, ""),
     enabled: open && Boolean(code.repo),
+  })
+  const search = debouncedQuery.trim()
+  const searched = useQuery({
+    ...branchesQueryOptions(workspaceSlug, channelId, code.repo, search),
+    enabled: open && Boolean(code.repo) && search !== "",
     placeholderData: (previous) => previous,
   })
+  const searching =
+    searched.isFetching || query.trim() !== debouncedQuery.trim()
 
   if (!code.branch) {
     return <Spinner className="size-3.5 text-muted-foreground" />
@@ -259,21 +279,27 @@ function BranchPicker({
     <SearchPicker
       icon={GitBranchIcon}
       value={code.branch}
-      items={branches.data?.branches ?? [code.branch]}
+      items={[
+        ...new Set([
+          ...(listed.data?.branches ?? []),
+          ...(searched.data?.branches ?? []),
+          code.branch,
+        ]),
+      ]}
       placeholder="Find a branch…"
-      emptyText="No branches found"
+      emptyText={searching ? "Searching GitHub…" : "No branches found"}
       onPick={code.pickBranch}
       onOpenChange={setOpen}
       onQueryChange={setQuery}
-      loading={branches.isFetching}
+      loading={searching && query.trim() !== ""}
       badgeFor={(branch) => (branch === code.defaultBranch ? "default" : null)}
     />
   )
 }
 
 // A Linear-style picker: search input in the popup, rows styled like
-// MenuItem (see thread-subscribers.tsx). With onQueryChange the caller
-// filters on the server, so local filtering is off.
+// MenuItem (see thread-subscribers.tsx). The list filters as you type;
+// onQueryChange lets the caller also search the server and add its results.
 function SearchPicker({
   icon,
   value,
@@ -318,7 +344,6 @@ function SearchPicker({
         onOpenChange?.(open)
         if (!open) changeQuery("")
       }}
-      {...(onQueryChange ? { filter: null } : {})}
     >
       <ComboboxPrimitive.Trigger
         title={value}
