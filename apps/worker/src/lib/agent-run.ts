@@ -214,6 +214,15 @@ function usageIncrements(
   }
 }
 
+// Only calls whose Gateway response reported a cost, so the two sums compare
+// the same calls.
+function gatewayCostIncrements(chargedUsd: number, actualUsd: number) {
+  return {
+    gatewayChargedUsd: sql`${schema.agentRun.gatewayChargedUsd} + ${chargedUsd.toFixed(6)}`,
+    gatewayActualUsd: sql`${schema.agentRun.gatewayActualUsd} + ${actualUsd.toFixed(6)}`,
+  }
+}
+
 const COUNTER_SELECTION = {
   steps: schema.agentRun.steps,
   inputTokens: schema.agentRun.inputTokens,
@@ -552,7 +561,12 @@ export async function claimAgentRun(
     await settleBetaStep(usage, usd)
     const row = await db
       .update(schema.agentRun)
-      .set(usageIncrements(kind === "step" ? 1 : 0, usage, credits))
+      .set({
+        ...usageIncrements(kind === "step" ? 1 : 0, usage, credits),
+        ...(usage.gatewayCostUsd !== undefined && funding.source === "lor"
+          ? gatewayCostIncrements(usd, usage.gatewayCostUsd)
+          : {}),
+      })
       .where(
         and(
           eq(schema.agentRun.id, runId),

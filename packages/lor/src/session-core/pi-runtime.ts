@@ -298,10 +298,27 @@ export type PiCompaction = {
   onEnd?: (done: boolean) => void
   // Each summary's usage and the model that wrote it. A throw is ignored:
   // a lost lease aborts the turn on its own.
-  onUsage: (usage: PiTurnUsage, model: string) => void | Promise<void>
+  onUsage: (
+    usage: PiTurnUsage,
+    model: string,
+    gatewayCostUsd?: number
+  ) => void | Promise<void>
   // Appended to the context after a compaction in this turn, so state the
   // summary may have dropped is current again (the plan).
   afterContext?: () => string | null
+}
+
+// The AI Gateway reports what it billed in the stream's message_delta event
+// (provider_metadata.gateway.cost, USD as a string). Native providers don't.
+function gatewayCostOf(data: unknown): number | undefined {
+  const cost = (
+    data as { provider_metadata?: { gateway?: { cost?: unknown } } } | null
+  )?.provider_metadata?.gateway?.cost
+  const usd =
+    typeof cost === "string" || typeof cost === "number"
+      ? Number(cost)
+      : Number.NaN
+  return Number.isFinite(usd) ? usd : undefined
 }
 
 function turnUsage(usage: Usage): PiTurnUsage {
@@ -325,7 +342,7 @@ function lorPiExtension(input: {
   expected: HarnessHead | null
   convertsFormat: boolean
   probe: TurnProbe
-  onAssistantModel?: (model: string) => void
+  onAssistantModel?: (model: string, gatewayCostUsd?: number) => void
   toolBlock?: () => string | null
   compaction?: PiCompaction
   onBoundary?: (final: boolean) => Promise<string | null>
@@ -371,6 +388,7 @@ function lorPiExtension(input: {
       lor?.onStart?.()
       if (!lor || !ctx.model) return
       let answeredBy = ctx.model.id
+      let summaryCost: number | undefined
       const compaction = await compact(
         event.preparation,
         ctx.model,
@@ -382,6 +400,10 @@ function lorPiExtension(input: {
         (model, context, options) => {
           const stream = ctx.modelRegistry.streamSimple(model, context, {
             ...options,
+            onProviderStreamEvent: async (event, eventModel) => {
+              summaryCost = gatewayCostOf(event) ?? summaryCost
+              await options?.onProviderStreamEvent?.(event, eventModel)
+            },
             onPayload: async (payload, payloadModel) =>
               input.gateway
                 ? withGatewayOptions(
@@ -407,7 +429,7 @@ function lorPiExtension(input: {
       compacted = true
       if (compaction.usage) {
         await Promise.resolve(
-          lor.onUsage(turnUsage(compaction.usage), answeredBy)
+          lor.onUsage(turnUsage(compaction.usage), answeredBy, summaryCost)
         ).catch(() => {})
       }
       return { compaction }
@@ -429,10 +451,19 @@ function lorPiExtension(input: {
       input.probe.contextUsage =
         readContextUsage(ctx) ?? input.probe.contextUsage
     }
+    // Arrives before the message's message_end.
+    let messageCost: number | undefined
+    pi.on("provider_stream_event", (event) => {
+      messageCost = gatewayCostOf(event.data) ?? messageCost
+    })
     pi.on("message_end", (event, ctx) => {
       const message = event.message
       if (message.role === "assistant") {
-        input.onAssistantModel?.(message.responseModel ?? message.model)
+        input.onAssistantModel?.(
+          message.responseModel ?? message.model,
+          messageCost
+        )
+        messageCost = undefined
         captureUsage(ctx)
       }
     })
@@ -580,7 +611,8 @@ export type PiTurnInput = {
   // The model that answered each assistant message, which differs from the
   // requested one after a Gateway fallback. Reported before the message's
   // finish-step part, including for a paused message replayed on resume.
-  onAssistantModel?: (model: string) => void
+  // `gatewayCostUsd`: what the AI Gateway billed for it, when reported.
+  onAssistantModel?: (model: string, gatewayCostUsd?: number) => void
   // A reason to refuse every tool call so the model answers instead: the
   // turn is near its spend or time limit.
   toolBlock?: () => string | null

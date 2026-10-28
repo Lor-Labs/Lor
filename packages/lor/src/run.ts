@@ -115,6 +115,8 @@ export type RunStepRecord = {
   inputTokens: number
   cachedInputTokens: number
   outputTokens: number
+  // What the AI Gateway billed for this call, from its response.
+  gatewayCostUsd?: number
 }
 
 // One finished or paused Pi turn, ready to save: the new Pi log (null when

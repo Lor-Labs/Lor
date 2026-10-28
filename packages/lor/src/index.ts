@@ -3402,6 +3402,7 @@ export async function respond(
           : CODEX_DEFAULT_MODEL
       const piModel = native?.model ?? ctx.turn?.model ?? LOR_MODEL
       let stepModel = native ? `${native.provider}/${native.model}` : piModel
+      let stepGatewayCost: number | undefined
       // Set by the first finish-step of an assistant message, cleared when
       // the next message ends.
       let stepBilled = false
@@ -3478,6 +3479,7 @@ export async function respond(
           inputTokens: usage.inputTokens ?? 0,
           cachedInputTokens: usage.cachedInputTokens ?? 0,
           outputTokens: usage.outputTokens ?? 0,
+          gatewayCostUsd: stepGatewayCost,
         }
         if (step.inputTokens === 0 && step.outputTokens === 0) return
         await record(step, "step", usage.reasoningTokens ?? 0)
@@ -3524,13 +3526,14 @@ export async function respond(
         focus: COMPACTION_FOCUS,
         onStart: () => compactionMarker(),
         onEnd: (done) => compactionMarker(done ? "ok" : "error"),
-        onUsage: async (usage, model) => {
+        onUsage: async (usage, model, gatewayCostUsd) => {
           await record(
             {
               model: billedModel(model),
               inputTokens: usage.inputTokens,
               cachedInputTokens: usage.cachedInputTokens,
               outputTokens: usage.outputTokens,
+              gatewayCostUsd,
             },
             "compaction",
             usage.reasoningTokens
@@ -3775,8 +3778,9 @@ export async function respond(
               gatewayOptions: mainGatewayOptions,
               beforeRequest: run.assertCanInfer,
               abortSignal,
-              onAssistantModel: (model) => {
+              onAssistantModel: (model, gatewayCostUsd) => {
                 stepModel = billedModel(model)
+                stepGatewayCost = gatewayCostUsd
                 stepBilled = false
               },
               toolBlock,
