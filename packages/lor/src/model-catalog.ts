@@ -12,6 +12,8 @@ export type AgentModelOption = {
   // What a message sends as its model.
   id: string
   name: string
+  // The harness's own line about the model (Claude Code has one).
+  description: string | null
   // The vendor, to group a long list ("anthropic", "openai"); null in a
   // harness with one vendor.
   provider: string | null
@@ -49,6 +51,7 @@ function lorCatalog(): AgentModelCatalog {
       return {
         id: model.id,
         name: model.name,
+        description: null,
         provider: model.id.split("/")[0] ?? null,
         efforts: levels.length > 1 ? levels : [],
         fast: false,
@@ -85,6 +88,7 @@ function namedOnly(
   return list.map(([id, name]) => ({
     id,
     name,
+    description: null,
     provider: null,
     efforts: [],
     fast: false,
@@ -99,6 +103,7 @@ async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
     ? reported.map((model) => ({
         id: model.value,
         name: model.displayName,
+        description: model.description ?? null,
         provider: null,
         efforts: model.supportedEffortLevels,
         fast: model.supportsFastMode,

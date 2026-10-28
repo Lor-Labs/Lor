@@ -286,9 +286,6 @@ function SessionConversation({
       claudeCode={
         harnessEnabled && session.harness === "claude_code" && !withoutClaude
       }
-      codex={
-        harnessEnabled && session.harness === "codex" && !session.archivedAt
-      }
       composerNote={
         !harnessEnabled ? (
           <p className="text-sm text-muted-foreground">

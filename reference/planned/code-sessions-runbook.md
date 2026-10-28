@@ -831,7 +831,8 @@ may lag web), a Lor-offered "Continue in Code" card.
     read from each harness, not a fixed enum). Decided with Jacob the same
     day:
     - The composer's model picker beside the mode
-      (`claude-model-picker.tsx`): Opus (default), Sonnet, Haiku and Fable,
+      (`claude-model-picker.tsx`, replaced 2026-10-27 by `model-picker.tsx`
+      for every harness): Opus (default), Sonnet, Haiku and Fable,
       as Claude Code's own aliases, so they follow its newest models.
       Remembered per person, kept on the message like the Codex model; a
       continued turn keeps its model.
@@ -922,7 +923,8 @@ may lag web), a Lor-offered "Continue in Code" card.
     - The New session picker offers Codex ("OpenAI's coding agent, on Lor
       credits"), for code sessions only, like Claude Code; no linked
       account. The session header shows the harness's name.
-    - The composer's model picker (`codex-model-picker.tsx`): GPT-6.1 Sol
+    - The composer's model picker (`codex-model-picker.tsx`, replaced
+      2026-10-27 by `model-picker.tsx`, as in 7g): GPT-6.1 Sol
       (default), GPT-6 Astra, GPT-6 Luna, remembered per person. Each
       message carries its pick (`codexModel` in the send payload, kept on
       the message like the Claude Code mode).

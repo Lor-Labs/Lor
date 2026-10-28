@@ -20,27 +20,27 @@ import { useDropzone } from "react-dropzone"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
-import { AgentPicker } from "@/components/session/agent-picker"
 import {
   ClaudeCodeModePicker,
   useClaudeCodeMode,
 } from "@/components/session/claude-code-mode-picker"
-import { useClaudeModel } from "@/components/session/claude-model-picker"
 import {
   CodeTargetPicker,
   SessionModeSwitch,
   useCodeTarget,
   useSessionMode,
 } from "@/components/session/code-target-picker"
-import { useCodexModel } from "@/components/session/codex-model-picker"
 import {
   HARNESS_LABELS,
+  HARNESSES,
   type SessionHarness,
   useSessionHarness,
 } from "@/components/session/harness-picker"
+import { EffortPicker, ModelPicker } from "@/components/session/model-picker"
 import { SessionStartedNote } from "@/components/session/session-started-note"
 import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useSocket } from "@/context/socket-context"
+import { useModelChoice } from "@/hooks/use-agent-models"
 import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
@@ -198,9 +198,8 @@ function NewSessionComposer({
   const [harness, setHarness] = useSessionHarness(startHarness)
   const claudeCode = mode === "code" && harness === "claude_code"
   const claudeMode = useClaudeCodeMode()
-  const claudeModel = useClaudeModel()
-  const codex = mode === "code" && harness === "codex"
-  const codexModel = useCodexModel()
+  // A chat session always runs on Lor's own agent.
+  const modelChoice = useModelChoice(mode === "code" ? harness : "pi")
   const { data: accounts } = usePersonalAccounts()
   // Unknown while the accounts load.
   const needsClaude = claudeCode && accounts?.claude.account === null
@@ -355,16 +354,14 @@ function NewSessionComposer({
           }
           sendBlocked={(mode === "code" && !code.target) || needsClaude}
           tools={
-            mode === "code" ? (
-              <AgentPicker
-                harness={harness}
+            <>
+              <ModelPicker
+                choice={modelChoice}
+                harnesses={mode === "code" ? HARNESSES : undefined}
                 onHarness={setHarness}
-                claudeModel={claudeModel.model}
-                onClaudeModel={claudeModel.setModel}
-                codexModel={codexModel.model}
-                onCodexModel={codexModel.setModel}
               />
-            ) : undefined
+              <EffortPicker choice={modelChoice} />
+            </>
           }
           onShiftTab={claudeCode ? claudeMode.cycle : undefined}
           onSend={(content, options) =>
@@ -376,10 +373,8 @@ function NewSessionComposer({
               ...(mode === "code" && code.target
                 ? { code: code.target, harness }
                 : {}),
-              ...(claudeCode
-                ? { claudeCodeMode: claudeMode.mode, model: claudeModel.model }
-                : {}),
-              ...(codex ? { model: codexModel.model } : {}),
+              ...modelChoice.turn,
+              ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
               ...(continueFromSessionId
                 ? {
                     continueFrom: {

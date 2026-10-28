@@ -12,6 +12,7 @@ export const agentModelsResponseSchema = z.object({
       // What a message sends as its model.
       id: z.string(),
       name: z.string(),
+      description: z.string().nullable(),
       provider: z.string().nullable(),
       // Effort levels the model takes, lowest first; empty: none to pick.
       efforts: z.array(z.string()),

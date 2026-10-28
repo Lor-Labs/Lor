@@ -4,7 +4,7 @@ import { useState } from "react"
 // Which agent runs a code session, fixed at its start
 // (reference/planned/code-sessions-runbook.md chunks 7 and 8): Lor's own,
 // Claude Code on the starter's own Claude subscription, or Codex on Lor
-// credits. Picked with its model in the New session view's AgentPicker.
+// credits. Picked with its model in the New session view's ModelPicker.
 
 export type SessionHarness = "pi" | "claude_code" | "codex"
 
