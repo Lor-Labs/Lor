@@ -1,12 +1,10 @@
 import { seedAppUser } from "./app"
 import { seedLorUser } from "./lor"
-import { seedModelRates } from "./model-rates"
 
-// Seed runner. Idempotent — safe to re-run.
+// Seed runner. Idempotent — safe to re-run. Model prices come from the AI
+// Gateway (packages/billing/src/rates.ts), not seeds.
 await seedLorUser()
 console.log("✓ seeded Lor bot user")
 await seedAppUser()
 console.log("✓ seeded App bot user")
-await seedModelRates()
-console.log("✓ seeded model rates")
 process.exit(0)

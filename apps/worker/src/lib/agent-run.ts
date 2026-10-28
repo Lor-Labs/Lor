@@ -1,9 +1,4 @@
-import {
-  CREDIT_USD,
-  type CreditRate,
-  computeCostUsd,
-  getRate,
-} from "@repo/billing"
+import { CREDIT_USD, computeCostUsd, getRate } from "@repo/billing"
 import {
   and,
   asc,
@@ -430,33 +425,33 @@ export async function claimAgentRun(
 
   // Spend toward the run's limit, summed exactly and rounded up once per
   // attempt: per-call rounding (at least 1 credit each) would inflate a long
-  // turn several times over. Returns the whole credits to add now. A failed
-  // rate lookup is not cached, so the next call tries again.
-  const rateCache = new Map<string, CreditRate>()
+  // turn several times over. Returns the whole credits to add now. A single
+  // model call (`oneRequest`) prices at its own long-context tier; a total
+  // over many calls at the base tier (getRate).
   let attemptCredits = 0
   let attemptCounted = 0
-  const creditsFor = async (u: {
-    model?: string
-    inputTokens?: number
-    cachedInputTokens?: number
-    outputTokens?: number
-  }): Promise<number> => {
+  const creditsFor = async (
+    u: {
+      model?: string
+      inputTokens?: number
+      cachedInputTokens?: number
+      outputTokens?: number
+    },
+    oneRequest = false
+  ): Promise<number> => {
     if (!u.model) return 0
     if ((u.inputTokens ?? 0) === 0 && (u.outputTokens ?? 0) === 0) return 0
-    let rate = rateCache.get(u.model)
-    if (!rate) {
-      rate = (await getRate(u.model).catch(() => null)) ?? undefined
-      if (rate) rateCache.set(u.model, rate)
+    const tokens = {
+      inputTokens: u.inputTokens,
+      cachedInputTokens: u.cachedInputTokens,
+      outputTokens: u.outputTokens,
     }
-    if (!rate) return 0
-    const usd = computeCostUsd(
-      {
-        inputTokens: u.inputTokens,
-        cachedInputTokens: u.cachedInputTokens,
-        outputTokens: u.outputTokens,
-      },
-      rate
+    const rate = await getRate(
+      u.model,
+      tokens,
+      oneRequest ? { requestInputTokens: u.inputTokens } : {}
     )
+    const usd = computeCostUsd(tokens, rate)
     attemptCredits += (usd * rate.conversionRate) / CREDIT_USD
     const whole = Math.ceil(attemptCredits)
     const added = whole - attemptCounted
@@ -472,7 +467,7 @@ export async function claimAgentRun(
     usage: RunStepRecord,
     kind: "step" | "compaction"
   ): Promise<RunCounters> => {
-    const credits = await creditsFor(usage)
+    const credits = await creditsFor(usage, true)
     const row = await db
       .update(schema.agentRun)
       .set(usageIncrements(kind === "step" ? 1 : 0, usage, credits))

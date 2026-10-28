@@ -931,8 +931,9 @@ may lag web), a Lor-offered "Continue in Code" card.
     - Until 8d a Codex session's message failed with "Codex sessions can't
       run turns yet" instead of running on Pi, whose saved state a Codex
       session could not read (removed in 8d-1).
-  - [x] **8d-1** the Codex turn, built 2026-10-26 (`db:seed` owed for the
-    model rates; not yet run live in Lor):
+  - [x] **8d-1** the Codex turn, built 2026-10-26 (not yet run live in Lor;
+    its model rates came from seeds until 2026-10-27, now from the AI
+    Gateway's prices, `packages/billing/src/rates.ts`):
     - **Spike** (throwaway sandboxes, deleted): turns append to one rollout
       file, a paused turn's lines included. A new sandbox given only the
       saved rollout (none of Codex's state databases) resumed the thread by

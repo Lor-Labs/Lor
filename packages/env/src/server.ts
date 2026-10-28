@@ -76,9 +76,8 @@ const serverSchema = z.object({
   AGENT_RUN_MAX_WALL_MS: z.coerce.number().int().positive().default(7_200_000),
   AGENT_RUN_MAX_PROVIDER_RETRIES: z.coerce.number().int().min(0).default(3),
   AGENT_RUN_MAX_CREDITS: z.coerce.number().int().positive().default(2_000),
-  // Lor's margin: credits charged per dollar the AI Gateway charges, over the
-  // 1-cent credit. 1 = at cost.
-  LOR_CREDIT_MARKUP: z.coerce.number().positive().default(1),
+  // USD cost → credit conversion factor applied at debit time.
+  CREDIT_CONVERSION_RATE: z.coerce.number().positive().default(1),
   // Bounds one file share_file copies from a session sandbox into artifacts.
   LOR_WORKBENCH_MAX_FILE_BYTES: z.coerce
     .number()

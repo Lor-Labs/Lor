@@ -55,12 +55,12 @@ export async function recordUsage(
   refs: UsageRefs = {}
 ): Promise<void> {
   try {
-    const rate = u.model ? await getRate(u.model) : null
     const tokens = {
       inputTokens: u.inputTokens,
       cachedInputTokens: u.cachedInputTokens,
       outputTokens: u.outputTokens,
     }
+    const rate = u.model ? await getRate(u.model, tokens) : null
     const costUsd = u.costUsd ?? (rate ? computeCostUsd(tokens, rate) : null)
     const billable = isBillableTool(u.tool)
     const credits = billable && rate ? computeCredits(tokens, rate) : 0
