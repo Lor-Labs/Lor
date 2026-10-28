@@ -1,3 +1,5 @@
+import { Key01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import {
@@ -11,6 +13,20 @@ import { toast } from "@repo/ui/components/toast"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { apiClient } from "@/lib/api-client"
+import {
+  PILL_BUTTON,
+  SettingsDisclosureRow,
+  SettingsGroup,
+  SettingsSection,
+} from "./settings-group"
+
+const PROVIDERS = [
+  { value: "anthropic", label: "Anthropic" },
+  { value: "openai", label: "OpenAI" },
+] as const
+
+const providerLabel = (value: string) =>
+  PROVIDERS.find((p) => p.value === value)?.label ?? value
 
 export function InferenceSettings({
   workspaceSlug,
@@ -42,109 +58,125 @@ export function InferenceSettings({
             json: { provider, model, apiKey },
           })
       if (!res.ok)
-        throw new Error(
-          "Could not update AI settings. Check the selected model and API key."
-        )
+        throw new Error("Could not save the key. Check the model and key.")
       return res.json()
     },
     onSuccess: (result) => {
       setApiKey("")
       client.setQueryData(queryKey, result)
       void client.invalidateQueries({ queryKey: ["agent-models"] })
-      toast.success(
-        result.key
-          ? "API key saved. Your next response will use it."
-          : "API key removed. New responses will use Lor credits."
-      )
+      toast.success(result.key ? "API key saved" : "API key removed")
     },
     onError: (error) => toast.error(error.message),
   })
+
+  const key = data?.key
+  const models = (data?.models ?? [])
+    .filter((item) => item.provider === provider)
+    .map((item) => ({ value: item.id, label: item.name }))
+  const title = key
+    ? `${providerLabel(key.provider)} · ${key.model}`
+    : "Use your own key"
+  const summary = isError
+    ? "Couldn't load"
+    : key
+      ? `Key ending ${key.lastFour}`
+      : "Anthropic or OpenAI"
+
   return (
-    <div className="space-y-3 rounded-lg border p-5">
-      <h4 className="font-medium">AI provider</h4>
-      {isError ? (
-        <p className="text-sm text-muted-foreground">
-          AI settings could not be loaded. Reopen billing to retry.
-        </p>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {data?.key
-            ? `Using ${data.key.provider} · ${data.key.model} · key ending ${data.key.lastFour}`
-            : "Using Lor credits"}
-        </p>
-      )}
-      <p className="text-sm text-muted-foreground">
-        Bring an Anthropic or OpenAI API key for your team's agent responses.
-        Your provider bills you directly; Lor credits are not used. Search and
-        other included services stay included. Compute limits and the trial end
-        date still apply. Choose a default here; each message can use another
-        model supported by your provider.
-      </p>
-      {!expired && data && (
-        <>
-          <Select
-            value={provider}
-            onValueChange={(value) => {
-              if (value === "anthropic" || value === "openai")
-                setProvider(value)
-              setModel("")
-            }}
-          >
-            <SelectTrigger aria-label="AI provider">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="anthropic">Anthropic</SelectItem>
-              <SelectItem value="openai">OpenAI</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select
-            value={model}
-            onValueChange={(value) => setModel(value ?? "")}
-          >
-            <SelectTrigger aria-label="Default AI model">
-              <SelectValue placeholder="Choose a default model" />
-            </SelectTrigger>
-            <SelectContent>
-              {data.models
-                .filter((item) => item.provider === provider)
-                .map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.name}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-          <Input
-            aria-label="Provider API key"
-            type="password"
-            autoComplete="off"
-            placeholder="Paste a provider API key"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
-          <Button
-            disabled={!model || !apiKey.trim() || save.isPending}
-            onClick={() => save.mutate(false)}
-          >
-            Save API key
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            Keys are encrypted and used on the server. Saving does not validate
-            provider access; an invalid key pauses the response without falling
-            back to Lor credits. Subscription tokens are not supported.
-          </p>
-        </>
-      )}
-      {data?.key && (
-        <Button
-          variant="outline"
-          disabled={save.isPending}
-          onClick={() => save.mutate(true)}
+    <SettingsSection
+      title="Your AI key"
+      caption="Your provider bills AI directly. Sandbox time still uses credits."
+    >
+      <SettingsGroup>
+        <SettingsDisclosureRow
+          icon={
+            <HugeiconsIcon
+              icon={Key01Icon}
+              className="size-4"
+              strokeWidth={2}
+            />
+          }
+          title={title}
+          summary={summary}
+          disabled={!data || (expired && !key)}
         >
-          Remove key
-        </Button>
-      )}
-    </div>
+          <div className="space-y-3 py-3">
+            {/* After the beta ends a key can still be removed, not changed. */}
+            {!expired && (
+              <div className="flex gap-2">
+                <Select
+                  items={PROVIDERS}
+                  value={provider}
+                  onValueChange={(value) => {
+                    if (value === "anthropic" || value === "openai")
+                      setProvider(value)
+                    setModel("")
+                  }}
+                >
+                  <SelectTrigger aria-label="Provider" className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PROVIDERS.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  items={models}
+                  value={model}
+                  onValueChange={(value) => setModel(value ?? "")}
+                >
+                  <SelectTrigger aria-label="Default model" className="flex-1">
+                    <SelectValue placeholder="Default model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {!expired && (
+              <Input
+                aria-label="API key"
+                type="password"
+                autoComplete="off"
+                placeholder="API key"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+              />
+            )}
+            <div className="flex gap-2">
+              {!expired && (
+                <Button
+                  className={PILL_BUTTON}
+                  disabled={!model || !apiKey.trim() || save.isPending}
+                  onClick={() => save.mutate(false)}
+                >
+                  {key ? "Replace key" : "Save key"}
+                </Button>
+              )}
+              {key && (
+                <Button
+                  variant="outline"
+                  className={PILL_BUTTON}
+                  disabled={save.isPending}
+                  onClick={() => save.mutate(true)}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+          </div>
+        </SettingsDisclosureRow>
+      </SettingsGroup>
+    </SettingsSection>
   )
 }

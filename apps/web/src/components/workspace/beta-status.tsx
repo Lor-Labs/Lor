@@ -13,13 +13,13 @@ export function BetaStatus({ workspaceSlug }: { workspaceSlug: string }) {
       return response.json()
     },
   })
-  if (!data?.enabled) return null
+  // Only when work is blocked; the beta's end date lives in Billing.
+  if (!data?.enabled || (data.state === "active" && !data.creditsEmpty))
+    return null
   const text =
     data.state !== "active"
       ? "This workspace's beta has ended. Saved work remains readable; subscribe in billing to keep working."
-      : data.creditsEmpty
-        ? "Your team's included credits are used up. Subscribe in billing to keep working."
-        : `Private beta · Free until ${new Date(data.expiresAt ?? "").toLocaleDateString()}`
+      : "Your team's included credits are used up. Subscribe in billing to keep working."
   return (
     <output className="shrink-0 border-b bg-muted/50 px-4 py-2 text-center text-xs text-muted-foreground">
       {text}
