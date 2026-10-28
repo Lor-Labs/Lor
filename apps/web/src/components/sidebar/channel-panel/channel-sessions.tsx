@@ -37,6 +37,7 @@ import {
   strongestSessionState,
   useActivityWorkspaceId,
 } from "@/components/sidebar/channel-panel/channel-activity"
+import { LineCounts } from "@/components/sidebar/right-panel/session-changes-panel"
 import { TypewriterText } from "@/components/ui/typewriter-text"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import {
@@ -352,7 +353,13 @@ function SessionRow({
                   animate={!session.titleEdited}
                 />
               </span>
-              <span className="flex group-hover/session:hidden">
+              <span className="flex items-center gap-2 group-hover/session:hidden">
+                {session.uncommitted && (
+                  <LineCounts
+                    {...session.uncommitted}
+                    className="gap-1 font-normal text-[11px]"
+                  />
+                )}
                 <SessionStateIndicator state={state} />
               </span>
             </button>

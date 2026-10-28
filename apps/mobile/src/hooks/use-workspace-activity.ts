@@ -1,7 +1,9 @@
-import type {
-  ChannelActivity,
-  RealtimeAgentSession,
-  SidebarSession,
+import {
+  type ChannelActivity,
+  type RealtimeAgentSession,
+  type SessionUncommittedUpdated,
+  type SidebarSession,
+  uncommittedLinesOf,
 } from "@repo/realtime-types"
 import {
   type QueryClient,
@@ -83,11 +85,18 @@ export function useWorkspaceActivity(workspaceId?: string) {
     const onActivityUpdated = (payload: { workspaceId: string }) => {
       if (payload.workspaceId === workspaceId) refresh()
     }
+    // A code session's +/− moves with every edit: patched, not refetched.
+    const onUncommitted = (payload: SessionUncommittedUpdated) => {
+      if (payload.workspaceId === workspaceId) {
+        patchUncommittedLines(queryClient, payload)
+      }
+    }
     const appState = AppState.addEventListener("change", (state) => {
       if (state === "active") refresh()
     })
     socket.on("connect", refresh)
     socket.on("workspace:activity:updated", onActivityUpdated)
+    socket.on("session:uncommitted:updated", onUncommitted)
     // Reading a session (on any of the user's devices) clears its dot.
     socket.on("thread-read:updated", refresh)
     return () => {
@@ -95,11 +104,38 @@ export function useWorkspaceActivity(workspaceId?: string) {
       appState.remove()
       socket.off("connect", refresh)
       socket.off("workspace:activity:updated", onActivityUpdated)
+      socket.off("session:uncommitted:updated", onUncommitted)
       socket.off("thread-read:updated", refresh)
     }
   }, [socket, workspaceId, queryClient])
 
   return data
+}
+
+// Only a row the snapshot lists; never adds one. Mirrors web.
+function patchUncommittedLines(
+  queryClient: QueryClient,
+  {
+    workspaceId,
+    channelId,
+    sessionId,
+    ...uncommitted
+  }: SessionUncommittedUpdated
+) {
+  queryClient.setQueryData<ChannelActivity[]>(
+    workspaceActivityKey(workspaceId),
+    (channels) =>
+      channels?.map((channel) =>
+        channel.channelId === channelId
+          ? {
+              ...channel,
+              sessions: channel.sessions.map((session) =>
+                session.id === sessionId ? { ...session, uncommitted } : session
+              ),
+            }
+          : channel
+      )
+  )
 }
 
 // A row for a session the snapshot doesn't list yet (a session start).
@@ -112,6 +148,7 @@ export function sidebarRowFor(session: RealtimeAgentSession): SidebarSession {
     state: "idle",
     loop: session.loopId !== null,
     code: session.mode === "code",
+    uncommitted: uncommittedLinesOf(session),
     lastActivityAt: session.lastActivityAt,
   }
 }

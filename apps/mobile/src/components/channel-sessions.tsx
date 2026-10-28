@@ -17,6 +17,7 @@ import Animated, {
   FadeOut,
   LinearTransition,
 } from "react-native-reanimated"
+import { LineCounts } from "@/components/code-drawer-parts"
 import { confirmArchiveSession } from "@/components/session-sheet"
 import { TypewriterText } from "@/components/typewriter-text"
 import { triggerHaptic } from "@/components/ui/haptics"
@@ -239,6 +240,10 @@ function SessionRow({
   const emphasized = session.state === "unread" || session.state === "needs_you"
   const stateLabel =
     session.state === "idle" ? "" : `, ${STATE_LABELS[session.state]}`
+  const linesLabel =
+    session.uncommitted?.additions || session.uncommitted?.deletions
+      ? `, ${session.uncommitted.additions} lines added, ${session.uncommitted.deletions} removed`
+      : ""
   const archive = () => {
     if (!workspace) return
     confirmArchiveSession(session.state === "running", () =>
@@ -254,7 +259,7 @@ function SessionRow({
   return (
     <Pressable
       accessibilityActions={[{ label: "Archive", name: "archive" }]}
-      accessibilityLabel={`Open session ${session.title}${stateLabel}`}
+      accessibilityLabel={`Open session ${session.title}${linesLabel}${stateLabel}`}
       accessibilityRole="button"
       className="min-h-9 flex-row items-center gap-two rounded-lor-sm px-two active:bg-surface-secondary"
       delayLongPress={350}
@@ -294,6 +299,7 @@ function SessionRow({
       >
         <TypewriterText animate={!session.titleEdited} text={session.title} />
       </Text>
+      {session.uncommitted ? <LineCounts {...session.uncommitted} /> : null}
       <SessionStateIndicator state={session.state} />
     </Pressable>
   )

@@ -88,7 +88,10 @@ import { turnSandboxMode } from "@/lib/sandbox-mode"
 import { titleSessionAfterFirstReply } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
 import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
-import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
+import {
+  notifyUncommittedLines,
+  notifyWorkspaceActivity,
+} from "@/lib/workspace-activity"
 import { sessionArchived, sessionGateContext } from "@/lib/writeback-gate"
 
 // Matches the worker's createClient (bare RedisClientType mismatches its generics).
@@ -1063,6 +1066,7 @@ export function createLorRespondProcessor(
               {
                 onPlanUpdated: emitPlanUpdated,
                 notifyWorkspaceActivity,
+                onUncommittedLines: notifyUncommittedLines,
                 onMessageReaction: ({ update, notification }) => {
                   emitter
                     .to(channelRoom(update.channelId))

@@ -35,6 +35,7 @@
     "./model-catalog": "./src/model-catalog.ts",
     "./sources": "./src/sources.ts",
     "./touches": "./src/touches.ts",
+    "./uncommitted-lines": "./src/uncommitted-lines.ts",
     "./voice-entities": "./src/voice-entities.ts",
     "./plans": "./src/plans.ts",
     "./mcp-server-oauth": "./src/mcp-server-oauth.ts",

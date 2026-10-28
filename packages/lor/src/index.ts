@@ -237,6 +237,11 @@ import {
   type RunTriggerContext,
   triggerSessionPromptSection,
 } from "./triggered"
+import {
+  trackUncommittedLines,
+  type UncommittedLinesTracker,
+  type UncommittedLinesUpdate,
+} from "./uncommitted-lines"
 import type { OnUsage } from "./usage"
 import { type RunVoiceContext, voicePromptSection, voiceTools } from "./voice"
 import { webTools } from "./web"
@@ -659,6 +664,8 @@ export type RespondCallbacks = {
   // Sidebar invalidation for state changes with no plan to carry them (e.g. a
   // policy-parked approval on a plan-less run).
   notifyWorkspaceActivity?: (workspaceId: string) => void
+  // A code session's uncommitted lines changed during the turn.
+  onUncommittedLines?: (update: UncommittedLinesUpdate) => void
 }
 
 export { embedDocumentsWithUsage } from "./embeddings"
@@ -2508,6 +2515,7 @@ export async function respond(
     onMessageReaction,
     onPlanUpdated,
     notifyWorkspaceActivity,
+    onUncommittedLines,
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
@@ -3136,6 +3144,7 @@ export async function respond(
       keepBridges: bridgePaused,
       code: Boolean(ctx.code),
     })
+    let uncommitted: UncommittedLinesTracker | null = null
     try {
       // The bridge's preview link is made while the work folder is prepared;
       // the Claude Code or Codex turn awaits it.
@@ -3157,6 +3166,17 @@ export async function respond(
             ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
           })
         : null
+      if (ctx.code && workFolder?.status === "ready") {
+        uncommitted = trackUncommittedLines({
+          sandbox: codeSandboxIn(
+            sandbox.session,
+            piWorkDir(SESSION_WORK_DIR, conversationId)
+          ),
+          sessionId: conversationId,
+          baseBranch: ctx.code.baseBranch,
+          ...(onUncommittedLines ? { onUpdate: onUncommittedLines } : {}),
+        })
+      }
       const notes = run.resume ? [RETRY_NOTE] : []
       if (ctx.forkedFrom) {
         notes.push(
@@ -3516,6 +3536,9 @@ export async function respond(
             ...notRunDetail(part.reason),
           })
         } else if (part.type === "tool-result") {
+          if (part.providerExecuted || SANDBOX_TOOL_NAMES.has(part.toolName)) {
+            uncommitted?.changed()
+          }
           const denied = deniedReason(part.output)
           const resolved =
             denied !== null
@@ -3543,6 +3566,9 @@ export async function respond(
         } else if (part.type === "tool-error") {
           // Pi's and Claude Code's own tools report failures here, not as a
           // result.
+          if (part.providerExecuted || SANDBOX_TOOL_NAMES.has(part.toolName)) {
+            uncommitted?.changed()
+          }
           const error =
             part.error instanceof Error
               ? part.error.message
@@ -3840,6 +3866,7 @@ export async function respond(
         ).catch((err) =>
           logger.warn({ err, sessionId: conversationId }, "Checkpoint failed")
         )
+        await uncommitted?.flush()
       }
       if (approvals.length > 0) {
         if (planRef.current) {
@@ -3859,6 +3886,7 @@ export async function respond(
         ...(stoppedFor ? { stoppedFor } : {}),
       }
     } finally {
+      await uncommitted?.stop()
       sandbox.close()
     }
   } finally {

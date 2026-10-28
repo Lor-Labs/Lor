@@ -102,6 +102,8 @@ export function useSessionStart(
       repoFullName: start.code?.repo ?? null,
       baseBranch: start.code?.branch ?? null,
       newBranch: null,
+      uncommittedAdditions: null,
+      uncommittedDeletions: null,
       sourceSessionId: null,
       forkedFromMessageId: null,
       title: start.title,

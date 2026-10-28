@@ -22,7 +22,19 @@ export type SidebarSession = {
   state: SidebarSessionState
   loop: boolean
   code: boolean
+  // Code sessions: lines not committed yet. Null until first counted.
+  uncommitted: UncommittedLines | null
   lastActivityAt: string
+}
+
+export type UncommittedLines = { additions: number; deletions: number }
+
+// A code session's uncommitted lines changed. Sent to the user rooms of its
+// subscribers who can see the channel; clients patch the sidebar row.
+export type SessionUncommittedUpdated = UncommittedLines & {
+  workspaceId: string
+  channelId: string
+  sessionId: string
 }
 
 export type ChannelActivity = {
@@ -860,6 +872,7 @@ export interface ServerToClientEvents {
     byUserId: string
     filesChanged?: boolean
   }) => void
+  "session:uncommitted:updated": (payload: SessionUncommittedUpdated) => void
   // A run parked on an approval gate. Channel room; ids only — the
   // durable card data comes from the channel approvals query this invalidates.
   "approval:created": (payload: ApprovalCreatedEvent) => void
@@ -990,6 +1003,8 @@ export type RealtimeAgentSession = {
   repoFullName: string | null
   baseBranch: string | null
   newBranch: string | null
+  uncommittedAdditions: number | null
+  uncommittedDeletions: number | null
   sourceSessionId: string | null
   forkedFromMessageId: string | null
   title: string

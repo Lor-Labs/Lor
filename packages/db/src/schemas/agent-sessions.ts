@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm"
 import {
   type AnyPgColumn,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -79,6 +80,11 @@ export const agentSession = pgTable(
     // A branch the session made from baseBranch at its start, pushed to
     // GitHub by the session's first push. Null: it works on baseBranch.
     newBranch: text("new_branch"),
+    // The sidebar's +/− for a code session: uncommitted lines against HEAD,
+    // the Changes panel's total. Saved when a sandbox is already open; null
+    // until first counted.
+    uncommittedAdditions: integer("uncommitted_additions"),
+    uncommittedDeletions: integer("uncommitted_deletions"),
     // "Continue in Code": the session this one continues, whose messages are
     // its starting context.
     sourceSessionId: uuid("source_session_id").references(

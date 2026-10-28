@@ -1,8 +1,10 @@
-import type {
-  ChannelActivity,
-  RealtimeAgentSession,
-  SidebarSession,
-  SidebarSessionState,
+import {
+  type ChannelActivity,
+  type RealtimeAgentSession,
+  type SessionUncommittedUpdated,
+  type SidebarSession,
+  type SidebarSessionState,
+  uncommittedLinesOf,
 } from "@repo/realtime-types"
 import {
   type QueryClient,
@@ -85,11 +87,18 @@ export function useWorkspaceActivity(workspaceId?: string) {
     const onActivityUpdated = (payload: { workspaceId: string }) => {
       if (payload.workspaceId === workspaceId) refresh()
     }
+    // A code session's +/− moves with every edit: patched, not refetched.
+    const onUncommitted = (payload: SessionUncommittedUpdated) => {
+      if (payload.workspaceId === workspaceId) {
+        patchUncommittedLines(queryClient, payload)
+      }
+    }
     const unsubscribeFocus = subscribeAppFocus((focused) => {
       if (focused) refresh()
     })
     socket.on("connect", refresh)
     socket.on("workspace:activity:updated", onActivityUpdated)
+    socket.on("session:uncommitted:updated", onUncommitted)
     // Reading a session (on any of the user's devices) clears its unread dot.
     socket.on("thread-read:updated", refresh)
     return () => {
@@ -97,6 +106,7 @@ export function useWorkspaceActivity(workspaceId?: string) {
       unsubscribeFocus()
       socket.off("connect", refresh)
       socket.off("workspace:activity:updated", onActivityUpdated)
+      socket.off("session:uncommitted:updated", onUncommitted)
       socket.off("thread-read:updated", refresh)
     }
   }, [socket, workspaceId, queryClient])
@@ -114,6 +124,7 @@ export function sidebarRowFor(session: RealtimeAgentSession): SidebarSession {
     state: "idle",
     loop: session.loopId !== null,
     code: session.mode === "code",
+    uncommitted: uncommittedLinesOf(session),
     lastActivityAt: session.lastActivityAt,
   }
 }
@@ -220,6 +231,32 @@ export function patchSidebarSession(
       }
     })
   })
+}
+
+// Only a row the snapshot lists; never adds one.
+function patchUncommittedLines(
+  queryClient: QueryClient,
+  {
+    workspaceId,
+    channelId,
+    sessionId,
+    ...uncommitted
+  }: SessionUncommittedUpdated
+) {
+  queryClient.setQueryData<ChannelActivity[]>(
+    workspaceActivityKey(workspaceId),
+    (channels) =>
+      channels?.map((channel) =>
+        channel.channelId === channelId
+          ? {
+              ...channel,
+              sessions: channel.sessions.map((session) =>
+                session.id === sessionId ? { ...session, uncommitted } : session
+              ),
+            }
+          : channel
+      )
+  )
 }
 
 // Call from onSettled: the last sidebar change in flight refetches the truth,

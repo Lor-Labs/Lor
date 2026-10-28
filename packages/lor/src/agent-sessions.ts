@@ -37,6 +37,8 @@ export function toRealtimeAgentSession(
     repoFullName: row.repoFullName,
     baseBranch: row.baseBranch,
     newBranch: row.newBranch,
+    uncommittedAdditions: row.uncommittedAdditions,
+    uncommittedDeletions: row.uncommittedDeletions,
     sourceSessionId: row.sourceSessionId,
     forkedFromMessageId: row.forkedFromMessageId,
     title: row.title,

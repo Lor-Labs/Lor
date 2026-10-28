@@ -4,7 +4,11 @@ import {
 } from "@repo/auth/permissions"
 import { and, db, desc, eq, inArray, isNull, schema, sql } from "@repo/db"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
-import type { ChannelActivity, SidebarSessionState } from "@repo/realtime-types"
+import {
+  type ChannelActivity,
+  type SidebarSessionState,
+  uncommittedLinesOf,
+} from "@repo/realtime-types"
 
 // Bounds the sidebar payload; older sessions stay reachable from the
 // channel's session list and search.
@@ -113,6 +117,8 @@ export async function getWorkspaceActivity(
         titleEditedAt: schema.agentSession.titleEditedAt,
         loopId: schema.agentSession.loopId,
         mode: schema.agentSession.mode,
+        uncommittedAdditions: schema.agentSession.uncommittedAdditions,
+        uncommittedDeletions: schema.agentSession.uncommittedDeletions,
         lastActivityAt,
         unread: sql<boolean>`(exists (select 1 from message m where m.thread_root_id = ${schema.agentSession.threadRootId} and m.author_id <> ${userId}::uuid and m.created_at > ${readCursor}) or exists (select 1 from agent_run r where r.thread_root_id = ${schema.agentSession.threadRootId} and r.updated_at > ${readCursor}))`,
       })
@@ -198,6 +204,7 @@ export async function getWorkspaceActivity(
       state,
       loop: session.loopId !== null,
       code: session.mode === "code",
+      uncommitted: uncommittedLinesOf(session),
       lastActivityAt: session.lastActivityAt.toISOString(),
     })
   }
