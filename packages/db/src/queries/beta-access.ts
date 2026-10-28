@@ -61,6 +61,16 @@ export async function assertWorkspaceActive(workspaceId: string) {
   return access.trial
 }
 
+// Sandbox work needs an active workspace and, in beta mode, credits left in
+// the shared pool. Database only: credits_empty_at is synced from Autumn.
+export async function assertBetaSandbox(workspaceId: string) {
+  const trial = await assertWorkspaceActive(workspaceId)
+  if (trial?.creditsEmptyAt)
+    throw new BetaAccessError(
+      "Your team's included credits are used up. Subscribe in billing to keep working."
+    )
+}
+
 export function assertHostedHarness(harness: string) {
   if (hostedBetaEnabled() && harness !== "pi")
     throw new BetaAccessError(

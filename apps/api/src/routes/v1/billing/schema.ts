@@ -1,11 +1,5 @@
 import { z } from "@hono/zod-openapi"
 
-export const computeSchema = z.object({
-  sandboxGrantSeconds: z.number(),
-  sandboxUsedSeconds: z.number(),
-  sandboxRemainingSeconds: z.number(),
-})
-
 export const billingWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
     param: { name: "workspaceSlug", in: "path", required: true },
@@ -14,17 +8,17 @@ export const billingWorkspaceParamsSchema = z.object({
 
 export const billingSummaryResponseSchema = z.object({
   // False when the deployment has no AUTUMN_SECRET_KEY (self-hosted/dev).
+  // One pool for AI and sandbox time, in USD (1 credit = $0.01).
   beta: z
     .object({
       expiresAt: z.string(),
-      aiGrantUsd: z.number(),
+      creditGrantUsd: z.number(),
       expired: z.boolean(),
       freeRemainingUsd: z.number(),
       purchasedRemainingUsd: z.number(),
       available: z.boolean(),
     })
     .nullable(),
-  compute: computeSchema.nullable(),
   enabled: z.boolean(),
   // False when Autumn is unreachable — the tab shows a retry state.
   available: z.boolean(),

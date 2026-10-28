@@ -1,4 +1,3 @@
-import { sweepBetaCompute } from "@repo/lor/beta-compute"
 import "./instrumentation"
 import { sweepBetaBilling } from "@repo/billing"
 import { env } from "@repo/env/server"
@@ -397,8 +396,7 @@ async function bootstrap() {
   const maintenanceWorker = new Worker(
     MAINTENANCE_QUEUE,
     async (job) => {
-      if (job.name === "sweep-beta-compute") await sweepBetaCompute()
-      else if (job.name === "sweep-beta-billing") await sweepBetaBilling()
+      if (job.name === "sweep-beta-billing") await sweepBetaBilling()
       else if (job.name === "sweep-sandbox-usage") await sweepSandboxUsage()
       else if (job.name === "prune-run-events") await pruneRunEvents()
       else if (job.name === "sweep-dead-runs") {
@@ -463,9 +461,8 @@ async function bootstrap() {
 
   // Upsert (idempotent across replicas/restarts): one shared schedule in
   // Redis, first run fires immediately, then every interval.
-  await maintenanceQueue.upsertJobScheduler("sweep-beta-compute", {
-    every: 30_000,
-  })
+  // Replaced by sweep-sandbox-usage; drop the schedule left in Redis.
+  await maintenanceQueue.removeJobScheduler("sweep-beta-compute")
   await maintenanceQueue.upsertJobScheduler("sweep-sandbox-usage", {
     every: SANDBOX_USAGE_SWEEP_EVERY_MS,
   })

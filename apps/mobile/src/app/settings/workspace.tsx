@@ -298,7 +298,9 @@ function WorkspaceSettingsForm({
             <Text className="text-muted-foreground">
               {beta.state !== "active"
                 ? "Your beta has ended. Saved work remains readable; subscribe to keep working."
-                : `Free until ${new Date(beta.expiresAt ?? "").toLocaleDateString()}. ${((beta.compute?.sandboxRemainingSeconds ?? 0) / 3600).toFixed(1)} sandbox hours remaining for your team.`}
+                : beta.creditsEmpty
+                  ? "Your team's included credits are used up. Subscribe to keep working."
+                  : `Free until ${new Date(beta.expiresAt ?? "").toLocaleDateString()}.`}
             </Text>
             <Text className="text-muted-foreground">
               Your workspace admin subscribes and manages AI credits and

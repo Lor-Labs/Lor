@@ -5,15 +5,15 @@ const DAY_MS = 86_400_000
 
 // New offers get a new version; an existing version is never overwritten.
 export const BETA_POLICY = Object.freeze({
-  version: "private-beta-2026-10-28-v1",
+  version: "private-beta-2026-10-28-pool",
   cohortLimit: 25,
   memberLimit: 5,
   enrollmentDays: 30,
   trialDays: 30,
   retentionDays: 30,
-  aiGrantMicroUsd: 25 * MICRO_USD,
-  sandboxGrantSeconds: 50 * 60 * 60,
-  browserGrantSeconds: 10 * 60 * 60,
+  // 3,000 credits shared by AI and sandbox time: $25 of AI plus 50 dev-box
+  // hours at 10 credits/hour.
+  creditGrantMicroUsd: 30 * MICRO_USD,
   codeSandboxMemoryMb: 8192,
 } satisfies Omit<BetaPolicy, "createdAt">)
 
@@ -45,9 +45,7 @@ export function betaTrialTerms(policy: BetaPolicy, activatedAt: Date) {
     expiresAt,
     readOnlyUntil: betaDaysAfter(expiresAt, policy.retentionDays),
     memberLimit: policy.memberLimit,
-    aiGrantMicroUsd: policy.aiGrantMicroUsd,
-    sandboxGrantSeconds: policy.sandboxGrantSeconds,
-    browserGrantSeconds: policy.browserGrantSeconds,
+    creditGrantMicroUsd: policy.creditGrantMicroUsd,
   }
 }
 

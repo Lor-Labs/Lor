@@ -525,7 +525,7 @@ export function blaxelSandboxSession(
     abortSignal,
   }) => {
     abortSignal?.throwIfAborted()
-    const remaining = await access()
+    await access()
     const name = `run-${randomUUID().slice(0, 8)}`
     const onAbort = () => {
       sandbox.process.kill(name).catch(() => {})
@@ -540,7 +540,7 @@ export function blaxelSandboxSession(
         workingDir: workingDirectory ?? WORKSPACE_MOUNT,
         env: { ...SANDBOX_PROCESS_ENV, ...env },
         keepAlive: true,
-        timeout: Math.min(RUN_TIMEOUT_SEC, remaining ?? RUN_TIMEOUT_SEC),
+        timeout: RUN_TIMEOUT_SEC,
       })
       // An abort during exec fired before the process existed.
       if (abortSignal?.aborted) onAbort()
@@ -570,7 +570,7 @@ export function blaxelSandboxSession(
     abortSignal,
   }) => {
     abortSignal?.throwIfAborted()
-    const remaining = await access()
+    await access()
     // The harness whose bridge this is ("claude-code", "codex"), or null.
     const bridge = HARNESS_BRIDGE_SCRIPT.exec(command)?.[1] ?? null
     const name = `${bridge ? "bridge" : "spawn"}-${randomUUID().slice(0, 8)}`
@@ -590,7 +590,7 @@ export function blaxelSandboxSession(
         ? {}
         : {
             keepAlive: true,
-            timeout: Math.min(RUN_TIMEOUT_SEC, remaining ?? RUN_TIMEOUT_SEC),
+            timeout: RUN_TIMEOUT_SEC,
           }),
     })
     const kill = async () => {

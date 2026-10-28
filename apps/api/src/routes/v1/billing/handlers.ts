@@ -13,7 +13,6 @@ import {
   syncBetaCredits,
 } from "@repo/billing"
 import { betaLimitsLifted } from "@repo/db/queries/beta-access"
-import { betaComputeSummary } from "@repo/db/queries/beta-compute"
 import { env } from "@repo/env/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -53,7 +52,7 @@ export const getBilling: AppRouteHandler<GetBillingRoute> = async (c) => {
   const beta = trial
     ? await syncBetaCredits(workspace.id).catch(() => ({
         expiresAt: trial.expiresAt.toISOString(),
-        aiGrantUsd: trial.aiGrantMicroUsd / 1_000_000,
+        creditGrantUsd: trial.creditGrantMicroUsd / 1_000_000,
         subscribed: Boolean(trial.subscribedAt),
         expired: trial.expiresAt <= new Date(),
         freeRemainingUsd: 0,
@@ -63,7 +62,6 @@ export const getBilling: AppRouteHandler<GetBillingRoute> = async (c) => {
     : null
   const base = {
     beta: beta?.subscribed ? null : beta,
-    compute: await betaComputeSummary(workspace.id),
     enabled: billingEnabled,
     seats: await countSeats(workspace.id),
     seatPriceUsd: SEAT_PRICE_USD,

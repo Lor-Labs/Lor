@@ -54,13 +54,13 @@ export async function sendBetaCreditsExhaustedEmail(
     {
       from: env.EMAIL_FROM,
       to: notice.to,
-      subject: `Your included Lor AI credits are used up`,
-      text: `${notice.name} has used its included AI credits. Buy $25 of additional credits in billing to continue using Lor-funded AI. Your workspace remains free until ${notice.expiresAt.slice(0, 10)} (UTC); buying credits does not start a seat subscription or extend the beta. No automatic refill is enabled.\n\n${notice.url}`,
-      html: EMAIL_WRAP(`<h2>Your included AI credits are used up</h2>
-      <p><strong>${escapeHtml(notice.name)}</strong> has used its free AI allowance.</p>
-      <p>Buy $25 of additional credits to continue using Lor-funded AI. Your workspace remains free until ${escapeHtml(notice.expiresAt.slice(0, 10))} (UTC). This purchase does not start a seat subscription or extend the beta.</p>
+      subject: `Your included Lor credits are used up`,
+      text: `${notice.name} has used its included credits for AI and sandbox time. To keep working, subscribe to Lor Pro ($20 per member per month, kept for life as a beta team) or buy $25 of credits in billing. Your beta runs until ${notice.expiresAt.slice(0, 10)} (UTC). No automatic refill is enabled.\n\n${notice.url}`,
+      html: EMAIL_WRAP(`<h2>Your included credits are used up</h2>
+      <p><strong>${escapeHtml(notice.name)}</strong> has used its included credits for AI and sandbox time.</p>
+      <p>To keep working, subscribe to Lor Pro ($20 per member per month, kept for life as a beta team) or buy $25 of credits. Your beta runs until ${escapeHtml(notice.expiresAt.slice(0, 10))} (UTC).</p>
       <p>No automatic refill is enabled. If your team has already bought more credits, you can keep using them.</p>
-      <a href="${escapeHtml(notice.url)}">Open billing and buy $25 of credits</a>`),
+      <a href="${escapeHtml(notice.url)}">Open billing</a>`),
     },
     { idempotencyKey: `beta-ai-exhausted-${trialId}` }
   )

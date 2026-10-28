@@ -322,18 +322,11 @@ function snapshot(trial: WorkspaceBetaTrial): BetaTrialTerms {
     expiresAt: trial.expiresAt.toISOString(),
     readOnlyUntil: trial.readOnlyUntil.toISOString(),
     memberLimit: trial.memberLimit,
-    aiGrantMicroUsd: trial.aiGrantMicroUsd,
-    sandboxGrantSeconds: trial.sandboxGrantSeconds,
-    browserGrantSeconds: trial.browserGrantSeconds,
+    creditGrantMicroUsd: trial.creditGrantMicroUsd,
   }
 }
 
-const LIMIT_FIELDS = [
-  "memberLimit",
-  "aiGrantMicroUsd",
-  "sandboxGrantSeconds",
-  "browserGrantSeconds",
-] as const
+const LIMIT_FIELDS = ["memberLimit", "creditGrantMicroUsd"] as const
 
 function normalizeChanges(input: BetaTrialChanges): BetaTrialChanges {
   const changes: BetaTrialChanges = {}
@@ -343,7 +336,7 @@ function normalizeChanges(input: BetaTrialChanges): BetaTrialChanges {
     const value = input[key]
     if (value === undefined) continue
     const max =
-      key === "aiGrantMicroUsd" ? Number.MAX_SAFE_INTEGER : 2_147_483_647
+      key === "creditGrantMicroUsd" ? Number.MAX_SAFE_INTEGER : 2_147_483_647
     const min = key === "memberLimit" ? 1 : 0
     if (!Number.isSafeInteger(value) || value < min || value > max) {
       throw new Error(`Invalid ${key}`)

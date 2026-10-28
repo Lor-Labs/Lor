@@ -27,9 +27,11 @@ export const betaPolicy = pgTable(
     enrollmentDays: integer("enrollment_days").notNull(),
     trialDays: integer("trial_days").notNull(),
     retentionDays: integer("retention_days").notNull(),
-    aiGrantMicroUsd: bigint("ai_grant_micro_usd", { mode: "number" }).notNull(),
-    sandboxGrantSeconds: integer("sandbox_grant_seconds").notNull(),
-    browserGrantSeconds: integer("browser_grant_seconds").notNull(),
+    // One pooled grant: AI, sandbox and (when it ships) browser time draw
+    // from the same credits.
+    creditGrantMicroUsd: bigint("credit_grant_micro_usd", {
+      mode: "number",
+    }).notNull(),
     codeSandboxMemoryMb: integer("code_sandbox_memory_mb").notNull(),
   },
   (table) => [
@@ -39,7 +41,7 @@ export const betaPolicy = pgTable(
     ),
     check(
       "beta_policy_grants_check",
-      sql`${table.aiGrantMicroUsd} BETWEEN 0 AND 9007199254740991 AND ${table.sandboxGrantSeconds} >= 0 AND ${table.browserGrantSeconds} >= 0`
+      sql`${table.creditGrantMicroUsd} BETWEEN 0 AND 9007199254740991`
     ),
   ]
 )
@@ -91,10 +93,10 @@ export const workspaceBetaTrial = pgTable(
       withTimezone: true,
     }).notNull(),
     memberLimit: integer("member_limit").notNull(),
-    // Granted totals; Autumn owns the spendable AI balances.
-    aiGrantMicroUsd: bigint("ai_grant_micro_usd", { mode: "number" }).notNull(),
-    sandboxGrantSeconds: integer("sandbox_grant_seconds").notNull(),
-    browserGrantSeconds: integer("browser_grant_seconds").notNull(),
+    // Granted totals; Autumn owns the spendable credit balances.
+    creditGrantMicroUsd: bigint("credit_grant_micro_usd", {
+      mode: "number",
+    }).notNull(),
     autumnGrantCreatedAt: timestamp("autumn_grant_created_at", {
       withTimezone: true,
     }),
@@ -102,7 +104,9 @@ export const workspaceBetaTrial = pgTable(
     autumnGrantExpiresAt: timestamp("autumn_grant_expires_at", {
       withTimezone: true,
     }),
-    aiExhaustedAt: timestamp("ai_exhausted_at", { withTimezone: true }),
+    // Set while free + purchased credits are used up (synced from Autumn), so
+    // sandbox access checks a column instead of calling Autumn.
+    creditsEmptyAt: timestamp("credits_empty_at", { withTimezone: true }),
     // Set while the team holds an active seat subscription, synced from
     // Autumn. Subscribing ends beta mode: no beta limits apply.
     subscribedAt: timestamp("subscribed_at", { withTimezone: true }),
@@ -129,7 +133,7 @@ export const workspaceBetaTrial = pgTable(
     ),
     check(
       "workspace_beta_trial_limits_check",
-      sql`${table.memberLimit} > 0 AND ${table.aiGrantMicroUsd} BETWEEN 0 AND 9007199254740991 AND ${table.sandboxGrantSeconds} >= 0 AND ${table.browserGrantSeconds} >= 0`
+      sql`${table.memberLimit} > 0 AND ${table.creditGrantMicroUsd} BETWEEN 0 AND 9007199254740991`
     ),
   ]
 )
@@ -138,9 +142,7 @@ export type BetaTrialTerms = {
   expiresAt: string
   readOnlyUntil: string
   memberLimit: number
-  aiGrantMicroUsd: number
-  sandboxGrantSeconds: number
-  browserGrantSeconds: number
+  creditGrantMicroUsd: number
 }
 
 export type BetaTrialChanges = Partial<Omit<BetaTrialTerms, "readOnlyUntil">>

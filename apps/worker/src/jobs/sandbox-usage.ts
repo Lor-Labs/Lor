@@ -1,4 +1,5 @@
 import { chargeSandboxUsage } from "@repo/billing"
+import { stopBlockedSandboxes } from "@repo/lor/beta-compute"
 import { blaxelSandboxUsage } from "@repo/lor/sandbox-usage"
 
 export const SANDBOX_USAGE_SWEEP_EVERY_MS = 5 * 60 * 1000
@@ -13,5 +14,6 @@ export async function sweepSandboxUsage() {
     new Date(thisHour - LOOKBACK_HOURS * HOUR_MS),
     new Date(thisHour + HOUR_MS)
   )
-  await chargeSandboxUsage(buckets)
+  // Beta teams out of credits or past expiry: stop what is still running.
+  await stopBlockedSandboxes(await chargeSandboxUsage(buckets))
 }

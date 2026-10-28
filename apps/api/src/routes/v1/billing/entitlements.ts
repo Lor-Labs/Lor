@@ -3,11 +3,10 @@ import {
   hostedBetaEnabled,
   workspaceBetaAccess,
 } from "@repo/db/queries/beta-access"
-import { betaComputeSummary } from "@repo/db/queries/beta-compute"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import { workspaceAuthMiddleware } from "@/middleware/workspace-auth"
-import { billingWorkspaceParamsSchema, computeSchema } from "./schema"
+import { billingWorkspaceParamsSchema } from "./schema"
 
 export const entitlements = createRoute({
   path: "/workspaces/{workspaceSlug}/entitlements",
@@ -18,12 +17,12 @@ export const entitlements = createRoute({
   responses: {
     200: jsonContent({
       description:
-        "Beta access and pooled compute allowance for all workspace members",
+        "Beta access and whether the team's shared credits are used up, for all workspace members",
       schema: z.object({
         enabled: z.boolean(),
         state: z.enum(["active", "expired", "not_enrolled"]),
         expiresAt: z.string().nullable(),
-        compute: computeSchema.nullable(),
+        creditsEmpty: z.boolean(),
       }),
     }),
   },
@@ -33,14 +32,14 @@ export const entitlementsHandler: AppRouteHandler<typeof entitlements> = async (
 ) => {
   c.header("Cache-Control", "no-store")
   const access = await workspaceBetaAccess(c.var.workspace.id)
-  // Active without a trial is an exempt workspace: no beta banner.
+  // Active without a trial is an exempt or subscribed workspace: no banner.
   const exempt = access.state === "active" && !access.trial
   return c.json(
     {
       enabled: hostedBetaEnabled() && !exempt,
       state: access.state,
       expiresAt: access.trial?.expiresAt.toISOString() ?? null,
-      compute: await betaComputeSummary(c.var.workspace.id),
+      creditsEmpty: Boolean(access.trial?.creditsEmptyAt),
     },
     200
   )

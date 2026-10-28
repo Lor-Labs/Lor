@@ -1,6 +1,5 @@
 import { and, db, eq, gt, isNotNull, isNull, schema } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
-import { assertBetaCompute } from "@repo/db/queries/beta-compute"
 import { workspaceInferenceFunding } from "@repo/db/queries/inference"
 import { env } from "@repo/env/server"
 import { createLogger } from "@repo/logger"
@@ -46,7 +45,7 @@ export async function syncBetaCredits(workspaceId: string) {
         .where(eq(schema.workspaceBetaTrial.id, trial.id))
     const base = {
       expiresAt: trial.expiresAt.toISOString(),
-      aiGrantUsd: trial.aiGrantMicroUsd / MICRO_USD,
+      creditGrantUsd: trial.creditGrantMicroUsd / MICRO_USD,
       subscribed,
     }
     const purchasedUsd = () =>
@@ -72,7 +71,7 @@ export async function syncBetaCredits(workspaceId: string) {
           await autumn.balances.create({
             customerId: workspaceId,
             featureId: CREDITS_FEATURE_ID,
-            includedGrant: trial.aiGrantMicroUsd / MICRO_USD_PER_CREDIT,
+            includedGrant: trial.creditGrantMicroUsd / MICRO_USD_PER_CREDIT,
             expiresAt: trial.expiresAt.getTime(),
             balanceId,
           })
@@ -85,29 +84,35 @@ export async function syncBetaCredits(workspaceId: string) {
         }
       }
     } else if (
-      trial.autumnGrantMicroUsd !== trial.aiGrantMicroUsd ||
+      trial.autumnGrantMicroUsd !== trial.creditGrantMicroUsd ||
       trial.autumnGrantExpiresAt?.getTime() !== trial.expiresAt.getTime()
     ) {
       await autumn.balances.update({
         customerId: workspaceId,
         featureId: CREDITS_FEATURE_ID,
         balanceId,
-        includedGrant: trial.aiGrantMicroUsd / MICRO_USD_PER_CREDIT,
+        includedGrant: trial.creditGrantMicroUsd / MICRO_USD_PER_CREDIT,
         expiresAt: trial.expiresAt.getTime(),
       })
     }
     customer = await autumn.customers.getOrCreate({ customerId: workspaceId })
     const grant = findGrant()
     if (!grant) throw new Error("Beta credit grant is unavailable")
+    const freeRemainingUsd = Math.max(0, grant.remaining) * CREDIT_USD
+    const purchasedRemainingUsd = purchasedUsd()
+    const empty = freeRemainingUsd + purchasedRemainingUsd <= 0
     await tx
       .update(schema.workspaceBetaTrial)
       .set({
         autumnGrantCreatedAt: trial.autumnGrantCreatedAt ?? new Date(),
-        autumnGrantMicroUsd: trial.aiGrantMicroUsd,
+        autumnGrantMicroUsd: trial.creditGrantMicroUsd,
         autumnGrantExpiresAt: trial.expiresAt,
+        creditsEmptyAt: empty ? (trial.creditsEmptyAt ?? new Date()) : null,
       })
       .where(eq(schema.workspaceBetaTrial.id, trial.id))
-    if (grant.remaining <= 0 && !trial.aiExhaustedAt && !subscribed) {
+    // One email when the free grant first runs out (purchased credits may
+    // still be left).
+    if (grant.remaining <= 0 && !trial.exhaustionEmail && !subscribed) {
       const owner = await tx
         .select({
           email: schema.user.email,
@@ -122,7 +127,6 @@ export async function syncBetaCredits(workspaceId: string) {
       await tx
         .update(schema.workspaceBetaTrial)
         .set({
-          aiExhaustedAt: new Date(),
           exhaustionEmail: {
             to: owner.email,
             name: owner.name,
@@ -135,8 +139,8 @@ export async function syncBetaCredits(workspaceId: string) {
     return {
       ...base,
       expired: false,
-      freeRemainingUsd: Math.max(0, grant.remaining) * CREDIT_USD,
-      purchasedRemainingUsd: purchasedUsd(),
+      freeRemainingUsd,
+      purchasedRemainingUsd,
       available: true,
     }
   })
@@ -147,9 +151,11 @@ export async function checkBetaCredits(workspaceId: string) {
   try {
     const access = await workspaceBetaAccess(workspaceId)
     if (access.state !== "active") return { allowed: false, failOpen: false }
-    // Exempt: normal credit billing applies.
+    // Exempt or subscribed: normal credit billing applies.
     if (!access.trial) return null
-    await assertBetaCompute(workspaceId)
+    // A workspace key pays for AI, but the run's sandbox still draws on the
+    // pool.
+    if (access.trial.creditsEmptyAt) return { allowed: false, failOpen: false }
     if ((await workspaceInferenceFunding(workspaceId)).source === "byok")
       return { allowed: true, failOpen: false }
     const balance = await syncBetaCredits(workspaceId)

@@ -26,8 +26,10 @@ import {
   sql,
 } from "@repo/db"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
-import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
-import { assertBetaCompute } from "@repo/db/queries/beta-compute"
+import {
+  assertBetaSandbox,
+  assertWorkspaceActive,
+} from "@repo/db/queries/beta-access"
 import {
   assertInferenceFundingCurrent,
   workspaceInferenceFunding,
@@ -408,7 +410,7 @@ export async function claimAgentRun(
   const assertCanInfer = async () => {
     await assertWorkspaceActive(claimed.workspaceId)
     await assertInferenceFundingCurrent(claimed.workspaceId, funding)
-    await assertBetaCompute(claimed.workspaceId)
+    await assertBetaSandbox(claimed.workspaceId)
     const check = await checkBetaCredits(claimed.workspaceId)
     if (check && !check.allowed)
       throw new Error(
@@ -447,7 +449,7 @@ export async function claimAgentRun(
     if (hostedBetaConfig().enabled || funding.source === "byok") {
       void assertWorkspaceActive(claimed.workspaceId)
         .then(() => assertInferenceFundingCurrent(claimed.workspaceId, funding))
-        .then(() => assertBetaCompute(claimed.workspaceId))
+        .then(() => assertBetaSandbox(claimed.workspaceId))
         .then(() => checkBetaCredits(claimed.workspaceId))
         .then((check) => {
           if (check && !check.allowed) requestStop()

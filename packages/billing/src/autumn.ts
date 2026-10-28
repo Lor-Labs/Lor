@@ -83,10 +83,12 @@ export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
 
 // "overflow" lets a request that straddles zero deduct fully (balance can go
 // negative), so the next check refuses instead of the overage being free.
+// `cap` debits at most the balance: beta teams never owe Lor.
 export async function trackCredits(
   workspaceId: string,
   credits: number,
-  debitId: string
+  debitId: string,
+  overage: "overflow" | "cap" = "overflow"
 ): Promise<DebitStatus> {
   const autumn = getAutumn()
   if (!autumn) return "free"
@@ -96,7 +98,7 @@ export async function trackCredits(
         customerId: workspaceId,
         featureId: CREDITS_FEATURE_ID,
         value: credits,
-        overageBehavior: "overflow",
+        overageBehavior: overage,
       },
       { headers: { "Idempotency-Key": debitId } }
     )

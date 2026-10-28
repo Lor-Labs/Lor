@@ -124,11 +124,11 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
   if (billing.beta) {
     const beta = billing.beta
     const expires = new Date(beta.expiresAt).toLocaleString()
+    const credits = (usd: number) => Math.floor(usd * 100).toLocaleString()
     const blocked =
       beta.expired ||
       (beta.available &&
-        beta.freeRemainingUsd + beta.purchasedRemainingUsd <= 0) ||
-      (billing.compute?.sandboxRemainingSeconds ?? 1) <= 0
+        beta.freeRemainingUsd + beta.purchasedRemainingUsd <= 0)
     const subscribeCard = (
       <div className="rounded-lg border border-border p-5">
         <div className="text-base font-semibold">Keep working with Lor Pro</div>
@@ -158,7 +158,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
           <h3 className="text-base font-semibold">Private beta</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {beta.expired ? "Your beta ended" : "Your workspace is free until"}{" "}
-            {expires}. Buying AI credits does not start a seat subscription or
+            {expires}. Buying credits does not start a seat subscription or
             extend this date.
           </p>
         </div>
@@ -166,12 +166,13 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
         {beta.available ? (
           <div className="rounded-lg border p-5 space-y-2">
             <p>
-              Included AI: <strong>${beta.freeRemainingUsd.toFixed(2)}</strong>{" "}
-              of ${beta.aiGrantUsd.toFixed(2)} remaining
+              Included credits:{" "}
+              <strong>{credits(beta.freeRemainingUsd)}</strong> of{" "}
+              {credits(beta.creditGrantUsd)} remaining
             </p>
             <p>
-              Purchased AI:{" "}
-              <strong>${beta.purchasedRemainingUsd.toFixed(2)}</strong>
+              Purchased credits:{" "}
+              <strong>{credits(beta.purchasedRemainingUsd)}</strong>
               {beta.expired
                 ? " available again when workspace access resumes"
                 : " remaining"}
@@ -179,7 +180,8 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
             {!beta.expired &&
               beta.freeRemainingUsd + beta.purchasedRemainingUsd <= 0 && (
                 <p className="text-sm text-muted-foreground">
-                  Your AI credits are used up. Buy more to resume Lor-funded AI.
+                  Your credits are used up. Subscribe or buy more to keep
+                  working.
                 </p>
               )}
           </div>
@@ -189,50 +191,34 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
             is paused until billing recovers.
           </p>
         )}
-        <p className="text-sm text-muted-foreground">
-          AI credits use the highest listed Gateway provider token price for the
-          model that answers, including applicable long-context and peak rates.
-          There is no added beta markup or per-request minimum. Your own API key
-          uses no Lor AI credits.
-        </p>
+        <div className="space-y-1 text-sm text-muted-foreground">
+          <p>
+            One credit is $0.01, shared by AI and sandbox time across your team.
+          </p>
+          <p>
+            AI: the highest listed Gateway provider token price for the model
+            that answers, including long-context and peak rates, with no markup
+            or per-request minimum. Your own API key uses no credits for AI.
+          </p>
+          <p>
+            Sandbox time: 10 credits an hour for a code sandbox (8 GB), 5 for a
+            chat sandbox (4 GB), while it runs. Standby is free. Usage appears a
+            few minutes after it happens.
+          </p>
+        </div>
         {!beta.expired && (
           <div className="space-y-2">
             <Button
               onClick={() => topup.mutate("small")}
               disabled={!billing.enabled || !beta.available || topup.isPending}
             >
-              {topup.isPending && <Spinner className="size-4" />} Buy $25 of AI
-              credits
+              {topup.isPending && <Spinner className="size-4" />} Buy 2,500
+              credits ($25)
             </Button>
             <p className="text-xs text-muted-foreground">
               One-time purchase. No automatic refill. Unused purchased credits
-              remain on your account after the beta; access after the beta is
-              separate.
+              remain on your account after the beta.
             </p>
-          </div>
-        )}
-        {billing.compute && (
-          <div className="space-y-2 rounded-lg border p-5">
-            <p>
-              Sandbox time:{" "}
-              <strong>
-                {(billing.compute.sandboxRemainingSeconds / 3600).toFixed(1)}{" "}
-                hours
-              </strong>{" "}
-              of {(billing.compute.sandboxGrantSeconds / 3600).toFixed(0)}{" "}
-              remaining for your team
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Shared across all sessions, including 8 GB code sandboxes. Standby
-              is free. Active time is estimated from sandbox activity. No
-              automatic overage charges.
-            </p>
-            {billing.compute.sandboxRemainingSeconds <= 0 && (
-              <p className="text-sm">
-                Compute is paused. Subscribe to keep working; AI credit
-                purchases add AI only.
-              </p>
-            )}
           </div>
         )}
         <InferenceSettings
@@ -240,9 +226,8 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
           expired={beta.expired}
         />
         <p className="text-sm text-muted-foreground">
-          Search, voice transcription and code storage are included. Sandbox
-          time is separate from AI credits. Browser automation is not included
-          in this launch.
+          Search, voice transcription and code storage are included. Browser
+          automation is not included in this launch.
         </p>
         {!blocked && subscribeCard}
       </div>

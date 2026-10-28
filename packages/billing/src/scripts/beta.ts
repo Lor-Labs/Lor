@@ -6,6 +6,7 @@ import {
   betaTrialStatus,
   MICRO_USD,
 } from "../beta-policy"
+import { CREDIT_USD } from "../constants"
 
 const HELP = `Usage: pnpm beta <command>
   policy
@@ -14,16 +15,15 @@ const HELP = `Usage: pnpm beta <command>
   pause <campaign-key>
   show <workspace slug or id>
   adjust <workspace slug or id> --request-id <id> --operator <name> --reason <text>
-    [--expires <UTC-time>] [--members <total>] [--ai-usd <total>]
-    [--sandbox-hours <total>] [--browser-hours <total>]
+    [--expires <UTC-time>] [--members <total>] [--credits <total>]
   exempt <workspace slug or id> --operator <name> --reason <text>
   unexempt <workspace slug or id>
 
 Configure creates a paused campaign. Open/pause controls enrollment, not existing trials.
 Keep LOR_HOSTED_BETA=false until all launch gates in the runbook are complete.
 Adjust sets new total grants, not additions. Reuse the request id only for retries.
-Exempt keeps an internal workspace (no trial) on normal access and billing.
-These records do not enforce runtime limits until the remaining beta slices ship.`
+--credits is the pooled grant for AI, sandbox and browser time (1 credit = $0.01).
+Exempt keeps an internal workspace (no trial) on normal access and billing.`
 
 function positiveInteger(value: string, name: string): number {
   if (!/^\d+$/.test(value))
@@ -32,15 +32,6 @@ function positiveInteger(value: string, name: string): number {
   if (!Number.isSafeInteger(number) || number <= 0)
     throw new Error(`Invalid ${name}`)
   return number
-}
-
-function usd(value: string): number {
-  if (!/^\d+(?:\.\d{1,6})?$/.test(value))
-    throw new Error("AI dollars must have at most six decimal places")
-  const [whole = "0", fraction = ""] = value.split(".")
-  const amount = Number(whole) * MICRO_USD + Number(fraction.padEnd(6, "0"))
-  if (!Number.isSafeInteger(amount)) throw new Error("AI grant is too large")
-  return amount
 }
 
 async function main() {
@@ -53,9 +44,7 @@ async function main() {
       reason: { type: "string" },
       expires: { type: "string" },
       members: { type: "string" },
-      "ai-usd": { type: "string" },
-      "sandbox-hours": { type: "string" },
-      "browser-hours": { type: "string" },
+      credits: { type: "string" },
     },
   })
   const [command, target, startsAt] = positionals
@@ -88,14 +77,10 @@ async function main() {
   if (values.expires) changes.expiresAt = betaDate(values.expires).toISOString()
   if (values.members)
     changes.memberLimit = positiveInteger(values.members, "members")
-  if (values["ai-usd"] !== undefined)
-    changes.aiGrantMicroUsd = usd(values["ai-usd"])
-  if (values["sandbox-hours"])
-    changes.sandboxGrantSeconds =
-      positiveInteger(values["sandbox-hours"], "sandbox hours") * 3600
-  if (values["browser-hours"])
-    changes.browserGrantSeconds =
-      positiveInteger(values["browser-hours"], "browser hours") * 3600
+  if (values.credits)
+    changes.creditGrantMicroUsd = Math.round(
+      positiveInteger(values.credits, "credits") * MICRO_USD * CREDIT_USD
+    )
   if (
     command === "adjust" &&
     (!values["request-id"] ||
