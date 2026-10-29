@@ -340,12 +340,13 @@ export function ManageInvitesDialog({
               Cancel
             </AlertDialogClose>
             <Button
+              variant="destructive"
               onClick={() => {
                 if (revokeTarget) revokeMutation.mutate(revokeTarget)
               }}
-              disabled={revokeMutation.isPending}
+              loading={revokeMutation.isPending}
             >
-              {revokeMutation.isPending ? "Revoking..." : "Revoke"}
+              Revoke
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

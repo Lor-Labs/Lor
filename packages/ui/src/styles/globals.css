@@ -205,9 +205,26 @@
     @apply bg-background text-foreground;
   }
 
+  /* The app frame never rubber-bands; only the scrollers inside it move. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
   button,
   [role="button"] {
     @apply cursor-pointer;
+  }
+
+  /* Pressed state for hand-built buttons and rows. The Button primitive has its
+     own (scale), and any opacity-* utility on the element still wins. */
+  :where(
+      button:not([data-slot="button"]):not(:disabled):not(
+          [aria-disabled="true"]
+        ),
+      [role="button"]:not([aria-disabled="true"])
+    ):active {
+    opacity: 0.8;
   }
 
   /* Code gutters for the Nexus codeblock only — scoped to its <pre> slot so the
