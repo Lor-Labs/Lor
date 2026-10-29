@@ -5,6 +5,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "@repo/ui/components/toast"
+import { cn } from "@repo/ui/lib/utils"
 import {
   type InfiniteData,
   useMutation,
@@ -12,6 +13,7 @@ import {
 } from "@tanstack/react-query"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
+import { ARRIVE_IN } from "@/hooks/use-appended-ids"
 import { messagesCacheKey } from "@/hooks/use-lor-stream"
 import { runQueueKey, takeFromRunQueue } from "@/hooks/use-run-queue"
 import { apiClient } from "@/lib/api-client"
@@ -97,7 +99,7 @@ function QueuedTurn({
     "cursor-pointer transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-50 disabled:hover:text-muted-foreground"
 
   return (
-    <div className="flex gap-3">
+    <div className={cn(ARRIVE_IN, "flex gap-3")}>
       <div className="w-7 shrink-0 pt-0.5 opacity-60">
         <UserAvatar
           name={message.overrideName ?? message.author.name}
@@ -227,7 +229,12 @@ function QueueRow({
   const pending = isSteering || remove.isPending || isOptimistic
 
   return (
-    <div className="flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] not-last:border-b not-last:border-border/50">
+    <div
+      className={cn(
+        ARRIVE_IN,
+        "flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] not-last:border-b not-last:border-border/50"
+      )}
+    >
       <HugeiconsIcon
         icon={CornerDownRightIcon}
         className="size-3.5 shrink-0 text-muted-foreground"

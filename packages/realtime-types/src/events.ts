@@ -861,6 +861,12 @@ export interface ServerToClientEvents {
   "plan:updated": (payload: PlanUpdatedEvent) => void
   // Lor session row changed (title, archive, activity). Channel room.
   "session:updated": (payload: AgentSessionUpdatedEvent) => void
+  // The session's waiting Act events changed (one started waiting, ran or
+  // was dropped); clients refetch the count. Thread room.
+  "session:act-waiting": (payload: {
+    channelId: string
+    threadRootId: string
+  }) => void
   // A run in this thread became terminal (complete, failed, stopped). Thread
   // room; sent after the run row is updated, unlike message:stream's done.
   "run:settled": (payload: { threadRootId: string }) => void
@@ -1011,6 +1017,7 @@ export type RealtimeAgentSession = {
   titleEditedAt: string | null
   loopId: string | null
   triggerId: string | null
+  triggerSubject: string | null
   archivedAt: string | null
   archivedById: string | null
   lastActivityAt: string

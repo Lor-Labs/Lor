@@ -1,5 +1,5 @@
 import { readServerEnv } from "@repo/env/server-fields"
-import { db, eq, schema } from "../index"
+import { and, db, eq, isNull, schema } from "../index"
 
 export class BetaAccessError extends Error {
   readonly status = 403
@@ -13,12 +13,30 @@ export async function isBetaExempt(workspaceId: string) {
   const [row] = await db
     .select({ workspaceId: schema.betaExemption.workspaceId })
     .from(schema.betaExemption)
-    .where(eq(schema.betaExemption.workspaceId, workspaceId))
+    .where(
+      and(
+        eq(schema.betaExemption.workspaceId, workspaceId),
+        isNull(schema.betaExemption.endedAt)
+      )
+    )
   return Boolean(row)
 }
 
-// Normal access and billing under the hosted beta: an exempt internal
-// workspace, or a trial team that subscribed (subscribing ends beta mode).
+// The workspace's exemption, current or ended, for billing hours that ran
+// before a removal. Null: never exempt.
+export async function getBetaExemption(workspaceId: string) {
+  const [row] = await db
+    .select({
+      createdAt: schema.betaExemption.createdAt,
+      endedAt: schema.betaExemption.endedAt,
+    })
+    .from(schema.betaExemption)
+    .where(eq(schema.betaExemption.workspaceId, workspaceId))
+  return row ?? null
+}
+
+// No beta limits: an exempt internal workspace (free, unlimited), or a trial
+// team that subscribed (subscribing ends beta mode).
 export async function betaLimitsLifted(workspaceId: string) {
   const [trial] = await db
     .select({ subscribedAt: schema.workspaceBetaTrial.subscribedAt })

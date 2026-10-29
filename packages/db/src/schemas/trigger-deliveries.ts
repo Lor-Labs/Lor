@@ -29,6 +29,11 @@ export const triggerDelivery = pgTable(
     // rows. `payload` above stays the raw inbound body.
     actPayload: text("act_payload"),
     actLabel: text("act_label"),
+    // What the event is about (item URL, or a webhook's `subject`): routes
+    // Act into that subject's session in per_subject mode.
+    subject: text("subject"),
+    // A person dropped this waiting delivery from its session; never batched.
+    actDroppedAt: timestamp("act_dropped_at"),
     // Which effects this delivery actually kicked off.
     posted: boolean("posted").notNull().default(false),
     // The triggered agent run. Many deliveries share one run when batched.

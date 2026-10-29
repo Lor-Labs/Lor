@@ -31,10 +31,7 @@ import {
   assertBetaSandbox,
   assertWorkspaceActive,
 } from "@repo/db/queries/beta-access"
-import {
-  assertInferenceFundingCurrent,
-  workspaceInferenceFunding,
-} from "@repo/db/queries/inference"
+import { assertInferenceKeyCurrent } from "@repo/db/queries/inference"
 import type {
   AgentRunContext,
   LorMemory,
@@ -397,22 +394,12 @@ export async function claimAgentRun(
 
   // A trial workspace under the hosted beta; exempt ones bill normally.
   const betaRun = await isBetaWorkspace(claimed.workspaceId)
-  let funding =
-    claimed.inferenceFunding ??
-    (await workspaceInferenceFunding(claimed.workspaceId))
-  if (!claimed.inferenceFunding)
-    await db
-      .update(schema.agentRun)
-      .set({ inferenceFunding: funding })
-      .where(
-        and(
-          eq(schema.agentRun.id, runId),
-          eq(schema.agentRun.leaseOwner, WORKER_ID)
-        )
-      )
+  // Set when a Lor turn picks its model (pinInferenceFunding); null until
+  // then and for subscription/Codex runs.
+  let funding = claimed.inferenceFunding
   const assertCanInfer = async () => {
     await assertWorkspaceActive(claimed.workspaceId)
-    await assertInferenceFundingCurrent(claimed.workspaceId, funding)
+    await assertInferenceKeyCurrent(claimed.workspaceId, funding)
     await assertBetaSandbox(claimed.workspaceId)
     const check = await checkBetaCredits(claimed.workspaceId)
     if (check && !check.allowed)
@@ -449,9 +436,9 @@ export async function claimAgentRun(
   // The stop flag rides the heartbeat and every checkpoint, so a working run
   // notices within one step boundary or one heartbeat, whichever is sooner.
   const heartbeat = setInterval(() => {
-    if (hostedBetaConfig().enabled || funding.source === "byok") {
+    if (hostedBetaConfig().enabled || funding?.source === "byok") {
       void assertWorkspaceActive(claimed.workspaceId)
-        .then(() => assertInferenceFundingCurrent(claimed.workspaceId, funding))
+        .then(() => assertInferenceKeyCurrent(claimed.workspaceId, funding))
         .then(() => assertBetaSandbox(claimed.workspaceId))
         .then(() => checkBetaCredits(claimed.workspaceId))
         .then((check) => {
@@ -510,7 +497,7 @@ export async function claimAgentRun(
       outputTokens: u.outputTokens,
     }
     // Own key: the provider's list price, of which only the fee is charged.
-    const listPrice = funding.source === "byok" ? byokPrice(u.model) : null
+    const listPrice = funding?.source === "byok" ? byokPrice(u.model) : null
     const rate = listPrice
       ? { ...listPrice, conversionRate: env.CREDIT_CONVERSION_RATE }
       : await getRate(
@@ -528,7 +515,7 @@ export async function claimAgentRun(
     const price = await priceFor(u, oneRequest)
     if (!price) return { credits: 0, usd: 0 }
     const share =
-      funding.source === "byok"
+      funding?.source === "byok"
         ? byokFeeShare(price.rate.conversionRate)
         : betaRun
           ? 1
@@ -551,8 +538,8 @@ export async function claimAgentRun(
         {
           ...usage,
           costUsd,
-          byok: funding.source === "byok",
-          requestedModel: funding.model,
+          byok: funding?.source === "byok",
+          requestedModel: funding?.model,
           workspaceId: claimed.workspaceId,
           tool: "lor.respond",
           billingKey: `${runId}:attempt:${claimed.attempt}:usage:${betaUsageSequence}`,
@@ -579,7 +566,7 @@ export async function claimAgentRun(
       .update(schema.agentRun)
       .set({
         ...usageIncrements(kind === "step" ? 1 : 0, usage, credits),
-        ...(usage.gatewayCostUsd !== undefined && funding.source === "lor"
+        ...(usage.gatewayCostUsd !== undefined && funding?.source !== "byok"
           ? gatewayCostIncrements(usd, usage.gatewayCostUsd)
           : {}),
       })
@@ -804,10 +791,9 @@ export async function claimAgentRun(
   }
 
   const handle: RunHandle = {
-    funding,
-    selectInferenceModel: async (model) => {
-      if (funding.modelResolved) return funding
-      const resolved = { ...funding, model, modelResolved: true }
+    funding: funding ?? undefined,
+    pinInferenceFunding: async (resolved) => {
+      if (funding) return funding
       const rows = await db
         .update(schema.agentRun)
         .set({ inferenceFunding: resolved })

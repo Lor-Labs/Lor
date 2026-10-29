@@ -26,7 +26,7 @@ Configure creates a paused campaign. Open/pause controls enrollment, not existin
 Keep LOR_HOSTED_BETA=false until all launch gates in the runbook are complete.
 Adjust sets new total grants, not additions. Reuse the request id only for retries.
 --credits is the pooled grant for AI, sandbox and browser time (1 credit = $0.01).
-Exempt keeps an internal workspace (no trial) on normal access and billing.`
+Exempt makes an internal workspace (no trial) free: unlimited AI and sandbox time.`
 
 function positiveInteger(value: string, name: string): number {
   if (!/^\d+$/.test(value))

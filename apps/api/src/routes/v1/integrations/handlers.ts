@@ -29,8 +29,10 @@ import {
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
+import { actCodeChanged, actCodeOf, checkActTarget } from "@/lib/act-target"
 import {
   githubAccountToken,
+  githubAuthorizeUrl,
   verifyGithubInstallationOwner,
 } from "@/lib/github-account"
 import {
@@ -197,6 +199,9 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             channelId: connectorTrigger.channelId,
             post: connectorTrigger.post,
             actInstructions: connectorTrigger.actInstructions,
+            actSessionMode: connectorTrigger.actSessionMode,
+            actRepoFullName: connectorTrigger.actRepoFullName,
+            actBaseBranch: connectorTrigger.actBaseBranch,
             actWindowSeconds: connectorTrigger.actWindowSeconds,
             hourlyRunCap: connectorTrigger.hourlyRunCap,
             dailyRunCap: connectorTrigger.dailyRunCap,
@@ -298,6 +303,8 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             channelId: trigger?.channelId ?? null,
             post: trigger?.post ?? true,
             actInstructions: trigger?.actInstructions ?? null,
+            actSessionMode: trigger?.actSessionMode ?? "per_event",
+            actCode: trigger ? actCodeOf(trigger) : null,
             // Unconfigured events show the same defaults a new trigger gets.
             actWindowSeconds:
               trigger?.actWindowSeconds ?? ACT_DEFAULTS.windowSeconds,
@@ -321,30 +328,32 @@ export const startGithubConnect: AppRouteHandler<
   const user = c.var.user
 
   await assertWorkspaceActive(workspace.id)
-  const account = await githubAccountToken(user.id).catch(() => null)
-  if (account?.status !== "ok") {
-    return c.json(
-      {
-        success: false,
-        message:
-          "Connect your GitHub account in Settings → Linked accounts before connecting a workspace",
-      },
-      HttpStatusCodes.BAD_REQUEST
-    )
-  }
-
-  const url = githubInstallUrl(signOAuthState(workspace.slug, user.id))
-  if (!url) {
-    return c.json(
+  const unavailable = () =>
+    c.json(
       { success: false, message: "GitHub isn't available on this server" },
       HttpStatusCodes.BAD_REQUEST
     )
+  const url = githubInstallUrl(signOAuthState(workspace.slug, user.id))
+  if (!url) return unavailable()
+
+  // Setup verifies installation ownership with the person's own GitHub
+  // account, so a missing or expired link is authorized first; its callback
+  // then asks for the install URL again.
+  const account = await githubAccountToken(user.id).catch(() => null)
+  if (account?.status !== "ok") {
+    const authorizeUrl = githubAuthorizeUrl(user.id, workspace.slug)
+    if (!authorizeUrl) return unavailable()
+    return c.json(
+      { url: authorizeUrl, step: "account" as const },
+      HttpStatusCodes.OK
+    )
   }
+
   // Best effort: a fresh install returns the signed state on its own.
   await recordGithubConnectIntent(user.id, workspace.id).catch((err) =>
     logger.warn({ err }, "GitHub connect intent not recorded")
   )
-  return c.json({ url }, HttpStatusCodes.OK)
+  return c.json({ url, step: "install" as const }, HttpStatusCodes.OK)
 }
 
 // GitHub's Setup URL page posts here. Session-scoped because the workspace
@@ -927,6 +936,8 @@ export const updateIntegration: AppRouteHandler<
     channelId,
     post,
     actInstructions,
+    actSessionMode,
+    actCode,
     actWindowSeconds,
     hourlyRunCap,
     dailyRunCap,
@@ -993,6 +1004,41 @@ export const updateIntegration: AppRouteHandler<
     )
   }
 
+  const saved = await db
+    .select({
+      channelId: connectorTrigger.channelId,
+      actSessionMode: connectorTrigger.actSessionMode,
+      actRepoFullName: connectorTrigger.actRepoFullName,
+      actBaseBranch: connectorTrigger.actBaseBranch,
+    })
+    .from(connectorTrigger)
+    .where(
+      and(
+        eq(connectorTrigger.connectionId, connection.id),
+        eq(connectorTrigger.event, event)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  const sessionMode = actSessionMode ?? saved?.actSessionMode ?? "per_event"
+  const code = actCode !== undefined ? actCode : saved ? actCodeOf(saved) : null
+  const actTarget = await checkActTarget({
+    workspaceId: workspace.id,
+    channelId,
+    sessionMode,
+    code,
+    // A moved trigger needs the repo checked against its new channel.
+    recheck:
+      saved?.channelId !== channelId ||
+      actCodeChanged(actCode, saved ? actCodeOf(saved) : null),
+  })
+  if (!actTarget.ok) {
+    return c.json(
+      { success: false, message: actTarget.message },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
   await db
     .insert(connectorTrigger)
     .values({
@@ -1001,6 +1047,8 @@ export const updateIntegration: AppRouteHandler<
       channelId,
       post,
       actInstructions,
+      actSessionMode: sessionMode,
+      ...actTarget.columns,
       // Absent = keep the column default on create.
       ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
       ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
@@ -1012,6 +1060,8 @@ export const updateIntegration: AppRouteHandler<
         channelId,
         post,
         actInstructions,
+        actSessionMode: sessionMode,
+        ...actTarget.columns,
         // Absent = leave the configured limits alone.
         ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
         ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),

@@ -2,6 +2,7 @@ import { ArrowTurnForwardIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import type { RealtimeForwardedMessage } from "@repo/realtime-types"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { HeightTransition } from "@repo/ui/components/height-transition"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
@@ -60,21 +61,23 @@ export function ForwardedMessageCard({
         </Avatar>
         <span className="font-medium">{author.name}</span>
       </div>
-      <div
-        ref={contentRef}
-        className={cn(
-          "mt-1 overflow-hidden",
-          !expanded && "max-h-60",
-          !expanded &&
-            canExpand &&
-            "[mask-image:linear-gradient(to_bottom,black_75%,transparent)]"
-        )}
-      >
-        <MessageMarkdown
-          content={forwarded.content}
-          mentions={forwarded.mentions}
-        />
-      </div>
+      <HeightTransition contentKey={expanded ? "full" : "clamped"}>
+        <div
+          ref={contentRef}
+          className={cn(
+            "mt-1 overflow-hidden",
+            !expanded && "max-h-60",
+            !expanded &&
+              canExpand &&
+              "[mask-image:linear-gradient(to_bottom,black_75%,transparent)]"
+          )}
+        >
+          <MessageMarkdown
+            content={forwarded.content}
+            mentions={forwarded.mentions}
+          />
+        </div>
+      </HeightTransition>
       {canExpand && (
         <button
           type="button"

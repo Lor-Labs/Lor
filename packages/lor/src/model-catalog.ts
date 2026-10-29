@@ -1,8 +1,9 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models"
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all"
 import { assertHostedHarness } from "@repo/db/queries/beta-access"
-import { workspaceInferenceFunding } from "@repo/db/queries/inference"
+import { workspaceInferenceKeys } from "@repo/db/queries/inference"
 import { assertHarnessEnabled } from "@repo/utils/features"
+import { type KeyProvider, keyModelId } from "@repo/utils/inference"
 import { claudeModels, startingClaudeModels } from "./claude-account"
 import { harnessModels } from "./harness-models"
 import { LOR_FALLBACK_MODELS, LOR_MODEL } from "./models"
@@ -28,6 +29,9 @@ export type AgentModelOption = {
   // The vendor, to group a long list ("anthropic", "openai"); null in a
   // harness with one vendor.
   provider: string | null
+  // The workspace's own key that pays for this model; null: Lor credits, or
+  // the person's subscription.
+  keyProvider: KeyProvider | null
   // Effort levels the model takes, lowest first; empty: none to pick.
   efforts: string[]
   // Fast mode is for subscription harnesses only.
@@ -45,37 +49,57 @@ export type CatalogHarness = "pi" | "claude_code" | "codex"
 
 const GATEWAY_PROVIDER = "vercel-ai-gateway"
 
-// Lor's own agent: every chat model in Pi's AI Gateway catalog (generated
-// from models.dev), with the thinking levels Pi maps for each. Lor's main
-// model and its fallbacks come first. The catalog's "-fast" models are fast
-// mode, which Lor's agent doesn't offer.
-function lorCatalog(): AgentModelCatalog {
+const piEfforts = (levels: string[]) => (levels.length > 1 ? levels : [])
+
+// Lor's own agent: each provider the workspace has a key for lists its
+// native models on that key; then every chat model in Pi's AI Gateway
+// catalog (generated from models.dev) on Lor credits. A model can appear on
+// both, so the person picks who pays. Lor's main model and its fallbacks
+// lead the Gateway list. Its "-fast" models are fast mode, which Lor's agent
+// doesn't offer.
+function lorCatalog(keys: KeyProvider[]): AgentModelCatalog {
   const pinned = [LOR_MODEL, ...LOR_FALLBACK_MODELS]
   const rank = (id: string) => {
     const at = pinned.indexOf(id)
     return at === -1 ? pinned.length : at
   }
-  const models = getBuiltinModels(GATEWAY_PROVIDER)
-    .filter((model) => !model.id.endsWith("-fast"))
-    .map((model) => {
-      const levels = getSupportedThinkingLevels(model)
-      return {
-        id: model.id,
+  const keyModels = keys.flatMap((provider) =>
+    getBuiltinModels(provider)
+      .map((model) => ({
+        id: keyModelId(provider, model.id),
         name: model.name,
         description: null,
         resolvedModel: null,
-        provider: model.id.split("/")[0] ?? null,
-        efforts: levels.length > 1 ? levels : [],
+        provider,
+        keyProvider: provider,
+        efforts: piEfforts(getSupportedThinkingLevels(model)),
         fast: false,
-      }
-    })
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  )
+  const lorModels = getBuiltinModels(GATEWAY_PROVIDER)
+    .filter((model) => !model.id.endsWith("-fast"))
+    .map((model) => ({
+      id: model.id,
+      name: model.name,
+      description: null,
+      resolvedModel: null,
+      provider: model.id.split("/")[0] ?? null,
+      keyProvider: null,
+      efforts: piEfforts(getSupportedThinkingLevels(model)),
+      fast: false,
+    }))
     .sort(
       (a, b) =>
         rank(a.id) - rank(b.id) ||
         (a.provider ?? "").localeCompare(b.provider ?? "") ||
         a.name.localeCompare(b.name)
     )
-  return { models, defaultModel: LOR_MODEL, defaultEffort: "high" }
+  return {
+    models: [...keyModels, ...lorModels],
+    defaultModel: LOR_MODEL,
+    defaultEffort: "high",
+  }
 }
 
 // With no Claude account connected, or Anthropic unreachable: Claude Code's
@@ -104,6 +128,7 @@ function namedOnly(
     description: null,
     resolvedModel: null,
     provider: null,
+    keyProvider: null,
     efforts: [],
     fast: false,
   }))
@@ -132,6 +157,7 @@ async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
           description: model.description ?? null,
           resolvedModel: model.resolvedModel ?? null,
           provider: null,
+          keyProvider: null,
           efforts: model.supportedEffortLevels,
           fast: model.supportsFastMode,
         }))
@@ -163,6 +189,7 @@ async function codexCatalog(): Promise<AgentModelCatalog> {
           description: model.description ?? null,
           resolvedModel: null,
           provider: null,
+          keyProvider: null,
           efforts: model.supportedEffortLevels.filter(isCodexEffort),
           fast: false,
         }))
@@ -185,28 +212,8 @@ export async function agentModelCatalog(
 ): Promise<AgentModelCatalog> {
   assertHarnessEnabled(harness)
   assertHostedHarness(harness)
-  const funding = await workspaceInferenceFunding(workspaceId)
-  if (funding.source === "byok") {
-    if (harness !== "pi")
-      throw new Error("Workspace API keys require a Lor session")
-    return {
-      models: getBuiltinModels(funding.provider).map((model) => {
-        const levels = getSupportedThinkingLevels(model)
-        return {
-          id: model.id,
-          name: model.name,
-          description: null,
-          resolvedModel: null,
-          provider: funding.provider,
-          efforts: levels.length > 1 ? levels : [],
-          fast: false,
-        }
-      }),
-      defaultModel: funding.model,
-      defaultEffort: "high",
-    }
-  }
   if (harness === "claude_code") return claudeCodeCatalog(userId)
   if (harness === "codex") return codexCatalog()
-  return lorCatalog()
+  const keys = await workspaceInferenceKeys(workspaceId)
+  return lorCatalog(keys.map((key) => key.provider))
 }

@@ -1,5 +1,5 @@
 import { db, eq, schema } from "@repo/db"
-import { betaLimitsLifted } from "@repo/db/queries/beta-access"
+import { betaLimitsLifted, isBetaExempt } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
 import { createLogger } from "@repo/logger"
 import { trackCredits } from "./autumn"
@@ -103,8 +103,13 @@ export async function recordUsage(
       (!Number.isSafeInteger(betaDebitMicroUsd) || betaDebitMicroUsd < 0)
     )
       throw new Error("Invalid beta inference cost")
+    // Exempt internal workspaces keep the cost row but are never debited.
+    const free =
+      !billable || beta || (u.byok && chargedUsd === 0)
+        ? true
+        : await isBetaExempt(u.workspaceId)
     const credits =
-      !beta && billable && chargedUsd !== null && !(u.byok && chargedUsd === 0)
+      !free && chargedUsd !== null
         ? creditsForCost(chargedUsd, u.byok ? 1 : env.CREDIT_CONVERSION_RATE)
         : 0
     const debitKey = usageDebitKey({

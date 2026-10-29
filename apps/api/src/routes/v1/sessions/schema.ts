@@ -35,6 +35,7 @@ export const agentSessionSchema = z
     titleEditedAt: z.string().nullable(),
     loopId: z.string().uuid().nullable(),
     triggerId: z.string().uuid().nullable(),
+    triggerSubject: z.string().nullable(),
     archivedAt: z.string().nullable(),
     archivedById: z.string().uuid().nullable(),
     lastActivityAt: z.string(),
@@ -102,6 +103,16 @@ export const updateAgentSessionRequestSchema = z
 
 export const updateAgentSessionResponseSchema = z.object({
   session: agentSessionSchema,
+})
+
+// Act events waiting for the session's run to finish
+// (reference/act-sessions-runbook.md).
+export const actWaitingResponseSchema = z.object({
+  count: z.number().int(),
+})
+
+export const dropActWaitingResponseSchema = z.object({
+  dropped: z.number().int(),
 })
 
 export const getAgentSessionResponseSchema = z.object({

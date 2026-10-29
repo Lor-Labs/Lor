@@ -4,6 +4,7 @@ import {
   foreignKey,
   index,
   integer,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -20,6 +21,15 @@ export const ACT_DEFAULTS = {
   hourlyRunCap: 3,
   dailyRunCap: 20,
 } as const
+
+// Where an Act run goes (reference/act-sessions-runbook.md): a new session
+// per run, the session of the event's subject (same PR, issue, record), or
+// the trigger's one ongoing session.
+export const actSessionModeEnum = pgEnum("act_session_mode", [
+  "per_event",
+  "per_subject",
+  "ongoing",
+])
 
 // A trigger: one connector event kind (e.g. GitHub "pr_merged") anchored to a
 // channel, fanning out to effects — POST (message into the channel) and Act
@@ -41,6 +51,13 @@ export const connectorTrigger = pgTable(
     post: boolean("post").notNull().default(true),
     // Act instructions — null = Act off.
     actInstructions: text("act_instructions"),
+    actSessionMode: actSessionModeEnum("act_session_mode")
+      .notNull()
+      .default("per_event"),
+    // Code mode: Act starts code sessions on this repo and branch. Null =
+    // chat sessions.
+    actRepoFullName: text("act_repo_full_name"),
+    actBaseBranch: text("act_base_branch"),
     enabled: boolean("enabled").notNull().default(true),
     // Act rate shape. The window coalesces a burst into ONE run: the first
     // delivery opens it (actWindowOpenedAt), everything arriving before it
@@ -96,3 +113,4 @@ export const connectorTriggerRelations = relations(
 )
 
 export type ConnectorTrigger = typeof connectorTrigger.$inferSelect
+export type ActSessionMode = (typeof actSessionModeEnum.enumValues)[number]

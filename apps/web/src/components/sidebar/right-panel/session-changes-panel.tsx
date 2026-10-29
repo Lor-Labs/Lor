@@ -10,6 +10,7 @@ import { getSingularPatch } from "@pierre/diffs"
 import { FileDiff } from "@pierre/diffs/react"
 import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
+import { Reveal } from "@repo/ui/components/collapsible"
 import { Spinner } from "@repo/ui/components/spinner"
 import {
   Tooltip,
@@ -396,8 +397,8 @@ function FileGroup({
           aria-label={`${groupState === "all" ? "Unstage" : "Stage"} all ${title.toLowerCase()} files`}
         />
       </div>
-      {!collapsed &&
-        files.map((file) => (
+      <Reveal open={!collapsed}>
+        {files.map((file) => (
           <FileRow
             key={file.path}
             file={file}
@@ -407,6 +408,7 @@ function FileGroup({
             onToggle={(staged) => onToggleGroup([file], staged)}
           />
         ))}
+      </Reveal>
     </section>
   )
 }

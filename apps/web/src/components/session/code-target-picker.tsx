@@ -12,10 +12,12 @@ import { Button } from "@repo/ui/components/button"
 import { Combobox, ComboboxPrimitive } from "@repo/ui/components/combobox"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { ToggleGroup, ToggleGroupItem } from "@repo/ui/components/toggle-group"
+import { cn } from "@repo/ui/lib/utils"
 import { isValidNewBranchName } from "@repo/utils/github"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { type ReactNode, useEffect, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { apiClient } from "@/lib/api-client"
 import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
 import { openGithubConnect } from "@/lib/github-connect"
@@ -118,22 +120,12 @@ function branchesQueryOptions(
   }
 }
 
-export function useCodeTarget({
-  workspaceSlug,
-  channelId,
-  enabled,
-}: {
-  workspaceSlug: string
-  channelId: string
+function useCodeRepos(
+  workspaceSlug: string,
+  channelId: string,
   enabled: boolean
-}) {
-  const [picked, setPicked] = useState<{
-    repo: string
-    branch: string | null
-    // A branch the session makes from `branch` at its start.
-    newBranch?: string
-  } | null>(null)
-  const repos = useQuery({
+) {
+  return useQuery({
     queryKey: ["code-repos", workspaceSlug, channelId],
     queryFn: async (): Promise<CodeRepos> => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
@@ -150,6 +142,24 @@ export function useCodeTarget({
     enabled,
     staleTime: REPOS_STALE_MS,
   })
+}
+
+export function useCodeTarget({
+  workspaceSlug,
+  channelId,
+  enabled,
+}: {
+  workspaceSlug: string
+  channelId: string
+  enabled: boolean
+}) {
+  const [picked, setPicked] = useState<{
+    repo: string
+    branch: string | null
+    // A branch the session makes from `branch` at its start.
+    newBranch?: string
+  } | null>(null)
+  const repos = useCodeRepos(workspaceSlug, channelId, enabled)
   const list = repos.data?.available ? repos.data.repos : []
   const repo =
     [picked?.repo, readStored(repoKey(workspaceSlug))].find(
@@ -292,6 +302,96 @@ export function CodeTargetPicker({
   )
 }
 
+// An automation's saved repo and branch (reference/act-sessions-runbook.md):
+// controlled by the caller, never remembered like the composer's pick. A
+// picked repo starts on its default branch.
+export function SavedCodeTargetPicker({
+  workspaceSlug,
+  channelId,
+  value,
+  disabled,
+  onChange,
+}: {
+  workspaceSlug: string
+  channelId: string
+  value: { repo: string; branch: string } | null
+  disabled?: boolean
+  onChange: (next: { repo: string; branch: string }) => void
+}) {
+  const queryClient = useQueryClient()
+  const latestPick = useRef(0)
+  const repos = useCodeRepos(workspaceSlug, channelId, true)
+  const defaults = useQuery({
+    ...branchesQueryOptions(workspaceSlug, channelId, value?.repo ?? null, ""),
+  })
+  if (repos.data && !repos.data.available) {
+    return (
+      <div className="flex min-w-0 items-center gap-2 text-xs">
+        <GithubSetupNote workspaceSlug={workspaceSlug} compact />
+      </div>
+    )
+  }
+  if (!repos.data) {
+    return (
+      <span className="text-xs">
+        <CodeNote>
+          {repos.isError ? "Couldn't load repositories" : "Loading…"}
+        </CodeNote>
+      </span>
+    )
+  }
+  const pickRepo = async (repo: string) => {
+    latestPick.current += 1
+    const pick = latestPick.current
+    const branches = await queryClient
+      .fetchQuery(branchesQueryOptions(workspaceSlug, channelId, repo, ""))
+      .catch(() => null)
+    // A slow branch fetch for an earlier pick must not override a newer one.
+    if (pick !== latestPick.current) return
+    if (!branches?.defaultBranch) {
+      toast.error("Couldn't load that repository's branches")
+      return
+    }
+    onChange({ repo, branch: branches.defaultBranch })
+  }
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-1 text-xs",
+        disabled && "pointer-events-none opacity-60"
+      )}
+    >
+      <SearchPicker
+        icon={GithubIcon}
+        value={value?.repo ?? ""}
+        label={value?.repo ?? "Pick a repository"}
+        items={repos.data.repos}
+        placeholder="Find a repository…"
+        emptyText="No repositories found"
+        disabled={disabled}
+        onPick={(repo) => void pickRepo(repo)}
+      />
+      {value && (
+        <BranchPicker
+          workspaceSlug={workspaceSlug}
+          channelId={channelId}
+          code={{
+            repo: value.repo,
+            branch: value.branch,
+            defaultBranch: defaults.data?.defaultBranch ?? null,
+          }}
+          value={value.branch}
+          disabled={disabled}
+          onPick={(branch) => {
+            latestPick.current += 1
+            onChange({ repo: value.repo, branch })
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
 function CodeNote({ children }: { children: ReactNode }) {
   return (
     <span className="min-w-0 truncate text-muted-foreground">{children}</span>
@@ -300,8 +400,15 @@ function CodeNote({ children }: { children: ReactNode }) {
 
 // The repo list is refused when GitHub isn't connected or Clone repository is
 // off here; the workspace's connectors tell which. An admin connects from
-// here, and GitHub's setup page comes back to this page.
-function GithubSetupNote({ workspaceSlug }: { workspaceSlug: string }) {
+// here, and GitHub's setup page comes back to this page. Compact (a settings
+// row whose label already says Repository): the Connect button alone.
+function GithubSetupNote({
+  workspaceSlug,
+  compact,
+}: {
+  workspaceSlug: string
+  compact?: boolean
+}) {
   const queryClient = useQueryClient()
   const { data, isError, refetch } = useQuery(
     integrationsQueryOptions(workspaceSlug)
@@ -357,7 +464,9 @@ function GithubSetupNote({ workspaceSlug }: { workspaceSlug: string }) {
   }
   return (
     <>
-      <CodeNote>Code sessions work in a GitHub repository</CodeNote>
+      {!compact && (
+        <CodeNote>Code sessions work in a GitHub repository</CodeNote>
+      )}
       <Button
         size="xs"
         variant="outline"
@@ -388,14 +497,16 @@ function BranchPicker({
   code,
   value,
   labelBadge,
+  disabled,
   onPick,
   onCreate,
 }: {
   workspaceSlug: string
   channelId: string
-  code: CodeTargetState
+  code: Pick<CodeTargetState, "repo" | "branch" | "defaultBranch">
   value: string
   labelBadge?: string
+  disabled?: boolean
   onPick: (branch: string) => void
   onCreate?: (name: string) => void
 }) {
@@ -446,6 +557,7 @@ function BranchPicker({
       ]}
       placeholder="Find a branch…"
       emptyText={searching ? "Searching GitHub…" : "No branches found"}
+      disabled={disabled}
       onPick={onPick}
       onOpenChange={setOpen}
       onQueryChange={setQuery}
@@ -470,6 +582,7 @@ function SearchPicker({
   items,
   placeholder,
   emptyText,
+  disabled,
   onPick,
   onOpenChange,
   onQueryChange,
@@ -485,6 +598,7 @@ function SearchPicker({
   items: string[]
   placeholder: string
   emptyText: string
+  disabled?: boolean
   onPick: (value: string) => void
   onOpenChange?: (open: boolean) => void
   onQueryChange?: (query: string) => void
@@ -508,6 +622,7 @@ function SearchPicker({
     <Combobox<string>
       items={createLabel ? [...items, `${CREATE_ITEM}${typed}`] : items}
       value={value}
+      disabled={disabled}
       onValueChange={(next) => {
         if (!next) return
         if (next.startsWith(CREATE_ITEM)) {

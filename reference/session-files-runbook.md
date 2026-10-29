@@ -26,8 +26,7 @@ Tick each step's boxes as it lands and record departures in "Deviations".
    `components/session/`; the right-panel thread keeps no Lor code.
 4. **One file chip.** A custom file-type icon (page with folded corner,
    extension label, tone per type) and one chip component replace the seven
-   current file presentations. Modeled on careCycle's import assistant
-   (`packages/ui/src/components/attachment.tsx`, `file-type-icon.tsx`).
+   current file presentations.
 5. **Only sandbox work flattens in the tool trail.** Normal tool calls keep
    today's two levels. Sandbox sub-steps become flat rows with a file chip,
    diff counts and one expansion.
@@ -265,10 +264,9 @@ bring `apps/mobile` in line; all JS-only, so they ship via `eas update`.
 
 ## Deviations
 
-- Step 2: the chip is `FileChip`, not careCycle's `Attachment`, because
-  Nexus already exports an `Attachment` from `@repo/ui`. It drops careCycle's
-  upload states, vertical layout and horizontal group until something needs
-  them. `FileTypeIcon` adds presentation, image and media tones; generic
+- Step 2: the chip is `FileChip`, not `Attachment`, because Nexus already
+  exports an `Attachment` from `@repo/ui`. It leaves out upload states,
+  vertical layout and horizontal group until something needs them. `FileTypeIcon` adds presentation, image and media tones; generic
   files use `text-muted-foreground`.
 - Step 3 absorbed Step 4: once the panel read `?artifactId` from the URL on
   every page, the overlay, its conversation hook and the channel-only params

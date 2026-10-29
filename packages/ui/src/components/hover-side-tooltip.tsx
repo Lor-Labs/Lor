@@ -92,7 +92,10 @@ export function HoverSideTooltip({
       <div
         onMouseEnter={(e) => show(e.currentTarget)}
         onMouseLeave={hide}
-        onFocus={(e) => show(e.currentTarget)}
+        // Keyboard focus only; pointer or programmatic focus doesn't open it.
+        onFocus={(e) => {
+          if (e.target.matches(":focus-visible")) show(e.currentTarget)
+        }}
         onBlur={hide}
       >
         {children}

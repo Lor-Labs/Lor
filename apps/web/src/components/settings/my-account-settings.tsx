@@ -6,7 +6,6 @@ import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Separator } from "@repo/ui/components/separator"
-import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
@@ -41,6 +40,7 @@ export function MyAccountSettings() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragCountRef = useRef(0)
@@ -145,6 +145,7 @@ export function MyAccountSettings() {
   const handleSave = useCallback(async () => {
     if (!user) return
     setIsSaving(true)
+    setSaved(false)
 
     try {
       let imageUrl = user.image
@@ -166,7 +167,7 @@ export function MyAccountSettings() {
         setAvatarPreview(null)
       }
 
-      toast.success("Profile updated")
+      setSaved(true)
     } catch {
       toast.error("Failed to update profile")
     } finally {
@@ -291,9 +292,10 @@ export function MyAccountSettings() {
       <div className="flex justify-end">
         <Button
           onClick={handleSave}
-          disabled={!hasChanges || !isValid || isSaving}
+          disabled={!hasChanges || !isValid}
+          loading={isSaving}
+          success={saved}
         >
-          {isSaving && <Spinner className="size-4" />}
           Save Changes
         </Button>
       </div>

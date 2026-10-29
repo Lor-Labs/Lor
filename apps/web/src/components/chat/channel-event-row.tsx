@@ -11,6 +11,7 @@ import {
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
+import { HeightTransition } from "@repo/ui/components/height-transition"
 import {
   HoverCard,
   HoverCardContent,
@@ -750,7 +751,7 @@ export function ChannelEventRow({
   const rows = collapsed ? [events] : events.map((event) => [event])
 
   return (
-    <div>
+    <HeightTransition contentKey={collapsed ? "grouped" : "each"} fadeIn>
       {rows.map((row) => {
         const message = row[0]
         if (!message) return null
@@ -791,6 +792,6 @@ export function ChannelEventRow({
           </div>
         )
       })}
-    </div>
+    </HeightTransition>
   )
 }

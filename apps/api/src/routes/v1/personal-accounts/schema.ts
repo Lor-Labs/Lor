@@ -44,6 +44,9 @@ export const connectGithubAccountBodySchema = z.object({
 
 export const connectGithubAccountResponseSchema = z.object({
   account: githubAccountSchema,
+  // Set when a workspace's GitHub connector started this link; the client
+  // continues to that workspace's App install.
+  continueToWorkspaceSlug: z.string().nullable(),
 })
 
 export const disconnectGithubAccountResponseSchema = z.object({

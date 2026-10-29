@@ -25,7 +25,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatTime, timeAgo } from "@repo/utils/date"
-import { memo, useCallback, useEffect, useState } from "react"
+import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { MessageApprovalCard } from "@/components/chat/approval-card"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { EmbedCard } from "@/components/chat/embed-card"
@@ -351,6 +351,10 @@ export const MessageItem = memo(function MessageItem({
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [showBlockedContent, setShowBlockedContent] = useState(false)
+  const wasInFlight = useRef(false)
+  if (message.streaming || message.status === "pending") {
+    wasInFlight.current = true
+  }
 
   useEffect(() => {
     setShowBlockedContent(false)
@@ -819,6 +823,7 @@ export const MessageItem = memo(function MessageItem({
             !hasToolCalls &&
             !hasReasoningSegments ? (
             <LorFailureNotice
+              arrived={wasInFlight.current}
               text={message.content || "Lor couldn't respond to that."}
             />
           ) : hasToolCalls || hasReasoningSegments ? (

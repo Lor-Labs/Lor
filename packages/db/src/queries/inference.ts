@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { readServerEnv } from "@repo/env/server-fields"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
-import type { InferenceFunding } from "@repo/utils/inference"
-import { db, eq, schema } from "../index"
+import type { InferenceFunding, KeyProvider } from "@repo/utils/inference"
+import { and, asc, db, eq, schema } from "../index"
 
 function encryptionKey() {
   const key = readServerEnv(
@@ -12,34 +12,36 @@ function encryptionKey() {
   return key
 }
 
-export async function workspaceInferenceFunding(
-  workspaceId: string
-): Promise<InferenceFunding> {
-  const row = await db
-    .select({
-      keyId: schema.workspaceInferenceKey.keyId,
-      provider: schema.workspaceInferenceKey.provider,
-      model: schema.workspaceInferenceKey.model,
-    })
+const keyOf = (workspaceId: string, provider: KeyProvider) =>
+  and(
+    eq(schema.workspaceInferenceKey.workspaceId, workspaceId),
+    eq(schema.workspaceInferenceKey.provider, provider)
+  )
+
+export async function workspaceInferenceKeyId(
+  workspaceId: string,
+  provider: KeyProvider
+) {
+  return db
+    .select({ keyId: schema.workspaceInferenceKey.keyId })
     .from(schema.workspaceInferenceKey)
-    .where(eq(schema.workspaceInferenceKey.workspaceId, workspaceId))
-    .then((rows) => rows[0])
-  return row ? { source: "byok", ...row } : { source: "lor" }
+    .where(keyOf(workspaceId, provider))
+    .then((rows) => rows[0]?.keyId ?? null)
 }
 
-export async function assertInferenceFundingCurrent(
+// A run on a workspace key stops once that key is replaced or removed.
+// Lor-paid runs never depend on the workspace's keys.
+export async function assertInferenceKeyCurrent(
   workspaceId: string,
-  funding: InferenceFunding
+  funding: InferenceFunding | null
 ) {
-  const current = await workspaceInferenceFunding(workspaceId)
+  if (funding?.source !== "byok") return
   if (
-    current.source !== funding.source ||
-    (current.source === "byok" &&
-      funding.source === "byok" &&
-      current.keyId !== funding.keyId)
+    (await workspaceInferenceKeyId(workspaceId, funding.provider)) !==
+    funding.keyId
   )
     throw new Error(
-      "The workspace AI funding changed. Start a new response to use the updated settings."
+      "The workspace API key changed. Start a new response to use the updated key."
     )
 }
 
@@ -48,11 +50,14 @@ export async function loadWorkspaceInferenceKey(
   funding: Extract<InferenceFunding, { source: "byok" }>
 ) {
   const row = await db
-    .select()
+    .select({
+      keyId: schema.workspaceInferenceKey.keyId,
+      encryptedKey: schema.workspaceInferenceKey.encryptedKey,
+    })
     .from(schema.workspaceInferenceKey)
-    .where(eq(schema.workspaceInferenceKey.workspaceId, workspaceId))
+    .where(keyOf(workspaceId, funding.provider))
     .then((rows) => rows[0])
-  if (!row || row.keyId !== funding.keyId || row.provider !== funding.provider)
+  if (!row || row.keyId !== funding.keyId)
     throw new Error(
       "The workspace API key changed; this response has been paused"
     )
@@ -61,41 +66,56 @@ export async function loadWorkspaceInferenceKey(
 
 export async function saveWorkspaceInferenceKey(input: {
   workspaceId: string
-  provider: "anthropic" | "openai"
-  model: string
+  provider: KeyProvider
   apiKey: string
+  createdById: string
 }) {
   const values = {
     keyId: randomUUID(),
-    provider: input.provider,
-    model: input.model,
     encryptedKey: encryptSecret(input.apiKey, encryptionKey()),
     lastFour: input.apiKey.slice(-4),
-    updatedAt: new Date(),
+    createdById: input.createdById,
+    createdAt: new Date(),
   }
   await db
     .insert(schema.workspaceInferenceKey)
-    .values({ workspaceId: input.workspaceId, ...values })
+    .values({
+      workspaceId: input.workspaceId,
+      provider: input.provider,
+      ...values,
+    })
     .onConflictDoUpdate({
-      target: schema.workspaceInferenceKey.workspaceId,
+      target: [
+        schema.workspaceInferenceKey.workspaceId,
+        schema.workspaceInferenceKey.provider,
+      ],
       set: values,
     })
 }
 
-export async function workspaceInferenceSummary(workspaceId: string) {
+// Masked keys for billing settings and the composer's key-paid models.
+export async function workspaceInferenceKeys(workspaceId: string) {
   return db
     .select({
       provider: schema.workspaceInferenceKey.provider,
-      model: schema.workspaceInferenceKey.model,
       lastFour: schema.workspaceInferenceKey.lastFour,
+      createdAt: schema.workspaceInferenceKey.createdAt,
+      createdBy: schema.user.name,
     })
     .from(schema.workspaceInferenceKey)
+    .leftJoin(
+      schema.user,
+      eq(schema.workspaceInferenceKey.createdById, schema.user.id)
+    )
     .where(eq(schema.workspaceInferenceKey.workspaceId, workspaceId))
-    .then((rows) => rows[0] ?? null)
+    .orderBy(asc(schema.workspaceInferenceKey.provider))
 }
 
-export async function removeWorkspaceInferenceKey(workspaceId: string) {
+export async function removeWorkspaceInferenceKey(
+  workspaceId: string,
+  provider: KeyProvider
+) {
   await db
     .delete(schema.workspaceInferenceKey)
-    .where(eq(schema.workspaceInferenceKey.workspaceId, workspaceId))
+    .where(keyOf(workspaceId, provider))
 }

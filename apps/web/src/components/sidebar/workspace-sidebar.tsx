@@ -264,7 +264,7 @@ function WorkspaceSidebarInner() {
                       className={sidebarMenuIcon}
                       strokeWidth={1.5}
                     />
-                    Workspace settings
+                    Workspace Settings
                   </DropdownMenuItem>
                   {canInvite && (
                     <DropdownMenuItem
@@ -277,7 +277,7 @@ function WorkspaceSidebarInner() {
                         className={sidebarMenuIcon}
                         strokeWidth={1.5}
                       />
-                      Invite people
+                      Invite People
                     </DropdownMenuItem>
                   )}
                   {workspaceSlug && setupStatus === "open" && (
@@ -295,7 +295,7 @@ function WorkspaceSidebarInner() {
                         className={sidebarMenuIcon}
                         strokeWidth={1.5}
                       />
-                      Finish setup
+                      Finish Setup
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem
@@ -312,7 +312,7 @@ function WorkspaceSidebarInner() {
                       className={sidebarMenuIcon}
                       strokeWidth={1.5}
                     />
-                    How Lor works
+                    How Lor Works
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator className={sidebarMenuSeparator} />
@@ -323,7 +323,7 @@ function WorkspaceSidebarInner() {
                       className={sidebarMenuIcon}
                       strokeWidth={1.5}
                     />
-                    Switch workspace
+                    Switch Workspace
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent
                     sideOffset={6}
@@ -372,7 +372,7 @@ function WorkspaceSidebarInner() {
                         className={sidebarMenuIcon}
                         strokeWidth={1.5}
                       />
-                      Create workspace
+                      Create Workspace
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
@@ -451,14 +451,14 @@ function WorkspaceSidebarInner() {
                       className="size-4 mr-2"
                       strokeWidth={2}
                     />
-                    New channel
+                    New Channel
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={openCreateCategory}>
                     <HugeiconsIcon
                       icon={FolderAddIcon}
                       className="size-4 mr-2"
                     />
-                    New category
+                    New Category
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

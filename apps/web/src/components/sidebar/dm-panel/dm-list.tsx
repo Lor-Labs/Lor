@@ -12,10 +12,17 @@ import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useEffect } from "react"
+import {
+  sidebarRow,
+  sidebarRowHover,
+  sidebarRowMarkIn,
+  sidebarRowSelected,
+} from "@/components/sidebar/sidebar-menu-styles"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useSocket } from "@/context/socket-context"
 import { useUnread } from "@/context/unread-context"
+import { useNewIds } from "@/hooks/use-appended-ids"
 import { apiClient } from "@/lib/api-client"
 import type { DMember } from "@/lib/api-types"
 
@@ -48,6 +55,7 @@ export function DMList() {
       socket.off("notification:unread", onUnread)
     }
   }, [socket, queryClient])
+  const newDmIds = useNewIds(data?.data.map((dm) => dm.id) ?? [])
 
   if (!data || data.data.length === 0) {
     return (
@@ -75,6 +83,7 @@ export function DMList() {
             lastMessageAuthor={dm.lastMessage?.author.name ?? null}
             isGroupDM={dm.type === "group_dm"}
             active={dmId === dm.id}
+            arrived={newDmIds.has(dm.id)}
             onClick={() => {
               navigate({ to: "/dms/$dmId", params: { dmId: dm.id } })
               closeMobileSidebar(false)
@@ -115,6 +124,7 @@ function DMItem({
   lastMessageAuthor,
   isGroupDM,
   active = false,
+  arrived = false,
   onClick,
 }: {
   channelId: string
@@ -124,6 +134,7 @@ function DMItem({
   lastMessageAuthor: string | null
   isGroupDM: boolean
   active?: boolean
+  arrived?: boolean
   onClick?: () => void
 }) {
   const { getUnreadCount, getMentionCount } = useUnread()
@@ -141,14 +152,23 @@ function DMItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "group relative flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-foreground/[0.06]",
-        active && "bg-foreground/[0.06] text-foreground",
+        sidebarRow,
+        arrived &&
+          "fade-in-0 animate-in duration-300 motion-reduce:animate-none",
+        "group relative flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5",
+        active ? sidebarRowSelected : sidebarRowHover,
+        active && "text-foreground",
         !active && hasUnread && "text-foreground",
         !active && !hasUnread && "text-muted-foreground"
       )}
     >
       {!active && hasUnread && (
-        <div className="absolute left-0 top-1/2 h-2 w-[3px] -translate-y-1/2 rounded-r-full bg-foreground" />
+        <div
+          className={cn(
+            sidebarRowMarkIn,
+            "absolute inset-y-0 left-0 my-auto h-2 w-[3px] rounded-r-full bg-foreground"
+          )}
+        />
       )}
       {isGroupDM ? (
         <GroupDMAvatars members={members} />

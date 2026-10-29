@@ -4,7 +4,6 @@ import {
   betaUsageHalted,
   workspaceBetaAccess,
 } from "@repo/db/queries/beta-access"
-import { workspaceInferenceFunding } from "@repo/db/queries/inference"
 import { env } from "@repo/env/server"
 import { readServerEnv } from "@repo/env/server-fields"
 import { createLogger } from "@repo/logger"
@@ -167,11 +166,9 @@ export async function checkBetaCredits(
     if (!access.trial) return null
     if (await betaUsageHalted(access.trial.campaignKey))
       return { allowed: false, failOpen: false }
-    // A workspace key pays for AI, but the run's sandbox still draws on the
-    // pool.
+    // Runs on a workspace key need the pool too: its platform fee and
+    // sandbox time draw on it.
     if (access.trial.creditsEmptyAt) return { allowed: false, failOpen: false }
-    if ((await workspaceInferenceFunding(workspaceId)).source === "byok")
-      return { allowed: true, failOpen: false }
     // A new team's grant is created on its first sync.
     if (sync || !access.trial.autumnGrantCreatedAt) {
       const balance = await syncBetaCredits(workspaceId)

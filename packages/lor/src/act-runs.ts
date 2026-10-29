@@ -18,6 +18,7 @@ import {
 } from "@repo/db"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
+import type { AgentSession } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { logger } from "./logger"
 
@@ -495,6 +496,82 @@ export async function saveHandoffNote(
     .catch(() => {})
 }
 
+// The trigger's Act queue: every delivery Act hasn't handled yet, not a slice
+// of the window's clock. A delivery that arrived while a run was going must
+// end up in the next batch even if several windows have opened and closed
+// since. actPayload is only written when Act is on, so deliveries logged with
+// Act off are never dragged in.
+function actQueueFilter(triggerId: string) {
+  return and(
+    eq(schema.triggerDelivery.triggerId, triggerId),
+    isNull(schema.triggerDelivery.runId),
+    isNotNull(schema.triggerDelivery.actPayload),
+    isNull(schema.triggerDelivery.actDroppedAt),
+    gte(
+      schema.triggerDelivery.createdAt,
+      new Date(Date.now() - ACT_QUEUE_MAX_AGE_MS)
+    )
+  )
+}
+
+// Deliveries waiting to go into this session
+// (reference/act-sessions-runbook.md): its subject's in per_subject mode, or
+// all of the trigger's when it is the trigger's newest session in ongoing
+// mode. Null: nothing can wait for it.
+async function actWaitingFilter(
+  session: Pick<AgentSession, "id" | "triggerId" | "triggerSubject">
+): Promise<SQL | null> {
+  if (!session.triggerId) return null
+  const [trigger] = await db
+    .select({ mode: schema.connectorTrigger.actSessionMode })
+    .from(schema.connectorTrigger)
+    .where(eq(schema.connectorTrigger.id, session.triggerId))
+  const queue = actQueueFilter(session.triggerId)
+  if (!(trigger && queue)) return null
+  if (trigger.mode === "per_subject") {
+    return session.triggerSubject
+      ? (and(
+          queue,
+          eq(schema.triggerDelivery.subject, session.triggerSubject)
+        ) ?? null)
+      : null
+  }
+  if (trigger.mode !== "ongoing") return null
+  const [newest] = await db
+    .select({ id: schema.agentSession.id })
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.triggerId, session.triggerId))
+    .orderBy(desc(schema.agentSession.createdAt))
+    .limit(1)
+  return newest?.id === session.id ? queue : null
+}
+
+export async function countActWaiting(
+  session: Pick<AgentSession, "id" | "triggerId" | "triggerSubject">
+): Promise<number> {
+  const waiting = await actWaitingFilter(session)
+  if (!waiting) return 0
+  const [row] = await db
+    .select({ value: sql<number>`count(*)::int` })
+    .from(schema.triggerDelivery)
+    .where(waiting)
+  return row?.value ?? 0
+}
+
+// A person drops the session's waiting events; they never run.
+export async function dropActWaiting(
+  session: Pick<AgentSession, "id" | "triggerId" | "triggerSubject">
+): Promise<number> {
+  const waiting = await actWaitingFilter(session)
+  if (!waiting) return 0
+  const dropped = await db
+    .update(schema.triggerDelivery)
+    .set({ actDroppedAt: new Date() })
+    .where(waiting)
+    .returning({ id: schema.triggerDelivery.id })
+  return dropped.length
+}
+
 export type ActFlushResult =
   // The batch is ready; the caller executes this run. `rearmDelayMs` is set
   // when deliveries landed after the batch was claimed — they need their own
@@ -521,6 +598,7 @@ export async function flushActWindow(
       openedAt: schema.connectorTrigger.actWindowOpenedAt,
       hourlyRunCap: schema.connectorTrigger.hourlyRunCap,
       dailyRunCap: schema.connectorTrigger.dailyRunCap,
+      sessionMode: schema.connectorTrigger.actSessionMode,
       channelId: schema.channel.id,
       workspaceId: schema.channel.workspaceId,
     })
@@ -547,18 +625,7 @@ export async function flushActWindow(
     return { kind: "skip", reason: "channel_without_workspace" }
   }
 
-  // The queue is "every delivery Act hasn't handled yet", not a slice of the
-  // window's clock: a delivery that arrived while a run was going must end up
-  // in the next batch even if several windows have opened and closed since.
-  // actPayload is only written when Act is on, so deliveries logged with Act
-  // off are never dragged in.
-  const since = new Date(Date.now() - ACT_QUEUE_MAX_AGE_MS)
-  const unclaimed = and(
-    eq(schema.triggerDelivery.triggerId, triggerId),
-    isNull(schema.triggerDelivery.runId),
-    isNotNull(schema.triggerDelivery.actPayload),
-    gte(schema.triggerDelivery.createdAt, since)
-  )
+  const unclaimed = actQueueFilter(triggerId)
   const pending = await db
     .select({ value: sql<number>`count(*)::int` })
     .from(schema.triggerDelivery)
@@ -567,6 +634,24 @@ export async function flushActWindow(
   if (pending === 0) {
     await closeActWindow(triggerId)
     return { kind: "skip", reason: "nothing_pending" }
+  }
+
+  // per_subject: a run takes the oldest subject's deliveries, since they all
+  // go into that subject's session. Other subjects re-arm as stragglers.
+  let batch = unclaimed
+  if (trigger.sessionMode === "per_subject") {
+    const [oldest] = await db
+      .select({ subject: schema.triggerDelivery.subject })
+      .from(schema.triggerDelivery)
+      .where(unclaimed)
+      .orderBy(schema.triggerDelivery.createdAt)
+      .limit(1)
+    batch = and(
+      unclaimed,
+      oldest?.subject
+        ? eq(schema.triggerDelivery.subject, oldest.subject)
+        : isNull(schema.triggerDelivery.subject)
+    )
   }
 
   // Leading-edge runs claim the delivery that opened the window, so an already
@@ -628,7 +713,7 @@ export async function flushActWindow(
   const claimed = await db
     .update(schema.triggerDelivery)
     .set({ runId: run.id })
-    .where(unclaimed)
+    .where(batch)
     .returning({ id: schema.triggerDelivery.id })
   if (claimed.length === 0) {
     await db

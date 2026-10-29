@@ -20,6 +20,7 @@ import {
   RewoundTurnsRow,
   rewoundGroups,
 } from "@/components/chat/rewound-turns"
+import { ARRIVE_IN, useAppendedIds } from "@/hooks/use-appended-ids"
 import type { Message } from "@/lib/api-types"
 
 const MESSAGE_GROUP_WINDOW_MINUTES = 5
@@ -79,6 +80,7 @@ export function ConversationMessages({
     () => (isDocument ? rewoundGroups(replies) : []),
     [isDocument, replies]
   )
+  const appended = useAppendedIds(replies.map((msg) => msg.id))
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set())
   const toggleGroup = (id: string) =>
     setUnfolded((current) => {
@@ -119,11 +121,13 @@ export function ConversationMessages({
     // Joined borders give the expanded history one continuous surface.
     const historyClassName = history
       ? cn(
-          "mx-4 border-border/70 border-x bg-muted/35",
+          "mx-4 border-border/70 border-x bg-muted/35 fade-in-0 animate-in duration-200 ease-out motion-reduce:animate-none",
           i === history.start && "pt-1",
           i === history.end - 1 && "mb-3 rounded-b-xl border-b pb-3"
         )
-      : undefined
+      : appended.has(msg.id)
+        ? ARRIVE_IN
+        : undefined
     const prev = replies[i - 1]
     const isDateBoundary = !prev || !isSameDay(msg.createdAt, prev.createdAt)
     const isWithinGroupWindow =

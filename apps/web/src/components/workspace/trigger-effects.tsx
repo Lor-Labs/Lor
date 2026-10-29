@@ -1,5 +1,10 @@
-import { BubbleChatIcon, MagicWand01Icon } from "@hugeicons/core-free-icons"
+import {
+  ArrowRight01Icon,
+  BubbleChatIcon,
+  MagicWand01Icon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+import { Reveal } from "@repo/ui/components/collapsible"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import {
@@ -11,7 +16,9 @@ import {
 } from "@repo/ui/components/select"
 import { Switch } from "@repo/ui/components/switch"
 import { Textarea } from "@repo/ui/components/textarea"
-import type { ReactNode } from "react"
+import { cn } from "@repo/ui/lib/utils"
+import { type ReactNode, useState } from "react"
+import { SavedCodeTargetPicker } from "@/components/session/code-target-picker"
 
 // Shared effect rows for trigger config (BYO webhooks + connector events).
 // One trigger can fan out to either effect or both.
@@ -30,6 +37,10 @@ export type TriggerEffectsValue = {
   post: boolean
   // null = Act off; empty string = Act on, Lor uses judgment
   actInstructions: string | null
+  // Where Act runs go and whether they are code sessions
+  // (reference/act-sessions-runbook.md).
+  actSessionMode: ActSessionMode
+  actCode: { repo: string; branch: string } | null
   // Act rate shape: 0 = one run per delivery, otherwise deliveries inside the
   // window coalesce into one run; caps are rolling-window run limits.
   actWindowSeconds: number
@@ -39,6 +50,47 @@ export type TriggerEffectsValue = {
 }
 
 export type TriggerEffectsPatch = Partial<Omit<TriggerEffectsValue, "lastAct">>
+
+type ActSessionMode = "per_event" | "per_subject" | "ongoing"
+
+const SESSION_MODE_HINTS: Record<ActSessionMode, string> = {
+  per_event: "Each event starts its own",
+  per_subject: "Events about the same item share one",
+  ongoing: "Every event continues one",
+}
+
+const WORK_IN_OPTIONS = [
+  { value: "chat", label: "Chat" },
+  { value: "code", label: "Code" },
+]
+
+// One Act option: label and a one-line hint on the left, its control on the
+// right (the settings-group row shape, inside the Act effect).
+function OptionRow({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id?: string
+  label: string
+  hint?: string
+  children: ReactNode
+}) {
+  return (
+    <div className="flex min-h-9 items-center justify-between gap-4">
+      <div className="min-w-0">
+        <Label htmlFor={id} className="text-xs">
+          {label}
+        </Label>
+        {hint && (
+          <p className="truncate text-[11px] text-muted-foreground">{hint}</p>
+        )}
+      </div>
+      <div className="flex min-w-0 shrink-0 justify-end">{children}</div>
+    </div>
+  )
+}
 
 const ACT_WINDOW_OPTIONS = [
   { value: 0, label: "Immediate" },
@@ -116,16 +168,14 @@ function LastActNote({ lastAct }: { lastAct: TriggerLastAct }) {
 const HOURLY_CAP_MAX = 500
 const DAILY_CAP_MAX = 2000
 
-function RunCapField({
+function RunCapInput({
   id,
-  label,
   value,
   max,
   disabled,
   onCommit,
 }: {
   id: string
-  label: string
   value: number
   max: number
   disabled?: boolean
@@ -139,27 +189,125 @@ function RunCapField({
     onCommit(next)
   }
   return (
-    <div className="space-y-1">
-      <Label htmlFor={id} className="text-xs">
-        {label}
-      </Label>
-      <Input
-        id={id}
-        key={value}
-        defaultValue={value}
-        type="number"
-        min={1}
-        max={max}
-        className="h-8 text-xs"
-        disabled={disabled}
-        onBlur={(e) => commit(e.target.value)}
-        onKeyDown={(e) => {
-          // Escape closes the surrounding dialog without blurring — commit
-          // first so a typed cap isn't silently dropped.
-          if (e.key !== "Escape") return
-          commit(e.currentTarget.value)
-        }}
-      />
+    <Input
+      id={id}
+      key={value}
+      defaultValue={value}
+      type="number"
+      min={1}
+      max={max}
+      size="sm"
+      className="w-20 text-xs"
+      disabled={disabled}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        // Escape closes the surrounding dialog without blurring — commit
+        // first so a typed cap isn't silently dropped.
+        if (e.key !== "Escape") return
+        commit(e.currentTarget.value)
+      }}
+    />
+  )
+}
+
+// Batch window and run caps, folded behind a one-line summary: most triggers
+// never change them.
+function ActLimits({
+  idPrefix,
+  value,
+  disabled,
+  onPatch,
+}: {
+  idPrefix: string
+  value: TriggerEffectsValue
+  disabled?: boolean
+  onPatch: (patch: TriggerEffectsPatch) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const batch =
+    value.actWindowSeconds > 0
+      ? `${formatWindow(value.actWindowSeconds)} batch`
+      : "No batching"
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex min-h-9 w-full cursor-pointer items-center justify-between gap-4 text-left"
+        onClick={() => setOpen((was) => !was)}
+      >
+        <span>
+          <span className="block font-medium text-xs">Limits</span>
+          <span className="block text-[11px] text-muted-foreground">
+            Extra events wait, never dropped
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1 text-muted-foreground text-xs">
+          {batch} · {value.hourlyRunCap}/hour · {value.dailyRunCap}/day
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            className={cn(
+              "size-3.5 transition-transform motion-reduce:transition-none",
+              open && "rotate-90"
+            )}
+            strokeWidth={2}
+          />
+        </span>
+      </button>
+      <Reveal open={open}>
+        {open && (
+          <div className="space-y-1 pt-1 pl-3">
+            <OptionRow
+              id={`${idPrefix}-act-window`}
+              label="Batch window"
+              hint="Bundles what arrives after the first event"
+            >
+              <Select
+                items={ACT_WINDOW_OPTIONS}
+                value={value.actWindowSeconds}
+                disabled={disabled}
+                onValueChange={(next) => {
+                  if (next === null || next === value.actWindowSeconds) return
+                  onPatch({ actWindowSeconds: next })
+                }}
+              >
+                <SelectTrigger
+                  id={`${idPrefix}-act-window`}
+                  size="sm"
+                  className="w-36 text-xs"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ACT_WINDOW_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </OptionRow>
+            <OptionRow id={`${idPrefix}-act-hourly-cap`} label="Runs per hour">
+              <RunCapInput
+                id={`${idPrefix}-act-hourly-cap`}
+                value={value.hourlyRunCap}
+                max={HOURLY_CAP_MAX}
+                disabled={disabled}
+                onCommit={(next) => onPatch({ hourlyRunCap: next })}
+              />
+            </OptionRow>
+            <OptionRow id={`${idPrefix}-act-daily-cap`} label="Runs per day">
+              <RunCapInput
+                id={`${idPrefix}-act-daily-cap`}
+                value={value.dailyRunCap}
+                max={DAILY_CAP_MAX}
+                disabled={disabled}
+                onCommit={(next) => onPatch({ dailyRunCap: next })}
+              />
+            </OptionRow>
+          </div>
+        )}
+      </Reveal>
     </div>
   )
 }
@@ -211,17 +359,142 @@ function EffectRow({
   )
 }
 
+// Session mode, then Chat or Code with the repo and branch. Code sessions
+// never use one ongoing session: unrelated fixes would share a branch.
+function ActSessionFields({
+  idPrefix,
+  value,
+  disabled,
+  subjectLabel,
+  codeScope,
+  onPatch,
+}: {
+  idPrefix: string
+  value: TriggerEffectsValue
+  disabled?: boolean
+  subjectLabel: string
+  codeScope?: { workspaceSlug: string; channelId: string }
+  onPatch: (patch: TriggerEffectsPatch) => void
+}) {
+  // Code picked but no repo saved yet.
+  const [codePicked, setCodePicked] = useState(false)
+  const code = codePicked || value.actCode !== null
+  const modeItems: { value: ActSessionMode; label: string }[] = [
+    { value: "per_event", label: "New session per event" },
+    { value: "per_subject", label: subjectLabel },
+    { value: "ongoing", label: "One ongoing session" },
+  ]
+  return (
+    <>
+      <OptionRow
+        id={`${idPrefix}-act-sessions`}
+        label="Sessions"
+        hint={SESSION_MODE_HINTS[value.actSessionMode]}
+      >
+        <Select
+          items={modeItems}
+          value={value.actSessionMode}
+          disabled={disabled}
+          onValueChange={(next) => {
+            if (next === null || next === value.actSessionMode) return
+            onPatch({ actSessionMode: next })
+          }}
+        >
+          <SelectTrigger
+            id={`${idPrefix}-act-sessions`}
+            size="sm"
+            className="w-56 text-xs"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {modeItems.map((opt) => (
+              <SelectItem
+                key={opt.value}
+                value={opt.value}
+                disabled={code && opt.value === "ongoing"}
+              >
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </OptionRow>
+      {codeScope && (
+        <OptionRow
+          id={`${idPrefix}-act-work-in`}
+          label="Work in"
+          hint={
+            code ? "Each session gets its own branch" : "Lor answers in chat"
+          }
+        >
+          <Select
+            items={WORK_IN_OPTIONS}
+            value={code ? "code" : "chat"}
+            disabled={disabled}
+            onValueChange={(next) => {
+              if (next === "code") setCodePicked(true)
+              if (next !== "chat") return
+              setCodePicked(false)
+              if (value.actCode) onPatch({ actCode: null })
+            }}
+          >
+            <SelectTrigger
+              id={`${idPrefix}-act-work-in`}
+              size="sm"
+              className="w-56 text-xs"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {WORK_IN_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </OptionRow>
+      )}
+      {codeScope && code && (
+        <OptionRow label="Repository" hint="People review and ship the work">
+          <SavedCodeTargetPicker
+            workspaceSlug={codeScope.workspaceSlug}
+            channelId={codeScope.channelId}
+            value={value.actCode}
+            disabled={disabled}
+            onChange={(next) =>
+              onPatch({
+                actCode: next,
+                ...(value.actSessionMode === "ongoing"
+                  ? { actSessionMode: "per_subject" as const }
+                  : {}),
+              })
+            }
+          />
+        </OptionRow>
+      )}
+    </>
+  )
+}
+
 export function TriggerEffects({
   idPrefix,
   value,
   disabled,
   channelLabel,
+  subjectLabel,
+  codeScope,
   onPatch,
 }: {
   idPrefix: string
   value: TriggerEffectsValue
   disabled?: boolean
   channelLabel?: string | null
+  // The per_subject option's name: what makes two events the same thing.
+  subjectLabel: string
+  // Where code sessions may start; unset hides Code.
+  codeScope?: { workspaceSlug: string; channelId: string }
   onPatch: (patch: TriggerEffectsPatch) => void
 }) {
   const target = channelLabel ? `#${channelLabel}` : "the channel"
@@ -240,7 +513,7 @@ export function TriggerEffects({
         id={`${idPrefix}-act`}
         icon={MagicWand01Icon}
         title="Act"
-        description="Each event starts a Lor session — it can reply, start plans, and call your tools"
+        description="Events go to a Lor session — it can reply, start plans, and call your tools"
         checked={value.actInstructions !== null}
         disabled={disabled}
         onCheckedChange={(checked) =>
@@ -248,11 +521,11 @@ export function TriggerEffects({
         }
       >
         {value.actInstructions !== null && (
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <Textarea
               key={value.actInstructions}
               defaultValue={value.actInstructions}
-              placeholder="e.g. “if this is a refund over $500, summarize it and start a plan”"
+              placeholder="Instructions for Lor (optional), e.g. “if this is a refund over $500, summarize it and start a plan”"
               className="min-h-16 text-xs"
               rows={3}
               maxLength={4000}
@@ -269,66 +542,21 @@ export function TriggerEffects({
                 onPatch({ actInstructions: next })
               }}
             />
-            <p className="text-[11px] text-muted-foreground">
-              Leave blank to let Lor decide how to handle each payload.
-            </p>
-            <div className="space-y-2 border-border/60 border-t pt-2.5">
-              <div className="space-y-1">
-                <Label htmlFor={`${idPrefix}-act-window`} className="text-xs">
-                  Batch window
-                </Label>
-                <Select
-                  items={ACT_WINDOW_OPTIONS}
-                  value={value.actWindowSeconds}
-                  disabled={disabled}
-                  onValueChange={(next) => {
-                    if (next === null || next === value.actWindowSeconds) return
-                    onPatch({ actWindowSeconds: next })
-                  }}
-                >
-                  <SelectTrigger
-                    id={`${idPrefix}-act-window`}
-                    size="sm"
-                    className="w-40 text-xs"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ACT_WINDOW_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  {value.actWindowSeconds > 0
-                    ? `The first event wakes Lor right away. Anything else arriving within ${formatWindow(value.actWindowSeconds)} is bundled into one follow-up instead of a run each.`
-                    : "Every delivery wakes Lor. Deliveries that arrive while a run is going wait their turn and are handled together as soon as it finishes."}
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <RunCapField
-                  id={`${idPrefix}-act-hourly-cap`}
-                  label="Max runs per hour"
-                  value={value.hourlyRunCap}
-                  max={HOURLY_CAP_MAX}
-                  disabled={disabled}
-                  onCommit={(next) => onPatch({ hourlyRunCap: next })}
-                />
-                <RunCapField
-                  id={`${idPrefix}-act-daily-cap`}
-                  label="Max runs per day"
-                  value={value.dailyRunCap}
-                  max={DAILY_CAP_MAX}
-                  disabled={disabled}
-                  onCommit={(next) => onPatch({ dailyRunCap: next })}
-                />
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                Caps bound how often Lor can run — deliveries beyond them wait
-                for the next slot rather than being dropped.
-              </p>
+            <div className="pt-1">
+              <ActSessionFields
+                idPrefix={idPrefix}
+                value={value}
+                disabled={disabled}
+                subjectLabel={subjectLabel}
+                codeScope={codeScope}
+                onPatch={onPatch}
+              />
+              <ActLimits
+                idPrefix={idPrefix}
+                value={value}
+                disabled={disabled}
+                onPatch={onPatch}
+              />
             </div>
             {value.lastAct && <LastActNote lastAct={value.lastAct} />}
           </div>

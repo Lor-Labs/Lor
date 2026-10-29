@@ -64,7 +64,10 @@ import {
   SettingsGroup,
   SettingsSection,
 } from "@/components/workspace/settings-group"
-import { TriggerEffects } from "@/components/workspace/trigger-effects"
+import {
+  TriggerEffects,
+  type TriggerEffectsValue,
+} from "@/components/workspace/trigger-effects"
 import { apiClient } from "@/lib/api-client"
 import type {
   ConnectCloudwatchRequest,
@@ -90,6 +93,8 @@ type TriggerConfig = {
   channelId: string | null
   post: boolean
   actInstructions: string | null
+  actSessionMode: TriggerEffectsValue["actSessionMode"]
+  actCode: TriggerEffectsValue["actCode"]
   actWindowSeconds: number
   hourlyRunCap: number
   dailyRunCap: number
@@ -357,6 +362,7 @@ export function ConnectorsSection({
               Cancel
             </AlertDialogClose>
             <Button
+              variant="destructive"
               onClick={() => {
                 if (disconnectTarget) {
                   disconnect.mutate(disconnectTarget.connectionId)
@@ -723,7 +729,13 @@ function EventRoutes({
         param: { workspaceSlug, connectionId },
         json: input,
       })
-      if (!res.ok) throw new Error("Failed to update event")
+      if (!res.ok) {
+        // A refused repo or session mode says why.
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Failed to update event")
+      }
     },
     onSuccess: () =>
       // Returned so the mutation stays pending until the refetch lands — `send`
@@ -733,7 +745,7 @@ function EventRoutes({
       queryClient.invalidateQueries({
         queryKey: ["integrations", workspaceSlug],
       }),
-    onError: () => toast.error("Failed to update event"),
+    onError: (err) => toast.error(err.message),
   })
   const pendingEvent = updateTrigger.isPending
     ? updateTrigger.variables.event
@@ -763,6 +775,8 @@ function EventRoutes({
               channelId: ev.channelId,
               post: ev.post,
               actInstructions: ev.actInstructions,
+              actSessionMode: ev.actSessionMode,
+              actCode: ev.actCode,
               actWindowSeconds: ev.actWindowSeconds,
               hourlyRunCap: ev.hourlyRunCap,
               dailyRunCap: ev.dailyRunCap,
@@ -802,9 +816,13 @@ function EventRoutes({
                       textChannels.find((ch) => ch.id === ev.channelId)?.name
                     }
                     disabled={busy || !canManage}
+                    subjectLabel="One session per item (PR, issue, record)"
+                    codeScope={{ workspaceSlug, channelId: ev.channelId }}
                     value={{
                       post: ev.post,
                       actInstructions: ev.actInstructions,
+                      actSessionMode: ev.actSessionMode,
+                      actCode: ev.actCode,
                       actWindowSeconds: ev.actWindowSeconds,
                       hourlyRunCap: ev.hourlyRunCap,
                       dailyRunCap: ev.dailyRunCap,

@@ -18,13 +18,19 @@ import { CSS } from "@dnd-kit/utilities"
 import {
   Archive02Icon,
   ArrowDown01Icon,
+  Delete02Icon,
   Folder01Icon,
   Folder02Icon,
   HashtagIcon,
+  Layers01Icon,
   Loading03Icon,
+  Notification01Icon,
+  NotificationOff01Icon,
   PlusSignIcon,
+  Settings01Icon,
   SquareLock02Icon,
   VolumeHighIcon,
+  WebhookIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
@@ -41,6 +47,11 @@ import {
 } from "@repo/ui/components/context-menu"
 import { MentionBadge } from "@repo/ui/components/mention-badge"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -60,14 +71,24 @@ import {
 } from "@/components/sidebar/channel-panel/channel-sessions"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
-import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
+import {
+  EditChannelDialog,
+  type EditChannelTab,
+} from "@/components/sidebar/channel-panel/edit-channel-dialog"
 import { VoiceParticipantRows } from "@/components/sidebar/channel-panel/voice-presence"
+import {
+  sidebarRow,
+  sidebarRowHover,
+  sidebarRowMarkIn,
+  sidebarRowSelected,
+  sidebarSectionLabel,
+} from "@/components/sidebar/sidebar-menu-styles"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
+import { useNewIds } from "@/hooks/use-appended-ids"
 import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
-import { useOpenChannelSessions } from "@/hooks/use-open-channel-sessions"
 import { usePrefetchChannels } from "@/hooks/use-prefetch-channels"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { apiClient } from "@/lib/api-client"
@@ -273,6 +294,17 @@ export function ChannelList() {
     () => new Set(projectByCategoryId.keys()),
     [projectByCategoryId]
   )
+  const channelIds = useMemo(
+    () =>
+      data
+        ? [
+            ...data.uncategorized,
+            ...data.categories.flatMap((cat) => cat.channels),
+          ].map((ch) => ch.id)
+        : [],
+    [data]
+  )
+  const newChannelIds = useNewIds(channelIds)
 
   const [activeItem, setActiveItem] = useState<{
     channel: Channel
@@ -533,6 +565,7 @@ export function ChannelList() {
                   key={ch.id}
                   channel={ch}
                   active={activeChannelId === ch.id}
+                  arrived={newChannelIds.has(ch.id)}
                   canManage={canManage}
                   canDelete={canDelete}
                   muteControls={muteControls}
@@ -579,6 +612,7 @@ export function ChannelList() {
                 closeMobileSidebar(false)
               }}
               channels={cat.channels}
+              newChannelIds={newChannelIds}
               draggingCategory={activeItem?.isCategory ?? false}
               activeChannelId={activeChannelId}
               canCreate={canCreate}
@@ -634,7 +668,12 @@ export function ChannelList() {
         {activeItem && (
           <div className="rounded-lg bg-background shadow-lg">
             {activeItem.isCategory ? (
-              <div className="flex items-center gap-0.5 px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <div
+                className={cn(
+                  sidebarSectionLabel,
+                  "flex items-center gap-1 px-1 py-1"
+                )}
+              >
                 <HugeiconsIcon
                   icon={ArrowDown01Icon}
                   className="size-3 shrink-0"
@@ -665,6 +704,7 @@ function SortableCategorySection({
   projectStatus = null,
   onOpenOverview,
   channels,
+  newChannelIds,
   draggingCategory,
   activeChannelId,
   canCreate,
@@ -681,6 +721,7 @@ function SortableCategorySection({
   projectStatus?: "active" | "archiving" | "archived" | null
   onOpenOverview?: () => void
   channels: Channel[]
+  newChannelIds: ReadonlySet<string>
   draggingCategory: boolean
   activeChannelId?: string
   canCreate: boolean
@@ -766,7 +807,8 @@ function SortableCategorySection({
             }}
             {...(canManage ? { ...attributes, ...listeners } : {})}
             className={cn(
-              "flex flex-1 items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer",
+              sidebarSectionLabel,
+              "flex flex-1 cursor-pointer items-center gap-1",
               menuOpen && "text-foreground"
             )}
           >
@@ -799,16 +841,22 @@ function SortableCategorySection({
             <span className="truncate">{name}</span>
           </button>
           {canCreate && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => onCreateChannel?.(id)}
-              title="Create channel"
-              aria-label="Create channel"
-              className="text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/category:opacity-100 focus-visible:opacity-100"
-            >
-              <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => onCreateChannel?.(id)}
+                    aria-label="Create channel"
+                    className="text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/category:opacity-100 focus-visible:opacity-100"
+                  />
+                }
+              >
+                <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
+              </TooltipTrigger>
+              <TooltipContent>Create channel</TooltipContent>
+            </Tooltip>
           )}
         </ContextMenuTrigger>
         <ContextMenuPopup align="start">
@@ -878,6 +926,7 @@ function SortableCategorySection({
                   key={ch.id}
                   channel={ch}
                   active={activeChannelId === ch.id}
+                  arrived={newChannelIds.has(ch.id)}
                   canManage={canManage}
                   canDelete={canDelete}
                   muteControls={muteControls}
@@ -913,7 +962,10 @@ function ArchivedProjectsSection({
       <button
         type="button"
         onClick={() => setCollapsed(!collapsed)}
-        className="flex w-full items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-foreground cursor-pointer"
+        className={cn(
+          sidebarSectionLabel,
+          "flex w-full cursor-pointer items-center gap-1 px-1 pb-1 text-muted-foreground/70"
+        )}
       >
         <motion.div
           animate={{ rotate: collapsed ? -90 : 0 }}
@@ -941,7 +993,10 @@ function ArchivedProjectsSection({
                 <button
                   type="button"
                   onClick={() => onProjectClick(cat.id)}
-                  className="flex w-full items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
+                  className={cn(
+                    sidebarSectionLabel,
+                    "flex w-full cursor-pointer items-center gap-1 px-1 pb-1"
+                  )}
                 >
                   <HugeiconsIcon
                     icon={Archive02Icon}
@@ -955,7 +1010,13 @@ function ArchivedProjectsSection({
                     key={ch.id}
                     type="button"
                     onClick={() => onChannelClick(ch.id)}
-                    className="w-full text-left cursor-pointer"
+                    className={cn(
+                      sidebarRow,
+                      "w-full cursor-pointer rounded-lg text-left",
+                      activeChannelId === ch.id
+                        ? sidebarRowSelected
+                        : sidebarRowHover
+                    )}
                   >
                     <ChannelItem
                       name={ch.name ?? ""}
@@ -976,6 +1037,7 @@ function ArchivedProjectsSection({
 function SortableChannelItem({
   channel: ch,
   active = false,
+  arrived = false,
   canManage,
   canDelete,
   muteControls,
@@ -983,6 +1045,7 @@ function SortableChannelItem({
 }: {
   channel: Channel
   active?: boolean
+  arrived?: boolean
   canManage: boolean
   canDelete: boolean
   muteControls: ChannelMuteControls
@@ -999,8 +1062,12 @@ function SortableChannelItem({
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [editTab, setEditTab] = useState<EditChannelTab>("overview")
+  const openEdit = (tab: EditChannelTab) => {
+    setEditTab(tab)
+    setEditOpen(true)
+  }
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const openChannelSessions = useOpenChannelSessions()
 
   // Creators may rename their own channel and change its topic.
   const { data: session } = authClient.useSession()
@@ -1034,18 +1101,34 @@ function SortableChannelItem({
         <ContextMenu onOpenChange={setMenuOpen}>
           <ContextMenuTrigger
             className={cn(
-              "group/channel relative flex w-full items-center gap-2 rounded-lg px-2 py-[6px] text-[14px] hover:bg-foreground/[0.06] cursor-pointer",
-              active && "bg-foreground/[0.06] font-medium text-foreground",
+              sidebarRow,
+              // A channel created while you watch fades in. The fade sits on
+              // this row: on the sortable wrapper it would override the drag
+              // transform.
+              arrived &&
+                "fade-in-0 animate-in duration-300 motion-reduce:animate-none",
+              "group/channel relative flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-[6px] text-[14px]",
+              active || menuOpen ? sidebarRowSelected : sidebarRowHover,
+              active && "font-medium text-foreground",
               !active && hasUnread && "font-medium text-foreground",
-              !active && !hasUnread && "text-muted-foreground",
-              menuOpen && "bg-foreground/[0.06]"
+              !active && !hasUnread && "text-muted-foreground"
             )}
           >
             {active && (
-              <div className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+              <div
+                className={cn(
+                  sidebarRowMarkIn,
+                  "absolute inset-y-0 left-0 my-auto h-4 w-[3px] rounded-r-full bg-primary"
+                )}
+              />
             )}
             {!active && hasUnread && (
-              <div className="absolute left-0 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
+              <div
+                className={cn(
+                  sidebarRowMarkIn,
+                  "absolute inset-y-0 left-0 my-auto size-1 -translate-x-1/2 rounded-full bg-foreground"
+                )}
+              />
             )}
             <ChannelIcon
               type={ch.type}
@@ -1056,7 +1139,7 @@ function SortableChannelItem({
               onClick={onClick}
               {...(canManage ? { ...attributes, ...listeners } : {})}
               aria-current={active ? "page" : undefined}
-              className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50"
+              className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50 active:opacity-100"
             >
               {ch.name}
             </button>
@@ -1074,11 +1157,15 @@ function SortableChannelItem({
           <ContextMenuPopup align="start">
             {mute ? (
               <ContextMenuItem onClick={() => unmuteChannel(ch.id)}>
+                <HugeiconsIcon icon={Notification01Icon} strokeWidth={2} />
                 Unmute Channel
               </ContextMenuItem>
             ) : (
               <ContextMenuSub>
-                <ContextMenuSubTrigger>Mute Channel</ContextMenuSubTrigger>
+                <ContextMenuSubTrigger>
+                  <HugeiconsIcon icon={NotificationOff01Icon} strokeWidth={2} />
+                  Mute Channel
+                </ContextMenuSubTrigger>
                 <ContextMenuSubPopup>
                   {MUTE_DURATIONS.map((duration) => (
                     <ContextMenuItem
@@ -1096,22 +1183,27 @@ function SortableChannelItem({
                 </ContextMenuSubPopup>
               </ContextMenuSub>
             )}
-            <ContextMenuSeparator />
-            {ch.type === "text" && (
-              <ContextMenuItem onClick={() => openChannelSessions(ch.id)}>
-                View Sessions
-              </ContextMenuItem>
-            )}
             {canEdit && (
-              <ContextMenuItem onClick={() => setEditOpen(true)}>
-                Edit Channel
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => openEdit("overview")}>
+                  <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
+                  Edit Channel
+                </ContextMenuItem>
+              </>
+            )}
+            {canEdit && canManage && (
+              <ContextMenuItem onClick={() => openEdit("profile")}>
+                <HugeiconsIcon icon={Layers01Icon} strokeWidth={2} />
+                Agent Profile
               </ContextMenuItem>
             )}
-            <ContextMenuItem
-              onClick={() => void navigator.clipboard.writeText(ch.id)}
-            >
-              Copy Channel ID
-            </ContextMenuItem>
+            {canEdit && canManage && ch.type === "text" && (
+              <ContextMenuItem onClick={() => openEdit("webhooks")}>
+                <HugeiconsIcon icon={WebhookIcon} strokeWidth={2} />
+                Webhooks
+              </ContextMenuItem>
+            )}
             {canDelete && (
               <>
                 <ContextMenuSeparator />
@@ -1119,6 +1211,7 @@ function SortableChannelItem({
                   variant="destructive"
                   onClick={() => setDeleteOpen(true)}
                 >
+                  <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
                   Delete Channel
                 </ContextMenuItem>
               </>
@@ -1140,6 +1233,7 @@ function SortableChannelItem({
           open={editOpen}
           onOpenChange={setEditOpen}
           overviewOnly={!canManage}
+          initialTab={editTab}
         />
       )}
       {canDelete && (
@@ -1166,9 +1260,7 @@ function ChannelItem({
     <div
       className={cn(
         "relative flex items-center gap-2 rounded-lg px-2 py-[6px] text-[14px]",
-        active
-          ? "bg-foreground/[0.06] font-medium text-foreground"
-          : "text-muted-foreground"
+        active ? "font-medium text-foreground" : "text-muted-foreground"
       )}
     >
       <ChannelIcon type={type} />

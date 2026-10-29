@@ -1,5 +1,8 @@
 import { db, inArray, schema } from "@repo/db"
-import { assertBetaSandbox } from "@repo/db/queries/beta-access"
+import {
+  assertBetaSandbox,
+  getBetaExemption,
+} from "@repo/db/queries/beta-access"
 import { createLogger } from "@repo/logger"
 import { trackSandboxUsage } from "./autumn"
 import { isBetaWorkspace } from "./beta-credits"
@@ -59,9 +62,25 @@ export async function chargeSandboxUsage(buckets: SandboxUsage[]) {
     ...new Set(buckets.map((b) => b.sandboxName)),
   ])
   const beta = new Map<string, boolean>()
+  const exemptions = new Map<
+    string,
+    Awaited<ReturnType<typeof getBetaExemption>>
+  >()
   for (const bucket of buckets) {
     const workspaceId = workspaces.get(bucket.sandboxName)
     if (!workspaceId) continue
+    // Internal workspaces run sandboxes free: an hour that overlaps the
+    // exemption is skipped, even when it is read again after removal.
+    if (!exemptions.has(workspaceId))
+      exemptions.set(workspaceId, await getBetaExemption(workspaceId))
+    const exemption = exemptions.get(workspaceId)
+    const hourEnd = new Date(bucket.hourStart.getTime() + 3_600_000)
+    if (
+      exemption &&
+      exemption.createdAt < hourEnd &&
+      (!exemption.endedAt || exemption.endedAt > bucket.hourStart)
+    )
+      continue
     if (!beta.has(workspaceId))
       beta.set(workspaceId, await isBetaWorkspace(workspaceId))
     const status = await trackSandboxUsage(

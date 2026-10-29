@@ -49,6 +49,7 @@ export function toRealtimeAgentSession(
     titleEditedAt: row.titleEditedAt?.toISOString() ?? null,
     loopId: row.loopId,
     triggerId: row.triggerId,
+    triggerSubject: row.triggerSubject,
     archivedAt: row.archivedAt?.toISOString() ?? null,
     archivedById: row.archivedById,
     lastActivityAt: row.lastActivityAt.toISOString(),
@@ -82,6 +83,7 @@ export type CreateSessionArgs = {
   title: string
   loopId?: string
   triggerId?: string
+  triggerSubject?: string | null
   contextMessageIds?: string[]
   subscriberIds?: string[]
 }
@@ -125,6 +127,7 @@ export async function createSession(
       title: args.title,
       loopId: args.loopId ?? null,
       triggerId: args.triggerId ?? null,
+      triggerSubject: args.triggerSubject ?? null,
     })
     .returning()
   if (!session) throw new Error("Failed to create session")

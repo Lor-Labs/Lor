@@ -2,7 +2,7 @@ import { ArrowUpRight, Download, Globe } from "lucide-react"
 import type { Metadata } from "next"
 import { Reveal } from "@/app/components/reveal"
 import { SiteFooter } from "@/app/components/site-footer"
-import { GITHUB_URL, TESTFLIGHT_URL } from "@/app/lib/urls"
+import { GITHUB_URL, MACOS_DMG_URL, TESTFLIGHT_URL } from "@/app/lib/urls"
 
 export const metadata: Metadata = {
   title: "Download Lor",
@@ -11,7 +11,6 @@ export const metadata: Metadata = {
 }
 
 const RELEASES_URL = `${GITHUB_URL}/releases`
-const MACOS_DMG_URL = "https://releases.lor.chat/latest/Lor_aarch64.dmg"
 const APP_URL = "https://app.lor.chat"
 
 function AppleIcon({ className }: { className?: string }) {

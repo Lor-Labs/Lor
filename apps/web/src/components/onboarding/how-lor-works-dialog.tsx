@@ -11,7 +11,7 @@ import {
 } from "@repo/ui/components/dialog"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
-import { useNavigate, useSearch } from "@tanstack/react-router"
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { AnimatePresence, motion, type Variants } from "motion/react"
 import { type ComponentType, useState } from "react"
 import { usePageHint } from "@/components/hints/hints-provider"
@@ -22,7 +22,6 @@ import {
   SharedSessionScene,
   WelcomeScene,
 } from "@/components/onboarding/how-lor-works-scenes"
-import { useOpenNewSession } from "@/hooks/use-open-new-session"
 
 type Step = {
   title: string
@@ -85,8 +84,8 @@ export function HowLorWorksDialog({
 }) {
   const navigate = useNavigate()
   const { intro } = useSearch({ strict: false })
+  const { workspaceSlug } = useParams({ strict: false })
   const { dismissed, dismiss } = usePageHint("how_lor_works")
-  const openNewSession = useOpenNewSession()
 
   const close = () => {
     dismiss()
@@ -110,9 +109,17 @@ export function HowLorWorksDialog({
       <DialogPopup className="overflow-hidden sm:max-w-[640px]">
         <HowLorWorksSteps
           workspaceName={workspaceName}
-          onStart={() => {
-            dismiss()
-            openNewSession()
+          onFinish={() => {
+            // First run continues to the setup checklist; a replay just closes.
+            if (intro) close()
+            else {
+              dismiss()
+              if (workspaceSlug)
+                void navigate({
+                  to: "/$workspaceSlug/setup",
+                  params: { workspaceSlug },
+                })
+            }
           }}
         />
       </DialogPopup>
@@ -123,10 +130,10 @@ export function HowLorWorksDialog({
 // Unmounted while the dialog is closed, so every open starts at step one.
 function HowLorWorksSteps({
   workspaceName,
-  onStart,
+  onFinish,
 }: {
   workspaceName: string
-  onStart: () => void
+  onFinish: () => void
 }) {
   const { data: authSession } = authClient.useSession()
   const [[step, direction], setStep] = useState<[number, number]>([0, 1])
@@ -217,7 +224,7 @@ function HowLorWorksSteps({
             </Button>
           )}
           {last ? (
-            <Button onClick={onStart}>Start a session</Button>
+            <Button onClick={onFinish}>Finish</Button>
           ) : (
             <Button onClick={() => go(step + 1)}>Next</Button>
           )}

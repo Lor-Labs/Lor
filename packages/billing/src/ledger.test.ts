@@ -36,6 +36,10 @@ vi.mock("@repo/db", () => {
   }
 })
 
+vi.mock("@repo/db/queries/beta-access", () => ({
+  betaLimitsLifted: vi.fn(async () => false),
+  isBetaExempt: vi.fn(async () => false),
+}))
 vi.mock("./autumn", () => ({ trackCredits: mocks.trackCredits }))
 vi.mock("./credits", () => ({
   computeCostUsd: mocks.computeCostUsd,

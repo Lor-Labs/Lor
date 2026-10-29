@@ -197,6 +197,7 @@ webhooksRouter.post(
         avatarUrl: resolved.value.avatarUrl,
         text: parsed.data.content,
         item: deliveryItem(parsed.data.content, resolved.value.name),
+        subject: parsed.data.subject,
         payload: read.raw,
       })
       return c.json({ success: true, messageId: outcome?.posted ?? null })

@@ -6,19 +6,19 @@ describe("connectorMessageEmbed", () => {
     expect(
       connectorMessageEmbed(
         "github",
-        "**PR merged** [care-cycle/mobius#292](https://github.com/care-cycle/mobius/pull/292) Replace observed lifecycle boundaries — by eroub",
+        "**PR merged** [acme/api#292](https://github.com/acme/api/pull/292) Add retries to webhook delivery — by octocat",
         "GitHub"
       )
     ).toEqual({
       type: "rich",
-      url: "https://github.com/care-cycle/mobius/pull/292",
+      url: "https://github.com/acme/api/pull/292",
       author: {
-        name: "eroub",
-        url: "https://github.com/eroub",
-        iconUrl: "https://github.com/eroub.png?size=40",
+        name: "octocat",
+        url: "https://github.com/octocat",
+        iconUrl: "https://github.com/octocat.png?size=40",
       },
       eventLabel: "Pull request merged",
-      title: "care-cycle/mobius#292 · Replace observed lifecycle boundaries",
+      title: "acme/api#292 · Add retries to webhook delivery",
       siteName: "GitHub",
       color: "#24292f",
     })
@@ -28,14 +28,14 @@ describe("connectorMessageEmbed", () => {
     expect(
       connectorMessageEmbed(
         "linear",
-        "**Issue created** [CARE-1431 Trust device login failure](https://linear.app/care/issue/CARE-1431)",
+        "**Issue created** [ENG-1431 Login fails on new devices](https://linear.app/acme/issue/ENG-1431)",
         "Linear"
       )
     ).toEqual({
       type: "rich",
-      url: "https://linear.app/care/issue/CARE-1431",
+      url: "https://linear.app/acme/issue/ENG-1431",
       eventLabel: "Issue created",
-      title: "CARE-1431 · Trust device login failure",
+      title: "ENG-1431 · Login fails on new devices",
       siteName: "Linear",
       color: "#5e6ad2",
     })

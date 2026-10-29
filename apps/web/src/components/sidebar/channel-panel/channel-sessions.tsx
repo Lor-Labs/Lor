@@ -38,6 +38,11 @@ import {
   useActivityWorkspaceId,
 } from "@/components/sidebar/channel-panel/channel-activity"
 import { LineCounts } from "@/components/sidebar/right-panel/session-changes-panel"
+import {
+  sidebarRow,
+  sidebarRowHover,
+  sidebarRowSelected,
+} from "@/components/sidebar/sidebar-menu-styles"
 import { TypewriterText } from "@/components/ui/typewriter-text"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import {
@@ -198,7 +203,11 @@ export function ChannelSessionRows({
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
-          className="ml-6 flex w-[calc(100%-1.5rem)] cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left text-[13px] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+          className={cn(
+            sidebarRow,
+            sidebarRowHover,
+            "ml-6 flex w-[calc(100%-1.5rem)] cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left text-[13px] text-muted-foreground hover:text-foreground"
+          )}
         >
           <span className="min-w-0 flex-1 truncate">
             {expanded ? "Show less" : `${hidden.length} more`}
@@ -300,7 +309,12 @@ function SessionRow({
           channel can open one and join in.
         </HintPopover>
         {renaming ? (
-          <div className="flex w-full items-center gap-2 rounded-md bg-foreground/[0.06] px-2 py-[5px] text-[13px]">
+          <div
+            className={cn(
+              sidebarRowSelected,
+              "flex w-full items-center gap-2 rounded-md px-2 py-[5px] text-[13px]"
+            )}
+          >
             {icon}
             <input
               ref={renameRef}
@@ -338,11 +352,14 @@ function SessionRow({
               }}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left text-[13px] transition-colors group-hover/session:bg-foreground/[0.06] group-hover/session:pr-7",
+                sidebarRow,
+                "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left text-[13px] group-hover/session:pr-7",
                 active || emphasized
                   ? "text-foreground"
                   : "text-muted-foreground",
-                (active || menuOpen) && "bg-foreground/[0.06]",
+                active || menuOpen
+                  ? sidebarRowSelected
+                  : "group-hover/session:bg-foreground/[0.04]",
                 active && "font-medium"
               )}
             >
@@ -370,7 +387,7 @@ function SessionRow({
                     type="button"
                     aria-label="Archive session"
                     onClick={requestArchive}
-                    className="absolute top-1/2 right-1 flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/session:opacity-100"
+                    className="absolute top-1/2 right-1 flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,background-color] hover:bg-foreground/[0.06] hover:text-foreground focus-visible:opacity-100 active:bg-foreground/[0.1] group-hover/session:opacity-100"
                   />
                 }
               >
@@ -411,7 +428,7 @@ function SessionRow({
           }}
         >
           <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
-          Copy link
+          Copy Link
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={requestArchive}>

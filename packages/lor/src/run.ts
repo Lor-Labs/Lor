@@ -193,7 +193,8 @@ export type RunResume = {
 
 export type RunHandle = {
   funding?: InferenceFunding
-  selectInferenceModel?: (model: string) => Promise<InferenceFunding>
+  // Saves the turn's payer and model on the run, for its retries.
+  pinInferenceFunding?: (funding: InferenceFunding) => Promise<InferenceFunding>
   assertCanInfer?: () => Promise<void>
   // The agent_run row this handle owns — approval rows and other run-scoped
   // writes reference it.

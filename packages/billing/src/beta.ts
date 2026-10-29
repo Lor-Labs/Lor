@@ -1,4 +1,4 @@
-import { and, count, db, eq, ne, schema } from "@repo/db"
+import { and, count, db, eq, isNull, ne, schema } from "@repo/db"
 import { isBetaExempt } from "@repo/db/queries/beta-access"
 import type {
   BetaTrialChanges,
@@ -247,14 +247,22 @@ export async function exemptFromBeta(input: {
     .values({ workspaceId: input.workspaceId, operator, reason })
     .onConflictDoUpdate({
       target: schema.betaExemption.workspaceId,
-      set: { operator, reason },
+      set: { operator, reason, endedAt: null },
     })
 }
 
+// Ends the exemption but keeps its row: sandbox hours that ran exempt and are
+// billed after this must stay free (sandbox-usage.ts).
 export async function removeBetaExemption(workspaceId: string) {
   await db
-    .delete(schema.betaExemption)
-    .where(eq(schema.betaExemption.workspaceId, workspaceId))
+    .update(schema.betaExemption)
+    .set({ endedAt: new Date() })
+    .where(
+      and(
+        eq(schema.betaExemption.workspaceId, workspaceId),
+        isNull(schema.betaExemption.endedAt)
+      )
+    )
 }
 
 export async function getWorkspaceBetaTrial(workspaceId: string) {

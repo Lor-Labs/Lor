@@ -9,6 +9,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@repo/ui/components/collapsible"
+import { HeightTransition } from "@repo/ui/components/height-transition"
 import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
 import { useEffect, useRef, useState } from "react"
@@ -313,35 +314,37 @@ export function PlanStepList({
   const hiddenCount = items.length - visible.length
 
   return (
-    <ul className={cn("min-w-0 space-y-1", className)}>
-      {visible.map((item, idx) => (
-        <Step
-          index={idx}
-          isFresh={freshSteps.has(stepKey(item, idx))}
-          item={item}
-          key={stepKey(item, idx)}
-          showConnector={idx < visible.length - 1 || hiddenCount > 0}
-        />
-      ))}
+    <HeightTransition contentKey={expanded ? "all" : "some"}>
+      <ul className={cn("min-w-0 space-y-1", className)}>
+        {visible.map((item, idx) => (
+          <Step
+            index={idx}
+            isFresh={freshSteps.has(stepKey(item, idx))}
+            item={item}
+            key={stepKey(item, idx)}
+            showConnector={idx < visible.length - 1 || hiddenCount > 0}
+          />
+        ))}
 
-      {(hiddenCount > 0 || expanded) && (
-        <li className="mt-1">
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            className="relative z-20 flex cursor-pointer items-start gap-2 py-1 text-muted-foreground text-sm transition-colors hover:text-foreground"
-          >
-            <HugeiconsIcon
-              icon={MoreHorizontalIcon}
-              size={16}
-              className="mt-1 shrink-0 text-muted-foreground/70"
-            />
-            <span>
-              {hiddenCount > 0 ? `${hiddenCount} more` : "Show fewer"}
-            </span>
-          </button>
-        </li>
-      )}
-    </ul>
+        {(hiddenCount > 0 || expanded) && (
+          <li className="mt-1">
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              className="relative z-20 flex cursor-pointer items-start gap-2 py-1 text-muted-foreground text-sm transition-colors hover:text-foreground"
+            >
+              <HugeiconsIcon
+                icon={MoreHorizontalIcon}
+                size={16}
+                className="mt-1 shrink-0 text-muted-foreground/70"
+              />
+              <span>
+                {hiddenCount > 0 ? `${hiddenCount} more` : "Show fewer"}
+              </span>
+            </button>
+          </li>
+        )}
+      </ul>
+    </HeightTransition>
   )
 }

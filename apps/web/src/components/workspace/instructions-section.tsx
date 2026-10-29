@@ -1,6 +1,7 @@
 import { parseDiffFromFile } from "@pierre/diffs"
 import { FileDiff } from "@pierre/diffs/react"
 import { Button } from "@repo/ui/components/button"
+import { HeightTransition } from "@repo/ui/components/height-transition"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
@@ -94,6 +95,7 @@ function InstructionsEditor({
   activeVersion,
   onSave,
   isSaving,
+  saved,
 }: {
   activeContent: string
   activeVersion: number | null
@@ -102,6 +104,7 @@ function InstructionsEditor({
   // check needs the stale base to catch it.
   onSave: (content: string, baseVersion: number | null) => void
   isSaving: boolean
+  saved: boolean
 }) {
   const [draft, setDraft] = useState<string | null>(null)
 
@@ -232,6 +235,7 @@ function InstructionsEditor({
             className={cn(PILL_BUTTON, "px-3")}
             disabled={!hasChanges || overLimit}
             loading={isSaving}
+            success={saved}
             onClick={() => onSave(editorValue, lastAppliedVersion.current)}
           >
             Save
@@ -296,9 +300,6 @@ export function InstructionsSection({
       }
     },
     onSuccess: () => {
-      toast.success(
-        "Instructions updated — Lor follows them from its next answer"
-      )
       void invalidate()
     },
     onError: (err) => conflictToast(err.message),
@@ -436,6 +437,7 @@ export function InstructionsSection({
               save.mutate({ content, baseVersion })
             }
             isSaving={save.isPending}
+            saved={save.isSuccess}
           />
         ) : activeContent ? (
           <pre
@@ -474,34 +476,39 @@ export function InstructionsSection({
             )
           }
         >
-          <SettingsGroup>
-            {shownHistory.map((v) => (
-              <div key={v.version} className="flex items-center gap-3 py-3">
-                <span className="w-8 shrink-0 text-sm font-medium tabular-nums">
-                  v{v.version}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                  {v.authorType === "agent"
-                    ? "Lor"
-                    : (v.authorName ?? "Unknown")}{" "}
-                  · {formatWhen(v.createdAt)}
-                </span>
-                {v.state === "active" ? (
-                  <span className="flex shrink-0 items-center gap-1.5 text-xs">
-                    <span
-                      aria-hidden="true"
-                      className="size-1.5 rounded-full bg-success"
-                    />
-                    {STATE_LABELS.active}
+          <HeightTransition
+            contentKey={historyOpen ? "all" : "recent"}
+            className="rounded-xl"
+          >
+            <SettingsGroup>
+              {shownHistory.map((v) => (
+                <div key={v.version} className="flex items-center gap-3 py-3">
+                  <span className="w-8 shrink-0 text-sm font-medium tabular-nums">
+                    v{v.version}
                   </span>
-                ) : (
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {STATE_LABELS[v.state]}
+                  <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                    {v.authorType === "agent"
+                      ? "Lor"
+                      : (v.authorName ?? "Unknown")}{" "}
+                    · {formatWhen(v.createdAt)}
                   </span>
-                )}
-              </div>
-            ))}
-          </SettingsGroup>
+                  {v.state === "active" ? (
+                    <span className="flex shrink-0 items-center gap-1.5 text-xs">
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 rounded-full bg-success"
+                      />
+                      {STATE_LABELS.active}
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {STATE_LABELS[v.state]}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </SettingsGroup>
+          </HeightTransition>
         </SettingsSection>
       )}
     </div>

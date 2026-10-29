@@ -44,6 +44,7 @@ import {
 } from "@/components/chat/message-scroller-controls"
 import { ThreadActivityDock } from "@/components/chat/thread-activity"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
+import { ARRIVE_IN, useAppendedIds } from "@/hooks/use-appended-ids"
 import type { ThreadActivity } from "@/hooks/use-thread-activity"
 import type { Message } from "@/lib/api-types"
 
@@ -254,6 +255,10 @@ export function MessageList({
   const ownedCommandRef = useRef<MessageScrollCommand | null>(null)
 
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
+  const appended = useAppendedIds(
+    orderedMessages.map((msg) => msg.id),
+    !hasNewer
+  )
   // Event rows resolve member ids (payload userIds) to names like mentions do.
   const userNameById = useMemo(
     () =>
@@ -568,7 +573,11 @@ export function MessageList({
                   }
                 }
                 return (
-                  <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                  <MessageScrollerItem
+                    key={msg.id}
+                    messageId={msg.id}
+                    className={appended.has(msg.id) ? ARRIVE_IN : undefined}
+                  >
                     {olderLoader}
                     {isDateBoundary && <DateDivider date={msg.createdAt} />}
                     <ChannelEventRow
@@ -591,7 +600,11 @@ export function MessageList({
                 previous.type === "event"
 
               return (
-                <MessageScrollerItem key={msg.id} messageId={msg.id}>
+                <MessageScrollerItem
+                  key={msg.id}
+                  messageId={msg.id}
+                  className={appended.has(msg.id) ? ARRIVE_IN : undefined}
+                >
                   {olderLoader}
                   {isDateBoundary && <DateDivider date={msg.createdAt} />}
                   {msg.id === firstUnreadMessageId && (

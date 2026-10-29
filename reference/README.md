@@ -36,6 +36,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | Doc | Open |
 |---|---|
 | `beta-pricing-runbook.md` | LOR-115, 2026-10-27: FCFS admission, $25 AI/top-ups, native Anthropic/OpenAI BYOK, estimated sandbox limits and expiry gates built; migration/provider verification and strict spend caps remain; hosted beta stays disabled |
+| `act-sessions-runbook.md` | Act session modes (per event, per subject, ongoing), people-first waiting, code sessions from triggers and webhooks. Started 2026-10-28 |
 | `connector-tools.md` | Shared tool selections, MCP read-only hints, Better Stack, Notion/Attio writes |
 | `voice-channels-runbook.md` | Voice calls, transcription, Lor in the call, memory. V0–V7 built; prod setup, live QA and merge open |
 | `approval-policies.md` | Per-tool approval rules, resolver controls, breaking schema rollout, and pause/resume on the Pi path (2026-10-22) |

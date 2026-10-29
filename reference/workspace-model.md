@@ -176,7 +176,9 @@ Features that put Lor or machine content in channel chat today.
      (`scopeKey = loop.id`). Planned exception (2026-10-21): code Loops start
      a new code session per fire, for review (`planned/code-channels.md` §2).
    - Locked: each connector-trigger event starts a new session. Act effects
-     run in a session.
+     run in a session. Changed 2026-10-28: this is the default; a trigger can
+     instead continue one session per subject or one ongoing session
+     (`act-sessions-runbook.md`).
    - Locked: `post_channel_message` goes away, with no exception for loops.
      A person shares a result into the chat if the team should see it.
    - Locked: only the creator is subscribed to a loop's session by default.

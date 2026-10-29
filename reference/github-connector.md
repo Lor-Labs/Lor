@@ -36,7 +36,10 @@ Webhook URL is `https://api.lor.chat/v1/integrations/github/webhook`.
 Disconnecting in Lor deletes the connection row but leaves the App installed
 on GitHub.
 
-Workspace connection requires the caller's linked GitHub account. The API
+Workspace connection requires the caller's linked GitHub account. Without
+one (or with an expired one), `connect-url` returns the account authorize
+URL with `step: "account"`; its signed state names the workspace, so the
+account callback continues to the install. The API
 checks the installation using that user's token, then requires the personal
 account owner or an active organization owner before sharing its repositories
 with the workspace. The installation ID alone is never proof of ownership.

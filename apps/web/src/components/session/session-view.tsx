@@ -38,6 +38,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
+import { ActWaitingNote } from "@/components/session/act-waiting-note"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
 import { HarnessLogo } from "@/components/session/harness-logo"
 import { HARNESS_LABELS } from "@/components/session/harness-picker"
@@ -314,6 +315,11 @@ function SessionConversation({
               onOpenChange={setConnectingClaude}
             />
           </>
+        ) : session.origin === "trigger" ? (
+          <ActWaitingNote
+            sessionId={session.id}
+            threadRootId={session.threadRootId}
+          />
         ) : undefined
       }
       workspaceSlug={workspaceSlug}

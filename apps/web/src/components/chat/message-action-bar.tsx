@@ -222,9 +222,9 @@ export function MessageActionBar({
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
+                variant="destructive"
                 onClick={onDelete}
                 disabled={!onDelete}
-                className="text-destructive focus:text-destructive"
               >
                 Delete message
               </DropdownMenuItem>

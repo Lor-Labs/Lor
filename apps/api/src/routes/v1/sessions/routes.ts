@@ -12,11 +12,13 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
+  actWaitingResponseSchema,
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
   commitMessageResponseSchema,
   commitSessionChangesRequestSchema,
   commitSessionChangesResponseSchema,
+  dropActWaitingResponseSchema,
   forkAgentSessionRequestSchema,
   forkAgentSessionResponseSchema,
   getAgentSessionResponseSchema,
@@ -469,3 +471,50 @@ export const updateAgentSession = createRoute({
 })
 
 export type UpdateAgentSessionRoute = typeof updateAgentSession
+
+export const getActWaiting = createRoute({
+  path: "/sessions/{sessionId}/act-waiting",
+  method: "get",
+  summary: "Count a session's waiting automation events",
+  description:
+    "Automation events wait while the session has a run going or a person's message queued.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: actWaitingResponseSchema,
+      description: "How many events wait",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetActWaitingRoute = typeof getActWaiting
+
+export const dropActWaiting = createRoute({
+  path: "/sessions/{sessionId}/act-waiting/drop",
+  method: "post",
+  summary: "Drop a session's waiting automation events",
+  description:
+    "Anyone who can write in the channel can do this. Dropped events never run.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: dropActWaitingResponseSchema,
+      description: "How many events were dropped",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type DropActWaitingRoute = typeof dropActWaiting

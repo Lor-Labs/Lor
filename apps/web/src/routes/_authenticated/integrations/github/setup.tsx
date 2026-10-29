@@ -3,7 +3,7 @@ import { toast } from "@repo/ui/components/toast"
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { apiClient } from "@/lib/api-client"
-import { takeGithubInstallReturn } from "@/lib/github-connect"
+import { errorMessage, takeGithubInstallReturn } from "@/lib/github-connect"
 
 type SetupSearch = {
   installation_id?: string
@@ -37,15 +37,6 @@ export const Route = createFileRoute(
     }
   },
 })
-
-async function errorMessage(res: Response, fallback: string) {
-  try {
-    const body = (await res.json()) as { message?: unknown }
-    return typeof body.message === "string" ? body.message : fallback
-  } catch {
-    return fallback
-  }
-}
 
 function GithubSetup() {
   const { installation_id, setup_action, state } = Route.useSearch()

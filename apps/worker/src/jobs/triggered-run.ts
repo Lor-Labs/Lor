@@ -103,6 +103,10 @@ export function createTriggeredRunProcessor(
       .select({
         enabled: schema.connectorTrigger.enabled,
         actInstructions: schema.connectorTrigger.actInstructions,
+        sessionMode: schema.connectorTrigger.actSessionMode,
+        windowSeconds: schema.connectorTrigger.actWindowSeconds,
+        repoFullName: schema.connectorTrigger.actRepoFullName,
+        baseBranch: schema.connectorTrigger.actBaseBranch,
         connectedById: schema.integrationConnection.createdBy,
         workspaceOwnerId: schema.workspace.ownerId,
       })
@@ -130,12 +134,21 @@ export function createTriggeredRunProcessor(
     // second one. A run left queued is swept as dead, and its deliveries
     // requeue (prune-run-events).
     await startActSession(
-      { emitter, redis, respondQueue },
+      { emitter, redis, respondQueue, triggeredQueue },
       {
         runId,
         workspaceId: run.workspaceId,
         channelId: run.channelId,
         triggerId: run.triggerId,
+        sessionMode: trigger.sessionMode,
+        windowSeconds: trigger.windowSeconds,
+        code:
+          trigger.repoFullName && trigger.baseBranch
+            ? {
+                repoFullName: trigger.repoFullName,
+                baseBranch: trigger.baseBranch,
+              }
+            : null,
         // Older connections have no creator; channel access is still checked.
         connectedById:
           trigger.connectedById ?? trigger.workspaceOwnerId ?? null,

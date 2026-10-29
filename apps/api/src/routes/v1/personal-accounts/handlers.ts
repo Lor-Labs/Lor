@@ -15,10 +15,10 @@ import {
   githubAccountsAvailable,
   githubAuthorizeUrl,
   revokeGithubToken,
+  verifyGithubAccountState,
 } from "@/lib/github-account"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
-import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   ConnectClaudeAccountRoute,
@@ -28,10 +28,6 @@ import type {
   GetPersonalAccountsRoute,
   StartGithubAccountConnectRoute,
 } from "@/routes/v1/personal-accounts/routes"
-
-// The signed state's routing slug. Personal accounts have no workspace; the
-// signature still binds the flow to the user who started it.
-const GITHUB_STATE_SLUG = "github-account"
 
 const accountColumns = {
   login: schema.personalAccount.login,
@@ -163,9 +159,7 @@ export const disconnectClaudeAccount: AppRouteHandler<
 export const startGithubAccountConnect: AppRouteHandler<
   StartGithubAccountConnectRoute
 > = async (c) => {
-  const url = githubAccountsAvailable()
-    ? githubAuthorizeUrl(signOAuthState(GITHUB_STATE_SLUG, c.var.user.id))
-    : null
+  const url = githubAuthorizeUrl(c.var.user.id)
   if (!url) {
     return c.json(
       { success: false, message: "GitHub accounts aren't available" },
@@ -180,7 +174,8 @@ export const connectGithubAccount: AppRouteHandler<
 > = async (c) => {
   const { code, state } = c.req.valid("json")
   // Minted for this user, so a code can't be replayed into another account.
-  if (verifyOAuthState(state, c.var.user.id) !== GITHUB_STATE_SLUG) {
+  const verified = verifyGithubAccountState(state, c.var.user.id)
+  if (!verified) {
     return c.json(
       { success: false, message: "Invalid or expired connection request" },
       HttpStatusCodes.BAD_REQUEST
@@ -212,7 +207,10 @@ export const connectGithubAccount: AppRouteHandler<
     .returning(accountColumns)
   if (!account) throw new Error("GitHub account upsert returned no row")
   await fillMissingGithubAvatar(c.var.user, account.avatarUrl)
-  return c.json({ account }, HttpStatusCodes.OK)
+  return c.json(
+    { account, continueToWorkspaceSlug: verified.continueToWorkspaceSlug },
+    HttpStatusCodes.OK
+  )
 }
 
 export const disconnectGithubAccount: AppRouteHandler<

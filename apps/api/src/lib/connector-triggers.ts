@@ -71,6 +71,9 @@ export async function dispatchConnectorEvent(input: {
   // BYO webhook post identity (bucket-restricted, from the stored config).
   avatarUrl?: string
   item?: EventItem
+  // What the event is about, for Act's per_subject sessions. Defaults to the
+  // item's URL.
+  subject?: string
   // The event's item is ingested into `source`, so the posted card is only a
   // pointer and stays out of message search.
   ingested?: boolean
@@ -179,6 +182,7 @@ export async function dispatchConnectorEvent(input: {
         : null,
       actPayload: actText ? actText.slice(0, ACT_DELIVERY_PAYLOAD_MAX) : null,
       actLabel: actOn ? input.label : null,
+      subject: input.subject ?? input.item?.url ?? null,
       posted: postedMessageId !== null,
     })
     .returning({ id: schema.triggerDelivery.id })
