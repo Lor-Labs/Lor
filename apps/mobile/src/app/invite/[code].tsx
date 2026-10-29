@@ -1,6 +1,5 @@
 import UserGroupIcon from "@hugeicons/core-free-icons/UserGroupIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { features } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { router, useLocalSearchParams } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
@@ -13,11 +12,13 @@ import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useSocket } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { useBetaAvailability } from "@/hooks/use-beta"
 import { api, responseMessage } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
 import { setPendingInviteCode } from "@/lib/invites"
 
 export default function InviteScreen() {
+  const { data: beta } = useBetaAvailability()
   const { code } = useLocalSearchParams<{ code: string }>()
   const { data: session, isPending: isSessionPending } = authClient.useSession()
   const { workspaces, selectWorkspace, reloadWorkspaces } = useWorkspace()
@@ -173,7 +174,7 @@ export default function InviteScreen() {
               </Button>
             ) : (
               <>
-                {features.selfSignups ? (
+                {beta?.open ? (
                   <Button onPress={signUpToJoin}>Sign up to join</Button>
                 ) : (
                   <Text className="text-center text-sm text-muted">

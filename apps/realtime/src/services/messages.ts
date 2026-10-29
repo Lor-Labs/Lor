@@ -397,7 +397,9 @@ export async function createMessage(
         } satisfies CreateMessageResult
       }
     }
-    throw new Error("This channel is archived")
+    throw new Error(
+      "This channel is read-only. It may be archived or the workspace beta has ended."
+    )
   }
 
   const channelRecord = input.accessibleChannel
@@ -823,7 +825,9 @@ export async function editMessage(
     input.payload.channelId
   )
   if (!channelRecord.canWrite) {
-    throw new Error("This channel is archived")
+    throw new Error(
+      "This channel is read-only. It may be archived or the workspace beta has ended."
+    )
   }
 
   const messageRecord = await db
@@ -884,7 +888,9 @@ export async function toggleMessageReaction(input: ToggleMessageReactionInput) {
     input.payload.channelId
   )
   if (!channelRecord.canWrite) {
-    throw new Error("This channel is archived")
+    throw new Error(
+      "This channel is read-only. It may be archived or the workspace beta has ended."
+    )
   }
 
   const messageRecord = await db

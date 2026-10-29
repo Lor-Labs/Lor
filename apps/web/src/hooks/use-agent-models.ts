@@ -1,4 +1,5 @@
 import { queryOptions, useQuery } from "@tanstack/react-query"
+import { useParams } from "@tanstack/react-router"
 import { useSyncExternalStore } from "react"
 import type { SessionHarness } from "@/components/session/harness-picker"
 import { apiClient } from "@/lib/api-client"
@@ -6,8 +7,13 @@ import { apiClient } from "@/lib/api-client"
 // A harness's models for the composer's picker, with each model's effort
 // levels and fast mode, read from the harness's own catalog on the server.
 
-async function fetchAgentModels(harness: SessionHarness) {
-  const res = await apiClient.v1["agent-models"].$get({ query: { harness } })
+async function fetchAgentModels(
+  harness: SessionHarness,
+  workspaceSlug: string
+) {
+  const res = await apiClient.v1.workspaces[":workspaceSlug"][
+    "agent-models"
+  ].$get({ param: { workspaceSlug }, query: { harness } })
   if (!res.ok) throw new Error("Failed to load models")
   return res.json()
 }
@@ -18,10 +24,14 @@ export type AgentModelOption = AgentModels["models"][number]
 export const agentModelsKey = (harness: SessionHarness) =>
   ["agent-models", harness] as const
 
-export const agentModelsQueryOptions = (harness: SessionHarness) =>
+export const agentModelsQueryOptions = (
+  harness: SessionHarness,
+  workspaceSlug: string
+) =>
   queryOptions({
-    queryKey: agentModelsKey(harness),
-    queryFn: () => fetchAgentModels(harness),
+    queryKey: [...agentModelsKey(harness), workspaceSlug],
+    queryFn: () => fetchAgentModels(harness, workspaceSlug),
+    enabled: Boolean(workspaceSlug),
     // The catalog changes with a deploy, or after a turn reports the
     // person's own Claude Code models.
     staleTime: 10 * 60 * 1000,
@@ -82,6 +92,7 @@ export const rememberFast = (harness: SessionHarness, fast: boolean) =>
 
 export type ModelChoice = {
   harness: SessionHarness
+  workspaceSlug: string
   catalog: AgentModels | undefined
   option: AgentModelOption | undefined
   // null: the harness's default.
@@ -93,10 +104,13 @@ export type ModelChoice = {
 
 // The remembered choice, held to what the catalog offers: a model it no
 // longer lists falls back to its default, an effort the model doesn't take
-// to the catalog's default effort. Until the catalog loads, only the
-// remembered model is sent.
+// to the catalog's default effort. Until the catalog loads, the server
+// chooses the workspace default; never send a stale cross-provider choice.
 export function useModelChoice(harness: SessionHarness): ModelChoice {
-  const { data: catalog } = useQuery(agentModelsQueryOptions(harness))
+  const { workspaceSlug = "" } = useParams({ strict: false })
+  const { data: catalog } = useQuery(
+    agentModelsQueryOptions(harness, workspaceSlug)
+  )
   const prefix = KEY_PREFIX[harness]
   const savedModel = useRemembered(`${prefix}-model`)
   const savedEffort = useRemembered(`${prefix}-effort`)
@@ -111,9 +125,10 @@ export function useModelChoice(harness: SessionHarness): ModelChoice {
           typeof level === "string" && option.efforts.includes(level)
       ) ?? null)
   const fast = Boolean(option?.fast && savedFast)
-  const model = option?.id ?? savedModel ?? undefined
+  const model = option?.id
   return {
     harness,
+    workspaceSlug,
     catalog,
     option,
     effort,

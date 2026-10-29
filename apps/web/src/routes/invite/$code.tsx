@@ -3,11 +3,11 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
-import { features } from "@repo/utils/features"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { SocketProvider, useSocket } from "@/context/socket-context"
+import { useBetaAvailability } from "@/hooks/use-beta-availability"
 import { apiClient } from "@/lib/api-client"
 
 export const Route = createFileRoute("/invite/$code")({
@@ -34,6 +34,7 @@ function InviteCard({
   userId: string | null
   sessionPending: boolean
 }) {
+  const availability = useBetaAvailability()
   const isAuthenticated = userId !== null
   const { code } = Route.useParams()
   const navigate = useNavigate()
@@ -169,7 +170,7 @@ function InviteCard({
     } else {
       cta = (
         <div className="grid w-full gap-3">
-          {features.selfSignups ? (
+          {availability.data?.open ? (
             <Button
               className="w-full"
               render={<Link to="/signup" search={{ redirect: invitePath }} />}

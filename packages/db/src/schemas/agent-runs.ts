@@ -1,9 +1,11 @@
+import type { InferenceFunding } from "@repo/utils/inference"
 import { relations, sql } from "drizzle-orm"
 import {
   type AnyPgColumn,
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -149,6 +151,18 @@ export const agentRun = pgTable(
     toolCalls: integer("tool_calls").notNull().default(0),
     toolOutputBytes: integer("tool_output_bytes").notNull().default(0),
     creditsSpent: integer("credits_spent").notNull().default(0),
+    // AI Gateway calls whose response reported its cost: what Lor charged at
+    // list price vs what the Gateway billed (provider_metadata.gateway.cost),
+    // to measure real inference cost.
+    gatewayChargedUsd: numeric("gateway_charged_usd", {
+      precision: 12,
+      scale: 6,
+    })
+      .notNull()
+      .default("0"),
+    gatewayActualUsd: numeric("gateway_actual_usd", { precision: 12, scale: 6 })
+      .notNull()
+      .default("0"),
 
     // Wall-clock ceiling as an absolute timestamp (startedAt + budgetWallMs at
     // first claim) so recovery cannot extend it.
@@ -159,6 +173,7 @@ export const agentRun = pgTable(
     // without re-querying — no drift, no double embed billing. Image bytes are
     // re-fetched from their URLs.
     context: jsonb("context").$type<AgentRunContext>(),
+    inferenceFunding: jsonb("inference_funding").$type<InferenceFunding>(),
     instructions: text("instructions"),
 
     startedAt: timestamp("started_at"),

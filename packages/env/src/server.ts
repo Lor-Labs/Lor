@@ -88,6 +88,9 @@ const serverSchema = z.object({
   // BL_* names are fixed — @blaxel/core reads them from process.env directly.
   BL_API_KEY: z.string().min(1).optional(),
   BL_WORKSPACE: z.string().min(1).optional(),
+  // Blaxel account that owns BL_WORKSPACE (GET /v0/accounts). Enables
+  // sandbox-time metering from the Billing API; unset, nothing is metered.
+  BL_ACCOUNT_ID: z.string().uuid().optional(),
   // Where session sandboxes are created. It must offer ephemeral volumes and
   // the egress proxy (us-pdx-1 checked 2026-10-23).
   BL_REGION: defaultedString("us-pdx-1"),
@@ -158,10 +161,6 @@ const serverSchema = z.object({
   ATTIO_CLIENT_SECRET: z.string().min(1).optional(),
   NOTION_CLIENT_ID: z.string().min(1).optional(),
   NOTION_CLIENT_SECRET: z.string().min(1).optional(),
-  INTEGRATION_ENCRYPTION_KEY: z
-    .string()
-    .regex(/^[0-9a-f]{64}$/i)
-    .optional(),
   NEXT_PUBLIC_SELF_HOSTED: z
     .preprocess((v) => v === "true" || v === "1", z.boolean())
     .default(false),

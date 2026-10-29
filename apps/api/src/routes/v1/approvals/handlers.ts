@@ -572,7 +572,10 @@ function resolveHandler(
         )
       case "archived":
         return c.json(
-          { success: false as const, message: "Channel is archived" },
+          {
+            success: false as const,
+            message: "Channel is read-only (archived or beta access ended)",
+          },
           HttpStatusCodes.BAD_REQUEST
         )
       case "conflict":

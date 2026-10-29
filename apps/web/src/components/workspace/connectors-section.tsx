@@ -75,6 +75,7 @@ import type {
 import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
 import { connectorLogo } from "@/lib/connector-ui"
 import { openGithubConnect } from "@/lib/github-connect"
+import { integrationsQueryOptions } from "@/lib/integrations-query"
 import { openExternal } from "@/lib/open-external"
 
 // How many repositories to list before collapsing the rest into a "+N more".
@@ -129,18 +130,9 @@ export function ConnectorsSection({
   } | null>(null)
   const topRef = useRef<HTMLDivElement>(null)
 
-  const { data, isPending, isError, refetch } = useQuery({
-    queryKey: ["integrations", workspaceSlug],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[
-        ":workspaceSlug"
-      ].integrations.$get({ param: { workspaceSlug } })
-      if (!res.ok) throw new Error("Failed to load connectors")
-      return res.json()
-    },
-    // Connections change outside this window (OAuth runs in the browser).
-    staleTime: 0,
-  })
+  const { data, isPending, isError, refetch } = useQuery(
+    integrationsQueryOptions(workspaceSlug)
+  )
 
   const disconnect = useMutation({
     mutationFn: async (connectionId: string) => {

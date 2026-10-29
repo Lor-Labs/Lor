@@ -20,6 +20,7 @@ import { useInviteAccess } from "@/hooks/use-invite-access"
 import { useWorkspaceSetup } from "@/hooks/use-workspace-setup"
 import { apiClient } from "@/lib/api-client"
 import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
+import { integrationsQueryOptions } from "@/lib/integrations-query"
 import {
   firstTextChannelId,
   textChannelIdNamed,
@@ -60,17 +61,7 @@ function SetupPage() {
   const { data: channels } = useQuery(
     workspaceChannelsQueryOptions(workspaceSlug)
   )
-  const integrations = useQuery({
-    queryKey: ["integrations", workspaceSlug],
-    queryFn: async () => {
-      const res = await apiClient.v1.workspaces[
-        ":workspaceSlug"
-      ].integrations.$get({ param: { workspaceSlug } })
-      if (!res.ok) throw new Error("Failed to load connectors")
-      return res.json()
-    },
-    staleTime: 0,
-  })
+  const integrations = useQuery(integrationsQueryOptions(workspaceSlug))
   const refetchIntegrations = integrations.refetch
 
   useEffect(() => {

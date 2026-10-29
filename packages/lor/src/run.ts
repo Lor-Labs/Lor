@@ -6,6 +6,7 @@ import type {
   TurnSandboxMode,
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
+import type { InferenceFunding } from "@repo/utils/inference"
 import type { HarnessOwner, SavedHarnessState } from "./session-core"
 import type { PiTurnSave } from "./session-core/pi-runtime"
 
@@ -114,6 +115,8 @@ export type RunStepRecord = {
   inputTokens: number
   cachedInputTokens: number
   outputTokens: number
+  // What the AI Gateway billed for this call, from its response.
+  gatewayCostUsd?: number
 }
 
 // One finished or paused Pi turn, ready to save: the new Pi log (null when
@@ -189,6 +192,9 @@ export type RunResume = {
 }
 
 export type RunHandle = {
+  funding?: InferenceFunding
+  selectInferenceModel?: (model: string) => Promise<InferenceFunding>
+  assertCanInfer?: () => Promise<void>
   // The agent_run row this handle owns — approval rows and other run-scoped
   // writes reference it.
   runId: string

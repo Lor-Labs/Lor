@@ -8,13 +8,18 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+import { Button } from "@repo/ui/components/button"
 import { Combobox, ComboboxPrimitive } from "@repo/ui/components/combobox"
+import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { Spinner } from "@repo/ui/components/spinner"
 import { ToggleGroup, ToggleGroupItem } from "@repo/ui/components/toggle-group"
 import { isValidNewBranchName } from "@repo/utils/github"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { type ReactNode, useEffect, useState } from "react"
 import { apiClient } from "@/lib/api-client"
+import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
+import { openGithubConnect } from "@/lib/github-connect"
+import { integrationsQueryOptions } from "@/lib/integrations-query"
 
 // New session in Code mode: one repo and base branch, fixed for the session
 // (reference/planned/code-sessions-runbook.md, chunk 1).
@@ -231,18 +236,17 @@ export function CodeTargetPicker({
   channelId: string
   code: CodeTargetState
 }) {
+  if (code.status === "unavailable") {
+    return <GithubSetupNote workspaceSlug={workspaceSlug} />
+  }
   if (code.status !== "ready" || !code.repo) {
     const note =
       code.status === "loading"
         ? "Loading repositories…"
-        : code.status === "unavailable"
-          ? "Code needs GitHub, with Clone repository on in this channel"
-          : code.status === "empty"
-            ? "No GitHub repositories connected"
-            : "Couldn't load repositories"
-    return (
-      <span className="min-w-0 truncate text-muted-foreground">{note}</span>
-    )
+        : code.status === "empty"
+          ? "No GitHub repositories connected"
+          : "Couldn't load repositories"
+    return <CodeNote>{note}</CodeNote>
   }
   return (
     <>
@@ -284,6 +288,94 @@ export function CodeTargetPicker({
       ) : (
         <Spinner className="size-3.5 text-muted-foreground" />
       )}
+    </>
+  )
+}
+
+function CodeNote({ children }: { children: ReactNode }) {
+  return (
+    <span className="min-w-0 truncate text-muted-foreground">{children}</span>
+  )
+}
+
+// The repo list is refused when GitHub isn't connected or Clone repository is
+// off here; the workspace's connectors tell which. An admin connects from
+// here, and GitHub's setup page comes back to this page.
+function GithubSetupNote({ workspaceSlug }: { workspaceSlug: string }) {
+  const queryClient = useQueryClient()
+  const { data, isError, refetch } = useQuery(
+    integrationsQueryOptions(workspaceSlug)
+  )
+  const [starting, setStarting] = useState(false)
+  const [started, setStarted] = useState(false)
+  // The desktop app connects in the system browser with no redirect back, so
+  // re-check when its window regains focus.
+  useEffect(() => {
+    if (!started) return
+    let wasFocused = isAppFocused()
+    const unsubscribe = subscribeAppFocus((focused) => {
+      if (focused && !wasFocused) {
+        void queryClient.invalidateQueries({
+          queryKey: ["integrations", workspaceSlug],
+        })
+        void queryClient.invalidateQueries({
+          queryKey: ["code-repos", workspaceSlug],
+        })
+      }
+      wasFocused = focused
+    })
+    return unsubscribe
+  }, [started, queryClient, workspaceSlug])
+
+  const github = data?.providers.find((provider) => provider.id === "github")
+  if (!github && isError)
+    return (
+      <>
+        <CodeNote>Couldn't check GitHub</CodeNote>
+        <Button
+          size="xs"
+          variant="outline"
+          className="ml-auto"
+          onClick={() => void refetch()}
+        >
+          Retry
+        </Button>
+      </>
+    )
+  if (!github) return <CodeNote>Checking GitHub…</CodeNote>
+  if (github.connected) {
+    return <CodeNote>Clone repository is off in this channel</CodeNote>
+  }
+  if (!github.connectUrl) {
+    return (
+      <CodeNote>
+        {github.canManage
+          ? "GitHub isn't available on this server"
+          : "Ask a workspace admin to connect GitHub"}
+      </CodeNote>
+    )
+  }
+  return (
+    <>
+      <CodeNote>Code sessions work in a GitHub repository</CodeNote>
+      <Button
+        size="xs"
+        variant="outline"
+        className="ml-auto"
+        loading={starting}
+        onClick={async () => {
+          setStarting(true)
+          await openGithubConnect(
+            workspaceSlug,
+            window.location.pathname + window.location.search
+          )
+          setStarting(false)
+          setStarted(true)
+        }}
+      >
+        <GitHubLogo className="size-3.5" />
+        Connect GitHub
+      </Button>
     </>
   )
 }

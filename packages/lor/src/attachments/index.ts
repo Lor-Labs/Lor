@@ -1,4 +1,5 @@
 import { and, db, eq, isNull, schema } from "@repo/db"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import type { Attachment, NewAttachmentChunk } from "@repo/db/schema"
 import sharp from "sharp"
 import { embedDocumentsWithUsage, embedDocumentWithUsage } from "../embeddings"
@@ -249,6 +250,8 @@ export async function indexMessageAttachments(
     .then((r) => r[0])
   // DMs (no workspace) are never indexed: they will be E2E encrypted.
   if (!message?.workspaceId || message.excludedFromMemory) return
+  if ((await workspaceBetaAccess(message.workspaceId)).state !== "active")
+    return
   if (!message.attachments?.length) return
 
   const target: IndexTarget = {
@@ -315,6 +318,8 @@ export async function embedPendingChunks(
   let embedded = 0
   let failed = 0
   for (const row of rows) {
+    if ((await workspaceBetaAccess(row.workspaceId)).state !== "active")
+      continue
     try {
       const embedding = await embedChunk(
         row.workspaceId,

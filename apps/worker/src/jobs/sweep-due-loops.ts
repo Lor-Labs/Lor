@@ -1,4 +1,5 @@
 import { and, db, eq, isNotNull, lte, schema } from "@repo/db"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { nextLoopRunAt } from "@repo/lor/loop-schedule"
 import { toRealtimeLoop } from "@repo/lor/loops"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
@@ -99,6 +100,23 @@ export async function sweepDueLoops(
           .to(channelRoom(paused.channelId))
           .emit("loop:updated", { loop: toRealtimeLoop(paused) })
       }
+      continue
+    }
+
+    // A beta workspace that has ended (or is not enrolled) skips this fire
+    // but keeps its schedule, so the loop resumes once access returns (for
+    // example after subscribing). Not a manual pause.
+    if ((await workspaceBetaAccess(loop.workspaceId)).state !== "active") {
+      await db
+        .update(schema.loop)
+        .set({ nextRunAt: next })
+        .where(
+          and(
+            eq(schema.loop.id, loop.id),
+            eq(schema.loop.status, "active"),
+            lte(schema.loop.nextRunAt, new Date())
+          )
+        )
       continue
     }
 

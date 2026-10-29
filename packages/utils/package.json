@@ -16,7 +16,8 @@
     "./domain": "./src/domain.ts",
     "./file-preview": "./src/file-preview.ts",
     "./html": "./src/html.ts",
-    "./short-code": "./src/short-code.ts"
+    "./short-code": "./src/short-code.ts",
+    "./inference": "./src/inference.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

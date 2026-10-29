@@ -1,4 +1,5 @@
 import "./instrumentation"
+import { sweepBetaBilling } from "@repo/billing"
 import { env } from "@repo/env/server"
 import { flushErrorReports } from "@repo/logger"
 import { claimOverdueActWindows } from "@repo/lor/act-runs"
@@ -42,6 +43,12 @@ import {
   sweepDeadRuns,
   sweepOrphanedPlaceholders,
 } from "@/jobs/prune-run-events"
+import {
+  chargeClosedSandboxHours,
+  SANDBOX_CHARGE_EVERY_MS,
+  SANDBOX_STOP_SWEEP_EVERY_MS,
+  sweepBlockedSandboxes,
+} from "@/jobs/sandbox-usage"
 import { createSourceIngestProcessor } from "@/jobs/source-ingest"
 import { LOOP_SWEEP_EVERY_MS, sweepDueLoops } from "@/jobs/sweep-due-loops"
 import { createTriggeredRunProcessor } from "@/jobs/triggered-run"
@@ -391,7 +398,12 @@ async function bootstrap() {
   const maintenanceWorker = new Worker(
     MAINTENANCE_QUEUE,
     async (job) => {
-      if (job.name === "prune-run-events") await pruneRunEvents()
+      if (job.name === "sweep-beta-billing") await sweepBetaBilling()
+      else if (job.name === "sweep-blocked-sandboxes")
+        await sweepBlockedSandboxes()
+      else if (job.name === "charge-sandbox-hours")
+        await chargeClosedSandboxHours()
+      else if (job.name === "prune-run-events") await pruneRunEvents()
       else if (job.name === "sweep-dead-runs") {
         await sweepDeadRuns(
           emitter,
@@ -454,6 +466,18 @@ async function bootstrap() {
 
   // Upsert (idempotent across replicas/restarts): one shared schedule in
   // Redis, first run fires immediately, then every interval.
+  // Replaced schedules; drop what is left in Redis.
+  await maintenanceQueue.removeJobScheduler("sweep-beta-compute")
+  await maintenanceQueue.removeJobScheduler("sweep-sandbox-usage")
+  await maintenanceQueue.upsertJobScheduler("sweep-blocked-sandboxes", {
+    every: SANDBOX_STOP_SWEEP_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("charge-sandbox-hours", {
+    every: SANDBOX_CHARGE_EVERY_MS,
+  })
+  await maintenanceQueue.upsertJobScheduler("sweep-beta-billing", {
+    every: 60_000,
+  })
   await maintenanceQueue.upsertJobScheduler("prune-run-events", {
     every: RUN_EVENT_PRUNE_EVERY_MS,
   })

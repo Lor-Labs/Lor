@@ -1,4 +1,5 @@
 import { recordUsage } from "@repo/billing"
+import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import {
   listAccessibleChannelIds,
   resolveChannelAccess,
@@ -424,6 +425,7 @@ export const chooseVoiceRequest: AppRouteHandler<
       HttpStatusCodes.NOT_FOUND
     )
   }
+  await assertWorkspaceActive(scope.workspaceId)
   const question = found.result?.blocks.find(
     (block) => block.type === "question"
   )
@@ -474,6 +476,7 @@ export const stageVoiceRequest: AppRouteHandler<
       HttpStatusCodes.NOT_FOUND
     )
   }
+  await assertWorkspaceActive(scope.workspaceId)
   const request = await stageRequest(requestId)
   if (!request) {
     return c.json(
@@ -608,6 +611,8 @@ export const joinVoiceChannel: AppRouteHandler<JoinVoiceChannelRoute> = async (
     )
   }
 
+  // Before any call state changes; the trial caps the join token.
+  const trial = await assertWorkspaceActive(workspaceId)
   const session = await getOrCreateLiveSession(
     livekit,
     { id: channel.id, workspaceId },
@@ -630,6 +635,7 @@ export const joinVoiceChannel: AppRouteHandler<JoinVoiceChannelRoute> = async (
     room: session.id,
     identity: participantId,
     name: currentUser.name,
+    expiresAt: trial?.expiresAt,
   })
   return c.json(
     {

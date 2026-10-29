@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link, Navigate, Outlet } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { HowLorWorksDialog } from "@/components/onboarding/how-lor-works-dialog"
+import { BetaStatus } from "@/components/workspace/beta-status"
 
 export const Route = createFileRoute("/_authenticated/$workspaceSlug")({
   component: WorkspaceLayout,
@@ -172,6 +173,7 @@ function WorkspaceLayout() {
 
   return (
     <>
+      <BetaStatus workspaceSlug={workspaceSlug} />
       <Outlet />
       <HowLorWorksDialog workspaceName={workspace.name} />
     </>

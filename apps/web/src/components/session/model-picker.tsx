@@ -35,6 +35,7 @@ import {
   rememberFast,
   rememberModel,
 } from "@/hooks/use-agent-models"
+import { useBetaAvailability } from "@/hooks/use-beta-availability"
 
 // The model, thinking effort and fast mode for the turn a message starts,
 // in every session composer. The lists come from the harness's own catalog
@@ -83,11 +84,18 @@ export function ModelPicker({
   harnesses?: readonly SessionHarness[]
   onHarness?: (harness: SessionHarness) => void
 }) {
+  const { data: beta } = useBetaAvailability()
+  harnesses =
+    !beta || beta.enabled
+      ? harnesses.filter((harness) => harness === "pi")
+      : harnesses
   const [query, setQuery] = useState("")
   const [shown, setShown] = useState(choice.harness)
   const inputRef = useRef<HTMLInputElement>(null)
   const catalogs = useQueries({
-    queries: harnesses.map((harness) => agentModelsQueryOptions(harness)),
+    queries: harnesses.map((harness) =>
+      agentModelsQueryOptions(harness, choice.workspaceSlug)
+    ),
   })
   const byKey = new Map<string, ModelItem>()
   const keysOf = new Map<SessionHarness, string[]>()
@@ -120,7 +128,7 @@ export function ModelPicker({
   const searching = query.trim() !== ""
   const items =
     sidebar && !searching
-      ? (keysOf.get(shown) ?? [])
+      ? (keysOf.get(harnesses.includes(shown) ? shown : choice.harness) ?? [])
       : [...harnesses]
           .sort((a, b) => Number(a === "pi") - Number(b === "pi"))
           .flatMap((harness) => keysOf.get(harness) ?? [])

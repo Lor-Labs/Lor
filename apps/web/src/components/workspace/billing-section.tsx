@@ -1,5 +1,3 @@
-import { LinkSquare02Icon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Progress } from "@repo/ui/components/progress"
@@ -14,25 +12,146 @@ import { Skeleton } from "@repo/ui/components/skeleton"
 import { Spinner } from "@repo/ui/components/spinner"
 import { Switch } from "@repo/ui/components/switch"
 import { toast } from "@repo/ui/components/toast"
+import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
+import { InferenceSettings } from "./inference-settings"
+import {
+  PILL_BUTTON,
+  SettingsCard,
+  SettingsGroup,
+  SettingsSection,
+} from "./settings-group"
 
+// Auto top-up presets; manual top-ups take any whole-dollar amount.
 const TOPUPS = [
-  { size: "small", credits: 2_500, label: "2,500", price: "$25" },
-  { size: "medium", credits: 10_000, label: "10,000", price: "$100" },
-  { size: "large", credits: 50_000, label: "50,000", price: "$500" },
+  { credits: 2_500, label: "2,500", price: "$25" },
+  { credits: 10_000, label: "10,000", price: "$100" },
+  { credits: 50_000, label: "50,000", price: "$500" },
 ] as const
 
 type PackCredits = (typeof TOPUPS)[number]["credits"]
+
+// $1 = 100 credits; the API accepts any whole-dollar amount from $5.
+const TOPUP_MIN_USD = 5
+const TOPUP_PRESETS_USD = [10, 20, 50] as const
+
+function BuyCreditsSection({
+  caption,
+  onBuy,
+  pending,
+  disabled,
+}: {
+  caption: string
+  onBuy: (usd: number) => void
+  pending: boolean
+  disabled?: boolean
+}) {
+  const [choice, setChoice] = useState<number | "custom">(20)
+  const [custom, setCustom] = useState("")
+  const usd = choice === "custom" ? Number(custom) : choice
+  const valid = Number.isSafeInteger(usd) && usd >= TOPUP_MIN_USD
+  const option = (selected: boolean) =>
+    cn(PILL_BUTTON, selected && "border-primary bg-primary/10")
+  return (
+    <SettingsSection title="Buy credits" caption={caption}>
+      <SettingsCard>
+        <div className="flex flex-wrap items-center gap-2">
+          {TOPUP_PRESETS_USD.map((amount) => (
+            <Button
+              key={amount}
+              variant="outline"
+              className={option(choice === amount)}
+              aria-pressed={choice === amount}
+              onClick={() => setChoice(amount)}
+            >
+              ${amount}
+            </Button>
+          ))}
+          <Button
+            variant="outline"
+            className={option(choice === "custom")}
+            aria-pressed={choice === "custom"}
+            onClick={() => setChoice("custom")}
+          >
+            Custom
+          </Button>
+          {choice === "custom" && (
+            <div className="relative">
+              <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-muted-foreground">
+                $
+              </span>
+              <Input
+                autoFocus
+                inputMode="numeric"
+                aria-label="Amount in dollars"
+                placeholder={`${TOPUP_MIN_USD} or more`}
+                className="w-32 pl-6"
+                value={custom}
+                onChange={(event) =>
+                  setCustom(event.target.value.replace(/\D/g, ""))
+                }
+              />
+            </div>
+          )}
+        </div>
+        <Button
+          className={PILL_BUTTON}
+          disabled={disabled || pending || !valid}
+          onClick={() => onBuy(usd)}
+        >
+          {pending && <Spinner className="size-4" />}
+          {valid
+            ? `Buy ${(usd * 100).toLocaleString()} credits for $${usd.toLocaleString()}`
+            : `Minimum $${TOPUP_MIN_USD}`}
+        </Button>
+      </SettingsCard>
+    </SettingsSection>
+  )
+}
+
+const shortDate = (value: string | number) =>
+  new Date(value).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  })
+
+function Row({
+  title,
+  detail,
+  action,
+  children,
+}: {
+  title: ReactNode
+  detail?: ReactNode
+  action?: ReactNode
+  children?: ReactNode
+}) {
+  return (
+    <div className="space-y-2 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm">{title}</div>
+          {detail && (
+            <div className="text-xs text-muted-foreground">{detail}</div>
+          )}
+        </div>
+        {action}
+      </div>
+      {children}
+    </div>
+  )
+}
 
 export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
   const socket = useSocket()
   const queryClient = useQueryClient()
 
   const { data: billing, isPending } = useQuery({
+    refetchInterval: 30_000,
     queryKey: ["billing", workspaceSlug],
     queryFn: async () => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].billing.$get({
@@ -77,10 +196,10 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
   })
 
   const topup = useMutation({
-    mutationFn: async (size: "small" | "medium" | "large") => {
+    mutationFn: async (usd: number) => {
       const res = await apiClient.v1.workspaces[
         ":workspaceSlug"
-      ].billing.topup.$post({ param: { workspaceSlug }, json: { size } })
+      ].billing.topup.$post({ param: { workspaceSlug }, json: { usd } })
       if (!res.ok) throw new Error("Failed to start checkout")
       return res.json()
     },
@@ -119,51 +238,127 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
     )
   }
 
-  if (!billing.enabled) {
+  const seats = `${billing.seats} ${billing.seats === 1 ? "member" : "members"}`
+  const keySettings = (expired: boolean) => (
+    <InferenceSettings workspaceSlug={workspaceSlug} expired={expired} />
+  )
+  const subscribeButton = (primary: boolean) => (
+    <Button
+      variant={primary ? "default" : "outline"}
+      className={PILL_BUTTON}
+      onClick={() => subscribe.mutate()}
+      disabled={!billing.enabled || subscribe.isPending}
+    >
+      {subscribe.isPending && <Spinner className="size-4" />}
+      Subscribe
+    </Button>
+  )
+
+  if (billing.beta) {
+    const beta = billing.beta
+    const credits = (usd: number) => Math.floor(usd * 100).toLocaleString()
+    const left = beta.freeRemainingUsd + beta.purchasedRemainingUsd
+    const blocked = beta.expired || (beta.available && left <= 0)
     return (
-      <p className="text-sm text-muted-foreground">
-        Billing is not enabled on this deployment.
-      </p>
+      <div className="space-y-8">
+        <SettingsSection
+          title="Plan"
+          caption="1 credit = $0.01, shared by AI and sandbox time."
+        >
+          <SettingsGroup>
+            <Row
+              title="Private beta"
+              detail={
+                beta.expired
+                  ? `Ended ${shortDate(beta.expiresAt)}`
+                  : `Free until ${shortDate(beta.expiresAt)}`
+              }
+            />
+            <Row
+              title={
+                beta.available
+                  ? `${credits(left)} credits left`
+                  : "Balance unavailable"
+              }
+              detail={
+                beta.available
+                  ? `${credits(beta.creditGrantUsd)} included${beta.purchasedRemainingUsd > 0 ? ` · ${credits(beta.purchasedRemainingUsd)} bought` : ""}`
+                  : "AI is paused until billing recovers"
+              }
+            >
+              {beta.available && (
+                <Progress
+                  value={Math.min(
+                    100,
+                    (beta.freeRemainingUsd / (beta.creditGrantUsd || 1)) * 100
+                  )}
+                />
+              )}
+            </Row>
+          </SettingsGroup>
+        </SettingsSection>
+        <SettingsSection
+          title="Lor Pro"
+          caption="Subscribing ends the beta limits. Unused credits stay."
+        >
+          <SettingsGroup>
+            <Row
+              title={`$${billing.seatPriceUsd}/member a month`}
+              detail="Yours for life as a beta team"
+              action={subscribeButton(blocked)}
+            />
+          </SettingsGroup>
+        </SettingsSection>
+        {!beta.expired && (
+          <BuyCreditsSection
+            caption="$1 = 100 credits. No automatic refill."
+            onBuy={(usd) => topup.mutate(usd)}
+            pending={topup.isPending}
+            disabled={!billing.enabled || !beta.available}
+          />
+        )}
+        {keySettings(beta.expired)}
+      </div>
     )
   }
 
-  if (!billing.available) {
+  if (!billing.enabled || !billing.available) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Billing is temporarily unavailable. Lor keeps working — try again in a
-        moment.
-      </p>
+      <div className="space-y-8">
+        <SettingsSection title="Plan">
+          <SettingsGroup>
+            <Row
+              title={
+                billing.enabled
+                  ? "Billing is temporarily unavailable"
+                  : "Billing is off on this deployment"
+              }
+            />
+          </SettingsGroup>
+        </SettingsSection>
+        {keySettings(false)}
+      </div>
     )
   }
 
   if (!billing.subscribed) {
     return (
-      <div className="space-y-4">
-        <div className="rounded-lg border border-border p-5">
-          <div className="text-base font-semibold">Lor Pro</div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            ${billing.seatPriceUsd} per member per month. Includes Lor in your
-            channels, with usage pooled across the whole team.
-          </p>
-          <div className="mt-3 text-sm text-muted-foreground">
-            {billing.seats} {billing.seats === 1 ? "member" : "members"} · $
-            {billing.seats * billing.seatPriceUsd}/month
-          </div>
-          <Button
-            className="mt-4"
-            onClick={() => subscribe.mutate()}
-            disabled={subscribe.isPending}
-          >
-            {subscribe.isPending && <Spinner className="size-4" />}
-            Subscribe
-          </Button>
-        </div>
-        {billing.balance && billing.balance.total > 0 && (
-          <p className="text-sm text-muted-foreground">
-            {billing.balance.total.toLocaleString()} free credits remaining —
-            subscribe to keep Lor available once they run out.
-          </p>
-        )}
+      <div className="space-y-8">
+        <SettingsSection title="Plan">
+          <SettingsGroup>
+            <Row
+              title="Lor Pro"
+              detail={`$${billing.seatPriceUsd}/member a month · ${seats}`}
+              action={subscribeButton(true)}
+            />
+            {billing.balance && billing.balance.total > 0 && (
+              <Row
+                title={`${billing.balance.total.toLocaleString()} free credits left`}
+              />
+            )}
+          </SettingsGroup>
+        </SettingsSection>
+        {keySettings(false)}
       </div>
     )
   }
@@ -171,91 +366,54 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
   const included = billing.seats * billing.creditsPerSeat
   const monthly = billing.balance?.monthly ?? 0
   const purchased = billing.balance?.purchased ?? 0
-  const renewsAt = billing.currentPeriodEnd
-    ? new Date(billing.currentPeriodEnd).toLocaleDateString(undefined, {
-        month: "long",
-        day: "numeric",
-      })
-    : null
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-border p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-base font-semibold">Lor Pro</div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {billing.seats} {billing.seats === 1 ? "member" : "members"} · $
-              {billing.seats * billing.seatPriceUsd}/month
-              {renewsAt ? ` · renews ${renewsAt}` : ""}
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            onClick={() => portal.mutate()}
-            disabled={portal.isPending}
+    <div className="space-y-8">
+      <SettingsSection title="Plan">
+        <SettingsGroup>
+          <Row
+            title="Lor Pro"
+            detail={`${seats} · $${billing.seats * billing.seatPriceUsd}/month${billing.currentPeriodEnd ? ` · renews ${shortDate(billing.currentPeriodEnd)}` : ""}`}
+            action={
+              <Button
+                variant="outline"
+                className={PILL_BUTTON}
+                onClick={() => portal.mutate()}
+                disabled={portal.isPending}
+              >
+                {portal.isPending && <Spinner className="size-4" />}
+                Manage
+              </Button>
+            }
+          />
+          <Row
+            title={`${monthly.toLocaleString()} credits left this month`}
+            detail={`${included.toLocaleString()} included${purchased > 0 ? ` · ${purchased.toLocaleString()} bought` : ""}`}
           >
-            {portal.isPending ? (
-              <Spinner className="size-4" />
-            ) : (
-              <HugeiconsIcon
-                icon={LinkSquare02Icon}
-                className="size-4"
-                strokeWidth={2}
-              />
-            )}
-            Manage billing
-          </Button>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-border p-5">
-        <div className="text-sm font-semibold">Monthly credits</div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {monthly.toLocaleString()} of {included.toLocaleString()} left this
-          cycle, pooled across the team.
-        </p>
-        <Progress
-          className="mt-3"
-          value={included > 0 ? Math.min(100, (monthly / included) * 100) : 0}
-        />
-        {purchased > 0 && (
-          <p className="mt-3 text-sm text-muted-foreground">
-            +{purchased.toLocaleString()} purchased credits that never expire
-            (used after monthly credits).
-          </p>
-        )}
-      </div>
-
-      <div className="rounded-lg border border-border p-5">
-        <div className="text-sm font-semibold">Top up</div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          One-time credit packs. They roll over month to month.
-        </p>
-        <div className="mt-3 flex gap-2">
-          {TOPUPS.map((pack) => (
-            <Button
-              key={pack.size}
-              variant="outline"
-              onClick={() => topup.mutate(pack.size)}
-              disabled={topup.isPending}
-            >
-              {pack.label} for {pack.price}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      <AutoTopupCard
+            <Progress
+              value={
+                included > 0 ? Math.min(100, (monthly / included) * 100) : 0
+              }
+            />
+          </Row>
+        </SettingsGroup>
+      </SettingsSection>
+      <BuyCreditsSection
+        caption="$1 = 100 credits. Bought credits never expire."
+        onBuy={(usd) => topup.mutate(usd)}
+        pending={topup.isPending}
+      />
+      <AutoTopup
         workspaceSlug={workspaceSlug}
         autoTopup={billing.autoTopup}
         canAutoTopup={billing.canAutoTopup}
       />
+      {keySettings(false)}
     </div>
   )
 }
 
-function AutoTopupCard({
+function AutoTopup({
   workspaceSlug,
   autoTopup,
   canAutoTopup,
@@ -288,7 +446,7 @@ function AutoTopupCard({
         openExternal(url)
         return
       }
-      toast.success(enabled ? "Auto top-up enabled" : "Auto top-up disabled")
+      toast.success(enabled ? "Auto top-up on" : "Auto top-up off")
       void queryClient.invalidateQueries({
         queryKey: ["billing", workspaceSlug],
       })
@@ -300,74 +458,72 @@ function AutoTopupCard({
     enabled !== (autoTopup?.enabled ?? false) ||
     threshold !== (autoTopup?.threshold ?? 500) ||
     quantity !== (autoTopup?.quantity ?? 2_500)
-  // The first pack purchase is what registers the top-up price Autumn charges
-  // refills against, so enabling before any top-up also buys one.
+  // The first pack purchase registers the price Autumn charges refills
+  // against, so enabling before any top-up also buys one.
   const buysFirstPack = enabled && !canAutoTopup
   const pack = TOPUPS.find((p) => p.credits === quantity)
+  const packs = TOPUPS.map((p) => ({
+    value: String(p.credits),
+    label: `${p.label} · ${p.price}`,
+  }))
 
   return (
-    <div className="rounded-lg border border-border p-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-sm font-semibold">Auto top-up</div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Automatically buy a credit pack when the pooled balance runs low.
-          </p>
+    <SettingsSection title="Auto top-up">
+      <SettingsCard>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm">Buy a pack when credits run low</span>
+          <Switch checked={enabled} onCheckedChange={setEnabled} />
         </div>
-        <Switch checked={enabled} onCheckedChange={setEnabled} />
-      </div>
-      {enabled && (
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <label
-            htmlFor="auto-topup-threshold"
-            className="flex flex-col gap-1.5 text-sm"
-          >
-            <span className="text-muted-foreground">When balance is below</span>
-            <Input
-              id="auto-topup-threshold"
-              type="number"
-              className="w-32"
-              min={100}
-              max={50_000}
-              step={100}
-              value={threshold}
-              onChange={(e) => setThreshold(Number(e.target.value))}
-            />
-          </label>
-          <div className="flex flex-col gap-1.5 text-sm">
-            <span className="text-muted-foreground">Buy</span>
-            <Select
-              items={TOPUPS.map((p) => ({
-                value: String(p.credits),
-                label: `${p.label} credits · ${p.price}`,
-              }))}
-              value={String(quantity)}
-              onValueChange={(v) => setQuantity(Number(v) as PackCredits)}
+        {enabled && (
+          <div className="flex flex-wrap items-end gap-3">
+            <label
+              htmlFor="auto-topup-threshold"
+              className="flex flex-col gap-1.5 text-xs text-muted-foreground"
             >
-              <SelectTrigger className="w-44" aria-label="Auto top-up pack">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TOPUPS.map((p) => (
-                  <SelectItem key={p.size} value={String(p.credits)}>
-                    {p.label} credits · {p.price}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              Below
+              <Input
+                id="auto-topup-threshold"
+                type="number"
+                className="w-28"
+                min={100}
+                max={50_000}
+                step={100}
+                value={threshold}
+                onChange={(e) => setThreshold(Number(e.target.value))}
+              />
+            </label>
+            <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              Buy
+              <Select
+                items={packs}
+                value={String(quantity)}
+                onValueChange={(v) => setQuantity(Number(v) as PackCredits)}
+              >
+                <SelectTrigger className="w-40" aria-label="Auto top-up pack">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {packs.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-        </div>
-      )}
-      {dirty && (
-        <Button
-          className="mt-4"
-          onClick={() => save.mutate()}
-          disabled={save.isPending || threshold < 100}
-        >
-          {save.isPending && <Spinner className="size-4" />}
-          {buysFirstPack ? `Enable & buy first pack (${pack?.price})` : "Save"}
-        </Button>
-      )}
-    </div>
+        )}
+        {dirty && (
+          <Button
+            className={PILL_BUTTON}
+            onClick={() => save.mutate()}
+            disabled={save.isPending || threshold < 100}
+          >
+            {save.isPending && <Spinner className="size-4" />}
+            {buysFirstPack ? `Turn on and buy ${pack?.price}` : "Save"}
+          </Button>
+        )}
+      </SettingsCard>
+    </SettingsSection>
   )
 }

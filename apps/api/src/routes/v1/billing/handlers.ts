@@ -5,10 +5,14 @@ import {
   CREDITS_PER_SEAT,
   countSeats,
   getBillingSummary,
+  getWorkspaceBetaTrial,
+  hostedBetaConfig,
   portalUrl,
   SEAT_PRICE_USD,
   setAutoTopup,
+  syncBetaCredits,
 } from "@repo/billing"
+import { betaLimitsLifted } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -27,6 +31,11 @@ function billingReturnUrl(slug: string) {
   return `${env.APP_BASE_URL}/${slug}?settings=workspace&tab=billing`
 }
 
+// Hosted-beta purchase limits; exempt and subscribed workspaces buy normally.
+async function betaLimited(workspaceId: string) {
+  return hostedBetaConfig().enabled && !(await betaLimitsLifted(workspaceId))
+}
+
 const BILLING_DISABLED = {
   success: false,
   message: "Billing is not enabled",
@@ -36,7 +45,23 @@ export const getBilling: AppRouteHandler<GetBillingRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
 
+  const trial = hostedBetaConfig().enabled
+    ? await getWorkspaceBetaTrial(workspace.id)
+    : null
+  // Also syncs the subscription, so returning from checkout ends beta mode.
+  const beta = trial
+    ? await syncBetaCredits(workspace.id).catch(() => ({
+        expiresAt: trial.expiresAt.toISOString(),
+        creditGrantUsd: trial.creditGrantMicroUsd / 1_000_000,
+        subscribed: Boolean(trial.subscribedAt),
+        expired: trial.expiresAt <= new Date(),
+        freeRemainingUsd: 0,
+        purchasedRemainingUsd: 0,
+        available: false,
+      }))
+    : null
   const base = {
+    beta: beta?.subscribed ? null : beta,
     enabled: billingEnabled,
     seats: await countSeats(workspace.id),
     seatPriceUsd: SEAT_PRICE_USD,
@@ -68,6 +93,11 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   const config = c.req.valid("json")
+  if (config.enabled && (await betaLimited(workspace.id)))
+    return c.json(
+      { success: false, message: "Auto-refill is not offered during the beta" },
+      HttpStatusCodes.BAD_REQUEST
+    )
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
@@ -93,6 +123,19 @@ export const setAutoTopupHandler: AppRouteHandler<SetAutoTopupRoute> = async (
 export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
+  // Beta teams may subscribe at any time (it ends beta mode); a workspace
+  // with no trial and no exemption cannot.
+  if (
+    (await betaLimited(workspace.id)) &&
+    !(await getWorkspaceBetaTrial(workspace.id))
+  )
+    return c.json(
+      {
+        success: false,
+        message: "This workspace is not enrolled in the hosted beta",
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
@@ -116,14 +159,27 @@ export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
 export const topup: AppRouteHandler<TopupRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
-  const { size } = c.req.valid("json")
+  const { usd } = c.req.valid("json")
   if (!billingEnabled) {
     return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
+  const beta = await betaLimited(workspace.id)
+  if (beta) {
+    const trial = await getWorkspaceBetaTrial(workspace.id)
+    if (!trial || trial.expiresAt <= new Date())
+      return c.json(
+        {
+          success: false,
+          message: "Credits can be bought while the beta trial is active",
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+  }
   try {
+    if (beta) await syncBetaCredits(workspace.id)
     const { url } = await attachTopup(
       workspace.id,
-      size,
+      usd,
       billingReturnUrl(workspace.slug)
     )
     return c.json({ url }, HttpStatusCodes.OK)

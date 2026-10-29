@@ -20,7 +20,8 @@
     "test": "turbo run test",
     "validate": "pnpm run check && pnpm run check-types && pnpm run test",
     "desktop": "pnpm --filter desktop dev",
-    "prepare": "husky"
+    "prepare": "husky",
+    "beta": "pnpm --filter @repo/billing beta"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.14",

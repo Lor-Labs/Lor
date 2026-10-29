@@ -133,11 +133,15 @@ const isPiThinkingLevel = (
 // Pi's catalog with each window capped at the smallest window in Lor's
 // fallback chain, so a fallback model never receives an oversize request.
 // This list replaces the provider's whole model list.
-function gatewayModels(ids: string[], contextWindow: number) {
-  const catalog = getBuiltinModels(GATEWAY_PROVIDER)
+function providerModels(
+  provider: "vercel-ai-gateway" | "anthropic" | "openai",
+  ids: string[],
+  contextWindow: number
+) {
+  const catalog = getBuiltinModels(provider)
   return ids.map((id) => {
     const model = catalog.find((entry) => entry.id === id)
-    if (!model) throw new Error(`Model ${id} is not in Pi's gateway catalog`)
+    if (!model) throw new Error(`Model ${id} is not in Pi's provider catalog`)
     return {
       ...model,
       contextWindow: Math.min(model.contextWindow, contextWindow),
@@ -251,6 +255,7 @@ export type PiContextUsage = {
 type TurnProbe = {
   logFile?: string
   loadMismatch?: boolean
+  accessError?: string
   contextUsage?: PiContextUsage
 }
 
@@ -293,10 +298,27 @@ export type PiCompaction = {
   onEnd?: (done: boolean) => void
   // Each summary's usage and the model that wrote it. A throw is ignored:
   // a lost lease aborts the turn on its own.
-  onUsage: (usage: PiTurnUsage, model: string) => void | Promise<void>
+  onUsage: (
+    usage: PiTurnUsage,
+    model: string,
+    gatewayCostUsd?: number
+  ) => void | Promise<void>
   // Appended to the context after a compaction in this turn, so state the
   // summary may have dropped is current again (the plan).
   afterContext?: () => string | null
+}
+
+// The AI Gateway reports what it billed in the stream's message_delta event
+// (provider_metadata.gateway.cost, USD as a string). Native providers don't.
+function gatewayCostOf(data: unknown): number | undefined {
+  const cost = (
+    data as { provider_metadata?: { gateway?: { cost?: unknown } } } | null
+  )?.provider_metadata?.gateway?.cost
+  const usd =
+    typeof cost === "string" || typeof cost === "number"
+      ? Number(cost)
+      : Number.NaN
+  return Number.isFinite(usd) ? usd : undefined
 }
 
 function turnUsage(usage: Usage): PiTurnUsage {
@@ -314,12 +336,13 @@ function turnUsage(usage: Usage): PiTurnUsage {
 // `tool_call`, which fails closed), so a mismatch sets a flag and aborts
 // instead of throwing.
 function lorPiExtension(input: {
-  gateway: Record<string, unknown>
+  beforeRequest?: () => Promise<void>
+  gateway: Record<string, unknown> | null
   sessionKey: string
   expected: HarnessHead | null
   convertsFormat: boolean
   probe: TurnProbe
-  onAssistantModel?: (model: string) => void
+  onAssistantModel?: (model: string, gatewayCostUsd?: number) => void
   toolBlock?: () => string | null
   compaction?: PiCompaction
   onBoundary?: (final: boolean) => Promise<string | null>
@@ -338,18 +361,34 @@ function lorPiExtension(input: {
         )
       }
     })
-    pi.on("before_provider_request", (event) =>
-      withGatewayOptions(event.payload, input.gateway)
-    )
+    const canRequest = async (ctx: ExtensionContext) => {
+      try {
+        await input.beforeRequest?.()
+        return true
+      } catch (error) {
+        input.probe.accessError =
+          error instanceof Error ? error.message : "AI access is paused"
+        ctx.abort()
+        return false
+      }
+    }
+    pi.on("before_provider_request", async (event, ctx) => {
+      if (!(await canRequest(ctx))) return
+      return input.gateway
+        ? withGatewayOptions(event.payload, input.gateway)
+        : undefined
+    })
     // Pi's cut point and iterative summary with Lor's focus (§4.4). Summary
     // requests skip before_provider_request, so they get the gateway options
     // here. If this throws, Pi falls back to its own summary.
     let compacted = false
     pi.on("session_before_compact", async (event, ctx) => {
+      if (!(await canRequest(ctx))) return { cancel: true }
       const { compaction: lor } = input
       lor?.onStart?.()
       if (!lor || !ctx.model) return
       let answeredBy = ctx.model.id
+      let summaryCost: number | undefined
       const compaction = await compact(
         event.preparation,
         ctx.model,
@@ -361,11 +400,18 @@ function lorPiExtension(input: {
         (model, context, options) => {
           const stream = ctx.modelRegistry.streamSimple(model, context, {
             ...options,
+            onProviderStreamEvent: async (event, eventModel) => {
+              summaryCost = gatewayCostOf(event) ?? summaryCost
+              await options?.onProviderStreamEvent?.(event, eventModel)
+            },
             onPayload: async (payload, payloadModel) =>
-              withGatewayOptions(
-                (await options?.onPayload?.(payload, payloadModel)) ?? payload,
-                input.gateway
-              ),
+              input.gateway
+                ? withGatewayOptions(
+                    (await options?.onPayload?.(payload, payloadModel)) ??
+                      payload,
+                    input.gateway
+                  )
+                : payload,
           })
           void stream.result().then(
             (message) => {
@@ -383,7 +429,7 @@ function lorPiExtension(input: {
       compacted = true
       if (compaction.usage) {
         await Promise.resolve(
-          lor.onUsage(turnUsage(compaction.usage), answeredBy)
+          lor.onUsage(turnUsage(compaction.usage), answeredBy, summaryCost)
         ).catch(() => {})
       }
       return { compaction }
@@ -405,10 +451,19 @@ function lorPiExtension(input: {
       input.probe.contextUsage =
         readContextUsage(ctx) ?? input.probe.contextUsage
     }
+    // Arrives before the message's message_end.
+    let messageCost: number | undefined
+    pi.on("provider_stream_event", (event) => {
+      messageCost = gatewayCostOf(event.data) ?? messageCost
+    })
     pi.on("message_end", (event, ctx) => {
       const message = event.message
       if (message.role === "assistant") {
-        input.onAssistantModel?.(message.responseModel ?? message.model)
+        input.onAssistantModel?.(
+          message.responseModel ?? message.model,
+          messageCost
+        )
+        messageCost = undefined
         captureUsage(ctx)
       }
     })
@@ -546,7 +601,8 @@ export type PiTurnInput = {
   // Without it every call is allowed.
   builtinToolApproval?: PiBuiltinToolApproval
   model: { id: string; fallbacks: string[]; contextWindow: number }
-  // The sender's thinking level pick; unset or a name Pi doesn't know: high.
+  nativeProvider?: "anthropic" | "openai"
+  beforeRequest?: () => Promise<void>
   thinkingLevel?: string
   gatewayAuth: Record<string, string>
   gatewayOptions: Record<string, unknown>
@@ -555,7 +611,8 @@ export type PiTurnInput = {
   // The model that answered each assistant message, which differs from the
   // requested one after a Gateway fallback. Reported before the message's
   // finish-step part, including for a paused message replayed on resume.
-  onAssistantModel?: (model: string) => void
+  // `gatewayCostUsd`: what the AI Gateway billed for it, when reported.
+  onAssistantModel?: (model: string, gatewayCostUsd?: number) => void
   // A reason to refuse every tool call so the model answers instead: the
   // turn is near its spend or time limit.
   toolBlock?: () => string | null
@@ -625,14 +682,16 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
     await restoreLog(input.sandbox, home, input.sessionId, input.saved)
   }
 
+  const provider = input.nativeProvider ?? GATEWAY_PROVIDER
   const probe: TurnProbe = {}
   const agent = new HarnessAgent({
     harness: createPi({
       auth: input.gatewayAuth,
       reattachInProcess: false,
       providers: {
-        [GATEWAY_PROVIDER]: {
-          models: gatewayModels(
+        [provider]: {
+          models: providerModels(
+            provider,
             [input.model.id, ...input.model.fallbacks],
             input.model.contextWindow
           ),
@@ -647,7 +706,10 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         : {}),
       extensionFactories: [
         lorPiExtension({
-          gateway: { ...input.gatewayOptions, sessionId: input.sessionKey },
+          beforeRequest: input.beforeRequest,
+          gateway: input.nativeProvider
+            ? null
+            : { ...input.gatewayOptions, sessionId: input.sessionKey },
           sessionKey: input.sessionKey,
           expected: input.saved?.head ?? null,
           convertsFormat,
@@ -662,7 +724,9 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         ? input.thinkingLevel
         : "high",
     }),
-    model: input.model.id,
+    model: input.nativeProvider
+      ? `${input.nativeProvider}/${input.model.id}`
+      : input.model.id,
     tools: prepareTools(
       { ...missingToolStubs(paused, input.tools), ...input.tools },
       input.toolsContext,
@@ -745,6 +809,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         await agent.stream({ session, messages: [input.prompt], ...abort })
       )
     }
+    if (probe.accessError) throw new Error(probe.accessError)
     if (probe.loadMismatch) {
       throw new SessionCoreError(
         "corrupt_state",

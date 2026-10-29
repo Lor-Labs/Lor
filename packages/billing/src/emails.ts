@@ -46,6 +46,27 @@ const EMAIL_WRAP = (body: string) => `
   </div>
 `
 
+export async function sendBetaCreditsExhaustedEmail(
+  trialId: string,
+  notice: { to: string; name: string; url: string; expiresAt: string }
+) {
+  const { error } = await getResend().emails.send(
+    {
+      from: env.EMAIL_FROM,
+      to: notice.to,
+      subject: `Your included Lor credits are used up`,
+      text: `${notice.name} has used its included credits for AI and sandbox time. To keep working, subscribe to Lor Pro ($20 per member per month, kept for life as a beta team) or buy credits in billing ($1 = 100 credits). Your beta runs until ${notice.expiresAt.slice(0, 10)} (UTC). No automatic refill is enabled.\n\n${notice.url}`,
+      html: EMAIL_WRAP(`<h2>Your included credits are used up</h2>
+      <p><strong>${escapeHtml(notice.name)}</strong> has used its included credits for AI and sandbox time.</p>
+      <p>To keep working, subscribe to Lor Pro ($20 per member per month, kept for life as a beta team) or buy credits ($1 = 100 credits). Your beta runs until ${escapeHtml(notice.expiresAt.slice(0, 10))} (UTC).</p>
+      <p>No automatic refill is enabled. If your team has already bought more credits, you can keep using them.</p>
+      <a href="${escapeHtml(notice.url)}">Open billing</a>`),
+    },
+    { idempotencyKey: `beta-ai-exhausted-${trialId}` }
+  )
+  if (error) throw new Error(`Beta exhaustion email failed: ${error.message}`)
+}
+
 export async function sendAutoTopupChargedEmail(
   workspaceId: string,
   credits: number

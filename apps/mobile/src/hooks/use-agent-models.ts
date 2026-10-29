@@ -9,8 +9,14 @@ import type { SessionHarness } from "@/lib/harness"
 // levels and fast mode, read from the harness's own catalog on the server.
 // Mirrors web's use-agent-models.ts; the picks are remembered on the device.
 
-async function fetchAgentModels(harness: SessionHarness) {
-  const res = await api.v1["agent-models"].$get({ query: { harness } })
+async function fetchAgentModels(
+  harness: SessionHarness,
+  workspaceSlug: string
+) {
+  const res = await api.v1.workspaces[":workspaceSlug"]["agent-models"].$get({
+    param: { workspaceSlug },
+    query: { harness },
+  })
   if (!res.ok) throw new Error("Failed to load models")
   return res.json()
 }
@@ -18,10 +24,14 @@ async function fetchAgentModels(harness: SessionHarness) {
 export type AgentModels = Awaited<ReturnType<typeof fetchAgentModels>>
 export type AgentModelOption = AgentModels["models"][number]
 
-export const agentModelsQueryOptions = (harness: SessionHarness) =>
+export const agentModelsQueryOptions = (
+  harness: SessionHarness,
+  workspaceSlug: string
+) =>
   queryOptions({
-    queryKey: ["agent-models", harness] as const,
-    queryFn: () => fetchAgentModels(harness),
+    queryKey: ["agent-models", harness, workspaceSlug] as const,
+    queryFn: () => fetchAgentModels(harness, workspaceSlug),
+    enabled: Boolean(workspaceSlug),
     staleTime: 10 * 60 * 1000,
   })
 
@@ -81,6 +91,7 @@ export const rememberFast = (harness: SessionHarness, fast: boolean) =>
 
 export type ModelChoice = {
   harness: SessionHarness
+  workspaceSlug: string
   catalog: AgentModels | undefined
   option: AgentModelOption | undefined
   // null: the harness's default.
@@ -93,11 +104,12 @@ export type ModelChoice = {
 // The remembered choice, held to what the catalog offers, as on web.
 export function useModelChoice(
   harness: SessionHarness,
-  enabled = true
+  enabled = true,
+  workspaceSlug = ""
 ): ModelChoice {
   const { data: catalog } = useQuery({
-    ...agentModelsQueryOptions(harness),
-    enabled,
+    ...agentModelsQueryOptions(harness, workspaceSlug),
+    enabled: enabled && Boolean(workspaceSlug),
   })
   const prefix = KEY_PREFIX[harness]
   const savedModel = useRemembered(`${prefix}.model`)
@@ -113,9 +125,10 @@ export function useModelChoice(
           typeof level === "string" && option.efforts.includes(level)
       ) ?? null)
   const fast = Boolean(option?.fast && savedFast)
-  const model = option?.id ?? savedModel ?? undefined
+  const model = option?.id
   return {
     harness,
+    workspaceSlug,
     catalog,
     option,
     effort,

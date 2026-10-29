@@ -1,13 +1,36 @@
 import { feature, item, plan } from "atmn"
 
 // Source of truth for Lor pricing — push with `npx atmn push` (sandbox first).
-// The worker computes credit debits itself (token usage × model_rate),
-// so `credits` is a single metered feature, not an Autumn credit_system.
-export const credits = feature({
-  id: "credits",
-  name: "Lor credits",
+// One credit pool (1 credit = $0.01) that AI, sandbox and later browser time
+// draw from. Code tracks the underlying features; Autumn prices them here.
+
+// AI, already priced by Lor (Gateway provider prices, packages/billing
+// rates.ts) and tracked as fractional credits.
+export const aiUsage = feature({
+  id: "ai_usage",
+  name: "AI",
   type: "metered",
   consumable: true,
+})
+
+// Sandbox running time in GB of RAM × hours, from the provider's billing
+// data. Code sandbox (8 GB): 10 credits an hour; chat sandbox (4 GB): 5.
+export const sandboxUsage = feature({
+  id: "sandbox_gb_hours",
+  name: "Sandbox time",
+  type: "metered",
+  consumable: true,
+})
+
+export const credits = feature({
+  // Must match CREDITS_FEATURE_ID in packages/billing/src/constants.ts.
+  id: "lor_credits",
+  name: "Lor credits",
+  type: "credit_system",
+  creditSchema: [
+    { meteredFeatureId: aiUsage.id, creditCost: 1 },
+    { meteredFeatureId: sandboxUsage.id, creditCost: 1.25 },
+  ],
 })
 
 // Strategy A: one prepaid monthly item drives both price and grant.
@@ -35,8 +58,9 @@ export const pro = plan({
   ],
 })
 
-// Manual top-ups: one add-on, quantity chosen from UI presets (2,500 / 10,000 /
-// 50,000 — all multiples of billingUnits). One-off prepaid → never expires.
+// Manual top-ups: one add-on, any whole-dollar amount ($1 = 100 credits, the
+// billing unit; range in packages/billing constants). One-off prepaid → never
+// expires.
 export const topup = plan({
   id: "topup",
   name: "Credit top-up",
@@ -48,8 +72,8 @@ export const topup = plan({
       // shorter intervals first, so the monthly grant is always spent
       // before these.
       price: {
-        amount: 25,
-        billingUnits: 2500,
+        amount: 1,
+        billingUnits: 100,
         billingMethod: "prepaid",
         interval: "one_off",
       },
