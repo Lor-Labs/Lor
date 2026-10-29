@@ -1,10 +1,10 @@
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import Image from "next/image"
+import { BetaSignup } from "@/app/components/beta-signup"
 import { ClosingCTA } from "@/app/components/closing-cta"
 import { SiteFooter } from "@/app/components/site-footer"
 import { VisionSections } from "@/app/components/vision-sections"
-import { WaitlistForm } from "@/app/components/waitlist-form"
 import { WorkspaceStory } from "@/app/components/workspace-story"
 
 function Hero() {
@@ -39,14 +39,16 @@ function Hero() {
               Research, build, and make decisions with AI in a shared workspace.
               Your team can join in and pick up where you left off.
             </p>
-            <WaitlistForm className="mt-8" />
-            <a
-              href="#workspace"
-              className="mt-9 inline-flex min-h-11 items-center gap-2 text-sm text-foreground/60 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
-            >
-              See it in action{" "}
-              <HugeiconsIcon icon={ArrowDown01Icon} size={15} />
-            </a>
+            <div className="mt-8 flex flex-wrap items-center gap-6">
+              <BetaSignup />
+              <a
+                href="#workspace"
+                className="inline-flex min-h-11 items-center gap-2 text-sm text-foreground/60 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
+              >
+                See it in action{" "}
+                <HugeiconsIcon icon={ArrowDown01Icon} size={15} />
+              </a>
+            </div>
           </div>
         </div>
         <div id="workspace" className="mt-16 scroll-mt-28 md:mt-20">

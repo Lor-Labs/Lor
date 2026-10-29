@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { LorMark } from "@/app/components/lor-mark"
+import { SIGNUP_URL } from "@/app/lib/urls"
 
 const NAV_LINKS = [
   { href: "/#why", label: "Why Lor" },
@@ -74,11 +75,11 @@ export function SiteHeader() {
           </nav>
           <div className="flex items-center gap-2">
             <Link
-              href="/#early-access"
+              href={SIGNUP_URL}
               onClick={() => setMenuOpen(false)}
               className="inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-[13px] font-medium text-background transition-transform duration-200 hover:bg-foreground/90 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
             >
-              Get early access
+              Join the beta
             </Link>
             <button
               ref={menuButtonRef}
