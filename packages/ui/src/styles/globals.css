@@ -587,6 +587,42 @@
   }
 }
 
+/* Button save check (button.tsx): the check pops in, its ring draws, then
+   its tick. Reduced motion shows it already drawn. */
+@keyframes button-success-in {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+@keyframes button-success-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+.button-success-check {
+  animation: button-success-in 300ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.button-success-check :is(circle, path) {
+  stroke-dasharray: 1;
+  animation: button-success-draw 300ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.button-success-check path {
+  animation-duration: 200ms;
+  animation-delay: 120ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-success-check,
+  .button-success-check :is(circle, path) {
+    animation: none;
+  }
+}
+
 @keyframes theme-reveal {
   from {
     clip-path: circle(0% at var(--vt-x) var(--vt-y));

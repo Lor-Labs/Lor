@@ -463,6 +463,7 @@ function ServerEditor({
   onCancel,
   onDelete,
   deleting,
+  oauthSaved = false,
 }: {
   draft: ServerDraft
   setDraft: (update: (d: ServerDraft) => ServerDraft) => void
@@ -471,6 +472,7 @@ function ServerEditor({
   busy: boolean
   discovering: boolean
   oauthBusy: boolean
+  oauthSaved?: boolean
   authorizationOpened: boolean
   saveLabel: string
   onDiscover: () => void
@@ -897,6 +899,7 @@ function ServerEditor({
                 className={cn(PILL_BUTTON, "px-3")}
                 disabled={!canCompleteOAuth}
                 loading={oauthBusy}
+                success={oauthSaved}
                 onClick={onCompleteOAuth}
               >
                 {completeLabel}
@@ -1253,7 +1256,6 @@ export function McpServersBlock({
     onSuccess: async (server) => {
       setDraft(draftFromServer(server))
       await invalidate()
-      toast.success("MCP tool access updated")
     },
     onError: (error) => toast.error(error.message),
   })
@@ -1346,6 +1348,7 @@ export function McpServersBlock({
                 )
               )
             }}
+            oauthSaved={completeOAuthMutation.isSuccess}
             onCompleteOAuth={() => completeOAuthMutation.mutate(editingServer)}
             onDisconnectOAuth={() => setDisconnectTarget(editingServer)}
             onSave={() => updateMutation.mutate(editingServer)}

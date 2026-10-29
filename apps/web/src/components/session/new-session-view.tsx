@@ -2,6 +2,7 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
+import { Reveal } from "@repo/ui/components/collapsible"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -488,7 +489,7 @@ function SessionExamples({
           />
         </button>
       </div>
-      {open && (
+      <Reveal open={open}>
         <div className="mt-1 space-y-0.5">
           {examples.map((example) => (
             <button
@@ -504,7 +505,7 @@ function SessionExamples({
             </button>
           ))}
         </div>
-      )}
+      </Reveal>
     </div>
   )
 }

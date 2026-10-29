@@ -1,19 +1,6 @@
-import {
-  Copy01Icon,
-  Delete02Icon,
-  MailSend01Icon,
-} from "@hugeicons/core-free-icons"
+import { Copy01Icon, MailSend01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/components/alert-dialog"
 import { Button } from "@repo/ui/components/button"
 import {
   Dialog,
@@ -24,9 +11,11 @@ import {
   DialogTitle,
 } from "@repo/ui/components/dialog"
 import { anchoredToastManager, toast } from "@repo/ui/components/toast"
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
+import { InlineConfirmButton } from "@/components/ui/inline-confirm-button"
 import { useInviteAccess } from "@/hooks/use-invite-access"
 import { apiClient } from "@/lib/api-client"
 import { workspaceInvitationsQueryKey } from "@/lib/invitations"
@@ -35,7 +24,7 @@ import { formatWorkspaceRole } from "@/lib/permissions"
 
 type RevokeTarget =
   | { kind: "link"; code: string }
-  | { kind: "email"; invitationId: string; email: string }
+  | { kind: "email"; invitationId: string }
 
 function formatExpiry(expiresAt: string | Date | null) {
   if (!expiresAt) return "Never"
@@ -60,7 +49,6 @@ export function ManageInvitesDialog({
   const { workspaceSlug } = useParams({ strict: false })
   const queryClient = useQueryClient()
   const { workspaceId } = useInviteAccess(workspaceSlug)
-  const [revokeTarget, setRevokeTarget] = useState<RevokeTarget | null>(null)
 
   const { data, isPending, isError } = useQuery({
     queryKey: ["workspace-invites", workspaceSlug],
@@ -137,8 +125,6 @@ export function ManageInvitesDialog({
       queryClient.invalidateQueries({
         queryKey: workspaceInvitationsQueryKey(workspaceId),
       })
-      toast.success("Invite revoked")
-      setRevokeTarget(null)
     },
     onError: () => {
       toast.error("Failed to revoke invite")
@@ -164,193 +150,163 @@ export function ManageInvitesDialog({
   const pendingInvitations = invitations.data ?? []
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Workspace Invites</DialogTitle>
-            <DialogDescription>
-              View and manage pending email invites and active invite links.
-            </DialogDescription>
-          </DialogHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Workspace Invites</DialogTitle>
+          <DialogDescription>
+            View and manage pending email invites and active invite links.
+          </DialogDescription>
+        </DialogHeader>
 
-          <DialogPanel className="max-h-[28rem] space-y-6 overflow-y-auto">
-            <section className="space-y-2">
-              <h3 className="text-sm font-medium">Email Invites</h3>
-              {invitations.isPending ? (
-                <div className="py-4 text-center text-sm text-muted-foreground">
-                  Loading invites...
-                </div>
-              ) : invitations.isError ? (
-                <div className="py-4 text-center text-sm text-destructive">
-                  Failed to load invites. Try closing and reopening.
-                </div>
-              ) : pendingInvitations.length === 0 ? (
-                <div className="py-4 text-center text-sm text-muted-foreground">
-                  No pending email invites
-                </div>
-              ) : (
-                pendingInvitations.map((invitation) => (
-                  <div
-                    key={invitation.id}
-                    className="flex items-center justify-between rounded-md border px-3 py-2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">
-                        {invitation.email}
+        <DialogPanel className="max-h-[28rem] space-y-6 overflow-y-auto">
+          <section className="space-y-2">
+            <h3 className="text-sm font-medium">Email Invites</h3>
+            {invitations.isPending ? (
+              <div className="py-4 text-center text-sm text-muted-foreground">
+                Loading invites...
+              </div>
+            ) : invitations.isError ? (
+              <div className="py-4 text-center text-sm text-destructive">
+                Failed to load invites. Try closing and reopening.
+              </div>
+            ) : pendingInvitations.length === 0 ? (
+              <div className="py-4 text-center text-sm text-muted-foreground">
+                No pending email invites
+              </div>
+            ) : (
+              <div>
+                <AnimatePresence initial={false}>
+                  {pendingInvitations.map((invitation) => (
+                    <motion.div
+                      key={invitation.id}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: EASE_OUT }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mb-2 flex items-center justify-between rounded-md border px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">
+                            {invitation.email}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatWorkspaceRole(invitation.role)} — expires{" "}
+                            {formatExpiry(invitation.expiresAt)}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            aria-label={`Resend invite to ${invitation.email}`}
+                            disabled={resendMutation.isPending}
+                            onClick={() => resendMutation.mutate(invitation)}
+                          >
+                            <HugeiconsIcon
+                              icon={MailSend01Icon}
+                              className="size-3.5"
+                              strokeWidth={2}
+                            />
+                          </Button>
+                          <InlineConfirmButton
+                            label={`Revoke invite to ${invitation.email}`}
+                            confirmLabel="Revoke"
+                            onConfirm={() =>
+                              revokeMutation.mutateAsync({
+                                kind: "email",
+                                invitationId: invitation.id,
+                              })
+                            }
+                          />
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatWorkspaceRole(invitation.role)} — expires{" "}
-                        {formatExpiry(invitation.expiresAt)}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        aria-label={`Resend invite to ${invitation.email}`}
-                        disabled={resendMutation.isPending}
-                        onClick={() => resendMutation.mutate(invitation)}
-                      >
-                        <HugeiconsIcon
-                          icon={MailSend01Icon}
-                          className="size-3.5"
-                          strokeWidth={2}
-                        />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-destructive hover:text-destructive"
-                        aria-label={`Revoke invite to ${invitation.email}`}
-                        onClick={() =>
-                          setRevokeTarget({
-                            kind: "email",
-                            invitationId: invitation.id,
-                            email: invitation.email,
-                          })
-                        }
-                      >
-                        <HugeiconsIcon
-                          icon={Delete02Icon}
-                          className="size-3.5"
-                          strokeWidth={2}
-                        />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </section>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
+          </section>
 
-            <section className="space-y-2">
-              <h3 className="text-sm font-medium">Invite Links</h3>
-              {isPending ? (
-                <div className="py-4 text-center text-sm text-muted-foreground">
-                  Loading invites...
-                </div>
-              ) : isError ? (
-                <div className="py-4 text-center text-sm text-destructive">
-                  Failed to load invites. Try closing and reopening.
-                </div>
-              ) : invites.length === 0 ? (
-                <div className="py-4 text-center text-sm text-muted-foreground">
-                  No active invite links
-                </div>
-              ) : (
-                invites.map((invite) => (
-                  <div
-                    key={invite.id}
-                    className="flex items-center justify-between rounded-md border px-3 py-2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm font-medium">
-                          {invite.code}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {invite.uses}
-                          {invite.maxUses !== null ? `/${invite.maxUses}` : ""}{" "}
-                          uses
-                        </span>
+          <section className="space-y-2">
+            <h3 className="text-sm font-medium">Invite Links</h3>
+            {isPending ? (
+              <div className="py-4 text-center text-sm text-muted-foreground">
+                Loading invites...
+              </div>
+            ) : isError ? (
+              <div className="py-4 text-center text-sm text-destructive">
+                Failed to load invites. Try closing and reopening.
+              </div>
+            ) : invites.length === 0 ? (
+              <div className="py-4 text-center text-sm text-muted-foreground">
+                No active invite links
+              </div>
+            ) : (
+              <div>
+                <AnimatePresence initial={false}>
+                  {invites.map((invite) => (
+                    <motion.div
+                      key={invite.id}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: EASE_OUT }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mb-2 flex items-center justify-between rounded-md border px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-medium">
+                              {invite.code}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {invite.uses}
+                              {invite.maxUses !== null
+                                ? `/${invite.maxUses}`
+                                : ""}{" "}
+                              uses
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            by {invite.inviter.name} — expires{" "}
+                            {formatExpiry(invite.expiresAt)}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            aria-label={`Copy invite ${invite.code}`}
+                            onClick={(event) =>
+                              void handleCopy(invite.code, event.currentTarget)
+                            }
+                          >
+                            <HugeiconsIcon
+                              icon={Copy01Icon}
+                              className="size-3.5"
+                              strokeWidth={2}
+                            />
+                          </Button>
+                          <InlineConfirmButton
+                            label={`Revoke invite ${invite.code}`}
+                            confirmLabel="Revoke"
+                            onConfirm={() =>
+                              revokeMutation.mutateAsync({
+                                kind: "link",
+                                code: invite.code,
+                              })
+                            }
+                          />
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        by {invite.inviter.name} — expires{" "}
-                        {formatExpiry(invite.expiresAt)}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        aria-label={`Copy invite ${invite.code}`}
-                        onClick={(event) =>
-                          void handleCopy(invite.code, event.currentTarget)
-                        }
-                      >
-                        <HugeiconsIcon
-                          icon={Copy01Icon}
-                          className="size-3.5"
-                          strokeWidth={2}
-                        />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-destructive hover:text-destructive"
-                        aria-label={`Revoke invite ${invite.code}`}
-                        onClick={() =>
-                          setRevokeTarget({ kind: "link", code: invite.code })
-                        }
-                      >
-                        <HugeiconsIcon
-                          icon={Delete02Icon}
-                          className="size-3.5"
-                          strokeWidth={2}
-                        />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </section>
-          </DialogPanel>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={!!revokeTarget}
-        onOpenChange={(open) => {
-          if (!open) setRevokeTarget(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Revoke Invite</AlertDialogTitle>
-            <AlertDialogDescription>
-              {revokeTarget?.kind === "email"
-                ? `The invite link sent to ${revokeTarget.email} will stop working.`
-                : "This will permanently deactivate this invite link. Anyone with the link will no longer be able to join."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>
-              Cancel
-            </AlertDialogClose>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                if (revokeTarget) revokeMutation.mutate(revokeTarget)
-              }}
-              loading={revokeMutation.isPending}
-            >
-              Revoke
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
+          </section>
+        </DialogPanel>
+      </DialogContent>
+    </Dialog>
   )
 }

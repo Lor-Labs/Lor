@@ -22,6 +22,7 @@ import { UserAvatar } from "@/components/ui/user-avatar"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useSocket } from "@/context/socket-context"
 import { useUnread } from "@/context/unread-context"
+import { useNewIds } from "@/hooks/use-appended-ids"
 import { apiClient } from "@/lib/api-client"
 import type { DMember } from "@/lib/api-types"
 
@@ -54,6 +55,7 @@ export function DMList() {
       socket.off("notification:unread", onUnread)
     }
   }, [socket, queryClient])
+  const newDmIds = useNewIds(data?.data.map((dm) => dm.id) ?? [])
 
   if (!data || data.data.length === 0) {
     return (
@@ -81,6 +83,7 @@ export function DMList() {
             lastMessageAuthor={dm.lastMessage?.author.name ?? null}
             isGroupDM={dm.type === "group_dm"}
             active={dmId === dm.id}
+            arrived={newDmIds.has(dm.id)}
             onClick={() => {
               navigate({ to: "/dms/$dmId", params: { dmId: dm.id } })
               closeMobileSidebar(false)
@@ -121,6 +124,7 @@ function DMItem({
   lastMessageAuthor,
   isGroupDM,
   active = false,
+  arrived = false,
   onClick,
 }: {
   channelId: string
@@ -130,6 +134,7 @@ function DMItem({
   lastMessageAuthor: string | null
   isGroupDM: boolean
   active?: boolean
+  arrived?: boolean
   onClick?: () => void
 }) {
   const { getUnreadCount, getMentionCount } = useUnread()
@@ -148,6 +153,7 @@ function DMItem({
       onClick={onClick}
       className={cn(
         sidebarRow,
+        arrived && "fade-in-0 animate-in duration-300",
         "group relative flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5",
         active ? sidebarRowSelected : sidebarRowHover,
         active && "text-foreground",

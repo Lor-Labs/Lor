@@ -83,6 +83,7 @@ import { ContextMeter } from "@/components/chat/context-meter"
 import type { ChatContext } from "@/components/chat/header"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
+import { ARRIVE_IN } from "@/hooks/use-appended-ids"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
 import { apiClient } from "@/lib/api-client"
 import type { ConnectorKey, Message } from "@/lib/api-types"
@@ -1181,6 +1182,7 @@ export function MessageInput({
       {replyingTo && (
         <div
           className={cn(
+            ARRIVE_IN,
             "flex items-center gap-2 bg-muted/60 px-3 py-1.5 text-sm",
             isInline
               ? "mb-1 rounded-md"

@@ -24,6 +24,7 @@ import {
 import { env } from "@repo/env/client"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
 import { Button } from "@repo/ui/components/button"
+import { Reveal } from "@repo/ui/components/collapsible"
 import { Input } from "@repo/ui/components/input"
 import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
@@ -755,14 +756,14 @@ export function ProposalCardView({
         </p>
       )}
 
-      {showWhy && (
+      <Reveal open={showWhy}>
         <div className="mt-3 ms-11 space-y-2.5 rounded-lg bg-muted/40 px-3 py-2.5">
           <p className="text-[13px] text-muted-foreground leading-5">
             {proposal.rationale}
           </p>
           <EvidenceSources evidence={proposal.evidence} />
         </div>
-      )}
+      </Reveal>
 
       {showActions && rejecting ? (
         <div className="mt-3 ms-11 space-y-2">

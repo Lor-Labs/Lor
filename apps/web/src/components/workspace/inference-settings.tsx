@@ -65,7 +65,8 @@ export function InferenceSettings({
       setApiKey("")
       client.setQueryData(queryKey, result)
       void client.invalidateQueries({ queryKey: ["agent-models"] })
-      toast.success(result.key ? "API key saved" : "API key removed")
+      // A saved key confirms on its own button; Remove disappears, so it toasts.
+      if (!result.key) toast.success("API key removed")
     },
     onError: (error) => toast.error(error.message),
   })
@@ -158,6 +159,8 @@ export function InferenceSettings({
                 <Button
                   className={PILL_BUTTON}
                   disabled={!model || !apiKey.trim() || save.isPending}
+                  loading={save.isPending && save.variables === false}
+                  success={save.isSuccess && save.variables === false}
                   onClick={() => save.mutate(false)}
                 >
                   {key ? "Replace key" : "Save key"}

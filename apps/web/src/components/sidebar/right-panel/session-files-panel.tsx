@@ -7,6 +7,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@repo/ui/components/button"
+import { Reveal } from "@repo/ui/components/collapsible"
 import { Spinner } from "@repo/ui/components/spinner"
 import { cn } from "@repo/ui/lib/utils"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -254,7 +255,9 @@ function FileTree({
               <span className="mr-1 ml-auto size-1.5 shrink-0 rounded-full bg-warning" />
             ) : null}
           </button>
-          {open && renderLevel(child, depth + 1)}
+          {isFolder && (
+            <Reveal open={open}>{open && renderLevel(child, depth + 1)}</Reveal>
+          )}
         </div>
       )
     })

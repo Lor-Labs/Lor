@@ -77,6 +77,7 @@ import {
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
+import { useNewIds } from "@/hooks/use-appended-ids"
 import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
 import { useOpenChannelSessions } from "@/hooks/use-open-channel-sessions"
@@ -285,6 +286,17 @@ export function ChannelList() {
     () => new Set(projectByCategoryId.keys()),
     [projectByCategoryId]
   )
+  const channelIds = useMemo(
+    () =>
+      data
+        ? [
+            ...data.uncategorized,
+            ...data.categories.flatMap((cat) => cat.channels),
+          ].map((ch) => ch.id)
+        : [],
+    [data]
+  )
+  const newChannelIds = useNewIds(channelIds)
 
   const [activeItem, setActiveItem] = useState<{
     channel: Channel
@@ -545,6 +557,7 @@ export function ChannelList() {
                   key={ch.id}
                   channel={ch}
                   active={activeChannelId === ch.id}
+                  arrived={newChannelIds.has(ch.id)}
                   canManage={canManage}
                   canDelete={canDelete}
                   muteControls={muteControls}
@@ -591,6 +604,7 @@ export function ChannelList() {
                 closeMobileSidebar(false)
               }}
               channels={cat.channels}
+              newChannelIds={newChannelIds}
               draggingCategory={activeItem?.isCategory ?? false}
               activeChannelId={activeChannelId}
               canCreate={canCreate}
@@ -682,6 +696,7 @@ function SortableCategorySection({
   projectStatus = null,
   onOpenOverview,
   channels,
+  newChannelIds,
   draggingCategory,
   activeChannelId,
   canCreate,
@@ -698,6 +713,7 @@ function SortableCategorySection({
   projectStatus?: "active" | "archiving" | "archived" | null
   onOpenOverview?: () => void
   channels: Channel[]
+  newChannelIds: ReadonlySet<string>
   draggingCategory: boolean
   activeChannelId?: string
   canCreate: boolean
@@ -902,6 +918,7 @@ function SortableCategorySection({
                   key={ch.id}
                   channel={ch}
                   active={activeChannelId === ch.id}
+                  arrived={newChannelIds.has(ch.id)}
                   canManage={canManage}
                   canDelete={canDelete}
                   muteControls={muteControls}
@@ -1012,6 +1029,7 @@ function ArchivedProjectsSection({
 function SortableChannelItem({
   channel: ch,
   active = false,
+  arrived = false,
   canManage,
   canDelete,
   muteControls,
@@ -1019,6 +1037,7 @@ function SortableChannelItem({
 }: {
   channel: Channel
   active?: boolean
+  arrived?: boolean
   canManage: boolean
   canDelete: boolean
   muteControls: ChannelMuteControls
@@ -1071,6 +1090,10 @@ function SortableChannelItem({
           <ContextMenuTrigger
             className={cn(
               sidebarRow,
+              // A channel created while you watch fades in. The fade sits on
+              // this row: on the sortable wrapper it would override the drag
+              // transform.
+              arrived && "fade-in-0 animate-in duration-300",
               "group/channel relative flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-[6px] text-[14px]",
               active || menuOpen ? sidebarRowSelected : sidebarRowHover,
               active && "font-medium text-foreground",

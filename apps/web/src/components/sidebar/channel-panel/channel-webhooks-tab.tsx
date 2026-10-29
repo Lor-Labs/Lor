@@ -20,6 +20,7 @@ import {
 } from "@repo/ui/components/alert-dialog"
 import { Badge } from "@repo/ui/components/badge"
 import { Button } from "@repo/ui/components/button"
+import { Reveal } from "@repo/ui/components/collapsible"
 import {
   Empty,
   EmptyDescription,
@@ -530,131 +531,135 @@ export function ChannelWebhooksTab({
                     />
                   </button>
 
-                  {isOpen && (
-                    <div className="border-border border-t p-4">
-                      <div className="flex gap-5">
-                        <AvatarPicker
-                          src={hook.avatarUrl}
-                          busy={avatarSavingId === hook.id}
-                          onFile={async (file) => {
-                            setAvatarSavingId(hook.id)
-                            try {
-                              const avatarUrl = await uploadWebhookAvatar(
-                                channelId,
-                                file
-                              )
-                              updateMutation.mutate(
-                                { webhookId: hook.id, avatarUrl },
-                                {
-                                  onSettled: () => setAvatarSavingId(null),
+                  <Reveal open={isOpen}>
+                    {isOpen && (
+                      <div className="border-border border-t p-4">
+                        <div className="flex gap-5">
+                          <AvatarPicker
+                            src={hook.avatarUrl}
+                            busy={avatarSavingId === hook.id}
+                            onFile={async (file) => {
+                              setAvatarSavingId(hook.id)
+                              try {
+                                const avatarUrl = await uploadWebhookAvatar(
+                                  channelId,
+                                  file
+                                )
+                                updateMutation.mutate(
+                                  { webhookId: hook.id, avatarUrl },
+                                  {
+                                    onSettled: () => setAvatarSavingId(null),
+                                  }
+                                )
+                              } catch {
+                                setAvatarSavingId(null)
+                                toast.error("Failed to upload avatar")
+                              }
+                            }}
+                          />
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <Label htmlFor={`webhook-name-${hook.id}`}>
+                              Name
+                            </Label>
+                            <Input
+                              id={`webhook-name-${hook.id}`}
+                              value={draftName}
+                              onChange={(e) => setDraftName(e.target.value)}
+                              maxLength={80}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && nameDirty) {
+                                  e.preventDefault()
+                                  updateMutation.mutate({
+                                    webhookId: hook.id,
+                                    name: draftName.trim(),
+                                  })
                                 }
-                              )
-                            } catch {
-                              setAvatarSavingId(null)
-                              toast.error("Failed to upload avatar")
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-4 space-y-2 border-border border-t pt-4">
+                          <div className="text-xs font-medium text-muted-foreground">
+                            When data arrives
+                          </div>
+                          <TriggerEffects
+                            idPrefix={`webhook-${hook.id}`}
+                            channelLabel={channelName}
+                            subjectLabel="One session per subject field"
+                            codeScope={{ workspaceSlug, channelId }}
+                            disabled={updateMutation.isPending}
+                            value={{
+                              post: hook.post,
+                              actInstructions: hook.actInstructions,
+                              actSessionMode: hook.actSessionMode,
+                              actCode: hook.actCode,
+                              actWindowSeconds: hook.actWindowSeconds,
+                              hourlyRunCap: hook.hourlyRunCap,
+                              dailyRunCap: hook.dailyRunCap,
+                              lastAct: hook.lastAct,
+                            }}
+                            onPatch={(patch) =>
+                              updateMutation.mutate({
+                                webhookId: hook.id,
+                                ...patch,
+                              })
                             }
-                          }}
-                        />
-                        <div className="min-w-0 flex-1 space-y-2">
-                          <Label htmlFor={`webhook-name-${hook.id}`}>
-                            Name
-                          </Label>
-                          <Input
-                            id={`webhook-name-${hook.id}`}
-                            value={draftName}
-                            onChange={(e) => setDraftName(e.target.value)}
-                            maxLength={80}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && nameDirty) {
-                                e.preventDefault()
+                          />
+                        </div>
+
+                        <div className="mt-4 flex items-center gap-2 border-border border-t pt-4">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleCopy(hook.id, hook.token)}
+                          >
+                            {copiedId === hook.id && (
+                              <HugeiconsIcon
+                                icon={Tick02Icon}
+                                className="size-3.5"
+                                strokeWidth={2}
+                              />
+                            )}
+                            Copy Webhook URL
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            disabled={deleteMutation.isPending}
+                            onClick={() =>
+                              setDeleteTarget({ id: hook.id, name: hook.name })
+                            }
+                          >
+                            Delete Webhook
+                          </Button>
+                          {nameDirty && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="ml-auto"
+                              disabled={updateMutation.isPending}
+                              onClick={() =>
                                 updateMutation.mutate({
                                   webhookId: hook.id,
                                   name: draftName.trim(),
                                 })
                               }
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="mt-4 space-y-2 border-border border-t pt-4">
-                        <div className="text-xs font-medium text-muted-foreground">
-                          When data arrives
-                        </div>
-                        <TriggerEffects
-                          idPrefix={`webhook-${hook.id}`}
-                          channelLabel={channelName}
-                          subjectLabel="One session per subject field"
-                          codeScope={{ workspaceSlug, channelId }}
-                          disabled={updateMutation.isPending}
-                          value={{
-                            post: hook.post,
-                            actInstructions: hook.actInstructions,
-                            actSessionMode: hook.actSessionMode,
-                            actCode: hook.actCode,
-                            actWindowSeconds: hook.actWindowSeconds,
-                            hourlyRunCap: hook.hourlyRunCap,
-                            dailyRunCap: hook.dailyRunCap,
-                            lastAct: hook.lastAct,
-                          }}
-                          onPatch={(patch) =>
-                            updateMutation.mutate({
-                              webhookId: hook.id,
-                              ...patch,
-                            })
-                          }
-                        />
-                      </div>
-
-                      <div className="mt-4 flex items-center gap-2 border-border border-t pt-4">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleCopy(hook.id, hook.token)}
-                        >
-                          {copiedId === hook.id && (
-                            <HugeiconsIcon
-                              icon={Tick02Icon}
-                              className="size-3.5"
-                              strokeWidth={2}
-                            />
+                            >
+                              <MorphText>
+                                {updateMutation.isPending
+                                  ? "Saving..."
+                                  : "Save"}
+                              </MorphText>
+                            </Button>
                           )}
-                          Copy Webhook URL
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          disabled={deleteMutation.isPending}
-                          onClick={() =>
-                            setDeleteTarget({ id: hook.id, name: hook.name })
-                          }
-                        >
-                          Delete Webhook
-                        </Button>
-                        {nameDirty && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="ml-auto"
-                            disabled={updateMutation.isPending}
-                            onClick={() =>
-                              updateMutation.mutate({
-                                webhookId: hook.id,
-                                name: draftName.trim(),
-                              })
-                            }
-                          >
-                            <MorphText>
-                              {updateMutation.isPending ? "Saving..." : "Save"}
-                            </MorphText>
-                          </Button>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </Reveal>
                 </li>
               )
             })}

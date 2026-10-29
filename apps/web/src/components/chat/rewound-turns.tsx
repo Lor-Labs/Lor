@@ -110,7 +110,10 @@ export function RewoundTurnsRow({
           {expanded ? "Hide" : "View"}
           <HugeiconsIcon
             icon={ArrowRight01Icon}
-            className={cn("size-3.5", expanded && "rotate-90")}
+            className={cn(
+              "size-3.5 transition-transform duration-200 ease-out",
+              expanded && "rotate-90"
+            )}
             strokeWidth={2}
             aria-hidden="true"
           />

@@ -1,5 +1,5 @@
 import {
-  Delete02Icon,
+  Logout01Icon,
   Search01Icon,
   UserAdd01Icon,
 } from "@hugeicons/core-free-icons"
@@ -25,9 +25,12 @@ import {
 } from "@repo/ui/components/dialog"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
+import { EASE_OUT } from "@repo/ui/lib/motion"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
+import { AnimatePresence, motion } from "motion/react"
 import { useMemo, useState } from "react"
+import { InlineConfirmButton } from "@/components/ui/inline-confirm-button"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { apiClient } from "@/lib/api-client"
 
@@ -171,7 +174,6 @@ export function ProjectMembersDialog({
   })
 
   const busy = addMember.isPending || removeMember.isPending
-  const pendingIsSelf = pendingRemoval?.id === currentUserId
 
   return (
     <>
@@ -192,39 +194,55 @@ export function ProjectMembersDialog({
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="space-y-0.5">
-                  {detail.members.map((m) => (
-                    <div
-                      key={m.id}
-                      className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-foreground/[0.04]"
-                    >
-                      <UserAvatar name={m.name} src={m.image} size="sm" />
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {m.name}
-                        {m.id === currentUserId && (
-                          <span className="ml-1.5 text-xs text-muted-foreground">
-                            you
-                          </span>
-                        )}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={
-                          m.id === currentUserId
-                            ? "Leave project"
-                            : `Remove ${m.name}`
-                        }
-                        disabled={busy}
-                        onClick={() =>
-                          setPendingRemoval({ id: m.id, name: m.name })
-                        }
-                        className="text-muted-foreground hover:text-destructive"
+                <div>
+                  <AnimatePresence initial={false}>
+                    {detail.members.map((m) => (
+                      <motion.div
+                        key={m.id}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: EASE_OUT }}
+                        className="overflow-hidden"
                       >
-                        <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-foreground/[0.04]">
+                          <UserAvatar name={m.name} src={m.image} size="sm" />
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {m.name}
+                            {m.id === currentUserId && (
+                              <span className="ml-1.5 text-xs text-muted-foreground">
+                                you
+                              </span>
+                            )}
+                          </span>
+                          {m.id === currentUserId ? (
+                            // Leaving costs your own access, so it keeps a dialog.
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-label="Leave project"
+                              disabled={busy}
+                              onClick={() =>
+                                setPendingRemoval({ id: m.id, name: m.name })
+                              }
+                              className="text-muted-foreground hover:text-destructive"
+                            >
+                              <HugeiconsIcon
+                                icon={Logout01Icon}
+                                strokeWidth={2}
+                              />
+                            </Button>
+                          ) : (
+                            <InlineConfirmButton
+                              label={`Remove ${m.name}`}
+                              confirmLabel="Remove"
+                              disabled={addMember.isPending}
+                              onConfirm={() => removeMember.mutateAsync(m.id)}
+                              className="h-7 min-w-7 sm:h-6 sm:min-w-6"
+                            />
+                          )}
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 </div>
 
                 <div className="rounded-lg border border-border">
@@ -288,13 +306,9 @@ export function ProjectMembersDialog({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingIsSelf ? "Leave project" : "Remove member"}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Leave project</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingIsSelf
-                ? "Are you sure you want to leave this project?"
-                : `Are you sure you want to remove ${pendingRemoval?.name} from this project?`}
+              Are you sure you want to leave this project?
               {detail?.audience === "members" &&
                 " Its channels will no longer be visible."}
             </AlertDialogDescription>
@@ -313,7 +327,7 @@ export function ProjectMembersDialog({
                 if (pendingRemoval) removeMember.mutate(pendingRemoval.id)
               }}
             >
-              {pendingIsSelf ? "Leave Project" : "Remove"}
+              Leave Project
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

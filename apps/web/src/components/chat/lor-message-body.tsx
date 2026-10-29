@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react"
+import { memo, useMemo, useRef } from "react"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { LorActivity, LorActivityGroup } from "@/components/chat/lor-activity"
 import { LorCompactionDivider } from "@/components/chat/lor-compaction-divider"
@@ -175,6 +175,8 @@ export const LorMessageBody = memo(function LorMessageBody({
   mentions: Message["mentions"]
   onCitationJump?: (messageId: string) => void
 }) {
+  const wasStreaming = useRef(false)
+  if (streaming) wasStreaming.current = true
   const { segments, deliverables } = useMemo(() => {
     // Files this answer produced, presented as cards at the end of the
     // message — deduped by artifact so a re-run keeps the latest version.
@@ -304,6 +306,7 @@ export const LorMessageBody = memo(function LorMessageBody({
       {/* A failed run's text is the worker's failure message, not an answer. */}
       {failed && (
         <LorFailureNotice
+          arrived={wasStreaming.current}
           text={
             answer?.kind === "text"
               ? answer.text
