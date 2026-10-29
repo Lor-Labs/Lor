@@ -521,6 +521,7 @@ export async function flushActWindow(
       openedAt: schema.connectorTrigger.actWindowOpenedAt,
       hourlyRunCap: schema.connectorTrigger.hourlyRunCap,
       dailyRunCap: schema.connectorTrigger.dailyRunCap,
+      sessionMode: schema.connectorTrigger.actSessionMode,
       channelId: schema.channel.id,
       workspaceId: schema.channel.workspaceId,
     })
@@ -557,6 +558,7 @@ export async function flushActWindow(
     eq(schema.triggerDelivery.triggerId, triggerId),
     isNull(schema.triggerDelivery.runId),
     isNotNull(schema.triggerDelivery.actPayload),
+    isNull(schema.triggerDelivery.actDroppedAt),
     gte(schema.triggerDelivery.createdAt, since)
   )
   const pending = await db
@@ -567,6 +569,24 @@ export async function flushActWindow(
   if (pending === 0) {
     await closeActWindow(triggerId)
     return { kind: "skip", reason: "nothing_pending" }
+  }
+
+  // per_subject: a run takes the oldest subject's deliveries, since they all
+  // go into that subject's session. Other subjects re-arm as stragglers.
+  let batch = unclaimed
+  if (trigger.sessionMode === "per_subject") {
+    const [oldest] = await db
+      .select({ subject: schema.triggerDelivery.subject })
+      .from(schema.triggerDelivery)
+      .where(unclaimed)
+      .orderBy(schema.triggerDelivery.createdAt)
+      .limit(1)
+    batch = and(
+      unclaimed,
+      oldest?.subject
+        ? eq(schema.triggerDelivery.subject, oldest.subject)
+        : isNull(schema.triggerDelivery.subject)
+    )
   }
 
   // Leading-edge runs claim the delivery that opened the window, so an already
@@ -628,7 +648,7 @@ export async function flushActWindow(
   const claimed = await db
     .update(schema.triggerDelivery)
     .set({ runId: run.id })
-    .where(unclaimed)
+    .where(batch)
     .returning({ id: schema.triggerDelivery.id })
   if (claimed.length === 0) {
     await db

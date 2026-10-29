@@ -117,6 +117,7 @@ export function useSessionStart(
       titleEditedAt: null,
       loopId: null,
       triggerId: null,
+      triggerSubject: null,
       archivedAt: null,
       archivedById: null,
       lastActivityAt: now,

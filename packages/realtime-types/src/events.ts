@@ -1011,6 +1011,7 @@ export type RealtimeAgentSession = {
   titleEditedAt: string | null
   loopId: string | null
   triggerId: string | null
+  triggerSubject: string | null
   archivedAt: string | null
   archivedById: string | null
   lastActivityAt: string

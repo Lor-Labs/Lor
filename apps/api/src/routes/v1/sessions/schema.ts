@@ -35,6 +35,7 @@ export const agentSessionSchema = z
     titleEditedAt: z.string().nullable(),
     loopId: z.string().uuid().nullable(),
     triggerId: z.string().uuid().nullable(),
+    triggerSubject: z.string().nullable(),
     archivedAt: z.string().nullable(),
     archivedById: z.string().uuid().nullable(),
     lastActivityAt: z.string(),

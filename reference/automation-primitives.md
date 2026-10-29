@@ -116,6 +116,8 @@ LOR-49: index data silently, notify no one.
 > `post_channel_message` and `create_plan` are gone; Lor never posts in channel chat.
 > The person who connected the source follows the session; Lor mentions anyone else.
 > See `reference/workspace-model.md` (decision 1) and `apps/worker/src/lib/trigger-session.ts`.
+> Since 2026-10-28 a trigger can also continue one session per subject or one
+> ongoing session, and start code sessions (`reference/act-sessions-runbook.md`).
 > The text below is the original design.
 
 An **agent run** composed as: the channel's normal toolset (connectors granted by the

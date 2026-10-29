@@ -94,4 +94,6 @@ export const deleteChannelWebhookResponseSchema = z.object({
 export const executeWebhookBodySchema = z.object({
   content: z.string().trim().min(1).max(2000),
   username: z.string().trim().min(1).max(80).optional(),
+  // Groups deliveries about the same thing into one Act session (per_subject).
+  subject: z.string().trim().min(1).max(200).optional(),
 })

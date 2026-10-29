@@ -106,7 +106,9 @@ export const agentSession = pgTable(
     triggerId: uuid("trigger_id").references(() => connectorTrigger.id, {
       onDelete: "set null",
     }),
-    // Archive is for everyone. A loop's next run clears it.
+    // Act per_subject mode: the subject this session follows.
+    triggerSubject: text("trigger_subject"),
+    // Archive is for everyone. A loop's (or Act trigger's) next run clears it.
     archivedAt: timestamp("archived_at"),
     archivedById: uuid("archived_by_id").references(() => user.id, {
       onDelete: "set null",
@@ -118,6 +120,9 @@ export const agentSession = pgTable(
     uniqueIndex("agent_session_loopId_uidx")
       .on(table.loopId)
       .where(sql`loop_id is not null`),
+    index("agent_session_triggerId_subject_idx")
+      .on(table.triggerId, table.triggerSubject)
+      .where(sql`trigger_id is not null`),
     index("agent_session_channelId_lastActivityAt_idx").on(
       table.channelId,
       table.lastActivityAt
