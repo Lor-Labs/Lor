@@ -90,11 +90,14 @@ export const workspaceAuthMiddleware = async (
   })
 
   const read = ["GET", "HEAD", "OPTIONS"].includes(c.req.method)
-  const billing = c.req.path.includes("/billing")
+  // The registered pattern, not the path: a slug may contain "billing".
+  const billing = BILLING_ROUTE.test(c.req.routePath)
   if (!read && !billing && !isCleanup(c, session.user.id))
     await assertWorkspaceActive(workspaceRecord.id)
   await next()
 }
+
+const BILLING_ROUTE = /\/workspaces\/:workspaceSlug\/billing(\/|$)/
 
 // An ended beta team can still remove people, roles and integrations.
 const CLEANUP_ROUTES = [
