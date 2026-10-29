@@ -41,6 +41,11 @@ import {
 } from "@repo/ui/components/context-menu"
 import { MentionBadge } from "@repo/ui/components/mention-badge"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { EASE_OUT } from "@repo/ui/lib/motion"
 import { cn } from "@repo/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -62,6 +67,13 @@ import { useCreateChannel } from "@/components/sidebar/channel-panel/create-chan
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
 import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
 import { VoiceParticipantRows } from "@/components/sidebar/channel-panel/voice-presence"
+import {
+  sidebarRow,
+  sidebarRowHover,
+  sidebarRowMarkIn,
+  sidebarRowSelected,
+  sidebarSectionLabel,
+} from "@/components/sidebar/sidebar-menu-styles"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { useMobileSidebar } from "@/context/mobile-sidebar-context"
 import { useUnread } from "@/context/unread-context"
@@ -634,7 +646,12 @@ export function ChannelList() {
         {activeItem && (
           <div className="rounded-lg bg-background shadow-lg">
             {activeItem.isCategory ? (
-              <div className="flex items-center gap-0.5 px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <div
+                className={cn(
+                  sidebarSectionLabel,
+                  "flex items-center gap-1 px-1 py-1"
+                )}
+              >
                 <HugeiconsIcon
                   icon={ArrowDown01Icon}
                   className="size-3 shrink-0"
@@ -766,7 +783,8 @@ function SortableCategorySection({
             }}
             {...(canManage ? { ...attributes, ...listeners } : {})}
             className={cn(
-              "flex flex-1 items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer",
+              sidebarSectionLabel,
+              "flex flex-1 cursor-pointer items-center gap-1",
               menuOpen && "text-foreground"
             )}
           >
@@ -799,16 +817,22 @@ function SortableCategorySection({
             <span className="truncate">{name}</span>
           </button>
           {canCreate && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => onCreateChannel?.(id)}
-              title="Create channel"
-              aria-label="Create channel"
-              className="text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/category:opacity-100 focus-visible:opacity-100"
-            >
-              <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => onCreateChannel?.(id)}
+                    aria-label="Create channel"
+                    className="text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground group-hover/category:opacity-100 focus-visible:opacity-100"
+                  />
+                }
+              >
+                <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} />
+              </TooltipTrigger>
+              <TooltipContent>Create channel</TooltipContent>
+            </Tooltip>
           )}
         </ContextMenuTrigger>
         <ContextMenuPopup align="start">
@@ -913,7 +937,10 @@ function ArchivedProjectsSection({
       <button
         type="button"
         onClick={() => setCollapsed(!collapsed)}
-        className="flex w-full items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-foreground cursor-pointer"
+        className={cn(
+          sidebarSectionLabel,
+          "flex w-full cursor-pointer items-center gap-1 px-1 pb-1 text-muted-foreground/70"
+        )}
       >
         <motion.div
           animate={{ rotate: collapsed ? -90 : 0 }}
@@ -941,7 +968,10 @@ function ArchivedProjectsSection({
                 <button
                   type="button"
                   onClick={() => onProjectClick(cat.id)}
-                  className="flex w-full items-center gap-0.5 px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground cursor-pointer"
+                  className={cn(
+                    sidebarSectionLabel,
+                    "flex w-full cursor-pointer items-center gap-1 px-1 pb-1"
+                  )}
                 >
                   <HugeiconsIcon
                     icon={Archive02Icon}
@@ -955,7 +985,13 @@ function ArchivedProjectsSection({
                     key={ch.id}
                     type="button"
                     onClick={() => onChannelClick(ch.id)}
-                    className="w-full text-left cursor-pointer"
+                    className={cn(
+                      sidebarRow,
+                      "w-full cursor-pointer rounded-lg text-left",
+                      activeChannelId === ch.id
+                        ? sidebarRowSelected
+                        : sidebarRowHover
+                    )}
                   >
                     <ChannelItem
                       name={ch.name ?? ""}
@@ -1034,18 +1070,29 @@ function SortableChannelItem({
         <ContextMenu onOpenChange={setMenuOpen}>
           <ContextMenuTrigger
             className={cn(
-              "group/channel relative flex w-full items-center gap-2 rounded-lg px-2 py-[6px] text-[14px] hover:bg-foreground/[0.06] cursor-pointer",
-              active && "bg-foreground/[0.06] font-medium text-foreground",
+              sidebarRow,
+              "group/channel relative flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-[6px] text-[14px]",
+              active || menuOpen ? sidebarRowSelected : sidebarRowHover,
+              active && "font-medium text-foreground",
               !active && hasUnread && "font-medium text-foreground",
-              !active && !hasUnread && "text-muted-foreground",
-              menuOpen && "bg-foreground/[0.06]"
+              !active && !hasUnread && "text-muted-foreground"
             )}
           >
             {active && (
-              <div className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+              <div
+                className={cn(
+                  sidebarRowMarkIn,
+                  "absolute inset-y-0 left-0 my-auto h-4 w-[3px] rounded-r-full bg-primary"
+                )}
+              />
             )}
             {!active && hasUnread && (
-              <div className="absolute left-0 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
+              <div
+                className={cn(
+                  sidebarRowMarkIn,
+                  "absolute inset-y-0 left-0 my-auto size-1 -translate-x-1/2 rounded-full bg-foreground"
+                )}
+              />
             )}
             <ChannelIcon
               type={ch.type}
@@ -1056,7 +1103,7 @@ function SortableChannelItem({
               onClick={onClick}
               {...(canManage ? { ...attributes, ...listeners } : {})}
               aria-current={active ? "page" : undefined}
-              className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50"
+              className="min-w-0 flex-1 cursor-pointer truncate text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/50 active:opacity-100"
             >
               {ch.name}
             </button>
@@ -1166,9 +1213,7 @@ function ChannelItem({
     <div
       className={cn(
         "relative flex items-center gap-2 rounded-lg px-2 py-[6px] text-[14px]",
-        active
-          ? "bg-foreground/[0.06] font-medium text-foreground"
-          : "text-muted-foreground"
+        active ? "font-medium text-foreground" : "text-muted-foreground"
       )}
     >
       <ChannelIcon type={type} />

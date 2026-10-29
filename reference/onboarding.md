@@ -455,7 +455,7 @@ Schema edits are listed; Jacob runs `db:push`.
 
 [x] built 2026-10-07 · [x] committed · [x] db:push dev · [x] rekey dev ·
 [x] db:push prod · [x] rekey prod (2026-10-12; reconnect the OAuth MCP
-servers it listed: Lor's Ergo and Cloudflare MCP, careCycle's Ergo)
+servers it listed: Lor's Ergo and Cloudflare MCP, another workspace's Ergo)
 
 - `packages/utils/src/short-code.ts` (new): `randomCode(length, alphabet)`
   with rejection sampling, `workspaceKey()` (10 chars base36). The invite

@@ -16,8 +16,8 @@ describe("connector notification embeds", () => {
         reference: "292",
         body: "Moves timing ownership to the lifecycle boundary.",
         actor: {
-          name: "eroub",
-          url: "https://github.com/eroub",
+          name: "octocat",
+          url: "https://github.com/octocat",
           avatarUrl: "https://avatars.githubusercontent.com/u/42?v=4",
         },
       })
@@ -26,8 +26,8 @@ describe("connector notification embeds", () => {
       url: "https://github.com/lor-town/townhall/pull/292",
       eventLabel: "Pull request opened",
       author: {
-        name: "eroub",
-        url: "https://github.com/eroub",
+        name: "octocat",
+        url: "https://github.com/octocat",
         iconUrl: "https://avatars.githubusercontent.com/u/42?v=4",
       },
       title: "lor-town/townhall#292 · Keep lifecycle timing deterministic",
@@ -41,13 +41,13 @@ describe("connector notification embeds", () => {
     expect(
       linearNotificationEmbed({
         event: "Issue created",
-        title: "Policies should show the assigned policy ID",
-        identifier: "CARE-1432",
+        title: "Show the assigned owner on each account",
+        identifier: "ENG-1432",
       })
     ).toEqual({
       type: "rich",
       eventLabel: "Issue created",
-      title: "CARE-1432 · Policies should show the assigned policy ID",
+      title: "ENG-1432 · Show the assigned owner on each account",
       siteName: "Linear",
       color: "#5e6ad2",
     })
@@ -57,7 +57,7 @@ describe("connector notification embeds", () => {
     expect(
       attioNotificationEmbed({
         event: "Call recording ready",
-        title: "EIG x CC | sync",
+        title: "Acme x Lor | sync",
         url: "https://app.attio.com/acme/meetings/recording",
         body: "Jacob: We agreed to ship the onboarding flow next week.",
         fields: [{ name: "Duration", value: "39 min", inline: true }],
@@ -66,7 +66,7 @@ describe("connector notification embeds", () => {
       type: "rich",
       url: "https://app.attio.com/acme/meetings/recording",
       eventLabel: "Call recording ready",
-      title: "EIG x CC | sync",
+      title: "Acme x Lor | sync",
       description: "Jacob: We agreed to ship the onboarding flow next week.",
       fields: [{ name: "Duration", value: "39 min", inline: true }],
       siteName: "Attio",

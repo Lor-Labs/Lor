@@ -159,7 +159,7 @@ function timeOptions(current: { hour: number; minute: number }) {
 
 function SectionLabel({ children }: { children: string }) {
   return (
-    <p className="px-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+    <p className="px-1 font-medium text-[12px] text-muted-foreground">
       {children}
     </p>
   )
@@ -1114,7 +1114,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
 
           {loop.status === "completed" && loop.completedNote && (
             <div className="space-y-2">
-              <SectionLabel>Closing note</SectionLabel>
+              <SectionLabel>Closing Note</SectionLabel>
               <div className="rounded-xl border bg-card px-4 py-3.5">
                 <MessageMarkdown
                   content={loop.completedNote}
@@ -1127,7 +1127,7 @@ export function LoopPanel({ view }: { view: LoopSidebarView }) {
 
           {loop.status !== "draft" && (
             <div className="space-y-2">
-              <SectionLabel>Recent runs</SectionLabel>
+              <SectionLabel>Recent Runs</SectionLabel>
               <div className="divide-y divide-border/70 rounded-xl border bg-card">
                 {runsPending && (
                   <p className="px-4 py-3.5 text-muted-foreground text-sm">

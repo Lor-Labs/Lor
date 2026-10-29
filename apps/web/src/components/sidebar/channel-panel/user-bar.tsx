@@ -1,5 +1,6 @@
 import {
   LaptopIcon,
+  Logout01Icon,
   Settings01Icon,
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons"
@@ -24,8 +25,14 @@ import {
 import { ThemeSwitcher } from "@repo/ui/components/unlumen-ui/theme-switcher"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { LogOut } from "lucide-react"
 import { usePageHint } from "@/components/hints/hints-provider"
+import {
+  sidebarMenuHeader,
+  sidebarMenuIcon,
+  sidebarMenuRow,
+  sidebarMenuSeparator,
+  sidebarMenuSurface,
+} from "@/components/sidebar/sidebar-menu-styles"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSettings } from "@/hooks/use-settings"
 import {
@@ -99,59 +106,82 @@ export function UserBar() {
             />
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-60 min-w-0 max-w-(--available-width) rounded-lg"
+            className={sidebarMenuSurface}
             side={isMobile ? "bottom" : "top"}
             align="start"
-            sideOffset={4}
+            sideOffset={6}
           >
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="p-0 font-normal">
-                <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                  <UserAvatar
-                    name={name}
-                    src={session?.user.image}
-                    size="sm"
-                    className="rounded-lg"
-                  />
-                  <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">{name}</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {email}
-                    </span>
+              <DropdownMenuLabel className={sidebarMenuHeader}>
+                <UserAvatar
+                  name={name}
+                  src={session?.user.image}
+                  size="sm"
+                  className="rounded-lg"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-[13px] text-foreground">
+                    {name}
+                  </div>
+                  <div className="mt-0.5 truncate font-normal text-[11px] text-muted-foreground">
+                    {email}
                   </div>
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-default" closeOnClick={false}>
+            <DropdownMenuSeparator className={sidebarMenuSeparator} />
+            <DropdownMenuItem
+              className={`${sidebarMenuRow} cursor-default`}
+              closeOnClick={false}
+            >
               Theme
               <div className="ml-auto">
                 <ThemeSwitcher />
               </div>
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            <DropdownMenuSeparator className={sidebarMenuSeparator} />
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={() => openSettings("user")}>
-                <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
+              <DropdownMenuItem
+                className={sidebarMenuRow}
+                onClick={() => openSettings("user")}
+              >
+                <HugeiconsIcon
+                  icon={Settings01Icon}
+                  className={sidebarMenuIcon}
+                  strokeWidth={1.5}
+                />
                 Settings
                 <DropdownMenuShortcut>{SETTINGS_SHORTCUT}</DropdownMenuShortcut>
               </DropdownMenuItem>
               {canDownloadDesktopApp && (
                 <DropdownMenuItem
+                  className={sidebarMenuRow}
                   onClick={() => {
                     downloadDesktopApp()
                     dismissDesktopHint()
                   }}
                 >
-                  <HugeiconsIcon icon={LaptopIcon} strokeWidth={2} />
+                  <HugeiconsIcon
+                    icon={LaptopIcon}
+                    className={sidebarMenuIcon}
+                    strokeWidth={1.5}
+                  />
                   Download for Mac
                 </DropdownMenuItem>
               )}
             </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={handleLogout}>
-              <LogOut />
-              Log out
+            <DropdownMenuSeparator className={sidebarMenuSeparator} />
+            <DropdownMenuItem
+              variant="destructive"
+              className={sidebarMenuRow}
+              onClick={handleLogout}
+            >
+              <HugeiconsIcon
+                icon={Logout01Icon}
+                className="size-4"
+                strokeWidth={1.5}
+              />
+              Log Out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
