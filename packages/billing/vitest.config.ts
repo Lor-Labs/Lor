@@ -2,8 +2,8 @@ import { defineConfig } from "vitest/config"
 
 // Placeholder values that satisfy `@repo/env/server`'s schema, which parses
 // `process.env` at import time (billing modules load it through the Autumn
-// client, emails and the beta modules). Nothing here is real; Autumn stays
-// off because AUTUMN_SECRET_KEY is unset. Mirrors apps/api/vitest.config.ts.
+// client, emails and the beta modules). Nothing here is real, and the setup
+// file disables the Autumn SDK. Mirrors apps/api/vitest.config.ts.
 const TEST_ENV = {
   NODE_ENV: "test",
   DATABASE_URL: "postgres://test:test@localhost:5432/test",
@@ -23,5 +23,6 @@ export default defineConfig({
   test: {
     environment: "node",
     env: TEST_ENV,
+    setupFiles: ["./vitest.setup.ts"],
   },
 })
