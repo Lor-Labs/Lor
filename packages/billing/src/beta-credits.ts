@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { and, db, eq, gt, isNotNull, isNull, schema } from "@repo/db"
+import { and, db, eq, gt, isNotNull, isNull, or, schema } from "@repo/db"
 import {
   betaUsageHalted,
   workspaceBetaAccess,
@@ -316,16 +316,19 @@ export async function sweepBetaBilling() {
       logger.error({ err: error, usageId: row.id }, "Beta debit retry failed")
     }
   }
-  // Only live trials need a minute-by-minute balance: expired and subscribed
-  // ones resync when billing opens or Autumn's webhook reports a change.
+  // Live trials need their balance; subscribed ones (expired or not) are
+  // rechecked so a missed cancellation webhook can't keep beta limits off.
+  // Only expired, never-subscribed trials are skipped.
   const trials = await db
     .select({ workspaceId: schema.workspaceBetaTrial.workspaceId })
     .from(schema.workspaceBetaTrial)
     .where(
       and(
         isNotNull(schema.workspaceBetaTrial.workspaceId),
-        gt(schema.workspaceBetaTrial.expiresAt, new Date()),
-        isNull(schema.workspaceBetaTrial.subscribedAt)
+        or(
+          gt(schema.workspaceBetaTrial.expiresAt, new Date()),
+          isNotNull(schema.workspaceBetaTrial.subscribedAt)
+        )
       )
     )
   for (const trial of trials) {
