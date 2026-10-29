@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi"
+import { KEY_PROVIDERS } from "@repo/utils/inference"
 
 export const agentModelsQuerySchema = z.object({
   harness: z
@@ -15,6 +16,9 @@ export const agentModelsResponseSchema = z.object({
       description: z.string().nullable(),
       resolvedModel: z.string().nullable(),
       provider: z.string().nullable(),
+      // The workspace's own key that pays; null: Lor credits or a
+      // subscription.
+      keyProvider: z.enum(KEY_PROVIDERS).nullable(),
       // Effort levels the model takes, lowest first; empty: none to pick.
       efforts: z.array(z.string()),
       fast: z.boolean(),

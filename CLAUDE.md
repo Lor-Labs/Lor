@@ -130,11 +130,13 @@ any whole-dollar amount ($5 minimum, no maximum, $1 = 100 credits).
 Live Gateway prices replace seeded rates; every request is priced at the most
 expensive listed route for the served model ($3/$0.30/$15 per Mtok when the
 Gateway lists none), and beta adds no extra multiplier. Each request's cost
-is settled once. An unsupported model pick quietly runs on the default model. Native credentials
-are encrypted; payer, key identity and the per-message model are pinned across retries;
+is settled once. An unsupported model pick quietly runs on Lor's default model. BYOK
+is one encrypted key per provider (Anthropic, OpenAI); the composer lists each
+key's models in its own group beside Lor's, and the pick decides the payer (no
+pick: Lor credits). Payer, key identity and the per-message model are pinned across retries;
 BYOK AI pays only a platform fee from the pool: the provider's list price
 times `CREDIT_CONVERSION_RATE - 1` (1.05 → 5%); its sandbox time draws on the
-pool too.
+pool too, so key-paid runs stop when the pool is empty.
 Hosted beta permits only Pi, and saved content remains readable after expiry.
 `pnpm beta` manages policy/campaign records; `open`/`pause` change enrollment only.
 A purchase never starts a seat subscription or changes trial dates.

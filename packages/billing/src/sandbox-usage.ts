@@ -69,13 +69,15 @@ export async function chargeSandboxUsage(buckets: SandboxUsage[]) {
   for (const bucket of buckets) {
     const workspaceId = workspaces.get(bucket.sandboxName)
     if (!workspaceId) continue
-    // Internal workspaces run sandboxes free. Each hour is read twice, so an
-    // hour that started before the exemption ended stays free after removal.
+    // Internal workspaces run sandboxes free: an hour that overlaps the
+    // exemption is skipped, even when it is read again after removal.
     if (!exemptions.has(workspaceId))
       exemptions.set(workspaceId, await getBetaExemption(workspaceId))
     const exemption = exemptions.get(workspaceId)
+    const hourEnd = new Date(bucket.hourStart.getTime() + 3_600_000)
     if (
       exemption &&
+      exemption.createdAt < hourEnd &&
       (!exemption.endedAt || exemption.endedAt > bucket.hourStart)
     )
       continue

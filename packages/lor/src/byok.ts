@@ -5,6 +5,7 @@ import {
 } from "@repo/db/queries/inference"
 import {
   type InferenceFunding,
+  KEY_PROVIDER_NAMES,
   type KeyProvider,
   parseKeyModelId,
 } from "@repo/utils/inference"
@@ -41,16 +42,11 @@ export function byokPrice(model: string) {
   }
 }
 
-const PROVIDER_NAMES: Record<KeyProvider, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-}
-
 // Saving a key lists the provider's models with it: free, and a bad or
 // under-scoped key fails here instead of on a run. Returns the provider's
 // error, or null when the key works.
 export async function verifyProviderKey(provider: KeyProvider, apiKey: string) {
-  const name = PROVIDER_NAMES[provider]
+  const name = KEY_PROVIDER_NAMES[provider]
   const res = await fetch(
     provider === "anthropic"
       ? "https://api.anthropic.com/v1/models"

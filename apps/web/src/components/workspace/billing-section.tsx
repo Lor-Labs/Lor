@@ -18,7 +18,7 @@ import { type ReactNode, useEffect, useState } from "react"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
-import { InferenceSettings } from "./inference-settings"
+import { ProviderKeysSettings } from "./provider-keys-settings"
 import {
   PILL_BUTTON,
   SettingsCard,
@@ -240,7 +240,7 @@ export function BillingSection({ workspaceSlug }: { workspaceSlug: string }) {
 
   const seats = `${billing.seats} ${billing.seats === 1 ? "member" : "members"}`
   const keySettings = (expired: boolean) => (
-    <InferenceSettings workspaceSlug={workspaceSlug} expired={expired} />
+    <ProviderKeysSettings workspaceSlug={workspaceSlug} expired={expired} />
   )
   const subscribeButton = (primary: boolean) => (
     <Button

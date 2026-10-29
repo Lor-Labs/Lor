@@ -1,5 +1,9 @@
 export const KEY_PROVIDERS = ["anthropic", "openai"] as const
 export type KeyProvider = (typeof KEY_PROVIDERS)[number]
+export const KEY_PROVIDER_NAMES: Record<KeyProvider, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+}
 
 // Who pays for a Lor turn, pinned on its agent run across retries.
 export type InferenceFunding =

@@ -26,7 +26,10 @@ export async function isBetaExempt(workspaceId: string) {
 // before a removal. Null: never exempt.
 export async function getBetaExemption(workspaceId: string) {
   const [row] = await db
-    .select({ endedAt: schema.betaExemption.endedAt })
+    .select({
+      createdAt: schema.betaExemption.createdAt,
+      endedAt: schema.betaExemption.endedAt,
+    })
     .from(schema.betaExemption)
     .where(eq(schema.betaExemption.workspaceId, workspaceId))
   return row ?? null

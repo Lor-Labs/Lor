@@ -17,7 +17,7 @@ import { ToggleGroup, ToggleGroupItem } from "@repo/ui/components/toggle-group"
 import { cn } from "@repo/ui/lib/utils"
 import { isValidNewBranchName } from "@repo/utils/github"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { type ReactNode, useEffect, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { apiClient } from "@/lib/api-client"
 import { isAppFocused, subscribeAppFocus } from "@/lib/app-focus"
 import { openGithubConnect } from "@/lib/github-connect"
@@ -319,6 +319,7 @@ export function SavedCodeTargetPicker({
   onChange: (next: { repo: string; branch: string }) => void
 }) {
   const queryClient = useQueryClient()
+  const latestPick = useRef(0)
   const repos = useCodeRepos(workspaceSlug, channelId, true)
   const defaults = useQuery({
     ...branchesQueryOptions(workspaceSlug, channelId, value?.repo ?? null, ""),
@@ -340,9 +341,13 @@ export function SavedCodeTargetPicker({
     )
   }
   const pickRepo = async (repo: string) => {
+    latestPick.current += 1
+    const pick = latestPick.current
     const branches = await queryClient
       .fetchQuery(branchesQueryOptions(workspaceSlug, channelId, repo, ""))
       .catch(() => null)
+    // A slow branch fetch for an earlier pick must not override a newer one.
+    if (pick !== latestPick.current) return
     if (!branches?.defaultBranch) {
       toast.error("Couldn't load that repository's branches")
       return

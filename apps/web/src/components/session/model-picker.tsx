@@ -2,6 +2,7 @@ import {
   ArrowDown01Icon,
   BrainIcon,
   FlashIcon,
+  Key01Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -19,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import { cn } from "@repo/ui/lib/utils"
+import { KEY_PROVIDER_NAMES, type KeyProvider } from "@repo/utils/inference"
 import { useQueries } from "@tanstack/react-query"
 import { type ReactNode, useRef, useState } from "react"
 import { HarnessLogo } from "@/components/session/harness-logo"
@@ -51,6 +53,16 @@ type ModelItem = {
   // Beside the row on hover: the exact model behind a name like "Opus".
   detail: ReactNode
   search: string
+}
+
+// One harness's models with one payer. Lor's list splits into a group per
+// workspace key and one on Lor credits, each under its own label, so the
+// person sees who pays before picking; a single group has no label.
+type ModelGroup = {
+  value: string
+  label: string | null
+  keyProvider: KeyProvider | null
+  items: string[]
 }
 
 // The combobox holds string keys, unique across harnesses, so its value
@@ -98,40 +110,55 @@ export function ModelPicker({
     ),
   })
   const byKey = new Map<string, ModelItem>()
-  const keysOf = new Map<SessionHarness, string[]>()
+  const groupsOf = new Map<SessionHarness, ModelGroup[]>()
   harnesses.forEach((harness, index) => {
     const models = catalogs[index]?.data?.models ?? []
-    keysOf.set(
+    const payers = [...new Set(models.map((model) => model.keyProvider))]
+    groupsOf.set(
       harness,
-      models.map((model) => {
-        const key = itemKey(harness, model.id)
-        byKey.set(key, {
-          harness,
-          id: model.id,
-          name: model.name,
-          detail: modelDetail(model),
-          search: [
-            model.name,
-            model.id,
-            model.description,
-            model.provider,
-            HARNESS_LABELS[harness],
-          ]
-            .join(" ")
-            .toLowerCase(),
-        })
-        return key
-      })
+      payers.map((payer) => ({
+        value: `${harness}:${payer ?? "lor"}`,
+        label:
+          payers.length < 2
+            ? null
+            : payer
+              ? `${KEY_PROVIDER_NAMES[payer]} key`
+              : "Lor credits",
+        keyProvider: payer,
+        items: models
+          .filter((model) => model.keyProvider === payer)
+          .map((model) => {
+            const key = itemKey(harness, model.id)
+            byKey.set(key, {
+              harness,
+              id: model.id,
+              name: model.name,
+              detail: modelDetail(model),
+              search: [
+                model.name,
+                model.id,
+                model.description,
+                model.provider,
+                HARNESS_LABELS[harness],
+                payer ? "key" : "",
+              ]
+                .join(" ")
+                .toLowerCase(),
+            })
+            return key
+          }),
+      }))
     )
   })
   const sidebar = harnesses.length > 1
   const searching = query.trim() !== ""
-  const items =
+  const groups =
     sidebar && !searching
-      ? (keysOf.get(harnesses.includes(shown) ? shown : choice.harness) ?? [])
+      ? (groupsOf.get(harnesses.includes(shown) ? shown : choice.harness) ?? [])
       : [...harnesses]
           .sort((a, b) => Number(a === "pi") - Number(b === "pi"))
-          .flatMap((harness) => keysOf.get(harness) ?? [])
+          .flatMap((harness) => groupsOf.get(harness) ?? [])
+  const keyProvider = choice.option?.keyProvider ?? null
   const selected = choice.option
     ? itemKey(choice.harness, choice.option.id)
     : null
@@ -143,7 +170,7 @@ export function ModelPicker({
 
   return (
     <Combobox<string>
-      items={items}
+      items={groups}
       value={selected}
       onValueChange={(key) => {
         const item = key ? byKey.get(key) : undefined
@@ -163,13 +190,25 @@ export function ModelPicker({
       }}
     >
       <ComboboxPrimitive.Trigger
-        title={`${HARNESS_LABELS[choice.harness]} model`}
+        title={
+          keyProvider
+            ? `Runs on your team's ${KEY_PROVIDER_NAMES[keyProvider]} key`
+            : `${HARNESS_LABELS[choice.harness]} model`
+        }
         className={TRIGGER_CLASS}
       >
         <HarnessLogo harness={choice.harness} className="size-3.5" />
         <span className="max-w-40 truncate">
           {choice.option?.name ?? "Model"}
         </span>
+        {keyProvider && (
+          <HugeiconsIcon
+            icon={Key01Icon}
+            aria-label={`${KEY_PROVIDER_NAMES[keyProvider]} key`}
+            className="size-3.5 shrink-0"
+            strokeWidth={2}
+          />
+        )}
         <HugeiconsIcon
           icon={ArrowDown01Icon}
           className="size-3 shrink-0"
@@ -235,32 +274,54 @@ export function ModelPicker({
                   sidebar ? "min-h-0 flex-1" : "max-h-80"
                 )}
               >
-                {(key: string) => {
-                  const item = byKey.get(key)
-                  return (
-                    <HoverSideTooltip key={key} tooltip={item?.detail}>
-                      <ComboboxPrimitive.Item
-                        value={key}
-                        className="group flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
-                      >
-                        {sidebar && searching && item && (
-                          <HarnessLogo
-                            harness={item.harness}
-                            className="size-3.5"
+                {(group: ModelGroup) => (
+                  <ComboboxPrimitive.Group
+                    key={group.value}
+                    items={group.items}
+                    className="not-first:mt-1 not-first:border-border/70 not-first:border-t not-first:pt-1"
+                  >
+                    {group.label && (
+                      <ComboboxPrimitive.GroupLabel className="flex items-center gap-1.5 px-2 py-1.5 font-medium text-muted-foreground text-xs">
+                        {group.keyProvider && (
+                          <HugeiconsIcon
+                            icon={Key01Icon}
+                            className="size-3 shrink-0"
+                            strokeWidth={2}
                           />
                         )}
-                        <span className="min-w-0 truncate">
-                          {item?.name ?? key}
-                        </span>
-                        <HugeiconsIcon
-                          icon={Tick02Icon}
-                          className="ml-auto size-3.5 shrink-0 opacity-0 group-data-selected:opacity-100"
-                          strokeWidth={2}
-                        />
-                      </ComboboxPrimitive.Item>
-                    </HoverSideTooltip>
-                  )
-                }}
+                        {group.label}
+                      </ComboboxPrimitive.GroupLabel>
+                    )}
+                    <ComboboxPrimitive.Collection>
+                      {(key: string) => {
+                        const item = byKey.get(key)
+                        return (
+                          <HoverSideTooltip key={key} tooltip={item?.detail}>
+                            <ComboboxPrimitive.Item
+                              value={key}
+                              className="group flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                            >
+                              {sidebar && searching && item && (
+                                <HarnessLogo
+                                  harness={item.harness}
+                                  className="size-3.5"
+                                />
+                              )}
+                              <span className="min-w-0 truncate">
+                                {item?.name ?? key}
+                              </span>
+                              <HugeiconsIcon
+                                icon={Tick02Icon}
+                                className="ml-auto size-3.5 shrink-0 opacity-0 group-data-selected:opacity-100"
+                                strokeWidth={2}
+                              />
+                            </ComboboxPrimitive.Item>
+                          </HoverSideTooltip>
+                        )
+                      }}
+                    </ComboboxPrimitive.Collection>
+                  </ComboboxPrimitive.Group>
+                )}
               </ComboboxPrimitive.List>
             </div>
           </ComboboxPrimitive.Popup>
