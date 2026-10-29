@@ -38,6 +38,7 @@ import { MorphText } from "@/components/ui/morph-text"
 import {
   formatActWindowShort,
   TriggerEffects,
+  type TriggerEffectsValue,
 } from "@/components/workspace/trigger-effects"
 import { apiClient } from "@/lib/api-client"
 
@@ -291,6 +292,8 @@ export function ChannelWebhooksTab({
       avatarUrl?: string
       post?: boolean
       actInstructions?: string | null
+      actSessionMode?: TriggerEffectsValue["actSessionMode"]
+      actCode?: TriggerEffectsValue["actCode"]
       actWindowSeconds?: number
       hourlyRunCap?: number
       dailyRunCap?: number
@@ -304,16 +307,24 @@ export function ChannelWebhooksTab({
           avatarUrl: input.avatarUrl,
           post: input.post,
           actInstructions: input.actInstructions,
+          actSessionMode: input.actSessionMode,
+          actCode: input.actCode,
           actWindowSeconds: input.actWindowSeconds,
           hourlyRunCap: input.hourlyRunCap,
           dailyRunCap: input.dailyRunCap,
         },
       })
-      if (!res.ok) throw new Error("Failed to update webhook")
+      if (!res.ok) {
+        // A refused repo or session mode says why.
+        const body = (await res.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(body?.message ?? "Failed to update webhook")
+      }
       return res.json()
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
-    onError: () => toast.error("Failed to update webhook"),
+    onError: (err) => toast.error(err.message),
   })
 
   const deleteMutation = useMutation({
@@ -573,10 +584,14 @@ export function ChannelWebhooksTab({
                         <TriggerEffects
                           idPrefix={`webhook-${hook.id}`}
                           channelLabel={channelName}
+                          subjectLabel="One session per subject field"
+                          codeScope={{ workspaceSlug, channelId }}
                           disabled={updateMutation.isPending}
                           value={{
                             post: hook.post,
                             actInstructions: hook.actInstructions,
+                            actSessionMode: hook.actSessionMode,
+                            actCode: hook.actCode,
                             actWindowSeconds: hook.actWindowSeconds,
                             hourlyRunCap: hook.hourlyRunCap,
                             dailyRunCap: hook.dailyRunCap,

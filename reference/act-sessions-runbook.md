@@ -62,11 +62,18 @@ nobody's subscription pays for an unattended run.
   keeps the saved value). Save-time checks: no `ongoing` with code; the repo
   and branch are checked when the code target or the trigger's channel
   changes, so a GitHub outage never blocks editing instructions.
-- [ ] **5. Waiting events.** Count and Drop routes for a session, a realtime
-  nudge when an event starts waiting, "N events waiting" with Drop in the
-  session view.
-- [ ] **5b. UI.** `TriggerEffects`: session mode select, `Chat | Code` with
-  the repo and branch pickers.
+- [x] **5. Waiting events.** Built 2026-10-28.
+  `GET /sessions/{id}/act-waiting` and `POST …/act-waiting/drop` (channel
+  write access), backed by `countActWaiting` / `dropActWaiting` in
+  `@repo/lor/act-runs`. The worker and the drop route emit
+  `session:act-waiting` to the thread room; `ActWaitingNote` above the
+  session composer shows "N events wait for this conversation to finish ·
+  Drop" for trigger sessions. Web only; mobile is not done.
+- [x] **5b. UI.** Built 2026-10-28. `TriggerEffects` gains Sessions (mode
+  select; "One ongoing session" is disabled in code mode, and picking a repo
+  while it is set switches to per subject) and Work in (`Chat | Code` with
+  `SavedCodeTargetPicker`, a controlled repo and branch picker in
+  `code-target-picker.tsx`). Both pages toast the API's refusal message.
 - [ ] **6. Live QA.** Webhook and GitHub trigger, each mode, code mode through
   review and push.
 

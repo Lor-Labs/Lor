@@ -20,6 +20,10 @@ import type {
   SessionPushedPayload,
   SessionRewoundPayload,
 } from "@repo/db/schema"
+import {
+  countActWaiting,
+  dropActWaiting as dropWaiting,
+} from "@repo/lor/act-runs"
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import {
   attachCodeSandbox,
@@ -68,8 +72,10 @@ import {
 import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
   CommitSessionChangesRoute,
+  DropActWaitingRoute,
   ForkAgentSessionRoute,
   GenerateSessionCommitMessageRoute,
+  GetActWaitingRoute,
   GetAgentSessionRoute,
   GetRepoFileRoute,
   GetRepoImageRoute,
@@ -1320,4 +1326,46 @@ export const generateSessionCommitMessage: AppRouteHandler<
     { message: isGap(message) ? null : message },
     HttpStatusCodes.OK
   )
+}
+
+export const getActWaiting: AppRouteHandler<GetActWaitingRoute> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  return c.json(
+    { count: await countActWaiting(row.session) },
+    HttpStatusCodes.OK
+  )
+}
+
+export const dropActWaiting: AppRouteHandler<DropActWaitingRoute> = async (
+  c
+) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const { session } = row
+  const dropped = await dropWaiting(session)
+  const io = await getEmitter()
+  io.to(threadRoom(session.threadRootId)).emit("session:act-waiting", {
+    channelId: session.channelId,
+    threadRootId: session.threadRootId,
+  })
+  return c.json({ dropped }, HttpStatusCodes.OK)
 }

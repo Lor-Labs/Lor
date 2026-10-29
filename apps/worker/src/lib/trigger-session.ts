@@ -67,7 +67,7 @@ export async function startActSession(
   const existing = await findActSession(input, subject)
   if (existing) {
     if (await sessionBusy(existing.threadRootId)) {
-      await waitForSession(deps, input)
+      await waitForSession(deps, input, existing.threadRootId)
       return "waiting"
     }
     const session = existing.archivedAt
@@ -199,7 +199,7 @@ async function runEventInSession(
       channelId: input.channelId,
       messageId: eventId,
     })
-    await waitForSession(deps, input)
+    await waitForSession(deps, input, session.threadRootId)
     return "waiting"
   }
   if (started !== "started") {
@@ -209,6 +209,12 @@ async function runEventInSession(
     )
     return "failed"
   }
+  deps.emitter
+    .to(threadRoom(session.threadRootId))
+    .emit("session:act-waiting", {
+      channelId: input.channelId,
+      threadRootId: session.threadRootId,
+    })
   return "started"
 }
 
@@ -281,7 +287,11 @@ async function reviveSession(sessionId: string): Promise<AgentSession> {
 
 // The event waits in the trigger's queue: its deliveries are released, the
 // run is removed (it never counts against the caps) and a flush looks again.
-async function waitForSession(deps: ActSessionDeps, input: ActSessionInput) {
+async function waitForSession(
+  deps: ActSessionDeps,
+  input: ActSessionInput,
+  threadRootId: string
+) {
   await releaseActRunDeliveries(input.runId)
   await db
     .delete(schema.agentRun)
@@ -292,6 +302,10 @@ async function waitForSession(deps: ActSessionDeps, input: ActSessionInput) {
       )
     )
   notifyWorkspaceActivity(input.workspaceId)
+  // The session shows "N events waiting".
+  deps.emitter
+    .to(threadRoom(threadRootId))
+    .emit("session:act-waiting", { channelId: input.channelId, threadRootId })
   const delaySeconds = Math.max(input.windowSeconds, SESSION_BUSY_RETRY_SECONDS)
   // Null: a window is open, and its flush picks the deliveries up.
   if (!(await openActWindow(input.triggerId, delaySeconds))) return

@@ -22,5 +22,7 @@ const sessionsRouter = createRouter()
   .openapi(routes.updateAgentSession, handlers.updateAgentSession)
   .openapi(routes.forkAgentSession, handlers.forkAgentSession)
   .openapi(routes.rewindAgentSession, handlers.rewindAgentSession)
+  .openapi(routes.getActWaiting, handlers.getActWaiting)
+  .openapi(routes.dropActWaiting, handlers.dropActWaiting)
 
 export default sessionsRouter

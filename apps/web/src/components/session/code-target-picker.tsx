@@ -12,7 +12,9 @@ import { Button } from "@repo/ui/components/button"
 import { Combobox, ComboboxPrimitive } from "@repo/ui/components/combobox"
 import { GitHubLogo } from "@repo/ui/components/logos/github"
 import { Spinner } from "@repo/ui/components/spinner"
+import { toast } from "@repo/ui/components/toast"
 import { ToggleGroup, ToggleGroupItem } from "@repo/ui/components/toggle-group"
+import { cn } from "@repo/ui/lib/utils"
 import { isValidNewBranchName } from "@repo/utils/github"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { type ReactNode, useEffect, useState } from "react"
@@ -118,22 +120,12 @@ function branchesQueryOptions(
   }
 }
 
-export function useCodeTarget({
-  workspaceSlug,
-  channelId,
-  enabled,
-}: {
-  workspaceSlug: string
-  channelId: string
+function useCodeRepos(
+  workspaceSlug: string,
+  channelId: string,
   enabled: boolean
-}) {
-  const [picked, setPicked] = useState<{
-    repo: string
-    branch: string | null
-    // A branch the session makes from `branch` at its start.
-    newBranch?: string
-  } | null>(null)
-  const repos = useQuery({
+) {
+  return useQuery({
     queryKey: ["code-repos", workspaceSlug, channelId],
     queryFn: async (): Promise<CodeRepos> => {
       const res = await apiClient.v1.workspaces[":workspaceSlug"].channels[
@@ -150,6 +142,24 @@ export function useCodeTarget({
     enabled,
     staleTime: REPOS_STALE_MS,
   })
+}
+
+export function useCodeTarget({
+  workspaceSlug,
+  channelId,
+  enabled,
+}: {
+  workspaceSlug: string
+  channelId: string
+  enabled: boolean
+}) {
+  const [picked, setPicked] = useState<{
+    repo: string
+    branch: string | null
+    // A branch the session makes from `branch` at its start.
+    newBranch?: string
+  } | null>(null)
+  const repos = useCodeRepos(workspaceSlug, channelId, enabled)
   const list = repos.data?.available ? repos.data.repos : []
   const repo =
     [picked?.repo, readStored(repoKey(workspaceSlug))].find(
@@ -292,6 +302,80 @@ export function CodeTargetPicker({
   )
 }
 
+// An automation's saved repo and branch (reference/act-sessions-runbook.md):
+// controlled by the caller, never remembered like the composer's pick. A
+// picked repo starts on its default branch.
+export function SavedCodeTargetPicker({
+  workspaceSlug,
+  channelId,
+  value,
+  disabled,
+  onChange,
+}: {
+  workspaceSlug: string
+  channelId: string
+  value: { repo: string; branch: string } | null
+  disabled?: boolean
+  onChange: (next: { repo: string; branch: string }) => void
+}) {
+  const queryClient = useQueryClient()
+  const repos = useCodeRepos(workspaceSlug, channelId, true)
+  const defaults = useQuery({
+    ...branchesQueryOptions(workspaceSlug, channelId, value?.repo ?? null, ""),
+  })
+  if (repos.data && !repos.data.available) {
+    return <GithubSetupNote workspaceSlug={workspaceSlug} />
+  }
+  if (!repos.data) {
+    return (
+      <CodeNote>
+        {repos.isError ? "Couldn't load repositories" : "Loading repositories…"}
+      </CodeNote>
+    )
+  }
+  const pickRepo = async (repo: string) => {
+    const branches = await queryClient
+      .fetchQuery(branchesQueryOptions(workspaceSlug, channelId, repo, ""))
+      .catch(() => null)
+    if (!branches?.defaultBranch) {
+      toast.error("Couldn't load that repository's branches")
+      return
+    }
+    onChange({ repo, branch: branches.defaultBranch })
+  }
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-1 text-xs",
+        disabled && "pointer-events-none opacity-60"
+      )}
+    >
+      <SearchPicker
+        icon={GithubIcon}
+        value={value?.repo ?? ""}
+        label={value?.repo ?? "Pick a repository"}
+        items={repos.data.repos}
+        placeholder="Find a repository…"
+        emptyText="No repositories found"
+        onPick={(repo) => void pickRepo(repo)}
+      />
+      {value && (
+        <BranchPicker
+          workspaceSlug={workspaceSlug}
+          channelId={channelId}
+          code={{
+            repo: value.repo,
+            branch: value.branch,
+            defaultBranch: defaults.data?.defaultBranch ?? null,
+          }}
+          value={value.branch}
+          onPick={(branch) => onChange({ repo: value.repo, branch })}
+        />
+      )}
+    </div>
+  )
+}
+
 function CodeNote({ children }: { children: ReactNode }) {
   return (
     <span className="min-w-0 truncate text-muted-foreground">{children}</span>
@@ -393,7 +477,7 @@ function BranchPicker({
 }: {
   workspaceSlug: string
   channelId: string
-  code: CodeTargetState
+  code: Pick<CodeTargetState, "repo" | "branch" | "defaultBranch">
   value: string
   labelBadge?: string
   onPick: (branch: string) => void

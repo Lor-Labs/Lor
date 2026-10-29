@@ -11,7 +11,8 @@ import {
 } from "@repo/ui/components/select"
 import { Switch } from "@repo/ui/components/switch"
 import { Textarea } from "@repo/ui/components/textarea"
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
+import { SavedCodeTargetPicker } from "@/components/session/code-target-picker"
 
 // Shared effect rows for trigger config (BYO webhooks + connector events).
 // One trigger can fan out to either effect or both.
@@ -30,6 +31,10 @@ export type TriggerEffectsValue = {
   post: boolean
   // null = Act off; empty string = Act on, Lor uses judgment
   actInstructions: string | null
+  // Where Act runs go and whether they are code sessions
+  // (reference/act-sessions-runbook.md).
+  actSessionMode: ActSessionMode
+  actCode: { repo: string; branch: string } | null
   // Act rate shape: 0 = one run per delivery, otherwise deliveries inside the
   // window coalesce into one run; caps are rolling-window run limits.
   actWindowSeconds: number
@@ -39,6 +44,21 @@ export type TriggerEffectsValue = {
 }
 
 export type TriggerEffectsPatch = Partial<Omit<TriggerEffectsValue, "lastAct">>
+
+type ActSessionMode = "per_event" | "per_subject" | "ongoing"
+
+const SESSION_MODE_HINTS: Record<ActSessionMode, string> = {
+  per_event: "Every run starts a new session.",
+  per_subject:
+    "Events about the same thing continue that thing's session, so Lor sees what it already did.",
+  ongoing:
+    "Every event continues one session, so Lor sees what it already did.",
+}
+
+const WORK_IN_OPTIONS = [
+  { value: "chat", label: "Chat" },
+  { value: "code", label: "Code" },
+]
 
 const ACT_WINDOW_OPTIONS = [
   { value: 0, label: "Immediate" },
@@ -211,17 +231,147 @@ function EffectRow({
   )
 }
 
+// Session mode, then Chat or Code with the repo and branch. Code sessions
+// never use one ongoing session: unrelated fixes would share a branch.
+function ActSessionFields({
+  idPrefix,
+  value,
+  disabled,
+  subjectLabel,
+  codeScope,
+  onPatch,
+}: {
+  idPrefix: string
+  value: TriggerEffectsValue
+  disabled?: boolean
+  subjectLabel: string
+  codeScope?: { workspaceSlug: string; channelId: string }
+  onPatch: (patch: TriggerEffectsPatch) => void
+}) {
+  // Code picked but no repo saved yet.
+  const [codePicked, setCodePicked] = useState(false)
+  const code = codePicked || value.actCode !== null
+  const modeItems: { value: ActSessionMode; label: string }[] = [
+    { value: "per_event", label: "New session per event" },
+    { value: "per_subject", label: subjectLabel },
+    { value: "ongoing", label: "One ongoing session" },
+  ]
+  return (
+    <div className="space-y-2 border-border/60 border-t pt-2.5">
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-act-sessions`} className="text-xs">
+          Sessions
+        </Label>
+        <Select
+          items={modeItems}
+          value={value.actSessionMode}
+          disabled={disabled}
+          onValueChange={(next) => {
+            if (next === null || next === value.actSessionMode) return
+            onPatch({ actSessionMode: next })
+          }}
+        >
+          <SelectTrigger
+            id={`${idPrefix}-act-sessions`}
+            size="sm"
+            className="w-64 text-xs"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {modeItems.map((opt) => (
+              <SelectItem
+                key={opt.value}
+                value={opt.value}
+                disabled={code && opt.value === "ongoing"}
+              >
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] text-muted-foreground">
+          {SESSION_MODE_HINTS[value.actSessionMode]} An event never interrupts
+          people talking to Lor: it waits until the session is free.
+        </p>
+      </div>
+      {codeScope && (
+        <div className="space-y-1">
+          <Label htmlFor={`${idPrefix}-act-work-in`} className="text-xs">
+            Work in
+          </Label>
+          <div className="flex min-w-0 items-center gap-2">
+            <Select
+              items={WORK_IN_OPTIONS}
+              value={code ? "code" : "chat"}
+              disabled={disabled}
+              onValueChange={(next) => {
+                if (next === "code") setCodePicked(true)
+                if (next !== "chat") return
+                setCodePicked(false)
+                if (value.actCode) onPatch({ actCode: null })
+              }}
+            >
+              <SelectTrigger
+                id={`${idPrefix}-act-work-in`}
+                size="sm"
+                className="w-24 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {WORK_IN_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {code && (
+              <SavedCodeTargetPicker
+                workspaceSlug={codeScope.workspaceSlug}
+                channelId={codeScope.channelId}
+                value={value.actCode}
+                disabled={disabled}
+                onChange={(next) =>
+                  onPatch({
+                    actCode: next,
+                    ...(value.actSessionMode === "ongoing"
+                      ? { actSessionMode: "per_subject" as const }
+                      : {}),
+                  })
+                }
+              />
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {code
+              ? "Each session works on its own new branch of this repository. Lor never commits or pushes: someone reviews the changes and ships them from the session."
+              : "Lor answers in a chat session."}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function TriggerEffects({
   idPrefix,
   value,
   disabled,
   channelLabel,
+  subjectLabel,
+  codeScope,
   onPatch,
 }: {
   idPrefix: string
   value: TriggerEffectsValue
   disabled?: boolean
   channelLabel?: string | null
+  // The per_subject option's name: what makes two events the same thing.
+  subjectLabel: string
+  // Where code sessions may start; unset hides Code.
+  codeScope?: { workspaceSlug: string; channelId: string }
   onPatch: (patch: TriggerEffectsPatch) => void
 }) {
   const target = channelLabel ? `#${channelLabel}` : "the channel"
@@ -240,7 +390,7 @@ export function TriggerEffects({
         id={`${idPrefix}-act`}
         icon={MagicWand01Icon}
         title="Act"
-        description="Each event starts a Lor session — it can reply, start plans, and call your tools"
+        description="Events go to a Lor session — it can reply, start plans, and call your tools"
         checked={value.actInstructions !== null}
         disabled={disabled}
         onCheckedChange={(checked) =>
@@ -272,6 +422,14 @@ export function TriggerEffects({
             <p className="text-[11px] text-muted-foreground">
               Leave blank to let Lor decide how to handle each payload.
             </p>
+            <ActSessionFields
+              idPrefix={idPrefix}
+              value={value}
+              disabled={disabled}
+              subjectLabel={subjectLabel}
+              codeScope={codeScope}
+              onPatch={onPatch}
+            />
             <div className="space-y-2 border-border/60 border-t pt-2.5">
               <div className="space-y-1">
                 <Label htmlFor={`${idPrefix}-act-window`} className="text-xs">

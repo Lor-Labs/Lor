@@ -105,6 +105,16 @@ export const updateAgentSessionResponseSchema = z.object({
   session: agentSessionSchema,
 })
 
+// Act events waiting for the session's run to finish
+// (reference/act-sessions-runbook.md).
+export const actWaitingResponseSchema = z.object({
+  count: z.number().int(),
+})
+
+export const dropActWaitingResponseSchema = z.object({
+  dropped: z.number().int(),
+})
+
 export const getAgentSessionResponseSchema = z.object({
   session: agentSessionSchema,
   channel: z.object({ id: z.string().uuid(), name: z.string().nullable() }),
