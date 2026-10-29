@@ -1,11 +1,12 @@
 import { isHarnessEnabled } from "@repo/utils/features"
 import { useState } from "react"
-import { useBetaAvailability } from "@/hooks/use-beta-availability"
 
 // Which agent runs a code session, fixed at its start
 // (reference/planned/code-sessions-runbook.md chunks 7 and 8): Lor's own,
 // Claude Code on the starter's own Claude subscription, or Codex on Lor
 // credits. Picked with its model in the New session view's ModelPicker.
+// Hosted beta allows Lor and Claude Code (the person's own subscription);
+// the server enforces that in `assertHostedHarness`.
 
 export type SessionHarness = "pi" | "claude_code" | "codex"
 
@@ -33,7 +34,6 @@ const HARNESS_KEY = "lor:new-session-harness"
 export function useSessionHarness(
   start?: SessionHarness
 ): [SessionHarness, (harness: SessionHarness) => void] {
-  const { data: beta } = useBetaAvailability()
   const [harness, setHarness] = useState<SessionHarness>(() => {
     if (start && isHarnessEnabled(start)) return start
     try {
@@ -50,5 +50,5 @@ export function useSessionHarness(
       localStorage.setItem(HARNESS_KEY, next)
     } catch {}
   }
-  return [!beta || beta.enabled ? "pi" : harness, change]
+  return [harness, change]
 }
