@@ -6,7 +6,6 @@ import type { ActSessionMode, AgentSession } from "@repo/db/schema"
 import type { RunTriggerContext } from "@repo/lor"
 import {
   actRunBriefing,
-  closeActWindow,
   openActWindow,
   releaseActRunDeliveries,
 } from "@repo/lor/act-runs"
@@ -321,10 +320,11 @@ async function waitForSession(
       }
     )
   } catch (err) {
-    await closeActWindow(input.triggerId)
+    // The window stays open: its deliveries were released and may get no new
+    // delivery to re-arm them, so the overdue-window sweep re-arms it instead.
     logger.error(
       { err, triggerId: input.triggerId },
-      "Act wait re-arm failed; the next delivery re-arms"
+      "Act wait re-arm failed; the overdue-window sweep re-arms it"
     )
   }
 }

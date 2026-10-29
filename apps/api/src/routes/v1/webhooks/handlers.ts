@@ -11,7 +11,7 @@ import {
 import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { and, count, eq } from "drizzle-orm"
-import { actCodeOf, checkActTarget } from "@/lib/act-target"
+import { actCodeChanged, actCodeOf, checkActTarget } from "@/lib/act-target"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { type LastAct, lastActByTrigger } from "@/lib/last-act"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -458,7 +458,7 @@ export const updateChannelWebhook: AppRouteHandler<
           channelId,
           sessionMode: actSessionMode ?? existing.actSessionMode,
           code: actCode !== undefined ? actCode : actCodeOf(existing),
-          recheck: Boolean(actCode),
+          recheck: actCodeChanged(actCode, actCodeOf(existing)),
         })
       : null
   if (target && !target.ok) {

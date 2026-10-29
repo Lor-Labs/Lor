@@ -193,6 +193,9 @@ export const betaExemption = pgTable(
       .notNull(),
     operator: text("operator").notNull(),
     reason: text("reason").notNull(),
+    // Removal ends an exemption instead of deleting it, so a closed
+    // sandbox-hour billed after removal still knows it ran exempt.
+    endedAt: timestamp("ended_at", { withTimezone: true }),
   },
   (table) => [
     check(

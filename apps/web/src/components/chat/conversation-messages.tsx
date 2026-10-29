@@ -121,7 +121,7 @@ export function ConversationMessages({
     // Joined borders give the expanded history one continuous surface.
     const historyClassName = history
       ? cn(
-          "mx-4 border-border/70 border-x bg-muted/35 fade-in-0 animate-in duration-200 ease-out",
+          "mx-4 border-border/70 border-x bg-muted/35 fade-in-0 animate-in duration-200 ease-out motion-reduce:animate-none",
           i === history.start && "pt-1",
           i === history.end - 1 && "mb-3 rounded-b-xl border-b pb-3"
         )

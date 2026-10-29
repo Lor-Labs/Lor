@@ -111,7 +111,7 @@ export function RewoundTurnsRow({
           <HugeiconsIcon
             icon={ArrowRight01Icon}
             className={cn(
-              "size-3.5 transition-transform duration-200 ease-out",
+              "size-3.5 transition-transform duration-200 ease-out motion-reduce:transition-none",
               expanded && "rotate-90"
             )}
             strokeWidth={2}

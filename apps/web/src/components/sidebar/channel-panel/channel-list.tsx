@@ -1105,7 +1105,8 @@ function SortableChannelItem({
               // A channel created while you watch fades in. The fade sits on
               // this row: on the sortable wrapper it would override the drag
               // transform.
-              arrived && "fade-in-0 animate-in duration-300",
+              arrived &&
+                "fade-in-0 animate-in duration-300 motion-reduce:animate-none",
               "group/channel relative flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-[6px] text-[14px]",
               active || menuOpen ? sidebarRowSelected : sidebarRowHover,
               active && "font-medium text-foreground",

@@ -363,6 +363,7 @@ export function SavedCodeTargetPicker({
         items={repos.data.repos}
         placeholder="Find a repository…"
         emptyText="No repositories found"
+        disabled={disabled}
         onPick={(repo) => void pickRepo(repo)}
       />
       {value && (
@@ -375,6 +376,7 @@ export function SavedCodeTargetPicker({
             defaultBranch: defaults.data?.defaultBranch ?? null,
           }}
           value={value.branch}
+          disabled={disabled}
           onPick={(branch) => onChange({ repo: value.repo, branch })}
         />
       )}
@@ -487,6 +489,7 @@ function BranchPicker({
   code,
   value,
   labelBadge,
+  disabled,
   onPick,
   onCreate,
 }: {
@@ -495,6 +498,7 @@ function BranchPicker({
   code: Pick<CodeTargetState, "repo" | "branch" | "defaultBranch">
   value: string
   labelBadge?: string
+  disabled?: boolean
   onPick: (branch: string) => void
   onCreate?: (name: string) => void
 }) {
@@ -545,6 +549,7 @@ function BranchPicker({
       ]}
       placeholder="Find a branch…"
       emptyText={searching ? "Searching GitHub…" : "No branches found"}
+      disabled={disabled}
       onPick={onPick}
       onOpenChange={setOpen}
       onQueryChange={setQuery}
@@ -569,6 +574,7 @@ function SearchPicker({
   items,
   placeholder,
   emptyText,
+  disabled,
   onPick,
   onOpenChange,
   onQueryChange,
@@ -584,6 +590,7 @@ function SearchPicker({
   items: string[]
   placeholder: string
   emptyText: string
+  disabled?: boolean
   onPick: (value: string) => void
   onOpenChange?: (open: boolean) => void
   onQueryChange?: (query: string) => void
@@ -607,6 +614,7 @@ function SearchPicker({
     <Combobox<string>
       items={createLabel ? [...items, `${CREATE_ITEM}${typed}`] : items}
       value={value}
+      disabled={disabled}
       onValueChange={(next) => {
         if (!next) return
         if (next.startsWith(CREATE_ITEM)) {

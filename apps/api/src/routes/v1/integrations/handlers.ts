@@ -29,7 +29,7 @@ import {
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
-import { actCodeOf, checkActTarget } from "@/lib/act-target"
+import { actCodeChanged, actCodeOf, checkActTarget } from "@/lib/act-target"
 import {
   githubAccountToken,
   verifyGithubInstallationOwner,
@@ -1025,7 +1025,9 @@ export const updateIntegration: AppRouteHandler<
     sessionMode,
     code,
     // A moved trigger needs the repo checked against its new channel.
-    recheck: Boolean(actCode) || saved?.channelId !== channelId,
+    recheck:
+      saved?.channelId !== channelId ||
+      actCodeChanged(actCode, saved ? actCodeOf(saved) : null),
   })
   if (!actTarget.ok) {
     return c.json(

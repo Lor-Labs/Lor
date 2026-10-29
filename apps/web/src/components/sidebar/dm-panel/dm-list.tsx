@@ -153,7 +153,8 @@ function DMItem({
       onClick={onClick}
       className={cn(
         sidebarRow,
-        arrived && "fade-in-0 animate-in duration-300",
+        arrived &&
+          "fade-in-0 animate-in duration-300 motion-reduce:animate-none",
         "group relative flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5",
         active ? sidebarRowSelected : sidebarRowHover,
         active && "text-foreground",

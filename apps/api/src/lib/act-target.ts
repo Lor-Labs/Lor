@@ -25,6 +25,16 @@ export function actCodeOf(row: {
     : null
 }
 
+// Whether a patch sets a code target other than the saved one. Clients send
+// the whole config on each change, so an unchanged target must not count.
+export function actCodeChanged(
+  next: ActCode | undefined,
+  saved: ActCode
+): boolean {
+  if (!next) return false
+  return next.repo !== saved?.repo || next.branch !== saved?.branch
+}
+
 // The trigger's mode and code target after a patch. The repo is checked only
 // when the code target or the channel changes, so a GitHub outage never
 // blocks editing instructions.
