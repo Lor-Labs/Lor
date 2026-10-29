@@ -316,10 +316,18 @@ export async function sweepBetaBilling() {
       logger.error({ err: error, usageId: row.id }, "Beta debit retry failed")
     }
   }
+  // Only live trials need a minute-by-minute balance: expired and subscribed
+  // ones resync when billing opens or Autumn's webhook reports a change.
   const trials = await db
     .select({ workspaceId: schema.workspaceBetaTrial.workspaceId })
     .from(schema.workspaceBetaTrial)
-    .where(isNotNull(schema.workspaceBetaTrial.workspaceId))
+    .where(
+      and(
+        isNotNull(schema.workspaceBetaTrial.workspaceId),
+        gt(schema.workspaceBetaTrial.expiresAt, new Date()),
+        isNull(schema.workspaceBetaTrial.subscribedAt)
+      )
+    )
   for (const trial of trials) {
     if (!trial.workspaceId) continue
     try {

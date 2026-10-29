@@ -160,7 +160,11 @@ export const topup: AppRouteHandler<TopupRoute> = async (c) => {
   const workspace = c.var.workspace
   assertWorkspaceAuthority(c.var.authority, { billing: ["manage"] })
   const { usd } = c.req.valid("json")
-  if (await betaLimited(workspace.id)) {
+  if (!billingEnabled) {
+    return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
+  }
+  const beta = await betaLimited(workspace.id)
+  if (beta) {
     const trial = await getWorkspaceBetaTrial(workspace.id)
     if (!trial || trial.expiresAt <= new Date())
       return c.json(
@@ -170,12 +174,9 @@ export const topup: AppRouteHandler<TopupRoute> = async (c) => {
         },
         HttpStatusCodes.BAD_REQUEST
       )
-    await syncBetaCredits(workspace.id)
-  }
-  if (!billingEnabled) {
-    return c.json(BILLING_DISABLED, HttpStatusCodes.BAD_REQUEST)
   }
   try {
+    if (beta) await syncBetaCredits(workspace.id)
     const { url } = await attachTopup(
       workspace.id,
       usd,

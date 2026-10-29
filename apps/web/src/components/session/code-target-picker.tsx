@@ -303,7 +303,9 @@ function CodeNote({ children }: { children: ReactNode }) {
 // here, and GitHub's setup page comes back to this page.
 function GithubSetupNote({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient()
-  const { data } = useQuery(integrationsQueryOptions(workspaceSlug))
+  const { data, isError, refetch } = useQuery(
+    integrationsQueryOptions(workspaceSlug)
+  )
   const [starting, setStarting] = useState(false)
   const [started, setStarted] = useState(false)
   // The desktop app connects in the system browser with no redirect back, so
@@ -326,6 +328,20 @@ function GithubSetupNote({ workspaceSlug }: { workspaceSlug: string }) {
   }, [started, queryClient, workspaceSlug])
 
   const github = data?.providers.find((provider) => provider.id === "github")
+  if (!github && isError)
+    return (
+      <>
+        <CodeNote>Couldn't check GitHub</CodeNote>
+        <Button
+          size="xs"
+          variant="outline"
+          className="ml-auto"
+          onClick={() => void refetch()}
+        >
+          Retry
+        </Button>
+      </>
+    )
   if (!github) return <CodeNote>Checking GitHub…</CodeNote>
   if (github.connected) {
     return <CodeNote>Clone repository is off in this channel</CodeNote>

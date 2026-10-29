@@ -611,6 +611,8 @@ export const joinVoiceChannel: AppRouteHandler<JoinVoiceChannelRoute> = async (
     )
   }
 
+  // Before any call state changes; the trial caps the join token.
+  const trial = await assertWorkspaceActive(workspaceId)
   const session = await getOrCreateLiveSession(
     livekit,
     { id: channel.id, workspaceId },
@@ -629,7 +631,6 @@ export const joinVoiceChannel: AppRouteHandler<JoinVoiceChannelRoute> = async (
 
   await leaveOtherCalls(livekit, currentUser.id, session.id)
   const participantId = await upsertParticipant(session.id, currentUser.id)
-  const trial = await assertWorkspaceActive(workspaceId)
   const token = await createJoinToken(livekit, {
     room: session.id,
     identity: participantId,

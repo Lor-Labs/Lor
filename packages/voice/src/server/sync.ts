@@ -220,26 +220,36 @@ export async function auditLiveSessions(config: LiveKitConfig) {
   return { checked: live.length, dispatched, failed }
 }
 
+// One session's failure is reported and the rest still end, so the sweep's
+// later steps (endExpiredSessions) run in the same pass.
 export async function endInactiveBetaSessions(config: LiveKitConfig) {
-  if (!hostedBetaEnabled()) return
+  const failed: SyncFailure[] = []
+  if (!hostedBetaEnabled()) return { failed }
   const sessions = await db
     .select({ id: voiceSession.id, workspaceId: voiceSession.workspaceId })
     .from(voiceSession)
     .where(isNull(voiceSession.endedAt))
   for (const session of sessions) {
-    if ((await workspaceBetaAccess(session.workspaceId)).state === "active")
-      continue
     try {
-      await getRoomService(config).deleteRoom(session.id)
-    } catch (error) {
-      if (!(error instanceof ServerError && error.status === 404)) throw error
+      if ((await workspaceBetaAccess(session.workspaceId)).state === "active")
+        continue
+      try {
+        await getRoomService(config).deleteRoom(session.id)
+      } catch (error) {
+        if (!(error instanceof ServerError && error.status === 404)) throw error
+      }
+      await reconcileSession(config, session.id)
+      const now = new Date()
+      await db
+        .update(voiceSession)
+        .set({ emptySince: now })
+        .where(
+          and(eq(voiceSession.id, session.id), isNull(voiceSession.endedAt))
+        )
+      await endSession(session.id, now)
+    } catch (err) {
+      failed.push({ sessionId: session.id, err })
     }
-    await reconcileSession(config, session.id)
-    const now = new Date()
-    await db
-      .update(voiceSession)
-      .set({ emptySince: now })
-      .where(and(eq(voiceSession.id, session.id), isNull(voiceSession.endedAt)))
-    await endSession(session.id, now)
   }
+  return { failed }
 }

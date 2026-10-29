@@ -18,7 +18,13 @@ export async function sweepVoiceSessions() {
   const livekit = getLiveKitConfig()
   if (!livekit) return
 
-  await endInactiveBetaSessions(livekit)
+  const beta = await endInactiveBetaSessions(livekit)
+  for (const { sessionId, err } of beta.failed) {
+    logger.warn(
+      { err, sessionId },
+      "voice: could not end an inactive beta call"
+    )
+  }
   const { ended, failed } = await endExpiredSessions(livekit)
   if (ended.length > 0) logger.info({ ended }, "voice: sessions ended")
   for (const { sessionId, err } of failed) {

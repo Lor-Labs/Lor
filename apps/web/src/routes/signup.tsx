@@ -47,6 +47,7 @@ function SignupRoute() {
       </div>
     )
   if (availability.data?.open) return <SignUpPage />
+  const beta = availability.data?.enabled
   return (
     <div className="flex min-h-svh items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
@@ -54,18 +55,21 @@ function SignupRoute() {
           <CardTitle>
             {availability.isError
               ? "Unable to check signup availability"
-              : "Beta enrollment is closed"}
+              : beta
+                ? "Beta enrollment is closed"
+                : "Signup is by invitation"}
           </CardTitle>
           <CardDescription>
-            The beta is first come, first served for 25 teams. Existing teams
-            can still invite their teammates.
+            {beta
+              ? "The beta is first come, first served for 25 teams. Existing teams can still invite their teammates."
+              : "Ask your workspace admin for an email invitation."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {availability.isError ? (
             <Button onClick={() => availability.refetch()}>Try again</Button>
           ) : (
-            <BetaWaitlist />
+            beta && <BetaWaitlist />
           )}
           <Button render={<Link to="/login" search={{ redirect }} />}>
             Sign in

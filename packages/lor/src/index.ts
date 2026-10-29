@@ -2526,6 +2526,20 @@ export async function respond(
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
+  // A retried attempt whose turn already saved delivers that answer: no new
+  // inference, so no access or credit checks.
+  const savedAnswer = run?.harness?.savedAnswer
+  if (savedAnswer != null) {
+    await onDelta(savedAnswer)
+    // The saved turn may have paused: its approval set is already filed.
+    return {
+      text: savedAnswer,
+      messages: [],
+      ...(run?.harness?.saved?.continuation
+        ? { stoppedFor: "awaiting_approval" as const }
+        : {}),
+    }
+  }
   await assertWorkspaceActive(ctx.workspaceId)
   await run?.assertCanInfer?.()
   assertHostedHarness(
@@ -2558,18 +2572,6 @@ export async function respond(
     ctx.claudeCode ? "claude_code" : ctx.codex ? "codex" : "pi"
   )
   const respondStart = performance.now()
-  const savedAnswer = run?.harness?.savedAnswer
-  if (savedAnswer != null) {
-    await onDelta(savedAnswer)
-    // The saved turn may have paused: its approval set is already filed.
-    return {
-      text: savedAnswer,
-      messages: [],
-      ...(run?.harness?.saved?.continuation
-        ? { stoppedFor: "awaiting_approval" as const }
-        : {}),
-    }
-  }
   const budgets = run?.budgets ?? defaultRunBudgets()
   // Live plan pointer: seeded from ctx, written when start_plan adopts the
   // thread mid-run, refreshed on every plan update. Tool contexts resolve

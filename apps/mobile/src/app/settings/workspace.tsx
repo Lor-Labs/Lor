@@ -296,11 +296,13 @@ function WorkspaceSettingsForm({
           <View className="gap-two px-five py-four">
             <Text className="font-semibold text-foreground">Private beta</Text>
             <Text className="text-muted-foreground">
-              {beta.state !== "active"
+              {beta.state === "expired"
                 ? "Your beta has ended. Saved work remains readable; subscribe to keep working."
-                : beta.creditsEmpty
-                  ? "Your team's included credits are used up. Subscribe to keep working."
-                  : `Free until ${new Date(beta.expiresAt ?? "").toLocaleDateString()}.`}
+                : beta.state === "not_enrolled"
+                  ? "This workspace isn't part of the hosted beta. Saved work remains readable."
+                  : beta.creditsEmpty
+                    ? "Your team's included credits are used up. Subscribe to keep working."
+                    : `Free until ${new Date(beta.expiresAt ?? "").toLocaleDateString()}.`}
             </Text>
             <Text className="text-muted-foreground">
               Your workspace admin subscribes and manages AI credits and

@@ -19,16 +19,19 @@ export class BetaAdmissionError extends Error {
   readonly status = 403
 }
 
-async function availableCampaign(tx: Transaction) {
+// Enrollment locks the campaign row so two teams can't take the last place;
+// the public availability check reads without the lock.
+async function availableCampaign(tx: Transaction | typeof db, lock = true) {
   const config = hostedBetaConfig()
   if (!config.enabled || !config.campaignKey)
     throw new BetaAdmissionError("Beta enrollment is not configured")
-  const campaign = await tx
+  const query = tx
     .select()
     .from(schema.betaCampaign)
     .where(eq(schema.betaCampaign.key, config.campaignKey))
-    .for("update")
-    .then((rows) => rows[0])
+  const campaign = await (lock ? query.for("update") : query).then(
+    (rows) => rows[0]
+  )
   const now = new Date()
   if (
     !campaign ||
@@ -77,7 +80,7 @@ export async function createWithBetaTrial<T>(
 export async function getBetaAvailability() {
   if (!hostedBetaConfig().enabled) return { enabled: false, open: false }
   try {
-    await db.transaction(availableCampaign)
+    await availableCampaign(db, false)
     return { enabled: true, open: true }
   } catch (error) {
     if (!(error instanceof BetaAdmissionError)) throw error

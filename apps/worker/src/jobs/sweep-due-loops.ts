@@ -24,10 +24,6 @@ export async function sweepDueLoops(
   emitter: Emitter<ServerToClientEvents>,
   loopRunQueue: Queue<LoopRunJobData>
 ): Promise<void> {
-  const emitBetaPaused = (loop: typeof schema.loop.$inferSelect) =>
-    emitter
-      .to(channelRoom(loop.channelId))
-      .emit("loop:updated", { loop: toRealtimeLoop(loop) })
   const due = await db
     .select({
       id: schema.loop.id,
@@ -49,17 +45,6 @@ export async function sweepDueLoops(
     .limit(SWEEP_BATCH)
 
   for (const loop of due) {
-    if ((await workspaceBetaAccess(loop.workspaceId)).state !== "active") {
-      const [paused] = await db
-        .update(schema.loop)
-        .set({ status: "paused", pausedReason: "manual", nextRunAt: null })
-        .where(
-          and(eq(schema.loop.id, loop.id), eq(schema.loop.status, "active"))
-        )
-        .returning()
-      if (paused) emitBetaPaused(paused)
-      continue
-    }
     // Date end (endAt) is enforced mechanically here: a due fire scheduled
     // past the end date completes the loop instead of running — no model
     // judgment involved. Fires scheduled before the end still run.
@@ -115,6 +100,23 @@ export async function sweepDueLoops(
           .to(channelRoom(paused.channelId))
           .emit("loop:updated", { loop: toRealtimeLoop(paused) })
       }
+      continue
+    }
+
+    // A beta workspace that has ended (or is not enrolled) skips this fire
+    // but keeps its schedule, so the loop resumes once access returns (for
+    // example after subscribing). Not a manual pause.
+    if ((await workspaceBetaAccess(loop.workspaceId)).state !== "active") {
+      await db
+        .update(schema.loop)
+        .set({ nextRunAt: next })
+        .where(
+          and(
+            eq(schema.loop.id, loop.id),
+            eq(schema.loop.status, "active"),
+            lte(schema.loop.nextRunAt, new Date())
+          )
+        )
       continue
     }
 
