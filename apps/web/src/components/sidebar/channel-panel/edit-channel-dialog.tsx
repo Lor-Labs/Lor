@@ -247,7 +247,14 @@ export function EditChannelDialog({
             }
           }}
         >
-          <div className="flex h-[460px]">
+          {/* Webhooks save as they change, so that tab has no footer; its
+            body takes the footer's height so the dialog doesn't jump. */}
+          <div
+            className={cn(
+              "flex",
+              tab === "webhooks" ? "h-[521px]" : "h-[460px]"
+            )}
+          >
             <nav className="flex w-48 shrink-0 flex-col gap-1 border-border border-r bg-sidebar p-3">
               {visibleTabs.map((t) => (
                 <button
@@ -368,23 +375,25 @@ export function EditChannelDialog({
             </div>
           </div>
 
-          <DialogFooter className="border-border border-t px-5 py-3">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={!hasChanges || !isValid || updateMutation.isPending}
-            >
-              <MorphText>
-                {updateMutation.isPending ? "Saving..." : "Save"}
-              </MorphText>
-            </Button>
-          </DialogFooter>
+          {tab !== "webhooks" && (
+            <DialogFooter className="border-border border-t px-5 py-3">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!hasChanges || !isValid || updateMutation.isPending}
+              >
+                <MorphText>
+                  {updateMutation.isPending ? "Saving..." : "Save"}
+                </MorphText>
+              </Button>
+            </DialogFooter>
+          )}
         </form>
       </DialogContent>
     </Dialog>
