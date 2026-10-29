@@ -9,6 +9,7 @@ import type {
 } from "ai"
 import { logger } from "../logger"
 import type { HarnessOwner } from "../session-core"
+import { guardSandbox } from "./beta-compute"
 import {
   baseConfig,
   blaxelConfigured,
@@ -134,6 +135,7 @@ const BRIDGE_PREVIEW_TOKEN_TTL_MS = 60 * 60 * 1000
 export async function harnessBridgeEndpoint(
   owner: HarnessOwner
 ): Promise<{ url: string; headers: Record<string, string> }> {
+  await guardSandbox(sessionSandboxName(owner))
   const sandbox = await SandboxInstance.get(sessionSandboxName(owner))
   try {
     // Named in chunk 7; existing sandboxes already have it on this port.
@@ -208,6 +210,7 @@ async function createSessionSandbox(
   name: string,
   code: boolean
 ): Promise<SandboxInstance> {
+  await guardSandbox(name)
   const sandbox = await SandboxInstance.createIfNotExists({
     ...(code
       ? baseConfig(
@@ -290,6 +293,7 @@ export async function openSessionSandbox(
   options: { keepBridges?: boolean; code?: boolean } = {}
 ): Promise<SessionSandbox> {
   const name = sessionSandboxName(owner)
+  await guardSandbox(name)
   const existing = await SandboxInstance.get(name).catch((err: unknown) => {
     if (isNotFound(err)) return null
     throw err
@@ -343,6 +347,7 @@ export async function attachSessionSandbox(
   owner: HarnessOwner
 ): Promise<SessionSandbox | null> {
   if (!blaxelConfigured()) return null
+  await guardSandbox(sessionSandboxName(owner))
   const existing = await SandboxInstance.get(sessionSandboxName(owner)).catch(
     (err: unknown) => {
       if (isNotFound(err)) return null
@@ -471,7 +476,9 @@ function logStream(
 export function blaxelSandboxSession(
   sandbox: SandboxInstance
 ): SandboxSession & { defaultWorkingDirectory: string } {
+  const access = () => guardSandbox(sandbox.metadata.name ?? "")
   const readBytes = async (path: string): Promise<Uint8Array | null> => {
+    await access()
     try {
       const blob = await sandbox.fs.readBinary(path)
       return new Uint8Array(await blob.arrayBuffer())
@@ -485,6 +492,7 @@ export function blaxelSandboxSession(
   // does not document whether writes create parent folders, so a failed write
   // retries once after mkdir -p.
   const writeBytes = async (path: string, bytes: Uint8Array): Promise<void> => {
+    await access()
     try {
       await sandbox.fs.writeBinary(path, bytes)
     } catch {
@@ -517,6 +525,7 @@ export function blaxelSandboxSession(
     abortSignal,
   }) => {
     abortSignal?.throwIfAborted()
+    await access()
     const name = `run-${randomUUID().slice(0, 8)}`
     const onAbort = () => {
       sandbox.process.kill(name).catch(() => {})
@@ -561,6 +570,7 @@ export function blaxelSandboxSession(
     abortSignal,
   }) => {
     abortSignal?.throwIfAborted()
+    await access()
     // The harness whose bridge this is ("claude-code", "codex"), or null.
     const bridge = HARNESS_BRIDGE_SCRIPT.exec(command)?.[1] ?? null
     const name = `${bridge ? "bridge" : "spawn"}-${randomUUID().slice(0, 8)}`
@@ -576,7 +586,12 @@ export function blaxelSandboxSession(
       // A bridge outlives its turn while it waits on an approval: no time
       // limit, and no keepAlive. A parked one still kept its sandbox out of
       // standby, so it stops after 30 minutes (release-parked-bridge).
-      ...(bridge ? {} : { keepAlive: true, timeout: RUN_TIMEOUT_SEC }),
+      ...(bridge
+        ? {}
+        : {
+            keepAlive: true,
+            timeout: RUN_TIMEOUT_SEC,
+          }),
     })
     const kill = async () => {
       await sandbox.process.kill(name).catch(() => {})

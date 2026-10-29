@@ -1,5 +1,6 @@
 import { auth } from "@repo/auth"
 import { db } from "@repo/db"
+import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import { workspace, workspaceMember } from "@repo/db/schema"
 import { setContext } from "@repo/logger"
 import { and, eq } from "drizzle-orm"
@@ -88,5 +89,29 @@ export const workspaceAuthMiddleware = async (
     workspaceId: workspaceRecord.id,
   })
 
+  const read = ["GET", "HEAD", "OPTIONS"].includes(c.req.method)
+  // The registered pattern, not the path: a slug may contain "billing".
+  const billing = BILLING_ROUTE.test(c.req.routePath)
+  if (!read && !billing && !isCleanup(c, session.user.id))
+    await assertWorkspaceActive(workspaceRecord.id)
   await next()
+}
+
+const BILLING_ROUTE = /\/workspaces\/:workspaceSlug\/billing(\/|$)/
+
+// An ended beta team can still remove people, roles and integrations.
+const CLEANUP_ROUTES = [
+  "POST /workspaces/:workspaceSlug/members/:userId/kick",
+  "DELETE /workspaces/:workspaceSlug/roles/:roleName",
+  "DELETE /workspaces/:workspaceSlug/integrations/:connectionId",
+]
+const PROJECT_MEMBER_ROUTE =
+  "DELETE /workspaces/:workspaceSlug/projects/:projectId/members/:userId"
+
+function isCleanup(c: Context<AppBindings>, userId: string) {
+  const route = `${c.req.method} ${c.req.routePath}`
+  if (CLEANUP_ROUTES.some((cleanup) => route.endsWith(cleanup))) return true
+  return (
+    route.endsWith(PROJECT_MEMBER_ROUTE) && c.req.param("userId") === userId
+  )
 }

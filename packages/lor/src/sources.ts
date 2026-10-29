@@ -9,6 +9,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import { tool } from "ai"
 import { z } from "zod"
 import { splitText } from "./attachments/split"
@@ -130,6 +131,7 @@ export async function storeSourceItem(
   item: SourceItem,
   onUsage?: OnUsage
 ): Promise<"stored" | "unchanged" | "stale"> {
+  await assertWorkspaceActive(connection.workspaceId)
   const body = item.body.slice(0, BODY_MAX)
   const contentHash = createHash("sha256")
     .update(`${item.title}\n${item.state ?? ""}\n${body}`)

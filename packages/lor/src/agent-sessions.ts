@@ -7,6 +7,10 @@ import {
   LOR_USER_ID,
   schema,
 } from "@repo/db"
+import {
+  assertHostedHarness,
+  assertWorkspaceActive,
+} from "@repo/db/queries/beta-access"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import type { AgentSession, Loop } from "@repo/db/schema"
@@ -88,6 +92,8 @@ export async function createSession(
   tx: Tx,
   args: CreateSessionArgs
 ): Promise<AgentSession> {
+  await assertWorkspaceActive(args.workspaceId)
+  assertHostedHarness(args.harness ?? "pi")
   assertHarnessEnabled(args.harness ?? "pi")
   const [anchor] = await tx
     .insert(schema.message)

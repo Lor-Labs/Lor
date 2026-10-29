@@ -76,7 +76,10 @@ export const topup = createRoute({
   middleware: [workspaceAuthMiddleware] as const,
   request: {
     params: billingWorkspaceParamsSchema,
-    body: jsonContent({ schema: topupBodySchema, description: "Pack size" }),
+    body: jsonContent({
+      schema: topupBodySchema,
+      description: "Amount in whole US dollars ($1 = 100 credits)",
+    }),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent({

@@ -1,8 +1,9 @@
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { apiClient } from "@/lib/api-client"
+import { takeGithubInstallReturn } from "@/lib/github-connect"
 
 type SetupSearch = {
   installation_id?: string
@@ -49,23 +50,27 @@ async function errorMessage(res: Response, fallback: string) {
 function GithubSetup() {
   const { installation_id, setup_action, state } = Route.useSearch()
   const navigate = useNavigate()
+  const router = useRouter()
   const ranRef = useRef(false)
 
   useEffect(() => {
     if (ranRef.current) return
     ranRef.current = true
+    const back = takeGithubInstallReturn()
+    const leave = () =>
+      back ? router.history.replace(back) : navigate({ to: "/", replace: true })
 
     void (async () => {
       // A member of a GitHub org without install rights only sends a request;
       // an org owner has to approve it on GitHub.
       if (setup_action === "request") {
         toast.info("GitHub sent the install request to an organization owner")
-        await navigate({ to: "/", replace: true })
+        await leave()
         return
       }
       if (!installation_id) {
         toast.error("Missing GitHub install details")
-        await navigate({ to: "/", replace: true })
+        await leave()
         return
       }
       try {
@@ -74,11 +79,15 @@ function GithubSetup() {
         })
         if (!res.ok) {
           toast.error(await errorMessage(res, "Couldn't connect GitHub"))
-          await navigate({ to: "/", replace: true })
+          await leave()
           return
         }
         const { workspaceSlug } = await res.json()
         toast.success("GitHub connected")
+        if (back?.startsWith(`/${workspaceSlug}/`)) {
+          router.history.replace(back)
+          return
+        }
         // The workspace root routes ?connector= to setup or the connector's
         // detail.
         await navigate({
@@ -89,10 +98,10 @@ function GithubSetup() {
         })
       } catch {
         toast.error("Couldn't connect GitHub")
-        await navigate({ to: "/", replace: true })
+        await leave()
       }
     })()
-  }, [installation_id, setup_action, state, navigate])
+  }, [installation_id, setup_action, state, navigate, router])
 
   return (
     <div className="flex h-full flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">

@@ -1,4 +1,13 @@
-import { CREDIT_USD, computeCostUsd, getRate } from "@repo/billing"
+import {
+  byokFeeShare,
+  CREDIT_USD,
+  checkBetaCredits,
+  computeCostUsd,
+  getRate,
+  hostedBetaConfig,
+  isBetaWorkspace,
+  recordUsage as recordBillingUsage,
+} from "@repo/billing"
 import {
   and,
   asc,
@@ -18,12 +27,21 @@ import {
   sql,
 } from "@repo/db"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
+import {
+  assertBetaSandbox,
+  assertWorkspaceActive,
+} from "@repo/db/queries/beta-access"
+import {
+  assertInferenceFundingCurrent,
+  workspaceInferenceFunding,
+} from "@repo/db/queries/inference"
 import type {
   AgentRunContext,
   LorMemory,
   LorReasoningSegment,
   LorToolCall,
 } from "@repo/db/schema"
+import { env } from "@repo/env/server"
 import {
   type ConversationUpdate,
   mergeRunContextCoverage,
@@ -35,6 +53,7 @@ import {
   type UsageEvent,
   userDisplayName,
 } from "@repo/lor"
+import { byokPrice } from "@repo/lor/byok"
 import { type HarnessOwner, SessionCoreError } from "@repo/lor/session-core"
 import { DelayedError, type Job } from "bullmq"
 import { writeHarnessState } from "@/lib/harness-state"
@@ -198,6 +217,15 @@ function usageIncrements(
     cachedInputTokens: sql`${schema.agentRun.cachedInputTokens} + ${usage?.cachedInputTokens ?? 0}`,
     outputTokens: sql`${schema.agentRun.outputTokens} + ${usage?.outputTokens ?? 0}`,
     creditsSpent: sql`${schema.agentRun.creditsSpent} + ${credits}`,
+  }
+}
+
+// Only calls whose Gateway response reported a cost, so the two sums compare
+// the same calls.
+function gatewayCostIncrements(chargedUsd: number, actualUsd: number) {
+  return {
+    gatewayChargedUsd: sql`${schema.agentRun.gatewayChargedUsd} + ${chargedUsd.toFixed(6)}`,
+    gatewayActualUsd: sql`${schema.agentRun.gatewayActualUsd} + ${actualUsd.toFixed(6)}`,
   }
 }
 
@@ -367,6 +395,31 @@ export async function claimAgentRun(
   // re-emit is harmless — the snapshot recomputes and clients dedupe).
   notifyWorkspaceActivity(claimed.workspaceId)
 
+  // A trial workspace under the hosted beta; exempt ones bill normally.
+  const betaRun = await isBetaWorkspace(claimed.workspaceId)
+  let funding =
+    claimed.inferenceFunding ??
+    (await workspaceInferenceFunding(claimed.workspaceId))
+  if (!claimed.inferenceFunding)
+    await db
+      .update(schema.agentRun)
+      .set({ inferenceFunding: funding })
+      .where(
+        and(
+          eq(schema.agentRun.id, runId),
+          eq(schema.agentRun.leaseOwner, WORKER_ID)
+        )
+      )
+  const assertCanInfer = async () => {
+    await assertWorkspaceActive(claimed.workspaceId)
+    await assertInferenceFundingCurrent(claimed.workspaceId, funding)
+    await assertBetaSandbox(claimed.workspaceId)
+    const check = await checkBetaCredits(claimed.workspaceId)
+    if (check && !check.allowed)
+      throw new Error(
+        "AI is paused. Check your team's credits, compute allowance and beta expiry in billing."
+      )
+  }
   const writer = createRunEventWriter({
     runId,
     workerId: WORKER_ID,
@@ -396,6 +449,16 @@ export async function claimAgentRun(
   // The stop flag rides the heartbeat and every checkpoint, so a working run
   // notices within one step boundary or one heartbeat, whichever is sooner.
   const heartbeat = setInterval(() => {
+    if (hostedBetaConfig().enabled || funding.source === "byok") {
+      void assertWorkspaceActive(claimed.workspaceId)
+        .then(() => assertInferenceFundingCurrent(claimed.workspaceId, funding))
+        .then(() => assertBetaSandbox(claimed.workspaceId))
+        .then(() => checkBetaCredits(claimed.workspaceId))
+        .then((check) => {
+          if (check && !check.allowed) requestStop()
+        })
+        .catch(() => requestStop())
+    }
     void db
       .update(schema.agentRun)
       .set({ leaseExpiresAt: new Date(Date.now() + LEASE_TTL_MS) })
@@ -446,11 +509,15 @@ export async function claimAgentRun(
       cachedInputTokens: u.cachedInputTokens,
       outputTokens: u.outputTokens,
     }
-    const rate = await getRate(
-      u.model,
-      tokens,
-      oneRequest ? { requestInputTokens: u.inputTokens } : {}
-    )
+    // Own key: the provider's list price, of which only the fee is charged.
+    const listPrice = funding.source === "byok" ? byokPrice(u.model) : null
+    const rate = listPrice
+      ? { ...listPrice, conversionRate: env.CREDIT_CONVERSION_RATE }
+      : await getRate(
+          u.model,
+          tokens,
+          oneRequest ? { requestInputTokens: u.inputTokens } : {}
+        )
     return { usd: computeCostUsd(tokens, rate), rate }
   }
   // Also the call's USD, which the turn's debit sums (RunHarness.recordUsage).
@@ -460,7 +527,13 @@ export async function claimAgentRun(
   ): Promise<{ credits: number; usd: number }> => {
     const price = await priceFor(u, oneRequest)
     if (!price) return { credits: 0, usd: 0 }
-    attemptCredits += (price.usd * price.rate.conversionRate) / CREDIT_USD
+    const share =
+      funding.source === "byok"
+        ? byokFeeShare(price.rate.conversionRate)
+        : betaRun
+          ? 1
+          : price.rate.conversionRate
+    attemptCredits += (price.usd * share) / CREDIT_USD
     const whole = Math.ceil(attemptCredits)
     const added = whole - attemptCounted
     attemptCounted = whole
@@ -469,6 +542,31 @@ export async function claimAgentRun(
 
   let runContext = claimed.context
 
+  let betaUsageSequence = 0
+  const settleBetaStep = async (usage: RunStepRecord, costUsd: number) => {
+    if (!betaRun) return
+    betaUsageSequence += 1
+    try {
+      await recordBillingUsage(
+        {
+          ...usage,
+          costUsd,
+          byok: funding.source === "byok",
+          requestedModel: funding.model,
+          workspaceId: claimed.workspaceId,
+          tool: "lor.respond",
+          billingKey: `${runId}:attempt:${claimed.attempt}:usage:${betaUsageSequence}`,
+        },
+        { betaStep: true, debitScope: runId }
+      )
+      const creditCheck = await checkBetaCredits(claimed.workspaceId)
+      if (creditCheck && !creditCheck.allowed) requestStop()
+    } catch (error) {
+      requestStop()
+      throw error
+    }
+  }
+
   // One model call as it finishes, so the spend limit is checked inside the
   // turn (pi-harness-runbook.md §4.5). A compaction summary is not a step.
   const recordUsage = async (
@@ -476,9 +574,15 @@ export async function claimAgentRun(
     kind: "step" | "compaction"
   ): Promise<RunCounters & { costUsd: number }> => {
     const { credits, usd } = await creditsFor(usage, true)
+    await settleBetaStep(usage, usd)
     const row = await db
       .update(schema.agentRun)
-      .set(usageIncrements(kind === "step" ? 1 : 0, usage, credits))
+      .set({
+        ...usageIncrements(kind === "step" ? 1 : 0, usage, credits),
+        ...(usage.gatewayCostUsd !== undefined && funding.source === "lor"
+          ? gatewayCostIncrements(usd, usage.gatewayCostUsd)
+          : {}),
+      })
       .where(
         and(
           eq(schema.agentRun.id, runId),
@@ -503,9 +607,10 @@ export async function claimAgentRun(
     owner: HarnessOwner,
     turn: RunTurnRecord
   ): Promise<RunCounters> => {
-    const { credits } = turn.extraUsage
+    const { credits, usd } = turn.extraUsage
       ? await creditsFor(turn.extraUsage)
-      : { credits: 0 }
+      : { credits: 0, usd: 0 }
+    if (turn.extraUsage) await settleBetaStep(turn.extraUsage, usd)
     // The turn's coverage, paused sandbox state and context count ride the
     // save, so a lost lease never records one without the other.
     const context =
@@ -699,6 +804,27 @@ export async function claimAgentRun(
   }
 
   const handle: RunHandle = {
+    funding,
+    selectInferenceModel: async (model) => {
+      if (funding.modelResolved) return funding
+      const resolved = { ...funding, model, modelResolved: true }
+      const rows = await db
+        .update(schema.agentRun)
+        .set({ inferenceFunding: resolved })
+        .where(
+          and(
+            eq(schema.agentRun.id, runId),
+            eq(schema.agentRun.leaseOwner, WORKER_ID),
+            eq(schema.agentRun.state, "working")
+          )
+        )
+        .returning({ id: schema.agentRun.id })
+      if (!rows[0]) throw new LeaseLostError()
+      funding = resolved
+      handle.funding = resolved
+      return resolved
+    },
+    assertCanInfer,
     runId,
     budgets: {
       credits: claimed.budgetCredits,

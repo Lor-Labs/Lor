@@ -1,6 +1,7 @@
 import {
   sendAutoTopupChargedEmail,
   sendAutoTopupFailedEmail,
+  syncBetaCredits,
 } from "@repo/billing"
 import { env } from "@repo/env/server"
 import type { BillingUpdatedEvent } from "@repo/realtime-types"
@@ -12,8 +13,14 @@ import { logger } from "@/lib/logger"
 import { getRedisClient } from "@/lib/redis"
 import * as handlers from "@/routes/v1/billing/handlers"
 import * as routes from "@/routes/v1/billing/routes"
+import { entitlements, entitlementsHandler } from "./entitlements"
+import * as inference from "./inference"
 
 const billingRouter = createRouter()
+  .openapi(entitlements, entitlementsHandler)
+  .openapi(inference.getInference, inference.getInferenceHandler)
+  .openapi(inference.putInference, inference.putInferenceHandler)
+  .openapi(inference.deleteInference, inference.deleteInferenceHandler)
   .openapi(routes.getBilling, handlers.getBilling)
   .openapi(routes.subscribe, handlers.subscribe)
   .openapi(routes.topup, handlers.topup)
@@ -108,6 +115,11 @@ billingRouter.post("/billing/webhook", async (c) => {
       )
       .catch((err) =>
         logger.error({ err, workspaceId }, "billing:updated emit failed")
+      )
+    // Subscribing ends beta mode; the minute sweep is the fallback.
+    if (reason === "subscription_changed")
+      void syncBetaCredits(workspaceId).catch((err) =>
+        logger.error({ err, workspaceId }, "Beta subscription sync failed")
       )
     // Auto top-ups charge the owner's card without them acting — email them.
     if (reason === "auto_topup_succeeded" && event.data?.quantity_granted) {

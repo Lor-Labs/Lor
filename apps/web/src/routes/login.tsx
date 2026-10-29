@@ -12,7 +12,6 @@ import {
 import { InlineValidation } from "@repo/ui/components/interior/inline-validation"
 import { Label } from "@repo/ui/components/label"
 import { Spinner } from "@repo/ui/components/spinner"
-import { features } from "@repo/utils/features"
 import { useMutation } from "@tanstack/react-query"
 import {
   createFileRoute,
@@ -23,6 +22,7 @@ import {
 import { type FormEvent, useEffect, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
 import { OfflineScreen } from "@/components/offline-screen"
+import { useBetaAvailability } from "@/hooks/use-beta-availability"
 import { useConnectivity } from "@/hooks/use-connectivity"
 import { sanitizeRedirect } from "@/lib/auth-redirect"
 import { validateEmail } from "@/lib/email-validation"
@@ -36,6 +36,7 @@ export const Route = createFileRoute("/login")({
 })
 
 function LoginPage() {
+  const availability = useBetaAvailability()
   const navigate = useNavigate()
   const router = useRouter()
   const { redirect } = Route.useSearch()
@@ -167,7 +168,8 @@ function LoginPage() {
                         "Sign in"
                       )}
                     </Button>
-                    {features.selfSignups && (
+                    {(availability.data?.open ||
+                      availability.data?.enabled) && (
                       <p className="text-center text-sm text-muted-foreground">
                         Don&apos;t have an account?{" "}
                         <Link
@@ -175,7 +177,9 @@ function LoginPage() {
                           search={{ redirect }}
                           className="underline underline-offset-4 hover:text-primary"
                         >
-                          Sign up
+                          {availability.data?.open
+                            ? "Sign up"
+                            : "Join the waitlist"}
                         </Link>
                       </p>
                     )}

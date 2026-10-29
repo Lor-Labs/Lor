@@ -1,5 +1,6 @@
 import { recordUsage } from "@repo/billing"
 import { db, eq, schema } from "@repo/db"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { embedDocumentsWithUsage, summarizeCall } from "@repo/lor"
 import { sendCallSummaryPush } from "@repo/messaging"
@@ -45,7 +46,8 @@ export async function processCallMemory(
   deps: LorMessageDeps
 ) {
   const call = await loadEndedCall(sessionId)
-  if (!call) return
+  if (!call || (await workspaceBetaAccess(call.workspaceId)).state !== "active")
+    return
   const onUsage = (usage: Parameters<typeof recordUsage>[0]) =>
     void recordUsage(usage, { channelId: call.channelId })
 

@@ -1,5 +1,6 @@
 import { recordUsage } from "@repo/billing"
 import { db, eq, schema } from "@repo/db"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import { withContext } from "@repo/logger"
 import { isIngestedProvider, SOURCE_FETCHERS } from "@repo/lor/providers"
 import { storeSourceItem, tombstoneSource } from "@repo/lor/sources"
@@ -33,6 +34,10 @@ export function createSourceIngestProcessor() {
         return
       }
 
+      if (
+        (await workspaceBetaAccess(connection.workspaceId)).state !== "active"
+      )
+        return
       const fetched = await SOURCE_FETCHERS[connection.provider](
         connection,
         kind,

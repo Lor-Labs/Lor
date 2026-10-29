@@ -1,4 +1,5 @@
 import { and, db, eq, isNull, schema } from "@repo/db"
+import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import type { ReportedHarnessModel } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
@@ -110,6 +111,7 @@ export async function startingClaudeModels(
 export async function claudeSubscriptionToken(
   userId: string
 ): Promise<string | null> {
+  assertHostedHarness("claude_code")
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) return null
   const [account] = await db

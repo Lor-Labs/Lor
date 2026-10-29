@@ -13,6 +13,7 @@ import {
   schema,
   sql,
 } from "@repo/db"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 import type {
   NewVoiceRequest,
   VoiceRequest,
@@ -108,6 +109,20 @@ export type VoiceRequestInput = Pick<
 // Inserted with its first check's outcome. The requester is the participant's
 // user; a request always runs as them.
 export async function createVoiceRequest(input: VoiceRequestInput) {
+  const [session] = await db
+    .select({
+      workspaceId: voiceSession.workspaceId,
+      endedAt: voiceSession.endedAt,
+    })
+    .from(voiceSession)
+    .where(eq(voiceSession.id, input.sessionId))
+  if (
+    !session ||
+    session.endedAt ||
+    (await workspaceBetaAccess(session.workspaceId)).state !== "active"
+  )
+    return null
+
   const { check, status, ...fields } = input
   const [participant] = await db
     .select({ userId: voiceSessionParticipant.userId })

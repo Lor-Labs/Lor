@@ -2,7 +2,7 @@ import {
   Camera01Icon,
   Cancel01Icon,
   CheckmarkSquare02Icon,
-  // CreditCardIcon,
+  CreditCardIcon,
   Layers01Icon,
   Plug01Icon,
   Scroll01Icon,
@@ -83,10 +83,7 @@ const SECTIONS: { id: SectionId; label: string; icon: IconSvgElement }[] = [
   { id: "agent", label: "Agent profiles", icon: Layers01Icon },
   { id: "approvals", label: "Approvals", icon: CheckmarkSquare02Icon },
   { id: "instructions", label: "LOR.md", icon: Scroll01Icon },
-  // Billing tab hidden pre-launch (LOR-87 PR). Restoring it = uncomment this
-  // line + the CreditCardIcon import; the "billing" SectionId, its render
-  // branch, and canManageBilling gating are all left intact.
-  // { id: "billing", label: "Billing", icon: CreditCardIcon },
+  { id: "billing", label: "Billing", icon: CreditCardIcon },
 ]
 
 // Resolves the URL ?tab= value to a section, so openers don't hand-maintain

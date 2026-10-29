@@ -8,6 +8,7 @@ import {
   recommendedConnectorTools,
 } from "@repo/connectors"
 import { db, schema } from "@repo/db"
+import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import {
   ACT_DEFAULTS,
@@ -319,6 +320,7 @@ export const startGithubConnect: AppRouteHandler<
   const workspace = c.var.workspace
   const user = c.var.user
 
+  await assertWorkspaceActive(workspace.id)
   const account = await githubAccountToken(user.id).catch(() => null)
   if (account?.status !== "ok") {
     return c.json(
@@ -409,6 +411,7 @@ export const completeGithubSetup: AppRouteHandler<
     connector: ["manage"],
   })
 
+  await assertWorkspaceActive(workspace.id)
   const account = await githubAccountToken(user.id).catch(() => null)
   const verified =
     account?.status === "ok"

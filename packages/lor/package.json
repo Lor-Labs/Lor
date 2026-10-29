@@ -40,7 +40,10 @@
     "./plans": "./src/plans.ts",
     "./mcp-server-oauth": "./src/mcp-server-oauth.ts",
     "./mcp-servers": "./src/mcp-servers.ts",
-    "./proposals": "./src/proposals.ts"
+    "./proposals": "./src/proposals.ts",
+    "./byok": "./src/byok.ts",
+    "./beta-compute": "./src/sandbox/beta-compute.ts",
+    "./sandbox-usage": "./src/sandbox/blaxel-usage.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

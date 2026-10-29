@@ -23,14 +23,16 @@ const DOWNLOAD_TIMEOUT_MS = 30_000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Only canonical URLs for this bucket's attachment/artifact namespaces are refs.
+// Attachment keys are attachments/<channel>/<uploader>/<file>/<name>; legacy
+// uploads have no uploader segment.
 export function attachmentObjectKey(rawUrl: string): string | null {
   const prefix = `${env.S3_PUBLIC_URL.replace(/\/+$/, "")}/`
   if (!rawUrl.startsWith(prefix)) return null
   const key = rawUrl.slice(prefix.length)
   const parts = key.split("/")
   const ids =
-    parts[0] === "attachments" && parts.length === 4
-      ? parts.slice(1, 3)
+    parts[0] === "attachments" && (parts.length === 4 || parts.length === 5)
+      ? parts.slice(1, -1)
       : parts[0] === "artifacts" && parts.length === 5
         ? parts.slice(1, 4)
         : null
@@ -100,10 +102,12 @@ export async function validateMessageAttachments(
       new HeadObjectCommand({ Bucket: env.S3_BUCKET_NAME, Key: key }),
       { abortSignal: AbortSignal.timeout(10_000) }
     )
+    // Upload ownership comes from the key, which the presigned URL fixes.
+    // R2 drops x-amz-meta-* sent in a presigned query string, so object
+    // metadata can't carry the uploader.
     const ownUpload =
-      key.startsWith(`attachments/${channelId}/`) &&
-      object.Metadata?.["uploader-id"] === userId &&
-      object.Metadata?.["channel-id"] === channelId
+      key.split("/").length === 5 &&
+      key.startsWith(`attachments/${channelId}/${userId}/`)
     if (!ownUpload && !(await alreadySharedWith(userId, attachment.url, key))) {
       throw new Error("Attachment not found or not accessible")
     }

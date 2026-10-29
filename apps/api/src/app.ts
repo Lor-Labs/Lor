@@ -5,6 +5,7 @@ import { cors } from "hono/cors"
 import createApp from "@/lib/helpers/app/create-app"
 import configureOpenAPI from "@/lib/helpers/openapi/configure-openapi"
 import { globalRateLimit } from "@/middleware/rate-limit"
+import betaRouter from "@/routes/beta"
 import index from "@/routes/index.route"
 import agentModelsRouter from "@/routes/v1/agent-models/index"
 import agentProfilesRouter from "@/routes/v1/agent-profiles/index"
@@ -90,6 +91,7 @@ app.route("/", index)
 // Route mounting — chained for Hono RPC type inference
 const routes = app
   .route("/", waitlistRouter)
+  .route("/", betaRouter)
   .route("/v1", channelsRouter)
   .route("/v1", projectsRouter)
   .route("/v1", workspacesRouter)

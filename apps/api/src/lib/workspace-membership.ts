@@ -1,4 +1,4 @@
-import { syncSeats } from "@repo/billing"
+import { assertBetaMemberCapacity, syncSeats } from "@repo/billing"
 import { type db, eq, schema } from "@repo/db"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { companyEmailDomain } from "@repo/utils/domain"
@@ -13,6 +13,7 @@ export async function addWorkspaceMember(
   workspaceId: string,
   userId: string
 ): Promise<boolean> {
+  await assertBetaMemberCapacity(tx, workspaceId, userId)
   const usedAvatarColors = await tx
     .select({ avatarColor: schema.workspaceMember.avatarColor })
     .from(schema.workspaceMember)

@@ -1,14 +1,18 @@
 import { db, eq, schema } from "@repo/db"
+import { workspaceInferenceFunding } from "@repo/db/queries/inference"
 import { createLogger } from "@repo/logger"
+import { checkBetaCredits } from "./beta-credits"
 import { getAutumn } from "./client"
 import {
+  AI_USAGE_FEATURE_ID,
   CREDITS_FEATURE_ID,
   CREDITS_PER_SEAT,
+  CREDITS_PER_USD,
   PRO_PLAN_ID,
   PROMO_CREDITS,
+  SANDBOX_USAGE_FEATURE_ID,
+  TOPUP_MIN_USD,
   TOPUP_PLAN_ID,
-  TOPUP_SIZES,
-  type TopupSize,
 } from "./constants"
 
 const logger = createLogger("billing")
@@ -45,12 +49,17 @@ export async function ensureCustomer(workspaceId: string, name?: string) {
 // Other errors fail open immediately rather than doubling the latency hit
 // with a pointless retry.
 export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
+  // Run preflight: the one check per run that reads Autumn.
+  const beta = await checkBetaCredits(workspaceId, { sync: true })
+  if (beta) return beta
+  if ((await workspaceInferenceFunding(workspaceId)).source === "byok")
+    return { allowed: true, failOpen: false }
   const autumn = getAutumn()
   if (!autumn) return { allowed: true, failOpen: false }
   try {
     const res = await autumn.check({
       customerId: workspaceId,
-      featureId: CREDITS_FEATURE_ID,
+      featureId: AI_USAGE_FEATURE_ID,
     })
     return { allowed: res.allowed, failOpen: false }
   } catch (err) {
@@ -59,7 +68,7 @@ export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
         await ensureCustomer(workspaceId)
         const res = await autumn.check({
           customerId: workspaceId,
-          featureId: CREDITS_FEATURE_ID,
+          featureId: AI_USAGE_FEATURE_ID,
         })
         return { allowed: res.allowed, failOpen: false }
       } catch (retryErr) {
@@ -77,10 +86,38 @@ export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
 
 // "overflow" lets a request that straddles zero deduct fully (balance can go
 // negative), so the next check refuses instead of the overage being free.
-export async function trackCredits(
+// `cap` debits at most the balance: beta teams never owe Lor.
+export function trackCredits(
   workspaceId: string,
   credits: number,
-  debitId: string
+  debitId: string,
+  overage: "overflow" | "cap" = "overflow"
+): Promise<DebitStatus> {
+  return trackUsage(workspaceId, AI_USAGE_FEATURE_ID, credits, debitId, overage)
+}
+
+// Sandbox running time; the credit system prices GB-hours into pool credits.
+export function trackSandboxUsage(
+  workspaceId: string,
+  gbHours: number,
+  debitId: string,
+  overage: "overflow" | "cap" = "overflow"
+): Promise<DebitStatus> {
+  return trackUsage(
+    workspaceId,
+    SANDBOX_USAGE_FEATURE_ID,
+    gbHours,
+    debitId,
+    overage
+  )
+}
+
+async function trackUsage(
+  workspaceId: string,
+  featureId: string,
+  value: number,
+  debitId: string,
+  overage: "overflow" | "cap"
 ): Promise<DebitStatus> {
   const autumn = getAutumn()
   if (!autumn) return "free"
@@ -88,9 +125,9 @@ export async function trackCredits(
     await autumn.track(
       {
         customerId: workspaceId,
-        featureId: CREDITS_FEATURE_ID,
-        value: credits,
-        overageBehavior: "overflow",
+        featureId,
+        value,
+        overageBehavior: overage,
       },
       { headers: { "Idempotency-Key": debitId } }
     )
@@ -100,7 +137,7 @@ export async function trackCredits(
     // was already accepted, so recovery can safely finalize our pending row.
     if ((err as { statusCode?: number }).statusCode === 409) return "debited"
     logger.error(
-      { err, workspaceId, credits, debitId },
+      { err, workspaceId, featureId, value, debitId },
       "Autumn track failed; failing open"
     )
     return "fail_open"
@@ -149,14 +186,16 @@ export async function attachPro(
 
 export async function attachTopup(
   workspaceId: string,
-  size: TopupSize,
+  usd: number,
   successUrl: string
 ): Promise<CheckoutResult> {
+  if (!Number.isSafeInteger(usd) || usd < TOPUP_MIN_USD)
+    throw new Error("Invalid top-up amount")
   const res = await mustAutumn().billing.attach({
     customerId: workspaceId,
     planId: TOPUP_PLAN_ID,
     featureQuantities: [
-      { featureId: CREDITS_FEATURE_ID, quantity: TOPUP_SIZES[size] },
+      { featureId: CREDITS_FEATURE_ID, quantity: usd * CREDITS_PER_USD },
     ],
     successUrl,
   })

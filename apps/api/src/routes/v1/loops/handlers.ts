@@ -92,7 +92,10 @@ export const activateLoop: AppRouteHandler<ActivateLoopRoute> = async (c) => {
   // writes, so refuse rather than activating into a dead end.
   if (!canWrite) {
     return c.json(
-      { success: false as const, message: "Channel is archived" },
+      {
+        success: false as const,
+        message: "Channel is read-only (archived or beta access ended)",
+      },
       HttpStatusCodes.BAD_REQUEST
     )
   }
@@ -393,7 +396,10 @@ export const resumeLoop: AppRouteHandler<ResumeLoopRoute> = async (c) => {
   // as activation.
   if (!found.canWrite) {
     return c.json(
-      { success: false as const, message: "Channel is archived" },
+      {
+        success: false as const,
+        message: "Channel is read-only (archived or beta access ended)",
+      },
       HttpStatusCodes.BAD_REQUEST
     )
   }
@@ -427,7 +433,10 @@ export const runLoopNow: AppRouteHandler<RunLoopNowRoute> = async (c) => {
   // The run posts into the channel — refuse on archived, same as resume.
   if (!found.canWrite) {
     return c.json(
-      { success: false as const, message: "Channel is archived" },
+      {
+        success: false as const,
+        message: "Channel is read-only (archived or beta access ended)",
+      },
       HttpStatusCodes.BAD_REQUEST
     )
   }

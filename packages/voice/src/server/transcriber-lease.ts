@@ -1,4 +1,5 @@
 import { and, db, eq, isNull, schema } from "@repo/db"
+import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
 
 const { voiceCaptureGap, voiceSession } = schema
 
@@ -45,6 +46,7 @@ export async function claimTranscriber(sessionId: string, jobId: string) {
   return db.transaction(async (tx) => {
     const [lease] = await tx
       .select({
+        workspaceId: voiceSession.workspaceId,
         startedAt: voiceSession.startedAt,
         threadRootId: voiceSession.threadRootId,
         transcriberJobId: voiceSession.transcriberJobId,
@@ -53,7 +55,11 @@ export async function claimTranscriber(sessionId: string, jobId: string) {
       .from(voiceSession)
       .where(and(eq(voiceSession.id, sessionId), isNull(voiceSession.endedAt)))
       .for("update")
-    if (!lease) return null
+    if (
+      !lease ||
+      (await workspaceBetaAccess(lease.workspaceId)).state !== "active"
+    )
+      return null
 
     const now = new Date()
     const heldByOther =
@@ -79,6 +85,20 @@ export async function claimTranscriber(sessionId: string, jobId: string) {
 
 // False once another transcriber has taken the lease.
 export async function renewTranscriber(sessionId: string, jobId: string) {
+  const [session] = await db
+    .select({
+      workspaceId: voiceSession.workspaceId,
+      endedAt: voiceSession.endedAt,
+    })
+    .from(voiceSession)
+    .where(eq(voiceSession.id, sessionId))
+  if (
+    !session ||
+    session.endedAt ||
+    (await workspaceBetaAccess(session.workspaceId)).state !== "active"
+  )
+    return false
+
   const rows = await db
     .update(voiceSession)
     .set({ transcriberSeenAt: new Date() })

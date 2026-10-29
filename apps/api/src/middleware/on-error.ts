@@ -5,7 +5,11 @@ import type { AppBindings } from "@/lib/types/app-types"
 
 const onError: ErrorHandler<AppBindings> = (err, c) => {
   const currentStatus =
-    "status" in err && typeof err.status === "number" ? err.status : 500
+    "statusCode" in err && typeof err.statusCode === "number"
+      ? err.statusCode
+      : "status" in err && typeof err.status === "number"
+        ? err.status
+        : 500
   const statusCode =
     currentStatus >= 400
       ? (currentStatus as ContentfulStatusCode)
