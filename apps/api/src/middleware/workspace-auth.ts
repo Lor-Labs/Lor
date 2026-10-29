@@ -91,6 +91,24 @@ export const workspaceAuthMiddleware = async (
 
   const read = ["GET", "HEAD", "OPTIONS"].includes(c.req.method)
   const billing = c.req.path.includes("/billing")
-  if (!read && !billing) await assertWorkspaceActive(workspaceRecord.id)
+  if (!read && !billing && !isCleanup(c, session.user.id))
+    await assertWorkspaceActive(workspaceRecord.id)
   await next()
+}
+
+// An ended beta team can still remove people, roles and integrations.
+const CLEANUP_ROUTES = [
+  "POST /workspaces/:workspaceSlug/members/:userId/kick",
+  "DELETE /workspaces/:workspaceSlug/roles/:roleName",
+  "DELETE /workspaces/:workspaceSlug/integrations/:connectionId",
+]
+const PROJECT_MEMBER_ROUTE =
+  "DELETE /workspaces/:workspaceSlug/projects/:projectId/members/:userId"
+
+function isCleanup(c: Context<AppBindings>, userId: string) {
+  const route = `${c.req.method} ${c.req.routePath}`
+  if (CLEANUP_ROUTES.some((cleanup) => route.endsWith(cleanup))) return true
+  return (
+    route.endsWith(PROJECT_MEMBER_ROUTE) && c.req.param("userId") === userId
+  )
 }

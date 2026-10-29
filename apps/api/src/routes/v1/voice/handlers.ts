@@ -590,7 +590,10 @@ export const joinVoiceChannel: AppRouteHandler<JoinVoiceChannelRoute> = async (
   }
   if (!canWrite) {
     return c.json(
-      { success: false as const, message: "This channel is archived" },
+      {
+        success: false as const,
+        message: "Channel is read-only (archived or beta access ended)",
+      },
       HttpStatusCodes.FORBIDDEN
     )
   }

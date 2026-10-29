@@ -55,7 +55,7 @@ async function availableCampaign(tx: Transaction | typeof db, lock = true) {
     .then((rows) => rows[0]?.count ?? 0)
   if (used >= policy.cohortLimit)
     throw new BetaAdmissionError(
-      "All 25 beta team places are taken. Join the waitlist for the next opening."
+      `All ${policy.cohortLimit} beta team places are taken. Join the waitlist for the next opening.`
     )
   return { campaign, policy, now }
 }

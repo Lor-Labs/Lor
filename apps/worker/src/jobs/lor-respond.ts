@@ -11,7 +11,10 @@ import {
   schema,
   sql,
 } from "@repo/db"
-import { assertHostedHarness } from "@repo/db/queries/beta-access"
+import {
+  assertHostedHarness,
+  BetaAccessError,
+} from "@repo/db/queries/beta-access"
 import {
   EMPTY_LOR_RUN_SCOPE,
   resolveLorRunScope,
@@ -1220,11 +1223,12 @@ export function createLorRespondProcessor(
               return
             }
             logger.error({ err, lorMessageId }, "Lor response failed")
-            // A harness switched off after this run was queued.
+            // A harness switched off after this run was queued, or a beta refusal.
             const failureText =
               err instanceof SandboxCapacityError
                 ? SANDBOX_CAPACITY_MESSAGE
-                : err instanceof HarnessDisabledError
+                : err instanceof HarnessDisabledError ||
+                    err instanceof BetaAccessError
                   ? err.message
                   : LOR_ERROR_FALLBACK
             await db
