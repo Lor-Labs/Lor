@@ -18,13 +18,20 @@ import { CSS } from "@dnd-kit/utilities"
 import {
   Archive02Icon,
   ArrowDown01Icon,
+  Delete02Icon,
   Folder01Icon,
   Folder02Icon,
   HashtagIcon,
+  Layers01Icon,
   Loading03Icon,
+  MessageMultiple01Icon,
+  Notification01Icon,
+  NotificationOff01Icon,
   PlusSignIcon,
+  Settings01Icon,
   SquareLock02Icon,
   VolumeHighIcon,
+  WebhookIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
@@ -65,7 +72,10 @@ import {
 } from "@/components/sidebar/channel-panel/channel-sessions"
 import { useCreateChannel } from "@/components/sidebar/channel-panel/create-channel-context"
 import { DeleteChannelDialog } from "@/components/sidebar/channel-panel/delete-channel-dialog"
-import { EditChannelDialog } from "@/components/sidebar/channel-panel/edit-channel-dialog"
+import {
+  EditChannelDialog,
+  type EditChannelTab,
+} from "@/components/sidebar/channel-panel/edit-channel-dialog"
 import { VoiceParticipantRows } from "@/components/sidebar/channel-panel/voice-presence"
 import {
   sidebarRow,
@@ -1054,6 +1064,11 @@ function SortableChannelItem({
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [editTab, setEditTab] = useState<EditChannelTab>("overview")
+  const openEdit = (tab: EditChannelTab) => {
+    setEditTab(tab)
+    setEditOpen(true)
+  }
   const [deleteOpen, setDeleteOpen] = useState(false)
   const openChannelSessions = useOpenChannelSessions()
 
@@ -1142,13 +1157,23 @@ function SortableChannelItem({
             </div>
           </ContextMenuTrigger>
           <ContextMenuPopup align="start">
+            {ch.type === "text" && (
+              <ContextMenuItem onClick={() => openChannelSessions(ch.id)}>
+                <HugeiconsIcon icon={MessageMultiple01Icon} strokeWidth={2} />
+                View Sessions
+              </ContextMenuItem>
+            )}
             {mute ? (
               <ContextMenuItem onClick={() => unmuteChannel(ch.id)}>
+                <HugeiconsIcon icon={Notification01Icon} strokeWidth={2} />
                 Unmute Channel
               </ContextMenuItem>
             ) : (
               <ContextMenuSub>
-                <ContextMenuSubTrigger>Mute Channel</ContextMenuSubTrigger>
+                <ContextMenuSubTrigger>
+                  <HugeiconsIcon icon={NotificationOff01Icon} strokeWidth={2} />
+                  Mute Channel
+                </ContextMenuSubTrigger>
                 <ContextMenuSubPopup>
                   {MUTE_DURATIONS.map((duration) => (
                     <ContextMenuItem
@@ -1166,22 +1191,27 @@ function SortableChannelItem({
                 </ContextMenuSubPopup>
               </ContextMenuSub>
             )}
-            <ContextMenuSeparator />
-            {ch.type === "text" && (
-              <ContextMenuItem onClick={() => openChannelSessions(ch.id)}>
-                View Sessions
-              </ContextMenuItem>
-            )}
             {canEdit && (
-              <ContextMenuItem onClick={() => setEditOpen(true)}>
-                Edit Channel
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => openEdit("overview")}>
+                  <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} />
+                  Edit Channel
+                </ContextMenuItem>
+              </>
+            )}
+            {canEdit && canManage && (
+              <ContextMenuItem onClick={() => openEdit("profile")}>
+                <HugeiconsIcon icon={Layers01Icon} strokeWidth={2} />
+                Agent Profile
               </ContextMenuItem>
             )}
-            <ContextMenuItem
-              onClick={() => void navigator.clipboard.writeText(ch.id)}
-            >
-              Copy Channel ID
-            </ContextMenuItem>
+            {canEdit && canManage && ch.type === "text" && (
+              <ContextMenuItem onClick={() => openEdit("webhooks")}>
+                <HugeiconsIcon icon={WebhookIcon} strokeWidth={2} />
+                Webhooks
+              </ContextMenuItem>
+            )}
             {canDelete && (
               <>
                 <ContextMenuSeparator />
@@ -1189,6 +1219,7 @@ function SortableChannelItem({
                   variant="destructive"
                   onClick={() => setDeleteOpen(true)}
                 >
+                  <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} />
                   Delete Channel
                 </ContextMenuItem>
               </>
@@ -1210,6 +1241,7 @@ function SortableChannelItem({
           open={editOpen}
           onOpenChange={setEditOpen}
           overviewOnly={!canManage}
+          initialTab={editTab}
         />
       )}
       {canDelete && (

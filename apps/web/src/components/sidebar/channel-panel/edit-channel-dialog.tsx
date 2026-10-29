@@ -1,6 +1,8 @@
 import {
+  Copy01Icon,
   Layers01Icon,
   Settings01Icon,
+  Tick02Icon,
   WebhookIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -46,7 +48,8 @@ import { channelQueryOptions } from "@/lib/channel-query"
 
 const INHERIT = "__inherit__"
 
-type Tab = "overview" | "profile" | "webhooks"
+export type EditChannelTab = "overview" | "profile" | "webhooks"
+type Tab = EditChannelTab
 const TABS: { id: Tab; label: string; icon: IconSvgElement }[] = [
   { id: "overview", label: "Overview", icon: Settings01Icon },
   { id: "profile", label: "Agent profile", icon: Layers01Icon },
@@ -75,30 +78,41 @@ export function EditChannelDialog({
   open,
   onOpenChange,
   overviewOnly = false,
+  initialTab = "overview",
 }: {
   channel: Channel
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The channel's creator without channel:update: name and topic only. */
   overviewOnly?: boolean
+  // The tab it opens on (the channel menu's Agent Profile and Webhooks).
+  initialTab?: Tab
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const queryClient = useQueryClient()
   const isCategory = channel.type === "category"
 
   const [tab, setTab] = useState<Tab>("overview")
+  const [idCopied, setIdCopied] = useState(false)
   const [name, setName] = useState(channel.name ?? "")
   const [topic, setTopic] = useState(channel.topic ?? "")
   const [profileId, setProfileId] = useState(channel.agentProfileId ?? INHERIT)
 
   useEffect(() => {
     if (open) {
-      setTab("overview")
+      setTab(overviewOnly ? "overview" : initialTab)
       setName(channel.name ?? "")
       setTopic(channel.topic ?? "")
       setProfileId(channel.agentProfileId ?? INHERIT)
     }
-  }, [open, channel.name, channel.topic, channel.agentProfileId])
+  }, [
+    open,
+    overviewOnly,
+    initialTab,
+    channel.name,
+    channel.topic,
+    channel.agentProfileId,
+  ])
 
   const { data: profilesData } = useQuery({
     queryKey: ["agent-profiles", workspaceSlug],
@@ -230,10 +244,35 @@ export function EditChannelDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-2xl md:max-w-3xl lg:max-w-5xl">
-        <DialogHeader className="border-border border-b px-5 py-3 text-left">
+        <DialogHeader className="flex-row items-center gap-2 border-border border-b px-5 py-3 text-left">
           <DialogTitle>
             {isCategory ? "Edit Category" : "Edit Channel"}
           </DialogTitle>
+          {!isCategory && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(channel.id)
+                } catch {
+                  toast.error("Failed to copy channel ID")
+                  return
+                }
+                setIdCopied(true)
+                setTimeout(() => setIdCopied(false), 1500)
+              }}
+            >
+              <HugeiconsIcon
+                icon={idCopied ? Tick02Icon : Copy01Icon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              Copy ID
+            </Button>
+          )}
           <DialogDescription className="sr-only">
             Manage this {isCategory ? "category" : "channel"}'s settings.
           </DialogDescription>
