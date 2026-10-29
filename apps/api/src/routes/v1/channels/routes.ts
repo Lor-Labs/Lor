@@ -2,7 +2,6 @@ import { createRoute } from "@hono/zod-openapi"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import {
-  conflictSchema,
   forbiddenSchema,
   internalServerErrorSchema,
   notFoundSchema,
@@ -214,7 +213,7 @@ export const deleteChannel = createRoute({
   method: "delete",
   summary: "Delete a channel",
   description:
-    "Permanently deletes a channel and all its messages. Requires channel:delete permission.",
+    "Permanently deletes a channel and all its messages. A category's channels are not deleted with it: they become uncategorized, keeping the audience they inherited from the category. Requires channel:delete permission.",
   tags: ["Channels"],
   middleware: [workspaceAuthMiddleware] as const,
   request: {
@@ -228,7 +227,6 @@ export const deleteChannel = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
-    [HttpStatusCodes.CONFLICT]: conflictSchema,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
   },
 })
