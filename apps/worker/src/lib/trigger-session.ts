@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { and, db, desc, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
@@ -10,6 +11,7 @@ import {
   releaseActRunDeliveries,
 } from "@repo/lor/act-runs"
 import { createSession, toRealtimeAgentSession } from "@repo/lor/agent-sessions"
+import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
 import {
   ACT_FLUSH_JOB,
@@ -18,6 +20,7 @@ import {
   type TriggeredRunJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
+import { isValidNewBranchName } from "@repo/utils/github"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -40,6 +43,8 @@ type ActSessionInput = {
   triggerId: string
   sessionMode: ActSessionMode
   windowSeconds: number
+  // Code mode: new sessions are code sessions on this repo.
+  code: { repoFullName: string; baseBranch: string } | null
   connectedById: string | null
   label: string
   payload: string
@@ -82,8 +87,11 @@ export async function startActSession(
     input.connectedById && audience.includes(input.connectedById)
       ? [input.connectedById]
       : []
+  const sessionId = randomUUID()
+  const code = input.code ? await actCodeStart(input, sessionId) : null
   const session = await db.transaction((tx) =>
     createSession(tx, {
+      id: sessionId,
       workspaceId: input.workspaceId,
       channelId: input.channelId,
       authorId: LOR_USER_ID,
@@ -92,6 +100,7 @@ export async function startActSession(
       title: input.label,
       triggerId: input.triggerId,
       triggerSubject: subject,
+      ...(code?.code ? { code: code.code } : {}),
       subscriberIds,
     })
   )
@@ -99,7 +108,54 @@ export async function startActSession(
     .to(channelRoom(input.channelId))
     .emit("session:updated", { session: toRealtimeAgentSession(session) })
   notifyWorkspaceActivity(input.workspaceId)
-  return runEventInSession(deps, input, session)
+  return runEventInSession(
+    deps,
+    code?.note
+      ? { ...input, payload: `${code.note}\n\n${input.payload}` }
+      : input,
+    session
+  )
+}
+
+// Checked again at fire time: the channel's tools or the GitHub connection
+// can change after setup. Unavailable: a chat session whose event says why,
+// so the event is not lost. Each code session gets its own branch, so its
+// work can become its own pull request.
+async function actCodeStart(
+  input: ActSessionInput,
+  sessionId: string
+): Promise<{
+  code?: { repoFullName: string; baseBranch: string; newBranch: string }
+  note: string | null
+}> {
+  if (!input.code) return { note: null }
+  const allowed = await channelCodeRepo(
+    input.workspaceId,
+    input.channelId,
+    input.code.repoFullName
+  ).catch(() => null)
+  if (!allowed || !isSafeBranch(input.code.baseBranch)) {
+    return {
+      note: `Note: this automation is set to start code sessions on ${input.code.repoFullName}, but that repository is not available for code sessions in this channel now, so this session cannot change code.`,
+    }
+  }
+  const slug = input.label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "")
+  const named = `lor/${slug || "event"}-${sessionId.slice(0, 6)}`
+  return {
+    code: {
+      repoFullName: allowed.repo.fullName,
+      baseBranch: input.code.baseBranch,
+      newBranch: isValidNewBranchName(named)
+        ? named
+        : `lor/event-${sessionId.slice(0, 6)}`,
+    },
+    note: null,
+  }
 }
 
 async function runEventInSession(

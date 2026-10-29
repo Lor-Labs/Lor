@@ -29,6 +29,7 @@ import {
   connectDatadog as verifyDatadogKeys,
 } from "@repo/lor/providers"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
+import { actCodeOf, checkActTarget } from "@/lib/act-target"
 import {
   githubAccountToken,
   verifyGithubInstallationOwner,
@@ -197,6 +198,9 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             channelId: connectorTrigger.channelId,
             post: connectorTrigger.post,
             actInstructions: connectorTrigger.actInstructions,
+            actSessionMode: connectorTrigger.actSessionMode,
+            actRepoFullName: connectorTrigger.actRepoFullName,
+            actBaseBranch: connectorTrigger.actBaseBranch,
             actWindowSeconds: connectorTrigger.actWindowSeconds,
             hourlyRunCap: connectorTrigger.hourlyRunCap,
             dailyRunCap: connectorTrigger.dailyRunCap,
@@ -298,6 +302,8 @@ export const listIntegrations: AppRouteHandler<ListIntegrationsRoute> = async (
             channelId: trigger?.channelId ?? null,
             post: trigger?.post ?? true,
             actInstructions: trigger?.actInstructions ?? null,
+            actSessionMode: trigger?.actSessionMode ?? "per_event",
+            actCode: trigger ? actCodeOf(trigger) : null,
             // Unconfigured events show the same defaults a new trigger gets.
             actWindowSeconds:
               trigger?.actWindowSeconds ?? ACT_DEFAULTS.windowSeconds,
@@ -927,6 +933,8 @@ export const updateIntegration: AppRouteHandler<
     channelId,
     post,
     actInstructions,
+    actSessionMode,
+    actCode,
     actWindowSeconds,
     hourlyRunCap,
     dailyRunCap,
@@ -993,6 +1001,39 @@ export const updateIntegration: AppRouteHandler<
     )
   }
 
+  const saved = await db
+    .select({
+      channelId: connectorTrigger.channelId,
+      actSessionMode: connectorTrigger.actSessionMode,
+      actRepoFullName: connectorTrigger.actRepoFullName,
+      actBaseBranch: connectorTrigger.actBaseBranch,
+    })
+    .from(connectorTrigger)
+    .where(
+      and(
+        eq(connectorTrigger.connectionId, connection.id),
+        eq(connectorTrigger.event, event)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  const sessionMode = actSessionMode ?? saved?.actSessionMode ?? "per_event"
+  const code = actCode !== undefined ? actCode : saved ? actCodeOf(saved) : null
+  const actTarget = await checkActTarget({
+    workspaceId: workspace.id,
+    channelId,
+    sessionMode,
+    code,
+    // A moved trigger needs the repo checked against its new channel.
+    recheck: Boolean(actCode) || saved?.channelId !== channelId,
+  })
+  if (!actTarget.ok) {
+    return c.json(
+      { success: false, message: actTarget.message },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
   await db
     .insert(connectorTrigger)
     .values({
@@ -1001,6 +1042,8 @@ export const updateIntegration: AppRouteHandler<
       channelId,
       post,
       actInstructions,
+      actSessionMode: sessionMode,
+      ...actTarget.columns,
       // Absent = keep the column default on create.
       ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
       ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),
@@ -1012,6 +1055,8 @@ export const updateIntegration: AppRouteHandler<
         channelId,
         post,
         actInstructions,
+        actSessionMode: sessionMode,
+        ...actTarget.columns,
         // Absent = leave the configured limits alone.
         ...(actWindowSeconds !== undefined ? { actWindowSeconds } : {}),
         ...(hourlyRunCap !== undefined ? { hourlyRunCap } : {}),

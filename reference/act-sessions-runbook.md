@@ -51,14 +51,22 @@ nobody's subscription pays for an unattended run.
   target session per mode, revives archived ones, waits while the session is
   busy (release deliveries, delete the run, re-arm the flush). Per-subject
   flush claims one subject. Dropped deliveries never batch.
-- [ ] **3. Code mode.** Fire-time repo check (`channelCodeRepo`), a new branch
-  per session, the code prompt mentions the session's subscribers when no
-  person asked.
-- [ ] **4. API.** Webhook and connector-trigger routes read and write the mode
-  and code target; save-time checks (`channelCodeRepo`, `isSafeBranch`, no
-  `ongoing` with code). Waiting-events count and Drop route.
-- [ ] **5. UI.** `TriggerEffects`: session mode select, `Chat | Code` with the
-  repo and branch pickers. Session view: "N events waiting" with Drop.
+- [x] **3. Code mode.** Fire-time repo check (`channelCodeRepo`), a new branch
+  per session (`lor/<label slug>-<session id prefix>`). Built 2026-10-28.
+  When the repo is no longer available, the event starts a chat session and
+  its first line says why. The code prompt tells Lor that in an automation's
+  session nobody asked, so it mentions only people the instructions name.
+- [x] **4. API.** Webhook and connector-trigger routes read and write
+  `actSessionMode` and `actCode: { repo, branch } | null`
+  (`apps/api/src/lib/act-target.ts`). Both are optional on update (absent
+  keeps the saved value). Save-time checks: no `ongoing` with code; the repo
+  and branch are checked when the code target or the trigger's channel
+  changes, so a GitHub outage never blocks editing instructions.
+- [ ] **5. Waiting events.** Count and Drop routes for a session, a realtime
+  nudge when an event starts waiting, "N events waiting" with Drop in the
+  session view.
+- [ ] **5b. UI.** `TriggerEffects`: session mode select, `Chat | Code` with
+  the repo and branch pickers.
 - [ ] **6. Live QA.** Webhook and GitHub trigger, each mode, code mode through
   review and push.
 

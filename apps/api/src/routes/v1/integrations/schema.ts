@@ -2,6 +2,7 @@ import { z } from "@hono/zod-openapi"
 import { AWS_REGIONS, DATADOG_SITES } from "@repo/connectors"
 import { integrationProviderEnum } from "@repo/db/schema"
 import { parseGithubInstallationId } from "@repo/utils/github"
+import { actCodeSchema, actSessionModeSchema } from "@/lib/act-target"
 
 export const integrationsWorkspaceParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
@@ -69,6 +70,8 @@ export const integrationStatusSchema = z.object({
       channelId: z.string().nullable(),
       post: z.boolean(),
       actInstructions: z.string().nullable(),
+      actSessionMode: actSessionModeSchema,
+      actCode: actCodeSchema,
       // Act rate shape (reference/automation-primitives.md §5).
       actWindowSeconds: z.number(),
       hourlyRunCap: z.number(),
@@ -181,6 +184,10 @@ export const updateIntegrationRequestSchema = z.object({
   post: z.boolean().default(true),
   // The Act effect's instructions for Lor; null = Act off.
   actInstructions: z.string().trim().max(4000).nullable().default(null),
+  // Optional like the rate shape below: absent keeps the saved value.
+  actSessionMode: actSessionModeSchema.optional(),
+  // Null = chat sessions.
+  actCode: actCodeSchema.optional(),
   // Act rate shape. Optional (not defaulted) so a client that doesn't know
   // about these can't silently reset them on an unrelated toggle.
   actWindowSeconds: z.number().int().min(0).max(3600).optional(),

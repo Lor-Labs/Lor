@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi"
+import { actCodeSchema, actSessionModeSchema } from "@/lib/act-target"
 
 export const channelWebhookParamsSchema = z.object({
   workspaceSlug: z.string().openapi({
@@ -41,6 +42,8 @@ export const channelWebhookSchema = z.object({
   createdByName: z.string().nullable(),
   post: z.boolean(),
   actInstructions: z.string().nullable(),
+  actSessionMode: actSessionModeSchema,
+  actCode: actCodeSchema,
   // Act rate shape (reference/automation-primitives.md §5).
   actWindowSeconds: z.number(),
   hourlyRunCap: z.number(),
@@ -71,6 +74,9 @@ export const updateChannelWebhookRequestSchema = z
     post: z.boolean().optional(),
     // The Act effect's instructions for Lor; null = Act off.
     actInstructions: z.string().trim().max(4000).nullable().optional(),
+    actSessionMode: actSessionModeSchema.optional(),
+    // Null = chat sessions.
+    actCode: actCodeSchema.optional(),
     // 0 = one run per delivery; otherwise deliveries inside the window
     // coalesce into a single run.
     actWindowSeconds: z.number().int().min(0).max(3600).optional(),
