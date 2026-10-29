@@ -147,7 +147,7 @@ export async function recordUsage(
             .limit(1)
             .then((rows) => rows[0])
     const row = inserted[0] ?? existing
-    if (row?.debitStatus === "pending" && row.betaDebitMicroUsd !== null) {
+    if (row?.debitStatus === "pending" && row.betaDebitMicroUsd != null) {
       await settleBetaUsage(row.id)
     } else if (row?.debitStatus === "pending" && row.creditsDebited > 0) {
       const status = await trackCredits(
