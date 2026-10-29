@@ -24,7 +24,6 @@ import {
   HashtagIcon,
   Layers01Icon,
   Loading03Icon,
-  MessageMultiple01Icon,
   Notification01Icon,
   NotificationOff01Icon,
   PlusSignIcon,
@@ -90,7 +89,6 @@ import { useUnread } from "@/context/unread-context"
 import { useNewIds } from "@/hooks/use-appended-ids"
 import { useChannelCreated } from "@/hooks/use-channel-created"
 import { MUTE_DURATIONS, useChannelMutes } from "@/hooks/use-channel-mutes"
-import { useOpenChannelSessions } from "@/hooks/use-open-channel-sessions"
 import { usePrefetchChannels } from "@/hooks/use-prefetch-channels"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { apiClient } from "@/lib/api-client"
@@ -1070,7 +1068,6 @@ function SortableChannelItem({
     setEditOpen(true)
   }
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const openChannelSessions = useOpenChannelSessions()
 
   // Creators may rename their own channel and change its topic.
   const { data: session } = authClient.useSession()
@@ -1157,12 +1154,6 @@ function SortableChannelItem({
             </div>
           </ContextMenuTrigger>
           <ContextMenuPopup align="start">
-            {ch.type === "text" && (
-              <ContextMenuItem onClick={() => openChannelSessions(ch.id)}>
-                <HugeiconsIcon icon={MessageMultiple01Icon} strokeWidth={2} />
-                View Sessions
-              </ContextMenuItem>
-            )}
             {mute ? (
               <ContextMenuItem onClick={() => unmuteChannel(ch.id)}>
                 <HugeiconsIcon icon={Notification01Icon} strokeWidth={2} />
