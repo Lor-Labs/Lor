@@ -382,7 +382,10 @@ export function SavedCodeTargetPicker({
           }}
           value={value.branch}
           disabled={disabled}
-          onPick={(branch) => onChange({ repo: value.repo, branch })}
+          onPick={(branch) => {
+            latestPick.current += 1
+            onChange({ repo: value.repo, branch })
+          }}
         />
       )}
     </div>
