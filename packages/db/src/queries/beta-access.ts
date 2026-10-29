@@ -17,8 +17,8 @@ export async function isBetaExempt(workspaceId: string) {
   return Boolean(row)
 }
 
-// Normal access and billing under the hosted beta: an exempt internal
-// workspace, or a trial team that subscribed (subscribing ends beta mode).
+// No beta limits: an exempt internal workspace (free, unlimited), or a trial
+// team that subscribed (subscribing ends beta mode).
 export async function betaLimitsLifted(workspaceId: string) {
   const [trial] = await db
     .select({ subscribedAt: schema.workspaceBetaTrial.subscribedAt })

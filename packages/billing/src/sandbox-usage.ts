@@ -1,5 +1,5 @@
 import { db, inArray, schema } from "@repo/db"
-import { assertBetaSandbox } from "@repo/db/queries/beta-access"
+import { assertBetaSandbox, isBetaExempt } from "@repo/db/queries/beta-access"
 import { createLogger } from "@repo/logger"
 import { trackSandboxUsage } from "./autumn"
 import { isBetaWorkspace } from "./beta-credits"
@@ -59,9 +59,14 @@ export async function chargeSandboxUsage(buckets: SandboxUsage[]) {
     ...new Set(buckets.map((b) => b.sandboxName)),
   ])
   const beta = new Map<string, boolean>()
+  const exempt = new Map<string, boolean>()
   for (const bucket of buckets) {
     const workspaceId = workspaces.get(bucket.sandboxName)
     if (!workspaceId) continue
+    // Internal workspaces run sandboxes free.
+    if (!exempt.has(workspaceId))
+      exempt.set(workspaceId, await isBetaExempt(workspaceId))
+    if (exempt.get(workspaceId)) continue
     if (!beta.has(workspaceId))
       beta.set(workspaceId, await isBetaWorkspace(workspaceId))
     const status = await trackSandboxUsage(
