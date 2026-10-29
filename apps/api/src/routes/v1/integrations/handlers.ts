@@ -32,6 +32,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import { actCodeChanged, actCodeOf, checkActTarget } from "@/lib/act-target"
 import {
   githubAccountToken,
+  githubAuthorizeUrl,
   verifyGithubInstallationOwner,
 } from "@/lib/github-account"
 import {
@@ -327,30 +328,32 @@ export const startGithubConnect: AppRouteHandler<
   const user = c.var.user
 
   await assertWorkspaceActive(workspace.id)
-  const account = await githubAccountToken(user.id).catch(() => null)
-  if (account?.status !== "ok") {
-    return c.json(
-      {
-        success: false,
-        message:
-          "Connect your GitHub account in Settings → Linked accounts before connecting a workspace",
-      },
-      HttpStatusCodes.BAD_REQUEST
-    )
-  }
-
-  const url = githubInstallUrl(signOAuthState(workspace.slug, user.id))
-  if (!url) {
-    return c.json(
+  const unavailable = () =>
+    c.json(
       { success: false, message: "GitHub isn't available on this server" },
       HttpStatusCodes.BAD_REQUEST
     )
+  const url = githubInstallUrl(signOAuthState(workspace.slug, user.id))
+  if (!url) return unavailable()
+
+  // Setup verifies installation ownership with the person's own GitHub
+  // account, so a missing or expired link is authorized first; its callback
+  // then asks for the install URL again.
+  const account = await githubAccountToken(user.id).catch(() => null)
+  if (account?.status !== "ok") {
+    const authorizeUrl = githubAuthorizeUrl(user.id, workspace.slug)
+    if (!authorizeUrl) return unavailable()
+    return c.json(
+      { url: authorizeUrl, step: "account" as const },
+      HttpStatusCodes.OK
+    )
   }
+
   // Best effort: a fresh install returns the signed state on its own.
   await recordGithubConnectIntent(user.id, workspace.id).catch((err) =>
     logger.warn({ err }, "GitHub connect intent not recorded")
   )
-  return c.json({ url }, HttpStatusCodes.OK)
+  return c.json({ url, step: "install" as const }, HttpStatusCodes.OK)
 }
 
 // GitHub's Setup URL page posts here. Session-scoped because the workspace

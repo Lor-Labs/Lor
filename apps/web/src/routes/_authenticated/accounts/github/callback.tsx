@@ -10,6 +10,7 @@ import {
   personalAccountsKey,
 } from "@/hooks/use-personal-accounts"
 import { apiClient } from "@/lib/api-client"
+import { continueGithubConnect } from "@/lib/github-connect"
 
 type CallbackSearch = {
   code?: string
@@ -43,30 +44,45 @@ function GithubAccountCallback() {
     ranRef.current = true
 
     void (async () => {
+      let back: string | null = null
+      try {
+        back = localStorage.getItem(GITHUB_CONNECT_RETURN_KEY)
+        localStorage.removeItem(GITHUB_CONNECT_RETURN_KEY)
+      } catch {}
       if (error || !code || !state) {
         toast.error(
           error ? "GitHub connection cancelled" : "Missing GitHub authorization"
         )
       } else {
-        const ok = await apiClient.v1["personal-accounts"].github.connect
+        const connected = await apiClient.v1["personal-accounts"].github.connect
           .$post({ json: { code, state } })
-          .then((res) => res.ok)
-          .catch(() => false)
-        toast[ok ? "success" : "error"](
-          ok ? "GitHub connected" : "Couldn't connect GitHub"
-        )
-        if (ok) {
+          .then((res) => (res.ok ? res.json() : null))
+          .catch(() => null)
+        // Connecting a workspace's GitHub links the account first; go on to
+        // the App install.
+        const workspaceSlug = connected?.continueToWorkspaceSlug
+        if (workspaceSlug) {
+          const continued = await continueGithubConnect(workspaceSlug)
+            .then(() => true)
+            .catch((err: unknown) => {
+              toast.error(
+                err instanceof Error ? err.message : "Couldn't connect GitHub"
+              )
+              return false
+            })
+          if (continued) return
+        } else {
+          toast[connected ? "success" : "error"](
+            connected ? "GitHub connected" : "Couldn't connect GitHub"
+          )
+        }
+        if (connected) {
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: personalAccountsKey }),
             refreshSession({ query: { disableCookieCache: true } }),
           ])
         }
       }
-      let back: string | null = null
-      try {
-        back = localStorage.getItem(GITHUB_CONNECT_RETURN_KEY)
-        localStorage.removeItem(GITHUB_CONNECT_RETURN_KEY)
-      } catch {}
       router.history.replace(back ?? "/")
     })()
   }, [code, state, error, router, queryClient, refreshSession])

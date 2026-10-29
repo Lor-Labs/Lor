@@ -1,6 +1,5 @@
 import { db, eq, schema } from "@repo/db"
 import { isBetaExempt } from "@repo/db/queries/beta-access"
-import { workspaceInferenceFunding } from "@repo/db/queries/inference"
 import { createLogger } from "@repo/logger"
 import { checkBetaCredits } from "./beta-credits"
 import { getAutumn } from "./client"
@@ -54,8 +53,6 @@ export async function checkCredits(workspaceId: string): Promise<CreditCheck> {
   const beta = await checkBetaCredits(workspaceId, { sync: true })
   if (beta) return beta
   if (await isBetaExempt(workspaceId)) return { allowed: true, failOpen: false }
-  if ((await workspaceInferenceFunding(workspaceId)).source === "byok")
-    return { allowed: true, failOpen: false }
   const autumn = getAutumn()
   if (!autumn) return { allowed: true, failOpen: false }
   try {

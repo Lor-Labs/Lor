@@ -37,6 +37,7 @@ import type {
 } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { assertHarnessEnabled } from "@repo/utils/features"
+import { fundedModelId } from "@repo/utils/inference"
 import {
   asSchema,
   generateText,
@@ -74,7 +75,7 @@ import {
   pageExists,
   supersededPageIds,
 } from "./brain"
-import { isByokModel, nativeInference } from "./byok"
+import { keyFunding, nativeInference } from "./byok"
 import {
   parseCallTime,
   readCall,
@@ -2545,28 +2546,25 @@ export async function respond(
   assertHostedHarness(
     ctx.claudeCode ? "claude_code" : ctx.codex ? "codex" : "pi"
   )
-  if (run?.funding?.source === "byok" && (ctx.claudeCode || ctx.codex))
-    throw new Error("Workspace API keys are supported by Lor sessions only")
+  let funding = run?.funding
   if (!ctx.claudeCode && !ctx.codex) {
-    const funding = run?.funding
-    const picked = funding?.modelResolved ? funding.model : ctx.turn?.model
-    // A pick the payer can't serve quietly runs on the default model: the
-    // workspace key's model, or Lor's.
-    const model =
-      funding?.source === "byok"
-        ? picked && isByokModel(funding.provider, picked)
-          ? picked
-          : funding.model
-        : picked && inGatewayCatalog(picked)
-          ? picked
-          : LOR_MODEL
-    const resolved = await run?.selectInferenceModel?.(model)
-    if (run && resolved) run.funding = resolved
-    ctx = { ...ctx, turn: { ...ctx.turn, model: resolved?.model ?? model } }
+    // The composer pick decides who pays: a "key:" model runs on the
+    // workspace's key, anything else on Lor credits. A pick the payer can't
+    // serve (key removed, model gone) quietly runs on Lor's default model.
+    // Retries keep the payer and model pinned by the first attempt.
+    if (!funding) {
+      const pick = ctx.turn?.model
+      funding = (await keyFunding(ctx.workspaceId, pick)) ?? {
+        source: "lor",
+        model: pick && inGatewayCatalog(pick) ? pick : LOR_MODEL,
+      }
+      funding = (await run?.pinInferenceFunding?.(funding)) ?? funding
+    }
+    ctx = { ...ctx, turn: { ...ctx.turn, model: fundedModelId(funding) } }
   }
   const native =
-    run?.funding?.source === "byok"
-      ? await nativeInference(ctx.workspaceId, run.funding)
+    funding?.source === "byok"
+      ? await nativeInference(ctx.workspaceId, funding)
       : null
   assertHarnessEnabled(
     ctx.claudeCode ? "claude_code" : ctx.codex ? "codex" : "pi"

@@ -96,6 +96,8 @@ export const listIntegrationsResponseSchema = z.object({
 
 export const startGithubConnectResponseSchema = z.object({
   url: z.string(),
+  // "account": the person links their own GitHub account first.
+  step: z.enum(["account", "install"]),
 })
 
 export const completeGithubSetupRequestSchema = z.object({

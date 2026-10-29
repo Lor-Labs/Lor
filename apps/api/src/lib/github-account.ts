@@ -4,6 +4,7 @@ import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { parseGithubInstallationId } from "@repo/utils/github"
 import { logger } from "@/lib/logger"
+import { signOAuthState, verifyOAuthState } from "@/lib/oauth-state"
 
 // A person's own GitHub account ("Your accounts"), authorized through the
 // GitHub App's user authorization (OAuth web flow). Its token acts as the
@@ -28,14 +29,38 @@ export function githubAccountsAvailable(): boolean {
   )
 }
 
-export function githubAuthorizeUrl(state: string): string | null {
-  if (!env.GITHUB_APP_CLIENT_ID) return null
+// The signed state's routing slug. Personal accounts have no workspace; the
+// signature still binds the flow to the user who started it. A link started
+// from a workspace's GitHub connector also names that workspace, so the
+// callback continues to the App install.
+const ACCOUNT_STATE_SLUG = "github-account"
+
+export function githubAuthorizeUrl(
+  userId: string,
+  continueToWorkspaceSlug?: string
+): string | null {
+  if (!(githubAccountsAvailable() && env.GITHUB_APP_CLIENT_ID)) return null
+  const slug = continueToWorkspaceSlug
+    ? `${ACCOUNT_STATE_SLUG}:${continueToWorkspaceSlug}`
+    : ACCOUNT_STATE_SLUG
   const params = new URLSearchParams({
     client_id: env.GITHUB_APP_CLIENT_ID,
     redirect_uri: redirectUri(),
-    state,
+    state: signOAuthState(slug, userId),
   })
   return `https://github.com/login/oauth/authorize?${params.toString()}`
+}
+
+// null when the state is invalid, expired or minted for someone else.
+export function verifyGithubAccountState(
+  state: string,
+  userId: string
+): { continueToWorkspaceSlug: string | null } | null {
+  const slug = verifyOAuthState(state, userId)
+  if (slug === ACCOUNT_STATE_SLUG) return { continueToWorkspaceSlug: null }
+  const prefix = `${ACCOUNT_STATE_SLUG}:`
+  if (!slug?.startsWith(prefix) || slug.length === prefix.length) return null
+  return { continueToWorkspaceSlug: slug.slice(prefix.length) }
 }
 
 type TokenResponse = {
