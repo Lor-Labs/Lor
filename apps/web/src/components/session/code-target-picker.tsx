@@ -324,13 +324,19 @@ export function SavedCodeTargetPicker({
     ...branchesQueryOptions(workspaceSlug, channelId, value?.repo ?? null, ""),
   })
   if (repos.data && !repos.data.available) {
-    return <GithubSetupNote workspaceSlug={workspaceSlug} />
+    return (
+      <div className="flex min-w-0 items-center gap-2 text-xs">
+        <GithubSetupNote workspaceSlug={workspaceSlug} compact />
+      </div>
+    )
   }
   if (!repos.data) {
     return (
-      <CodeNote>
-        {repos.isError ? "Couldn't load repositories" : "Loading repositories…"}
-      </CodeNote>
+      <span className="text-xs">
+        <CodeNote>
+          {repos.isError ? "Couldn't load repositories" : "Loading…"}
+        </CodeNote>
+      </span>
     )
   }
   const pickRepo = async (repo: string) => {
@@ -384,8 +390,15 @@ function CodeNote({ children }: { children: ReactNode }) {
 
 // The repo list is refused when GitHub isn't connected or Clone repository is
 // off here; the workspace's connectors tell which. An admin connects from
-// here, and GitHub's setup page comes back to this page.
-function GithubSetupNote({ workspaceSlug }: { workspaceSlug: string }) {
+// here, and GitHub's setup page comes back to this page. Compact (a settings
+// row whose label already says Repository): the Connect button alone.
+function GithubSetupNote({
+  workspaceSlug,
+  compact,
+}: {
+  workspaceSlug: string
+  compact?: boolean
+}) {
   const queryClient = useQueryClient()
   const { data, isError, refetch } = useQuery(
     integrationsQueryOptions(workspaceSlug)
@@ -441,7 +454,9 @@ function GithubSetupNote({ workspaceSlug }: { workspaceSlug: string }) {
   }
   return (
     <>
-      <CodeNote>Code sessions work in a GitHub repository</CodeNote>
+      {!compact && (
+        <CodeNote>Code sessions work in a GitHub repository</CodeNote>
+      )}
       <Button
         size="xs"
         variant="outline"
