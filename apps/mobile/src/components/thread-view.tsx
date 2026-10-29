@@ -1,7 +1,7 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import { isHarnessEnabled } from "@repo/utils/features"
+import { isHarnessAllowedInBeta, isHarnessEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
@@ -50,6 +50,7 @@ import {
   usePausedLorMessageId,
 } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
+import { useBetaAvailability } from "@/hooks/use-beta"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
@@ -306,8 +307,15 @@ export function ThreadView({
     changes?.state === "ready" ? changes.files : []
   )
   // Claude Code answers only messages from people with their own Claude
-  // subscription; the server sends the rest to the session's people.
-  const harnessEnabled = !lorSession || isHarnessEnabled(lorSession.harness)
+  // subscription; the server sends the rest to the session's people. Hosted
+  // beta answers only its harnesses (Lor and Claude Code), so Codex and
+  // anything else stay people-only while it is on.
+  const { data: betaAvailability } = useBetaAvailability()
+  const harnessEnabled =
+    !lorSession ||
+    (isHarnessEnabled(lorSession.harness) &&
+      (betaAvailability?.enabled !== true ||
+        isHarnessAllowedInBeta(lorSession.harness)))
   const claudeCode = harnessEnabled && lorSession?.harness === "claude_code"
   const { data: accounts } = usePersonalAccounts(claudeCode)
   const withoutClaude =

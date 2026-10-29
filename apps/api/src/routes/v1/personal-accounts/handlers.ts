@@ -1,5 +1,4 @@
 import { and, db, eq, schema } from "@repo/db"
-import { hostedBetaEnabled } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { features } from "@repo/utils/features"
@@ -103,7 +102,7 @@ export const connectClaudeAccount: AppRouteHandler<
 > = async (c) => {
   const refuse = (message: string) =>
     c.json({ success: false as const, message }, HttpStatusCodes.BAD_REQUEST)
-  if (hostedBetaEnabled() || !features.claudeCodeHarness)
+  if (!features.claudeCodeHarness)
     return refuse("Claude Code is temporarily unavailable")
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) return refuse("Claude subscriptions aren't available yet")

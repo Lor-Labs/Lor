@@ -33,8 +33,8 @@ import {
 } from "@/components/session/code-target-picker"
 import {
   HARNESS_LABELS,
-  HARNESSES,
   type SessionHarness,
+  useAvailableHarnesses,
   useSessionHarness,
 } from "@/components/session/harness-picker"
 import { EffortPicker, ModelPicker } from "@/components/session/model-picker"
@@ -197,6 +197,7 @@ function NewSessionComposer({
   // Claude Code runs on the starter's own Claude subscription, so without
   // one the start waits for a connect (code-sessions-runbook.md chunk 7).
   const [harness, setHarness] = useSessionHarness(startHarness)
+  const harnesses = useAvailableHarnesses()
   const claudeCode = mode === "code" && harness === "claude_code"
   const claudeMode = useClaudeCodeMode()
   // A chat session always runs on Lor's own agent.
@@ -358,7 +359,7 @@ function NewSessionComposer({
             <>
               <ModelPicker
                 choice={modelChoice}
-                harnesses={mode === "code" ? HARNESSES : undefined}
+                harnesses={mode === "code" ? harnesses : undefined}
                 onHarness={setHarness}
               />
               <EffortPicker choice={modelChoice} />

@@ -14,6 +14,16 @@ export const features: Readonly<{
   voiceChannels: false,
 }
 
+// Harnesses hosted beta allows: Lor's own agent and Claude Code on the
+// person's own Claude subscription. Codex runs on Lor credits, so it stays
+// out until the beta ends. The server enforces the same set in
+// `assertHostedHarness`; clients use this to hide and refuse the rest.
+export const HOSTED_BETA_HARNESSES: readonly string[] = ["pi", "claude_code"]
+
+export function isHarnessAllowedInBeta(harness: string): boolean {
+  return HOSTED_BETA_HARNESSES.includes(harness)
+}
+
 export function isHarnessEnabled(harness: string): boolean {
   if (harness === "pi") return true
   if (harness === "claude_code") return features.claudeCodeHarness
