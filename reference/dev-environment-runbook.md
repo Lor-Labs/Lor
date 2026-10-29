@@ -1,0 +1,225 @@
+# Code session dev environment runbook (environments, preview, terminal)
+
+Started 2026-10-29 with Jacob. Code sessions gain three things for launch:
+**Environments** (a repo's env vars, stored by Lor), a **Preview** tab (the
+app's dev server in an iframe) and a **Terminal** tab (a shell in the
+session's sandbox). They launch on Blaxel. Code sandboxes move to a cheaper
+provider after launch, and maybe to Lor's own infrastructure later, so every
+part is built against a provider seam, not against Blaxel.
+
+Why not move providers first: boat.dev (researched 2026-10-29) has no
+terminal API, the same iframe cookie problem for previews, no per-command
+env, file access only under `/home/user` and `/tmp`, a 600 s command limit,
+no process survival across stop, no idle standby, no network rules (so no
+per-turn Claude credential injection) and EU-only hosting. Pricing already
+assumes the cheaper provider: sandbox time is 10 credits per code-sandbox
+hour, about 23¢ under Blaxel's cost, as a beta-only subsidy
+(`beta-pricing-runbook.md`, Cost basis).
+
+## 1. Architecture: one seam, features above it
+
+```
+packages/lor/src/sandbox/
+  provider.ts        SandboxProvider: the only provider-specific surface
+  blaxel/…           today's adapter (session-sandbox.ts, blaxel.ts moved behind it)
+  <next>/…           boat / Modal / Daytona / Lor's own VMs later
+packages/lor/src/dev-env/
+  environments.ts    store, render and write env files      (provider-neutral)
+  previews.ts        dev server lifecycle + exposePort       (provider-neutral)
+  terminal.ts        terminal server lifecycle + exposePort  (provider-neutral)
+```
+
+The seam the three features need, beyond today's `SandboxSession`:
+
+```ts
+// Expose a port of the session's sandbox. "public": a URL that works with no
+// credential (for iframes). "private": a URL plus a short-lived credential
+// the caller passes (header or query) — for the terminal and the harness
+// bridge.
+exposePort(owner, { port, access: "public" | "private", ttlMs })
+  : Promise<{ url: string; credential?: { header?: [string, string]; query?: [string, string] }; expiresAt: Date }>
+revokePort(owner, port): Promise<void>
+
+// Long-lived named processes that turn fencing never stops (prefixes
+// `preview-`, `terminal-`). Idempotent: start only when not running.
+ensureProcess(owner, { name, command, cwd, env }): Promise<"running" | "started">
+listProcesses(owner) / stopProcess(owner, name)
+
+// Is something listening on the port inside the sandbox?
+portReady(owner, port, timeoutMs): Promise<boolean>
+```
+
+How each provider fills it:
+
+| Seam | Blaxel (now) | boat | Modal / Daytona | Lor's own VMs |
+|---|---|---|---|---|
+| exposePort public | preview `public: true`, random `prefixUrl`, `ttl` | `host --public` (custom subdomain) | tunnels / preview links | Lor gateway route |
+| exposePort private | preview + `tokens.create`, `X-Blaxel-Preview-Token` or `?bl_preview_token=` | `?_token=` / `_port_auth` cookie | tunnel + token | Lor gateway + Lor session |
+| ensureProcess | `process.exec({ name, keepAlive:false })` | detached command; names kept by us (pid map) or a systemd unit | exec | in-VM agent |
+| survives idle | yes: standby snapshots processes | no: stop kills them, so ensure re-starts on resume | depends | our choice |
+| env delivery | file write (any provider) | file write (only under `/home/user`) | file write | file write |
+
+Rule: **features never call a provider SDK**, and **never assume processes
+survive idle**. Every open of the Preview or Terminal tab calls
+`ensureProcess` + `portReady` first. On Blaxel that is a cheap no-op; on
+boat or Lor's VMs it re-starts what a stop killed.
+
+### The edge (where browser traffic enters)
+
+Two ways to hand a browser a preview or terminal:
+
+| | Provider URL (launch) | Lor gateway (later) |
+|---|---|---|
+| What | the browser loads the provider's URL directly | `<session>.preview.lor.chat` proxies to the provider URL and adds the provider credential server-side |
+| Auth | public random URL (preview) or a short-lived token in the URL (terminal) | the person's Lor session, first-party, so iframes work and access is checked per request |
+| Portability | URL format changes when the provider changes | URLs never change; swapping provider is invisible |
+| Own infra | – | becomes the real router (Caddy/Envoy) in front of Lor's VMs |
+| Cost | none | wildcard DNS + TLS, WebSocket proxying, bandwidth through Lor |
+| Build | hours | about a day plus ops |
+
+Launch on provider URLs behind `exposePort`. The gateway is the first step
+of the own-infrastructure path and the fix for "anyone with the preview URL
+can see it".
+
+## 2. Environments
+
+A repo's env vars, stored encrypted by Lor and written into the code
+session's work folder.
+
+Options considered:
+
+| Option | Pros | Cons | Portability |
+|---|---|---|---|
+| **A. Env file in the work folder** (`.env` / `.env.local`) | works for every framework, DB URLs, signing keys, browser vars; one file write | Lor (and Claude Code/Codex) can read every value; values can reach transcripts and model providers | any provider and own infra: it is a file write |
+| B. Env only in the dev server's / terminal's process | not on disk | root reads `/proc/<pid>/environ` anyway; frameworks expect files; boat has no per-command env | provider-specific |
+| C. Egress proxy fills secrets (placeholders) | the agent never sees HTTP API keys | headers to known hosts only: no DB URLs, signing keys, browser vars; each secret needs its host; provider-specific (Blaxel routing, boat `$NAME_BASE_URL`) unless Lor runs the proxy | portable only as Lor's own proxy |
+| D. Provider env/secret features (boat Environments, Blaxel variables) | built-in | lock-in; per-sandbox, not per repo | none |
+
+**Decision: A for launch, data model ready for C.** Each variable is stored
+with a `delivery` of `file` (launch) or `proxy` (later, with `hosts[]`), so
+adding Lor's own egress proxy later changes no stored data. The UI says
+plainly that Lor can read file values: use development credentials.
+
+- Scope: one environment per workspace + repo (all code sessions on the
+  repo, every branch). Named environments (Development / Staging) later.
+- Storage: `repo_environment` (workspace, repo, file name, encrypted body,
+  updated by/at), AES-GCM with `INTEGRATION_ENCRYPTION_KEY` like custom tool
+  secrets. Values are write-only after save, except to people who can
+  manage it (reveal on request).
+- Delivery: each turn's `prepareCodeWorkFolder` writes the file (default
+  `.env.local`, configurable) and adds it to `.git/info/exclude`, so it is
+  never committed even when the repo does not ignore it. Checkpoints already
+  skip ignored files. A saved change writes into an awake sandbox at once
+  (`attachSessionSandbox`), else at the next turn.
+- Network: the egress allowlist opens fully (Jacob, 2026-10-28), so dev
+  servers can call their APIs. Per-turn credential routing for Claude Code
+  and Codex stays.
+
+## 3. Preview tab
+
+- **Dev server.** Per repo, a dev command and port (`pnpm dev`, 3000),
+  detected from `package.json` on first use and editable. The Preview tab's
+  Start runs it as the named process `preview-<port>` with `HOST=0.0.0.0`,
+  `PORT`, and the env file. Lor is told the command and that the Preview
+  tab exists; it can start it the same way. Turn fencing kills only `run-`,
+  `spawn-` and `bridge-`, so the dev server outlives turns.
+- **URL.** `exposePort({ access: "public" })` with an unguessable prefix and
+  a TTL; revoked on archive, on Stop, and by the beta credit sweep (it
+  already deletes previews).
+- **Tab.** An iframe with the URL bar text, Reload, Open in browser, Stop.
+  The desktop app's CSP needs `frame-src` for the preview domain.
+- **Framework host checks.** Vite refuses unknown hosts by default
+  (`server.allowedHosts`); Next.js limits cross-origin dev requests
+  (`allowedDevOrigins`). The spike checks what the env can fix without
+  editing the repo.
+
+## 4. Terminal tab
+
+Options:
+
+| Option | Pros | Cons |
+|---|---|---|
+| **A. `ttyd` in the sandbox, exposed port, xterm.js** | provider-neutral (needs only exposePort); real PTY (colors, vim, Ctrl-C, resize); one static binary | image change (`bl push`; boat: snapshot); one more process |
+| B. exec + stdin pipe + log polling | no image change | no PTY: no echo, no interactive tools; polling cost |
+| C. SSH bridge in Lor's API | standard | Lor holds long connections; provider-specific access (boat `/sshkey`) |
+| D. Lor's own in-VM agent with a PTY endpoint | the own-infra end state | months away |
+
+**Decision: A.** `ttyd -W tmux new -A -s main` as named process `terminal`:
+tmux keeps the shell (and its history and running commands) across
+reconnects. The browser gets `exposePort({ access: "private" })`, a
+short-lived credential minted by the API for people who can write in the
+channel, and connects xterm.js with ttyd's protocol. A terminal is a root
+shell in the session's sandbox, with the same reach as Lor.
+
+## 5. Idle: what "disconnect when idle" means
+
+A Blaxel sandbox is billed while anything holds a connection to it: Lor's
+turn, an open terminal WebSocket, an open preview iframe (page requests and
+the dev server's hot-reload WebSocket). About 15 seconds after the last
+connection closes it goes to standby, which is free. Standby snapshots
+memory, so **running processes are frozen, not killed**, and continue on
+resume (Blaxel docs: "Any running processes are included in this snapshot
+and will be instantly restored").
+
+"Disconnect when idle" is client behavior only: when the session tab is
+hidden or nobody touched the Preview or Terminal tab for N minutes (default
+5), the client unmounts the iframe and closes the terminal socket. Blaxel
+itself recommends this (Standby control: hide iframes on tab inactivity,
+auto-disconnect on tab switch).
+
+| | While connected | After disconnect (standby) | On return |
+|---|---|---|---|
+| Dev server | runs, billed | frozen with the sandbox, not billed | continues where it was |
+| Preview URL | serves | stays valid until its TTL | iframe reloads; the sandbox resumes |
+| Terminal | live | shell keeps running in tmux, frozen | reconnects to the same tmux session |
+| Someone else with the preview URL | – | **to verify:** whether a request wakes the sandbox | – |
+
+Not documented by Blaxel, so the spike checks it: whether a request to a
+preview URL wakes a sandbox in standby, and how long the first page load
+takes. If it does not wake, the Preview tab wakes it first (an API call that
+attaches the sandbox), then loads the iframe.
+
+On boat or Lor's VMs, idle means stop: processes die, so the tab's
+`ensureProcess` re-starts the dev server and terminal on return (slower
+first load). The client behavior is the same.
+
+## 6. Steps
+
+- [ ] **0. Spike** (throwaway sandbox): Next and Vite dev servers on
+  `0.0.0.0` through a public preview in an iframe (web and desktop), hot
+  reload; standby with the dev server running, then a preview request:
+  does it wake, how fast; ttyd through a private preview over `wss` with a
+  query token; Vite/Next host checks.
+- [ ] **1. Seam.** `exposePort`, `revokePort`, `ensureProcess`,
+  `portReady` on Blaxel; turn fencing leaves `preview-`/`terminal-` alone.
+- [ ] **2. Environments.** Schema (additive `db:push`), API (read keys,
+  reveal, write), settings UI in the code session, write per turn +
+  `.git/info/exclude`, open the egress allowlist.
+- [ ] **3. Preview tab.** Repo dev command/port, start/stop/URL routes, tab
+  with iframe, idle unmount, desktop CSP.
+- [ ] **4. Terminal tab.** `ttyd` + `tmux` in the image (`bl push`), token
+  route, xterm.js tab, idle close.
+- [ ] **5. Live QA.** A Next app with a `.env.local`: preview, edit through
+  Lor with hot reload, terminal, idle and return, archive revokes.
+
+## Decisions (Jacob, 2026-10-29)
+
+- Environments are per workspace + repo for now. Later an environment may
+  group several repos, each with its own env file; keep the table keyed so
+  a group can own rows (an `environment` parent with `repo` children).
+- A new permission `environment: ["manage"]` (`workspace-statements.ts`),
+  owner and admin by default: edit and reveal values. It cannot hide values
+  from people in a code session: Lor and the terminal read the env file, so
+  anyone who can talk to Lor or open the terminal can see them. The UI says
+  so.
+- Previews are public unguessable URLs with a TTL at launch.
+- Terminal: `tmux` keeps the shell across reconnects (ttyd starts a new
+  shell per connection, so without it every idle disconnect kills the shell
+  and what runs in it). One tmux session per person
+  (`main-<userId>`), status bar hidden, mouse on. External terminal apps
+  (Warp, iTerm) need SSH: boat and Lor's own VMs can offer it, Blaxel
+  cannot; later, behind the Lor gateway.
+
+## Deviations log
+
+(none yet)
