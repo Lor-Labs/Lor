@@ -88,9 +88,7 @@ export const getPersonalAccounts: AppRouteHandler<
       github: { available: githubAccountsAvailable(), account },
       claude: {
         available:
-          !hostedBetaEnabled() &&
-          features.claudeCodeHarness &&
-          Boolean(env.INTEGRATION_ENCRYPTION_KEY),
+          features.claudeCodeHarness && Boolean(env.INTEGRATION_ENCRYPTION_KEY),
         account: claude ? toClaudeAccount(claude) : null,
       },
     },

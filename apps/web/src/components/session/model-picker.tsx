@@ -37,7 +37,6 @@ import {
   rememberFast,
   rememberModel,
 } from "@/hooks/use-agent-models"
-import { useBetaAvailability } from "@/hooks/use-beta-availability"
 
 // The model, thinking effort and fast mode for the turn a message starts,
 // in every session composer. The lists come from the harness's own catalog
@@ -96,11 +95,6 @@ export function ModelPicker({
   harnesses?: readonly SessionHarness[]
   onHarness?: (harness: SessionHarness) => void
 }) {
-  const { data: beta } = useBetaAvailability()
-  harnesses =
-    !beta || beta.enabled
-      ? harnesses.filter((harness) => harness === "pi")
-      : harnesses
   const [query, setQuery] = useState("")
   const [shown, setShown] = useState(choice.harness)
   const inputRef = useRef<HTMLInputElement>(null)

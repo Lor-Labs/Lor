@@ -137,7 +137,10 @@ pick: Lor credits). Payer, key identity and the per-message model are pinned acr
 BYOK AI pays only a platform fee from the pool: the provider's list price
 times `CREDIT_CONVERSION_RATE - 1` (1.05 → 5%); its sandbox time draws on the
 pool too, so key-paid runs stop when the pool is empty.
-Hosted beta permits only Pi, and saved content remains readable after expiry.
+Hosted beta permits Lor's own agent and Claude Code on the person's own Claude
+subscription (2026-10-29: beta teams bring their own Claude Code sub; those
+turns never draw on the shared pool), and saved content remains readable after
+expiry. Enforced in `assertHostedHarness` (`packages/db/src/queries/beta-access.ts`).
 `pnpm beta` manages policy/campaign records; `open`/`pause` change enrollment only.
 A purchase never starts a seat subscription or changes trial dates.
 
@@ -151,6 +154,7 @@ data are retained. DM and voice are product visibility flags, not API authorizat
 endpoints remain accessible to authorized clients.
 
 `selfSignups` and `codexHarness` are off by default; `claudeCodeHarness` is on.
+Hosted beta allows `pi` and `claude_code`; Codex (Lor credits) stays out.
 These flags are enforced on the server. Self signup requires a valid, pending signed email
 invitation matching the new account; public invite links do not bypass the gate.
 Existing users can sign in. Harness flags independently gate session creation,

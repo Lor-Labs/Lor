@@ -50,7 +50,6 @@ import {
   usePausedLorMessageId,
 } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
-import { useBetaAvailability } from "@/hooks/use-beta"
 import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
@@ -308,11 +307,7 @@ export function ThreadView({
   )
   // Claude Code answers only messages from people with their own Claude
   // subscription; the server sends the rest to the session's people.
-  const { data: betaAvailability } = useBetaAvailability()
-  const harnessEnabled =
-    !lorSession ||
-    (isHarnessEnabled(lorSession.harness) &&
-      (lorSession.harness === "pi" || betaAvailability?.enabled === false))
+  const harnessEnabled = !lorSession || isHarnessEnabled(lorSession.harness)
   const claudeCode = harnessEnabled && lorSession?.harness === "claude_code"
   const { data: accounts } = usePersonalAccounts(claudeCode)
   const withoutClaude =

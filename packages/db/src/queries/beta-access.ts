@@ -111,10 +111,16 @@ export async function assertBetaSandbox(workspaceId: string) {
     )
 }
 
+// Beta teams bring their own Claude Code subscription (Jacob 2026-10-29):
+// those turns run on the person's own Claude plan, never the shared credit
+// pool, so they are allowed during the beta. Lor's own agent stays the only
+// credit-funded harness; Codex, which runs on Lor credits, stays out.
+const BETA_HARNESSES: ReadonlySet<string> = new Set(["pi", "claude_code"])
+
 export function assertHostedHarness(harness: string) {
-  if (hostedBetaEnabled() && harness !== "pi")
+  if (hostedBetaEnabled() && !BETA_HARNESSES.has(harness))
     throw new BetaAccessError(
-      "Hosted beta supports Lor with credits or a workspace API key. Subscription-based harnesses are not available."
+      "Hosted beta supports Lor with credits or a workspace API key, and Claude Code on your own Claude subscription. Other agents are not available."
     )
 }
 
