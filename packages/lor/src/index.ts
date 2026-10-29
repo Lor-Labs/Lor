@@ -3443,7 +3443,7 @@ export async function respond(
       }
       let charged = false
       const chargeTurn = async (extra: RunStepRecord | null) => {
-        if (charged || !billed || native) return
+        if (charged || !billed) return
         charged = true
         if (extra) {
           addToModel(extra, 0)
@@ -3463,6 +3463,7 @@ export async function respond(
             requestedModel: answeringModel,
             ...usage,
             ...(costUsd != null ? { costUsd } : {}),
+            ...(native ? { byok: true } : {}),
             ...(first
               ? {
                   wallMs: Math.round(performance.now() - streamStart),

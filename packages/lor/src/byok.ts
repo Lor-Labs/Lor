@@ -24,6 +24,22 @@ export function assertByokModel(
     throw new Error("Choose a model supported by this provider")
 }
 
+// The provider's list price (USD per million tokens) for a
+// "<provider>/<model>" step, from Pi's catalog. Prices the own-key fee.
+export function byokPrice(model: string) {
+  const slash = model.indexOf("/")
+  const provider = model.slice(0, slash)
+  if (provider !== "anthropic" && provider !== "openai") return null
+  const id = model.slice(slash + 1)
+  const cost = getBuiltinModels(provider).find((item) => item.id === id)?.cost
+  if (!cost) return null
+  return {
+    inputUsdPerMtok: cost.input,
+    cachedInputUsdPerMtok: cost.cacheRead || cost.input,
+    outputUsdPerMtok: cost.output,
+  }
+}
+
 // These credentials stay in the worker's in-memory Pi transport, never in tool context or sandbox files.
 export async function nativeInference(
   workspaceId: string,

@@ -1,4 +1,5 @@
 import {
+  byokFeeShare,
   CREDIT_USD,
   checkBetaCredits,
   computeCostUsd,
@@ -40,6 +41,7 @@ import type {
   LorReasoningSegment,
   LorToolCall,
 } from "@repo/db/schema"
+import { env } from "@repo/env/server"
 import {
   type ConversationUpdate,
   mergeRunContextCoverage,
@@ -51,6 +53,7 @@ import {
   type UsageEvent,
   userDisplayName,
 } from "@repo/lor"
+import { byokPrice } from "@repo/lor/byok"
 import { type HarnessOwner, SessionCoreError } from "@repo/lor/session-core"
 import { DelayedError, type Job } from "bullmq"
 import { writeHarnessState } from "@/lib/harness-state"
@@ -499,18 +502,22 @@ export async function claimAgentRun(
     outputTokens?: number
   }
   const priceFor = async (u: Priced, oneRequest: boolean) => {
-    if (funding.source === "byok" || !u.model) return null
+    if (!u.model) return null
     if ((u.inputTokens ?? 0) === 0 && (u.outputTokens ?? 0) === 0) return null
     const tokens = {
       inputTokens: u.inputTokens,
       cachedInputTokens: u.cachedInputTokens,
       outputTokens: u.outputTokens,
     }
-    const rate = await getRate(
-      u.model,
-      tokens,
-      oneRequest ? { requestInputTokens: u.inputTokens } : {}
-    )
+    // Own key: the provider's list price, of which only the fee is charged.
+    const listPrice = funding.source === "byok" ? byokPrice(u.model) : null
+    const rate = listPrice
+      ? { ...listPrice, conversionRate: env.CREDIT_CONVERSION_RATE }
+      : await getRate(
+          u.model,
+          tokens,
+          oneRequest ? { requestInputTokens: u.inputTokens } : {}
+        )
     return { usd: computeCostUsd(tokens, rate), rate }
   }
   // Also the call's USD, which the turn's debit sums (RunHarness.recordUsage).
@@ -520,8 +527,13 @@ export async function claimAgentRun(
   ): Promise<{ credits: number; usd: number }> => {
     const price = await priceFor(u, oneRequest)
     if (!price) return { credits: 0, usd: 0 }
-    attemptCredits +=
-      (price.usd * (betaRun ? 1 : price.rate.conversionRate)) / CREDIT_USD
+    const share =
+      funding.source === "byok"
+        ? byokFeeShare(price.rate.conversionRate)
+        : betaRun
+          ? 1
+          : price.rate.conversionRate
+    attemptCredits += (price.usd * share) / CREDIT_USD
     const whole = Math.ceil(attemptCredits)
     const added = whole - attemptCounted
     attemptCounted = whole
@@ -532,13 +544,14 @@ export async function claimAgentRun(
 
   let betaUsageSequence = 0
   const settleBetaStep = async (usage: RunStepRecord, costUsd: number) => {
-    if (funding.source === "byok" || !betaRun) return
+    if (!betaRun) return
     betaUsageSequence += 1
     try {
       await recordBillingUsage(
         {
           ...usage,
           costUsd,
+          byok: funding.source === "byok",
           requestedModel: funding.model,
           workspaceId: claimed.workspaceId,
           tool: "lor.respond",

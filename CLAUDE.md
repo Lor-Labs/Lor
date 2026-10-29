@@ -132,7 +132,9 @@ expensive listed route for the served model ($3/$0.30/$15 per Mtok when the
 Gateway lists none), and beta adds no extra multiplier. Each request's cost
 is settled once. An unsupported model pick quietly runs on the default model. Native credentials
 are encrypted; payer, key identity and the per-message model are pinned across retries;
-BYOK never consumes credits for AI, but its sandbox time draws on the pool.
+BYOK AI pays only a platform fee from the pool: the provider's list price
+times `CREDIT_CONVERSION_RATE - 1` (1.05 → 5%); its sandbox time draws on the
+pool too.
 Hosted beta permits only Pi, and saved content remains readable after expiry.
 `pnpm beta` manages policy/campaign records; `open`/`pause` change enrollment only.
 A purchase never starts a seat subscription or changes trial dates.

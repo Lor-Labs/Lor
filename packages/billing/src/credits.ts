@@ -35,6 +35,12 @@ export function computeCredits(tokens: TokenCounts, rate: CreditRate): number {
   return creditsForCost(computeCostUsd(tokens, rate), rate.conversionRate)
 }
 
+// A request on the workspace's own AI key pays only the conversion rate's
+// part above cost, on the provider's list price (1.05 → a 5% platform fee).
+export function byokFeeShare(conversionRate: number) {
+  return Math.max(0, conversionRate - 1)
+}
+
 export function creditsForCost(costUsd: number, conversionRate: number) {
   return Math.max(1, Math.ceil((costUsd * conversionRate) / CREDIT_USD))
 }

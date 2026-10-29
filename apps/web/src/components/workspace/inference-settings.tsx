@@ -86,7 +86,7 @@ export function InferenceSettings({
   return (
     <SettingsSection
       title="Your AI key"
-      caption="Your provider bills AI directly. Sandbox time still uses credits."
+      caption="Your provider bills AI directly. A small platform fee and sandbox time use credits."
     >
       <SettingsGroup>
         <SettingsDisclosureRow

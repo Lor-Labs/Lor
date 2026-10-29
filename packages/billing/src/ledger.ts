@@ -6,7 +6,7 @@ import { trackCredits } from "./autumn"
 import { hostedBetaConfig } from "./beta"
 import { isBetaWorkspace, settleBetaUsage } from "./beta-credits"
 import { MICRO_USD } from "./beta-policy"
-import { computeCostUsd, creditsForCost } from "./credits"
+import { byokFeeShare, computeCostUsd, creditsForCost } from "./credits"
 import { isBillableTool, usageDebitKey } from "./policy"
 import { getRate } from "./rates"
 
@@ -26,6 +26,9 @@ export type UsageLike = {
   wallMs?: number
   toolCalls?: number
   costUsd?: number
+  // Served on the workspace's own key: costUsd is the provider's list price
+  // and only the platform fee (byokFeeShare) is debited.
+  byok?: boolean
   // Stable within a parent response so repeat jobs do not duplicate debits.
   billingKey?: string
 }
@@ -89,16 +92,20 @@ export async function recordUsage(
       throw new Error("Invalid inference cost")
     if (beta && costUsd == null)
       throw new Error("Beta inference cost is unavailable")
+    const chargedUsd =
+      costUsd != null && u.byok
+        ? costUsd * byokFeeShare(env.CREDIT_CONVERSION_RATE)
+        : costUsd
     const betaDebitMicroUsd =
-      beta && costUsd != null ? Math.round(costUsd * MICRO_USD) : null
+      beta && chargedUsd != null ? Math.round(chargedUsd * MICRO_USD) : null
     if (
       betaDebitMicroUsd !== null &&
       (!Number.isSafeInteger(betaDebitMicroUsd) || betaDebitMicroUsd < 0)
     )
       throw new Error("Invalid beta inference cost")
     const credits =
-      !beta && billable && costUsd !== null
-        ? creditsForCost(costUsd, env.CREDIT_CONVERSION_RATE)
+      !beta && billable && chargedUsd !== null && !(u.byok && chargedUsd === 0)
+        ? creditsForCost(chargedUsd, u.byok ? 1 : env.CREDIT_CONVERSION_RATE)
         : 0
     const debitKey = usageDebitKey({
       billingKey: u.billingKey,
