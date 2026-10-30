@@ -177,9 +177,12 @@ export async function writeEnvironmentFiles(input: {
     command: [
       `${cd} && mkdir -p .git/info || exit 1`,
       `set -- ${paths}`,
-      `for p in "$@"; do grep -qxF "/$p" .git/info/exclude 2>/dev/null || echo "/$p" >> .git/info/exclude || exit 1; done`,
-      `if [ -f ${MANIFEST} ]; then while IFS= read -r old; do keep=; for p in "$@"; do [ "$p" = "$old" ] && keep=1; done; if [ -z "$keep" ] && [ -f "$old" ] && ! git ls-files --error-unmatch -- "$old" >/dev/null 2>&1 && head -n 1 "$old" | grep -qxF ${q(HEADER)}; then rm -f "$old"; fi; done < ${MANIFEST}; fi`,
-      `printf '%s\\n' "$@" > ${MANIFEST}`,
+      // A repo .gitignore negation (`!.env.local`) beats info/exclude.
+      `for p in "$@"; do grep -qxF "/$p" .git/info/exclude 2>/dev/null || echo "/$p" >> .git/info/exclude || exit 1; git check-ignore -q -- "$p" || { echo "git does not ignore $p" >&2; exit 1; }; done`,
+      `printf '%s\\n' "$@" > ${MANIFEST}.next || exit 1`,
+      // A stale file that can't be deleted stays listed for the next write.
+      `if [ -f ${MANIFEST} ]; then while IFS= read -r old; do keep=; for p in "$@"; do [ "$p" = "$old" ] && keep=1; done; if [ -z "$keep" ] && [ -f "$old" ] && ! git ls-files --error-unmatch -- "$old" >/dev/null 2>&1 && head -n 1 -- "$old" | grep -qxF ${q(HEADER)}; then rm -f -- "$old" || printf '%s\\n' "$old" >> ${MANIFEST}.next; fi; done < ${MANIFEST}; fi`,
+      `mv -f ${MANIFEST}.next ${MANIFEST}`,
     ].join("\n"),
   })
   if (prepared.exitCode !== 0) {
