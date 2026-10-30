@@ -17,6 +17,7 @@ import channelMutesRouter from "@/routes/v1/channel-mutes/index"
 import channelsRouter from "@/routes/v1/channels/index"
 import customToolsRouter from "@/routes/v1/custom-tools/index"
 import dmsRouter from "@/routes/v1/dms/index"
+import environmentsRouter from "@/routes/v1/environments/index"
 import faviconRouter from "@/routes/v1/favicon/index"
 import hintsRouter from "@/routes/v1/hints/index"
 import instructionsRouter from "@/routes/v1/instructions/index"
@@ -110,6 +111,7 @@ const routes = app
   .route("/v1", integrationsRouter)
   .route("/v1", agentProfilesRouter)
   .route("/v1", customToolsRouter)
+  .route("/v1", environmentsRouter)
   .route("/v1", mcpServersRouter)
   .route("/v1", webhooksRouter)
   .route("/v1", billingRouter)

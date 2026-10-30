@@ -1,6 +1,8 @@
 import {
   ArrowDown01Icon,
   ArrowDown02Icon,
+  BrowserIcon,
+  ComputerTerminal01Icon,
   GitBranchIcon,
   RefreshIcon,
   SparklesIcon,
@@ -80,8 +82,15 @@ export const DIFF_CSS = `:host {
   --diffs-line-height: 20px;
 }`
 
-// Changes | Files, the title of a code session's panel (no Details tab for
-// now). The count shows once the Changes view has read the sandbox.
+const PANEL_TABS = [
+  { type: "session-changes", label: "Changes", icon: null },
+  { type: "session-files", label: "Files", icon: null },
+  { type: "session-terminal", label: "Terminal", icon: ComputerTerminal01Icon },
+  { type: "session-browser", label: "Browser", icon: BrowserIcon },
+] as const
+
+// Changes | Files | Terminal | Browser: the title of a code session's panel.
+// The count shows once the Changes view has read the sandbox.
 export function SessionPanelTabs({ view }: { view: SessionPanelView }) {
   const { setView } = useRightSidebar()
   const { data } = useQuery({
@@ -89,25 +98,36 @@ export function SessionPanelTabs({ view }: { view: SessionPanelView }) {
     enabled: false,
   })
   const count = data?.state === "ready" ? data.files.length : 0
-  const tabs = [
-    { type: "session-changes", label: "Changes" },
-    { type: "session-files", label: "Files" },
-  ] as const
+  const select = (type: SessionPanelView["type"]) =>
+    setView({
+      type,
+      workspaceSlug: view.workspaceSlug,
+      channelId: view.channelId,
+      sessionId: view.sessionId,
+      threadRootId: view.threadRootId,
+    })
   return (
-    <div className="flex items-center gap-1">
-      {tabs.map((tab) => (
+    <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+      {PANEL_TABS.map((tab) => (
         <button
           key={tab.type}
           type="button"
           aria-pressed={view.type === tab.type}
-          onClick={() => setView({ ...view, type: tab.type })}
+          onClick={() => select(tab.type)}
           className={cn(
-            "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors",
+            "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors",
             view.type === tab.type
               ? "bg-foreground/[0.06] font-medium text-foreground"
               : "text-muted-foreground hover:text-foreground"
           )}
         >
+          {tab.icon && (
+            <HugeiconsIcon
+              icon={tab.icon}
+              className="size-3.5 shrink-0"
+              strokeWidth={2}
+            />
+          )}
           {tab.label}
           {tab.type === "session-changes" && count > 0 && (
             <span className="text-muted-foreground text-xs tabular-nums">

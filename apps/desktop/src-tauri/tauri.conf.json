@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Lor",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "identifier": "com.lor.desktop",
   "build": {
     "frontendDist": "../../web/dist",
@@ -31,7 +31,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' https://*.lor.chat; connect-src 'self' https://*.lor.chat wss://*.lor.chat https://*.livekit.cloud wss://*.livekit.cloud https://*.r2.cloudflarestorage.com http://localhost:* ws://localhost:* ipc: http://ipc.localhost; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https://*.lor.chat; font-src 'self' https://*.lor.chat data:; script-src 'self' 'unsafe-inline' https://*.lor.chat"
+      "csp": "default-src 'self' https://*.lor.chat; frame-src https://*.bl.run https://*.lor.chat; connect-src 'self' https://*.lor.chat wss://*.lor.chat wss://*.bl.run https://*.livekit.cloud wss://*.livekit.cloud https://*.r2.cloudflarestorage.com http://localhost:* ws://localhost:* ipc: http://ipc.localhost; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https://*.lor.chat; font-src 'self' https://*.lor.chat data:; script-src 'self' 'unsafe-inline' https://*.lor.chat"
     }
   },
   "bundle": {

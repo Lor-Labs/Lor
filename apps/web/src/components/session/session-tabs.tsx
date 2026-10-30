@@ -54,6 +54,10 @@ const TAB_ICONS: Record<SessionTab["kind"], IconSvgElement> = {
   changes: GitCompareIcon,
 }
 
+function tabLabel(tab: SessionTab): string {
+  return "path" in tab ? splitPath(tab.path).name : "All changes"
+}
+
 const TYPING_TARGET =
   "input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']"
 
@@ -138,10 +142,8 @@ export function SessionTabBar({
         return (
           <TabButton
             key={id}
-            label={
-              tab.kind === "changes" ? "All changes" : splitPath(tab.path).name
-            }
-            title={tab.kind === "changes" ? undefined : tab.path}
+            label={tabLabel(tab)}
+            title={"path" in tab ? tab.path : undefined}
             icon={TAB_ICONS[tab.kind]}
             preview={preview === id}
             selected={active === id}

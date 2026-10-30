@@ -26,6 +26,11 @@ export const SANDBOX_PROCESS_ENV = {
   // egress limits; its "experimental" warning would clutter tool output.
   NODE_USE_ENV_PROXY: "1",
   NODE_OPTIONS: "--disable-warning=UNDICI-EHPA",
+  // Vite refuses unknown Host headers; a dev server started anywhere in the
+  // sandbox (Lor, the terminal) must accept the Browser tab's preview host.
+  __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: [".bl.run", env.LOR_PREVIEW_DOMAIN]
+    .filter(Boolean)
+    .join(","),
 }
 
 export function baseConfig(

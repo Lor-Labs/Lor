@@ -1,4 +1,4 @@
-# Lor workbench image for Blaxel sandboxes: the Pi coding agent (node 22),
+# Lor workbench image for Blaxel sandboxes: the Pi coding agent (Node 26 LTS),
 # the Claude Code and Codex harness bridges, and the Python data toolchain.
 # Run harness-bootstrap.ts first, then `bl push` from this directory (never
 # from the repo root: bl reads the .env it finds and prints it when parsing
@@ -10,7 +10,7 @@ FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates \
-    && curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource-setup.sh \
+    && curl -fsSL https://deb.nodesource.com/setup_26.x -o /tmp/nodesource-setup.sh \
     && bash /tmp/nodesource-setup.sh \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -f /tmp/nodesource-setup.sh \
@@ -47,6 +47,52 @@ COPY codex/ ${CODEX_BOOTSTRAP}/
 # ChatGPT apps (their traffic skips Codex's network controls) and no
 # memories (Lor keeps the team's).
 COPY codex-config.toml /root/.codex/config.toml
+
+# The session Terminal tab (reference/dev-environment-runbook.md §4): ttyd
+# serves a PTY over a WebSocket, tmux keeps each person's shell across
+# reconnects, zsh with a starship prompt, suggestions and highlighting;
+# ss, lsof and ps for people and Lor (Lor's own port list reads /proc).
+ARG TTYD_VERSION=1.7.7
+ARG STARSHIP_VERSION=v1.27.0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tmux zsh zsh-autosuggestions zsh-syntax-highlighting \
+    iproute2 lsof procps \
+    && rm -rf /var/lib/apt/lists/* \
+    && arch="$(dpkg --print-architecture)" \
+    && case "$arch" in amd64) ttyd_arch=x86_64 ;; arm64) ttyd_arch=aarch64 ;; *) echo "unsupported $arch" && exit 1 ;; esac \
+    && cd /tmp \
+    && curl -fsSLO "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" \
+    && curl -fsSL -o ttyd.sums "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/SHA256SUMS" \
+    && grep " ttyd.${ttyd_arch}\$" ttyd.sums | sha256sum -c - \
+    && install -m 755 "ttyd.${ttyd_arch}" /usr/local/bin/ttyd \
+    && rm -f "ttyd.${ttyd_arch}" ttyd.sums \
+    && curl -fsSL -o starship-install.sh https://starship.rs/install.sh \
+    && sh starship-install.sh --yes --version "${STARSHIP_VERSION}" \
+    && rm -f starship-install.sh
+
+# Package managers repos ask for beyond npm and pnpm: Bun (checksum-checked;
+# the x64 baseline build runs on CPUs without AVX2) and Yarn through Corepack,
+# installed from npm since newer Node releases may not bundle it. Corepack's
+# package also ships pnpm and pnpx, so it lives in its own prefix with only its
+# Yarn shims linked; pnpm stays the pinned global install above.
+ARG BUN_VERSION=1.4.4
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN arch="$(dpkg --print-architecture)" \
+    && case "$arch" in amd64) bun_target=linux-x64-baseline ;; arm64) bun_target=linux-aarch64 ;; *) echo "unsupported $arch" && exit 1 ;; esac \
+    && cd /tmp \
+    && curl -fsSLO "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-${bun_target}.zip" \
+    && curl -fsSL -o bun.sums "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt" \
+    && grep " bun-${bun_target}.zip\$" bun.sums | sha256sum -c - \
+    && python -m zipfile -e "bun-${bun_target}.zip" /tmp/bun \
+    && install -m 755 "/tmp/bun/bun-${bun_target}/bun" /usr/local/bin/bun \
+    && ln -sf /usr/local/bin/bun /usr/local/bin/bunx \
+    && rm -rf /tmp/bun "bun-${bun_target}.zip" bun.sums \
+    && bun --version \
+    && npm install -g --prefix /opt/corepack corepack@0.36.0 \
+    && /opt/corepack/bin/corepack enable --install-directory /usr/local/bin yarn \
+    && yarn --version
+COPY terminal/tmux.conf /root/.tmux.conf
+COPY terminal/zshrc /root/.zshrc
 
 RUN mkdir -p /workspace/in /workspace/out /workspace/.pi-sessions /root/.pi/agent
 

@@ -7,6 +7,9 @@ export const workspaceStatements = {
   webhook: ["manage"], // create/manage channel webhooks, on any channel (no per-channel scoping in v1)
   agentProfile: ["manage"], // create/edit Lor capability profiles AND assign channels to them
   customTool: ["manage"], // user-added tools — both custom API tools and MCP servers
+  // Code session env files per repo (reference/dev-environment-runbook.md):
+  // edit and reveal. People in a session can still read the written file.
+  environment: ["manage"],
   billing: ["manage"],
   // Resolving approvals is NOT a permission — resolvers are named per gate
   // (role/person/any member, teams later). This only gates the settings page.
@@ -69,6 +72,10 @@ export const workspaceStatementMeta: {
   customTool: {
     label: "Custom tools",
     actions: { manage: "Manage custom tools & MCP servers" },
+  },
+  environment: {
+    label: "Environments",
+    actions: { manage: "Manage environment variables" },
   },
   billing: {
     label: "Billing",

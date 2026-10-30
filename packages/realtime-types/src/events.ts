@@ -188,6 +188,8 @@ export const sendMessagePayloadSchema = z
         repo: z.string().min(3).max(200),
         branch: z.string().min(1).max(255),
         newBranch: z.string().min(1).max(200).optional(),
+        // The environment whose env files the session writes.
+        environmentId: z.string().uuid().optional(),
       })
       .optional(),
     // With startSession: "Continue in Code" from this session (same channel),
@@ -1009,6 +1011,7 @@ export type RealtimeAgentSession = {
   repoFullName: string | null
   baseBranch: string | null
   newBranch: string | null
+  environmentId: string | null
   uncommittedAdditions: number | null
   uncommittedDeletions: number | null
   sourceSessionId: string | null

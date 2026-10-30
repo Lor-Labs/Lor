@@ -27,6 +27,7 @@ export const agentSessionSchema = z
     repoFullName: z.string().nullable(),
     baseBranch: z.string().nullable(),
     newBranch: z.string().nullable(),
+    environmentId: z.string().uuid().nullable(),
     uncommittedAdditions: z.number().int().nullable(),
     uncommittedDeletions: z.number().int().nullable(),
     sourceSessionId: z.string().uuid().nullable(),
@@ -113,6 +114,42 @@ export const actWaitingResponseSchema = z.object({
 
 export const dropActWaitingResponseSchema = z.object({
   dropped: z.number().int(),
+})
+
+// A code session's Browser tab (reference/dev-environment-runbook.md §3):
+// the ports listening in its sandbox, and a URL for one of them.
+export const sessionPortsResponseSchema = z.object({
+  // False: the session has no sandbox yet.
+  available: z.boolean(),
+  ports: z.array(
+    z.object({ port: z.number().int(), process: z.string().nullable() })
+  ),
+})
+
+// `query`: a private preview's token, appended after the page's path.
+export const openPortResponseSchema = z.object({
+  url: z.string(),
+  query: z.string(),
+})
+
+// A WebSocket URL to the caller's own shell in the session's sandbox, with a
+// short-lived token (reference/dev-environment-runbook.md §4).
+export const openTerminalResponseSchema = z.object({
+  url: z.string(),
+  expiresAt: z.string(),
+})
+
+export const applyEnvironmentResponseSchema = z.object({
+  applied: z.boolean(),
+})
+
+export const portParamsSchema = sessionParamsSchema.extend({
+  port: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(65535)
+    .openapi({ param: { name: "port", in: "path", required: true } }),
 })
 
 export const getAgentSessionResponseSchema = z.object({

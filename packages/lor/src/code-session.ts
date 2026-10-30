@@ -15,6 +15,8 @@ export type RunCodeContext = {
   baseBranch: string
   // A branch the session made from baseBranch; null: it works on baseBranch.
   newBranch?: string | null
+  // The environment whose env files each turn writes.
+  environmentId?: string | null
 }
 
 // Pi's own candidates and order (pi-coding-agent loadContextFileFromDir),

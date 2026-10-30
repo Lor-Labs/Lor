@@ -13,6 +13,7 @@ import {
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   actWaitingResponseSchema,
+  applyEnvironmentResponseSchema,
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
   commitMessageResponseSchema,
@@ -23,6 +24,9 @@ import {
   forkAgentSessionResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  openPortResponseSchema,
+  openTerminalResponseSchema,
+  portParamsSchema,
   pullSessionChangesResponseSchema,
   pushSessionChangesResponseSchema,
   repoFileQuerySchema,
@@ -35,6 +39,7 @@ import {
   sessionChangesResponseSchema,
   sessionFilesResponseSchema,
   sessionParamsSchema,
+  sessionPortsResponseSchema,
   stageSessionChangesRequestSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
@@ -518,3 +523,103 @@ export const dropActWaiting = createRoute({
 })
 
 export type DropActWaitingRoute = typeof dropActWaiting
+
+export const listSessionPorts = createRoute({
+  path: "/sessions/{sessionId}/ports",
+  method: "get",
+  summary: "List a code session's open ports",
+  description:
+    "The TCP ports listening in the session's sandbox, with the process that owns each, whoever started it.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionPortsResponseSchema,
+      description: "Open ports",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListSessionPortsRoute = typeof listSessionPorts
+
+export const openSessionPort = createRoute({
+  path: "/sessions/{sessionId}/ports/{port}/open",
+  method: "post",
+  summary: "Open a code session's port in the browser",
+  description:
+    "Returns a preview URL for a listening port; a server bound only to localhost gets a relay. Anyone who can write in the channel can do this.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: portParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: openPortResponseSchema,
+      description: "The port's URL",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type OpenSessionPortRoute = typeof openSessionPort
+
+export const openSessionTerminal = createRoute({
+  path: "/sessions/{sessionId}/terminal",
+  method: "post",
+  summary: "Open a terminal in a code session's sandbox",
+  description:
+    "Starts the terminal server if needed and returns a WebSocket URL to the caller's own shell, with a short-lived token. Anyone who can write in the channel can do this.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: openTerminalResponseSchema,
+      description: "The terminal's WebSocket URL",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type OpenSessionTerminalRoute = typeof openSessionTerminal
+
+export const applySessionEnvironment = createRoute({
+  path: "/sessions/{sessionId}/environment/apply",
+  method: "post",
+  summary: "Write a code session's environment into its sandbox",
+  description:
+    "Writes the session environment's current env files into its sandbox now, instead of on Lor's next turn. Never creates a sandbox. Anyone who can write in the channel can do this.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: applyEnvironmentResponseSchema,
+      description: "Whether the files were written",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ApplySessionEnvironmentRoute = typeof applySessionEnvironment

@@ -48,6 +48,9 @@ import {
   type SessionCheckpointRow,
   writeCheckpoint,
 } from "@repo/lor/code-checkpoints"
+import { applySessionEnvironment as applyEnvironment } from "@repo/lor/dev-env/environments"
+import { listOpenPorts, openPort } from "@repo/lor/dev-env/previews"
+import { openTerminal } from "@repo/lor/dev-env/terminal"
 import {
   BranchRefusedError,
   forkSession,
@@ -71,6 +74,7 @@ import {
 } from "@/lib/workspace-activity"
 import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
+  ApplySessionEnvironmentRoute,
   CommitSessionChangesRoute,
   DropActWaitingRoute,
   ForkAgentSessionRoute,
@@ -84,6 +88,9 @@ import type {
   GetSessionChangesRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
+  ListSessionPortsRoute,
+  OpenSessionPortRoute,
+  OpenSessionTerminalRoute,
   PullSessionChangesRoute,
   PushSessionChangesRoute,
   RewindAgentSessionRoute,
@@ -1368,4 +1375,153 @@ export const dropActWaiting: AppRouteHandler<DropActWaitingRoute> = async (
     threadRootId: session.threadRootId,
   })
   return c.json({ dropped }, HttpStatusCodes.OK)
+}
+
+// The Browser tab (reference/dev-environment-runbook.md §3): code sessions
+// only. Listing needs channel access; opening a port needs write access, like
+// everything else that changes the sandbox (it may start a relay).
+
+export const listSessionPorts: AppRouteHandler<ListSessionPortsRoute> = async (
+  c
+) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row || row.session.mode !== "code") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const ports = await listOpenPorts(sessionId)
+  return c.json(
+    { available: ports !== null, ports: ports ?? [] },
+    HttpStatusCodes.OK
+  )
+}
+
+export const openSessionPort: AppRouteHandler<OpenSessionPortRoute> = async (
+  c
+) => {
+  const { sessionId, port } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row || row.session.mode !== "code") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const result = await openPort(sessionId, port)
+  if (result.status === "no_sandbox") {
+    return c.json(
+      {
+        success: false as const,
+        message:
+          "This session has no sandbox yet. Send Lor a message to set one up.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (result.status === "not_listening") {
+    return c.json(
+      {
+        success: false as const,
+        message: `Nothing is listening on port ${port}.`,
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  return c.json({ url: result.url, query: result.query }, HttpStatusCodes.OK)
+}
+
+// The Terminal tab (reference/dev-environment-runbook.md §4): a root shell in
+// the session's sandbox, so it needs write access like Lor's own turns.
+export const openSessionTerminal: AppRouteHandler<
+  OpenSessionTerminalRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  if (row.session.mode !== "code" || row.session.archivedAt) {
+    return c.json(
+      { success: false as const, message: "Terminals are for code sessions" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const result = await openTerminal(sessionId, c.var.user.id)
+  if (result.status === "no_sandbox") {
+    return c.json(
+      {
+        success: false as const,
+        message:
+          "This session has no sandbox yet. Send Lor a message to set one up.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (result.status === "not_ready") {
+    return c.json(
+      { success: false as const, message: "The terminal didn't start" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  return c.json(
+    { url: result.url, expiresAt: result.expiresAt },
+    HttpStatusCodes.OK
+  )
+}
+
+// A saved environment edit from the session menu, written into the sandbox
+// now so a restarted dev server or the terminal sees it before Lor's next turn.
+export const applySessionEnvironment: AppRouteHandler<
+  ApplySessionEnvironmentRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const { session } = row
+  if (
+    session.mode !== "code" ||
+    session.archivedAt ||
+    !session.environmentId ||
+    !session.repoFullName
+  ) {
+    return c.json(
+      { success: false as const, message: "This session has no environment" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const applied = await applyEnvironment({
+    sessionId,
+    environmentId: session.environmentId,
+    repoFullName: session.repoFullName,
+  })
+  return c.json({ applied }, HttpStatusCodes.OK)
 }

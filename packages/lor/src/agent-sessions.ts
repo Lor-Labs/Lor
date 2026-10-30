@@ -41,6 +41,7 @@ export function toRealtimeAgentSession(
     repoFullName: row.repoFullName,
     baseBranch: row.baseBranch,
     newBranch: row.newBranch,
+    environmentId: row.environmentId,
     uncommittedAdditions: row.uncommittedAdditions,
     uncommittedDeletions: row.uncommittedDeletions,
     sourceSessionId: row.sourceSessionId,
@@ -73,6 +74,8 @@ export type CreateSessionArgs = {
     repoFullName: string
     baseBranch: string
     newBranch?: string | null
+    // Checked to be the workspace's and to include the repo by the caller.
+    environmentId?: string | null
   }
   // Claude Code: checked against the starter's Claude account by the caller.
   harness?: AgentSession["harness"]
@@ -122,6 +125,7 @@ export async function createSession(
       repoFullName: args.code?.repoFullName ?? null,
       baseBranch: args.code?.baseBranch ?? null,
       newBranch: args.code?.newBranch ?? null,
+      environmentId: args.code?.environmentId ?? null,
       sourceSessionId: args.sourceSessionId ?? null,
       forkedFromMessageId: args.forkedFromMessageId ?? null,
       title: args.title,

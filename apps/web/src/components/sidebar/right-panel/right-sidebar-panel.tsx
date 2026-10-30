@@ -6,8 +6,10 @@ import { LoopPanel } from "@/components/sidebar/right-panel/loop-panel"
 import { LoopsListPanel } from "@/components/sidebar/right-panel/loops-list-panel"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { RightSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { SessionBrowserPanel } from "@/components/sidebar/right-panel/session-browser-panel"
 import { SessionChangesPanel } from "@/components/sidebar/right-panel/session-changes-panel"
 import { SessionFilesPanel } from "@/components/sidebar/right-panel/session-files-panel"
+import { SessionTerminalPanel } from "@/components/sidebar/right-panel/session-terminal-panel"
 import { SessionWorkPanel } from "@/components/sidebar/right-panel/session-work-panel"
 import { SessionsListPanel } from "@/components/sidebar/right-panel/sessions-list-panel"
 import { ThreadPanel } from "@/components/sidebar/right-panel/thread-panel"
@@ -29,7 +31,9 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView | null }) {
       : view.type === "thread" ||
           view.type === "session-work" ||
           view.type === "session-changes" ||
-          view.type === "session-files"
+          view.type === "session-files" ||
+          view.type === "session-terminal" ||
+          view.type === "session-browser"
         ? `${view.type}:${view.threadRootId}`
         : view.type === "loop"
           ? `loop:${view.loopId}`
@@ -69,6 +73,12 @@ export function RightSidebarPanel({ view }: { view: RightSidebarView | null }) {
               )}
               {view?.type === "session-files" && (
                 <SessionFilesPanel view={view} />
+              )}
+              {view?.type === "session-terminal" && (
+                <SessionTerminalPanel view={view} />
+              )}
+              {view?.type === "session-browser" && (
+                <SessionBrowserPanel view={view} />
               )}
               {view?.type === "sessions" && <SessionsListPanel view={view} />}
             </>

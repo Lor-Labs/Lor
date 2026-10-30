@@ -9,7 +9,6 @@ import { webOrigin } from "@/lib/web-origin"
 // tab).
 
 export const CHANGES_TAB_ID = "changes"
-
 export type SessionTab =
   | { id: string; kind: "file" | "diff"; path: string }
   | { id: typeof CHANGES_TAB_ID; kind: "changes" }
