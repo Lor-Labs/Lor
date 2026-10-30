@@ -1,6 +1,9 @@
 import { and, db, desc, eq, inArray, isUniqueViolation, schema } from "@repo/db"
 import { env } from "@repo/env/server"
-import { isSafeEnvFilePath } from "@repo/lor/dev-env/environments"
+import {
+  encodeEnvValue,
+  isSafeEnvFilePath,
+} from "@repo/lor/dev-env/environments"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import {
@@ -45,6 +48,14 @@ function checkFiles(files: FileInput[]) {
     const keys = file.variables.map((v) => v.key)
     if (new Set(keys).size !== keys.length) {
       throw new EnvironmentInputError(`A key appears twice in ${file.path}`)
+    }
+    const unwritable = file.variables.find(
+      (v) => v.value !== undefined && encodeEnvValue(v.value) === null
+    )
+    if (unwritable) {
+      throw new EnvironmentInputError(
+        `${unwritable.key} can't be written to an env file exactly. It can't end in a backslash, and a value with a $ or a line break can't also contain " or \\n.`
+      )
     }
   }
 }

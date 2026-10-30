@@ -25,25 +25,34 @@ export function isSafeEnvFilePath(path: string): boolean {
     )
 }
 
-// dotenv keeps single-, double- and backtick-quoted values literally, except
-// that double quotes turn `\n` into a newline; it unescapes nothing else. So a
-// value without `$` or newlines takes the first quote it doesn't contain.
-// Otherwise double quotes: `\n` for newlines, and `\$` for the dev servers'
+// dotenv keeps single-, backtick- and double-quoted values literally, except
+// that double quotes turn `\n` and `\r` into newlines; it unescapes nothing
+// else. A value without `$` or newlines takes `'`, then a backtick, then `"`
+// (only without `\n`/`\r` text), whichever it doesn't contain. Otherwise
+// double quotes: `\n` for newlines, and `\$` for the dev servers'
 // dotenv-expand (Vite, Next), which reads it as a literal `$` (plain dotenv
-// keeps the backslash).
-function quote(value: string): string {
+// keeps the backslash). Null: no form reads back exactly. A trailing `\`
+// reads as an escaped closing quote, so dotenv can run on into later lines.
+export function encodeEnvValue(value: string): string | null {
+  if (value.endsWith("\\")) return null
+  const escapes = /\\[nr$]/.test(value)
   if (!/[$\r\n]/.test(value)) {
-    const mark = ["'", '"', "`"].find((q) => !value.includes(q))
-    if (mark) return `${mark}${value}${mark}`
+    const mark = ["'", "`", ...(escapes ? [] : ['"'])].find(
+      (q) => !value.includes(q)
+    )
+    return mark ? `${mark}${value}${mark}` : null
   }
-  return `"${value
-    .replace(/"/g, '\\"')
-    .replace(/\$/g, "\\$")
-    .replace(/\r?\n/g, "\\n")}"`
+  if (value.includes('"') || escapes) return null
+  return `"${value.replace(/\$/g, "\\$").replace(/\r?\n/g, "\\n")}"`
 }
 
+// Values encodeEnvValue refuses are left out (saves reject them).
 export function renderEnvFile(vars: { key: string; value: string }[]): string {
-  return `${[HEADER, ...vars.map((v) => `${v.key}=${quote(v.value)}`)].join("\n")}\n`
+  const lines = vars.flatMap((v) => {
+    const encoded = encodeEnvValue(v.value)
+    return encoded === null ? [] : [`${v.key}=${encoded}`]
+  })
+  return `${[HEADER, ...lines].join("\n")}\n`
 }
 
 // The environment's id when it is the workspace's and includes the repo.
