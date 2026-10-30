@@ -1,6 +1,6 @@
 # Lor marketing site
 
-The site is waitlist-only. Both email forms submit through `/api/waitlist` to
+The site is waitlist-only. The hero email form submits through `/api/waitlist` to
 the existing API and waitlist table. Set `NEXT_PUBLIC_API_URL` to the API base
 URL in the www deployment. `/download` temporarily redirects to the waitlist.
 Beta invitations start November 6, 2026; the site does not automatically open
@@ -15,6 +15,6 @@ video and caption host must allow cross-origin requests from the site.
 Local assets in `public/` can also use root-relative paths.
 
 Rebuild and deploy www after updating the config. The recording replaces the
-illustrated workspace preview, and the hero link becomes “Watch the demo.”
+illustrated workspace preview below the signup form.
 Without a video URL, the labeled illustration stays visible; there is no
 empty player. Playback uses native controls without autoplay.
