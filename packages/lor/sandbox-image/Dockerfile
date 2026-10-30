@@ -72,8 +72,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Package managers repos ask for beyond npm and pnpm: Bun (checksum-checked;
 # the x64 baseline build runs on CPUs without AVX2) and Yarn through Corepack,
-# installed from npm since newer Node releases may not bundle it. pnpm stays
-# the pinned global install above.
+# installed from npm since newer Node releases may not bundle it. Corepack's
+# package also ships pnpm and pnpx, so it lives in its own prefix with only its
+# Yarn shims linked; pnpm stays the pinned global install above.
 ARG BUN_VERSION=1.4.4
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN arch="$(dpkg --print-architecture)" \
@@ -87,8 +88,9 @@ RUN arch="$(dpkg --print-architecture)" \
     && ln -sf /usr/local/bin/bun /usr/local/bin/bunx \
     && rm -rf /tmp/bun "bun-${bun_target}.zip" bun.sums \
     && bun --version \
-    && npm install -g corepack@0.36.0 \
-    && corepack enable yarn
+    && npm install -g --prefix /opt/corepack corepack@0.36.0 \
+    && /opt/corepack/bin/corepack enable --install-directory /usr/local/bin yarn \
+    && yarn --version
 COPY terminal/tmux.conf /root/.tmux.conf
 COPY terminal/zshrc /root/.zshrc
 
