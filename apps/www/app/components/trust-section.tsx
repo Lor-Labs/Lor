@@ -106,7 +106,7 @@ export function TrustSection() {
                 <GitHubLogo className="size-5" />
               </span>
               <span className="font-mono text-[13px] text-foreground/75">
-                BuckyMcYolo/lor
+                Lor-Labs/Lor
               </span>
             </span>
             <span className="mt-10 flex items-end justify-between gap-4">
