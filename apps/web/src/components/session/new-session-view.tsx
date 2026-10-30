@@ -31,6 +31,7 @@ import {
   useCodeTarget,
   useSessionMode,
 } from "@/components/session/code-target-picker"
+import { EnvironmentPicker } from "@/components/session/environment-picker"
 import {
   HARNESS_LABELS,
   type SessionHarness,
@@ -43,6 +44,7 @@ import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog
 import { useSocket } from "@/context/socket-context"
 import { useModelChoice } from "@/hooks/use-agent-models"
 import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
+import { useCodeEnvironment } from "@/hooks/use-environments"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageSending } from "@/hooks/use-message-sending"
@@ -194,6 +196,10 @@ function NewSessionComposer({
     channelId: channel.id,
     enabled: mode === "code",
   })
+  const environment = useCodeEnvironment(
+    workspaceSlug,
+    mode === "code" ? code.repo : null
+  )
   // Claude Code runs on the starter's own Claude subscription, so without
   // one the start waits for a connect (code-sessions-runbook.md chunk 7).
   const [harness, setHarness] = useSessionHarness(startHarness)
@@ -326,6 +332,13 @@ function NewSessionComposer({
                 channelId={channel.id}
                 code={code}
               />
+              {code.repo && (
+                <EnvironmentPicker
+                  workspaceSlug={workspaceSlug}
+                  repo={code.repo}
+                  environment={environment}
+                />
+              )}
             </>
           )}
         </div>
@@ -373,7 +386,15 @@ function NewSessionComposer({
               startSession: true,
               contextMessageId: aboutMessageId,
               ...(mode === "code" && code.target
-                ? { code: code.target, harness }
+                ? {
+                    code: {
+                      ...code.target,
+                      ...(environment.selected
+                        ? { environmentId: environment.selected.id }
+                        : {}),
+                    },
+                    harness,
+                  }
                 : {}),
               ...modelChoice.turn,
               ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),

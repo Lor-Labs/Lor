@@ -206,6 +206,18 @@ first load). The client behavior is the same.
 - [ ] **2. Environments.** Schema (additive `db:push`), API (read keys,
   reveal, write), settings UI in the code session, write per turn +
   `.git/info/exclude`, open the egress allowlist.
+  - [x] Schema, API (`apps/api/src/routes/v1/environments/`), session link
+    and per-turn write (`packages/lor/src/dev-env/environments.ts`), built
+    2026-10-29.
+  - [x] New session UI (2026-10-29): `EnvironmentPicker` at the far right of
+    the repo row (`environment-picker.tsx`), `EnvironmentDialog` to create
+    and edit (`environment-dialog.tsx`: name, env files as key/value rows,
+    Paste .env, Reveal values), pick remembered per repo
+    (`use-environments.ts`). A row left empty with a saved value keeps it.
+  - [ ] The open session shows its environment (chip + edit); a saved edit
+    writes into an awake sandbox now instead of at the next turn.
+  - [ ] Open the egress allowlist (Blaxel's "all methods, all hosts" rule
+    syntax to check).
 - [ ] **3. Preview tab.** Repo dev command/port, start/stop/URL routes, tab
   with iframe, idle unmount, desktop CSP.
 - [ ] **4. Terminal tab.** `ttyd` + `tmux` in the image (`bl push`), token
