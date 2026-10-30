@@ -53,16 +53,22 @@ COPY codex-config.toml /root/.codex/config.toml
 # reconnects, zsh with a starship prompt, suggestions and highlighting;
 # ss, lsof and ps for people and Lor (Lor's own port list reads /proc).
 ARG TTYD_VERSION=1.7.7
+ARG STARSHIP_VERSION=v1.27.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux zsh zsh-autosuggestions zsh-syntax-highlighting \
     iproute2 lsof procps \
     && rm -rf /var/lib/apt/lists/* \
     && arch="$(dpkg --print-architecture)" \
     && case "$arch" in amd64) ttyd_arch=x86_64 ;; arm64) ttyd_arch=aarch64 ;; *) echo "unsupported $arch" && exit 1 ;; esac \
-    && curl -fsSL -o /usr/local/bin/ttyd \
-      "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" \
-    && chmod +x /usr/local/bin/ttyd \
-    && curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+    && cd /tmp \
+    && curl -fsSLO "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" \
+    && curl -fsSL -o ttyd.sums "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/SHA256SUMS" \
+    && grep " ttyd.${ttyd_arch}\$" ttyd.sums | sha256sum -c - \
+    && install -m 755 "ttyd.${ttyd_arch}" /usr/local/bin/ttyd \
+    && rm -f "ttyd.${ttyd_arch}" ttyd.sums \
+    && curl -fsSL -o starship-install.sh https://starship.rs/install.sh \
+    && sh starship-install.sh --yes --version "${STARSHIP_VERSION}" \
+    && rm -f starship-install.sh
 COPY terminal/tmux.conf /root/.tmux.conf
 COPY terminal/zshrc /root/.zshrc
 

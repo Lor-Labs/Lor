@@ -96,8 +96,17 @@ const serverSchema = z.object({
   BL_REGION: defaultedString("us-pdx-1"),
   // Custom domain registered in Blaxel for preview URLs (e.g.
   // preview.lor.chat), so a private preview's cookie is same-site with the
-  // web app. Unset: Blaxel's own preview domain.
-  LOR_PREVIEW_DOMAIN: z.string().min(1).optional(),
+  // web app. Unset: Blaxel's own preview domain. A bare hostname, no scheme.
+  LOR_PREVIEW_DOMAIN: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .regex(
+        /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i,
+        "must be a bare hostname like preview.lor.chat"
+      )
+      .optional()
+  ),
   // Custom sandbox image (pushed via `bl push` from packages/lor/sandbox-image).
   LOR_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),

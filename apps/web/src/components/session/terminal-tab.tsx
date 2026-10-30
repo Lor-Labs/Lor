@@ -62,7 +62,9 @@ export function TerminalTab({
   const [attempt, setAttempt] = useState(0)
   // A ref, so a new callback each render never reconnects the terminal.
   const openPortRef = useRef(onOpenPort)
-  openPortRef.current = onOpenPort
+  useEffect(() => {
+    openPortRef.current = onOpenPort
+  }, [onOpenPort])
 
   useEffect(() => {
     const host = hostRef.current

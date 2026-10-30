@@ -1,9 +1,9 @@
-import { BETA_INVITES_LABEL } from "@/app/lib/launch"
+import { BETA_INVITES_LABEL_WITH_YEAR } from "@/app/lib/launch"
 
 const QUESTIONS = [
   {
     question: "When can I try Lor?",
-    answer: `We’ll start inviting teams from the waitlist on ${BETA_INVITES_LABEL}, 2026. Access rolls out gradually; we’ll email you when it’s your turn.`,
+    answer: `We’ll start inviting teams from the waitlist on ${BETA_INVITES_LABEL_WITH_YEAR}. Access rolls out gradually; we’ll email you when it’s your turn.`,
   },
   {
     question: "Do we need to move all our team chat to Lor?",

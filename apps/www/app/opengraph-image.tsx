@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og"
-import { BETA_INVITES_LABEL } from "@/app/lib/launch"
+import { BETA_INVITES_LABEL, BETA_INVITES_SHORT_LABEL } from "@/app/lib/launch"
 
 export const alt = `Lor: Work with AI, together. Join the waitlist. Beta invites start ${BETA_INVITES_LABEL}.`
 export const size = { width: 1200, height: 630 }
@@ -46,7 +46,7 @@ export default function OpengraphImage() {
           letterSpacing: "-0.01em",
         }}
       >
-        Join the waitlist. Beta invites start November 6.
+        Join the waitlist. Beta invites start {BETA_INVITES_SHORT_LABEL}.
       </div>
     </div>,
     size

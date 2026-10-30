@@ -15,17 +15,28 @@ import { sessionWorkDir } from "./work-dir"
 const HEADER =
   "# Written by Lor from this session's environment. Edit it in Lor: changes here are replaced on Lor's next turn."
 
-// A relative path inside the repo: no absolute paths, no `..`.
+// A relative path inside the repo: no absolute paths, no `.`, `..` or `.git`.
 export function isSafeEnvFilePath(path: string): boolean {
   if (!path || path.length > 200 || path.startsWith("/")) return false
-  return path.split("/").every((part) => part !== "" && part !== "..")
+  return path
+    .split("/")
+    .every(
+      (part) => part !== "" && part !== "." && part !== ".." && part !== ".git"
+    )
 }
 
-// Double-quoted dotenv values: dotenv and dotenv-expand (Next, Vite) read
-// \n and \" escapes, and `\$` stops variable expansion.
+// dotenv keeps single-, double- and backtick-quoted values literally, except
+// that double quotes turn `\n` into a newline; it unescapes nothing else. So a
+// value without `$` or newlines takes the first quote it doesn't contain.
+// Otherwise double quotes: `\n` for newlines, and `\$` for the dev servers'
+// dotenv-expand (Vite, Next), which reads it as a literal `$` (plain dotenv
+// keeps the backslash).
 function quote(value: string): string {
+  if (!/[$\r\n]/.test(value)) {
+    const mark = ["'", '"', "`"].find((q) => !value.includes(q))
+    if (mark) return `${mark}${value}${mark}`
+  }
   return `"${value
-    .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"')
     .replace(/\$/g, "\\$")
     .replace(/\r?\n/g, "\\n")}"`

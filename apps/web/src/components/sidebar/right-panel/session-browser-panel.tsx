@@ -97,8 +97,12 @@ export function SessionBrowserPanel({
       ].open.$post({ param: { sessionId, port: String(target.port) } })
       if (!res.ok) throw await failure(res, "Couldn't open that port")
       const { url, query } = await res.json()
-      const joiner = target.path.includes("?") ? "&" : "?"
-      return `${url}${target.path}${query ? `${joiner}${query}` : ""}`
+      // The token goes before any #fragment, which never reaches the server.
+      const hash = target.path.indexOf("#")
+      const path = hash === -1 ? target.path : target.path.slice(0, hash)
+      const fragment = hash === -1 ? "" : target.path.slice(hash)
+      const joiner = path.includes("?") ? "&" : "?"
+      return `${url}${path}${query ? `${joiner}${query}` : ""}${fragment}`
     },
     onSuccess: (next) => {
       setSrc(next)

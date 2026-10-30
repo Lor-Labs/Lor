@@ -1,5 +1,6 @@
 import { shellQuote } from "@ai-sdk/harness/utils"
 import { env } from "@repo/env/server"
+import { logger } from "../logger"
 import { ensureProcess, exposePort, portReady } from "../sandbox/sandbox-ports"
 import { attachSessionSandbox } from "../sandbox/session-sandbox"
 import { TERMINAL_PORT } from "./terminal"
@@ -21,6 +22,11 @@ const HIDDEN_PORTS = [8080, 8790, TERMINAL_PORT]
 // app); public on Blaxel's, where a private preview's cookie would be a
 // blocked third-party cookie in the iframe.
 const ACCESS = env.LOR_PREVIEW_DOMAIN ? "private" : "public"
+if (ACCESS === "public" && env.BL_API_KEY) {
+  logger.warn(
+    "LOR_PREVIEW_DOMAIN is unset: Browser tab previews are public, so anyone with a preview URL can open it"
+  )
+}
 
 // Listening TCP ports from /proc/net/tcp*, each with whether it binds only to
 // loopback and the name of the process that owns it. The image has no ss,
