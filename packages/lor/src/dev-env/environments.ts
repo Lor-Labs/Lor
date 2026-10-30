@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import { and, db, eq, inArray, schema } from "@repo/db"
@@ -139,8 +140,8 @@ async function repoFiles(environmentId: string, repoFullName: string) {
 // is deleted. Inside .git, so it is never committed.
 const MANIFEST = ".git/info/lor-env-files"
 
-// Lists each env file in .git/info/exclude first and writes it only after,
-// so none is ever committed even when the repo does not ignore it. A path git
+// Lists each env file in .git/info/exclude first and moves it into place only
+// after, so none is ever committed even when the repo does not ignore it. A path git
 // already tracks is skipped: excludes don't cover tracked files. Files from
 // the last write that are gone from the environment are deleted when they
 // still start with Lor's header.
@@ -172,17 +173,38 @@ export async function writeEnvironmentFiles(input: {
     files = files.filter((file) => !tracked.has(file.path))
   }
 
+  // A turn (worker) and a saved edit (API) can write at once. Files are
+  // staged inside .git (never committed), then one command under a sandbox
+  // flock sets up excludes, updates the manifest and moves them into place.
+  const stage = `.git/info/lor-env-${randomUUID()}`
+  try {
+    for (const file of files) {
+      await input.sandbox.writeTextFile({
+        path: posix.join(input.workDir, stage, file.path),
+        content: renderEnvFile(file.vars),
+      })
+    }
+  } catch (err) {
+    await Promise.resolve(
+      input.sandbox.run({ command: `${cd} && rm -rf -- ${q(stage)}` })
+    ).catch(() => {})
+    throw err
+  }
+
   const paths = files.map((file) => q(file.path)).join(" ")
   const prepared = await input.sandbox.run({
     command: [
       `${cd} && mkdir -p .git/info || exit 1`,
+      `stage=${q(stage)}; trap 'rm -rf -- "$stage"' EXIT`,
+      `exec 9> .git/info/lor-env.lock && flock -w 60 9 || exit 1`,
       `set -- ${paths}`,
       // A repo .gitignore negation (`!.env.local`) beats info/exclude.
       `for p in "$@"; do grep -qxF "/$p" .git/info/exclude 2>/dev/null || echo "/$p" >> .git/info/exclude || exit 1; git check-ignore -q -- "$p" || { echo "git does not ignore $p" >&2; exit 1; }; done`,
       `printf '%s\\n' "$@" > ${MANIFEST}.next || exit 1`,
-      // A stale file that can't be deleted stays listed for the next write.
-      `if [ -f ${MANIFEST} ]; then while IFS= read -r old; do keep=; for p in "$@"; do [ "$p" = "$old" ] && keep=1; done; if [ -z "$keep" ] && [ -f "$old" ] && ! git ls-files --error-unmatch -- "$old" >/dev/null 2>&1 && head -n 1 -- "$old" | grep -qxF ${q(HEADER)}; then rm -f -- "$old" || printf '%s\\n' "$old" >> ${MANIFEST}.next; fi; done < ${MANIFEST}; fi`,
-      `mv -f ${MANIFEST}.next ${MANIFEST}`,
+      // A stale file that can't be read or deleted stays listed for the next write.
+      `if [ -f ${MANIFEST} ]; then while IFS= read -r old; do keep=; for p in "$@"; do [ "$p" = "$old" ] && keep=1; done; [ -n "$keep" ] && continue; [ -f "$old" ] || continue; git ls-files --error-unmatch -- "$old" >/dev/null 2>&1 && continue; first=$(head -n 1 -- "$old") || { printf '%s\\n' "$old" >> ${MANIFEST}.next; continue; }; [ "$first" = ${q(HEADER)} ] || continue; rm -f -- "$old" || printf '%s\\n' "$old" >> ${MANIFEST}.next; done < ${MANIFEST}; fi`,
+      `mv -f ${MANIFEST}.next ${MANIFEST} || exit 1`,
+      `for p in "$@"; do mkdir -p -- "$(dirname -- "$p")" && mv -f -- "$stage/$p" "$p" || exit 1; done`,
     ].join("\n"),
   })
   if (prepared.exitCode !== 0) {
@@ -191,12 +213,6 @@ export async function writeEnvironmentFiles(input: {
       "Environment files: git exclude failed"
     )
     throw new Error("Environment files: git exclude failed")
-  }
-  for (const file of files) {
-    await input.sandbox.writeTextFile({
-      path: posix.join(input.workDir, file.path),
-      content: renderEnvFile(file.vars),
-    })
   }
   return files.length
 }
