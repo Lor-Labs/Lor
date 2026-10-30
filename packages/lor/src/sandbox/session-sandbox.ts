@@ -36,39 +36,16 @@ const WAIT_MAX_MS = 1000
 
 export const SESSION_WORK_DIR = WORKSPACE_MOUNT
 
-// Egress limits (reference/planned/sandbox-safety-research.md §7): reads to
-// any host, writes only for git fetch and npm audit. They bind tools that use
-// HTTP_PROXY/HTTPS_PROXY (curl, git, npm, pip, Python, and Node with
-// NODE_USE_ENV_PROXY); raw sockets get past them. The `proxy` firewall
-// ruleset that would force all traffic through is off: since 2026-10-23
-// Blaxel puts ephemeral volumes only on Carbon, which has no firewalling yet.
-// The network is fixed at creation, so the label marks sandboxes with the
-// current limits; bump the version to replace older ones.
+// Egress is open (Jacob, 2026-10-28; reference/dev-environment-runbook.md
+// §2): dev servers and env files need to reach their APIs. The proxy stays
+// for per-turn credential routing (grantHarnessAccess). updateNetwork
+// replaces the whole config (checked 2026-10-29), so a config without
+// allowedDomains clears an older allowlist. Version 1 sandboxes were made
+// with the old GET-only allowlist and are opened when next used.
 const EGRESS_LABEL = "lor-egress"
-const EGRESS_VERSION = "1"
-// Code session checkpoints push and fetch Lor's own Code Storage org with a
-// token for one session branch (code-checkpoints.ts). Added without a version
-// bump: a bump would replace live sandboxes and lose their work, so older
-// sandboxes skip checkpoints until they are replaced.
-const checkpointHost = env.CODE_STORAGE_ORG
-  ? `${env.CODE_STORAGE_ORG}.code.storage`
-  : null
-const SESSION_NETWORK = {
-  allowedDomains: [
-    "GET:HEAD:OPTIONS:*",
-    "POST:github.com/*git-upload-pack",
-    "POST:gitlab.com/*git-upload-pack",
-    "POST:bitbucket.org/*git-upload-pack",
-    "POST:registry.npmjs.org/-/npm/v1/security/",
-    ...(checkpointHost
-      ? [
-          `POST:${checkpointHost}/*git-upload-pack`,
-          `POST:${checkpointHost}/*git-receive-pack`,
-        ]
-      : []),
-  ],
-  proxy: { routing: [] },
-}
+const EGRESS_VERSION = "2"
+const OLD_EGRESS_VERSIONS = new Set(["1"])
+const SESSION_NETWORK = { proxy: { routing: [] } }
 // Debian's git ignores SSL_CERT_FILE, so it would reject the proxy's CA.
 const GIT_PROXY_CA =
   'if [ -n "$SSL_CERT_FILE" ]; then export GIT_SSL_CAINFO="$SSL_CERT_FILE"; fi; '
@@ -92,9 +69,8 @@ const CLAUDE_CODE_ENV = {
 }
 
 // A harness turn's model credential (code-sessions-runbook.md chunks 7 and
-// 8): the sandbox may POST to the model API, and the proxy fills in the
-// credential wherever the CLI sends its placeholder, so it never enters the
-// sandbox. Claude Code uses the turn owner's subscription token; Codex uses
+// 8): the proxy fills in the credential wherever the CLI sends its
+// placeholder to the model API, so it never enters the sandbox. Claude Code uses the turn owner's subscription token; Codex uses
 // Lor's AI Gateway key. Sandbox code can use the placeholder too while the
 // rule exists: grant it for the turn and revoke it when the turn ends.
 // Network changes apply to a running sandbox.
@@ -115,7 +91,6 @@ export async function grantHarnessAccess(
       : [GATEWAY_HOST, { gateway: access.gatewayKey }]
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: {
-      allowedDomains: [...SESSION_NETWORK.allowedDomains, `POST:${host}/*`],
       proxy: { routing: [{ destinations: [host], headers: {}, secrets }] },
     },
   })
@@ -157,8 +132,19 @@ export async function harnessBridgeEndpoint(
   }
 }
 
+function egressVersion(sandbox: SandboxInstance): string | undefined {
+  return sandbox.metadata.labels?.[EGRESS_LABEL]
+}
+
+// Made by Lor with a known network config: current, or an older one that
+// openSessionSandbox brings up to date in place (never replaced: it holds the
+// session's files).
 function hasEgressLimits(sandbox: SandboxInstance): boolean {
-  return sandbox.metadata.labels?.[EGRESS_LABEL] === EGRESS_VERSION
+  const version = egressVersion(sandbox)
+  return (
+    version === EGRESS_VERSION ||
+    (version !== undefined && OLD_EGRESS_VERSIONS.has(version))
+  )
 }
 
 // Blaxel's QUOTA_EXCEEDED means the account's tier memory limit is reached,
@@ -312,6 +298,11 @@ export async function openSessionSandbox(
           })
         : null
     if (health?.healthy) {
+      // Labels can't change, so this repeats on each open until the old
+      // sandbox is replaced; one control-plane call.
+      if (egressVersion(existing) !== EGRESS_VERSION) {
+        await SandboxInstance.updateNetwork(name, { network: SESSION_NETWORK })
+      }
       const bridgeRunning = await stopLeftoverCommands(
         existing,
         name,

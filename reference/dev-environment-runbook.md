@@ -201,8 +201,13 @@ first load). The client behavior is the same.
   - The image has no `tmux` or `zsh` (Node 22): step 4 rebuilds it.
   - Not checked: Vite without the allowed-hosts variable, Next.js, the
     desktop app's iframe.
-- [ ] **1. Seam.** `exposePort`, `revokePort`, `ensureProcess`,
-  `portReady` on Blaxel; turn fencing leaves `preview-`/`terminal-` alone.
+- [x] **1. Seam.** Built 2026-10-29 in
+  `packages/lor/src/sandbox/sandbox-ports.ts`: `exposePort` (stable name,
+  random `prefixUrl`, `LOR_PREVIEW_DOMAIN` as Blaxel `customDomain` when
+  set; private ports return a `bl_preview_token`), `revokePort`,
+  `ensureProcess` (named, not keepAlive), `stopProcess`, `listProcesses`,
+  `portReady`. None creates a sandbox. Turn fencing already stops only
+  `run-`/`spawn-`/`bridge-`.
 - [ ] **2. Environments.** Schema (additive `db:push`), API (read keys,
   reveal, write), settings UI in the code session, write per turn +
   `.git/info/exclude`, open the egress allowlist.

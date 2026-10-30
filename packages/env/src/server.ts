@@ -94,6 +94,10 @@ const serverSchema = z.object({
   // Where session sandboxes are created. It must offer ephemeral volumes and
   // the egress proxy (us-pdx-1 checked 2026-10-23).
   BL_REGION: defaultedString("us-pdx-1"),
+  // Custom domain registered in Blaxel for preview URLs (e.g.
+  // preview.lor.chat), so a private preview's cookie is same-site with the
+  // web app. Unset: Blaxel's own preview domain.
+  LOR_PREVIEW_DOMAIN: z.string().min(1).optional(),
   // Custom sandbox image (pushed via `bl push` from packages/lor/sandbox-image).
   LOR_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),
