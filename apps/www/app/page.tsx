@@ -1,11 +1,18 @@
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import Image from "next/image"
-import { BetaSignup } from "@/app/components/beta-signup"
 import { ClosingCTA } from "@/app/components/closing-cta"
+import { DemoVideo } from "@/app/components/demo-video"
+import { FAQ } from "@/app/components/faq"
 import { SiteFooter } from "@/app/components/site-footer"
 import { VisionSections } from "@/app/components/vision-sections"
+import { WaitlistForm } from "@/app/components/waitlist-form"
 import { WorkspaceStory } from "@/app/components/workspace-story"
+import {
+  BETA_INVITES_DATE,
+  BETA_INVITES_LABEL,
+  DEMO_VIDEO,
+} from "@/app/lib/launch"
 
 function Hero() {
   return (
@@ -39,20 +46,33 @@ function Hero() {
               Research, build, and make decisions with AI in a shared workspace.
               Your team can join in and pick up where you left off.
             </p>
-            <div className="mt-8 flex flex-wrap items-center gap-6">
-              <BetaSignup />
+            <div className="mt-8">
+              <WaitlistForm />
+              <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+                Beta invites start{" "}
+                <time dateTime={BETA_INVITES_DATE}>{BETA_INVITES_LABEL}</time>.
+              </p>
               <a
                 href="#workspace"
-                className="inline-flex min-h-11 items-center gap-2 text-sm text-foreground/60 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
+                className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm text-foreground/60 transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
               >
-                See it in action{" "}
+                {DEMO_VIDEO.src ? "Watch the demo" : "Explore the workspace"}{" "}
                 <HugeiconsIcon icon={ArrowDown01Icon} size={15} />
               </a>
             </div>
           </div>
         </div>
         <div id="workspace" className="mt-16 scroll-mt-28 md:mt-20">
-          <WorkspaceStory />
+          {DEMO_VIDEO.src ? (
+            <DemoVideo />
+          ) : (
+            <>
+              <WorkspaceStory />
+              <p className="mt-4 text-center text-sm text-muted-foreground">
+                An illustrated preview of working together in Lor.
+              </p>
+            </>
+          )}
         </div>
       </div>
     </section>
@@ -65,6 +85,7 @@ export default function Home() {
       <main id="main-content">
         <Hero />
         <VisionSections />
+        <FAQ />
         <ClosingCTA />
       </main>
       <SiteFooter />

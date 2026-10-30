@@ -10,7 +10,8 @@ const GROUPS: LinkGroup[] = [
       { label: "Why Lor", href: "/#why" },
       { label: "The workspace", href: "/#workspace" },
       { label: "What you can do", href: "/#vision" },
-      { label: "Join the beta", href: "/#early-access" },
+      { label: "FAQ", href: "/#faq" },
+      { label: "Join the waitlist", href: "/#early-access" },
     ],
   },
 ]

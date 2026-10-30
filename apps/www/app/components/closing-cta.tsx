@@ -1,6 +1,6 @@
-import { BetaSignup } from "@/app/components/beta-signup"
 import { Reveal } from "@/app/components/reveal"
-import { MACOS_DMG_URL } from "@/app/lib/urls"
+import { WaitlistForm } from "@/app/components/waitlist-form"
+import { BETA_INVITES_DATE, BETA_INVITES_LABEL } from "@/app/lib/launch"
 
 export function ClosingCTA() {
   return (
@@ -15,28 +15,19 @@ export function ClosingCTA() {
       <Reveal>
         <div className="relative mx-auto flex max-w-2xl flex-col items-center text-center">
           <p className="font-mono text-xs text-foreground/50 uppercase tracking-[0.2em]">
-            Free beta
+            Join the waitlist
           </p>
           <h2 className="mt-6 text-balance font-semibold text-4xl leading-[1.05] tracking-[-0.03em] md:text-[56px]">
             Bring the work.
             <span className="block">Get it done as a team.</span>
           </h2>
-          {/* The offer mirrors BETA_POLICY (packages/billing). */}
           <p className="mt-6 max-w-md text-pretty text-[16px] text-muted-foreground leading-relaxed">
-            Free for early teams. Keep $20 a seat for life when you subscribe.
+            We&rsquo;ll start inviting teams on{" "}
+            <time dateTime={BETA_INVITES_DATE}>{BETA_INVITES_LABEL}</time>.
+            Leave your email and we&rsquo;ll let you know when it&rsquo;s your
+            turn.
           </p>
-          <div className="mt-10 flex w-full max-w-xs flex-col gap-3">
-            <BetaSignup className="w-full" />
-            <a
-              href={MACOS_DMG_URL}
-              className="inline-flex h-12 w-full items-center justify-center rounded-full border border-foreground/15 font-medium text-[15px] text-foreground transition-colors hover:bg-foreground/[0.04] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
-            >
-              Download for Mac
-            </a>
-          </div>
-          <p className="mt-4 text-[13px] text-muted-foreground">
-            Requires an Apple Silicon Mac
-          </p>
+          <WaitlistForm className="mt-10" align="center" />
         </div>
       </Reveal>
     </section>

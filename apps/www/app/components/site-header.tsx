@@ -3,12 +3,12 @@
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { LorMark } from "@/app/components/lor-mark"
-import { SIGNUP_URL } from "@/app/lib/urls"
 
 const NAV_LINKS = [
   { href: "/#why", label: "Why Lor" },
   { href: "/#workspace", label: "The workspace" },
   { href: "/#vision", label: "What you can do" },
+  { href: "/#faq", label: "FAQ" },
 ]
 
 export function SiteHeader() {
@@ -61,7 +61,7 @@ export function SiteHeader() {
           </Link>
           <nav
             aria-label="Main navigation"
-            className="hidden items-center gap-8 md:flex"
+            className="hidden items-center gap-8 lg:flex"
           >
             {NAV_LINKS.map((link) => (
               <Link
@@ -75,11 +75,11 @@ export function SiteHeader() {
           </nav>
           <div className="flex items-center gap-2">
             <Link
-              href={SIGNUP_URL}
+              href="/#early-access"
               onClick={() => setMenuOpen(false)}
               className="inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-[13px] font-medium text-background transition-transform duration-200 hover:bg-foreground/90 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
             >
-              Join the beta
+              Join the waitlist
             </Link>
             <button
               ref={menuButtonRef}
@@ -88,7 +88,7 @@ export function SiteHeader() {
               aria-expanded={menuOpen}
               aria-controls="mobile-navigation"
               onClick={() => setMenuOpen(!menuOpen)}
-              className="relative flex size-11 cursor-pointer items-center justify-center rounded-full border border-foreground/15 focus-visible:outline-2 focus-visible:outline-agent md:hidden"
+              className="relative flex size-11 cursor-pointer items-center justify-center rounded-full border border-foreground/15 focus-visible:outline-2 focus-visible:outline-agent lg:hidden"
             >
               <span
                 aria-hidden="true"
@@ -105,7 +105,7 @@ export function SiteHeader() {
           id="mobile-navigation"
           aria-label="Mobile navigation"
           hidden={!menuOpen}
-          className="border-t border-foreground/10 py-3 md:hidden"
+          className="border-t border-foreground/10 py-3 lg:hidden"
         >
           {NAV_LINKS.map((link) => (
             <Link

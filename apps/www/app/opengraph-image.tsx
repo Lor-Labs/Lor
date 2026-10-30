@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og"
+import { BETA_INVITES_LABEL } from "@/app/lib/launch"
 
-export const alt =
-  "Lor: Work with AI, together. Shared context. Research, code, and decisions."
+export const alt = `Lor: Work with AI, together. Join the waitlist. Beta invites start ${BETA_INVITES_LABEL}.`
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 
@@ -46,7 +46,7 @@ export default function OpengraphImage() {
           letterSpacing: "-0.01em",
         }}
       >
-        Shared context. Research, code, and decisions.
+        Join the waitlist. Beta invites start November 6.
       </div>
     </div>,
     size

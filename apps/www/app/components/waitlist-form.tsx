@@ -122,7 +122,7 @@ export function WaitlistForm({
       <form
         noValidate
         onSubmit={handleSubmit}
-        aria-label="Early access"
+        aria-label="Join the waitlist"
         className="flex flex-col gap-2 sm:flex-row"
       >
         <label htmlFor={emailId} className="sr-only">
@@ -165,7 +165,11 @@ export function WaitlistForm({
           aria-busy={isSubmitting}
           className={`group inline-flex h-12 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full bg-gradient-to-b from-agent to-primary pr-5 pl-6 font-medium text-[15px] text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_1px_2px_rgba(0,0,0,0.3),0_4px_10px_-2px_rgba(97,60,214,0.4),0_10px_24px_-6px_rgba(97,60,214,0.3)] transition-all duration-300 ${EASE} hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60`}
         >
-          {isSubmitting ? "Adding you…" : "Get early access"}
+          {isSubmitting
+            ? "Adding you…"
+            : isComplete
+              ? "On the list"
+              : "Join the waitlist"}
           <HugeiconsIcon
             icon={ArrowRight02Icon}
             size={16}
@@ -175,7 +179,7 @@ export function WaitlistForm({
         </button>
       </form>
       <div
-        className={`absolute inset-x-0 top-full mt-3 text-[13px] leading-relaxed ${
+        className={`mt-3 text-[13px] leading-relaxed ${
           align === "center" ? "text-center" : "px-5"
         }`}
       >
@@ -189,9 +193,9 @@ export function WaitlistForm({
         </p>
         <p role="status" aria-atomic="true" className="text-agent">
           {state.status === "success"
-            ? "You're on the list. We'll be in touch."
+            ? "You're on the waitlist. We'll email you when your team can join."
             : state.status === "duplicate"
-              ? "You're already on the list. We'll be in touch."
+              ? "You're already on the waitlist. We'll email you when your team can join."
               : null}
         </p>
       </div>
