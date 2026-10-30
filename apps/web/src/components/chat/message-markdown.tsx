@@ -30,6 +30,9 @@ const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
 // source, enriched with its verified title + url at grounding time), or
 // [[call:<id>@<ms>|<channel>|<startedAt>]] (a moment in a past call).
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
+// Markdown images load only from the file CDN (Lor's shared files); the API
+// origin is left out because its favicon proxy fetches arbitrary hosts.
+const TRUSTED_IMAGE_PREFIX = `${env.NEXT_PUBLIC_S3_PUBLIC_URL}/`
 
 // Escapes for both text and double-quoted attribute contexts (data-id below),
 // so a citation token can't break out of its attribute.
@@ -392,6 +395,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
         // codeblock + table UI; only the dark theme is overridden to keep
         // parity with the rest of the app's chrome.
         shikiTheme={CODE_THEMES}
+        trustedImagePrefix={TRUSTED_IMAGE_PREFIX}
         // Keys here are matched by hast-util-sanitize against the HAST property
         // names, which rehype-raw camelCases — so it MUST be `dataId`/`dataUrl`,
         // not `data-id`/`data-url`. With the hyphenated form the attribute is

@@ -30,7 +30,7 @@ export const getThreadContext = createRoute({
   request: {
     params: threadContextParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: threadContextResponseSchema,
@@ -56,7 +56,7 @@ export const getRunEvents = createRoute({
     params: runEventsParamsSchema,
     query: runEventsQuerySchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: runEventsResponseSchema,
@@ -82,7 +82,7 @@ export const stopRun = createRoute({
   request: {
     params: runEventsParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: stopRunResponseSchema,
@@ -109,7 +109,7 @@ export const steerQueuedMessage = createRoute({
   request: {
     params: runEventsParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: stopRunResponseSchema,
@@ -136,7 +136,7 @@ export const removeQueuedMessage = createRoute({
   request: {
     params: runEventsParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: removeQueuedResponseSchema,

@@ -30,7 +30,7 @@ export const getArtifact = createRoute({
   request: {
     params: artifactParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: getArtifactResponseSchema,
@@ -56,7 +56,7 @@ export const listPlanArtifacts = createRoute({
   request: {
     params: planArtifactsParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listPlanArtifactsResponseSchema,
@@ -78,7 +78,7 @@ export const listChannelFiles = createRoute({
   tags: ["Artifacts"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: channelFilesParamsSchema, query: channelFilesQuerySchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: channelFilesResponseSchema,

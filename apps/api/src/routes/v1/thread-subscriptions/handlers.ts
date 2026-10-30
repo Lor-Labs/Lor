@@ -4,9 +4,11 @@ import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { subscribeToThread } from "@repo/db/queries/thread-subscriptions"
 import { sendSubscribedPush } from "@repo/messaging"
 import { type SubscribedNotification, userRoom } from "@repo/realtime-types"
+import { HTTPException } from "hono/http-exception"
 import { getEmitter } from "@/lib/bot-messages"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
+import { hasWorkspaceAuthority } from "@/lib/permissions"
 import { userCanAccessChannel } from "@/lib/queries/channel-access"
 import { getRedisClient } from "@/lib/redis"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -30,7 +32,10 @@ async function findUsableThread(args: {
   userId: string
 }) {
   const root = await db
-    .select({ channelName: schema.channel.name })
+    .select({
+      channelName: schema.channel.name,
+      authorId: schema.message.authorId,
+    })
     .from(schema.message)
     .innerJoin(schema.channel, eq(schema.message.channelId, schema.channel.id))
     .where(
@@ -163,12 +168,22 @@ export const subscribeEveryone: AppRouteHandler<
   return c.json({ added: added.length }, HttpStatusCodes.OK)
 }
 
+const ADDED_NOTIFY_WINDOW_SECONDS = 10 * 60
+
 // Being added notifies like a mention: an OS notification on open clients,
-// a push on offline phones.
+// a push on offline phones. At most once per person and thread per window,
+// so remove/add cycles can't spam pushes.
 async function notifyAddedSubscriber(input: {
   userId: string
   notification: Omit<SubscribedNotification, "sessionId" | "title">
 }) {
+  const redis = await getRedisClient()
+  const first = await redis.set(
+    `lor:thread-added:${input.notification.threadRootId}:${input.userId}`,
+    "1",
+    { NX: true, EX: ADDED_NOTIFY_WINDOW_SECONDS }
+  )
+  if (first !== "OK") return
   const session = await findAgentSessionByThreadRoot(
     input.notification.threadRootId
   )
@@ -182,7 +197,7 @@ async function notifyAddedSubscriber(input: {
   await sendSubscribedPush({
     userId: input.userId,
     notification,
-    redis: await getRedisClient(),
+    redis,
   })
 }
 
@@ -191,15 +206,27 @@ export const removeThreadSubscriber: AppRouteHandler<
 > = async (c) => {
   const workspace = c.var.workspace
   const { channelId, threadRootId, userId } = c.req.valid("param")
+  const thread = await findUsableThread({
+    workspaceId: workspace.id,
+    channelId,
+    threadRootId,
+    userId: c.var.user.id,
+  })
+  if (!thread) return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+
+  // Anyone may unfollow. Removing someone else is for whoever started the
+  // thread (the session's creator, else the root's author) or a moderator.
   if (
-    !(await findUsableThread({
-      workspaceId: workspace.id,
-      channelId,
-      threadRootId,
-      userId: c.var.user.id,
-    }))
+    userId !== c.var.user.id &&
+    !hasWorkspaceAuthority(c.var.authority, { message: ["delete"] })
   ) {
-    return c.json(notFound, HttpStatusCodes.NOT_FOUND)
+    const session = await findAgentSessionByThreadRoot(threadRootId)
+    const starter = session ? session.creatorId : thread.authorId
+    if (starter !== c.var.user.id) {
+      throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
+        message: "Only the thread's starter can remove other people",
+      })
+    }
   }
 
   await db

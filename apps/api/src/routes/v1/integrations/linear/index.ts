@@ -161,15 +161,21 @@ linearRouter.post("/integrations/linear/webhook", async (c) => {
     return c.json({ ok: false }, 413)
   }
   const signature = c.req.header("linear-signature") ?? ""
-  const timestamp = c.req.header("linear-timestamp")
   let event: LinearEvent
   try {
+    // Replay guard on the signed body's webhookTimestamp (the SDK rejects it
+    // past 60s), never the unsigned linear-timestamp header.
+    const signedAt = (JSON.parse(raw) as { webhookTimestamp?: unknown })
+      .webhookTimestamp
+    if (typeof signedAt !== "number" || !(signedAt > 0)) {
+      throw new Error("Missing webhookTimestamp")
+    }
     // The SDK union's `data` variants share no common shape, so it can't
     // structurally narrow — assert to the fields we read (all optional).
     event = webhook.parseData(
       Buffer.from(raw),
       signature,
-      timestamp
+      signedAt
     ) as unknown as LinearEvent
   } catch (err) {
     logger.warn({ err }, "Linear webhook verification failed")

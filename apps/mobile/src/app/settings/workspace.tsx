@@ -1,3 +1,4 @@
+import { presignedUploadHeaders } from "@repo/realtime-types/uploads"
 import { useQueryClient } from "@tanstack/react-query"
 import { File, UploadType } from "expo-file-system"
 import * as ImagePicker from "expo-image-picker"
@@ -56,7 +57,7 @@ async function uploadIcon(
 
   const file = new File(picked.uri)
   const task = file.createUploadTask(uploadUrl, {
-    headers: { "Content-Type": picked.contentType },
+    headers: presignedUploadHeaders(picked.contentType),
     httpMethod: "PUT",
     mimeType: picked.contentType,
     sessionType: "foreground",

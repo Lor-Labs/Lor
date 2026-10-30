@@ -12,6 +12,7 @@ import {
   type SQL,
   sql,
 } from "@repo/db"
+import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import {
   type Attachment,
   agentRun,
@@ -119,12 +120,13 @@ const attachmentField = (key: keyof Attachment) =>
 export async function fetchChannelFiles(args: {
   channelId: string
   workspaceId: string | null
+  userId: string
   q: string
   kind: "all" | "artifact" | "upload"
   limit: number
   cursor: z.infer<typeof fileCursorSchema> | null
 }) {
-  const { channelId, workspaceId, q, kind, limit, cursor } = args
+  const { channelId, workspaceId, userId, q, kind, limit, cursor } = args
   const pattern = `%${q.replace(/[\\%_]/g, "\\$&")}%`
   // Each query filters, orders and limits on its own index (the message one
   // stops early on message_channelId_createdAt_idx); the page merges them.
@@ -201,6 +203,8 @@ export async function fetchChannelFiles(args: {
         and(
           kind === "artifact" ? sql`false` : undefined,
           eq(message.channelId, channelId),
+          // Live-only rule: uploads in a live call's chat stay with the call.
+          visibleToSessionChatFilter(userId, message.threadRootId),
           q ? ilike(uploadName, pattern) : undefined,
           olderThanCursor(message.createdAt, uploadFileId)
         )

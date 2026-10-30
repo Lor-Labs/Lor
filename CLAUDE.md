@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm run build          # Build all packages (turbo)
-pnpm run dev            # Start all dev servers (web on 3000, www on 3001)
+pnpm run dev            # Pick dev servers interactively (web on 3000, www on 3001); --all skips the picker
 pnpm run check          # Biome lint + format check
 pnpm run check:fix      # Biome auto-fix
 pnpm run check-types    # TypeScript type checking across all packages
@@ -29,7 +29,7 @@ This is a pnpm + Turborepo monorepo for **Lor** — the AI multiplayer workspace
 - `apps/web` — Vite + TanStack Router SPA, main app (React 19, client-rendered, no SSR, port 3000)
 - `apps/www` — Next.js 16.1.6 marketing site (React 19, App Router, port 3001)
 - `apps/api` — Hono API server (`@repo/api`), OpenAPI via `@hono/zod-openapi`
-- `apps/realtime` — Socket.IO realtime gateway (`@repo/realtime`, defaults to port 8081)
+- `apps/realtime` — Socket.IO realtime gateway (`@repo/realtime`, defaults to port 8000)
 - `packages/auth` — Auth package (`@repo/auth`), better-auth + Drizzle adapter
 - `packages/db` — Database package (`@repo/db`), Drizzle ORM + Postgres
 - `packages/env` — Environment validation (`@repo/env`), Zod schemas for server/client env

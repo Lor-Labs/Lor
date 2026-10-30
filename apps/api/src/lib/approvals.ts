@@ -1,9 +1,11 @@
 import {
   type ApprovalResolverSpec,
   approvalPolicyResolverSpec,
+  canResolveApproval,
 } from "@repo/auth/permissions"
 import { and, db, eq, inArray, schema, sql } from "@repo/db"
 import type { Approval } from "@repo/db/schema"
+import { resolveWorkspaceAuthority } from "@/lib/permissions"
 
 export function serializeApproval(row: Approval) {
   return {
@@ -20,10 +22,52 @@ export function serializeApproval(row: Approval) {
   }
 }
 
+// Same rule as the resolve endpoint (the caller already checked the channel).
+async function canResolveAll(
+  run: { workspaceId: string; claudeCodeUserId: string | null },
+  pending: Pick<Approval, "id" | "kind" | "target">[],
+  userId: string
+): Promise<boolean> {
+  const row = await db
+    .select({
+      role: schema.workspaceMember.role,
+      userId: schema.workspaceMember.userId,
+      ownerId: schema.workspace.ownerId,
+    })
+    .from(schema.workspaceMember)
+    .innerJoin(
+      schema.workspace,
+      eq(schema.workspace.id, schema.workspaceMember.workspaceId)
+    )
+    .where(
+      and(
+        eq(schema.workspaceMember.workspaceId, run.workspaceId),
+        eq(schema.workspaceMember.userId, userId)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!row) return false
+  const authority = await resolveWorkspaceAuthority(row, {
+    id: run.workspaceId,
+    ownerId: row.ownerId,
+  })
+  const specs = await loadApprovalResolvers(run.workspaceId, pending)
+  return pending.every((approval) => {
+    if (approval.kind === "claude_code") return run.claudeCodeUserId === userId
+    const spec = specs.get(approval.id)
+    return spec
+      ? canResolveApproval(authority, spec, userId)
+      : authority.isOwner
+  })
+}
+
 // Stop on a turn paused on approvals (chat Stop, or cancel in a call): the turn
 // just ends, with no reply. Its pending rows close and the paused run is
 // marked stopped, so the session's next run drops the turn instead of
 // finishing it. Empty when nothing was pending: a decided set already resumes.
+// A rejecting stopper who couldn't resolve every row still ends the turn, but
+// the rows close as expired with no resolver, not as their rejection.
 export async function stopPausedTurn(
   runId: string,
   userId: string,
@@ -31,14 +75,42 @@ export async function stopPausedTurn(
 ): Promise<Approval[]> {
   return db.transaction(async (tx) => {
     // Serializes with resolutions of the same set (the resolve endpoint).
-    await tx
-      .select({ id: schema.agentRun.id })
+    const run = await tx
+      .select({
+        workspaceId: schema.agentRun.workspaceId,
+        claudeCodeUserId: sql<
+          string | null
+        >`${schema.agentRun.context} ->> 'claudeCodeUserId'`,
+      })
       .from(schema.agentRun)
       .where(eq(schema.agentRun.id, runId))
       .for("update")
+      .then((rows) => rows[0])
+    let outcome: { status: Approval["status"]; resolvedBy: string | null } = {
+      status,
+      resolvedBy: userId,
+    }
+    if (status === "rejected") {
+      const pending = await tx
+        .select({
+          id: schema.approval.id,
+          kind: schema.approval.kind,
+          target: schema.approval.target,
+        })
+        .from(schema.approval)
+        .where(
+          and(
+            eq(schema.approval.runId, runId),
+            eq(schema.approval.status, "pending")
+          )
+        )
+      if (!run || !(await canResolveAll(run, pending, userId))) {
+        outcome = { status: "expired", resolvedBy: null }
+      }
+    }
     const closed = await tx
       .update(schema.approval)
-      .set({ status, resolvedBy: userId, resolvedAt: new Date() })
+      .set({ ...outcome, resolvedAt: new Date() })
       .where(
         and(
           eq(schema.approval.runId, runId),

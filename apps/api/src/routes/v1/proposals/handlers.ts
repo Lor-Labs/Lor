@@ -53,7 +53,13 @@ export function serializeProposal(
       position: operation.position,
       kind: operation.kind,
       spec: operation.spec,
-      result: operation.result ?? null,
+      // Older webhook results stored the secret URL; never serve it.
+      result: operation.result
+        ? {
+            resourceId: operation.result.resourceId,
+            setupNote: operation.result.setupNote,
+          }
+        : null,
       error: operation.error,
     })),
     requiredPermissions: proposalPermissions(
@@ -554,7 +560,7 @@ export const approveProposal: AppRouteHandler<ApproveProposalRoute> = async (
   const settledOps = operations.get(proposalId) ?? ops
 
   // Both outcomes post into the card thread as the approver and start the
-  // continuation: on success Lor gets the apply results (webhook URL and
+  // continuation: on success Lor gets the apply results (setup notes and
   // friends) to finish integration; on failure it gets the error to revise.
   // Best-effort — the config outcome is already durable.
   const content = outcome.ok

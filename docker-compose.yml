@@ -42,6 +42,9 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    # Every server variable (AI Gateway, Blaxel, encryption key, ...) comes
+    # from .env; the entries below override it for the Compose network.
+    env_file: .env
     ports:
       - "8080:8080"
     environment:
@@ -58,7 +61,7 @@ services:
       S3_REGION: ${S3_REGION:-auto}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL}
       RESEND_API_KEY: ${RESEND_API_KEY}
-      EMAIL_FROM: ${EMAIL_FROM:-Lor <noreply@team.lor.chat>}
+      EMAIL_FROM: ${EMAIL_FROM}
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +73,7 @@ services:
       context: .
       dockerfile: apps/realtime/Dockerfile
     restart: unless-stopped
+    env_file: .env
     ports:
       - "8000:8000"
     environment:
@@ -87,7 +91,7 @@ services:
       S3_REGION: ${S3_REGION:-auto}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL}
       RESEND_API_KEY: ${RESEND_API_KEY}
-      EMAIL_FROM: ${EMAIL_FROM:-Lor <noreply@team.lor.chat>}
+      EMAIL_FROM: ${EMAIL_FROM}
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,6 +103,7 @@ services:
       context: .
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
+    env_file: .env
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://lor:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a random URL-safe password}@postgres:5432/lor
@@ -112,7 +117,7 @@ services:
       S3_PUBLIC_URL: ${S3_PUBLIC_URL}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       RESEND_API_KEY: ${RESEND_API_KEY}
-      EMAIL_FROM: ${EMAIL_FROM:-Lor <noreply@team.lor.chat>}
+      EMAIL_FROM: ${EMAIL_FROM}
     depends_on:
       postgres:
         condition: service_healthy
@@ -126,6 +131,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
         NEXT_PUBLIC_REALTIME_URL: ${NEXT_PUBLIC_REALTIME_URL:-http://localhost:8000}
+        NEXT_PUBLIC_S3_PUBLIC_URL: ${NEXT_PUBLIC_S3_PUBLIC_URL:-${S3_PUBLIC_URL:-}}
     restart: unless-stopped
     ports:
       - "3000:3000"

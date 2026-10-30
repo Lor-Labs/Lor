@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3"
 import { env } from "@repo/env/server"
+import { uploadContentDisposition } from "@repo/realtime-types/uploads"
 
 const s3Client = new S3Client({
   region: env.S3_REGION,
@@ -41,6 +42,7 @@ export async function putArtifactObject(
       Body: body,
       ContentType: contentType,
       ContentLength: body.byteLength,
+      ContentDisposition: uploadContentDisposition(contentType),
     })
   )
 }

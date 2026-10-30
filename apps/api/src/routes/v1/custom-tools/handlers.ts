@@ -10,7 +10,10 @@ import {
 } from "@repo/lor/custom-tools"
 import { encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
-import { assertWorkspaceAuthority } from "@/lib/permissions"
+import {
+  assertWorkspaceAuthority,
+  hasWorkspaceAuthority,
+} from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateCustomToolRoute,
@@ -19,17 +22,92 @@ import type {
   UpdateCustomToolRoute,
 } from "@/routes/v1/custom-tools/routes"
 
+// Templates may embed literal credentials typed instead of {{secrets.*}}
+// references. Members without customTool:manage see placeholders as-is and
+// every other literal value (header, path segment, query value, fragment, body
+// value) masked.
+const MASK = "••••••"
+const PLACEHOLDER_REGEX = /\{\{[^}]*\}\}/g
+// Placeholders, strings (keys keep their text) and numbers, in that order.
+const JSON_TOKEN_REGEX =
+  /\{\{[^}]*\}\}|"((?:[^"\\]|\\.)*)"(\s*:)?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g
+
+function placeholderOnly(value: string): boolean {
+  return value.replace(PLACEHOLDER_REGEX, "").trim() === ""
+}
+
+function redactedHeaders(headers: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [
+      name,
+      placeholderOnly(value) ? value : MASK,
+    ])
+  )
+}
+
+// Keeps the origin, path shape, query keys and placeholders; a hook path like
+// /services/T0/B0/secret can hold the credential itself.
+function redactedUrlTemplate(template: string): string {
+  const hashStart = template.indexOf("#")
+  const beforeHash = hashStart === -1 ? template : template.slice(0, hashStart)
+  const queryStart = beforeHash.indexOf("?")
+  const base = queryStart === -1 ? beforeHash : beforeHash.slice(0, queryStart)
+  const origin = /^[a-z][a-z0-9+.-]*:\/\/[^/]*/i.exec(base)?.[0] ?? ""
+  const path = base
+    .slice(origin.length)
+    .split("/")
+    .map((segment) =>
+      segment === "" || placeholderOnly(segment) ? segment : MASK
+    )
+    .join("/")
+  const query =
+    queryStart === -1
+      ? ""
+      : `?${beforeHash
+          .slice(queryStart + 1)
+          .split("&")
+          .map((pair) => {
+            const eq = pair.indexOf("=")
+            // A bare component (`?sk_live_…`) can be the credential itself.
+            if (eq === -1) return placeholderOnly(pair) ? pair : MASK
+            if (placeholderOnly(pair.slice(eq + 1))) return pair
+            return `${pair.slice(0, eq)}=${MASK}`
+          })
+          .join("&")}`
+  const fragment = hashStart === -1 ? null : template.slice(hashStart + 1)
+  const hash =
+    fragment === null ? "" : `#${placeholderOnly(fragment) ? fragment : MASK}`
+  return `${origin}${path}${query}${hash}`
+}
+
+function redactedBodyTemplate(body: string | null): string | null {
+  if (body === null || placeholderOnly(body)) return body
+  if (bodyTemplateJsonIssue(body) !== null) return MASK
+  return body.replace(
+    JSON_TOKEN_REGEX,
+    (match, inner: string | undefined, colon: string | undefined) => {
+      if (match.startsWith("{{") || colon) return match
+      if (inner !== undefined && placeholderOnly(inner)) return match
+      return `"${MASK}"`
+    }
+  )
+}
+
 // Secret values are write-only: stored encrypted, surfaced as names only.
-function toResponse(row: CustomTool, usedByProfiles: number) {
+function toResponse(row: CustomTool, usedByProfiles: number, reveal = true) {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     argsSchema: row.argsSchema,
     method: row.method,
-    urlTemplate: row.urlTemplate,
-    headers: row.headers,
-    bodyTemplate: row.bodyTemplate,
+    urlTemplate: reveal
+      ? row.urlTemplate
+      : redactedUrlTemplate(row.urlTemplate),
+    headers: reveal ? row.headers : redactedHeaders(row.headers),
+    bodyTemplate: reveal
+      ? row.bodyTemplate
+      : redactedBodyTemplate(row.bodyTemplate),
     secretNames: Object.keys(row.secrets),
     usedByProfiles,
     createdAt: row.createdAt.toISOString(),
@@ -79,8 +157,13 @@ export const listCustomTools: AppRouteHandler<ListCustomToolsRoute> = async (
     workspace.id,
     rows.map((r) => r.id)
   )
+  const reveal = hasWorkspaceAuthority(c.var.authority, {
+    customTool: ["manage"],
+  })
   return c.json(
-    { tools: rows.map((r) => toResponse(r, counts.get(r.id) ?? 0)) },
+    {
+      tools: rows.map((r) => toResponse(r, counts.get(r.id) ?? 0, reveal)),
+    },
     HttpStatusCodes.OK
   )
 }

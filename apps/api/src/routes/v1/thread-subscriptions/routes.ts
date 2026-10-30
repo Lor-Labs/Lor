@@ -33,7 +33,7 @@ export const listThreadSubscribers = createRoute({
   tags: ["Threads"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: threadSubscribersParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listThreadSubscribersResponseSchema,
@@ -54,7 +54,7 @@ export const addThreadSubscriber = createRoute({
   tags: ["Threads"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: threadSubscriberParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: threadSubscriptionChangeResponseSchema,
@@ -75,7 +75,7 @@ export const subscribeEveryone = createRoute({
   tags: ["Threads"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: threadSubscribersParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: subscribeEveryoneResponseSchema,
@@ -92,11 +92,11 @@ export const removeThreadSubscriber = createRoute({
   method: "delete",
   summary: "Unsubscribe someone from a thread",
   description:
-    "Unsubscribes the caller or anyone else. A later mention or message subscribes them again.",
+    "Unsubscribes the caller, or someone else when the caller started the thread or can delete others' messages. A later mention or message subscribes them again.",
   tags: ["Threads"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: threadSubscriberParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: threadSubscriptionChangeResponseSchema,

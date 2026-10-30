@@ -13,6 +13,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
+import { presignedUploadHeaders } from "@repo/realtime-types/uploads"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
@@ -395,7 +396,7 @@ function GeneralSection({
       const uploadRes = await fetch(uploadUrl, {
         method: "PUT",
         body: file,
-        headers: { "Content-Type": file.type },
+        headers: presignedUploadHeaders(file.type),
       })
       if (!uploadRes.ok) throw new Error("Failed to upload icon")
       return fileUrl

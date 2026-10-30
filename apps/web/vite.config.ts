@@ -45,6 +45,11 @@ export default defineConfig(({ mode }) => {
       "process.env.NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE": JSON.stringify(
         env.NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE
       ),
+      // An unset Docker build arg arrives as "", which must fall back to the
+      // schema default rather than fail validation.
+      "process.env.NEXT_PUBLIC_S3_PUBLIC_URL":
+        JSON.stringify(env.NEXT_PUBLIC_S3_PUBLIC_URL || undefined) ??
+        "undefined",
       __BUILD_ID__: JSON.stringify(BUILD_ID),
     },
   }

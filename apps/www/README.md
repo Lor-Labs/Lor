@@ -18,3 +18,11 @@ Rebuild and deploy www after updating the config. The recording replaces the
 illustrated workspace preview below the signup form.
 Without a video URL, the labeled illustration stays visible; there is no
 empty player. Playback uses native controls without autoplay.
+
+## GitHub stars
+
+The header links to `GITHUB_URL` in `app/lib/urls.ts` and reads the public
+repository's star count on the server. Next.js caches the count and
+revalidates it hourly on traffic; no GitHub token is required. If GitHub is
+unavailable, the button remains visible without a count. Opening the button
+takes visitors to GitHub, where they can star the repository themselves.

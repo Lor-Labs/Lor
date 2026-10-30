@@ -328,6 +328,6 @@ The pricing/cost material across the root documents, `reference/`, `planned/` an
 | [Artifacts](../artifacts.md), [session files](../session-files-runbook.md), [live collaboration](live-collaboration.md) | R2 and Postgres storage, versions, shared viewing and future realtime editing |
 | [Voice spec](../voice-channels.md), [voice runbook](../voice-channels-runbook.md), archived voice research | Self-hosted transcriber, microphone-stream costs, included memory; avoid obsolete hosted-agent cost assumptions |
 | [Loops](../loops.md), [automation primitives](../automation-primitives.md), connector docs | Autonomous work needs metered budgets; ingestion is distinct from requested agent execution |
-| [PIVOT](../../PIVOT.md), [README](../../README.md), [ROADMAP](../../ROADMAP.md), archived architecture | Historical $18/$20 and self-host/AGPL language are not sufficient evidence of the current offer; current positioning and implementation take precedence |
+| [README](../../README.md), [roadmap](../archive/roadmap.md), archived architecture | Historical $18/$20 and self-host/AGPL language are not sufficient evidence of the current offer; current positioning and implementation take precedence |
 
 Revisit the code-channel subscription section against the current provider terms before implementation. The official hosted-Claude-Code exception and OpenAI's current plan-sharing participation path deserve explicit treatment; neither means one employee's subscription becomes a team inference pool.

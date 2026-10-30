@@ -134,15 +134,65 @@ function MessageContent({ className, ...props }: MessageContentProps) {
   )
 }
 
-type MessageMarkdownProps = React.ComponentProps<typeof Streamdown>
+type MarkdownImageProps = React.ImgHTMLAttributes<HTMLImageElement> & {
+  node?: unknown
+  trustedPrefix?: string
+}
+
+// Markdown images load with no click, so a prompt-injected reply could leak
+// data in an image URL (zero-click exfiltration). Only images under
+// trustedPrefix (the app's file CDN) load; any other image becomes a link
+// that shows its URL.
+function MarkdownImage({ src, alt, title, trustedPrefix }: MarkdownImageProps) {
+  const url = typeof src === "string" ? src.trim() : ""
+  if (trustedPrefix && url.startsWith(trustedPrefix)) {
+    return (
+      <img
+        src={url}
+        alt={alt ?? ""}
+        title={title}
+        loading="lazy"
+        data-slot="message-markdown-image"
+        className="my-4 max-w-full rounded-lg"
+      />
+    )
+  }
+  if (!/^https?:\/\//i.test(url)) return alt ? <span>{alt}</span> : null
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer noopener"
+      data-slot="message-markdown-image-link"
+      className="break-all"
+    >
+      {url}
+    </a>
+  )
+}
+
+// <picture><source srcset> would load an image without going through <img>.
+function MarkdownSource() {
+  return null
+}
+
+type MessageMarkdownProps = React.ComponentProps<typeof Streamdown> & {
+  // URL prefix (with trailing slash) whose images may load inline.
+  trustedImagePrefix?: string
+}
 
 function MessageMarkdown({
   className,
   components,
+  trustedImagePrefix,
   ...props
 }: MessageMarkdownProps) {
   const mergedComponents = React.useMemo(() => {
     const defaultComponents = {
+      img: (props: MarkdownImageProps) => (
+        <MarkdownImage {...props} trustedPrefix={trustedImagePrefix} />
+      ),
+      source: MarkdownSource,
       code: CodeBlock,
       inlineCode: ({
         children,
@@ -198,7 +248,7 @@ function MessageMarkdown({
       ...(defaultComponents as object),
       ...((components ?? {}) as object),
     }
-  }, [components])
+  }, [components, trustedImagePrefix])
 
   return (
     <Streamdown
@@ -327,6 +377,8 @@ function MessageAvatar({
 }
 
 export {
+  MarkdownImage,
+  MarkdownSource,
   Message,
   MessageStack,
   MessageContent,

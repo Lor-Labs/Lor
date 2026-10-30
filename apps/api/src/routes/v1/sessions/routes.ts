@@ -56,7 +56,7 @@ export const getAgentSession = createRoute({
   request: {
     params: sessionParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: getAgentSessionResponseSchema,
@@ -81,7 +81,7 @@ export const listSessionFiles = createRoute({
   request: {
     params: sessionParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: sessionFilesResponseSchema,
@@ -104,7 +104,7 @@ export const getSessionChanges = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: sessionChangesResponseSchema,
@@ -130,7 +130,7 @@ export const getSessionChangeDiff = createRoute({
     params: sessionParamsSchema,
     query: sessionChangeDiffQuerySchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: sessionChangeDiffResponseSchema,
@@ -159,7 +159,7 @@ export const stageSessionChanges = createRoute({
       description: "Paths (or all) and whether to stage them",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: sessionChangesResponseSchema,
@@ -190,7 +190,7 @@ export const commitSessionChanges = createRoute({
       description: "The commit message",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: commitSessionChangesResponseSchema,
@@ -216,7 +216,7 @@ export const pushSessionChanges = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: pushSessionChangesResponseSchema,
@@ -243,7 +243,7 @@ export const pullSessionChanges = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: pullSessionChangesResponseSchema,
@@ -275,7 +275,7 @@ export const forkAgentSession = createRoute({
       description: "The reply to fork at",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.CREATED]: jsonContent({
       schema: forkAgentSessionResponseSchema,
@@ -306,7 +306,7 @@ export const rewindAgentSession = createRoute({
       description: "The reply to rewind to",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: rewindAgentSessionResponseSchema,
@@ -331,7 +331,7 @@ export const getRepoTree = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: repoTreeResponseSchema,
@@ -354,7 +354,7 @@ export const getRepoFile = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema, query: repoFileQuerySchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: repoFileResponseSchema,
@@ -377,7 +377,7 @@ export const getRepoImage = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema, query: repoFileQuerySchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: {
       description: "Image bytes",
@@ -405,7 +405,7 @@ export const generateSessionCommitMessage = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: commitMessageResponseSchema,
@@ -433,7 +433,7 @@ export const listChannelSessions = createRoute({
     params: channelSessionsParamsSchema,
     query: channelSessionsQuerySchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listChannelSessionsResponseSchema,
@@ -462,7 +462,7 @@ export const updateAgentSession = createRoute({
       description: "Fields to update",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: updateAgentSessionResponseSchema,
@@ -486,7 +486,7 @@ export const getActWaiting = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: actWaitingResponseSchema,
@@ -509,7 +509,7 @@ export const dropActWaiting = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: dropActWaitingResponseSchema,
@@ -533,7 +533,7 @@ export const listSessionPorts = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: sessionPortsResponseSchema,
@@ -556,7 +556,7 @@ export const openSessionPort = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: portParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: openPortResponseSchema,
@@ -582,7 +582,7 @@ export const openSessionTerminal = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: openTerminalResponseSchema,
@@ -608,7 +608,7 @@ export const applySessionEnvironment = createRoute({
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: applyEnvironmentResponseSchema,

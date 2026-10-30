@@ -130,7 +130,7 @@ export function canManageWorkspaceAuthority(
 
 function grantsHavePermissions(
   grantedStatements: Record<string, readonly string[] | undefined>,
-  requestedPermissions: PermissionRequest
+  requestedPermissions: Record<string, readonly string[] | undefined>
 ) {
   for (const [resource, actions] of Object.entries(requestedPermissions)) {
     if (!actions || actions.length === 0) continue
@@ -172,6 +172,35 @@ export function workspaceAuthorityHasPermissions(
     normalizedAuthority.customGrants,
     requestedPermissions
   )
+}
+
+// Who may hand someone a role (invite or role change). Non-owners stay at or
+// below their own position. Custom roles all share one position, so below
+// admin a custom role also needs grants the actor already holds; otherwise a
+// custom-role holder could hand out any stronger custom role.
+// `customRoleGrants` is the target role's parsed grants (null for static roles).
+export function canAssignWorkspaceRole(
+  actor: WorkspaceAuthority,
+  role: MemberRoleName,
+  customRoleGrants: CustomRoleGrants | null
+) {
+  const normalizedActor = normalizeWorkspaceAuthority(actor)
+  if (normalizedActor.isOwner) return true
+  if (
+    getWorkspaceRolePosition(role) <
+    getWorkspaceAuthorityPosition(normalizedActor)
+  ) {
+    return false
+  }
+  if (isWorkspaceRole(role) || normalizedActor.role === "admin") return true
+  if (!customRoleGrants) return false
+  const actorGrants = isWorkspaceRole(normalizedActor.role)
+    ? (roles[normalizedActor.role].statements as Record<
+        string,
+        readonly string[] | undefined
+      >)
+    : (normalizedActor.customGrants ?? {})
+  return grantsHavePermissions(actorGrants, customRoleGrants)
 }
 
 // Approval-policy resolver (LOR-81): who may resolve a gated agent action —

@@ -1,7 +1,13 @@
 import { z } from "@hono/zod-openapi"
 
 export const waitlistRequestSchema = z.object({
-  email: z.string(),
+  // Postgres text rejects NUL, and control characters are never valid email.
+  email: z
+    .string()
+    .refine(
+      (value) => !/\p{Cc}/u.test(value),
+      "Email contains invalid characters"
+    ),
 })
 
 export const waitlistSuccessSchema = z.object({

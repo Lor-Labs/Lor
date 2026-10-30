@@ -46,3 +46,11 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Local agent and editor tool state
+.conductor/
+.context/
+.delta/
+.claude/settings.local.json
+.claude/worktrees/
+.claude/scheduled_tasks.lock

@@ -957,7 +957,8 @@ export const updateIntegration: AppRouteHandler<
     )
     .limit(1)
     .then((rows) => rows[0])
-  if (!connection) {
+  // Channel webhooks are managed under webhook:manage, not connector:manage.
+  if (!connection || connection.provider === "webhook") {
     return c.json(
       { success: false, message: "Connection not found" },
       HttpStatusCodes.NOT_FOUND
@@ -968,6 +969,31 @@ export const updateIntegration: AppRouteHandler<
     return c.json(
       { success: false, message: "Unknown event for this connector" },
       HttpStatusCodes.BAD_REQUEST
+    )
+  }
+
+  const saved = await db
+    .select({
+      channelId: connectorTrigger.channelId,
+      actSessionMode: connectorTrigger.actSessionMode,
+      actRepoFullName: connectorTrigger.actRepoFullName,
+      actBaseBranch: connectorTrigger.actBaseBranch,
+    })
+    .from(connectorTrigger)
+    .where(
+      and(
+        eq(connectorTrigger.connectionId, connection.id),
+        eq(connectorTrigger.event, event)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  // Moving or clearing a trigger needs access to its current channel too, so
+  // a manager can't reroute a private channel's events away from it.
+  if (saved && !(await userCanAccessChannel(saved.channelId, c.var.user.id))) {
+    return c.json(
+      { success: false, message: "Trigger not found" },
+      HttpStatusCodes.NOT_FOUND
     )
   }
 
@@ -1004,22 +1030,6 @@ export const updateIntegration: AppRouteHandler<
     )
   }
 
-  const saved = await db
-    .select({
-      channelId: connectorTrigger.channelId,
-      actSessionMode: connectorTrigger.actSessionMode,
-      actRepoFullName: connectorTrigger.actRepoFullName,
-      actBaseBranch: connectorTrigger.actBaseBranch,
-    })
-    .from(connectorTrigger)
-    .where(
-      and(
-        eq(connectorTrigger.connectionId, connection.id),
-        eq(connectorTrigger.event, event)
-      )
-    )
-    .limit(1)
-    .then((rows) => rows[0])
   const sessionMode = actSessionMode ?? saved?.actSessionMode ?? "per_event"
   const code = actCode !== undefined ? actCode : saved ? actCodeOf(saved) : null
   const actTarget = await checkActTarget({
@@ -1094,7 +1104,8 @@ export const disconnectIntegration: AppRouteHandler<
     )
     .limit(1)
     .then((rows) => rows[0])
-  if (!connection) {
+  // Channel webhooks are managed under webhook:manage, not connector:manage.
+  if (!connection || connection.provider === "webhook") {
     return c.json(
       { success: false, message: "Connection not found" },
       HttpStatusCodes.NOT_FOUND

@@ -15,6 +15,9 @@ const geistMono = localFont({
   variable: "--font-geist-mono",
 })
 
+// Retry the GitHub count on revalidation even if the first fetch failed.
+export const revalidate = 3600
+
 export const metadata: Metadata = {
   metadataBase: new URL("https://lor.chat"),
   title: "Lor | Work with AI, together",

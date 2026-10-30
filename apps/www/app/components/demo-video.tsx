@@ -12,7 +12,7 @@ export function DemoVideo() {
           preload="metadata"
           crossOrigin={DEMO_VIDEO.captions ? "anonymous" : undefined}
           poster={DEMO_VIDEO.poster || undefined}
-          aria-label="A walkthrough of Lor with its founder"
+          aria-label="A walkthrough of the app"
           className="aspect-video w-full"
           src={DEMO_VIDEO.src}
         >
@@ -30,7 +30,7 @@ export function DemoVideo() {
         </video>
       </div>
       <figcaption className="mt-4 text-center text-sm text-muted-foreground">
-        A walkthrough of the app with Lor&rsquo;s founder.
+        A walkthrough of the app.
       </figcaption>
     </figure>
   )

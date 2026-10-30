@@ -1,6 +1,7 @@
 import { createRoute } from "@hono/zod-openapi"
 import jsonContent from "@/lib/helpers/openapi/json-content"
 import { internalServerErrorSchema } from "@/lib/helpers/openapi/schemas"
+import { waitlistRateLimit } from "@/middleware/rate-limit"
 import {
   waitlistErrorSchema,
   waitlistRequestSchema,
@@ -13,6 +14,7 @@ export const createWaitlistEntry = createRoute({
   summary: "Join the waitlist",
   description: "Adds an email address to the Lor waitlist.",
   tags: ["Waitlist"],
+  middleware: [waitlistRateLimit] as const,
   request: {
     body: {
       required: true,
@@ -26,15 +28,12 @@ export const createWaitlistEntry = createRoute({
   responses: {
     200: jsonContent({
       schema: waitlistSuccessSchema,
-      description: "Successfully joined waitlist",
+      description:
+        "On the waitlist (also returned when the email was already on it)",
     }),
     400: jsonContent({
       schema: waitlistErrorSchema,
       description: "Invalid email",
-    }),
-    409: jsonContent({
-      schema: waitlistErrorSchema,
-      description: "Email already exists in waitlist",
     }),
     500: internalServerErrorSchema,
   },

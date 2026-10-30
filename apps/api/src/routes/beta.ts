@@ -1,4 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi"
+import { isFirstAccount } from "@repo/auth"
 import { getBetaAvailability } from "@repo/billing"
 import { features } from "@repo/utils/features"
 import { createRouter } from "@/lib/helpers/app/create-app"
@@ -20,8 +21,10 @@ const route = createRoute({
 export default createRouter().openapi(route, async (c) => {
   const beta = await getBetaAvailability()
   c.header("Cache-Control", "no-store")
-  return c.json(
-    { ...beta, open: beta.enabled ? beta.open : features.selfSignups },
-    200
-  )
+  // Mirrors the signup gate in @repo/auth, including the first-account
+  // exception for a fresh self-hosted install.
+  const open =
+    (beta.enabled ? beta.open : features.selfSignups) ||
+    (await isFirstAccount())
+  return c.json({ ...beta, open }, 200)
 })

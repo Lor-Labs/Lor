@@ -115,9 +115,6 @@ export async function POST(request: Request) {
     if (response.status === 400) {
       return errorResponse("A valid email address is required.", 400)
     }
-    if (response.status === 409) {
-      return errorResponse("This email is already on the waitlist.", 409)
-    }
     if (response.status === 429) {
       return errorResponse(
         "Too many requests. Please wait a minute and try again.",

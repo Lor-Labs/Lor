@@ -437,7 +437,8 @@ export const stopRun: AppRouteHandler<StopRunRoute> = async (c) => {
   if (outcome) return c.json(outcome, HttpStatusCodes.OK)
 
   // A turn paused on approvals: Stop ends it with no reply. Its pending
-  // approvals close as rejected (pi-harness-runbook.md §4.2).
+  // approvals close as rejected (pi-harness-runbook.md §4.2), or as expired
+  // when the stopper couldn't have resolved them.
   const closed = await stopPausedTurn(run.id, currentUser.id, "rejected")
   if (closed.length === 0) {
     return c.json(

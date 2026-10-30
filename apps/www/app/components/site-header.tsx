@@ -1,4 +1,6 @@
 import Link from "next/link"
+import { Suspense } from "react"
+import { GitHubStarLink, GitHubStars } from "@/app/components/github-stars"
 import { LorMark } from "@/app/components/lor-mark"
 
 export function SiteHeader() {
@@ -17,24 +19,29 @@ export function SiteHeader() {
           className="flex min-h-11 items-center gap-2.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
         >
           <LorMark className="w-8" />
-          <span className="text-2xl font-semibold tracking-tight">Lor</span>
+          <span className="hidden text-2xl font-semibold tracking-tight sm:inline">
+            Lor
+          </span>
         </Link>
         <nav
           aria-label="Main navigation"
-          className="flex items-center gap-4 sm:gap-6"
+          className="flex items-center gap-2 sm:gap-6"
         >
           <Link
             href="/#vision"
-            className="hidden min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent md:inline-flex"
+            className="hidden min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent lg:inline-flex"
           >
             What you can do
           </Link>
           <Link
             href="/#faq"
-            className="inline-flex min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
+            className="hidden min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent sm:inline-flex"
           >
             FAQ
           </Link>
+          <Suspense fallback={<GitHubStarLink />}>
+            <GitHubStars />
+          </Suspense>
           <Link
             href="/#early-access"
             className="inline-flex min-h-11 items-center whitespace-nowrap rounded-full bg-foreground px-4 text-[13px] font-medium text-background transition-colors hover:bg-foreground/90 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent sm:px-5"

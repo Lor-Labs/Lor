@@ -144,7 +144,7 @@ const nativeOrigins = [
   "tauri://localhost",
   "http://tauri.localhost",
   "lor://",
-  "lor-dev://",
+  ...(env.NODE_ENV !== "production" ? ["lor-dev://"] : []),
 ]
 const corsOrigins = [
   ...(env.REALTIME_CORS_ORIGIN || defaultOrigins.join(","))
@@ -203,18 +203,51 @@ const io = new Server<
   },
 })
 
+// Typing events are frequent and a thread root never changes channel, so the
+// root → channel lookup is cached (bounded, oldest entry evicted first).
+const threadChannelCache = new Map<string, string>()
+const THREAD_CHANNEL_CACHE_MAX = 10_000
+
+async function threadRootChannelId(threadRootId: string) {
+  const cached = threadChannelCache.get(threadRootId)
+  if (cached) return cached
+  const root = await db
+    .select({ channelId: schema.message.channelId })
+    .from(schema.message)
+    .where(eq(schema.message.id, threadRootId))
+    .limit(1)
+    .then((rows) => rows[0])
+  if (!root) return null
+  if (threadChannelCache.size >= THREAD_CHANNEL_CACHE_MAX) {
+    const oldest = threadChannelCache.keys().next().value
+    if (oldest !== undefined) threadChannelCache.delete(oldest)
+  }
+  threadChannelCache.set(threadRootId, root.channelId)
+  return root.channelId
+}
+
 // Per-IP, so shared across every client behind one NAT — must absorb a whole
 // office reconnecting at once after a redeploy or system wake.
 const CONNECTION_RATE_WINDOW = 60
 const CONNECTION_RATE_MAX = 60
 const CONNECTION_RATE_TTL = 90
 
+// Production is Cloudflare → Railway: cf-connecting-ip is the client, then
+// Railway's x-real-ip. Never X-Forwarded-For: its leftmost entry is
+// client-supplied, so rotating it would dodge the limit.
+function handshakeHeader(
+  headers: Record<string, string | string[] | undefined>,
+  name: string
+) {
+  const value = headers[name]
+  return (Array.isArray(value) ? value[0] : value)?.trim()
+}
+
 io.use(async (socket, next) => {
+  const { headers } = socket.handshake
   const ip =
-    socket.handshake.headers["x-forwarded-for"]
-      ?.toString()
-      .split(",")[0]
-      ?.trim() ||
+    handshakeHeader(headers, "cf-connecting-ip") ||
+    handshakeHeader(headers, "x-real-ip") ||
     socket.handshake.address ||
     "unknown"
   const windowNum = Math.floor(Date.now() / (CONNECTION_RATE_WINDOW * 1000))
@@ -1297,6 +1330,13 @@ io.on("connection", (socket) => {
     try {
       const parsed = typingStartPayloadSchema.parse(payload)
       await assertUserCanAccessChannel(socket.data.user.id, parsed.channelId)
+      // Channel access alone doesn't cover a thread room in another channel.
+      if (
+        parsed.threadRootId &&
+        (await threadRootChannelId(parsed.threadRootId)) !== parsed.channelId
+      ) {
+        return
+      }
 
       // Scope to the thread room when typing in a thread reply, else the
       // channel — keeps thread typing out of the channel feed and vice-versa.

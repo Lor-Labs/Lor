@@ -239,6 +239,8 @@ async function findActSession(
     .where(
       and(
         eq(schema.agentSession.triggerId, input.triggerId),
+        // A trigger moved to another channel starts fresh there.
+        eq(schema.agentSession.channelId, input.channelId),
         subject ? eq(schema.agentSession.triggerSubject, subject) : undefined
       )
     )

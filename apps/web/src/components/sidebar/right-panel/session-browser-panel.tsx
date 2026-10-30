@@ -213,6 +213,8 @@ export function SessionBrowserPanel({
       onLoad={() => setFrameLoading(false)}
       className="min-h-0 w-full flex-1 border-0 bg-white"
       allow="clipboard-read; clipboard-write"
+      // Sandbox code must not navigate the app window (no top-navigation).
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
     />
   ) : list.length > 0 ? (
     <BrowserEmpty title="Open a port" text="Servers running in the sandbox:">

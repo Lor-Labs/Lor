@@ -68,7 +68,7 @@ The facts that decide fit:
   handlers invalidate even when the event carries data.
 - **Clients:** web has about 107 `useQuery`, 81 `setQueryData` and 106
   `invalidateQueries` calls. Mobile uses React Query with no local storage;
-  offline-first sync is a v1 non-goal (`MOBILE_ARCHITECTURE.md`). The Tauri
+  offline-first sync is a v1 non-goal (`reference/archive/mobile-architecture.md`). The Tauri
   desktop app loads the web build.
 - **Data is kept forever.** `agent_run_event` (one row per streamed frame) is
   the only pruned table. Messages load 50 per page.

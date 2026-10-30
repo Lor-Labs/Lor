@@ -161,7 +161,7 @@ export function renderTemplate(
   args: Record<string, unknown>,
   secrets: Record<string, string>
 ): string {
-  return template.replace(PLACEHOLDER_REGEX, (_match, kind, key) => {
+  const rendered = template.replace(PLACEHOLDER_REGEX, (_match, kind, key) => {
     const value =
       kind === "secrets"
         ? secrets[key]
@@ -175,6 +175,21 @@ export function renderTemplate(
     if (context === "url") return encodeURIComponent(stringifyArg(value))
     return assertHeaderSafe(stringifyArg(value), `${kind}.${key}`)
   })
+  if (context === "url") assertNoDotSegments(rendered)
+  return rendered
+}
+
+// encodeURIComponent keeps dots, and URL parsing collapses dot segments
+// (including %2e forms): a rendered "." or ".." segment, from one value or
+// several joined, would escape the template's path.
+const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i
+function assertNoDotSegments(url: string) {
+  const end = url.search(/[?#]/)
+  const path = end === -1 ? url : url.slice(0, end)
+  const afterHost = path.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, "")
+  if (afterHost.split("/").some((segment) => DOT_SEGMENT.test(segment))) {
+    throw new Error('URL path segments can\'t be "." or ".."')
+  }
 }
 
 // The declared content type decides whether a body template must be JSON:

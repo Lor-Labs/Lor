@@ -70,7 +70,23 @@ index e4c1e200e578fb80349944d30e2eb1f55fb9cc4f..66f1208139221c9248507c4b16b30705
  	};
  }
  function createCodexAppServerArgs({ cliOverrides = [] } = {}) {
-@@ -2146,13 +2186,15 @@ async function runTurn(start, turn) {
+@@ -2101,9 +2141,15 @@
+ const HARNESS_CLIENT_APP = env.AI_SDK_HARNESS_CLIENT_APP;
+ const threadState = { id: void 0 };
+ const appServer = createCodexAppServerRuntime();
++// Lor patch: the Codex app-server (and so the model's shell) inherits this
++// process's env, where the channel token would let sandbox code drive the
++// bridge and answer its own approvals. Take it out before the first turn.
++const bridgeChannelToken = env.BRIDGE_CHANNEL_TOKEN ?? "";
++delete env.BRIDGE_CHANNEL_TOKEN;
+ await runBridge({
+ 	bridgeType: "codex",
+ 	bridgeStateDir,
++	token: bridgeChannelToken,
+ 	onStart: runTurn,
+ 	onStop: async () => {
+ 		const data = threadState.id ? { threadId: threadState.id } : {};
+@@ -2146,13 +2192,15 @@ async function runTurn(start, turn) {
  		});
  		return;
  	}

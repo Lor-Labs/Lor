@@ -13,6 +13,13 @@ const envSchema = z.object({
   EXPO_PUBLIC_API_URL: z.string().min(1).transform(addProtocol),
   EXPO_PUBLIC_REALTIME_URL: z.string().min(1).transform(addProtocol),
   EXPO_PUBLIC_WEB_URL: z.string().min(1).transform(addProtocol),
+  // Mirrors the server's S3_PUBLIC_URL: the only origin markdown images may
+  // load from.
+  EXPO_PUBLIC_S3_PUBLIC_URL: z
+    .string()
+    .min(1)
+    .default("https://cdn.lor.chat")
+    .transform((url) => addProtocol(url).replace(/\/+$/, "")),
 })
 
 // Expo only inlines EXPO_PUBLIC_* vars that are referenced statically, so
@@ -21,4 +28,5 @@ export const env = envSchema.parse({
   EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL,
   EXPO_PUBLIC_REALTIME_URL: process.env.EXPO_PUBLIC_REALTIME_URL,
   EXPO_PUBLIC_WEB_URL: process.env.EXPO_PUBLIC_WEB_URL,
+  EXPO_PUBLIC_S3_PUBLIC_URL: process.env.EXPO_PUBLIC_S3_PUBLIC_URL,
 })

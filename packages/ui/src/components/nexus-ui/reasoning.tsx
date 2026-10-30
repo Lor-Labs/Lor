@@ -7,11 +7,18 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@repo/ui/components/collapsible"
+import {
+  MarkdownImage,
+  MarkdownSource,
+} from "@repo/ui/components/nexus-ui/message"
 import { TextShimmer } from "@repo/ui/components/nexus-ui/text-shimmer"
 import { useOnChange } from "@repo/ui/hooks/use-on-change"
 import { cn } from "@repo/ui/lib/utils"
 import * as React from "react"
 import { Streamdown } from "streamdown"
+
+// Reasoning never loads markdown images: each one renders as a link.
+const reasoningComponents = { img: MarkdownImage, source: MarkdownSource }
 
 type ReasoningContextValue = {
   isStreaming: boolean
@@ -219,6 +226,7 @@ function ReasoningContent({
           "**:data-[streamdown=list-item]:py-0.25 **:data-[streamdown=list-item]:pl-4 **:data-[streamdown=list-item]:marker:text-muted-foreground/50 prose-ol:my-0 prose-ol:pl-3 prose-ul:my-0 prose-li:my-[-0.5px]",
           "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
         )}
+        components={reasoningComponents}
       >
         {children}
       </Streamdown>

@@ -51,6 +51,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Use |
 |---|---|
+| `local-development.md` | Contributor setup, required services, local signup, repository map, and commands |
 | `product-direction.md` | Current priorities and what is deferred |
 | `positioning.md` | Current www narrative and capability boundaries (2026-10-25), with earlier marketing and sales positioning retained as history |
 | `voice-channels.md` | Guiding product spec for voice; its "Voice channel model" decisions win over the runbook and research |
@@ -92,3 +93,5 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `voice-channels-livekit-research.md` | Research input; `voice-channels.md` decisions win |
 | `sidebar-realtime-activity-plan.md` | Executed 2026-09-14 on web and mobile |
 | `lor-rename.md` | Merlin → Lor rename, code complete 2026-09-12 |
+| `roadmap.md` | Townhall-era roadmap; `product-direction.md` is current |
+| `mobile-architecture.md` | Original iOS plan; `apps/mobile` is as built (no `ui-native` or `chat-core`) |

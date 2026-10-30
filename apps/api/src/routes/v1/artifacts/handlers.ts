@@ -119,6 +119,7 @@ export const listChannelFiles: AppRouteHandler<ListChannelFilesRoute> = async (
     ...query,
     channelId,
     workspaceId: access.access.channel.workspaceId,
+    userId: c.var.user.id,
     cursor,
   })
   return c.json(payload, HttpStatusCodes.OK)

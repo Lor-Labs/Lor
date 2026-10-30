@@ -77,6 +77,13 @@ const clientSchema = z.object({
   NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE: z.coerce
     .number()
     .default(DEFAULT_MAX_FILE_UPLOAD_SIZE),
+  // Mirrors the server's S3_PUBLIC_URL: the only origin markdown images may
+  // load from.
+  NEXT_PUBLIC_S3_PUBLIC_URL: z
+    .string()
+    .min(1)
+    .default("https://cdn.lor.chat")
+    .transform((url) => addProtocol(url).replace(/\/+$/, "")),
   NEXT_PUBLIC_SELF_HOSTED: z
     .preprocess((v) => v === "true" || v === "1", z.boolean())
     .default(false),
@@ -89,5 +96,6 @@ export const env = clientSchema.parse({
   NEXT_PUBLIC_WEB_URL: process.env.NEXT_PUBLIC_WEB_URL,
   NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE:
     process.env.NEXT_PUBLIC_MAX_FILE_UPLOAD_SIZE,
+  NEXT_PUBLIC_S3_PUBLIC_URL: process.env.NEXT_PUBLIC_S3_PUBLIC_URL,
   NEXT_PUBLIC_SELF_HOSTED: process.env.NEXT_PUBLIC_SELF_HOSTED,
 })

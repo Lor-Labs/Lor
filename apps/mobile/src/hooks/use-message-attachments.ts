@@ -1,6 +1,7 @@
 import {
   ALLOWED_MIME_TYPES,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  presignedUploadHeaders,
 } from "@repo/realtime-types/uploads"
 import * as DocumentPicker from "expo-document-picker"
 import { File, type UploadTask, UploadType } from "expo-file-system"
@@ -218,7 +219,7 @@ export function useMessageAttachments(channelId: string) {
         const { uploadUrl, fileUrl } = await response.json()
         const file = new File(attachment.uri)
         const task = file.createUploadTask(uploadUrl, {
-          headers: { "Content-Type": attachment.contentType },
+          headers: presignedUploadHeaders(attachment.contentType),
           httpMethod: "PUT",
           mimeType: attachment.contentType,
           onProgress: ({ bytesSent, totalBytes }) => {
