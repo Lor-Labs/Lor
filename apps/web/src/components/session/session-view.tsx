@@ -7,6 +7,7 @@ import {
   Link01Icon,
   MoreHorizontalIcon,
   PencilEdit02Icon,
+  Settings02Icon,
   SourceCodeIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -40,6 +41,7 @@ import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ActWaitingNote } from "@/components/session/act-waiting-note"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
+import { EnvironmentDialog } from "@/components/session/environment-dialog"
 import { HarnessLogo } from "@/components/session/harness-logo"
 import { HARNESS_LABELS } from "@/components/session/harness-picker"
 import { SessionDocument } from "@/components/session/session-document"
@@ -62,6 +64,7 @@ import {
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
+import { environmentsQueryOptions } from "@/hooks/use-environments"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useChannelProposals } from "@/hooks/use-proposals"
@@ -80,6 +83,7 @@ import {
   findSidebarSession,
   patchSidebarSession,
 } from "@/hooks/use-workspace-activity"
+import { apiClient } from "@/lib/api-client"
 import { clearLastSessionId, writeLastSession } from "@/lib/last-location"
 
 export function SessionView({
@@ -437,6 +441,28 @@ function SessionStrip({
   const archived = session.archivedAt !== null
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [editEnvironment, setEditEnvironment] = useState(false)
+  const environments = useQuery(
+    environmentsQueryOptions(
+      workspaceSlug,
+      session.environmentId && !archived ? session.repoFullName : null
+    )
+  )
+  const environment =
+    environments.data?.environments.find(
+      (env) => env.id === session.environmentId
+    ) ?? null
+  const applyEnvironment = async () => {
+    const res = await apiClient.v1.sessions[":sessionId"].environment.apply
+      .$post({ param: { sessionId: session.id } })
+      .catch(() => null)
+    const applied = res?.ok ? (await res.json()).applied : false
+    toast.success(
+      applied
+        ? "Environment saved and written to this session"
+        : "Environment saved. Lor writes it on its next turn"
+    )
+  }
   // The session itself, without an open tab or highlighted message.
   const copyLink = () =>
     void navigator.clipboard
@@ -507,6 +533,12 @@ function SessionStrip({
               <HugeiconsIcon icon={SourceCodeIcon} strokeWidth={2} />
               Continue in Code
             </DropdownMenuItem>
+            {environment && environments.data?.canManage && (
+              <DropdownMenuItem onClick={() => setEditEnvironment(true)}>
+                <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
+                Environment
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={copyLink}>
               <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
               Copy link
@@ -538,6 +570,17 @@ function SessionStrip({
         onOpenChange={setConfirmArchive}
         onConfirm={onArchive}
       />
+      {environment && session.repoFullName && (
+        <EnvironmentDialog
+          open={editEnvironment}
+          onOpenChange={setEditEnvironment}
+          workspaceSlug={workspaceSlug}
+          repo={session.repoFullName}
+          environment={environment}
+          onSaved={() => void applyEnvironment()}
+          note="Saving writes the files into this session. A running dev server loads them when it restarts."
+        />
+      )}
     </div>
   )
 }

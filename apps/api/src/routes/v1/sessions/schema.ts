@@ -139,6 +139,10 @@ export const openTerminalResponseSchema = z.object({
   expiresAt: z.string(),
 })
 
+export const applyEnvironmentResponseSchema = z.object({
+  applied: z.boolean(),
+})
+
 export const portParamsSchema = sessionParamsSchema.extend({
   port: z.coerce
     .number()

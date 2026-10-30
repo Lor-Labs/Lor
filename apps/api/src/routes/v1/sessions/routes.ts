@@ -13,6 +13,7 @@ import {
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   actWaitingResponseSchema,
+  applyEnvironmentResponseSchema,
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
   commitMessageResponseSchema,
@@ -597,3 +598,28 @@ export const openSessionTerminal = createRoute({
 })
 
 export type OpenSessionTerminalRoute = typeof openSessionTerminal
+
+export const applySessionEnvironment = createRoute({
+  path: "/sessions/{sessionId}/environment/apply",
+  method: "post",
+  summary: "Write a code session's environment into its sandbox",
+  description:
+    "Writes the session environment's current env files into its sandbox now, instead of on Lor's next turn. Never creates a sandbox. Anyone who can write in the channel can do this.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: applyEnvironmentResponseSchema,
+      description: "Whether the files were written",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ApplySessionEnvironmentRoute = typeof applySessionEnvironment

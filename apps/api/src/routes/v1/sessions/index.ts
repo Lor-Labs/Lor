@@ -27,5 +27,6 @@ const sessionsRouter = createRouter()
   .openapi(routes.listSessionPorts, handlers.listSessionPorts)
   .openapi(routes.openSessionPort, handlers.openSessionPort)
   .openapi(routes.openSessionTerminal, handlers.openSessionTerminal)
+  .openapi(routes.applySessionEnvironment, handlers.applySessionEnvironment)
 
 export default sessionsRouter

@@ -1,7 +1,9 @@
 import Image from "next/image"
+import { ClosingCTA } from "@/app/components/closing-cta"
 import { DemoVideo } from "@/app/components/demo-video"
 import { FAQ } from "@/app/components/faq"
 import { SiteFooter } from "@/app/components/site-footer"
+import { VisionSections } from "@/app/components/vision-sections"
 import { WaitlistForm } from "@/app/components/waitlist-form"
 import { WorkspaceStory } from "@/app/components/workspace-story"
 import {
@@ -69,7 +71,9 @@ export default function Home() {
     <div className="flex min-h-[100dvh] flex-col">
       <main id="main-content">
         <Hero />
+        <VisionSections />
         <FAQ />
+        <ClosingCTA />
       </main>
       <SiteFooter />
     </div>

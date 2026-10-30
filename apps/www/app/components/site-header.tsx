@@ -24,6 +24,12 @@ export function SiteHeader() {
           className="flex items-center gap-4 sm:gap-6"
         >
           <Link
+            href="/#vision"
+            className="hidden min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent md:inline-flex"
+          >
+            What you can do
+          </Link>
+          <Link
             href="/#faq"
             className="inline-flex min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-agent"
           >

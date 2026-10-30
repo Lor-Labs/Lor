@@ -219,8 +219,11 @@ first load). The client behavior is the same.
     and edit (`environment-dialog.tsx`: name, env files as key/value rows,
     Paste .env, Reveal values), pick remembered per repo
     (`use-environments.ts`). A row left empty with a saved value keeps it.
-  - [ ] The open session shows its environment (chip + edit); a saved edit
-    writes into an awake sandbox now instead of at the next turn.
+  - [x] The open session edits its environment from the session `⋯` menu
+    (people with `environment: manage`; no chip). A save calls
+    `POST /sessions/{id}/environment/apply` (`applySessionEnvironment`), which
+    writes the files into the session's existing sandbox now. A sandbox in
+    standby wakes for it. Sessions without an environment can't add one yet.
   - [ ] Open the egress allowlist (Blaxel's "all methods, all hosts" rule
     syntax to check).
 - [x] **3b. Browser and Terminal in the right panel** (Jacob, 2026-10-29:

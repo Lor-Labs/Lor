@@ -5,6 +5,8 @@ import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { logger } from "../logger"
+import { attachSessionSandbox } from "../sandbox/session-sandbox"
+import { sessionWorkDir } from "./work-dir"
 
 // A code session's environment, written into its work folder each turn
 // (reference/dev-environment-runbook.md §2): every env file the environment
@@ -134,4 +136,32 @@ export async function writeEnvironmentFiles(input: {
     )
   }
   return files.length
+}
+
+// A saved edit written into an open session's sandbox at once, instead of on
+// Lor's next turn. Never creates a sandbox; false when there is none or the
+// repo is not cloned yet.
+export async function applySessionEnvironment(input: {
+  sessionId: string
+  environmentId: string
+  repoFullName: string
+}): Promise<boolean> {
+  const sandbox = await attachSessionSandbox({ sessionId: input.sessionId })
+  if (!sandbox) return false
+  try {
+    const workDir = sessionWorkDir(input.sessionId)
+    const cloned = await sandbox.session.run({
+      command: `test -d ${shellQuote(posix.join(workDir, ".git"))}`,
+    })
+    if (cloned.exitCode !== 0) return false
+    await writeEnvironmentFiles({
+      sandbox: sandbox.session,
+      workDir,
+      environmentId: input.environmentId,
+      repoFullName: input.repoFullName,
+    })
+    return true
+  } finally {
+    sandbox.close()
+  }
 }

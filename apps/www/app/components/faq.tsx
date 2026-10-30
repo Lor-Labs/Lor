@@ -24,7 +24,7 @@ export function FAQ() {
           id="faq-heading"
           className="text-2xl font-medium tracking-[-0.03em] md:text-3xl"
         >
-          A couple of questions.
+          Before you join.
         </h2>
         <div className="divide-y divide-foreground/10 border-y border-foreground/10">
           {QUESTIONS.map(({ question, answer }) => (

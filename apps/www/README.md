@@ -1,6 +1,6 @@
 # Lor marketing site
 
-The site is waitlist-only. The hero email form submits through `/api/waitlist` to
+The site is waitlist-only. Both email forms submit through `/api/waitlist` to
 the existing API and waitlist table. Set `NEXT_PUBLIC_API_URL` to the API base
 URL in the www deployment. `/download` temporarily redirects to the waitlist.
 Beta invitations start November 6, 2026; the site does not automatically open

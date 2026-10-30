@@ -48,6 +48,7 @@ import {
   type SessionCheckpointRow,
   writeCheckpoint,
 } from "@repo/lor/code-checkpoints"
+import { applySessionEnvironment as applyEnvironment } from "@repo/lor/dev-env/environments"
 import { listOpenPorts, openPort } from "@repo/lor/dev-env/previews"
 import { openTerminal } from "@repo/lor/dev-env/terminal"
 import {
@@ -73,6 +74,7 @@ import {
 } from "@/lib/workspace-activity"
 import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
+  ApplySessionEnvironmentRoute,
   CommitSessionChangesRoute,
   DropActWaitingRoute,
   ForkAgentSessionRoute,
@@ -1483,4 +1485,43 @@ export const openSessionTerminal: AppRouteHandler<
     { url: result.url, expiresAt: result.expiresAt },
     HttpStatusCodes.OK
   )
+}
+
+// A saved environment edit from the session menu, written into the sandbox
+// now so a restarted dev server or the terminal sees it before Lor's next turn.
+export const applySessionEnvironment: AppRouteHandler<
+  ApplySessionEnvironmentRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const { session } = row
+  if (
+    session.mode !== "code" ||
+    session.archivedAt ||
+    !session.environmentId ||
+    !session.repoFullName
+  ) {
+    return c.json(
+      { success: false as const, message: "This session has no environment" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const applied = await applyEnvironment({
+    sessionId,
+    environmentId: session.environmentId,
+    repoFullName: session.repoFullName,
+  })
+  return c.json({ applied }, HttpStatusCodes.OK)
 }

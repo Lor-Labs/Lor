@@ -80,6 +80,7 @@ export function EnvironmentDialog({
   repo,
   environment,
   onSaved,
+  note,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -88,6 +89,7 @@ export function EnvironmentDialog({
   // Null: create.
   environment: EnvironmentSummary | null
   onSaved: (environment: EnvironmentSummary) => void
+  note?: string
 }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState("")
@@ -224,6 +226,7 @@ export function EnvironmentDialog({
             Env files Lor writes into {repo} in code sessions that use this
             environment. Lor and the session's terminal can read them, so use
             development credentials.
+            {note && <span className="mt-1.5 block">{note}</span>}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-5">
