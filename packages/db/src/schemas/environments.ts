@@ -11,11 +11,12 @@ import {
 import { user } from "./users"
 import { workspace } from "./workspaces"
 
-// A repo's environment for code sessions (reference/dev-environment-runbook.md):
-// env vars Lor writes into the session's work folder each turn. One per
-// workspace + repo for now; a later environment group may own several.
+// Environments for code sessions (reference/dev-environment-runbook.md §2):
+// a named set of repos, each with env files Lor writes into the session's
+// work folder every turn. The model allows several repos per environment;
+// the API and UI allow one until sessions can hold several repos.
 
-// How a variable reaches the sandbox. `file`: written into the env file, so
+// How a variable reaches the sandbox. `file`: written into its env file, so
 // Lor and the terminal can read it. `proxy` (later): Lor's egress proxy fills
 // it into requests to its hosts and the sandbox never sees the value.
 export const environmentDeliveryEnum = pgEnum("environment_delivery", [
@@ -35,18 +36,55 @@ export const environment = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    // GitHub owner/repo, as code sessions store it.
-    repoFullName: text("repo_full_name").notNull(),
-    // Path of the env file, relative to the repo root.
-    fileName: text("file_name").notNull().default(".env.local"),
+    name: text("name").notNull(),
+    createdById: uuid("created_by_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
     updatedById: uuid("updated_by_id").references(() => user.id, {
       onDelete: "set null",
     }),
   },
   (table) => [
-    uniqueIndex("environment_workspace_repo_uidx").on(
+    uniqueIndex("environment_workspace_name_uidx").on(
       table.workspaceId,
+      table.name
+    ),
+  ]
+)
+
+export const environmentRepo = pgTable(
+  "environment_repo",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    environmentId: uuid("environment_id")
+      .notNull()
+      .references(() => environment.id, { onDelete: "cascade" }),
+    // GitHub owner/repo, as code sessions store it.
+    repoFullName: text("repo_full_name").notNull(),
+  },
+  (table) => [
+    uniqueIndex("environment_repo_env_repo_uidx").on(
+      table.environmentId,
       table.repoFullName
+    ),
+    index("environment_repo_repo_idx").on(table.repoFullName),
+  ]
+)
+
+export const environmentFile = pgTable(
+  "environment_file",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    environmentRepoId: uuid("environment_repo_id")
+      .notNull()
+      .references(() => environmentRepo.id, { onDelete: "cascade" }),
+    // Relative to the repo root, e.g. `.env.local` or `apps/web/.env`.
+    path: text("path").notNull(),
+  },
+  (table) => [
+    uniqueIndex("environment_file_repo_path_uidx").on(
+      table.environmentRepoId,
+      table.path
     ),
   ]
 )
@@ -55,9 +93,9 @@ export const environmentVariable = pgTable(
   "environment_variable",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    environmentId: uuid("environment_id")
+    environmentFileId: uuid("environment_file_id")
       .notNull()
-      .references(() => environment.id, { onDelete: "cascade" }),
+      .references(() => environmentFile.id, { onDelete: "cascade" }),
     key: text("key").notNull(),
     // AES-256-GCM ciphertext (INTEGRATION_ENCRYPTION_KEY); the API returns
     // keys only, and values to people with environment:manage on reveal.
@@ -67,29 +105,52 @@ export const environmentVariable = pgTable(
     hosts: text("hosts").array().notNull().default([]),
   },
   (table) => [
-    uniqueIndex("environment_variable_env_key_uidx").on(
-      table.environmentId,
+    uniqueIndex("environment_variable_file_key_uidx").on(
+      table.environmentFileId,
       table.key
     ),
-    index("environment_variable_env_idx").on(table.environmentId),
   ]
 )
 
 export const environmentRelations = relations(environment, ({ many }) => ({
-  variables: many(environmentVariable),
+  repos: many(environmentRepo),
 }))
+
+export const environmentRepoRelations = relations(
+  environmentRepo,
+  ({ one, many }) => ({
+    environment: one(environment, {
+      fields: [environmentRepo.environmentId],
+      references: [environment.id],
+    }),
+    files: many(environmentFile),
+  })
+)
+
+export const environmentFileRelations = relations(
+  environmentFile,
+  ({ one, many }) => ({
+    repo: one(environmentRepo, {
+      fields: [environmentFile.environmentRepoId],
+      references: [environmentRepo.id],
+    }),
+    variables: many(environmentVariable),
+  })
+)
 
 export const environmentVariableRelations = relations(
   environmentVariable,
   ({ one }) => ({
-    environment: one(environment, {
-      fields: [environmentVariable.environmentId],
-      references: [environment.id],
+    file: one(environmentFile, {
+      fields: [environmentVariable.environmentFileId],
+      references: [environmentFile.id],
     }),
   })
 )
 
 export type Environment = typeof environment.$inferSelect
+export type EnvironmentRepo = typeof environmentRepo.$inferSelect
+export type EnvironmentFile = typeof environmentFile.$inferSelect
 export type EnvironmentVariable = typeof environmentVariable.$inferSelect
 export type EnvironmentDelivery =
   (typeof environmentDeliveryEnum.enumValues)[number]

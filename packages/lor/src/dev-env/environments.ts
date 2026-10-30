@@ -1,22 +1,22 @@
 import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
-import { and, db, eq, schema } from "@repo/db"
+import { and, db, eq, inArray, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { logger } from "../logger"
 
-// A repo's environment, written into the code session's work folder each
-// turn (reference/dev-environment-runbook.md §2). Proxy-delivered variables
-// never reach the file.
+// A code session's environment, written into its work folder each turn
+// (reference/dev-environment-runbook.md §2): every env file the environment
+// keeps for the session's repo. Proxy-delivered variables never reach a file.
 
 const HEADER =
-  "# Written by Lor from this repo's environment. Edit it in Lor: changes here are replaced on Lor's next turn."
+  "# Written by Lor from this session's environment. Edit it in Lor: changes here are replaced on Lor's next turn."
 
 // A relative path inside the repo: no absolute paths, no `..`.
-export function isSafeEnvFileName(name: string): boolean {
-  if (!name || name.length > 200 || name.startsWith("/")) return false
-  return name.split("/").every((part) => part !== "" && part !== "..")
+export function isSafeEnvFilePath(path: string): boolean {
+  if (!path || path.length > 200 || path.startsWith("/")) return false
+  return path.split("/").every((part) => part !== "" && part !== "..")
 }
 
 // Double-quoted dotenv values: dotenv and dotenv-expand (Next, Vite) read
@@ -33,75 +33,105 @@ export function renderEnvFile(vars: { key: string; value: string }[]): string {
   return `${[HEADER, ...vars.map((v) => `${v.key}=${quote(v.value)}`)].join("\n")}\n`
 }
 
-export async function loadEnvironment(
+// The environment's id when it is the workspace's and includes the repo.
+export async function environmentForRepo(
   workspaceId: string,
+  environmentId: string,
   repoFullName: string
-) {
+): Promise<string | null> {
   const [row] = await db
-    .select()
+    .select({ id: schema.environment.id })
     .from(schema.environment)
+    .innerJoin(
+      schema.environmentRepo,
+      eq(schema.environmentRepo.environmentId, schema.environment.id)
+    )
     .where(
       and(
+        eq(schema.environment.id, environmentId),
         eq(schema.environment.workspaceId, workspaceId),
-        eq(schema.environment.repoFullName, repoFullName)
+        eq(schema.environmentRepo.repoFullName, repoFullName)
       )
     )
     .limit(1)
-  return row ?? null
+  return row?.id ?? null
 }
 
-// Decrypted file-delivered variables, in key order.
-async function fileVariables(environmentId: string) {
+// The repo's env files in the environment, with decrypted file-delivered
+// variables in key order.
+async function repoFiles(environmentId: string, repoFullName: string) {
   const key = env.INTEGRATION_ENCRYPTION_KEY
   if (!key) return []
-  const rows = await db
+  const files = await db
     .select({
+      id: schema.environmentFile.id,
+      path: schema.environmentFile.path,
+    })
+    .from(schema.environmentFile)
+    .innerJoin(
+      schema.environmentRepo,
+      eq(schema.environmentRepo.id, schema.environmentFile.environmentRepoId)
+    )
+    .where(
+      and(
+        eq(schema.environmentRepo.environmentId, environmentId),
+        eq(schema.environmentRepo.repoFullName, repoFullName)
+      )
+    )
+  if (files.length === 0) return []
+  const vars = await db
+    .select({
+      fileId: schema.environmentVariable.environmentFileId,
       key: schema.environmentVariable.key,
       value: schema.environmentVariable.value,
     })
     .from(schema.environmentVariable)
     .where(
       and(
-        eq(schema.environmentVariable.environmentId, environmentId),
+        inArray(
+          schema.environmentVariable.environmentFileId,
+          files.map((file) => file.id)
+        ),
         eq(schema.environmentVariable.delivery, "file")
       )
     )
     .orderBy(schema.environmentVariable.key)
-  return rows.map((row) => ({
-    key: row.key,
-    value: decryptSecret(row.value, key),
+  return files.map((file) => ({
+    path: file.path,
+    vars: vars
+      .filter((v) => v.fileId === file.id)
+      .map((v) => ({ key: v.key, value: decryptSecret(v.value, key) })),
   }))
 }
 
-// Writes the env file and lists it in .git/info/exclude, so it is never
-// committed even when the repo does not ignore it. Nothing is written (and a
-// file a person made is left alone) when the repo has no environment.
-export async function writeEnvironmentFile(input: {
+// Writes each env file and lists it in .git/info/exclude, so none is ever
+// committed even when the repo does not ignore it.
+export async function writeEnvironmentFiles(input: {
   sandbox: SandboxSession
   workDir: string
-  workspaceId: string
+  environmentId: string
   repoFullName: string
-}): Promise<boolean> {
-  const environment = await loadEnvironment(
-    input.workspaceId,
-    input.repoFullName
-  )
-  if (!environment || !isSafeEnvFileName(environment.fileName)) return false
-  const vars = await fileVariables(environment.id)
-  await input.sandbox.writeTextFile({
-    path: posix.join(input.workDir, environment.fileName),
-    content: renderEnvFile(vars),
-  })
+}): Promise<number> {
+  const files = (
+    await repoFiles(input.environmentId, input.repoFullName)
+  ).filter((file) => isSafeEnvFilePath(file.path))
+  if (files.length === 0) return 0
+  for (const file of files) {
+    await input.sandbox.writeTextFile({
+      path: posix.join(input.workDir, file.path),
+      content: renderEnvFile(file.vars),
+    })
+  }
   const q = shellQuote
-  const line = `/${environment.fileName}`
+  const lines = files.map((file) => q(`/${file.path}`)).join(" ")
   const excluded = await input.sandbox.run({
-    command: `cd ${q(input.workDir)} && mkdir -p .git/info && { grep -qxF ${q(line)} .git/info/exclude 2>/dev/null || echo ${q(line)} >> .git/info/exclude; }`,
+    command: `cd ${q(input.workDir)} && mkdir -p .git/info && for line in ${lines}; do grep -qxF "$line" .git/info/exclude 2>/dev/null || echo "$line" >> .git/info/exclude; done`,
   })
   if (excluded.exitCode !== 0) {
     logger.warn(
       { repo: input.repoFullName, stderr: excluded.stderr.slice(0, 300) },
-      "Environment file: git exclude failed"
+      "Environment files: git exclude failed"
     )
   }
-  return true
+  return files.length
 }

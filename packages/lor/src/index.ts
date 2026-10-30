@@ -108,7 +108,7 @@ import {
 } from "./code-session"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
-import { writeEnvironmentFile } from "./dev-env/environments"
+import { writeEnvironmentFiles } from "./dev-env/environments"
 import { embedBrainQueryWithUsage } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import { saveHarnessModels } from "./harness-models"
@@ -3203,14 +3203,19 @@ export async function respond(
           })
         : null
       if (ctx.code && workFolder?.status === "ready") {
-        await writeEnvironmentFile({
-          sandbox: sandbox.session,
-          workDir: piWorkDir(SESSION_WORK_DIR, conversationId),
-          workspaceId: ctx.workspaceId,
-          repoFullName: ctx.code.repoFullName,
-        }).catch((err: unknown) =>
-          logger.warn({ err, conversationId }, "Environment file write failed")
-        )
+        if (ctx.code.environmentId) {
+          await writeEnvironmentFiles({
+            sandbox: sandbox.session,
+            workDir: piWorkDir(SESSION_WORK_DIR, conversationId),
+            environmentId: ctx.code.environmentId,
+            repoFullName: ctx.code.repoFullName,
+          }).catch((err: unknown) =>
+            logger.warn(
+              { err, conversationId },
+              "Environment files write failed"
+            )
+          )
+        }
         uncommitted = trackUncommittedLines({
           sandbox: codeSandboxIn(
             sandbox.session,

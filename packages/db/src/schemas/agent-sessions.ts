@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core"
 import { channel } from "./channels"
 import { connectorTrigger } from "./connector-triggers"
+import { environment } from "./environments"
 import { loop } from "./loops"
 import { message } from "./messages"
 import { user } from "./users"
@@ -80,6 +81,10 @@ export const agentSession = pgTable(
     // A branch the session made from baseBranch at its start, pushed to
     // GitHub by the session's first push. Null: it works on baseBranch.
     newBranch: text("new_branch"),
+    // The environment whose env files each turn writes (code sessions).
+    environmentId: uuid("environment_id").references(() => environment.id, {
+      onDelete: "set null",
+    }),
     // The sidebar's +/− for a code session: uncommitted lines against HEAD,
     // the Changes panel's total. Saved when a sandbox is already open; null
     // until first counted.

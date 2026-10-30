@@ -215,15 +215,29 @@ first load). The client behavior is the same.
 
 ## Decisions (Jacob, 2026-10-29)
 
-- Environments are per workspace + repo for now. Later an environment may
-  group several repos, each with its own env file; keep the table keyed so
-  a group can own rows (an `environment` parent with `repo` children).
+- Environments are named and multi-repo in the schema:
+  `environment` → `environment_repo` → `environment_file` →
+  `environment_variable` (one repo may have several files, e.g. monorepo
+  apps). The API and UI allow one repo per environment, and a session uses
+  one repo, until sessions can hold several repos (a bigger change: Changes
+  panel, commit/push and checkpoints per repo).
+- A code session stores its environment (`agent_session.environment_id`),
+  picked at start and checked to include the session's repo. Each turn
+  writes that environment's files for the repo. Picker (UI): a settings icon
+  at the far right of the repo row opens a menu of environments that
+  include the repo, plus "Create environment"; a picked one shows as a chip
+  next to the repo.
+- Previews go private on a custom domain (`<prefix>.preview.lor.chat`,
+  Blaxel `customDomain`) so the preview cookie is same-site with the web
+  app. To check: tokens on custom domains (undocumented), and the desktop
+  app, whose `tauri://localhost` origin keeps the cookie third-party. Until
+  the domain is registered, previews use Blaxel's domain behind
+  `exposePort`.
 - A new permission `environment: ["manage"]` (`workspace-statements.ts`),
   owner and admin by default: edit and reveal values. It cannot hide values
   from people in a code session: Lor and the terminal read the env file, so
   anyone who can talk to Lor or open the terminal can see them. The UI says
   so.
-- Previews are public unguessable URLs with a TTL at launch.
 - Terminal: `tmux` keeps the shell across reconnects (ttyd starts a new
   shell per connection, so without it every idle disconnect kills the shell
   and what runs in it). One tmux session per person

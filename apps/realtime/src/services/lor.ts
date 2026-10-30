@@ -17,6 +17,7 @@ import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import { hasPersonalAccount } from "@repo/db/queries/personal-accounts"
 import { env } from "@repo/env/server"
 import { channelCodeRepo, isSafeBranch } from "@repo/lor/code-repo"
+import { environmentForRepo } from "@repo/lor/dev-env/environments"
 import { extractDirectMentionUserIds } from "@repo/messaging"
 import {
   type RealtimeMessage,
@@ -108,10 +109,23 @@ async function codeSessionStart(
       `${code.repo} isn't available for code sessions in this channel`
     )
   }
+  const environmentId = code.environmentId
+    ? await environmentForRepo(
+        workspaceId,
+        code.environmentId,
+        allowed.repo.fullName
+      )
+    : null
+  if (code.environmentId && !environmentId) {
+    throw new Error(
+      `That environment isn't set up for ${allowed.repo.fullName}`
+    )
+  }
   return {
     repoFullName: allowed.repo.fullName,
     baseBranch: code.branch,
     newBranch,
+    environmentId,
   }
 }
 

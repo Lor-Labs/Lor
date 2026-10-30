@@ -27,6 +27,7 @@ export const agentSessionSchema = z
     repoFullName: z.string().nullable(),
     baseBranch: z.string().nullable(),
     newBranch: z.string().nullable(),
+    environmentId: z.string().uuid().nullable(),
     uncommittedAdditions: z.number().int().nullable(),
     uncommittedDeletions: z.number().int().nullable(),
     sourceSessionId: z.string().uuid().nullable(),
