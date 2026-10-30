@@ -26,9 +26,12 @@ const PUSH_FAILED = 21
 const SHA = /^[0-9a-f]{40}$/
 // The storage token rides in these commands' env, in a sandbox whose repo
 // hooks and git config its code controls: no hooks, credential helpers,
-// fsmonitor or global/system config run with it.
+// fsmonitor or global/system config run with it, and only the https transport
+// (a local url.*.insteadOf can't point it at ext:: or file://). A local
+// insteadOf to another https host still can; the full fix is pushing from a
+// clean GIT_DIR.
 const GIT =
-  "git -c core.hooksPath=/dev/null -c credential.helper= -c core.fsmonitor=false"
+  "git -c core.hooksPath=/dev/null -c credential.helper= -c core.fsmonitor=false -c protocol.allow=never -c protocol.https.allow=always"
 const GIT_ENV = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" }
 
 let cachedStore: GitStorage | null | undefined

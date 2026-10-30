@@ -1,4 +1,4 @@
-import { and, db, desc, eq, inArray, schema } from "@repo/db"
+import { and, db, desc, eq, inArray, lte, schema } from "@repo/db"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -30,18 +30,28 @@ export const registerPushToken: AppRouteHandler<
       },
     })
 
-  // Past the cap, the least recently registered devices fall off.
+  // Past the cap, the least recently registered devices fall off. The delete
+  // re-checks owner and age, so a token refreshed or reassigned meanwhile
+  // survives.
   const stale = await db
-    .select({ id: schema.pushToken.id })
+    .select({
+      id: schema.pushToken.id,
+      updatedAt: schema.pushToken.updatedAt,
+    })
     .from(schema.pushToken)
     .where(eq(schema.pushToken.userId, currentUser.id))
     .orderBy(desc(schema.pushToken.updatedAt))
     .offset(MAX_PUSH_TOKENS_PER_USER)
-  if (stale.length > 0) {
+  const newestStale = stale[0]?.updatedAt
+  if (newestStale) {
     await db.delete(schema.pushToken).where(
-      inArray(
-        schema.pushToken.id,
-        stale.map((row) => row.id)
+      and(
+        inArray(
+          schema.pushToken.id,
+          stale.map((row) => row.id)
+        ),
+        eq(schema.pushToken.userId, currentUser.id),
+        lte(schema.pushToken.updatedAt, newestStale)
       )
     )
   }

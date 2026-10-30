@@ -75,13 +75,18 @@ function redactedHeaders(
   )
 }
 
-// Server URLs can carry a key in the path or query (e.g. hosted MCP
-// gateways). Non-managers get the origin, plus a mask when anything followed.
+// Server URLs can carry a key in a subdomain, path or query (hosted MCP
+// gateways). Non-managers see only the last two host labels, with the rest
+// and anything after the host masked. The host mask stays ASCII so clients
+// that parse the URL (web hostOf) don't render punycode.
 function redactedUrl(url: string): string {
   try {
     const parsed = new URL(url)
+    const labels = parsed.hostname.split(".")
+    const host =
+      labels.length > 2 ? `redacted.${labels.slice(-2).join(".")}` : parsed.host
     const bare = parsed.pathname === "/" && !parsed.search && !parsed.hash
-    return bare ? parsed.origin : `${parsed.origin}/••••••`
+    return `${parsed.protocol}//${host}${bare ? "" : "/••••••"}`
   } catch {
     return "••••••"
   }

@@ -46,10 +46,17 @@ async function removeFromInaccessibleCalls(userId: string) {
       )
     )
   for (const call of live) {
-    if ((await resolveChannelAccess(userId, call.channelId)).ok) continue
-    await removeFromRoom(livekit, call.sessionId, call.participantId)
-    await markParticipantLeft(call.sessionId, {
-      participantId: call.participantId,
-    })
+    try {
+      if ((await resolveChannelAccess(userId, call.channelId)).ok) continue
+      await removeFromRoom(livekit, call.sessionId, call.participantId)
+      await markParticipantLeft(call.sessionId, {
+        participantId: call.participantId,
+      })
+    } catch (err) {
+      logger.warn(
+        { err, userId, sessionId: call.sessionId },
+        "Removing a user from a live call failed"
+      )
+    }
   }
 }

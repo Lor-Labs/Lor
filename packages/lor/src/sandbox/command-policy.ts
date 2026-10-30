@@ -406,7 +406,7 @@ const optionSet = (text: string) => new Set(text.split(" "))
 const CURL: HttpClient = {
   shortValues: "AbcCdDeEFHKmoPQrtTuUwxXyYz",
   longValues: optionSet(
-    "--output --output-dir --header --user-agent --referer --user --cookie --cookie-jar --data --data-ascii --data-binary --data-raw --data-urlencode --json --form --form-string --upload-file --config --request --url --url-query --write-out --dump-header --max-time --connect-timeout --retry --retry-delay --retry-max-time --max-redirs --range --continue-at --cacert --cert --key --proxy --preproxy --socks4 --socks4a --socks5 --socks5-hostname --resolve --connect-to --doh-url --dns-servers --unix-socket --variable --oauth2-bearer --limit-rate --trace --trace-ascii --stderr"
+    "--output --output-dir --header --user-agent --referer --user --cookie --cookie-jar --data --data-ascii --data-binary --data-raw --data-urlencode --json --form --form-string --upload-file --config --request --url --url-query --write-out --dump-header --max-time --connect-timeout --retry --retry-delay --retry-max-time --max-redirs --range --continue-at --cacert --cert --key --proxy --proxy1.0 --proxy-header --proxy-user --preproxy --socks4 --socks4a --socks5 --socks5-hostname --resolve --connect-to --doh-url --dns-servers --unix-socket --variable --oauth2-bearer --limit-rate --trace --trace-ascii --stderr"
   ),
   sends: optionSet(
     "-d -F -T -K --data --data-ascii --data-binary --data-raw --data-urlencode --json --form --form-string --upload-file --config --variable --url-query"
@@ -415,7 +415,7 @@ const CURL: HttpClient = {
     "-H -A -e -u -b --header --user-agent --referer --user --cookie --oauth2-bearer"
   ),
   routes: optionSet(
-    "-x -K --config --proxy --preproxy --socks4 --socks4a --socks5 --socks5-hostname --resolve --connect-to --doh-url --dns-servers"
+    "-x -K --config --proxy --proxy1.0 --preproxy --socks4 --socks4a --socks5 --socks5-hostname --resolve --connect-to --doh-url --dns-servers"
   ),
   method: optionSet("-X --request"),
 }
@@ -541,8 +541,23 @@ function httpReason(
 }
 
 // `xargs curl` and `find -exec curl` add arguments the call doesn't show.
+// Wrappers nest (`xargs env nice curl`), and find can have several -exec
+// clauses.
 function runsHttpClient(argv: Argv): boolean {
-  return HTTP_CLIENTS.has(commandName(unwrap(argv) ?? []) ?? "")
+  if (commandName(argv) === "find") {
+    const args = argv.slice(1)
+    return args.some(
+      (arg, i) =>
+        FIND_EXEC.includes(arg ?? "") &&
+        runsHttpClient(["xargs", ...args.slice(i + 1)])
+    )
+  }
+  let inner = unwrap(argv)
+  for (let depth = 0; inner && depth < 8; depth++) {
+    if (HTTP_CLIENTS.has(commandName(inner) ?? "")) return true
+    inner = unwrap(inner)
+  }
+  return false
 }
 
 // Inline programs (`python3 -c`, `node -e`, a heredoc into an interpreter)

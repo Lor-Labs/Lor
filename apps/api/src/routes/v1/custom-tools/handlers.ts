@@ -24,10 +24,13 @@ import type {
 
 // Templates may embed literal credentials typed instead of {{secrets.*}}
 // references. Members without customTool:manage see placeholders as-is and
-// every other literal value (header, query value, body string) masked.
+// every other literal value (header, path segment, query value, fragment, body
+// value) masked.
 const MASK = "••••••"
 const PLACEHOLDER_REGEX = /\{\{[^}]*\}\}/g
-const JSON_STRING_REGEX = /"((?:[^"\\]|\\.)*)"(\s*:)?/g
+// Placeholders, strings (keys keep their text) and numbers, in that order.
+const JSON_TOKEN_REGEX =
+  /\{\{[^}]*\}\}|"((?:[^"\\]|\\.)*)"(\s*:)?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g
 
 function placeholderOnly(value: string): boolean {
   return value.replace(PLACEHOLDER_REGEX, "").trim() === ""
@@ -42,28 +45,49 @@ function redactedHeaders(headers: Record<string, string>) {
   )
 }
 
+// Keeps the origin, path shape, query keys and placeholders; a hook path like
+// /services/T0/B0/secret can hold the credential itself.
 function redactedUrlTemplate(template: string): string {
-  const queryStart = template.indexOf("?")
-  if (queryStart === -1) return template
-  const hashStart = template.indexOf("#", queryStart)
-  const queryEnd = hashStart === -1 ? template.length : hashStart
-  const query = template
-    .slice(queryStart + 1, queryEnd)
-    .split("&")
-    .map((pair) => {
-      const eq = pair.indexOf("=")
-      if (eq === -1 || placeholderOnly(pair.slice(eq + 1))) return pair
-      return `${pair.slice(0, eq)}=${MASK}`
-    })
-    .join("&")
-  return `${template.slice(0, queryStart + 1)}${query}${template.slice(queryEnd)}`
+  const hashStart = template.indexOf("#")
+  const beforeHash = hashStart === -1 ? template : template.slice(0, hashStart)
+  const queryStart = beforeHash.indexOf("?")
+  const base = queryStart === -1 ? beforeHash : beforeHash.slice(0, queryStart)
+  const origin = /^[a-z][a-z0-9+.-]*:\/\/[^/]*/i.exec(base)?.[0] ?? ""
+  const path = base
+    .slice(origin.length)
+    .split("/")
+    .map((segment) =>
+      segment === "" || placeholderOnly(segment) ? segment : MASK
+    )
+    .join("/")
+  const query =
+    queryStart === -1
+      ? ""
+      : `?${beforeHash
+          .slice(queryStart + 1)
+          .split("&")
+          .map((pair) => {
+            const eq = pair.indexOf("=")
+            if (eq === -1 || placeholderOnly(pair.slice(eq + 1))) return pair
+            return `${pair.slice(0, eq)}=${MASK}`
+          })
+          .join("&")}`
+  const fragment = hashStart === -1 ? null : template.slice(hashStart + 1)
+  const hash =
+    fragment === null ? "" : `#${placeholderOnly(fragment) ? fragment : MASK}`
+  return `${origin}${path}${query}${hash}`
 }
 
 function redactedBodyTemplate(body: string | null): string | null {
   if (body === null || placeholderOnly(body)) return body
   if (bodyTemplateJsonIssue(body) !== null) return MASK
-  return body.replace(JSON_STRING_REGEX, (match, inner: string, colon) =>
-    colon || placeholderOnly(inner) ? match : `"${MASK}"`
+  return body.replace(
+    JSON_TOKEN_REGEX,
+    (match, inner: string | undefined, colon: string | undefined) => {
+      if (match.startsWith("{{") || colon) return match
+      if (inner !== undefined && placeholderOnly(inner)) return match
+      return `"${MASK}"`
+    }
   )
 }
 

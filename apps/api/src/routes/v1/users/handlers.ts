@@ -1,4 +1,4 @@
-import { and, db, eq, inArray, schema } from "@repo/db"
+import { and, db, eq, inArray, isNull, schema } from "@repo/db"
 import { PRESENCE_ONLINE_USERS_SET_KEY } from "@repo/realtime-types"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { getRedisClient } from "@/lib/redis"
@@ -26,11 +26,18 @@ async function canViewProfile(viewerId: string, targetId: string) {
         )
       )
       .limit(1),
+    // DMs and group DMs only (workspaceId null): workspace channels keep
+    // channel_member rows after a kick, so they don't count.
     db
       .select({ id: schema.channelMember.id })
       .from(schema.channelMember)
+      .innerJoin(
+        schema.channel,
+        eq(schema.channel.id, schema.channelMember.channelId)
+      )
       .where(
         and(
+          isNull(schema.channel.workspaceId),
           eq(schema.channelMember.userId, targetId),
           inArray(
             schema.channelMember.channelId,
