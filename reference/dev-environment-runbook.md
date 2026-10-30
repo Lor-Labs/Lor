@@ -223,8 +223,27 @@ first load). The client behavior is the same.
     writes into an awake sandbox now instead of at the next turn.
   - [ ] Open the egress allowlist (Blaxel's "all methods, all hosts" rule
     syntax to check).
-- [ ] **3. Preview tab.** Repo dev command/port, start/stop/URL routes, tab
-  with iframe, idle unmount, desktop CSP.
+- [x] **3. Preview tab.** Built 2026-10-29, not run live yet.
+  - `packages/lor/src/dev-env/previews.ts`: `suggestDevServer` (package.json
+    `dev`, else `start`; runner from the lockfile; port from `-p`/`--port`,
+    Vite 5173, else 3000; Vite gets `--host 0.0.0.0`), `startPreview`
+    (process `preview-<port>`, installs dependencies first when
+    `node_modules` is missing, env `HOST`/`PORT`/`BROWSER=none`/
+    `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`, waits for the port up to 45 s,
+    or 180 s on a fresh start), `listPreviews`, `stopPreview`. Private on
+    `LOR_PREVIEW_DOMAIN`, else public.
+  - `portReady` checks in rounds of 20 s: Blaxel's `waitForCompletion`
+    stops at 60 s.
+  - API: `GET/POST /sessions/{id}/preview`, `DELETE
+    /sessions/{id}/preview/{port}` (code sessions; start/stop need channel
+    write access). No sandbox: 409 "send Lor a message"; port silent: 400.
+  - Web: `preview` tab kind, `PreviewTab` (command/port form prefilled from
+    the repo; iframe with Reload, Copy URL, Open in browser, Stop; unmounts
+    after 2 minutes hidden), Preview button in the session strip. Desktop
+    CSP: `frame-src https://*.bl.run https://*.lor.chat`, `connect-src
+    wss://*.bl.run`.
+  - Not built: Lor told about the Preview tab in its prompt; a preview the
+    agent starts by itself does not show (it is not a `preview-` process).
 - [ ] **4. Terminal tab.** `ttyd` + `tmux` in the image (`bl push`), token
   route, xterm.js tab, idle close.
 - [ ] **5. Live QA.** A Next app with a `.env.local`: preview, edit through

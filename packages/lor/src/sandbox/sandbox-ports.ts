@@ -162,6 +162,10 @@ export async function listProcesses(
   }
 }
 
+// Blaxel's waitForCompletion stops at 60 s, so longer waits are rounds of
+// shorter checks.
+const PORT_CHECK_ROUND_SEC = 20
+
 // Whether something answers on the port inside the sandbox, polling until
 // the timeout. Any HTTP status counts.
 export async function portReady(
@@ -171,15 +175,25 @@ export async function portReady(
 ): Promise<boolean> {
   const sandbox = await existingSandbox(owner)
   if (!sandbox) return false
+  const deadline = Date.now() + timeoutMs
   try {
-    const seconds = Math.max(1, Math.ceil(timeoutMs / 1000))
-    const result = await sandbox.process.exec({
-      name: `port-${randomUUID().slice(0, 8)}`,
-      command: `for i in $(seq ${seconds}); do curl -s -o /dev/null --max-time 1 http://127.0.0.1:${port}/ && exit 0; sleep 1; done; exit 1`,
-      waitForCompletion: true,
-      timeout: seconds + 5,
-    })
-    return result.exitCode === 0
+    while (Date.now() < deadline) {
+      const seconds = Math.max(
+        1,
+        Math.min(
+          PORT_CHECK_ROUND_SEC,
+          Math.ceil((deadline - Date.now()) / 1000)
+        )
+      )
+      const result = await sandbox.process.exec({
+        name: `port-${randomUUID().slice(0, 8)}`,
+        command: `for i in $(seq ${seconds}); do curl -s -o /dev/null --max-time 1 http://127.0.0.1:${port}/ && exit 0; sleep 1; done; exit 1`,
+        waitForCompletion: true,
+        timeout: seconds + 5,
+      })
+      if (result.exitCode === 0) return true
+    }
+    return false
   } finally {
     closeConnection(sandbox)
   }

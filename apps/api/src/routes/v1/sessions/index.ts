@@ -24,5 +24,8 @@ const sessionsRouter = createRouter()
   .openapi(routes.rewindAgentSession, handlers.rewindAgentSession)
   .openapi(routes.getActWaiting, handlers.getActWaiting)
   .openapi(routes.dropActWaiting, handlers.dropActWaiting)
+  .openapi(routes.getSessionPreview, handlers.getSessionPreview)
+  .openapi(routes.startSessionPreview, handlers.startSessionPreview)
+  .openapi(routes.stopSessionPreview, handlers.stopSessionPreview)
 
 export default sessionsRouter

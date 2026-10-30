@@ -1,5 +1,6 @@
 import {
   ArrowDown01Icon,
+  BrowserIcon,
   BubbleChatIcon,
   Cancel01Icon,
   File01Icon,
@@ -19,6 +20,7 @@ import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
+import { PreviewTab } from "@/components/session/preview-tab"
 import { RepoFileView } from "@/components/session/repo-file-view"
 import {
   ChangeDiff,
@@ -52,6 +54,7 @@ const TAB_ICONS: Record<SessionTab["kind"], IconSvgElement> = {
   file: File01Icon,
   diff: FileDiffIcon,
   changes: GitCompareIcon,
+  preview: BrowserIcon,
 }
 
 const TYPING_TARGET =
@@ -139,9 +142,17 @@ export function SessionTabBar({
           <TabButton
             key={id}
             label={
-              tab.kind === "changes" ? "All changes" : splitPath(tab.path).name
+              tab.kind === "changes"
+                ? "All changes"
+                : tab.kind === "preview"
+                  ? "Preview"
+                  : splitPath(tab.path).name
             }
-            title={tab.kind === "changes" ? undefined : tab.path}
+            title={
+              tab.kind === "changes" || tab.kind === "preview"
+                ? undefined
+                : tab.path
+            }
             icon={TAB_ICONS[tab.kind]}
             preview={preview === id}
             selected={active === id}
@@ -254,6 +265,7 @@ export function SessionTabView({
 }) {
   const changes = useSessionChanges(sessionId)
   if (tab.kind === "changes") return <AllChangesTab sessionId={sessionId} />
+  if (tab.kind === "preview") return <PreviewTab sessionId={sessionId} />
 
   const ready = changes.data?.state === "ready" ? changes.data : null
   const file = ready?.files.find((changed) => changed.path === tab.path) ?? null

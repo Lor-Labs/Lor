@@ -1,5 +1,6 @@
 import {
   Archive02Icon,
+  BrowserIcon,
   BubbleChatIcon,
   GitBranchIcon,
   GitForkIcon,
@@ -72,6 +73,7 @@ import {
   useLiveSessionChanges,
 } from "@/hooks/use-session-changes"
 import {
+  PREVIEW_TAB_ID,
   parseTabId,
   sessionTabLink,
   useSessionTabs,
@@ -352,6 +354,11 @@ function SessionConversation({
               />
             ) : null
           }
+          onPreview={
+            code && !session.archivedAt
+              ? () => tabs.open(PREVIEW_TAB_ID, { preview: false })
+              : undefined
+          }
           onRename={() => setRenaming(true)}
           onArchive={() => {
             updateSession.mutate({ ...change, archived: true })
@@ -420,6 +427,7 @@ function SessionStrip({
   lorRunning,
   showTitle,
   tabBar,
+  onPreview,
   onRename,
   onArchive,
 }: {
@@ -429,6 +437,8 @@ function SessionStrip({
   showTitle: boolean
   // A code session's open tabs take the title's place.
   tabBar: ReactNode
+  // Code sessions: open the Preview tab.
+  onPreview?: () => void
   onRename: () => void
   onArchive: () => void
 }) {
@@ -462,6 +472,21 @@ function SessionStrip({
         )}
       </AnimatePresence>
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        {onPreview && (
+          <button
+            type="button"
+            aria-label="Preview"
+            title="Preview"
+            onClick={onPreview}
+            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+          >
+            <HugeiconsIcon
+              icon={BrowserIcon}
+              className="size-4"
+              strokeWidth={2}
+            />
+          </button>
+        )}
         <ThreadSubscribers
           workspaceSlug={workspaceSlug}
           channelId={channelId}

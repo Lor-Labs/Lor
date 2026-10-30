@@ -49,6 +49,12 @@ import {
   writeCheckpoint,
 } from "@repo/lor/code-checkpoints"
 import {
+  listPreviews,
+  startPreview,
+  stopPreview,
+  suggestDevServer,
+} from "@repo/lor/dev-env/previews"
+import {
   BranchRefusedError,
   forkSession,
   rewindSession,
@@ -82,12 +88,15 @@ import type {
   GetRepoTreeRoute,
   GetSessionChangeDiffRoute,
   GetSessionChangesRoute,
+  GetSessionPreviewRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
   PullSessionChangesRoute,
   PushSessionChangesRoute,
   RewindAgentSessionRoute,
   StageSessionChangesRoute,
+  StartSessionPreviewRoute,
+  StopSessionPreviewRoute,
   UpdateAgentSessionRoute,
 } from "@/routes/v1/sessions/routes"
 
@@ -1368,4 +1377,100 @@ export const dropActWaiting: AppRouteHandler<DropActWaitingRoute> = async (
     threadRootId: session.threadRootId,
   })
   return c.json({ dropped }, HttpStatusCodes.OK)
+}
+
+// Dev server previews (reference/dev-environment-runbook.md §3): code
+// sessions only. Reading needs channel access; starting and stopping need
+// write access, like everything else that changes the sandbox.
+
+const notCodeSession = {
+  success: false as const,
+  message: "Previews are for code sessions",
+}
+
+export const getSessionPreview: AppRouteHandler<
+  GetSessionPreviewRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row || row.session.mode !== "code") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const [previews, suggestion] = await Promise.all([
+    listPreviews(sessionId),
+    suggestDevServer(sessionId),
+  ])
+  return c.json({ previews, suggestion }, HttpStatusCodes.OK)
+}
+
+export const startSessionPreview: AppRouteHandler<
+  StartSessionPreviewRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  if (row.session.mode !== "code" || row.session.archivedAt) {
+    return c.json(notCodeSession, HttpStatusCodes.BAD_REQUEST)
+  }
+  const result = await startPreview(sessionId, body)
+  if (result.status === "no_sandbox") {
+    return c.json(
+      {
+        success: false as const,
+        message:
+          "This session has no sandbox yet. Send Lor a message to set one up.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (result.status === "not_listening") {
+    return c.json(
+      {
+        success: false as const,
+        message: `Nothing answered on port ${result.port}. Check the command and port; the dev server keeps running.`,
+      },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  return c.json({ preview: result.preview }, HttpStatusCodes.OK)
+}
+
+export const stopSessionPreview: AppRouteHandler<
+  StopSessionPreviewRoute
+> = async (c) => {
+  const { sessionId, port } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row || row.session.mode !== "code") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  await stopPreview(sessionId, port)
+  const [previews, suggestion] = await Promise.all([
+    listPreviews(sessionId),
+    suggestDevServer(sessionId),
+  ])
+  return c.json({ previews, suggestion }, HttpStatusCodes.OK)
 }

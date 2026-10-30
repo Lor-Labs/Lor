@@ -9,16 +9,19 @@ import { webOrigin } from "@/lib/web-origin"
 // tab).
 
 export const CHANGES_TAB_ID = "changes"
+export const PREVIEW_TAB_ID = "preview"
 
 export type SessionTab =
   | { id: string; kind: "file" | "diff"; path: string }
   | { id: typeof CHANGES_TAB_ID; kind: "changes" }
+  | { id: typeof PREVIEW_TAB_ID; kind: "preview" }
 
 export const fileTabId = (path: string) => `file:${path}`
 export const diffTabId = (path: string) => `diff:${path}`
 
 export function parseTabId(id: string): SessionTab | null {
   if (id === CHANGES_TAB_ID) return { id, kind: "changes" }
+  if (id === PREVIEW_TAB_ID) return { id, kind: "preview" }
   const colon = id.indexOf(":")
   if (colon < 0) return null
   const kind = id.slice(0, colon)

@@ -23,6 +23,7 @@ import {
   forkAgentSessionResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  previewPortParamsSchema,
   pullSessionChangesResponseSchema,
   pushSessionChangesResponseSchema,
   repoFileQuerySchema,
@@ -35,7 +36,10 @@ import {
   sessionChangesResponseSchema,
   sessionFilesResponseSchema,
   sessionParamsSchema,
+  sessionPreviewResponseSchema,
   stageSessionChangesRequestSchema,
+  startPreviewRequestSchema,
+  startPreviewResponseSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
 } from "@/routes/v1/sessions/schema"
@@ -518,3 +522,81 @@ export const dropActWaiting = createRoute({
 })
 
 export type DropActWaitingRoute = typeof dropActWaiting
+
+export const getSessionPreview = createRoute({
+  path: "/sessions/{sessionId}/preview",
+  method: "get",
+  summary: "A code session's dev server previews",
+  description:
+    "Running previews with their URLs, and the dev command suggested by the repo.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionPreviewResponseSchema,
+      description: "Previews",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetSessionPreviewRoute = typeof getSessionPreview
+
+export const startSessionPreview = createRoute({
+  path: "/sessions/{sessionId}/preview",
+  method: "post",
+  summary: "Start a code session's dev server preview",
+  description:
+    "Runs the dev command in the session's sandbox unless it already runs, waits for the port and returns its URL. Anyone who can write in the channel can do this.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: startPreviewRequestSchema,
+      description: "Dev command and port",
+    }),
+  },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: startPreviewResponseSchema,
+      description: "The preview",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type StartSessionPreviewRoute = typeof startSessionPreview
+
+export const stopSessionPreview = createRoute({
+  path: "/sessions/{sessionId}/preview/{port}",
+  method: "delete",
+  summary: "Stop a code session's dev server preview",
+  description: "Stops the dev server and revokes its URL.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: previewPortParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionPreviewResponseSchema,
+      description: "Previews left",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type StopSessionPreviewRoute = typeof stopSessionPreview
