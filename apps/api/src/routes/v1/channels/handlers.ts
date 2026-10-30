@@ -13,6 +13,7 @@ import {
   agentProfile,
   agentSession,
   channel,
+  channelMember,
   channelReadState,
   message,
   messageMention,
@@ -587,10 +588,15 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
   }
 
   const result = await db.transaction(async (tx) => {
-    // Lock the parent against concurrent FK inserts/reparenting. Deleting a
-    // category would otherwise detach children and widen inherited audiences.
+    // Lock the parent against concurrent FK inserts/reparenting, so no child
+    // can slip in between reparenting the existing ones and the delete.
     const existing = await tx
-      .select({ id: channel.id })
+      .select({
+        id: channel.id,
+        type: channel.type,
+        audience: channel.audience,
+        agentProfileId: channel.agentProfileId,
+      })
       .from(channel)
       .where(
         and(eq(channel.id, channelId), eq(channel.workspaceId, workspace.id))
@@ -599,31 +605,112 @@ export const deleteChannel: AppRouteHandler<DeleteChannelRoute> = async (c) => {
       .limit(1)
       .then((rows) => rows[0])
     if (!existing) return "not_found" as const
-    const child = await tx
-      .select({ id: channel.id })
-      .from(channel)
-      .where(eq(channel.parentId, channelId))
+
+    // A project is lifecycle over its category channel and cascades away with
+    // it. Deleting the category through this route would silently destroy the
+    // project, so refuse; projects are archived, not deleted.
+    const owningProject = await tx
+      .select({ id: schema.project.id })
+      .from(schema.project)
+      .where(eq(schema.project.categoryChannelId, channelId))
       .limit(1)
       .then((rows) => rows[0])
-    if (child) return "nonempty" as const
+    if (owningProject) return "has_project" as const
+
+    if (existing.type === "category") {
+      // A category's channels become uncategorized, as the delete dialog
+      // promises. They keep exactly the access they had: a channel inherits
+      // its container's audience, so each one takes that audience with it — an
+      // open category's children stay open, a restricted category's children
+      // each become a restricted channel carrying the category's member list.
+      // Setting the audience as they detach is what keeps an inherited
+      // audience from silently widening to the whole workspace.
+      const children = await tx
+        .select({
+          id: channel.id,
+          position: channel.position,
+          agentProfileId: channel.agentProfileId,
+        })
+        .from(channel)
+        .where(eq(channel.parentId, channelId))
+        .orderBy(asc(channel.position), asc(channel.id))
+
+      if (children.length > 0) {
+        // Detached children join the uncategorized group, whose sidebar order
+        // is by position. Their old positions were relative to the category
+        // and would collide with the uncategorized channels (leaving
+        // listChannels to break ties arbitrarily), so place them after every
+        // existing uncategorized channel, preserving their relative order.
+        const lastUncategorized = await tx
+          .select({ value: max(channel.position) })
+          .from(channel)
+          .where(
+            and(
+              eq(channel.workspaceId, workspace.id),
+              ne(channel.type, "category"),
+              isNull(channel.parentId)
+            )
+          )
+          .then((rows) => rows[0]?.value ?? -1)
+
+        for (const [index, child] of children.entries()) {
+          await tx
+            .update(channel)
+            .set({
+              parentId: null,
+              audience: existing.audience,
+              position: lastUncategorized + 1 + index,
+              // A child with no profile of its own inherited the category's;
+              // the category is going away, so carry the profile onto the
+              // child instead of letting it silently fall back to the
+              // workspace default. Explicit child profiles stay untouched.
+              agentProfileId: child.agentProfileId ?? existing.agentProfileId,
+            })
+            .where(eq(channel.id, child.id))
+        }
+      }
+
+      if (existing.audience === "members" && children.length > 0) {
+        const members = await tx
+          .select({ userId: channelMember.userId })
+          .from(channelMember)
+          .where(eq(channelMember.channelId, channelId))
+        if (members.length > 0) {
+          await tx
+            .insert(channelMember)
+            .values(
+              children.flatMap((child) =>
+                members.map((member) => ({
+                  channelId: child.id,
+                  userId: member.userId,
+                }))
+              )
+            )
+            .onConflictDoNothing()
+        }
+      }
+    }
+
+    // The category's own member rows go with it (cascade).
     await tx.delete(channel).where(eq(channel.id, channelId))
     return "deleted" as const
   })
+
+  if (result === "has_project") {
+    return c.json(
+      {
+        success: false,
+        message:
+          "This category belongs to a project. Archive the project instead of deleting its category.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
 
   if (result === "not_found") {
     return c.json(
       { success: false, message: "Channel not found" },
       HttpStatusCodes.NOT_FOUND
-    )
-  }
-
-  if (result === "nonempty") {
-    return c.json(
-      {
-        success: false,
-        message: "Delete child channels before deleting their category",
-      },
-      HttpStatusCodes.CONFLICT
     )
   }
 

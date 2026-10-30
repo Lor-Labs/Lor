@@ -33,8 +33,8 @@ import { useModelChoice } from "@/hooks/use-agent-models"
 import {
   branchesQueryOptions,
   codeTargetNote,
-  HARNESS_OPTIONS,
   useCodeTarget,
+  useHarnessOptions,
   useSessionHarness,
   useSessionMode,
 } from "@/hooks/use-code-target"
@@ -168,6 +168,7 @@ function NewSessionComposer({
   // Claude Code runs on the starter's own Claude subscription; connecting
   // it is on web for now.
   const [harness, setHarness] = useSessionHarness()
+  const harnessOptions = useHarnessOptions()
   const claudeCode = mode === "code" && harness === "claude_code"
   // A chat session always runs on Lor's own agent.
   const modelChoice = useModelChoice(mode === "code" ? harness : "pi")
@@ -342,7 +343,7 @@ function NewSessionComposer({
               {codeTargetNote(code.status)}
             </Text>
           )}
-          {HARNESS_OPTIONS.length > 1 && (
+          {harnessOptions.length > 1 && (
             <>
               <Text className="text-[13px] text-muted">with</Text>
               <TargetChip
@@ -485,11 +486,11 @@ function NewSessionComposer({
         isOpen={sheet === "harness"}
         onOpenChange={(open) => setSheet(open ? "harness" : null)}
         onPick={(value) => {
-          const next = HARNESS_OPTIONS.find((option) => option.value === value)
+          const next = harnessOptions.find((option) => option.value === value)
           if (next) setHarness(next.value)
           setSheet(null)
         }}
-        options={HARNESS_OPTIONS}
+        options={harnessOptions}
         selected={harness}
         title="Agent"
       />

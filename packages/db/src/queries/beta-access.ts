@@ -1,4 +1,5 @@
 import { readServerEnv } from "@repo/env/server-fields"
+import { isHarnessAllowedInBeta } from "@repo/utils/features"
 import { and, db, eq, isNull, schema } from "../index"
 
 export class BetaAccessError extends Error {
@@ -111,10 +112,16 @@ export async function assertBetaSandbox(workspaceId: string) {
     )
 }
 
+// Beta teams bring their own Claude Code subscription (Jacob 2026-10-29):
+// those turns run on the person's own Claude plan, never the shared credit
+// pool, so they are allowed during the beta. Lor's own agent stays the only
+// credit-funded harness; Codex, which runs on Lor credits, stays out.
+// `HOSTED_BETA_HARNESSES` in @repo/utils/features is the one list the clients
+// hide and refuse from too.
 export function assertHostedHarness(harness: string) {
-  if (hostedBetaEnabled() && harness !== "pi")
+  if (hostedBetaEnabled() && !isHarnessAllowedInBeta(harness))
     throw new BetaAccessError(
-      "Hosted beta supports Lor with credits or a workspace API key. Subscription-based harnesses are not available."
+      "Hosted beta supports Lor with credits or a workspace API key, and Claude Code on your own Claude subscription. Other agents are not available."
     )
 }
 

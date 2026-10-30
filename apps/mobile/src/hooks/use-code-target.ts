@@ -1,7 +1,8 @@
-import { isHarnessEnabled } from "@repo/utils/features"
+import { isHarnessAllowedInBeta, isHarnessEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import * as SecureStore from "expo-secure-store"
 import { useState } from "react"
+import { useBetaAvailability } from "@/hooks/use-beta"
 import { api } from "@/lib/api"
 import { HARNESS_LABELS, type SessionHarness } from "@/lib/harness"
 
@@ -34,11 +35,21 @@ export const HARNESS_DETAILS: Record<SessionHarness, string> = {
   codex: "OpenAI's coding agent, on Lor credits.",
 }
 
-export const HARNESS_OPTIONS = HARNESSES.map((harness) => ({
-  value: harness,
-  label: HARNESS_LABELS[harness],
-  detail: HARNESS_DETAILS[harness],
-}))
+// Hosted beta offers only its harnesses (Lor and Claude Code on the person's
+// own Claude subscription), whatever the feature flags say; the server
+// enforces the same set in `assertHostedHarness`.
+export function useHarnessOptions() {
+  const { data: beta } = useBetaAvailability()
+  const harnesses =
+    beta?.enabled === true
+      ? HARNESSES.filter(isHarnessAllowedInBeta)
+      : HARNESSES
+  return harnesses.map((harness) => ({
+    value: harness,
+    label: HARNESS_LABELS[harness],
+    detail: HARNESS_DETAILS[harness],
+  }))
+}
 
 function readStored(key: string): string | null {
   try {
@@ -76,8 +87,24 @@ export function useSessionMode() {
   return useStoredChoice<SessionMode>(MODE_KEY, ["chat", "code"], "chat")
 }
 
-export function useSessionHarness() {
-  return useStoredChoice<SessionHarness>(HARNESS_KEY, HARNESSES, "pi")
+export function useSessionHarness(): [
+  SessionHarness,
+  (harness: SessionHarness) => void,
+] {
+  const options = useHarnessOptions()
+  const [value, change] = useStoredChoice<SessionHarness>(
+    HARNESS_KEY,
+    options.map((option) => option.value),
+    "pi"
+  )
+  // A pick saved while the beta was off falls back to Lor once it is known to
+  // be on; the stored value itself is left alone.
+  const harness: SessionHarness = options.some(
+    (option) => option.value === value
+  )
+    ? value
+    : "pi"
+  return [harness, change]
 }
 
 type CodeRepos = { available: false } | { available: true; repos: string[] }

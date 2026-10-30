@@ -45,8 +45,12 @@ export function DeleteChannelDialog({
         },
       })
       if (!res.ok) {
+        // The server knows why it refused (no permission, no access); pass its
+        // reason on instead of a generic one, as the phone app does.
+        const data = await res.json().catch(() => null)
         throw new Error(
-          `Failed to delete ${channel.type === "category" ? "category" : "channel"}`
+          (data as { message?: string } | null)?.message ??
+            `Failed to delete ${channel.type === "category" ? "category" : "channel"}`
         )
       }
       return res.json()
