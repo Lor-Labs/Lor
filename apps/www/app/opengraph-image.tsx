@@ -46,7 +46,7 @@ export default function OpengraphImage() {
           letterSpacing: "-0.01em",
         }}
       >
-        Join the waitlist. Beta invites start {BETA_INVITES_SHORT_LABEL}.
+        {`Join the waitlist. Beta invites start ${BETA_INVITES_SHORT_LABEL}.`}
       </div>
     </div>,
     size
