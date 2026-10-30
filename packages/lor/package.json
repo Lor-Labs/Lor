@@ -20,6 +20,7 @@
     "./company-site": "./src/company-site.ts",
     "./connector-search": "./src/connector-search.ts",
     "./custom-tools": "./src/custom-tools.ts",
+    "./dev-env/environments": "./src/dev-env/environments.ts",
     "./embeddings": "./src/embeddings.ts",
     "./github": "./src/github.ts",
     "./harness-store": "./src/harness-store.ts",

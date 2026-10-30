@@ -172,12 +172,10 @@ auto-disconnect on tab switch).
 | Dev server | runs, billed | frozen with the sandbox, not billed | continues where it was |
 | Preview URL | serves | stays valid until its TTL | iframe reloads; the sandbox resumes |
 | Terminal | live | shell keeps running in tmux, frozen | reconnects to the same tmux session |
-| Someone else with the preview URL | – | **to verify:** whether a request wakes the sandbox | – |
+| Someone else with the preview URL | – | a request wakes it (spike: 249 ms) | – |
 
-Not documented by Blaxel, so the spike checks it: whether a request to a
-preview URL wakes a sandbox in standby, and how long the first page load
-takes. If it does not wake, the Preview tab wakes it first (an API call that
-attaches the sandbox), then loads the iframe.
+Blaxel does not document it; the spike (step 0) showed a preview request
+served from standby in 249 ms with the dev server's process unchanged.
 
 On boat or Lor's VMs, idle means stop: processes die, so the tab's
 `ensureProcess` re-starts the dev server and terminal on return (slower
@@ -185,11 +183,24 @@ first load). The client behavior is the same.
 
 ## 6. Steps
 
-- [ ] **0. Spike** (throwaway sandbox): Next and Vite dev servers on
-  `0.0.0.0` through a public preview in an iframe (web and desktop), hot
-  reload; standby with the dev server running, then a preview request:
-  does it wake, how fast; ttyd through a private preview over `wss` with a
-  query token; Vite/Next host checks.
+- [x] **0. Spike** (2026-10-29, `packages/lor/src/sandbox/dev-env-spike.ts`,
+  throwaway sandbox, deleted). Vite on `0.0.0.0` with
+  `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=.bl.run`:
+  - Public preview with our random `prefixUrl`:
+    `https://lor-<prefix>-lor.preview.bl.run` (Blaxel appends the
+    workspace). Page 200, asset 200, HMR WebSocket connected. Blaxel sends
+    no `X-Frame-Options` and no CSP.
+  - Private preview: `?bl_preview_token=` answers 200 and sets cookie
+    `bl_preview_token` (`HttpOnly; SameSite=None; Secure`, 24 h); without
+    token or cookie, 401. In an iframe that is a third-party cookie.
+  - ttyd 1.7.7 (static binary) through a private preview over `wss` with
+    the query token: input and output work.
+  - Standby about 40 s after the last connection. A preview request then
+    answered 200 in 249 ms; the dev server kept the same pid. The control
+    plane still read `STANDBY` right after (lag).
+  - The image has no `tmux` or `zsh` (Node 22): step 4 rebuilds it.
+  - Not checked: Vite without the allowed-hosts variable, Next.js, the
+    desktop app's iframe.
 - [ ] **1. Seam.** `exposePort`, `revokePort`, `ensureProcess`,
   `portReady` on Blaxel; turn fencing leaves `preview-`/`terminal-` alone.
 - [ ] **2. Environments.** Schema (additive `db:push`), API (read keys,
