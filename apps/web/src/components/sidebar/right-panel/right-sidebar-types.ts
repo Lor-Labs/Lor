@@ -79,11 +79,35 @@ export type SessionFilesSidebarView = {
   revealFolder?: { id: string; path: string }
 }
 
+// A code session's shell in its sandbox (reference/dev-environment-runbook.md
+// §4).
+export type SessionTerminalSidebarView = {
+  type: "session-terminal"
+  workspaceSlug: string
+  channelId: string
+  sessionId: string
+  threadRootId: string
+}
+
+// A code session's browser on its sandbox's ports: `localhost:<port>` in the
+// address bar, a preview URL behind it (reference/dev-environment-runbook.md
+// §3). `open` asks it to load a port, e.g. from a terminal link.
+export type SessionBrowserSidebarView = {
+  type: "session-browser"
+  workspaceSlug: string
+  channelId: string
+  sessionId: string
+  threadRootId: string
+  open?: { id: string; port: number; path: string }
+}
+
 // A session page's own panel views.
 export type SessionPanelView =
   | SessionWorkSidebarView
   | SessionChangesSidebarView
   | SessionFilesSidebarView
+  | SessionTerminalSidebarView
+  | SessionBrowserSidebarView
 
 export type RightSidebarView =
   | WorkspaceMembersSidebarView
@@ -95,3 +119,5 @@ export type RightSidebarView =
   | SessionWorkSidebarView
   | SessionChangesSidebarView
   | SessionFilesSidebarView
+  | SessionTerminalSidebarView
+  | SessionBrowserSidebarView

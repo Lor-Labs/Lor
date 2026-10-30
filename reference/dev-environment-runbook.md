@@ -223,7 +223,31 @@ first load). The client behavior is the same.
     writes into an awake sandbox now instead of at the next turn.
   - [ ] Open the egress allowlist (Blaxel's "all methods, all hosts" rule
     syntax to check).
-- [x] **3. Preview tab.** Built 2026-10-29, not run live yet.
+- [x] **3b. Browser and Terminal in the right panel** (Jacob, 2026-10-29:
+  the start form was awkward and Node-only). Built 2026-10-29, not run live
+  yet; replaces the Preview tab below.
+  - Panel views `session-terminal` and `session-browser` join Changes and
+    Files (`SessionPanelTabs`); size class `dev` opens half the viewport and
+    remembers its own width. The session strip's Terminal and Browser
+    buttons open them.
+  - `previews.ts` now: `listOpenPorts` (Node script over `/proc/net/tcp*`:
+    listening ports, loopback-only flag, owning process; hides 8080, 8790,
+    7681 and relays) and `openPort` (direct preview, or a `relay-<port>`
+    Node TCP relay on 40000 + port % 10000 for loopback-only servers;
+    tries 127.0.0.1 then ::1). The start form, package.json guessing and
+    stop route are gone.
+  - API: `GET /sessions/{id}/ports`, `POST /sessions/{id}/ports/{port}/open`
+    (write access).
+  - `SANDBOX_PROCESS_ENV` sets `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`
+    for every sandbox process, so servers started from the terminal or by
+    Lor accept the preview host.
+  - Browser view: address bar (`localhost:3000/path`, a bare port, or an
+    `http://127.0.0.1:…` URL), port chips with process names, Reload, Open
+    in your browser, "Ask Lor to start the app" (posts a message in the
+    session) when nothing listens. Ports refresh on open, Reload and after
+    Lor's tool calls. Terminal links to localhost open the Browser at that
+    port and path.
+- [x] **3. Preview tab** (superseded by 3b). Built 2026-10-29.
   - `packages/lor/src/dev-env/previews.ts`: `suggestDevServer` (package.json
     `dev`, else `start`; runner from the lockfile; port from `-p`/`--port`,
     Vite 5173, else 3000; Vite gets `--host 0.0.0.0`), `startPreview`

@@ -16,7 +16,7 @@ import { openExternal } from "@/lib/open-external"
 
 const HIDDEN_DISCONNECT_MS = 2 * 60_000
 const LOCALHOST_URL =
-  /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::(\d+))?/
+  /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::(\d+))?(\/[^\s]*)?/
 
 // ttyd's protocol: one leading byte names the message.
 const OUTPUT = 0x30 // "0"
@@ -55,7 +55,7 @@ export function TerminalTab({
 }: {
   sessionId: string
   // A localhost link printed in the terminal (a dev server's URL).
-  onOpenPort: (port: number) => void
+  onOpenPort: (port: number, path: string) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [phase, setPhase] = useState<Phase>({ kind: "connecting" })
@@ -87,7 +87,7 @@ export function TerminalTab({
     term.loadAddon(
       new WebLinksAddon((_event, uri) => {
         const local = uri.match(LOCALHOST_URL)
-        if (local) openPortRef.current(Number(local[1] ?? 80))
+        if (local) openPortRef.current(Number(local[1] ?? 80), local[2] ?? "/")
         else openExternal(uri)
       })
     )

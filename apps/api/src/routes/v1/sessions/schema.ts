@@ -116,29 +116,20 @@ export const dropActWaitingResponseSchema = z.object({
   dropped: z.number().int(),
 })
 
-// A code session's dev server previews (reference/dev-environment-runbook.md
-// §3).
-const previewSchema = z.object({
-  port: z.number().int(),
+// A code session's Browser tab (reference/dev-environment-runbook.md §3):
+// the ports listening in its sandbox, and a URL for one of them.
+export const sessionPortsResponseSchema = z.object({
+  // False: the session has no sandbox yet.
+  available: z.boolean(),
+  ports: z.array(
+    z.object({ port: z.number().int(), process: z.string().nullable() })
+  ),
+})
+
+// `query`: a private preview's token, appended after the page's path.
+export const openPortResponseSchema = z.object({
   url: z.string(),
-  running: z.boolean(),
-})
-
-export const sessionPreviewResponseSchema = z.object({
-  previews: z.array(previewSchema),
-  // From the repo's package.json; null when it has no dev or start script.
-  suggestion: z
-    .object({ command: z.string(), port: z.number().int() })
-    .nullable(),
-})
-
-export const startPreviewRequestSchema = z.object({
-  command: z.string().trim().min(1).max(500),
-  port: z.number().int().min(1024).max(65535),
-})
-
-export const startPreviewResponseSchema = z.object({
-  preview: previewSchema,
+  query: z.string(),
 })
 
 // A WebSocket URL to the caller's own shell in the session's sandbox, with a
@@ -148,11 +139,11 @@ export const openTerminalResponseSchema = z.object({
   expiresAt: z.string(),
 })
 
-export const previewPortParamsSchema = sessionParamsSchema.extend({
+export const portParamsSchema = sessionParamsSchema.extend({
   port: z.coerce
     .number()
     .int()
-    .min(1024)
+    .min(1)
     .max(65535)
     .openapi({ param: { name: "port", in: "path", required: true } }),
 })

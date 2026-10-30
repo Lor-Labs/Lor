@@ -50,10 +50,12 @@ COPY codex-config.toml /root/.codex/config.toml
 
 # The session Terminal tab (reference/dev-environment-runbook.md §4): ttyd
 # serves a PTY over a WebSocket, tmux keeps each person's shell across
-# reconnects, zsh with a starship prompt, suggestions and highlighting.
+# reconnects, zsh with a starship prompt, suggestions and highlighting;
+# ss, lsof and ps for people and Lor (Lor's own port list reads /proc).
 ARG TTYD_VERSION=1.7.7
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux zsh zsh-autosuggestions zsh-syntax-highlighting \
+    iproute2 lsof procps \
     && rm -rf /var/lib/apt/lists/* \
     && arch="$(dpkg --print-architecture)" \
     && case "$arch" in amd64) ttyd_arch=x86_64 ;; arm64) ttyd_arch=aarch64 ;; *) echo "unsupported $arch" && exit 1 ;; esac \

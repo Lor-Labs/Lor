@@ -23,8 +23,9 @@ import {
   forkAgentSessionResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  openPortResponseSchema,
   openTerminalResponseSchema,
-  previewPortParamsSchema,
+  portParamsSchema,
   pullSessionChangesResponseSchema,
   pushSessionChangesResponseSchema,
   repoFileQuerySchema,
@@ -37,10 +38,8 @@ import {
   sessionChangesResponseSchema,
   sessionFilesResponseSchema,
   sessionParamsSchema,
-  sessionPreviewResponseSchema,
+  sessionPortsResponseSchema,
   stageSessionChangesRequestSchema,
-  startPreviewRequestSchema,
-  startPreviewResponseSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
 } from "@/routes/v1/sessions/schema"
@@ -524,20 +523,20 @@ export const dropActWaiting = createRoute({
 
 export type DropActWaitingRoute = typeof dropActWaiting
 
-export const getSessionPreview = createRoute({
-  path: "/sessions/{sessionId}/preview",
+export const listSessionPorts = createRoute({
+  path: "/sessions/{sessionId}/ports",
   method: "get",
-  summary: "A code session's dev server previews",
+  summary: "List a code session's open ports",
   description:
-    "Running previews with their URLs, and the dev command suggested by the repo.",
+    "The TCP ports listening in the session's sandbox, with the process that owns each, whoever started it.",
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: sessionParamsSchema },
   hidden: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: sessionPreviewResponseSchema,
-      description: "Previews",
+      schema: sessionPortsResponseSchema,
+      description: "Open ports",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
@@ -545,28 +544,22 @@ export const getSessionPreview = createRoute({
   },
 })
 
-export type GetSessionPreviewRoute = typeof getSessionPreview
+export type ListSessionPortsRoute = typeof listSessionPorts
 
-export const startSessionPreview = createRoute({
-  path: "/sessions/{sessionId}/preview",
+export const openSessionPort = createRoute({
+  path: "/sessions/{sessionId}/ports/{port}/open",
   method: "post",
-  summary: "Start a code session's dev server preview",
+  summary: "Open a code session's port in the browser",
   description:
-    "Runs the dev command in the session's sandbox unless it already runs, waits for the port and returns its URL. Anyone who can write in the channel can do this.",
+    "Returns a preview URL for a listening port; a server bound only to localhost gets a relay. Anyone who can write in the channel can do this.",
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
-  request: {
-    params: sessionParamsSchema,
-    body: jsonContent({
-      schema: startPreviewRequestSchema,
-      description: "Dev command and port",
-    }),
-  },
+  request: { params: portParamsSchema },
   hidden: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: startPreviewResponseSchema,
-      description: "The preview",
+      schema: openPortResponseSchema,
+      description: "The port's URL",
     }),
     [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
@@ -577,30 +570,7 @@ export const startSessionPreview = createRoute({
   },
 })
 
-export type StartSessionPreviewRoute = typeof startSessionPreview
-
-export const stopSessionPreview = createRoute({
-  path: "/sessions/{sessionId}/preview/{port}",
-  method: "delete",
-  summary: "Stop a code session's dev server preview",
-  description: "Stops the dev server and revokes its URL.",
-  tags: ["Sessions"],
-  middleware: [sessionAuthMiddleware] as const,
-  request: { params: previewPortParamsSchema },
-  hidden: true,
-  responses: {
-    [HttpStatusCodes.OK]: jsonContent({
-      schema: sessionPreviewResponseSchema,
-      description: "Previews left",
-    }),
-    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
-    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
-    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
-    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
-  },
-})
-
-export type StopSessionPreviewRoute = typeof stopSessionPreview
+export type OpenSessionPortRoute = typeof openSessionPort
 
 export const openSessionTerminal = createRoute({
   path: "/sessions/{sessionId}/terminal",

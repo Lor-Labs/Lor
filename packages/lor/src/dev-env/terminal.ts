@@ -1,6 +1,6 @@
 import { shellQuote } from "@ai-sdk/harness/utils"
 import { ensureProcess, exposePort, portReady } from "../sandbox/sandbox-ports"
-import { sessionWorkDir } from "./previews"
+import { sessionWorkDir } from "./work-dir"
 
 // The code session's Terminal tab (reference/dev-environment-runbook.md §4):
 // ttyd serves a PTY over a WebSocket on a private port; each connection runs

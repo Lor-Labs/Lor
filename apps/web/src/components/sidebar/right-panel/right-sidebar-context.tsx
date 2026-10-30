@@ -50,6 +50,7 @@ const PANEL_WIDTH_KEYS = {
   compact: "lor-right-panel-width-compact",
   rail: "lor-right-panel-width-rail",
   file: "lor-right-panel-width-file",
+  dev: "lor-right-panel-width-dev",
 } as const
 
 /**
@@ -99,6 +100,10 @@ function sizeClassFor(
 ): PanelSizeClass {
   if (file) return "file"
   if (view?.type === "thread" || view?.type === "loop") return "wide"
+  // A code session's terminal and browser open half the viewport: an app
+  // at rail width would show its phone layout.
+  if (view?.type === "session-terminal" || view?.type === "session-browser")
+    return "dev"
   // A code session's files and diffs open in tabs beside the chat, so its
   // Changes and Files lists stay rail-width.
   return view?.type === "session-work" ||
@@ -160,6 +165,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     compact: COMPACT_DEFAULT_WIDTH,
     rail: RAIL_DEFAULT_WIDTH,
     file: COMPACT_DEFAULT_WIDTH,
+    dev: COMPACT_DEFAULT_WIDTH,
   })
   const [isHydrated, setIsHydrated] = useState(false)
   const artifactId = useSearch({
@@ -183,6 +189,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       compact: getStoredWidth("compact"),
       rail: getStoredWidth("rail"),
       file: getStoredWidth("file"),
+      dev: getStoredWidth("dev"),
     })
     setIsHydrated(true)
   }, [])
