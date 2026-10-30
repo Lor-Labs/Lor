@@ -214,11 +214,12 @@ export const proposalEvidenceSchema = z.object({
 export type ProposalEvidence = z.infer<typeof proposalEvidenceSchema>
 
 // Written per operation after apply: what it created/changed, plus anything
-// the team needs to finish setup (webhook URL, "add the secret", "connect
-// OAuth"). Rollback v1 is provenance, not undo — this is the provenance.
+// the team needs to finish setup ("add the secret", "connect OAuth").
+// Rollback v1 is provenance, not undo — this is the provenance.
 export type OperationResult = {
   resourceId?: string
-  // Sensitive-but-shareable handoffs (webhook URL) shown on the applied card.
+  // Legacy: older rows hold a webhook URL with its secret token. No longer
+  // written, and the API never serves it (results are channel-visible).
   url?: string
   // Unfinished-setup note rendered as a persistent chip until resolved.
   setupNote?: string

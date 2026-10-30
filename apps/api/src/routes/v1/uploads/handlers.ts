@@ -7,6 +7,7 @@ import {
 } from "@repo/db/queries/beta-access"
 import { channel, workspace, workspaceMember } from "@repo/db/schema"
 import { env } from "@repo/env/server"
+import { uploadContentDisposition } from "@repo/realtime-types/uploads"
 import { and, eq } from "drizzle-orm"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import {
@@ -38,9 +39,13 @@ async function createPresignedUpload(
     Key: key,
     ContentType: contentType,
     ContentLength: size,
+    ContentDisposition: uploadContentDisposition(contentType),
   })
+  // The presigner leaves content-type unsigned by default, which would let an
+  // uploader swap in text/html; signableHeaders overrides that.
   const uploadUrl = await getSignedUrl(s3Client, command, {
     expiresIn: PRESIGNED_URL_EXPIRY_SECONDS,
+    signableHeaders: new Set(["content-type"]),
   })
   const fileUrl = `${env.S3_PUBLIC_URL.replace(/\/$/, "")}/${key}`
   return { uploadUrl, fileUrl }

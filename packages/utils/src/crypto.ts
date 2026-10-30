@@ -1,6 +1,8 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
 
 const ALGORITHM = "aes-256-gcm"
+// GCM accepts truncated tags unless the length is pinned.
+const AUTH_TAG_BYTES = 16
 
 // keyHex must be 64 hex chars (32 bytes / AES-256).
 function toKey(keyHex: string): Buffer {
@@ -28,12 +30,17 @@ export function decryptSecret(stored: string, keyHex: string): string {
   if (!ivB64 || !tagB64 || !ctB64) {
     throw new Error("Malformed encrypted secret")
   }
+  const tag = Buffer.from(tagB64, "base64")
+  if (tag.length !== AUTH_TAG_BYTES) {
+    throw new Error("Malformed encrypted secret")
+  }
   const decipher = createDecipheriv(
     ALGORITHM,
     toKey(keyHex),
-    Buffer.from(ivB64, "base64")
+    Buffer.from(ivB64, "base64"),
+    { authTagLength: AUTH_TAG_BYTES }
   )
-  decipher.setAuthTag(Buffer.from(tagB64, "base64"))
+  decipher.setAuthTag(tag)
   return Buffer.concat([
     decipher.update(Buffer.from(ctB64, "base64")),
     decipher.final(),

@@ -161,20 +161,33 @@ export function renderTemplate(
   args: Record<string, unknown>,
   secrets: Record<string, string>
 ): string {
-  return template.replace(PLACEHOLDER_REGEX, (_match, kind, key) => {
-    const value =
-      kind === "secrets"
-        ? secrets[key]
-        : Object.hasOwn(args, key)
-          ? args[key]
-          : undefined
-    if (value === undefined) {
-      throw new Error(`Template references unknown ${kind}.${key}`)
+  const queryStart = context === "url" ? template.search(/[?#]/) : -1
+  return template.replace(
+    PLACEHOLDER_REGEX,
+    (_match, kind, key, offset: number) => {
+      const value =
+        kind === "secrets"
+          ? secrets[key]
+          : Object.hasOwn(args, key)
+            ? args[key]
+            : undefined
+      if (value === undefined) {
+        throw new Error(`Template references unknown ${kind}.${key}`)
+      }
+      if (context === "body") return JSON.stringify(value)
+      if (context === "url") {
+        const text = stringifyArg(value)
+        // encodeURIComponent keeps dots, and URL parsing collapses dot
+        // segments: a path value of ".." would escape the template's path.
+        const inPath = queryStart === -1 || offset < queryStart
+        if (inPath && (text === "." || text === "..")) {
+          throw new Error(`Value for ${kind}.${key} can't be "." or ".."`)
+        }
+        return encodeURIComponent(text)
+      }
+      return assertHeaderSafe(stringifyArg(value), `${kind}.${key}`)
     }
-    if (context === "body") return JSON.stringify(value)
-    if (context === "url") return encodeURIComponent(stringifyArg(value))
-    return assertHeaderSafe(stringifyArg(value), `${kind}.${key}`)
-  })
+  )
 }
 
 // The declared content type decides whether a body template must be JSON:

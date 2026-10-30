@@ -8,6 +8,10 @@ import { resolveChannelAccess } from "@repo/db/queries/channel-access"
 import { canSeeSessionChat } from "@repo/db/queries/session-chat-access"
 import type { Attachment } from "@repo/db/schema"
 import { env } from "@repo/env/server"
+import {
+  ALLOWED_MIME_TYPES,
+  uploadContentDisposition,
+} from "@repo/realtime-types/uploads"
 
 const s3 = new S3Client({
   region: env.S3_REGION,
@@ -89,6 +93,20 @@ async function alreadySharedWith(userId: string, url: string, key: string) {
   return false
 }
 
+// Stored type must match the presign allowlist. Objects uploaded before the
+// presigned PUT signed Content-Type could carry any type (e.g. text/html).
+function isAllowedUploadObject(
+  contentType: string,
+  contentDisposition: string | undefined
+) {
+  const mime = contentType.split(";")[0]?.trim().toLowerCase() ?? ""
+  if (!(ALLOWED_MIME_TYPES as readonly string[]).includes(mime)) return false
+  return (
+    !uploadContentDisposition(mime) ||
+    /^\s*attachment\b/i.test(contentDisposition ?? "")
+  )
+}
+
 export async function validateMessageAttachments(
   userId: string,
   channelId: string,
@@ -114,6 +132,12 @@ export async function validateMessageAttachments(
     const size = object.ContentLength
     if (!size || size > env.MAX_FILE_UPLOAD_SIZE || !object.ContentType) {
       throw new Error("Attachment is empty, too large, or has no content type")
+    }
+    if (
+      key.startsWith("attachments/") &&
+      !isAllowedUploadObject(object.ContentType, object.ContentDisposition)
+    ) {
+      throw new Error("This file type can't be attached")
     }
     validated.push({ ...attachment, size, contentType: object.ContentType })
   }

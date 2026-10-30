@@ -2,6 +2,7 @@ import { env } from "@repo/env/client"
 import {
   ALLOWED_MIME_TYPES,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  presignedUploadHeaders,
 } from "@repo/realtime-types/uploads"
 import { toast } from "@repo/ui/components/toast"
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -115,7 +116,11 @@ function putWithProgress(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open("PUT", uploadUrl, true)
-    xhr.setRequestHeader("Content-Type", contentType)
+    for (const [name, value] of Object.entries(
+      presignedUploadHeaders(contentType)
+    )) {
+      xhr.setRequestHeader(name, value)
+    }
     xhr.timeout = PUT_TIMEOUT_MS
 
     // Bytes sent is the only phase with real numbers, so hold at 99 until the

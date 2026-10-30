@@ -26,7 +26,7 @@ export const registerPushToken = createRoute({
       description: "Push token to register",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: pushTokenSuccessResponseSchema,
@@ -53,7 +53,7 @@ export const removePushToken = createRoute({
       description: "Push token to remove",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: pushTokenSuccessResponseSchema,

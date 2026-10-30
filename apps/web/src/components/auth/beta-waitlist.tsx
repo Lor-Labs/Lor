@@ -9,7 +9,7 @@ export function BetaWaitlist() {
   const join = useMutation({
     mutationFn: async () => {
       const response = await apiClient.waitlist.$post({ json: { email } })
-      if (!response.ok && response.status !== 409)
+      if (!response.ok)
         throw new Error("Couldn't join the waitlist. Please try again.")
     },
   })

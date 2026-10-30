@@ -45,6 +45,8 @@ export type ParsedShell = {
   plain: boolean
   // Why the script hides what it runs, if it does.
   hidden: string | null
+  // Literal heredocs and here-strings fed to a non-shell interpreter.
+  programs: string[]
 }
 
 const MAX_DEPTH = 8
@@ -132,7 +134,7 @@ function commandArgv(node: Node): Argv {
 
 // The command a wrapper runs, with the wrapper's own options skipped.
 // Undefined when argv is not a wrapper; [] when the wrapper runs nothing.
-function unwrap(argv: Argv): Argv | undefined {
+export function unwrap(argv: Argv): Argv | undefined {
   const name = commandName(argv)
   const rest = argv.slice(1)
   const skip = (valued: Set<string>, extra?: (arg: string) => boolean) => {
@@ -338,6 +340,8 @@ function collect(
           out.hidden ??= "pipes into a shell or interpreter"
         } else if (program !== null && SHELLS.has(name ?? "")) {
           nested.push({ script: program, depth: level + 1 })
+        } else if (program !== null) {
+          out.programs.push(program)
         }
       }
       if (
@@ -362,6 +366,7 @@ export async function parseShell(command: string): Promise<ParsedShell | null> {
     writes: [],
     plain: true,
     hidden: null,
+    programs: [],
   }
   const pending = [{ script: command, depth: 0 }]
   while (pending.length > 0) {

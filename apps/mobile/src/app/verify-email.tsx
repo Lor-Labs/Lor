@@ -7,11 +7,12 @@ import { View } from "react-native"
 import { Screen } from "@/components/ui/screen"
 import { StatePanel } from "@/components/ui/state-panel"
 import { authClient } from "@/lib/auth-client"
+import {
+  COOKIE_STORAGE_KEY,
+  canAcceptVerificationCookie,
+} from "@/lib/email-verification"
 import { consumePendingInviteCode } from "@/lib/invites"
 
-// Mirrors the expo plugin's internal storage key: `${storagePrefix}_cookie`
-// with the "lor" prefix configured in auth-client.ts.
-const COOKIE_STORAGE_KEY = "lor_cookie"
 const HANDOFF_TIMEOUT_MS = 5000
 
 export default function VerifyEmailScreen() {
@@ -19,6 +20,7 @@ export default function VerifyEmailScreen() {
   const { data: session } = authClient.useSession()
   const [isWaiting, setIsWaiting] = useState(Boolean(cookie))
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handledCookieRef = useRef<string | null>(null)
   const pendingInviteCodeRef = useRef<string | null | undefined>(undefined)
 
   // The verification link redirects here with the session cookie as a query
@@ -27,9 +29,17 @@ export default function VerifyEmailScreen() {
   // same way the plugin does, then poke the session store to refetch.
   useEffect(() => {
     if (!cookie) return
-    const previous = SecureStore.getItem(COOKIE_STORAGE_KEY) ?? undefined
-    SecureStore.setItem(COOKIE_STORAGE_KEY, getSetCookie(cookie, previous))
-    authClient.$store.notify("$sessionSignal")
+    // The pending marker is single-use, so a re-run must not check it again.
+    if (handledCookieRef.current !== cookie) {
+      handledCookieRef.current = cookie
+      if (!canAcceptVerificationCookie()) {
+        setIsWaiting(false)
+        return
+      }
+      const previous = SecureStore.getItem(COOKIE_STORAGE_KEY) ?? undefined
+      SecureStore.setItem(COOKIE_STORAGE_KEY, getSetCookie(cookie, previous))
+      authClient.$store.notify("$sessionSignal")
+    }
     timeoutRef.current = setTimeout(
       () => setIsWaiting(false),
       HANDOFF_TIMEOUT_MS

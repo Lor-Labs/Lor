@@ -112,6 +112,9 @@ async function resolveChannelRef(
   return row.id
 }
 
+const WEBHOOK_URL_NOTE =
+  "Copy the webhook URL from the channel's Webhooks settings."
+
 const SECRET_REF_REGEX = /\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}/g
 
 function referencedSecretNames(
@@ -205,9 +208,11 @@ async function applyOperation(
         post: true,
       })
       ctx.createdIds.set(position, connection.id)
+      // The URL carries the secret token: never persist or post it. Results
+      // are readable by everyone in the channel.
       return {
         resourceId: connection.id,
-        url: `${env.NEXT_PUBLIC_API_URL}/v1/webhooks/${externalId}/${token}`,
+        setupNote: WEBHOOK_URL_NOTE,
       }
     }
 
@@ -226,9 +231,31 @@ async function applyOperation(
         )
         .limit(1)
         .then((rows) => rows[0])
-      if (!connection) fail(position, "Connector not found")
+      // Channel webhooks are managed under webhook:manage, not connector:manage.
+      if (!connection || connection.provider === "webhook") {
+        fail(position, "Connector not found")
+      }
       if (!isConnectorEvent(connection.provider, spec.event)) {
         fail(position, `Unknown event "${spec.event}" for this connector`)
+      }
+      // Rerouting needs the approver's access to the trigger's current
+      // channel too, so a private channel's events can't be moved out.
+      const current = await ctx.tx
+        .select({ channelId: schema.connectorTrigger.channelId })
+        .from(schema.connectorTrigger)
+        .where(
+          and(
+            eq(schema.connectorTrigger.connectionId, connection.id),
+            eq(schema.connectorTrigger.event, spec.event)
+          )
+        )
+        .limit(1)
+        .then((rows) => rows[0])
+      if (
+        current &&
+        !(await resolveChannelAccess(ctx.approverId, current.channelId)).ok
+      ) {
+        fail(position, "Trigger not found")
       }
       const channelId = await resolveChannelRef(ctx, spec.channel, position)
       await ctx.tx
@@ -828,9 +855,7 @@ export function operationSummary(
     case "create_channel":
       return `Created #${spec.name}`
     case "create_webhook":
-      return result?.url
-        ? `Webhook "${spec.name}" — URL: ${result.url}`
-        : `Created webhook "${spec.name}"`
+      return `Created webhook "${spec.name}" — ${WEBHOOK_URL_NOTE}`
     case "set_trigger":
       return `Routed the ${spec.event} event`
     case "create_loop":

@@ -28,7 +28,7 @@ export const listChannelPlans = createRoute({
     params: channelPlansParamsSchema,
     query: channelPlansQuerySchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listChannelPlansResponseSchema,
@@ -54,7 +54,7 @@ export const getPlan = createRoute({
   request: {
     params: planParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: getPlanResponseSchema,

@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native"
 import { Screen } from "@/components/ui/screen"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
+import { markEmailVerificationPending } from "@/lib/email-verification"
 
 export default function CheckEmailScreen() {
   const theme = useTheme()
@@ -26,6 +27,7 @@ export default function CheckEmailScreen() {
         setError(result.error.message ?? "Could not resend the email")
         return
       }
+      markEmailVerificationPending()
       setHasResent(true)
     } catch {
       setError("Could not resend the email. Check your connection.")

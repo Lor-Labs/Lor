@@ -56,7 +56,7 @@ const corsOrigins = new Set([
   "tauri://localhost",
   "http://tauri.localhost",
   "lor://",
-  "lor-dev://",
+  ...(env.NODE_ENV !== "production" ? ["lor-dev://"] : []),
 ])
 
 app.use(
@@ -66,6 +66,22 @@ app.use(
     credentials: true,
   })
 )
+
+// CSRF: CORS can't stop a simple cross-site form POST (and same-site
+// *.lor.chat pages send cookies). Writes from an untrusted Origin are
+// refused; no Origin (webhooks, server-to-server, React Native) passes.
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
+app.use("*", async (c, next) => {
+  const origin = c.req.header("origin")
+  if (
+    UNSAFE_METHODS.has(c.req.method) &&
+    origin !== undefined &&
+    !corsOrigins.has(origin)
+  ) {
+    return c.json({ success: false, message: "Origin not allowed" }, 403)
+  }
+  await next()
+})
 
 app.use("*", globalRateLimit)
 
@@ -79,6 +95,10 @@ app.use(
       c.json({ success: false, message: "Payload too large" }, 413),
   })
 )
+
+// The expo plugin's proxy redirects to any authorizationURL (open redirect);
+// Lor has no social sign-in that needs it.
+app.get("/api/auth/expo-authorization-proxy", (c) => c.notFound())
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => {
   return auth.handler(c.req.raw)

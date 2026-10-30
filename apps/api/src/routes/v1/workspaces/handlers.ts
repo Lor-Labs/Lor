@@ -1,8 +1,10 @@
 import { auth } from "@repo/auth"
 import {
+  canAssignWorkspaceRole,
   getWorkspaceAuthorityPosition,
   getWorkspaceRolePosition,
   isWorkspaceRole,
+  parseRolePermission,
 } from "@repo/auth/permissions"
 import { syncSeats } from "@repo/billing"
 import {
@@ -215,10 +217,10 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
   // Validate + assign atomically, holding the custom-role row lock, so a
   // concurrent role deletion (delete + member reassignment) can't interleave
   // and commit a dangling role name onto this member.
-  const assigned = await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     if (!isWorkspaceRole(role)) {
       const customRole = await tx
-        .select({ id: schema.workspaceRole.id })
+        .select({ permission: schema.workspaceRole.permission })
         .from(schema.workspaceRole)
         .where(
           and(
@@ -229,7 +231,16 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
         .limit(1)
         .for("update")
         .then((rows) => rows[0])
-      if (!customRole) return false
+      if (!customRole) return "missing" as const
+      if (
+        !canAssignWorkspaceRole(
+          actorAuthority,
+          role,
+          parseRolePermission(customRole.permission)
+        )
+      ) {
+        return "forbidden" as const
+      }
     }
     await tx
       .update(schema.workspaceMember)
@@ -240,12 +251,18 @@ export const updateWorkspaceMemberRole: AppRouteHandler<
           eq(schema.workspaceMember.userId, userId)
         )
       )
-    return true
+    return "assigned" as const
   })
-  if (!assigned) {
+  if (outcome === "missing") {
     return c.json(
       { success: false, message: "Role not found in this workspace" },
       HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (outcome === "forbidden") {
+    return c.json(
+      { success: false, message: "You cannot assign that role" },
+      HttpStatusCodes.FORBIDDEN
     )
   }
 

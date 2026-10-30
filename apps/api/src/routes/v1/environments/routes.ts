@@ -43,7 +43,7 @@ export const listEnvironments = createRoute({
     params: environmentsParamsSchema,
     query: listEnvironmentsQuerySchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listEnvironmentsResponseSchema,
@@ -69,7 +69,7 @@ export const createEnvironment = createRoute({
       description: "Name, repo and env files",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: environmentResponseSchema,
@@ -99,7 +99,7 @@ export const updateEnvironment = createRoute({
       description: "Name and env files",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: environmentResponseSchema,
@@ -122,7 +122,7 @@ export const revealEnvironment = createRoute({
   tags: ["Environments"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: environmentIdParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: revealEnvironmentResponseSchema,
@@ -144,7 +144,7 @@ export const deleteEnvironment = createRoute({
   tags: ["Environments"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: environmentIdParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: deleteEnvironmentResponseSchema,

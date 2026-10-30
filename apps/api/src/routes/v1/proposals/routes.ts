@@ -30,7 +30,7 @@ export const getProposal = createRoute({
   tags: ["Change proposals"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: proposalParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: getProposalResponseSchema,
@@ -54,7 +54,7 @@ export const listChannelProposals = createRoute({
   tags: ["Change proposals"],
   middleware: [sessionAuthMiddleware] as const,
   request: { params: channelProposalsParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listChannelProposalsResponseSchema,
@@ -84,7 +84,7 @@ export const rejectProposal = createRoute({
       description: "Optional rejection note",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: rejectProposalResponseSchema,
@@ -116,7 +116,7 @@ export const approveProposal = createRoute({
       description: "Approver-supplied secrets, when the proposal declared any",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: approveProposalResponseSchema,

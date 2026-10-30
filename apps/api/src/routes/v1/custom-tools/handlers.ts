@@ -10,7 +10,10 @@ import {
 } from "@repo/lor/custom-tools"
 import { encryptSecret } from "@repo/utils/crypto"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
-import { assertWorkspaceAuthority } from "@/lib/permissions"
+import {
+  assertWorkspaceAuthority,
+  hasWorkspaceAuthority,
+} from "@/lib/permissions"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
   CreateCustomToolRoute,
@@ -19,17 +22,66 @@ import type {
   UpdateCustomToolRoute,
 } from "@/routes/v1/custom-tools/routes"
 
+// Templates may embed literal credentials typed instead of {{secrets.*}}
+// references. Members without customTool:manage see placeholders as-is and
+// every other literal value (header, query value, body string) masked.
+const MASK = "••••••"
+const PLACEHOLDER_REGEX = /\{\{[^}]*\}\}/g
+const JSON_STRING_REGEX = /"((?:[^"\\]|\\.)*)"(\s*:)?/g
+
+function placeholderOnly(value: string): boolean {
+  return value.replace(PLACEHOLDER_REGEX, "").trim() === ""
+}
+
+function redactedHeaders(headers: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [
+      name,
+      placeholderOnly(value) ? value : MASK,
+    ])
+  )
+}
+
+function redactedUrlTemplate(template: string): string {
+  const queryStart = template.indexOf("?")
+  if (queryStart === -1) return template
+  const hashStart = template.indexOf("#", queryStart)
+  const queryEnd = hashStart === -1 ? template.length : hashStart
+  const query = template
+    .slice(queryStart + 1, queryEnd)
+    .split("&")
+    .map((pair) => {
+      const eq = pair.indexOf("=")
+      if (eq === -1 || placeholderOnly(pair.slice(eq + 1))) return pair
+      return `${pair.slice(0, eq)}=${MASK}`
+    })
+    .join("&")
+  return `${template.slice(0, queryStart + 1)}${query}${template.slice(queryEnd)}`
+}
+
+function redactedBodyTemplate(body: string | null): string | null {
+  if (body === null || placeholderOnly(body)) return body
+  if (bodyTemplateJsonIssue(body) !== null) return MASK
+  return body.replace(JSON_STRING_REGEX, (match, inner: string, colon) =>
+    colon || placeholderOnly(inner) ? match : `"${MASK}"`
+  )
+}
+
 // Secret values are write-only: stored encrypted, surfaced as names only.
-function toResponse(row: CustomTool, usedByProfiles: number) {
+function toResponse(row: CustomTool, usedByProfiles: number, reveal = true) {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     argsSchema: row.argsSchema,
     method: row.method,
-    urlTemplate: row.urlTemplate,
-    headers: row.headers,
-    bodyTemplate: row.bodyTemplate,
+    urlTemplate: reveal
+      ? row.urlTemplate
+      : redactedUrlTemplate(row.urlTemplate),
+    headers: reveal ? row.headers : redactedHeaders(row.headers),
+    bodyTemplate: reveal
+      ? row.bodyTemplate
+      : redactedBodyTemplate(row.bodyTemplate),
     secretNames: Object.keys(row.secrets),
     usedByProfiles,
     createdAt: row.createdAt.toISOString(),
@@ -79,8 +131,13 @@ export const listCustomTools: AppRouteHandler<ListCustomToolsRoute> = async (
     workspace.id,
     rows.map((r) => r.id)
   )
+  const reveal = hasWorkspaceAuthority(c.var.authority, {
+    customTool: ["manage"],
+  })
   return c.json(
-    { tools: rows.map((r) => toResponse(r, counts.get(r.id) ?? 0)) },
+    {
+      tools: rows.map((r) => toResponse(r, counts.get(r.id) ?? 0, reveal)),
+    },
     HttpStatusCodes.OK
   )
 }

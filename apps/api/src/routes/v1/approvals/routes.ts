@@ -32,7 +32,7 @@ export const listChannelApprovals = createRoute({
     params: channelApprovalsParamsSchema,
     query: channelApprovalsQuerySchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listChannelApprovalsResponseSchema,
@@ -61,7 +61,7 @@ export const approveApproval = createRoute({
   request: {
     params: approvalParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: resolveApprovalResponseSchema,
@@ -153,7 +153,7 @@ export const rejectApproval = createRoute({
   request: {
     params: approvalParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: resolveApprovalResponseSchema,

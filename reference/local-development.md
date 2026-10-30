@@ -42,8 +42,11 @@ configure infrastructure; follow the signup instructions below.
 
 ### Local signup
 
-The shared launch configuration disables public signup by default. For a
-fresh local instance, set `selfSignups: true` in
+The shared launch configuration disables public signup by default. On a
+fresh instance with no accounts yet, the first account can sign up without
+an invitation; later accounts need an email invitation. With
+`NODE_ENV=development`, the API logs verification and password reset links.
+To open signup for everyone locally, set `selfSignups: true` in
 [`packages/utils/src/features.ts`](../packages/utils/src/features.ts) and
 restart the app processes. Keep this local-only change out of your pull
 request. With hosted beta disabled, the flag controls the signup page and

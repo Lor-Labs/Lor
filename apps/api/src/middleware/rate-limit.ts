@@ -1,3 +1,4 @@
+import { getConnInfo } from "@hono/node-server/conninfo"
 import type { Context, Next } from "hono"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
@@ -18,12 +19,20 @@ interface RateLimitConfig {
   keyExtractor?: (c: Context<AppBindings>) => string
 }
 
+// Client IP behind Cloudflare → Railway: Cloudflare sets cf-connecting-ip to
+// the client, Railway's edge sets x-real-ip to the connecting address.
+// X-Forwarded-For is client-controlled and never used. The origin must only
+// accept traffic through Cloudflare, or cf-connecting-ip is spoofable.
 function getIp(c: Context<AppBindings>): string {
-  return (
-    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
-    c.req.header("x-real-ip") ||
-    "unknown"
-  )
+  const header =
+    c.req.header("cf-connecting-ip")?.trim() ||
+    c.req.header("x-real-ip")?.trim()
+  if (header) return header
+  try {
+    return getConnInfo(c).remote.address ?? "unknown"
+  } catch {
+    return "unknown"
+  }
 }
 
 function getWindowNumber(windowSeconds: number): number {
@@ -70,6 +79,8 @@ export function rateLimiter(config: RateLimitConfig) {
         )
       }
     } catch (err) {
+      // Fails open: a Redis outage lifts every API limit (global, write,
+      // waitlist) rather than taking the API down.
       logger.warn({ err }, "Redis unavailable, failing open")
     }
 
@@ -100,6 +111,15 @@ export const connectorLookupRateLimit = rateLimiter({
   prefix: "connector-lookup",
   max: 60,
   keyExtractor: (c) => c.get("user")?.id ?? getIp(c),
+})
+
+/**
+ * Public waitlist signups: 60/min per IP. apps/www proxies from its server,
+ * so all its visitors share that server's bucket; keep it launch-day sized.
+ */
+export const waitlistRateLimit = rateLimiter({
+  prefix: "waitlist",
+  max: 60,
 })
 
 /** Onboarding company-site lookups: 10/min per user, each costs Exa + model. */

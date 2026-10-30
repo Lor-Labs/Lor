@@ -57,9 +57,10 @@ const cloneRepoContext = z.object({
 })
 
 // Copies a connected repository into the session sandbox so the main agent
-// reads it with its own sandbox tools. Read only: egress allows fetch but not
-// push, and nothing here commits. The read token lives only in the clone and
-// fetch commands' env (pi-harness-runbook.md 1.4-2).
+// reads it with its own sandbox tools. Read only: egress is open, so the
+// token's `contents: read` scope is what stops a push, and nothing here
+// commits. The read token lives only in the clone and fetch commands' env
+// (pi-harness-runbook.md 1.4-2).
 export const cloneRepoTool = {
   clone_repo: tool({
     description: ({ context }) =>

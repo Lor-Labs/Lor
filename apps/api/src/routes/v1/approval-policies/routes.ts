@@ -28,7 +28,7 @@ export const listApprovalPolicies = createRoute({
   tags: ["Approvals"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: approvalPoliciesParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: listApprovalPoliciesResponseSchema,
@@ -58,7 +58,7 @@ export const upsertApprovalPolicy = createRoute({
       description: "Target and resolver",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: upsertApprovalPolicyResponseSchema,
@@ -89,7 +89,7 @@ export const bulkApprovalPolicies = createRoute({
       description: "Explicit tool targets and approval requirement",
     }),
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: deleteApprovalPolicyResponseSchema,
@@ -114,7 +114,7 @@ export const deleteApprovalPolicy = createRoute({
   tags: ["Approvals"],
   middleware: [workspaceAuthMiddleware] as const,
   request: { params: approvalPolicyIdParamsSchema },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: deleteApprovalPolicyResponseSchema,

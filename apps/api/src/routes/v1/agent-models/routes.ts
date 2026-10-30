@@ -26,7 +26,7 @@ export const listAgentModels = createRoute({
     query: agentModelsQuerySchema,
     params: billingWorkspaceParamsSchema,
   },
-  hidden: true,
+  hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
       schema: agentModelsResponseSchema,

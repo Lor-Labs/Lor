@@ -22,10 +22,8 @@ export const createWaitlistEntry: AppRouteHandler<
     .onConflictDoNothing({ target: waitlist.email })
     .returning()
 
-  if (!entry) {
-    return c.json({ error: "This email is already on the waitlist" }, 409)
-  }
-
-  void notifyWaitlistSignup(entry)
+  // Same response for a repeat email, so the endpoint can't reveal who
+  // is already on the list.
+  if (entry) void notifyWaitlistSignup(entry)
   return c.json({ success: true }, 200)
 }

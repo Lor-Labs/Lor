@@ -23,8 +23,11 @@ import { logger } from "./logger"
 import {
   ac,
   admin as adminRole,
+  canAssignWorkspaceRole,
+  isWorkspaceRole,
   member as memberRole,
   owner as ownerRole,
+  parseRolePermission,
 } from "./permissions"
 import { notifySignup } from "./signup-notifications"
 import { seedWorkspaceTemplate } from "./workspace-template"
@@ -115,14 +118,45 @@ async function seedBrainTaxonomy(workspaceId: string) {
     .onConflictDoNothing()
 }
 
+// Parsed workspace_role grants for a custom role; null for static roles or a
+// missing/malformed custom role.
+async function customRoleGrants(workspaceId: string, role: string) {
+  if (isWorkspaceRole(role)) return null
+  const row = await db
+    .select({ permission: schema.workspaceRole.permission })
+    .from(schema.workspaceRole)
+    .where(
+      and(
+        eq(schema.workspaceRole.workspaceId, workspaceId),
+        eq(schema.workspaceRole.role, role)
+      )
+    )
+    .limit(1)
+    .then((rows) => rows[0])
+  return row ? parseRolePermission(row.permission) : null
+}
+
+// A fresh self-hosted install has no people yet (only the seeded bot users),
+// so its first account may sign up without an invitation.
+export async function isFirstAccount() {
+  const human = await db
+    .select({ id: schema.user.id })
+    .from(schema.user)
+    .where(eq(schema.user.isBot, false))
+    .limit(1)
+  return human.length === 0
+}
+
 export const auth = betterAuth({
   baseURL: env.NEXT_PUBLIC_API_URL,
   database: betaAdapter,
   secret: env.BETTER_AUTH_SECRET,
   secondaryStorage,
-  // Clients use /v1 for moderation and role deletion, which enforce Lor's
-  // ownership, hierarchy, reassignment and socket-revocation rules.
+  // Clients use /v1 for moderation, role deletion and workspace settings,
+  // which enforce Lor's ownership, hierarchy, reassignment, logo and
+  // socket-revocation rules.
   disabledPaths: [
+    "/organization/update",
     "/organization/update-member-role",
     "/organization/remove-member",
     "/organization/delete-role",
@@ -136,7 +170,8 @@ export const auth = betterAuth({
     customRules: {
       "/sign-in/*": { window: 10, max: 5 },
       "/sign-up/*": { window: 60, max: 5 },
-      "/forgot-password/*": { window: 60, max: 3 },
+      "/request-password-reset": { window: 60, max: 3 },
+      "/send-verification-email": { window: 60, max: 3 },
       "/reset-password/*": { window: 60, max: 5 },
       "/two-factor/*": { window: 10, max: 3 },
       // Each invite sends an email to any address; keep Lor from being a
@@ -176,15 +211,19 @@ export const auth = betterAuth({
           "exp://",
         ]
       : []),
+    ...(env.NODE_ENV !== "production" ? ["lor-dev://"] : []),
     "tauri://localhost",
     "lor://",
-    "lor-dev://",
     ...env.TRUSTED_ORIGINS.split(",").filter(Boolean),
   ],
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,
+    revokeSessionsOnPasswordReset: true,
     async sendResetPassword({ user, url }) {
+      if (env.NODE_ENV === "development") {
+        logger.info({ email: user.email, url }, "Password reset link (dev)")
+      }
       resend.emails
         .send({
           from: env.EMAIL_FROM,
@@ -215,6 +254,10 @@ export const auth = betterAuth({
     async sendVerificationEmail({ user, url, token }) {
       // Invite sign-ups start verified (databaseHooks below).
       if (user.emailVerified) return
+      // Local installs often run without a verified Resend domain.
+      if (env.NODE_ENV === "development") {
+        logger.info({ email: user.email, url }, "Verification link (dev)")
+      }
       resend.emails
         .send({
           from: env.EMAIL_FROM,
@@ -300,7 +343,10 @@ export const auth = betterAuth({
           if (ctx?.path !== "/sign-up/email") return
           const refuseSelfSignup = async () => {
             const beta = await getBetaAvailability()
-            if (beta.enabled ? !beta.open : !features.selfSignups) {
+            if (
+              (beta.enabled ? !beta.open : !features.selfSignups) &&
+              !(await isFirstAccount())
+            ) {
               throw new APIError("FORBIDDEN", {
                 message:
                   "Self signups are temporarily closed. Ask your workspace admin for an email invitation.",
@@ -340,6 +386,12 @@ export const auth = betterAuth({
     },
   },
   advanced: {
+    // Cloudflare → Railway. Never X-Forwarded-For (client-controlled). The
+    // origin must only accept traffic through Cloudflare, or
+    // cf-connecting-ip is spoofable.
+    ipAddress: {
+      ipAddressHeaders: ["cf-connecting-ip", "x-real-ip"],
+    },
     cookiePrefix: "lor",
     database: {
       generateId: false,
@@ -520,12 +572,55 @@ export const auth = betterAuth({
           return { data: { ...member, avatarColor } }
         },
         // Ownership lives in workspace.ownerId, so "owner" is never an
-        // invitable role, and a member holds exactly one role.
+        // invitable role, and a member holds exactly one role. Inviters
+        // follow the same role-assignment rule as role changes.
         beforeCreateInvitation: async ({ invitation }) => {
           const roles = invitation.role.split(",")
-          if (roles.length !== 1 || roles[0] === "owner") {
+          const [role] = roles
+          if (roles.length !== 1 || !role || role === "owner") {
             throw new APIError("BAD_REQUEST", {
               message: "Invite with one role other than owner",
+            })
+          }
+          const inviter = await db
+            .select({
+              role: schema.workspaceMember.role,
+              ownerId: schema.workspace.ownerId,
+            })
+            .from(schema.workspaceMember)
+            .innerJoin(
+              schema.workspace,
+              eq(schema.workspace.id, schema.workspaceMember.workspaceId)
+            )
+            .where(
+              and(
+                eq(
+                  schema.workspaceMember.workspaceId,
+                  invitation.organizationId
+                ),
+                eq(schema.workspaceMember.userId, invitation.inviterId)
+              )
+            )
+            .limit(1)
+            .then((rows) => rows[0])
+          const authority = inviter && {
+            role: inviter.role,
+            isOwner: inviter.ownerId === invitation.inviterId,
+            customGrants: await customRoleGrants(
+              invitation.organizationId,
+              inviter.role
+            ),
+          }
+          if (
+            !authority ||
+            !canAssignWorkspaceRole(
+              authority,
+              role,
+              await customRoleGrants(invitation.organizationId, role)
+            )
+          ) {
+            throw new APIError("FORBIDDEN", {
+              message: "You cannot invite someone with that role",
             })
           }
         },

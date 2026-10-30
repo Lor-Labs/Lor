@@ -1,5 +1,6 @@
 import { formatDateTime } from "@repo/utils/date"
 import type { Message } from "@/lib/api-types"
+import { env } from "@/lib/env"
 
 // Mirrors the token contract in apps/web message-markdown.tsx. Stored message
 // content embeds mention/citation tokens; we rewrite them to markdown links
@@ -21,6 +22,10 @@ const CHANNEL_MENTION_REGEX = /(^|\s)@channel\b/gi
 const HERE_MENTION_REGEX = /(^|\s)@here\b/gi
 const BROADCAST_MENTION_TOKENS = new Set(["everyone", "channel", "here"])
 const CITATION_REGEX = /\[\[([^\]]+)\]\]/g
+// An inline image with a bracket-free alt, or else any other "![" (reference
+// images, and alts holding a nested image whose outer src would win).
+const IMAGE_SYNTAX_REGEX = /!\[[^[\]\n]*]\(\s*<?([^\s)>]*)>?[^)\n]*\)|!\[/g
+const TRUSTED_IMAGE_PREFIX = `${env.EXPO_PUBLIC_S3_PUBLIC_URL}/`
 
 // User ids mentioned in the composer's draft markdown, broadcasts left out.
 export function draftMentionIds(markdown: string) {
@@ -50,6 +55,22 @@ function isHttpUrl(value: string) {
 
 function mentionLink(label: string, id: string) {
   return `[@${escapeLinkText(label)}](${MENTION_SCHEME}${id})`
+}
+
+// The native renderer loads markdown images with no tap, so a prompt-injected
+// reply could leak data in an image URL. Only file-CDN images stay images;
+// any other image becomes a link that shows its URL. A bare "![" gets a
+// zero-width space after the "!" (not "\!": a preceding backslash would turn
+// that back into an image), so "Done![[msg:x]]" keeps its "!".
+function neutralizeUntrustedImages(markdown: string) {
+  return markdown.replace(
+    IMAGE_SYNTAX_REGEX,
+    (match, url: string | undefined) => {
+      if (url === undefined) return "!​["
+      if (url.startsWith(TRUSTED_IMAGE_PREFIX)) return match
+      return isHttpUrl(url) ? `[${escapeLinkText(url)}](${url})` : ""
+    }
+  )
 }
 
 export function toStoredMessageMarkdown(markdown: string) {
@@ -93,7 +114,7 @@ export function toDisplayMarkdown(
   if (!content) return ""
   const mentionById = new Map(mentions.map((mention) => [mention.id, mention]))
 
-  return content
+  return neutralizeUntrustedImages(content)
     .replace(TIPTAP_MENTION_REGEX, (_match, id: string) => {
       const mention = mentionById.get(id)
       return mentionLink(

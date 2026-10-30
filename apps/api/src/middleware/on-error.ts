@@ -1,4 +1,5 @@
 import type { ErrorHandler } from "hono"
+import { HTTPException } from "hono/http-exception"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { logger as fallbackLogger } from "@/lib/logger"
 import type { AppBindings } from "@/lib/types/app-types"
@@ -26,10 +27,20 @@ const onError: ErrorHandler<AppBindings> = (err, c) => {
     `Unhandled error: ${err.message}`
   )
 
+  // Only deliberate client errors (HTTPException, better-auth APIError from
+  // auth.api calls) reach the client verbatim. Library, DB and validation
+  // internals can carry schema or query data, so they get a generic message.
+  const clientFacing =
+    (err instanceof HTTPException || err.name === "APIError") &&
+    statusCode < 500
+  if (clientFacing) return c.json({ message: err.message }, statusCode)
+
+  const requestId = c.get("requestId")
   return c.json(
     {
-      message: err.message,
-      stack: process.env.NODE_ENV === "production" ? undefined : err.stack,
+      message: statusCode >= 500 ? "Internal server error" : "Request failed",
+      ...(requestId ? { requestId } : {}),
+      stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
     },
     statusCode
   )

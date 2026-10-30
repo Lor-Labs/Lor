@@ -75,23 +75,35 @@ function redactedHeaders(
   )
 }
 
+// Server URLs can carry a key in the path or query (e.g. hosted MCP
+// gateways). Non-managers get the origin, plus a mask when anything followed.
+function redactedUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const bare = parsed.pathname === "/" && !parsed.search && !parsed.hash
+    return bare ? parsed.origin : `${parsed.origin}/••••••`
+  } catch {
+    return "••••••"
+  }
+}
+
 // Secret values are write-only: stored encrypted, surfaced as names only.
 function toResponse(
   row: McpServer,
   usedByProfiles: number,
-  revealHeaders: boolean,
+  reveal: boolean,
   oauthAuthorizer: { id: string; name: string } | null
 ) {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
-    url: row.url,
+    url: reveal ? row.url : redactedUrl(row.url),
     authMode: row.authMode,
     oauthStatus: row.oauthStatus,
     oauthAuthorizedBy: oauthAuthorizer,
     oauthAuthorizedAt: row.oauthAuthorizedAt?.toISOString() ?? null,
-    headers: revealHeaders ? row.headers : redactedHeaders(row.headers),
+    headers: reveal ? row.headers : redactedHeaders(row.headers),
     secretNames: Object.keys(row.secrets),
     enabledTools: row.enabledTools,
     usedByProfiles,
@@ -173,7 +185,7 @@ export const listMcpServers: AppRouteHandler<ListMcpServersRoute> = async (
     grantCounts(rows.map((r) => r.id)),
     oauthAuthorizers(rows.map((r) => r.oauthAuthorizedBy)),
   ])
-  const revealHeaders = hasWorkspaceAuthority(c.var.authority, {
+  const reveal = hasWorkspaceAuthority(c.var.authority, {
     customTool: ["manage"],
   })
   return c.json(
@@ -182,7 +194,7 @@ export const listMcpServers: AppRouteHandler<ListMcpServersRoute> = async (
         toResponse(
           r,
           counts.get(r.id) ?? 0,
-          revealHeaders,
+          reveal,
           r.oauthAuthorizedBy
             ? (authorizers.get(r.oauthAuthorizedBy) ?? null)
             : null

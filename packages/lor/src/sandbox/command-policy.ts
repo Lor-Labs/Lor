@@ -4,6 +4,7 @@ import {
   commandName,
   type ParsedShell,
   parseShell,
+  unwrap,
 } from "./shell-parse"
 
 // How a sandbox call is classed before the turn's mode decides
@@ -255,6 +256,10 @@ export function protectedPathReason(absolute: string): string | null {
   ) {
     return "changes a shell startup file"
   }
+  // They can send every curl or wget request through a proxy.
+  if ([".curlrc", "curlrc", ".wgetrc", "wgetrc"].includes(base)) {
+    return "changes a network client config"
+  }
   if (lower.includes("/.github/workflows/")) return "changes a CI workflow"
   if (
     [
@@ -379,6 +384,200 @@ function remoteHost(argv: Argv): string | null | undefined {
   return undefined
 }
 
+// HTTP clients. Egress is open (session-sandbox.ts), so a literal request can
+// carry pasted secrets or files out. One that sends data, or reaches a remote
+// host with anything past the host name, is flagged so the classifier sees
+// its destination. Loopback requests (dev servers) stay routine unless an
+// option, proxy variable or config file can reroute them.
+type HttpClient = {
+  // Options that take a value: short letters, then long names.
+  shortValues: string
+  longValues: Set<string>
+  // Send a body or file, or read the request from a file.
+  sends: Set<string>
+  // Put text in request headers.
+  headers: Set<string>
+  // Can send the request somewhere other than its URL.
+  routes: Set<string>
+  method: Set<string>
+}
+
+const optionSet = (text: string) => new Set(text.split(" "))
+const CURL: HttpClient = {
+  shortValues: "AbcCdDeEFHKmoPQrtTuUwxXyYz",
+  longValues: optionSet(
+    "--output --output-dir --header --user-agent --referer --user --cookie --cookie-jar --data --data-ascii --data-binary --data-raw --data-urlencode --json --form --form-string --upload-file --config --request --url --url-query --write-out --dump-header --max-time --connect-timeout --retry --retry-delay --retry-max-time --max-redirs --range --continue-at --cacert --cert --key --proxy --preproxy --socks4 --socks4a --socks5 --socks5-hostname --resolve --connect-to --doh-url --dns-servers --unix-socket --variable --oauth2-bearer --limit-rate --trace --trace-ascii --stderr"
+  ),
+  sends: optionSet(
+    "-d -F -T -K --data --data-ascii --data-binary --data-raw --data-urlencode --json --form --form-string --upload-file --config --variable --url-query"
+  ),
+  headers: optionSet(
+    "-H -A -e -u -b --header --user-agent --referer --user --cookie --oauth2-bearer"
+  ),
+  routes: optionSet(
+    "-x -K --config --proxy --preproxy --socks4 --socks4a --socks5 --socks5-hostname --resolve --connect-to --doh-url --dns-servers"
+  ),
+  method: optionSet("-X --request"),
+}
+const WGET: HttpClient = {
+  shortValues: "oaOiBtTwPQUelARDXI",
+  longValues: optionSet(
+    "--output-document --output-file --append-output --directory-prefix --input-file --execute --config --header --user-agent --referer --user --password --http-user --http-password --post-data --post-file --body-data --body-file --method --load-cookies --save-cookies --tries --timeout --wait --level --accept --reject --ca-certificate --limit-rate"
+  ),
+  sends: optionSet(
+    "-i -e --input-file --execute --config --post-data --post-file --body-data --body-file"
+  ),
+  headers: optionSet(
+    "-U --header --user-agent --referer --user --password --http-user --http-password --load-cookies"
+  ),
+  routes: optionSet("-i -e --input-file --execute --config"),
+  method: optionSet("--method"),
+}
+// HTTPie and xh: `[METHOD] URL [items]`. Without --ignore-stdin they also
+// send piped input as the body, so every remote request is flagged.
+const HTTPIE: HttpClient = {
+  shortValues: "aAosp",
+  longValues: optionSet(
+    "--auth --auth-type --output --session --session-read-only --verify --cert --cert-key --timeout --proxy --pretty --style --print --max-redirects --default-scheme --format-options"
+  ),
+  sends: optionSet("-f --form --multipart --raw"),
+  headers: new Set(),
+  routes: optionSet("--proxy"),
+  method: new Set(),
+}
+const HTTP_CLIENTS = new Map([
+  ["curl", CURL],
+  ["wget", WGET],
+  ["http", HTTPIE],
+  ["https", HTTPIE],
+  ["xh", HTTPIE],
+])
+const READ_METHOD = /^(GET|HEAD|OPTIONS)$/i
+// HTTPie's `:3000/path` is localhost too.
+const LOOPBACK_URL =
+  /^(?:(?:[a-z][a-z0-9+.-]*:\/\/)?(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\])(?::\d+)?|:\d*)(?:[/?#]|$)/i
+const HTTP_REROUTE =
+  /\b(?:(?:https?|all|ftp|socks)_proxy|CURL_HOME|WGETRC|XDG_CONFIG_HOME)\b/i
+
+// Anything past the host name: userinfo, a path, a query or a fragment.
+function carriesData(url: string): boolean {
+  return !/^(?:[a-z][a-z0-9+.-]*:\/\/)?[^/?#@]*\/?$/i.test(url)
+}
+
+function scanArgs(
+  args: string[],
+  client: HttpClient
+): { options: [string, string | undefined][]; operands: string[] } {
+  const options: [string, string | undefined][] = []
+  const operands: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? ""
+    if (arg === "--") {
+      operands.push(...args.slice(i + 1))
+      break
+    }
+    if (arg.startsWith("--")) {
+      const eq = arg.indexOf("=")
+      if (eq > 0) options.push([arg.slice(0, eq), arg.slice(eq + 1)])
+      else
+        options.push([arg, client.longValues.has(arg) ? args[++i] : undefined])
+    } else if (arg.length > 1 && arg.startsWith("-")) {
+      for (let j = 1; j < arg.length; j++) {
+        const letter = arg.charAt(j)
+        if (client.shortValues.includes(letter)) {
+          options.push([
+            `-${letter}`,
+            j + 1 < arg.length ? arg.slice(j + 1) : args[++i],
+          ])
+          break
+        }
+        options.push([`-${letter}`, undefined])
+      }
+    } else {
+      operands.push(arg)
+    }
+  }
+  return { options, operands }
+}
+
+function httpReason(
+  client: HttpClient,
+  argv: Argv,
+  command: string
+): string | null {
+  const args = argv.slice(1)
+  if (args.some((a) => a == null)) {
+    return "builds a network request from computed values"
+  }
+  const { options, operands } = scanArgs(args as string[], client)
+  const has = (set: Set<string>) => options.some(([option]) => set.has(option))
+  const httpie = client === HTTPIE
+  const method =
+    httpie && /^[A-Z]+$/.test(operands[0] ?? "")
+      ? operands.shift()
+      : options.find(([option]) => client.method.has(option))?.[1]
+  const urls = httpie
+    ? operands.slice(0, 1)
+    : [
+        ...operands,
+        ...options.flatMap(([option, value]) =>
+          option === "--url" ? [value ?? ""] : []
+        ),
+      ]
+  const rerouted = has(client.routes) || HTTP_REROUTE.test(command)
+  const remote = urls.filter((url) => rerouted || !LOOPBACK_URL.test(url))
+  if (urls.length > 0 && remote.length === 0) return null
+  if (
+    has(client.sends) ||
+    (method !== undefined && !READ_METHOD.test(method)) ||
+    (httpie && operands.length > 1)
+  ) {
+    return "sends data in a network request"
+  }
+  return remote.length > 0 &&
+    (httpie || has(client.headers) || remote.some(carriesData))
+    ? "connects to a remote host"
+    : null
+}
+
+// `xargs curl` and `find -exec curl` add arguments the call doesn't show.
+function runsHttpClient(argv: Argv): boolean {
+  return HTTP_CLIENTS.has(commandName(unwrap(argv) ?? []) ?? "")
+}
+
+// Inline programs (`python3 -c`, `node -e`, a heredoc into an interpreter)
+// are in the call itself. One that reaches the network can post files out.
+const INLINE_CODE = new Map([
+  ["python", /^-[A-Za-z]*c/],
+  ["node", /^(?:-[A-Za-z]*[ep]$|--eval|--print)/],
+  ["bun", /^(?:-e$|-p$|--eval|--print)/],
+  ["deno", /^eval$/],
+  ["ruby", /^-[A-Za-z]*e/],
+  ["perl", /^-[A-Za-z]*[eE]/],
+  ["php", /^-r/],
+])
+const NETWORK_CODE =
+  /\b(?:https?|wss?|ftp):\/\/|socket|\b(?:requests|urllib\d?|urlopen|httpx|aiohttp|http\.client|smtplib|ftplib|axios|undici|XMLHttpRequest|LWP|HTTP::Tiny|Net::HTTP|net\/http|open-uri|fsockopen|curl_init)\b|\bfetch\s*\(|\bhttps?\.(?:request|get)\s*\(|["'](?:node:)?(?:https?|http2|net|tls|dgram|dns)["']|\bDeno\.connect/i
+
+// Heredocs and here-strings into an interpreter are ParsedShell.programs.
+function runsNetworkCode(argv: Argv): boolean {
+  const raw = commandName(argv) ?? ""
+  const name = /^python[\d.]*$/.test(raw)
+    ? "python"
+    : raw === "nodejs"
+      ? "node"
+      : raw
+  const flag = INLINE_CODE.get(name)
+  if (!flag) return false
+  const args = argv.slice(1).filter((arg): arg is string => arg != null)
+  const at = args.findIndex((arg) => flag.test(arg))
+  // In `python -m pip install … -c x`, -c is the module's option.
+  if (at < 0 || (name === "python" && args.slice(0, at).includes("-m"))) {
+    return false
+  }
+  return NETWORK_CODE.test(args.slice(0, at + 2).join(" "))
+}
+
 const DEPLOY_VERBS = new Set([
   "deploy",
   "up",
@@ -390,8 +589,9 @@ const DEPLOY_VERBS = new Set([
 ])
 const READ_VERBS = new Set(["list", "ls", "describe", "get", "view", "status"])
 
-// The rule that flags a command, if any.
-function flagReason(argv: Argv): string | null {
+// The rule that flags a command, if any. `command` is the whole call, where
+// proxy variables show.
+function flagReason(argv: Argv, command: string): string | null {
   const name = commandName(argv)
   const args = argv.slice(1)
   const words = positionals(argv)
@@ -400,6 +600,9 @@ function flagReason(argv: Argv): string | null {
   if (args.some((a) => a === "--privileged" || a?.includes("docker.sock"))) {
     return "changes privileges, disks or the network"
   }
+  const client = HTTP_CLIENTS.get(name ?? "")
+  if (client) return httpReason(client, argv, command)
+  if (runsNetworkCode(argv)) return "runs inline code that uses the network"
   switch (name) {
     case "rm":
       return hasFlag(argv, ["--recursive", "--force"], "rRf") ||
@@ -407,7 +610,14 @@ function flagReason(argv: Argv): string | null {
         ? "deletes files"
         : null
     case "find":
-      return findDeletes(argv) ? "deletes files" : null
+      if (findDeletes(argv)) return "deletes files"
+      return runsHttpClient(argv)
+        ? "builds a network request from computed values"
+        : null
+    case "xargs":
+      return runsHttpClient(argv)
+        ? "builds a network request from computed values"
+        : null
     case "shred":
     case "mkfs":
     case "fdisk":
@@ -577,16 +787,6 @@ function flagReason(argv: Argv): string | null {
       return has("-l", "--listen")
         ? "opens a network listener"
         : "connects to a remote host"
-    // Reads to any host pass the egress proxy, so a request built from
-    // computed values (`$(…)`, variables) can carry data out in its URL.
-    case "curl":
-    case "wget":
-    case "http":
-    case "https":
-    case "xh":
-      return args.some((a) => a == null)
-        ? "builds a network request from computed values"
-        : null
     case "crontab":
       return has("-l") ? null : "changes scheduled jobs"
     case "systemctl":
@@ -672,8 +872,11 @@ function checkParsed(
     return { kind: "flagged", reason: "is a fork bomb" }
   }
   for (const argv of parsed.commands) {
-    const reason = flagReason(argv)
+    const reason = flagReason(argv, command)
     if (reason) return { kind: "flagged", reason }
+  }
+  if (parsed.programs.some((program) => NETWORK_CODE.test(program))) {
+    return { kind: "flagged", reason: "runs inline code that uses the network" }
   }
   for (const target of writes) {
     if (target === null) continue

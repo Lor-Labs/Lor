@@ -24,6 +24,12 @@ const CHECKPOINT_TIMEOUT_MS = 120_000
 const SNAPSHOT_FAILED = 20
 const PUSH_FAILED = 21
 const SHA = /^[0-9a-f]{40}$/
+// The storage token rides in these commands' env, in a sandbox whose repo
+// hooks and git config its code controls: no hooks, credential helpers,
+// fsmonitor or global/system config run with it.
+const GIT =
+  "git -c core.hooksPath=/dev/null -c credential.helper= -c core.fsmonitor=false"
+const GIT_ENV = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" }
 
 let cachedStore: GitStorage | null | undefined
 function codeStorage(): GitStorage | null {
@@ -186,23 +192,23 @@ async function runRestore(
       ...(input.replace
         ? []
         : [
-            `if [ "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" = "$dir" ]; then printf present; exit 0; fi`,
+            `if [ "$(${GIT} -C "$dir" rev-parse --show-toplevel 2>/dev/null)" = "$dir" ]; then printf present; exit 0; fi`,
             // A folder left without a repo (or partly removed) can't be restored into.
             `if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then exit ${RESTORE_FAILED}; fi`,
           ]),
       `rm -rf "$dir".restore-* "$dir".old-*`,
       `tmp="$dir.restore-$$"`,
-      `mkdir -p "$tmp" && cd "$tmp" && git init -q || exit ${RESTORE_FAILED}`,
-      `git fetch -q --update-shallow "$LOR_CHECKPOINT_REMOTE" ${q(`refs/heads/${sessionBranch(input.sessionId)}:refs/lor/checkpoint`)} || exit ${RESTORE_FAILED}`,
-      `git checkout -q -f ${checkout} ${sha} && git reset -q --soft ${headSha} && git reset -q || exit ${RESTORE_FAILED}`,
-      `git remote add origin ${q(`https://github.com/${input.repoFullName}.git`)}`,
+      `mkdir -p "$tmp" && cd "$tmp" && ${GIT} init -q --template= || exit ${RESTORE_FAILED}`,
+      `${GIT} fetch -q --update-shallow "$LOR_CHECKPOINT_REMOTE" ${q(`refs/heads/${sessionBranch(input.sessionId)}:refs/lor/checkpoint`)} || exit ${RESTORE_FAILED}`,
+      `${GIT} checkout -q -f ${checkout} ${sha} && ${GIT} reset -q --soft ${headSha} && ${GIT} reset -q || exit ${RESTORE_FAILED}`,
+      `${GIT} remote add origin ${q(`https://github.com/${input.repoFullName}.git`)}`,
       ...(upstreamRef
         ? [
             `up=${savedUpstream}`,
             input.replace
-              ? `live=$(git -C "$dir" rev-parse -q --verify ${upstreamRef} 2>/dev/null) && git cat-file -e "$live^{commit}" 2>/dev/null && up=$live`
+              ? `live=$(${GIT} -C "$dir" rev-parse -q --verify ${upstreamRef} 2>/dev/null) && ${GIT} cat-file -e "$live^{commit}" 2>/dev/null && up=$live`
               : "",
-            `[ -z "$up" ] || git update-ref ${upstreamRef} "$up" || true`,
+            `[ -z "$up" ] || ${GIT} update-ref ${upstreamRef} "$up" || true`,
           ]
         : []),
       input.replace
@@ -213,7 +219,7 @@ async function runRestore(
     ]
       .filter(Boolean)
       .join("\n"),
-    env: { LOR_CHECKPOINT_REMOTE: remote },
+    env: { LOR_CHECKPOINT_REMOTE: remote, ...GIT_ENV },
     ...(abortSignal ? { abortSignal } : {}),
   })
   if (result.exitCode !== 0) {
@@ -363,16 +369,16 @@ export async function writeCheckpoint(
         // A new sandbox (or a fresh clone) lacks the previous checkpoint:
         // fetch the chain so the new one fast-forwards it.
         parent
-          ? `git cat-file -e ${parent}^{commit} 2>/dev/null || git fetch -q --update-shallow "$LOR_CHECKPOINT_REMOTE" "refs/heads/${branch}:refs/lor/checkpoint" || exit ${PUSH_FAILED}`
+          ? `${GIT} cat-file -e ${parent}^{commit} 2>/dev/null || ${GIT} fetch -q --update-shallow "$LOR_CHECKPOINT_REMOTE" "refs/heads/${branch}:refs/lor/checkpoint" || exit ${PUSH_FAILED}`
           : "",
-        `c=$(printf '%s\\n' ${shellQuote(message)} | git -c user.name=Lor -c user.email=checkpoints@lor.chat commit-tree ${state.tree}${parent ? ` -p ${parent}` : ""} -p ${state.head} -F -) || exit ${SNAPSHOT_FAILED}`,
-        `git push -q "$LOR_CHECKPOINT_REMOTE" "$c:refs/heads/${branch}" || exit ${PUSH_FAILED}`,
-        'git update-ref refs/lor/checkpoint "$c"',
+        `c=$(printf '%s\\n' ${shellQuote(message)} | ${GIT} -c user.name=Lor -c user.email=checkpoints@lor.chat commit-tree ${state.tree}${parent ? ` -p ${parent}` : ""} -p ${state.head} -F -) || exit ${SNAPSHOT_FAILED}`,
+        `${GIT} push -q "$LOR_CHECKPOINT_REMOTE" "$c:refs/heads/${branch}" || exit ${PUSH_FAILED}`,
+        `${GIT} update-ref refs/lor/checkpoint "$c"`,
         `printf '%s' "$c"`,
       ]
         .filter(Boolean)
         .join("\n"),
-      { env: { LOR_CHECKPOINT_REMOTE: remote }, abortSignal }
+      { env: { LOR_CHECKPOINT_REMOTE: remote, ...GIT_ENV }, abortSignal }
     )
     if (result.exitCode !== 0) {
       const detail = result.stderr.split(token).join("***").slice(-300)
