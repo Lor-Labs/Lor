@@ -1,90 +1,78 @@
 # Lor
 
-The AI multiplayer workspace for teams.
+**The AI multiplayer workspace for teams.**
 
-Lor is a chat-first workspace for software teams. Chat is the interface; **Lor** — the resident AI agent — is the product. It indexes everything that happens in your workspace (messages, threads, voice transcripts, integrations) and answers questions about your team's history, decisions, and ongoing work. Think "Glean for small teams," open-source and self-hostable.
+Lor is a shared workspace where teams research, write, and build with AI.
+Bring your tools and context into shared sessions, invite teammates, fork
+ideas, and turn recurring work into Loops.
 
-## Why Lor?
+[Watch the walkthrough](https://media.lor.chat/lor-mvp-demo.mp4) ·
+[Join the waitlist](https://lor.chat) ·
+[Local setup](reference/local-development.md)
 
-- **Open source & self-hostable** — AGPL-licensed; run it on your own infra or use the hosted version
-- **Chat-native institutional memory** — Lor lives where the work happens, not behind a separate search bar
-- **For software teams** — not a community-chat platform; designed around how engineering orgs actually communicate
+## What you can do
 
-## Project Structure
+- **Work in shared sessions.** Bring a teammate into the conversation,
+  mention them for feedback, or fork a session to explore another approach.
+- **Connect your team's tools.** Bring in context from GitHub, Linear,
+  Notion, and Attio. Conversations connect around the issues and documents
+  they reference, preserving the reasoning behind the work.
+- **Build and review together.** Work in a repository, inspect changes,
+  run an app in a preview, and commit with your own GitHub account.
+- **Put recurring work on a Loop.** Schedule research, reports, and other
+  workflows, with approval controls for actions that need review.
+- **Choose how you use AI.** Use Lor, connect your Claude subscription for
+  Claude Code, or bring OpenAI and Anthropic API keys for Lor sessions.
 
-This is a pnpm + Turborepo monorepo:
+## Project status
 
-```
-apps/
-  web/          — Primary chat app (Vite + React + TanStack Router)
-  www/          — Marketing site & waitlist (Next.js)
-  api/          — Hono API server
-  realtime/     — Socket.IO realtime gateway
-  desktop/      — Desktop client
-  mobile/       — Mobile client
-  transcriber/  — Speech-to-text service
-  worker/       — Background worker
+Lor is under active development. The hosted service is taking waitlist
+signups, with beta invitations starting November 6, 2026. Joining the
+waitlist does not grant immediate access.
 
-packages/
-  api-client/   — Shared type-safe Hono API client
-  auth/         — Better Auth configuration and helpers
-  ui/           — Shared shadcn/ui component library
-  db/           — Drizzle ORM schema & database client
-  env/          — Type-safe environment variables (server/client)
-  utils/        — Shared utility helpers
-  billing/      — Subscription and billing logic
-  connectors/   — Integration connector registry
-  logger/       — Shared logging helpers
-  lor/          — Lor agent runtime
-  messaging/    — Message and channel domain logic
-  realtime-types/ — Shared realtime event types
-  voice/        — Voice channel support
-  typescript-config/ — Shared TypeScript configs
-```
+You can run the source on your own infrastructure, but setup currently
+requires external services and developer configuration. The local setup
+guide is not a turnkey production deployment guide. DMs and voice channels
+are currently hidden by launch flags; Codex sessions are disabled.
 
-## Getting Started
+## Run locally
+
+Use **Node.js 24**, **pnpm 9**, and **Docker Compose**. You'll also need
+credentials for AI Gateway, S3-compatible storage, and Resend; agent execution
+uses Blaxel sandboxes.
 
 ```sh
-# Install dependencies
-pnpm install
-
-# Copy env file and fill in values
+pnpm install --frozen-lockfile
 cp .env.example .env
-
-# Push database schema
+# Fill in .env and configure local signup using the setup guide below.
+docker compose up -d postgres redis
 pnpm db:push
-
-# Start all apps in dev mode
-pnpm dev
+pnpm --filter @repo/db exec tsx src/seeds/index.ts
+pnpm dev api web realtime worker
 ```
 
-For the bundled Docker Compose services, set `POSTGRES_PASSWORD` and
-`REDIS_PASSWORD` in `.env` to separate random, URL-safe passwords (for example,
-generate each with `openssl rand -hex 32`). Database and Redis host ports bind
-only to `127.0.0.1`; apps running on the host must use matching credentials in
-`DATABASE_URL` and `REDIS_URL`. An existing Postgres volume retains its database
-password: rotate that role's password before changing the Compose credential.
+Read the [local development guide](reference/local-development.md) before
+starting: it covers credentials, the signup gate, sandbox setup, and service
+URLs. The web app runs at `http://localhost:3000`.
 
-Before opening a pull request, run the same static gate used by CI:
+## Development
 
-```sh
-pnpm validate
-```
+Lor uses React and TypeScript, a Hono API, PostgreSQL with pgvector, Redis,
+and a shared agent runtime in a pnpm/Turborepo monorepo. The main web client
+uses Vite and TanStack Router; the marketing site uses Next.js. Desktop and
+mobile clients live alongside them.
 
-## Scripts
+See the [repository map and commands](reference/local-development.md#repository-map),
+[architecture conventions](CLAUDE.md), and [feature references](reference/README.md)
+for implementation details.
 
-| Command | Description |
-|---------|-------------|
-| `pnpm dev` | Start all apps in development mode |
-| `pnpm build` | Build all apps and packages |
-| `pnpm validate` | Run the contributor gate: Biome, TypeScript, and tests |
-| `pnpm check` | Run Biome linting and formatting checks |
-| `pnpm check:fix` | Auto-fix Biome issues |
-| `pnpm check-types` | Run TypeScript type checking across the workspace |
-| `pnpm test` | Run package test suites |
-| `pnpm db:push` | Push Drizzle schema to database |
-| `pnpm db:studio` | Open Drizzle Studio |
+## Contributing
+
+Bug reports and focused improvements are welcome. Discuss substantial changes
+in an issue first, and follow [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+conventions, and the lint and type checks used by CI.
 
 ## License
 
-AGPL-3.0
+Lor is licensed under [GNU AGPL v3](LICENSE). Third-party components retain
+their own licenses and notices where provided.

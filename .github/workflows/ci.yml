@@ -93,5 +93,8 @@ jobs:
               })
             }
 
-      - name: Validate contributor checks
-        run: pnpm run validate
+      - name: Check formatting and lint
+        run: pnpm run check
+
+      - name: Check types
+        run: pnpm run check-types

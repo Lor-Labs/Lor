@@ -51,6 +51,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Use |
 |---|---|
+| `local-development.md` | Contributor setup, required services, local signup, repository map, and commands |
 | `product-direction.md` | Current priorities and what is deferred |
 | `positioning.md` | Current www narrative and capability boundaries (2026-10-25), with earlier marketing and sales positioning retained as history |
 | `voice-channels.md` | Guiding product spec for voice; its "Voice channel model" decisions win over the runbook and research |
