@@ -11,6 +11,8 @@ can pick up the work where it is.
 [Join the waitlist](https://lor.chat) ·
 [Local development guide](reference/local-development.md)
 
+https://github.com/user-attachments/assets/664312a5-610a-4497-aeae-2c9ac2f6769f
+
 ## How Lor works
 
 - **A channel is a team chat plus a shared project.** The chat is for people.
