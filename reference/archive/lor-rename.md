@@ -5,9 +5,7 @@
 Status: CODE COMPLETE (C1–C9 landed 2026-09-12). Full repo-wide rename of the
 agent from Merlin to Lor — code identifiers, DB names, wire protocol, env
 vars, prompts, copy, docs. Remaining work is Jacob-side cutover only (§6).
-Every app and package is merlin-free; `PIVOT.md` is the one deliberate
-holdout (historical branding doc that reasons about the name itself — a
-mechanical sweep would produce nonsense sentences; hand-edit if wanted).
+Every app and package is merlin-free.
 
 Related future work (not in this rename): per-workspace agent rename/avatar
 and workspace-added custom agents. See §8.
@@ -219,8 +217,7 @@ Validate per chunk: `pnpm run check-types` + `pnpm run check`.
   just active docs. Reason — these are living runbooks Claude reads before
   working; a doc saying "Merlin does X" describes an entity that no longer
   exists under that name, and a future session grepping `merlin` would find
-  nothing. Only this file (which must carry both names) and `PIVOT.md` (see
-  status header) keep Merlin.
+  nothing. Only this file (which must carry both names) keeps Merlin.
 
   Validation: `pnpm run check` clean, `pnpm run check-types` 20/20,
   `pnpm run build` 4/4 (desktop's build fails on a missing

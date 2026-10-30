@@ -93,3 +93,5 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `voice-channels-livekit-research.md` | Research input; `voice-channels.md` decisions win |
 | `sidebar-realtime-activity-plan.md` | Executed 2026-09-14 on web and mobile |
 | `lor-rename.md` | Merlin → Lor rename, code complete 2026-09-12 |
+| `roadmap.md` | Townhall-era roadmap; `product-direction.md` is current |
+| `mobile-architecture.md` | Original iOS plan; `apps/mobile` is as built (no `ui-native` or `chat-core`) |

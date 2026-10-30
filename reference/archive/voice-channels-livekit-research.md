@@ -37,10 +37,9 @@ retrieval, and transcript Q&A can follow without replacing the call foundation.
 | --- | --- |
 | [Voice channels and shared memory](../voice-channels.md) | The detailed guiding spec, dated September 24 and committed September 25 in `bbd2ecd0`. Drop-in voice, screen sharing, navigation during calls, visible capture state, durable sessions, and later spoken Lor. Infrastructure was deliberately undecided. |
 | [Product direction](../product-direction.md) | Voice and conversation memory are the next product priority. |
-| [PIVOT.md](../../PIVOT.md) | May-era notes explicitly preserve the Slack Huddles/Discord voice concept and transcripts as part of the knowledge corpus. Older Merlin naming and public-only channel assumptions are historical. |
-| [ROADMAP.md](../../ROADMAP.md) | Voice/video remains unchecked. |
+| [roadmap.md](roadmap.md) | Voice/video remains unchecked. |
 | [Mobile parity notes](../mobile-parity-todo.md) | Explicitly says voice is a channel list type, with no WebRTC/LiveKit implementation. |
-| [Mobile architecture](../../MOBILE_ARCHITECTURE.md) | Earlier iOS-first plan excluded voice from its initial scope. It is background context, not a restriction on this new feature. |
+| [Mobile architecture](mobile-architecture.md) | Earlier iOS-first plan excluded voice from its initial scope. It is background context, not a restriction on this new feature. |
 
 The earlier voice spec includes grounded text Q&A in Phase 1. Jacob's September 27
 request narrows the immediate work to a reliable, polished call foundation and
