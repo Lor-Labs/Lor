@@ -23,6 +23,7 @@ import {
   forkAgentSessionResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  openTerminalResponseSchema,
   previewPortParamsSchema,
   pullSessionChangesResponseSchema,
   pushSessionChangesResponseSchema,
@@ -600,3 +601,29 @@ export const stopSessionPreview = createRoute({
 })
 
 export type StopSessionPreviewRoute = typeof stopSessionPreview
+
+export const openSessionTerminal = createRoute({
+  path: "/sessions/{sessionId}/terminal",
+  method: "post",
+  summary: "Open a terminal in a code session's sandbox",
+  description:
+    "Starts the terminal server if needed and returns a WebSocket URL to the caller's own shell, with a short-lived token. Anyone who can write in the channel can do this.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hidden: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: openTerminalResponseSchema,
+      description: "The terminal's WebSocket URL",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type OpenSessionTerminalRoute = typeof openSessionTerminal

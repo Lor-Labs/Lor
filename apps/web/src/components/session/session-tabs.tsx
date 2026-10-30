@@ -3,6 +3,7 @@ import {
   BrowserIcon,
   BubbleChatIcon,
   Cancel01Icon,
+  ComputerTerminal01Icon,
   File01Icon,
   FileDiffIcon,
   GitCompareIcon,
@@ -22,6 +23,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
 import { PreviewTab } from "@/components/session/preview-tab"
 import { RepoFileView } from "@/components/session/repo-file-view"
+import { TerminalTab } from "@/components/session/terminal-tab"
 import {
   ChangeDiff,
   changeTotals,
@@ -40,6 +42,7 @@ import {
 import {
   diffTabId,
   fileTabId,
+  PREVIEW_TAB_ID,
   parseTabId,
   type SessionTab,
   type SessionTabs,
@@ -55,6 +58,17 @@ const TAB_ICONS: Record<SessionTab["kind"], IconSvgElement> = {
   diff: FileDiffIcon,
   changes: GitCompareIcon,
   preview: BrowserIcon,
+  terminal: ComputerTerminal01Icon,
+}
+
+const FIXED_TAB_LABELS = {
+  changes: "All changes",
+  preview: "Preview",
+  terminal: "Terminal",
+} as const
+
+function tabLabel(tab: SessionTab): string {
+  return "path" in tab ? splitPath(tab.path).name : FIXED_TAB_LABELS[tab.kind]
 }
 
 const TYPING_TARGET =
@@ -141,18 +155,8 @@ export function SessionTabBar({
         return (
           <TabButton
             key={id}
-            label={
-              tab.kind === "changes"
-                ? "All changes"
-                : tab.kind === "preview"
-                  ? "Preview"
-                  : splitPath(tab.path).name
-            }
-            title={
-              tab.kind === "changes" || tab.kind === "preview"
-                ? undefined
-                : tab.path
-            }
+            label={tabLabel(tab)}
+            title={"path" in tab ? tab.path : undefined}
             icon={TAB_ICONS[tab.kind]}
             preview={preview === id}
             selected={active === id}
@@ -266,6 +270,14 @@ export function SessionTabView({
   const changes = useSessionChanges(sessionId)
   if (tab.kind === "changes") return <AllChangesTab sessionId={sessionId} />
   if (tab.kind === "preview") return <PreviewTab sessionId={sessionId} />
+  if (tab.kind === "terminal") {
+    return (
+      <TerminalTab
+        sessionId={sessionId}
+        onOpenPort={() => onOpen(PREVIEW_TAB_ID, { preview: false })}
+      />
+    )
+  }
 
   const ready = changes.data?.state === "ready" ? changes.data : null
   const file = ready?.files.find((changed) => changed.path === tab.path) ?? null

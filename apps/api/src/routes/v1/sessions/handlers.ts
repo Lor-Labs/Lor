@@ -54,6 +54,7 @@ import {
   stopPreview,
   suggestDevServer,
 } from "@repo/lor/dev-env/previews"
+import { openTerminal } from "@repo/lor/dev-env/terminal"
 import {
   BranchRefusedError,
   forkSession,
@@ -91,6 +92,7 @@ import type {
   GetSessionPreviewRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
+  OpenSessionTerminalRoute,
   PullSessionChangesRoute,
   PushSessionChangesRoute,
   RewindAgentSessionRoute,
@@ -1473,4 +1475,52 @@ export const stopSessionPreview: AppRouteHandler<
     suggestDevServer(sessionId),
   ])
   return c.json({ previews, suggestion }, HttpStatusCodes.OK)
+}
+
+// The Terminal tab (reference/dev-environment-runbook.md §4): a root shell in
+// the session's sandbox, so it needs write access like Lor's own turns.
+export const openSessionTerminal: AppRouteHandler<
+  OpenSessionTerminalRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  if (row.session.mode !== "code" || row.session.archivedAt) {
+    return c.json(
+      { success: false as const, message: "Terminals are for code sessions" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  const result = await openTerminal(sessionId, c.var.user.id)
+  if (result.status === "no_sandbox") {
+    return c.json(
+      {
+        success: false as const,
+        message:
+          "This session has no sandbox yet. Send Lor a message to set one up.",
+      },
+      HttpStatusCodes.CONFLICT
+    )
+  }
+  if (result.status === "not_ready") {
+    return c.json(
+      { success: false as const, message: "The terminal didn't start" },
+      HttpStatusCodes.BAD_REQUEST
+    )
+  }
+  return c.json(
+    { url: result.url, expiresAt: result.expiresAt },
+    HttpStatusCodes.OK
+  )
 }

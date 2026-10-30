@@ -2,6 +2,7 @@ import {
   Archive02Icon,
   BrowserIcon,
   BubbleChatIcon,
+  ComputerTerminal01Icon,
   GitBranchIcon,
   GitForkIcon,
   HashtagIcon,
@@ -76,6 +77,7 @@ import {
   PREVIEW_TAB_ID,
   parseTabId,
   sessionTabLink,
+  TERMINAL_TAB_ID,
   useSessionTabs,
 } from "@/hooks/use-session-tabs"
 import {
@@ -354,9 +356,9 @@ function SessionConversation({
               />
             ) : null
           }
-          onPreview={
+          onOpenTab={
             code && !session.archivedAt
-              ? () => tabs.open(PREVIEW_TAB_ID, { preview: false })
+              ? (id) => tabs.open(id, { preview: false })
               : undefined
           }
           onRename={() => setRenaming(true)}
@@ -421,13 +423,19 @@ function SessionConversation({
 
 // A slim icon strip: the title opens the document instead (SessionHeading),
 // and fades in here once the heading scrolls away, like the phone's bar.
+// A code session's dev tabs, opened from the session strip.
+const DEV_TABS = [
+  { id: PREVIEW_TAB_ID, label: "Preview", icon: BrowserIcon },
+  { id: TERMINAL_TAB_ID, label: "Terminal", icon: ComputerTerminal01Icon },
+] as const
+
 function SessionStrip({
   session,
   workView,
   lorRunning,
   showTitle,
   tabBar,
-  onPreview,
+  onOpenTab,
   onRename,
   onArchive,
 }: {
@@ -437,8 +445,8 @@ function SessionStrip({
   showTitle: boolean
   // A code session's open tabs take the title's place.
   tabBar: ReactNode
-  // Code sessions: open the Preview tab.
-  onPreview?: () => void
+  // Code sessions: open the Preview or Terminal tab.
+  onOpenTab?: (id: (typeof DEV_TABS)[number]["id"]) => void
   onRename: () => void
   onArchive: () => void
 }) {
@@ -472,21 +480,23 @@ function SessionStrip({
         )}
       </AnimatePresence>
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
-        {onPreview && (
-          <button
-            type="button"
-            aria-label="Preview"
-            title="Preview"
-            onClick={onPreview}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-          >
-            <HugeiconsIcon
-              icon={BrowserIcon}
-              className="size-4"
-              strokeWidth={2}
-            />
-          </button>
-        )}
+        {onOpenTab &&
+          DEV_TABS.map((devTab) => (
+            <button
+              key={devTab.id}
+              type="button"
+              aria-label={devTab.label}
+              title={devTab.label}
+              onClick={() => onOpenTab(devTab.id)}
+              className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            >
+              <HugeiconsIcon
+                icon={devTab.icon}
+                className="size-4"
+                strokeWidth={2}
+              />
+            </button>
+          ))}
         <ThreadSubscribers
           workspaceSlug={workspaceSlug}
           channelId={channelId}

@@ -22,6 +22,7 @@
     "./custom-tools": "./src/custom-tools.ts",
     "./dev-env/environments": "./src/dev-env/environments.ts",
     "./dev-env/previews": "./src/dev-env/previews.ts",
+    "./dev-env/terminal": "./src/dev-env/terminal.ts",
     "./embeddings": "./src/embeddings.ts",
     "./github": "./src/github.ts",
     "./harness-store": "./src/harness-store.ts",

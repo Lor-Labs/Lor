@@ -48,6 +48,22 @@ COPY codex/ ${CODEX_BOOTSTRAP}/
 # memories (Lor keeps the team's).
 COPY codex-config.toml /root/.codex/config.toml
 
+# The session Terminal tab (reference/dev-environment-runbook.md §4): ttyd
+# serves a PTY over a WebSocket, tmux keeps each person's shell across
+# reconnects, zsh with a starship prompt, suggestions and highlighting.
+ARG TTYD_VERSION=1.7.7
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tmux zsh zsh-autosuggestions zsh-syntax-highlighting \
+    && rm -rf /var/lib/apt/lists/* \
+    && arch="$(dpkg --print-architecture)" \
+    && case "$arch" in amd64) ttyd_arch=x86_64 ;; arm64) ttyd_arch=aarch64 ;; *) echo "unsupported $arch" && exit 1 ;; esac \
+    && curl -fsSL -o /usr/local/bin/ttyd \
+      "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" \
+    && chmod +x /usr/local/bin/ttyd \
+    && curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+COPY terminal/tmux.conf /root/.tmux.conf
+COPY terminal/zshrc /root/.zshrc
+
 RUN mkdir -p /workspace/in /workspace/out /workspace/.pi-sessions /root/.pi/agent
 
 ENV HOME=/root

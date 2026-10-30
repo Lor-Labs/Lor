@@ -27,5 +27,6 @@ const sessionsRouter = createRouter()
   .openapi(routes.getSessionPreview, handlers.getSessionPreview)
   .openapi(routes.startSessionPreview, handlers.startSessionPreview)
   .openapi(routes.stopSessionPreview, handlers.stopSessionPreview)
+  .openapi(routes.openSessionTerminal, handlers.openSessionTerminal)
 
 export default sessionsRouter

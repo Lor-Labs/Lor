@@ -1,0 +1,11 @@
+# The session Terminal tab's shell.
+HISTFILE=/workspace/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt share_history hist_ignore_dups
+autoload -Uz compinit && compinit -u
+[ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ] &&
+  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+[ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] &&
+  source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+command -v starship >/dev/null && eval "$(starship init zsh)"

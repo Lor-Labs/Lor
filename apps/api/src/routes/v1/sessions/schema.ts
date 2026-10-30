@@ -141,6 +141,13 @@ export const startPreviewResponseSchema = z.object({
   preview: previewSchema,
 })
 
+// A WebSocket URL to the caller's own shell in the session's sandbox, with a
+// short-lived token (reference/dev-environment-runbook.md §4).
+export const openTerminalResponseSchema = z.object({
+  url: z.string(),
+  expiresAt: z.string(),
+})
+
 export const previewPortParamsSchema = sessionParamsSchema.extend({
   port: z.coerce
     .number()

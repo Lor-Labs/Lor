@@ -244,8 +244,29 @@ first load). The client behavior is the same.
     wss://*.bl.run`.
   - Not built: Lor told about the Preview tab in its prompt; a preview the
     agent starts by itself does not show (it is not a `preview-` process).
-- [ ] **4. Terminal tab.** `ttyd` + `tmux` in the image (`bl push`), token
-  route, xterm.js tab, idle close.
+- [x] **4. Terminal tab.** Built 2026-10-29, not run live yet.
+  - Image (`sandbox-image/Dockerfile`, `terminal/tmux.conf`,
+    `terminal/zshrc`): ttyd 1.7.7 static binary, tmux (no status bar, mouse
+    on, 50k history), zsh with autosuggestions, syntax highlighting and
+    starship; history on `/workspace`. Needs `bl push`. Until then
+    `openTerminal` installs ttyd and tmux on first open.
+  - `packages/lor/src/dev-env/terminal.ts`: process `terminal` runs
+    `ttyd -W -a -p 7681 lor-terminal`; the launcher attaches tmux session
+    `main-<user id>` in the repo folder, so each person has their own shell
+    and it outlives disconnects. Private port, 15-minute token.
+  - API: `POST /sessions/{id}/terminal` (code sessions, channel write
+    access) returns the `wss` URL.
+  - Web: `terminal` tab kind, `TerminalTab` (xterm.js 6, WebGL with DOM
+    fallback, fit, ttyd protocol, links: `localhost:<port>` opens the
+    Preview tab, others open in the browser; disconnects after 2 minutes
+    hidden, Reconnect gets a new token). Preview and Terminal buttons in
+    the session strip.
+  - Spike 2026-10-29: a preview reaches `0.0.0.0` servers only (`127.0.0.1`
+    and `::1` answered 502). The image has no `ss`/`netstat`/`socat`;
+    `/proc/net/tcp*` lists listening ports. Next: the Browser tab (open
+    ports from `/proc/net/tcp*`, a Node TCP relay for localhost-bound
+    servers, address bar at `localhost:<port>`, "Ask Lor to start the
+    app") replaces the Preview form.
 - [ ] **5. Live QA.** A Next app with a `.env.local`: preview, edit through
   Lor with hot reload, terminal, idle and return, archive revokes.
 
