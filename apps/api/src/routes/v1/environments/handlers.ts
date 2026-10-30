@@ -38,7 +38,7 @@ function checkFiles(files: FileInput[]) {
   for (const file of files) {
     if (!isSafeEnvFilePath(file.path)) {
       throw new EnvironmentInputError(
-        `"${file.path}" must be a path inside the repo`
+        `"${file.path}" must be a path inside the repo, using letters, numbers and . _ - @ +`
       )
     }
     if (paths.has(file.path)) {

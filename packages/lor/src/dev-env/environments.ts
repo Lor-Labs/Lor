@@ -16,21 +16,27 @@ const HEADER =
   "# Written by Lor from this session's environment. Edit it in Lor: changes here are replaced on Lor's next turn."
 
 // A relative path inside the repo: no absolute paths, no `.`, `..` or `.git`.
+// Plain characters only, so the path is also its own exact git exclude line
+// (no glob characters, spaces or line breaks).
 export function isSafeEnvFilePath(path: string): boolean {
   if (!path || path.length > 200 || path.startsWith("/")) return false
   return path
     .split("/")
     .every(
-      (part) => part !== "" && part !== "." && part !== ".." && part !== ".git"
+      (part) =>
+        /^[A-Za-z0-9._@+-]+$/.test(part) &&
+        part !== "." &&
+        part !== ".." &&
+        part !== ".git"
     )
 }
 
 // dotenv keeps single-, backtick- and double-quoted values literally, except
-// that double quotes turn `\n` and `\r` into newlines; it unescapes nothing
-// else. A value without `$` or newlines takes `'`, then a backtick, then `"`
-// (only without `\n`/`\r` text), whichever it doesn't contain. Otherwise
-// double quotes: `\n` for newlines, and `\$` for the dev servers'
-// dotenv-expand (Vite, Next), which reads it as a literal `$` (plain dotenv
+// that double quotes decode `\n` and `\r`; it unescapes nothing else, and it
+// reads a raw carriage return as a newline. A value without `$` or line breaks
+// takes `'`, then a backtick, then `"` (only without `\n`/`\r` text),
+// whichever it doesn't contain. Otherwise double quotes: `\n` and `\r` for
+// line breaks, and `\$` for the dev servers' dotenv-expand (Vite, Next), which reads it as a literal `$` (plain dotenv
 // keeps the backslash). Null: no form reads back exactly. A trailing `\`
 // reads as an escaped closing quote, so dotenv can run on into later lines.
 export function encodeEnvValue(value: string): string | null {
@@ -43,7 +49,10 @@ export function encodeEnvValue(value: string): string | null {
     return mark ? `${mark}${value}${mark}` : null
   }
   if (value.includes('"') || escapes) return null
-  return `"${value.replace(/\$/g, "\\$").replace(/\r?\n/g, "\\n")}"`
+  return `"${value
+    .replace(/\$/g, "\\$")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")}"`
 }
 
 // Values encodeEnvValue refuses are left out (saves reject them).
@@ -126,34 +135,65 @@ async function repoFiles(environmentId: string, repoFullName: string) {
   }))
 }
 
-// Writes each env file and lists it in .git/info/exclude, so none is ever
-// committed even when the repo does not ignore it.
+// The env files Lor wrote last time, so a file removed from the environment
+// is deleted. Inside .git, so it is never committed.
+const MANIFEST = ".git/info/lor-env-files"
+
+// Lists each env file in .git/info/exclude first and writes it only after,
+// so none is ever committed even when the repo does not ignore it. A path git
+// already tracks is skipped: excludes don't cover tracked files. Files from
+// the last write that are gone from the environment are deleted when they
+// still start with Lor's header.
 export async function writeEnvironmentFiles(input: {
   sandbox: SandboxSession
   workDir: string
   environmentId: string
   repoFullName: string
 }): Promise<number> {
-  const files = (
-    await repoFiles(input.environmentId, input.repoFullName)
-  ).filter((file) => isSafeEnvFilePath(file.path))
-  if (files.length === 0) return 0
+  const q = shellQuote
+  const cd = `cd ${q(input.workDir)}`
+  let files = (await repoFiles(input.environmentId, input.repoFullName)).filter(
+    (file) => isSafeEnvFilePath(file.path)
+  )
+  if (files.length > 0) {
+    const listed = await input.sandbox.run({
+      command: `${cd} && git ls-files -- ${files.map((f) => q(f.path)).join(" ")}`,
+    })
+    if (listed.exitCode !== 0) {
+      throw new Error("Environment files: git ls-files failed")
+    }
+    const tracked = new Set(listed.stdout.split("\n").filter(Boolean))
+    for (const path of tracked) {
+      logger.warn(
+        { repo: input.repoFullName, path },
+        "Environment file is tracked by git; skipped"
+      )
+    }
+    files = files.filter((file) => !tracked.has(file.path))
+  }
+
+  const paths = files.map((file) => q(file.path)).join(" ")
+  const prepared = await input.sandbox.run({
+    command: [
+      `${cd} && mkdir -p .git/info || exit 1`,
+      `set -- ${paths}`,
+      `for p in "$@"; do grep -qxF "/$p" .git/info/exclude 2>/dev/null || echo "/$p" >> .git/info/exclude || exit 1; done`,
+      `if [ -f ${MANIFEST} ]; then while IFS= read -r old; do keep=; for p in "$@"; do [ "$p" = "$old" ] && keep=1; done; if [ -z "$keep" ] && [ -f "$old" ] && ! git ls-files --error-unmatch -- "$old" >/dev/null 2>&1 && head -n 1 "$old" | grep -qxF ${q(HEADER)}; then rm -f "$old"; fi; done < ${MANIFEST}; fi`,
+      `printf '%s\\n' "$@" > ${MANIFEST}`,
+    ].join("\n"),
+  })
+  if (prepared.exitCode !== 0) {
+    logger.warn(
+      { repo: input.repoFullName, stderr: prepared.stderr.slice(0, 300) },
+      "Environment files: git exclude failed"
+    )
+    throw new Error("Environment files: git exclude failed")
+  }
   for (const file of files) {
     await input.sandbox.writeTextFile({
       path: posix.join(input.workDir, file.path),
       content: renderEnvFile(file.vars),
     })
-  }
-  const q = shellQuote
-  const lines = files.map((file) => q(`/${file.path}`)).join(" ")
-  const excluded = await input.sandbox.run({
-    command: `cd ${q(input.workDir)} && mkdir -p .git/info && for line in ${lines}; do grep -qxF "$line" .git/info/exclude 2>/dev/null || echo "$line" >> .git/info/exclude; done`,
-  })
-  if (excluded.exitCode !== 0) {
-    logger.warn(
-      { repo: input.repoFullName, stderr: excluded.stderr.slice(0, 300) },
-      "Environment files: git exclude failed"
-    )
   }
   return files.length
 }
