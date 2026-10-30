@@ -68,7 +68,9 @@ function redactedUrlTemplate(template: string): string {
           .split("&")
           .map((pair) => {
             const eq = pair.indexOf("=")
-            if (eq === -1 || placeholderOnly(pair.slice(eq + 1))) return pair
+            // A bare component (`?sk_live_…`) can be the credential itself.
+            if (eq === -1) return placeholderOnly(pair) ? pair : MASK
+            if (placeholderOnly(pair.slice(eq + 1))) return pair
             return `${pair.slice(0, eq)}=${MASK}`
           })
           .join("&")}`

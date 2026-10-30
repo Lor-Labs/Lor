@@ -412,7 +412,7 @@ const CURL: HttpClient = {
     "-d -F -T -K --data --data-ascii --data-binary --data-raw --data-urlencode --json --form --form-string --upload-file --config --variable --url-query"
   ),
   headers: optionSet(
-    "-H -A -e -u -b --header --user-agent --referer --user --cookie --oauth2-bearer"
+    "-H -A -e -u -b -U --header --user-agent --referer --user --cookie --oauth2-bearer --proxy-header --proxy-user"
   ),
   routes: optionSet(
     "-x -K --config --proxy --proxy1.0 --preproxy --socks4 --socks4a --socks5 --socks5-hostname --resolve --connect-to --doh-url --dns-servers"
