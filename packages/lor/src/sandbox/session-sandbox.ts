@@ -39,13 +39,32 @@ export const SESSION_WORK_DIR = WORKSPACE_MOUNT
 // Egress is open (Jacob, 2026-10-28; reference/dev-environment-runbook.md
 // §2): dev servers and env files need to reach their APIs. The proxy stays
 // for per-turn credential routing (grantHarnessAccess). updateNetwork
-// replaces the whole config (checked 2026-10-29), so a config without
-// allowedDomains clears an older allowlist. Version 1 sandboxes were made
-// with the old GET-only allowlist and are opened when next used.
+// replaces the whole config (checked 2026-10-29).
+//
+// The proxy exists only in a sandbox created with it, and Blaxel cannot add
+// it later. Version 2 (2026-10-29) created sandboxes with nothing but an empty
+// routing list, which Blaxel does not count as a proxy: they have no
+// HTTPS_PROXY and no proxy CA, and reach Anthropic directly (checked
+// 2026-11-02 in a production session sandbox: real certificate, and the
+// placeholder answered "401 Invalid bearer token"). So no routing rule could
+// ever fill a Claude Code or Codex turn's credential there — the 401 every
+// production Claude Code turn has failed with. Version 3 creates the proxy
+// with a domain filter again, as version 1 did (its "GET:HEAD:OPTIONS:*" is
+// the syntax Blaxel accepted then), now allowing every method to every host,
+// so egress stays as open as version 2's.
 const EGRESS_LABEL = "lor-egress"
-const EGRESS_VERSION = "2"
-const OLD_EGRESS_VERSIONS = new Set(["1"])
-const SESSION_NETWORK = { proxy: { routing: [] } }
+const EGRESS_VERSION = "3"
+// Version 1 was made with the GET-only allowlist, so it has the proxy and is
+// opened in place when next used. Version 2 is kept for Lor's own turns,
+// which need no proxy, and replaced for a Claude Code or Codex turn
+// (openSessionSandbox's `proxy`), which cannot work without one.
+const OLD_EGRESS_VERSIONS = new Set(["1", "2"])
+const PROXYLESS_EGRESS_VERSIONS = new Set(["2"])
+const OPEN_EGRESS = ["GET:HEAD:OPTIONS:POST:PUT:PATCH:DELETE:*"]
+const SESSION_NETWORK = {
+  allowedDomains: OPEN_EGRESS,
+  proxy: { routing: [] },
+}
 // Debian's git ignores SSL_CERT_FILE, so it would reject the proxy's CA.
 const GIT_PROXY_CA =
   'if [ -n "$SSL_CERT_FILE" ]; then export GIT_SSL_CAINFO="$SSL_CERT_FILE"; fi; '
@@ -91,20 +110,12 @@ export async function grantHarnessAccess(
       : [GATEWAY_HOST, { gateway: access.gatewayKey }]
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: {
-      // A domain filter exists here again, as it did in the shape 7a's spike
-      // verified in a live sandbox and in the code that ran until egress was
-      // opened on 2026-10-29. That older code added `POST:<host>/*` to
-      // `allowedDomains` beside the routing rule; a13ef2e5 dropped the list
-      // entirely. Reachability is not the point — an absent list and `*` both
-      // permit everything, and Jacob opened egress on 2026-10-28 — the point
-      // is whether the proxy resolves a placeholder only for a destination
-      // its filter names. That is unproven and no fix is claimed here: every
-      // production Claude Code turn since 2026-10-30 has 401'd on a rejected
-      // credential, this entry is the one difference from the verified spike,
-      // and the turn failure log's `credentialProbe` + `storedTokenCheck`
-      // pair is what decides it. If a turn still 401s while the stored token
-      // checks out, this line is not the answer and should come back out.
-      allowedDomains: ["*", host],
+      // The session's own open filter, unchanged for the turn: the routing
+      // rule alone carries the credential (Blaxel's filter and routing are
+      // independent). #214's `["*", host]` is gone with it: `*` is not a
+      // syntax Blaxel documents, and in a sandbox that has the proxy it could
+      // have blocked a turn's own clone and POST traffic.
+      ...SESSION_NETWORK,
       proxy: { routing: [{ destinations: [host], headers: {}, secrets }] },
     },
   })
@@ -128,6 +139,9 @@ export async function grantHarnessAccess(
 //     token", while an expired or revoked OAuth token is answered in other
 //     words. That is Anthropic's wording, not a measurement of the proxy,
 //     so it narrows the failure without naming the cause.
+//   - A leading "proxy set|unset|unknown" is the sandbox's own HTTPS_PROXY:
+//     "unset" puts the sandbox outside the proxy altogether, where no routing
+//     rule can resolve the placeholder and the token is not the question.
 // Never fails or delays the turn it watches: "aborted" when the turn's signal
 // stopped it, "probe failed: …" otherwise. Temporary: it exists to label the
 // 401 that Claude Code turns fail with in production.
@@ -160,6 +174,13 @@ export async function probeClaudeCredential(
   try {
     const result = await session.run({
       command:
+        // Whether the sandbox is even pointed at the proxy. The placeholder
+        // is resolved by that proxy, so a sandbox with no proxy in its path
+        // reaches Anthropic with the literal placeholder and answers the
+        // same 401 as a proxy that resolved nothing — and the token cannot be
+        // at fault in the first case. Says set/unset only, never the URL.
+        'if [ -n "$HTTPS_PROXY" ]; then echo "PROXY_ENV set"; ' +
+        'else echo "PROXY_ENV unset"; fi; ' +
         "curl -sS " +
         `--max-time ${CREDENTIAL_PROBE_TIMEOUT_SEC} ` +
         `-H 'Authorization: Bearer ${CLAUDE_TOKEN_PLACEHOLDER}' ` +
@@ -172,20 +193,27 @@ export async function probeClaudeCredential(
     })
     // Not trimmed first: an empty body leaves the marker as the first line.
     const text = result.stdout
+    // Printed first, so only the start of the output is read for it.
+    const proxyMatch = /^PROXY_ENV (set|unset)\n/.exec(text)
+    const proxyEnv = proxyMatch?.[1] ?? "unknown"
     const marker = text.lastIndexOf(PROBE_STATUS_MARKER)
     const status =
       marker === -1
         ? null
         : text.slice(marker + PROBE_STATUS_MARKER.length).trim()
-    const body = marker === -1 ? "" : text.slice(0, marker)
+    // The proxy line is this probe's own; Anthropic's body is what is left.
+    const body =
+      marker === -1
+        ? ""
+        : text.slice(proxyMatch ? proxyMatch[0].length : 0, marker)
     // curl writes 000 when the request never completed; its exit code says why.
     if (result.exitCode !== 0)
       return status !== null && status !== "000"
-        ? `${status} (curl exit ${result.exitCode})`
-        : `curl exit ${result.exitCode}`
-    if (status === null) return "no status"
+        ? `proxy ${proxyEnv}; ${status} (curl exit ${result.exitCode})`
+        : `proxy ${proxyEnv}; curl exit ${result.exitCode}`
+    if (status === null) return `proxy ${proxyEnv}; no status`
     const message = credentialMessage(body)
-    return message ? `${status}: ${message}` : status
+    return `proxy ${proxyEnv}; ${message ? `${status}: ${message}` : status}`
   } catch (err) {
     // The turn is what matters: a probe that could not run reports itself.
     if (abortSignal?.aborted) return "aborted"
@@ -235,8 +263,8 @@ function egressVersion(sandbox: SandboxInstance): string | undefined {
 }
 
 // Made by Lor with a known network config: current, or an older one that
-// openSessionSandbox brings up to date in place (never replaced: it holds the
-// session's files).
+// openSessionSandbox brings up to date in place (not replaced for this: it
+// holds the session's files; only a proxyless one is, for a harness turn).
 function hasEgressLimits(sandbox: SandboxInstance): boolean {
   const version = egressVersion(sandbox)
   return (
@@ -372,9 +400,11 @@ async function stopLeftoverCommands(
   return bridgeRunning
 }
 
+// `proxy`: the run is a Claude Code or Codex turn, whose model credential
+// only Blaxel's proxy can fill in (grantHarnessAccess).
 export async function openSessionSandbox(
   owner: HarnessOwner,
-  options: { keepBridges?: boolean; code?: boolean } = {}
+  options: { keepBridges?: boolean; code?: boolean; proxy?: boolean } = {}
 ): Promise<SessionSandbox> {
   const name = sessionSandboxName(owner)
   await guardSandbox(name)
@@ -382,8 +412,21 @@ export async function openSessionSandbox(
     if (isNotFound(err)) return null
     throw err
   })
+  const version = existing ? egressVersion(existing) : undefined
+  const proxyless =
+    version !== undefined && PROXYLESS_EGRESS_VERSIONS.has(version)
 
-  if (existing) {
+  if (existing && options.proxy && proxyless) {
+    // Its files go, but no Claude Code or Codex turn can ever authenticate in
+    // it, and the proxy cannot be added in place. The caller tells the
+    // session that earlier files are gone, as for any replaced sandbox.
+    logger.warn(
+      { sandbox: name, egressVersion: version },
+      "Sandbox: session sandbox has no credential proxy; replacing it"
+    )
+    closeConnection(existing)
+    await SandboxInstance.delete(name)
+  } else if (existing) {
     // A probe error does not prove the workspace is gone: fail the run rather
     // than delete files. Only a sandbox that answers unhealthy is replaced,
     // or one created without the current egress limits.
@@ -397,8 +440,9 @@ export async function openSessionSandbox(
         : null
     if (health?.healthy) {
       // Labels can't change, so this repeats on each open until the old
-      // sandbox is replaced; one control-plane call.
-      if (egressVersion(existing) !== EGRESS_VERSION) {
+      // sandbox is replaced; one control-plane call. Not for a proxyless
+      // one: its egress is already open, and a filter needs the proxy.
+      if (version !== EGRESS_VERSION && !proxyless) {
         await SandboxInstance.updateNetwork(name, { network: SESSION_NETWORK })
       }
       const bridgeRunning = await stopLeftoverCommands(

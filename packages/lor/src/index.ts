@@ -3180,6 +3180,7 @@ export async function respond(
     const sandbox = await openSessionSandbox(harness.owner, {
       keepBridges: bridgePaused,
       code: Boolean(ctx.code),
+      proxy: Boolean(agentHarness),
     })
     let uncommitted: UncommittedLinesTracker | null = null
     try {
@@ -3720,6 +3721,11 @@ export async function respond(
                 claudeStoredTokenCheck(claude.userId),
               ]
             )
+            // The deciding pair goes in the message, not only in the log
+            // fields: reportLog forwards `extra.logMessage` alone, so fields
+            // beside it reach no surface at all (the Better Stack logs source
+            // has been dark since 2026-10-21). In the message the pair lands
+            // in the error tracker's title and in the #health alert.
             logger.error(
               {
                 err,
@@ -3727,7 +3733,7 @@ export async function respond(
                 credentialProbe: credentialProbeResult,
                 storedTokenCheck,
               },
-              "Claude Code turn failed"
+              `Claude Code turn failed (credentialProbe: ${credentialProbeResult}; storedTokenCheck: ${storedTokenCheck})`
             )
           }
           throw err
