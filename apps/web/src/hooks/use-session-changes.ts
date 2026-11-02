@@ -4,9 +4,9 @@ import { toast } from "@repo/ui/components/toast"
 import { MAX_PREVIEW_BYTES } from "@repo/utils/file-preview"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
+import { showPushedToast } from "@/components/session/pushed-toast"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
-import { openInNewTab } from "@/lib/open-external"
 
 // A code session's Changes panel: git state read from the session's sandbox
 // (reference/planned/code-sessions-runbook.md, chunk 3).
@@ -295,19 +295,7 @@ export function usePushChanges(sessionId: string) {
     },
     onSuccess: ({ pushed, pullRequest, changes }) => {
       queryClient.setQueryData(sessionChangesKey(sessionId), changes)
-      toast.success(
-        `Pushed ${pushed.branch} to GitHub`,
-        pullRequest
-          ? {
-              action: {
-                label: pullRequest.open
-                  ? "View pull request"
-                  : "Create pull request",
-                onClick: () => openInNewTab(pullRequest.url),
-              },
-            }
-          : undefined
-      )
+      showPushedToast(pushed.branch, pullRequest)
     },
     onError: (err) => {
       if (!(err instanceof BehindError)) {

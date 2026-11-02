@@ -28,6 +28,8 @@ type ToastData = {
     "children" | "className" | "swipeDirection" | "toast"
   >
   tooltipStyle?: boolean
+  // Replaces the type's icon, e.g. a brand mark.
+  icon?: React.ReactNode
 }
 
 function getSwipeDirection(position: ToastPosition): SwipeDirection[] {
@@ -144,12 +146,15 @@ function Toasts({
             >
               <Toast.Content className="pointer-events-auto flex items-center justify-between gap-1.5 overflow-hidden px-3.5 py-3 text-sm transition-opacity duration-250 data-behind:not-data-expanded:pointer-events-none data-behind:opacity-0 data-expanded:opacity-100">
                 <div className="flex gap-2">
-                  {Icon && (
+                  {(toastData?.icon || Icon) && (
                     <div
                       className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
                       data-slot="toast-icon"
                     >
-                      <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
+                      {toastData?.icon ??
+                        (Icon && (
+                          <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
+                        ))}
                     </div>
                   )}
 
@@ -280,16 +285,18 @@ export const anchoredToastManager: ReturnType<typeof Toast.createToastManager> =
 
 type ToastOptions = {
   description?: string
-  action?: { label: string; onClick: () => void }
+  action?: { label: React.ReactNode; onClick: () => void }
   // How long it stays, in ms (Base UI's default is 5000).
   timeout?: number
+  // Replaces the type's icon, e.g. a brand mark.
+  icon?: React.ReactNode
 }
 
 let toastSeq = 0
 
 function addToast(
   type: "success" | "error" | "info" | "warning" | "loading" | undefined,
-  title: string,
+  title: React.ReactNode,
   options?: ToastOptions
 ): string {
   const id = `toast-${++toastSeq}`
@@ -300,6 +307,7 @@ function addToast(
     ...(type ? { type } : {}),
     ...(options?.description ? { description: options.description } : {}),
     ...(options?.timeout !== undefined ? { timeout: options.timeout } : {}),
+    ...(options?.icon ? { data: { icon: options.icon } } : {}),
     ...(action
       ? {
           actionProps: {
@@ -318,16 +326,16 @@ function addToast(
 
 // Imperative API over the global manager: toast.success("…", { description }).
 export const toast = Object.assign(
-  (title: string, options?: ToastOptions) =>
+  (title: React.ReactNode, options?: ToastOptions) =>
     addToast(undefined, title, options),
   {
-    success: (title: string, options?: ToastOptions) =>
+    success: (title: React.ReactNode, options?: ToastOptions) =>
       addToast("success", title, options),
-    error: (title: string, options?: ToastOptions) =>
+    error: (title: React.ReactNode, options?: ToastOptions) =>
       addToast("error", title, options),
-    info: (title: string, options?: ToastOptions) =>
+    info: (title: React.ReactNode, options?: ToastOptions) =>
       addToast("info", title, options),
-    warning: (title: string, options?: ToastOptions) =>
+    warning: (title: React.ReactNode, options?: ToastOptions) =>
       addToast("warning", title, options),
   }
 )
