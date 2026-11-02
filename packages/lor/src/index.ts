@@ -95,7 +95,7 @@ import {
   rewriteCitations,
   splitCallToken,
 } from "./citations"
-import { saveClaudeModels } from "./claude-account"
+import { claudeStoredTokenCheck, saveClaudeModels } from "./claude-account"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { cloneRepoTool } from "./code"
 import { codeSandboxIn } from "./code-changes"
@@ -200,6 +200,7 @@ import {
   HARNESS_BRIDGE_PORT,
   harnessBridgeEndpoint,
   openSessionSandbox,
+  probeClaudeCredential,
   revokeHarnessAccess,
   SESSION_WORK_DIR,
 } from "./sandbox/session-sandbox"
@@ -3664,11 +3665,20 @@ export async function respond(
         const access = grantHarnessAccess(harness.owner, {
           claudeToken: claude.token,
         })
+        // The credential diagnostic for this turn, started once the routing
+        // rule is live and read only if the turn fails, so a working turn
+        // never waits on it. It carries the turn's signal: stopping or
+        // superseding a turn kills the probe with it, and a probe stopped
+        // that way reports "aborted" rather than a status (see
+        // probeClaudeCredential). Null when the turn failed before the probe
+        // started, which is itself not a credential failure.
+        let credentialProbe: Promise<string> | null = null
         try {
           const [, endpoint] = await Promise.all([
             access,
             bridgeEndpoint ?? harnessBridgeEndpoint(harness.owner),
           ])
+          credentialProbe = probeClaudeCredential(sandbox.session, abortSignal)
           return await runClaudeCodeTurn({
             sessionId: conversationId,
             saved: harness.saved,
@@ -3698,6 +3708,30 @@ export async function respond(
             abortSignal,
             onPart,
           })
+        } catch (err) {
+          // A stopped or superseded turn is not a failure to report.
+          if (!abortSignal?.aborted) {
+            // Both halves of the credential picture, so the 401 stops being
+            // ambiguous: what Anthropic answered the placeholder inside the
+            // sandbox, and whether it still accepts the token the worker
+            // holds.
+            const [credentialProbeResult, storedTokenCheck] = await Promise.all(
+              [
+                credentialProbe ?? Promise.resolve("not started"),
+                claudeStoredTokenCheck(claude.userId),
+              ]
+            )
+            logger.error(
+              {
+                err,
+                sessionId: conversationId,
+                credentialProbe: credentialProbeResult,
+                storedTokenCheck,
+              },
+              "Claude Code turn failed"
+            )
+          }
+          throw err
         } finally {
           await revokeHarnessAccess(harness.owner).catch((err) =>
             logger.error(
