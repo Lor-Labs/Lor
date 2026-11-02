@@ -174,6 +174,13 @@ function errorParts(
   return { name, message: error.message, stack }
 }
 
+// Drizzle query errors end with the bound values ("\nparams: …"), which can
+// hold customer data.
+function withoutQueryParams(message: string): string {
+  const index = message.indexOf("\nparams:")
+  return index === -1 ? message : message.slice(0, index)
+}
+
 // Runs before Pino serializes Errors, preserving their original stack traces.
 export function reportLog(
   args: Parameters<LogFn>,
@@ -216,7 +223,7 @@ export function reportLog(
         title: scrubText(message),
         error: parts && {
           name: parts.name,
-          message: scrubText(parts.message),
+          message: scrubText(withoutQueryParams(parts.message)),
           stack: parts.stack && scrubText(parts.stack),
         },
         context: scrub(context) as Record<string, string | number>,
