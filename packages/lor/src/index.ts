@@ -200,6 +200,7 @@ import {
   HARNESS_BRIDGE_PORT,
   harnessBridgeEndpoint,
   openSessionSandbox,
+  probeClaudeCredential,
   revokeHarnessAccess,
   SESSION_WORK_DIR,
 } from "./sandbox/session-sandbox"
@@ -3664,11 +3665,18 @@ export async function respond(
         const access = grantHarnessAccess(harness.owner, {
           claudeToken: claude.token,
         })
+        // What the credential path answered for this turn, for the log when
+        // it fails (see probeClaudeCredential). Null when the probe itself
+        // could not run: the turn is what matters.
+        let credentialProbe: string | null = null
         try {
           const [, endpoint] = await Promise.all([
             access,
             bridgeEndpoint ?? harnessBridgeEndpoint(harness.owner),
           ])
+          credentialProbe = await probeClaudeCredential(sandbox.session).catch(
+            () => null
+          )
           return await runClaudeCodeTurn({
             sessionId: conversationId,
             saved: harness.saved,
@@ -3698,6 +3706,15 @@ export async function respond(
             abortSignal,
             onPart,
           })
+        } catch (err) {
+          // A stopped or superseded turn is not a failure to report.
+          if (!abortSignal?.aborted) {
+            logger.error(
+              { err, sessionId: conversationId, credentialProbe },
+              "Claude Code turn failed (credentialProbe: what Anthropic answered the placeholder)"
+            )
+          }
+          throw err
         } finally {
           await revokeHarnessAccess(harness.owner).catch((err) =>
             logger.error(

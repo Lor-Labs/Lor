@@ -91,9 +91,46 @@ export async function grantHarnessAccess(
       : [GATEWAY_HOST, { gateway: access.gatewayKey }]
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: {
+      // The turn's destination is named in the domain filter as well as in
+      // the routing rule: that is the shape 7a's spike verified in a live
+      // sandbox, and the shape that worked before egress was opened on
+      // 2026-10-29, when `grantClaudeAccess` posted
+      // `allowedDomains: [...SESSION_NETWORK.allowedDomains, POST:<host>/*]`
+      // beside the rule (removed in a13ef2e5). Since prod's first Claude
+      // Code turns every one has 401'd on a rejected credential, so the
+      // allowlist entry goes back. `*` keeps egress as open as an absent
+      // list does (Jacob, 2026-10-28): it excludes nothing, so reachability
+      // is unchanged, and only the named host carries a rule.
+      allowedDomains: ["*", host],
       proxy: { routing: [{ destinations: [host], headers: {}, secrets }] },
     },
   })
+}
+
+// One request that exercises the turn's credential path, for the failure log
+// when a turn dies on Anthropic's 401: it sends exactly what the CLI sends —
+// the placeholder, through the sandbox proxy, while the rule is granted — and
+// reports the status Anthropic answered. "200" means the proxy substituted
+// the token; "401" means the placeholder reached Anthropic unresolved, so the
+// injection (not the stored token) is what is broken. Temporary: it exists to
+// label the 401 that Claude Code turns fail with in production.
+const CREDENTIAL_PROBE_TIMEOUT_SEC = 20
+
+export async function probeClaudeCredential(
+  session: SandboxSession
+): Promise<string> {
+  const result = await session.run({
+    command:
+      "curl -s -o /dev/null -w '%{http_code}' " +
+      `--max-time ${CREDENTIAL_PROBE_TIMEOUT_SEC} ` +
+      `-H 'Authorization: Bearer ${CLAUDE_TOKEN_PLACEHOLDER}' ` +
+      "-H 'anthropic-version: 2023-06-01' " +
+      "-H 'anthropic-beta: oauth-2025-04-20' " +
+      `'https://${CLAUDE_API_HOST}/v1/models?limit=1'`,
+    workingDirectory: WORKSPACE_MOUNT,
+  })
+  const status = result.stdout.trim()
+  return status.length > 0 ? status : `curl exit ${result.exitCode}`
 }
 
 export async function revokeHarnessAccess(owner: HarnessOwner): Promise<void> {
