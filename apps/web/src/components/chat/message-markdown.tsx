@@ -8,6 +8,7 @@ import { formatDateTime } from "@repo/utils/date"
 import { Link } from "@tanstack/react-router"
 import { memo, type ReactNode, useMemo, useState } from "react"
 import type { Components } from "streamdown"
+import { LinearIssueCard } from "@/components/chat/linear-issue-card"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { useCallCitation } from "@/hooks/use-call-citation"
 import { useMessageLocation } from "@/hooks/use-message-search-navigation"
@@ -15,6 +16,10 @@ import { fileTabId } from "@/hooks/use-session-tabs"
 import type { Message } from "@/lib/api-types"
 import { CODE_THEMES } from "@/lib/code-themes"
 import { connectorForUrl, connectorLogo } from "@/lib/connector-ui"
+import {
+  type LinearIssueBlock,
+  splitLinearIssues,
+} from "@/lib/linear-issue-block"
 import { repoFileFromUrl, repoFileLabel } from "@/lib/repo-file-reference"
 
 const USER_MENTION_TOKEN_REGEX =
@@ -228,6 +233,11 @@ function mentionId(props: MentionProps): string | undefined {
   )
 }
 
+type MarkdownPart = { key: string } & (
+  | { kind: "text"; markdown: string }
+  | { kind: "issue"; issue: LinearIssueBlock }
+)
+
 interface MessageMarkdownProps {
   content: string | null
   mentions: Message["mentions"]
@@ -250,8 +260,16 @@ export const MessageMarkdown = memo(function MessageMarkdown({
     [mentions]
   )
 
-  const markdown = useMemo(
-    () => toRenderableMarkdown(content ?? "", mentions),
+  // Pasted Linear issues render as cards between the markdown around them.
+  // Parts are positional, so their place in the message is their key.
+  const parts = useMemo(
+    () =>
+      splitLinearIssues(content ?? "").flatMap<MarkdownPart>((part, index) => {
+        const key = `${part.kind}-${index}`
+        if (part.kind === "issue") return [{ ...part, key }]
+        const markdown = toRenderableMarkdown(part.text, mentions)
+        return markdown.trim() ? [{ kind: "text", markdown, key }] : []
+      }),
     [content, mentions]
   )
 
@@ -378,7 +396,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
     [mentionById, onCitationJump, prefetchLocation]
   )
 
-  if (markdown.trim().length === 0) {
+  if (parts.length === 0) {
     return null
   }
 
@@ -390,37 +408,55 @@ export const MessageMarkdown = memo(function MessageMarkdown({
         className
       )}
     >
-      <NexusMessageMarkdown
-        // Nexus supplies the code/math/mermaid/cjk plugin bundle and the
-        // codeblock + table UI; only the dark theme is overridden to keep
-        // parity with the rest of the app's chrome.
-        shikiTheme={CODE_THEMES}
-        trustedImagePrefix={TRUSTED_IMAGE_PREFIX}
-        // Keys here are matched by hast-util-sanitize against the HAST property
-        // names, which rehype-raw camelCases — so it MUST be `dataId`/`dataUrl`,
-        // not `data-id`/`data-url`. With the hyphenated form the attribute is
-        // silently stripped and reaches the component as undefined (breaking
-        // mention hover cards, [[msg:]] jumps, and [[src:]] links). to-jsx-runtime
-        // converts the surviving `dataId` back to the `data-id` prop the
-        // components read.
-        allowedTags={{
-          mention: ["dataId"],
-          pageref: [],
-          msgref: ["dataId"],
-          srcref: ["dataUrl"],
-          callref: ["dataId", "dataAt"],
-        }}
-        literalTagContent={[
-          "mention",
-          "pageref",
-          "msgref",
-          "srcref",
-          "callref",
-        ]}
-        components={components}
-      >
-        {markdown}
-      </NexusMessageMarkdown>
+      {parts.map((part) =>
+        part.kind === "issue" ? (
+          <div key={part.key} className="my-2">
+            <LinearIssueCard
+              issue={part.issue}
+              description={
+                <MessageMarkdown
+                  content={part.issue.description}
+                  mentions={mentions}
+                  onCitationJump={onCitationJump}
+                />
+              }
+            />
+          </div>
+        ) : (
+          <NexusMessageMarkdown
+            key={part.key}
+            // Nexus supplies the code/math/mermaid/cjk plugin bundle and the
+            // codeblock + table UI; only the dark theme is overridden to keep
+            // parity with the rest of the app's chrome.
+            shikiTheme={CODE_THEMES}
+            trustedImagePrefix={TRUSTED_IMAGE_PREFIX}
+            // Keys here are matched by hast-util-sanitize against the HAST property
+            // names, which rehype-raw camelCases — so it MUST be `dataId`/`dataUrl`,
+            // not `data-id`/`data-url`. With the hyphenated form the attribute is
+            // silently stripped and reaches the component as undefined (breaking
+            // mention hover cards, [[msg:]] jumps, and [[src:]] links). to-jsx-runtime
+            // converts the surviving `dataId` back to the `data-id` prop the
+            // components read.
+            allowedTags={{
+              mention: ["dataId"],
+              pageref: [],
+              msgref: ["dataId"],
+              srcref: ["dataUrl"],
+              callref: ["dataId", "dataAt"],
+            }}
+            literalTagContent={[
+              "mention",
+              "pageref",
+              "msgref",
+              "srcref",
+              "callref",
+            ]}
+            components={components}
+          >
+            {part.markdown}
+          </NexusMessageMarkdown>
+        )
+      )}
       {editedAt && (
         <span className="ml-1 text-[10px] leading-snug text-muted-foreground/50">
           (edited)

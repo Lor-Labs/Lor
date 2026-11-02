@@ -157,6 +157,12 @@ export const listChannelApprovals: AppRouteHandler<
               ? row.resolverUserName
               : null,
           onlyUserId,
+          command:
+            row.approval.kind === "sandbox" ||
+            row.approval.kind === "claude_code"
+              ? commandText(row.approval.toolName, row.approval.payload)
+              : null,
+          reason: row.approval.reason,
           plan:
             row.approval.kind === "claude_code" &&
             row.approval.toolName === "ExitPlanMode"
@@ -174,6 +180,12 @@ export const listChannelApprovals: AppRouteHandler<
     },
     HttpStatusCodes.OK
   )
+}
+
+function commandText(toolName: string | null, payload: unknown): string | null {
+  if (toolName !== "bash") return null
+  const command = (payload as { command?: unknown } | null)?.command
+  return typeof command === "string" && command.trim() ? command : null
 }
 
 // ExitPlanMode's input carries the plan as Markdown (7d-4b spike).

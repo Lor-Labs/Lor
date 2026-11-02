@@ -58,6 +58,9 @@ export const approval = pgTable(
     action: text("action").notNull(),
     // Human-readable consequences, rendered on the approval card.
     description: text("description").notNull(),
+    // Why the sandbox policy flagged a sandbox call, as a verb phrase ("runs a
+    // command whose name is computed"); null for other kinds.
+    reason: text("reason"),
     // The parsed tool input the approval binds, for display.
     payload: jsonb("payload").$type<unknown>(),
     // The paused tool call this row authorizes.

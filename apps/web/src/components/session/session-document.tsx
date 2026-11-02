@@ -59,6 +59,7 @@ import {
   dropOptimisticLorTurns,
   type FetchPageParams,
   fetchThreadPage,
+  LOR_TURN_TIMEOUT_MS,
   showOptimisticLorTurn,
   useThreadMessages,
 } from "@/hooks/use-thread-messages"
@@ -83,9 +84,6 @@ import {
   hasRepoFileDrag,
   readRepoFileDrag,
 } from "@/lib/repo-file-reference"
-
-// How long a local Lor turn waits for the server's before it goes.
-const LOR_TURN_TIMEOUT_MS = 20_000
 
 const CHANNEL_CONTEXT = { type: "channel" as const, name: "thread" }
 
@@ -667,6 +665,7 @@ export function SessionDocument({
                     scrollRef={scrollRef}
                     anchorIds={scroll.openingLorTriggerMessageIds}
                     replyingToId={replyingTo?.id}
+                    pausedLorMessageId={lorRun.pausedLorMessageId}
                     itemProps={{
                       currentUserId,
                       onReact: handleReact,

@@ -88,10 +88,14 @@ export function rateLimiter(config: RateLimitConfig) {
   }
 }
 
-/** Global rate limit: 100 requests/min per IP */
+/**
+ * Global flood guard: 1,000 requests/min per IP. Opening a thread or session
+ * fires about ten reads, and a team can share one office IP; the per-user and
+ * per-route limits below carry the tighter budgets.
+ */
 export const globalRateLimit = rateLimiter({
   prefix: "global",
-  max: 100,
+  max: 1000,
 })
 
 /** Stricter rate limit for write operations: 30 requests/min per user */

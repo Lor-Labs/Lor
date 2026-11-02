@@ -11,6 +11,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { isTauri } from "@repo/auth/tauri-fetch"
 import { LOR_USER_ID } from "@repo/db/constants"
+import { MESSAGE_CONTENT_MAX_LENGTH } from "@repo/realtime-types"
 import { Button } from "@repo/ui/components/button"
 import {
   Popover,
@@ -63,6 +64,7 @@ import {
   type PingedPerson,
   type SubscriberFace,
 } from "@/components/chat/composer/destination-bar"
+import { LinearIssue } from "@/components/chat/composer/linear-issue-node"
 import {
   MentionSuggestionList,
   type MentionSuggestionListProps,
@@ -92,6 +94,7 @@ import {
   toStoredMarkdown,
   whenEditorMounted,
 } from "@/lib/editor-utils"
+import { hasLinearIssue } from "@/lib/linear-issue-block"
 import type { ComposerFileReference } from "@/lib/repo-file-reference"
 
 const MAX_MENTION_RESULTS = 8
@@ -724,6 +727,7 @@ export function MessageInput({
           suggestion: mentionSuggestion,
         }),
         ConnectorChip,
+        LinearIssue,
         RepoFileChip,
         slashCommandExtension,
       ],
@@ -754,6 +758,13 @@ export function MessageInput({
 
           const text = event.clipboardData?.getData("text/plain")
           if (!text || text.length <= LARGE_PASTE_CHAR_THRESHOLD) return false
+          // A long Linear issue still becomes its card (LinearIssue).
+          if (
+            text.length <= MESSAGE_CONTENT_MAX_LENGTH &&
+            hasLinearIssue(text)
+          ) {
+            return false
+          }
 
           event.preventDefault()
           void addFilesRef.current([

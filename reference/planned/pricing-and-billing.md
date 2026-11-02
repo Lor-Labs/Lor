@@ -8,7 +8,7 @@ The working price remains **$29/member/month with $10 of AI credits**, a three-m
 
 With the same workload assumptions, a ten-member team now pays approximately **$290 light, $343 typical or $932 heavy**, at modeled contribution margins of **70%, 45% and 34%**. The earlier proposal was $290/$466/$1,342 with more features charged separately. The bundle reduces customer bills; Lor still incurs the included services’ vendor costs.
 
-Editable model: [Lor pricing workbook](../../outputs/lor-pricing-2026-10-16/lor-pricing-model.xlsx). Start with `Summary`; change the blue/yellow cells in `Inputs` and `Workloads`. `Cost Build` traces the costs, `Scenarios` compares nine pricing structures across six team sizes and three workloads, `Model Rates` compares model providers, and `Fleet` shows the effect of early customer scale. Source links are included. Workload volumes are hypotheses, not observed usage.
+Editable model: the Lor pricing workbook (`lor-pricing-model.xlsx`, kept outside the repository). Start with `Summary`; change the blue/yellow cells in `Inputs` and `Workloads`. `Cost Build` traces the costs, `Scenarios` compares nine pricing structures across six team sizes and three workloads, `Model Rates` compares model providers, and `Fleet` shows the effect of early customer scale. Source links are included. Workload volumes are hypotheses, not observed usage.
 
 ## 1. The launch offer
 

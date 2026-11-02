@@ -7,6 +7,10 @@ import { Markdown } from "@tiptap/markdown"
 import { EditorContent, useEditor } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import { useCallback, useEffect, useMemo, useRef } from "react"
+import {
+  LinearIssue,
+  withLinearIssueNodes,
+} from "@/components/chat/composer/linear-issue-node"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import {
   createMentionSuggestion,
@@ -68,8 +72,9 @@ export function MessageEditInput({
             `${options.suggestion.char}${node.attrs.label ?? node.attrs.id}`,
           suggestion: mentionSuggestion,
         }),
+        LinearIssue,
       ],
-      content: initialContent,
+      content: withLinearIssueNodes(initialContent),
       editorProps: {
         attributes: {
           class:

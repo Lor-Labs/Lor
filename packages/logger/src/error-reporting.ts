@@ -2,6 +2,12 @@ import { isNativeError } from "node:util/types"
 import * as Sentry from "@sentry/node-core/light"
 import type { LogFn } from "pino"
 import { getAllContext } from "./context.js"
+import {
+  errorAlertsEnabled,
+  flushErrorAlerts,
+  initErrorAlerts,
+  queueErrorAlert,
+} from "./error-alerts.js"
 
 let client: Sentry.LightNodeClient | undefined
 let service = "backend"
@@ -100,9 +106,11 @@ function beforeSend(event: Sentry.ErrorEvent, hint: Sentry.EventHint) {
 }
 
 export function initErrorReporting(serviceName: string): void {
-  const dsn = process.env.BETTERSTACK_ERRORS_DSN?.trim()
-  if (client || !dsn || process.env.NODE_ENV === "test") return
+  if (process.env.NODE_ENV === "test") return
   service = serviceName
+  initErrorAlerts(serviceName)
+  const dsn = process.env.BETTERSTACK_ERRORS_DSN?.trim()
+  if (client || !dsn) return
   try {
     client = Sentry.init({
       dsn,
@@ -136,13 +144,50 @@ export function initErrorReporting(serviceName: string): void {
   }
 }
 
+// Native Errors, strings, and errors some libraries pass already serialized.
+// Keeps the stack, never arbitrary payload fields.
+function errorParts(
+  error: unknown
+): { name: string; message: string; stack?: string } | undefined {
+  if (isNativeError(error)) {
+    return { name: error.name, message: error.message, stack: error.stack }
+  }
+  if (typeof error === "string") return { name: "Error", message: error }
+  if (
+    !error ||
+    typeof error !== "object" ||
+    !("message" in error) ||
+    typeof error.message !== "string"
+  ) {
+    return undefined
+  }
+  const name =
+    "name" in error && typeof error.name === "string"
+      ? error.name
+      : "type" in error && typeof error.type === "string"
+        ? error.type
+        : "Error"
+  const stack =
+    "stack" in error && typeof error.stack === "string"
+      ? error.stack
+      : undefined
+  return { name, message: error.message, stack }
+}
+
+// Drizzle query errors end with the bound values ("\nparams: …"), which can
+// hold customer data.
+function withoutQueryParams(message: string): string {
+  const index = message.indexOf("\nparams:")
+  return index === -1 ? message : message.slice(0, index)
+}
+
 // Runs before Pino serializes Errors, preserving their original stack traces.
 export function reportLog(
   args: Parameters<LogFn>,
   level: number,
   bindings: Record<string, unknown>
 ): void {
-  if (!client || level < 50) return
+  if (level < 50 || (!client && !errorAlertsEnabled())) return
   try {
     const first: unknown = args[0]
     const fields =
@@ -157,11 +202,10 @@ export function reportLog(
           : typeof fields.msg === "string"
             ? fields.msg
             : "Backend error"
-    // The SDK's process listener captures this; retain the existing stdout log.
-    if (message === "Unhandled promise rejection") return
     const error = isNativeError(first)
       ? first
       : (fields.err ?? fields.error ?? bindings.err ?? bindings.error)
+    const parts = errorParts(error)
     const response = fields.res
     const context = operationContext({
       ...bindings,
@@ -173,6 +217,21 @@ export function reportLog(
           ? response.status
           : undefined),
     })
+    if (errorAlertsEnabled()) {
+      queueErrorAlert({
+        fatal: level >= 60,
+        title: scrubText(withoutQueryParams(message)),
+        error: parts && {
+          name: parts.name,
+          message: scrubText(withoutQueryParams(parts.message)),
+          stack: parts.stack && scrubText(parts.stack),
+        },
+        context: scrub(context) as Record<string, string | number>,
+        source: error && typeof error === "object" ? error : undefined,
+      })
+    }
+    // The SDK's process listener captures this; retain the existing stdout log.
+    if (!client || message === "Unhandled promise rejection") return
     const captureContext = {
       level: level >= 60 ? ("fatal" as const) : ("error" as const),
       tags: { logger: String(bindings.service ?? service) },
@@ -181,20 +240,10 @@ export function reportLog(
     }
     if (isNativeError(error) || typeof error === "string") {
       Sentry.captureException(error, captureContext)
-    } else if (
-      error &&
-      typeof error === "object" &&
-      "message" in error &&
-      typeof error.message === "string"
-    ) {
-      // Some libraries serialize errors. Keep the stack, not arbitrary payloads.
-      const exception = new Error(error.message)
-      if ("stack" in error && typeof error.stack === "string")
-        exception.stack = error.stack
-      if ("name" in error && typeof error.name === "string")
-        exception.name = error.name
-      else if ("type" in error && typeof error.type === "string")
-        exception.name = error.type
+    } else if (parts) {
+      const exception = new Error(parts.message)
+      exception.name = parts.name
+      if (parts.stack) exception.stack = parts.stack
       Sentry.captureException(exception, captureContext)
     } else {
       Sentry.captureMessage(message, {
@@ -209,7 +258,7 @@ export function reportLog(
 
 export async function flushErrorReports(): Promise<void> {
   try {
-    await client?.flush(2000)
+    await Promise.all([client?.flush(2000), flushErrorAlerts()])
   } catch {
     // Shutdown proceeds even when the collector is unavailable.
   }

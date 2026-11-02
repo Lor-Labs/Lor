@@ -3845,6 +3845,7 @@ export async function respond(
               target: null,
               action: pending.toolName,
               description: claudeCodeAskDescription(pending.toolName, payload),
+              reason: null,
               payload,
               inputSha256: sha256(pending.input),
             }
@@ -3858,11 +3859,8 @@ export async function respond(
               kind: "sandbox",
               target: null,
               action: pending.toolName,
-              description: sandboxAskDescription(
-                pending.toolName,
-                payload,
-                sandboxApproval.askReason(pending.toolCallId)
-              ),
+              description: sandboxAskDescription(pending.toolName, payload),
+              reason: sandboxApproval.askReason(pending.toolCallId) ?? null,
               payload,
               inputSha256: sha256(pending.input),
             }
@@ -3886,6 +3884,7 @@ export async function respond(
               typeof asked?.description === "string"
                 ? asked.description
                 : toolLabel(pending.toolName, payload),
+            reason: null,
             payload,
             inputSha256: sha256(pending.input),
           }
@@ -3903,6 +3902,7 @@ export async function respond(
           target: null,
           action: pending.toolName,
           description: claudeCodeQuestionDescription(payload),
+          reason: null,
           payload,
           inputSha256: sha256(pending.input),
         })

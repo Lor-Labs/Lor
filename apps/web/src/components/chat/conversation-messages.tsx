@@ -60,6 +60,7 @@ export function ConversationMessages({
   scrollRef,
   anchorIds,
   replyingToId,
+  pausedLorMessageId = null,
   itemProps,
 }: {
   layout: "chat" | "document"
@@ -72,6 +73,8 @@ export function ConversationMessages({
   scrollRef: RefObject<HTMLDivElement | null>
   anchorIds: Set<string>
   replyingToId: string | undefined
+  // Session: Lor's reply whose turn waits on approvals.
+  pausedLorMessageId?: string | null
   itemProps: ItemProps
 }) {
   const isDocument = layout === "document"
@@ -93,6 +96,22 @@ export function ConversationMessages({
   const isLorReply = (msg: Message) =>
     msg.authorId === LOR_USER_ID &&
     (msg.type === "default" || msg.type === "reply")
+  // An approval resume answers Lor's paused reply with a new one: both are
+  // one turn, so only its last reply gets the action row and rewind point.
+  const lorReplyIds = new Set(
+    isDocument ? replies.filter(isLorReply).map((msg) => msg.id) : []
+  )
+  const continuesTurn = (msg: Message) =>
+    isLorReply(msg) && lorReplyIds.has(msg.lorTriggerMessageId ?? "")
+  const resumedIds = new Set(
+    replies.flatMap((msg) =>
+      continuesTurn(msg) && msg.lorTriggerMessageId
+        ? [msg.lorTriggerMessageId]
+        : []
+    )
+  )
+  const isMidTurn = (msg: Message) =>
+    resumedIds.has(msg.id) || msg.id === pausedLorMessageId
   // The newest reply on the current line; earlier ones can be rewound to,
   // while Lor isn't working.
   let latestLorIndex = -1
@@ -115,6 +134,7 @@ export function ConversationMessages({
     index < latestLorIndex &&
     isLorReply(msg) &&
     msg.status === "complete" &&
+    !isMidTurn(msg) &&
     !setAside(index)
   const renderReply = (msg: Message, i: number, history?: RewoundGroup) => {
     // Keep items as direct scroller children so message jumps still work.
@@ -156,18 +176,21 @@ export function ConversationMessages({
         </MessageScrollerItem>
       )
     }
+    // However long the approval took, the resumed reply reads on from it.
+    const resumesPrev =
+      !!prev && continuesTurn(msg) && msg.lorTriggerMessageId === prev.id
     const showHeader =
       isDateBoundary ||
       !prev ||
       prev.authorId !== msg.authorId ||
       prev.type === "event" ||
-      !isWithinGroupWindow
+      (!isWithinGroupWindow && !resumesPrev)
     return (
       <MessageScrollerItem
         key={msg.id}
         messageId={msg.id}
         scrollAnchor={anchorIds.has(msg.id)}
-        className={historyClassName}
+        className={cn(historyClassName, resumesPrev && "pt-2")}
       >
         {dayDivider}
         <MessageItem
@@ -178,6 +201,7 @@ export function ConversationMessages({
           layout={layout}
           isReplyTarget={replyingToId === msg.id}
           isLatestLorReply={i === latestLorIndex}
+          midTurn={isMidTurn(msg)}
           canRewind={canRewindAt(msg, i)}
         />
       </MessageScrollerItem>

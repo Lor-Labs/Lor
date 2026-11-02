@@ -47,6 +47,9 @@ yarn-error.log*
 .DS_Store
 *.pem
 
+# Local business documents (pricing models, exports)
+outputs/
+
 # Local agent and editor tool state
 .conductor/
 .context/

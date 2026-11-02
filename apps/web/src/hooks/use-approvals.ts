@@ -11,6 +11,11 @@ import { useSocket } from "@/context/socket-context"
 import { cachedSessionForThread } from "@/hooks/use-agent-session"
 import { planQueryOptions } from "@/hooks/use-plan"
 import {
+  dropOptimisticLorTurns,
+  LOR_TURN_TIMEOUT_MS,
+  showResumedLorTurn,
+} from "@/hooks/use-thread-messages"
+import {
   cancelSidebarFetch,
   patchSidebarSession,
   workspaceActivityKey,
@@ -236,11 +241,45 @@ export function useResolveChannelApproval(channelId: string) {
           { state: "running", from: "needs_you" }
         )
       }
-      return { previous, planKey, previousPlan, session }
+      // The last open approval on a paused reply resumes its turn.
+      const pausedMessageId = previous
+        .flatMap(([, approvals]) => approvals ?? [])
+        .find((approval) => approval.id === approvalId)?.messageId
+      const setComplete = !previous.some(([, approvals]) =>
+        approvals?.some(
+          (approval) =>
+            approval.id !== approvalId &&
+            approval.messageId === pausedMessageId &&
+            approval.status === "pending"
+        )
+      )
+      const resumedTurnId =
+        threadRootId &&
+        session &&
+        !session.archivedAt &&
+        pausedMessageId &&
+        setComplete
+          ? showResumedLorTurn(queryClient, threadRootId, {
+              nonce: approvalId,
+              channelId,
+              pausedMessageId,
+            })
+          : null
+      if (threadRootId && resumedTurnId) {
+        setTimeout(
+          () =>
+            dropOptimisticLorTurns(queryClient, threadRootId, resumedTurnId),
+          LOR_TURN_TIMEOUT_MS
+        )
+      }
+      return { previous, planKey, previousPlan, session, resumedTurnId }
     },
-    onError: (err, _args, context) => {
+    onError: (err, { threadRootId }, context) => {
       for (const [key, data] of context?.previous ?? []) {
         queryClient.setQueryData(key, data)
+      }
+      if (threadRootId && context?.resumedTurnId) {
+        dropOptimisticLorTurns(queryClient, threadRootId, context.resumedTurnId)
       }
       if (context?.planKey) {
         queryClient.setQueryData(context.planKey, context.previousPlan)

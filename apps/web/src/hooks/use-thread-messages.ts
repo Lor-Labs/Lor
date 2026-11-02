@@ -67,10 +67,19 @@ const OPTIMISTIC_LOR_PREFIX = "lor-pending-"
 export const isOptimisticLorTurn = (messageId: string) =>
   messageId.startsWith(OPTIMISTIC_LOR_PREFIX)
 
+// How long a local Lor turn waits for the server's before it goes.
+export const LOR_TURN_TIMEOUT_MS = 20_000
+
 export function showOptimisticLorTurn(
   queryClient: QueryClient,
   threadRootId: string,
-  turn: { nonce: string; channelId: string; lorAuthor: Message["author"] }
+  turn: {
+    nonce: string
+    channelId: string
+    lorAuthor: Message["author"]
+    // The paused reply an approval resumes, as the real resume run sets it.
+    continues?: string
+  }
 ) {
   const message: Message = {
     ...createOptimisticMessage(
@@ -81,6 +90,7 @@ export function showOptimisticLorTurn(
     ),
     status: "pending",
     threadRootId,
+    lorTriggerMessageId: turn.continues ?? null,
   }
   queryClient.setQueryData<ThreadCache>(["thread", threadRootId], (old) =>
     old
@@ -93,6 +103,27 @@ export function showOptimisticLorTurn(
       : old
   )
   return message.id
+}
+
+// Deciding the last approval of a paused turn sends Lor back to work on it.
+// The resume run posts its own reply; show the turn working until it lands.
+export function showResumedLorTurn(
+  queryClient: QueryClient,
+  threadRootId: string,
+  turn: { nonce: string; channelId: string; pausedMessageId: string }
+): string | null {
+  const messages =
+    queryClient
+      .getQueryData<ThreadCache>(["thread", threadRootId])
+      ?.pages.flatMap((page) => page.data) ?? []
+  const paused = messages.find((m) => m.id === turn.pausedMessageId)
+  if (!paused || messages.some((m) => m.status === "pending")) return null
+  return showOptimisticLorTurn(queryClient, threadRootId, {
+    nonce: turn.nonce,
+    channelId: turn.channelId,
+    lorAuthor: paused.author,
+    continues: paused.id,
+  })
 }
 
 // Every local Lor turn in the thread, or just one by id.
