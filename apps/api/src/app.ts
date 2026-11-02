@@ -83,7 +83,11 @@ app.use("*", async (c, next) => {
   await next()
 })
 
-app.use("*", globalRateLimit)
+// better-auth rate-limits its own routes (packages/auth/src/lib/auth.ts), so
+// app reads can't use up the sign-in budget.
+app.use("*", (c, next) =>
+  c.req.path.startsWith("/api/auth/") ? next() : globalRateLimit(c, next)
+)
 
 // Uploads go directly to object storage; API/webhook payloads stay bounded
 // even when Content-Length is absent and the sender streams chunks.
