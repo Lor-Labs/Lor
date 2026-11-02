@@ -44,6 +44,10 @@ export type ApprovalCardData = {
   planId: string | null
   target: string | null
   toolName: string | null
+  // A shell call: the full command, shown as code.
+  command?: string | null
+  // Why the sandbox flagged the call: "runs a command whose name is computed".
+  reason?: string | null
   resolver: ApprovalResolverSpec | null
   resolverUserName: string | null
   // A Claude Code prompt: only the turn's sender decides it.
@@ -244,9 +248,15 @@ export function ApprovalGateView({
           />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] text-foreground/80 leading-5">
-            {approval.description}
-          </p>
+          {approval.command ? (
+            <p className="truncate font-mono text-foreground/80 text-xs leading-5">
+              {approval.command}
+            </p>
+          ) : (
+            <p className="truncate text-[13px] text-foreground/80 leading-5">
+              {approval.description}
+            </p>
+          )}
           <p className="truncate text-muted-foreground text-xs leading-4">
             {approval.questions
               ? approved
@@ -260,50 +270,63 @@ export function ApprovalGateView({
       </div>
     )
   }
+  // A command or a flag reason stacks under the title, buttons last, so the
+  // person reads what runs before deciding.
+  const stacked = !!approval.command || !!approval.reason
+  const buttons = canResolve && (
+    <div className="ms-auto flex shrink-0 gap-1.5">
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={pending}
+        onClick={() => onResolve("reject")}
+      >
+        Reject
+      </Button>
+      <Button size="sm" disabled={pending} onClick={() => onResolve("approve")}>
+        Approve
+      </Button>
+    </div>
+  )
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/60 bg-card py-2.5 ps-3 pe-2.5 dark:bg-foreground/[0.025]">
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning-foreground">
-        <HugeiconsIcon
-          icon={LockKeyIcon}
-          className="size-3.5"
-          strokeWidth={2}
-        />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-medium leading-5">
-          {approval.description}
-        </p>
-        <p className="truncate text-muted-foreground text-xs leading-4">
-          {canResolve
-            ? "Needs your approval"
-            : resolverLabel(approval.resolver, approval.resolverUserName)}
-          {approval.toolName && (
-            <>
-              {" · "}
-              <span className="font-mono">{approval.toolName}</span>
-            </>
-          )}
-        </p>
-      </div>
-      {canResolve && (
-        <div className="ms-auto flex shrink-0 gap-1.5">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={pending}
-            onClick={() => onResolve("reject")}
-          >
-            Reject
-          </Button>
-          <Button
-            size="sm"
-            disabled={pending}
-            onClick={() => onResolve("approve")}
-          >
-            Approve
-          </Button>
+    <div className="flex flex-col gap-2.5 rounded-xl border border-border/60 bg-card py-2.5 ps-3 pe-2.5 dark:bg-foreground/[0.025]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning-foreground">
+          <HugeiconsIcon
+            icon={LockKeyIcon}
+            className="size-3.5"
+            strokeWidth={2}
+          />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium leading-5">
+            {approval.command ? "Run a command" : approval.description}
+          </p>
+          <p className="truncate text-muted-foreground text-xs leading-4">
+            {canResolve
+              ? "Needs your approval"
+              : resolverLabel(approval.resolver, approval.resolverUserName)}
+            {approval.toolName && !approval.command && (
+              <>
+                {" · "}
+                <span className="font-mono">{approval.toolName}</span>
+              </>
+            )}
+          </p>
         </div>
+        {!stacked && buttons}
+      </div>
+      {approval.command && (
+        <pre className="ms-10 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border/50 bg-muted/30 px-2.5 py-2 font-mono text-foreground/90 text-xs leading-[18px] [overflow-wrap:anywhere]">
+          {approval.command}
+        </pre>
       )}
+      {approval.reason && (
+        <p className="ms-10 text-muted-foreground text-xs leading-[18px]">
+          Flagged because it {approval.reason}
+        </p>
+      )}
+      {stacked && buttons}
     </div>
   )
 }

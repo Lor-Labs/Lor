@@ -214,7 +214,8 @@ export function sandboxToolApproval(input: {
     if (outcome !== "deny") consecutiveDenials = 0
     if (outcome === "allow") return "allow" as const
     if (outcome === "ask") {
-      askReasons.set(call.toolCallId, reason)
+      // Manual mode asks about every routine call: no reason to show.
+      if ("reason" in check) askReasons.set(call.toolCallId, reason)
       return "ask" as const
     }
     consecutiveDenials++
@@ -248,27 +249,25 @@ export function sandboxToolApproval(input: {
 
 const MAX_DESCRIPTION_COMMAND_CHARS = 500
 
-// The approval card's line for a sandbox call, with the reason it was flagged.
+// The approval line for a sandbox call. The flag reason is stored apart
+// (approval.reason); the cards show the full command from the payload.
 export function sandboxAskDescription(
   toolName: string,
-  input: unknown,
-  reason: string | undefined
+  input: unknown
 ): string {
   const path = stringArg(input, "file_path")
   const command = stringArg(input, "command")
-  const call =
-    toolName === "bash" && command
-      ? `Run a command: ${
-          command.length > MAX_DESCRIPTION_COMMAND_CHARS
-            ? `${command.slice(0, MAX_DESCRIPTION_COMMAND_CHARS)}…`
-            : command
-        }`
-      : toolName === "write" && path
-        ? `Write ${path}`
-        : toolName === "edit" && path
-          ? `Edit ${path}`
-          : `Use ${toolName} in the sandbox`
-  return reason ? `${call} (${reason})` : call
+  return toolName === "bash" && command
+    ? `Run a command: ${
+        command.length > MAX_DESCRIPTION_COMMAND_CHARS
+          ? `${command.slice(0, MAX_DESCRIPTION_COMMAND_CHARS)}…`
+          : command
+      }`
+    : toolName === "write" && path
+      ? `Write ${path}`
+      : toolName === "edit" && path
+        ? `Edit ${path}`
+        : `Use ${toolName} in the sandbox`
 }
 
 // The line for a Claude Code question (askUserQuestions): its first
@@ -305,6 +304,6 @@ export function claudeCodeAskDescription(
     case "NotebookEdit":
       return notebook ? `Edit ${notebook}` : "Edit a notebook"
     default:
-      return sandboxAskDescription(toolName, input, undefined)
+      return sandboxAskDescription(toolName, input)
   }
 }

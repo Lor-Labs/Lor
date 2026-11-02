@@ -2,7 +2,7 @@ import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { useThemeColor } from "heroui-native/hooks"
-import { Text, View } from "react-native"
+import { ScrollView, Text, View } from "react-native"
 import {
   ApprovalHeader,
   answerSummary,
@@ -27,6 +27,10 @@ export type ApprovalCardData = {
   id: string
   description: string
   toolName: string | null
+  // A shell call: the full command, shown as code.
+  command?: string | null
+  // Why the sandbox flagged the call: "runs a command whose name is computed".
+  reason?: string | null
   resolver: ApprovalResolverSpec | null
   resolverUserName: string | null
   // A Claude Code prompt: only the turn's sender decides it.
@@ -139,12 +143,21 @@ export function ApprovalGateCard({
           />
         </View>
         <View className="min-w-0 flex-1">
-          <Text
-            className="text-[13px] leading-5 text-foreground"
-            numberOfLines={2}
-          >
-            {approval.description}
-          </Text>
+          {approval.command ? (
+            <Text
+              className="font-mono text-xs leading-5 text-foreground"
+              numberOfLines={1}
+            >
+              {approval.command}
+            </Text>
+          ) : (
+            <Text
+              className="text-[13px] leading-5 text-foreground"
+              numberOfLines={2}
+            >
+              {approval.description}
+            </Text>
+          )}
           <Text className="text-xs text-muted" numberOfLines={2}>
             {approval.questions
               ? approved
@@ -162,11 +175,11 @@ export function ApprovalGateCard({
   return (
     <View className="gap-three rounded-lor-md border border-border bg-surface px-three py-three">
       <ApprovalHeader
-        description={approval.description}
+        description={approval.command ? "Run a command" : approval.description}
         statusLine={
           <>
             {statusLine}
-            {approval.toolName ? (
+            {approval.toolName && !approval.command ? (
               <>
                 {" · "}
                 <Text className="font-mono">{approval.toolName}</Text>
@@ -175,6 +188,25 @@ export function ApprovalGateCard({
           </>
         }
       />
+      {approval.command ? (
+        <ScrollView
+          className="rounded-lor-sm border border-border bg-surface-secondary"
+          nestedScrollEnabled
+          style={{ maxHeight: 192 }}
+        >
+          <Text
+            className="px-three py-two font-mono text-xs leading-[18px] text-foreground"
+            selectable
+          >
+            {approval.command}
+          </Text>
+        </ScrollView>
+      ) : null}
+      {approval.reason ? (
+        <Text className="text-xs leading-[18px] text-muted">
+          Flagged because it {approval.reason}
+        </Text>
+      ) : null}
       {canResolve ? (
         <View className="flex-row justify-end gap-two">
           <Button

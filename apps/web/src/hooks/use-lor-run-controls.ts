@@ -98,6 +98,7 @@ export function useLorRunControls({
 
   return {
     pendingLorMessage,
+    pausedLorMessageId,
     onStop,
     isStopping,
     queuedIds,

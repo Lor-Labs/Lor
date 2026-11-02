@@ -89,6 +89,11 @@ export const channelApprovalSchema = approvalSchema.extend({
   // A Claude Code prompt: only this person, the turn's sender, decides it
   // (the workspace owner too waits on them).
   onlyUserId: z.string().uuid().nullable(),
+  // A sandbox or Claude Code shell call: the full command, shown as code.
+  command: z.string().nullable(),
+  // Why the sandbox policy flagged the call, a verb phrase ("runs a command
+  // whose name is computed").
+  reason: z.string().nullable(),
   // A Claude Code plan waiting for approval (ExitPlanMode): its Markdown.
   plan: z.string().nullable(),
   // A Claude Code question (askUserQuestions): its questions, and once

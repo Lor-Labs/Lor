@@ -289,6 +289,27 @@ export const APPROVAL_SAMPLES: ApprovalSample[] = [
     canResolve: true,
   },
   {
+    label: "Flagged command",
+    lorSays:
+      "I'll start by pulling the issue detail and searching the codebase for that error.",
+    approval: {
+      id: "a5",
+      description: "Run a command: cd /tmp/vid && …",
+      command:
+        'cd /tmp/vid && FF=$(python3 -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())") && "$FF" -hide_banner -i care2202.mp4 2>&1 | grep -E "Duration|Stream"',
+      reason:
+        "runs a command whose name is computed; safety check: could not be fully inspected by the safety classifier",
+      planId: null,
+      target: null,
+      toolName: "bash",
+      resolver: { kind: "any_member" },
+      resolverUserName: null,
+      status: "pending",
+      resolvedBy: null,
+    },
+    canResolve: true,
+  },
+  {
     label: "Someone else approves",
     lorSays: "Waiting for approval before I continue.",
     approval: {

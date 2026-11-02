@@ -76,6 +76,9 @@ interface MessageItemProps {
   onFork?: (message: Message) => Promise<unknown>
   // Session: the newest Lor reply keeps its action row in view.
   isLatestLorReply?: boolean
+  // Session: a Lor reply whose turn goes on (paused on approvals, or resumed
+  // in a later reply). The turn's last reply gets the action row.
+  midTurn?: boolean
   // Session: "Rewind to here" under the reply. `canRewind` (set per message)
   // when it is on the current line, not the newest turn, and Lor is idle.
   onRewind?: (message: Message) => Promise<unknown>
@@ -323,6 +326,7 @@ export const MessageItem = memo(function MessageItem({
   onForward,
   onFork,
   isLatestLorReply = false,
+  midTurn = false,
   onRewind,
   canRewind = false,
   rewindRestoresFiles = false,
@@ -430,7 +434,8 @@ export const MessageItem = memo(function MessageItem({
   // Lor's replies in a session get an action row under them instead of the
   // floating bar, once the reply is finished.
   const lorReplyRow = isDocument && message.authorId === LOR_USER_ID
-  const replyFinished = !message.streaming && message.status !== "pending"
+  const turnFinished =
+    !message.streaming && message.status !== "pending" && !midTurn
 
   const handleOpenThread = useCallback(() => {
     onOpenThread?.(message.id)
@@ -928,7 +933,7 @@ export const MessageItem = memo(function MessageItem({
               onReact={handleReact}
             />
           )}
-          {lorReplyRow && replyFinished && !isEditing && (
+          {lorReplyRow && turnFinished && !isEditing && (
             <LorReplyActions
               alwaysVisible={isLatestLorReply}
               time={formatTime(message.createdAt)}
@@ -949,7 +954,7 @@ export const MessageItem = memo(function MessageItem({
           )}
         </div>
       </div>
-      {lorReplyRow && replyFinished && canRewind && onRewind && (
+      {lorReplyRow && turnFinished && canRewind && onRewind && (
         <RewindDivider
           restoresFiles={rewindRestoresFiles}
           onRewind={handleRewind}

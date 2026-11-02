@@ -78,6 +78,7 @@ export type PendingApproval = {
   target: string | null
   action: string
   description: string
+  reason: string | null
   payload: unknown
   inputSha256: string
 }
