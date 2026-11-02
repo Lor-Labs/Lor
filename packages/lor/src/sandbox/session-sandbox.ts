@@ -91,16 +91,19 @@ export async function grantHarnessAccess(
       : [GATEWAY_HOST, { gateway: access.gatewayKey }]
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: {
-      // The turn's destination is named in the domain filter as well as in
-      // the routing rule: that is the shape 7a's spike verified in a live
-      // sandbox, and the shape that worked before egress was opened on
-      // 2026-10-29, when `grantClaudeAccess` posted
-      // `allowedDomains: [...SESSION_NETWORK.allowedDomains, POST:<host>/*]`
-      // beside the rule (removed in a13ef2e5). Since prod's first Claude
-      // Code turns every one has 401'd on a rejected credential, so the
-      // allowlist entry goes back. `*` keeps egress as open as an absent
-      // list does (Jacob, 2026-10-28): it excludes nothing, so reachability
-      // is unchanged, and only the named host carries a rule.
+      // A domain filter exists here again, as it did in the shape 7a's spike
+      // verified in a live sandbox and in the code that ran until egress was
+      // opened on 2026-10-29. That older code added `POST:<host>/*` to
+      // `allowedDomains` beside the routing rule; a13ef2e5 dropped the list
+      // entirely. Reachability is not the point — an absent list and `*` both
+      // permit everything, and Jacob opened egress on 2026-10-28 — the point
+      // is whether the proxy resolves a placeholder only for a destination
+      // its filter names. That is unproven and no fix is claimed here: every
+      // production Claude Code turn since 2026-10-30 has 401'd on a rejected
+      // credential, this entry is the one difference from the verified spike,
+      // and the turn failure log's `credentialProbe` + `storedTokenCheck`
+      // pair is what decides it. If a turn still 401s while the stored token
+      // checks out, this line is not the answer and should come back out.
       allowedDomains: ["*", host],
       proxy: { routing: [{ destinations: [host], headers: {}, secrets }] },
     },
@@ -110,27 +113,48 @@ export async function grantHarnessAccess(
 // One request that exercises the turn's credential path, for the failure log
 // when a turn dies on Anthropic's 401: it sends exactly what the CLI sends —
 // the placeholder, through the sandbox proxy, while the rule is granted — and
-// reports the status Anthropic answered. "200" means the proxy substituted
-// the token; "401" means the placeholder reached Anthropic unresolved, so the
-// injection (not the stored token) is what is broken. Temporary: it exists to
-// label the 401 that Claude Code turns fail with in production.
+// reports the status Anthropic answered. Read it with the worker's own
+// `storedTokenCheck` (claudeStoredTokenCheck): a 401 here alone is ambiguous,
+// because an unresolvable placeholder and a token Anthropic no longer accepts
+// look the same. "200" means the proxy substituted a token Anthropic took; a
+// 401 beside a stored token that checks out means the substitution happened
+// and Anthropic refused the token; a 401 beside a rejected stored token
+// means the token, not this path. Never fails or delays the turn it watches:
+// "aborted" when the turn's signal stopped it, "probe failed: …" otherwise.
+// Temporary: it exists to label the 401 that Claude Code turns fail with in
+// production.
 const CREDENTIAL_PROBE_TIMEOUT_SEC = 20
+const PROBE_ERROR_MAX_CHARS = 200
 
 export async function probeClaudeCredential(
-  session: SandboxSession
+  session: SandboxSession,
+  abortSignal?: AbortSignal
 ): Promise<string> {
-  const result = await session.run({
-    command:
-      "curl -s -o /dev/null -w '%{http_code}' " +
-      `--max-time ${CREDENTIAL_PROBE_TIMEOUT_SEC} ` +
-      `-H 'Authorization: Bearer ${CLAUDE_TOKEN_PLACEHOLDER}' ` +
-      "-H 'anthropic-version: 2023-06-01' " +
-      "-H 'anthropic-beta: oauth-2025-04-20' " +
-      `'https://${CLAUDE_API_HOST}/v1/models?limit=1'`,
-    workingDirectory: WORKSPACE_MOUNT,
-  })
-  const status = result.stdout.trim()
-  return status.length > 0 ? status : `curl exit ${result.exitCode}`
+  try {
+    const result = await session.run({
+      command:
+        "curl -s -o /dev/null -w '%{http_code}' " +
+        `--max-time ${CREDENTIAL_PROBE_TIMEOUT_SEC} ` +
+        `-H 'Authorization: Bearer ${CLAUDE_TOKEN_PLACEHOLDER}' ` +
+        "-H 'anthropic-version: 2023-06-01' " +
+        "-H 'anthropic-beta: oauth-2025-04-20' " +
+        `'https://${CLAUDE_API_HOST}/v1/models?limit=1'`,
+      workingDirectory: WORKSPACE_MOUNT,
+      ...(abortSignal ? { abortSignal } : {}),
+    })
+    const status = result.stdout.trim()
+    // curl writes 000 when the request never completed; its exit code says why.
+    if (result.exitCode !== 0)
+      return status.length > 0 && status !== "000"
+        ? `${status} (curl exit ${result.exitCode})`
+        : `curl exit ${result.exitCode}`
+    return status.length > 0 ? status : "no status"
+  } catch (err) {
+    // The turn is what matters: a probe that could not run reports itself.
+    if (abortSignal?.aborted) return "aborted"
+    const message = err instanceof Error ? err.message : String(err)
+    return `probe failed: ${message.slice(0, PROBE_ERROR_MAX_CHARS)}`
+  }
 }
 
 export async function revokeHarnessAccess(owner: HarnessOwner): Promise<void> {

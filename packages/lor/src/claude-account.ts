@@ -121,3 +121,33 @@ export async function claudeSubscriptionToken(
     .limit(1)
   return account ? decryptSecret(account.accessToken, key) : null
 }
+
+// Whether Anthropic still takes the stored token, asked straight from the
+// worker with no sandbox in the path — the same free model-list question the
+// connect step asks. Beside the sandbox's `credentialProbe` (which sends the
+// placeholder) it separates the two things a bare 401 in a turn hides: a
+// token Anthropic no longer accepts, and a sandbox that never substituted the
+// placeholder. A short label only; the token is never returned or logged.
+const STORED_TOKEN_CHECK_TIMEOUT_MS = 5_000
+
+export async function claudeStoredTokenCheck(userId: string): Promise<string> {
+  try {
+    const token = await claudeSubscriptionToken(userId)
+    if (!token) return "no token stored"
+    const res = await fetch("https://api.anthropic.com/v1/models?limit=1", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "anthropic-beta": "oauth-2025-04-20",
+        "anthropic-version": "2023-06-01",
+      },
+      signal: AbortSignal.timeout(STORED_TOKEN_CHECK_TIMEOUT_MS),
+    }).catch(() => null)
+    if (!res) return "unreachable"
+    return res.ok ? "accepted" : `rejected (HTTP ${res.status})`
+  } catch (err) {
+    // A token that will not decrypt, or a harness the beta refuses: the
+    // error is the answer, and the token must not reach the log.
+    logger.warn({ err }, "Claude stored token check failed")
+    return "check failed"
+  }
+}
