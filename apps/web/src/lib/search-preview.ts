@@ -1,3 +1,5 @@
+import { linearIssuesToText } from "@/lib/linear-issue-block"
+
 // Plain-text message preview for search results. Keeps the stored-token
 // regexes in sync with message-markdown.tsx and the mobile equivalent
 // (apps/mobile/src/lib/message-markdown.ts).
@@ -27,7 +29,7 @@ export function toSearchPreviewText(
     return `@${mention ? mention.name : "unknown-user"}`
   }
 
-  return content
+  return linearIssuesToText(content)
     .replace(TIPTAP_MENTION_REGEX, (_match, id: string) => mentionLabel(id))
     .replace(USER_MENTION_TOKEN_REGEX, (_match, id: string) => mentionLabel(id))
     .replace(CITATION_REGEX, (_match, raw: string) => {

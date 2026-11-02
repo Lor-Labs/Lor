@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/react"
+import { splitLinearIssues } from "@/lib/linear-issue-block"
 
 const BROADCAST_MENTION_IDS = new Set(["everyone", "channel", "here"])
 
@@ -27,7 +28,16 @@ export const TIPTAP_MARKDOWN_MENTION_REGEX = /\[@[^\]]*?\bid="([^"]+)"[^\]]*]/g
 export const STORED_MENTION_REGEX =
   /<@([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})>/gi
 
+// Pasted Linear issues are stored exactly as pasted (linear-issue-block.ts).
 export function toStoredMarkdown(markdown: string) {
+  return splitLinearIssues(markdown)
+    .map((part) =>
+      part.kind === "issue" ? part.issue.raw : storedText(part.text)
+    )
+    .join("")
+}
+
+function storedText(markdown: string) {
   return (
     markdown
       .replace(/\u00A0/g, " ")
