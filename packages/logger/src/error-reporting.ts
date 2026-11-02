@@ -220,7 +220,7 @@ export function reportLog(
     if (errorAlertsEnabled()) {
       queueErrorAlert({
         fatal: level >= 60,
-        title: scrubText(message),
+        title: scrubText(withoutQueryParams(message)),
         error: parts && {
           name: parts.name,
           message: scrubText(withoutQueryParams(parts.message)),
