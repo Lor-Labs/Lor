@@ -64,6 +64,7 @@ unset.
 | Exa | Web search and page fetch for Lor | `EXA_API_KEY` |
 | code.storage | Code session checkpoints | `CODE_STORAGE_ORG`, `CODE_STORAGE_PRIVATE_KEY` |
 | LiveKit, Deepgram | Voice channels (hidden by default) | `LIVEKIT_*`, `DEEPGRAM_API_KEY` |
+| A Lor channel webhook or Discord webhook | A message for every logged backend error ([details](reference/error-reporting.md#channel-alerts-for-every-error)) | `ERROR_ALERT_WEBHOOK_URL` |
 
 The schemas in [`packages/env/src/server.ts`](packages/env/src/server.ts) and
 [`server-fields.ts`](packages/env/src/server-fields.ts) are the full list.

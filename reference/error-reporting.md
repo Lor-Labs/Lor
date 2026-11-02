@@ -42,6 +42,39 @@ populate Errors, and the Lor channel webhook URL is not an ingestion DSN.
    The completed webhook setup alone only demonstrates notification delivery;
    the deployed SDK is what starts collecting application errors.
 
+## Channel alerts for every error
+
+Better Stack alerts on new errors, recurrences and spikes, not on each
+occurrence. To see every logged error in a chat channel, set
+`ERROR_ALERT_WEBHOOK_URL` on **api**, **worker**, **realtime** and
+**transcriber**. It works without Better Stack, and it is off when unset.
+
+1. Create a webhook in the channel that receives alerts (Edit Channel →
+   Webhooks), copy its URL, and append `/discord`. Any Discord-compatible
+   webhook works, including a Discord channel webhook.
+2. Set the URL as a secret: the token in it lets anyone post to the channel.
+   Leave it unset locally.
+3. If the URL is a Lor webhook on the same deployment, errors raised while
+   delivering to it are not alerted again; no other setting is needed.
+
+Behavior:
+
+- Each `logger.error` and `logger.fatal` call posts a card with the message,
+  error type and message, top stack frames, service, environment, route/job
+  and request/run/session IDs. The same scrubbing as Better Stack events
+  applies. Error messages can still contain customer text, so pick a channel
+  only the operators can read.
+- One exception logged twice (catch/rethrow, HTTP completion) posts once.
+- The same error (same message, error and route/job; IDs and long numbers
+  ignored) repeated within 5 minutes posts no new card. When the window
+  closes, one message gives the count. While the error continues, a count
+  posts every 5 minutes; the full card posts again after 5 quiet minutes.
+- Each process posts at most 10 messages a minute. Over that, one notice
+  gives the number not sent. Counts are per process, so replicas each post.
+- Raw stderr output, such as third-party SDK console errors, is not a logger
+  call and does not post. Delivery failures go to stderr only, at most once a
+  minute. Shutdown posts outstanding counts within the two-second flush.
+
 ## Implementation
 
 - Each service imports `src/instrumentation.ts` before its application graph.

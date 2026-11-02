@@ -16,7 +16,8 @@ const LOG_LEVEL = process.env.LOG_LEVEL ?? (isProd ? "info" : "debug")
  *   `version` are shaped to match what Datadog and Better Stack expect
  *   out-of-the-box, so a platform log drain (Railway/Fly/Vercel/etc.) is
  *   the only thing needed to ship logs. Error reporting is separate and
- *   enabled by BETTERSTACK_ERRORS_DSN (reference/error-reporting.md).
+ *   enabled by BETTERSTACK_ERRORS_DSN; channel alerts for every logged error
+ *   by ERROR_ALERT_WEBHOOK_URL (reference/error-reporting.md).
  * - Development: pino-pretty stream with cleaner-than-default formatting
  *   (ISO-ish time, named prefix, hidden pid/hostname noise).
  *

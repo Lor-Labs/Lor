@@ -50,6 +50,11 @@ export const sharedServerFields = {
     blankToUndefined,
     z.string().uuid().optional()
   ),
+  // Discord-compatible webhook that receives every logged backend error.
+  ERROR_ALERT_WEBHOOK_URL: z.preprocess(
+    blankToUndefined,
+    z.string().url().optional()
+  ),
   NODE_ENV: z
     .enum(["development", "staging", "production", "test"])
     .default("production"),
