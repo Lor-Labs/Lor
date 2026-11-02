@@ -3711,10 +3711,9 @@ export async function respond(
         } catch (err) {
           // A stopped or superseded turn is not a failure to report.
           if (!abortSignal?.aborted) {
-            // Both halves of the credential picture, so the 401 stops being
-            // ambiguous: what Anthropic answered the placeholder inside the
-            // sandbox, and whether it still accepts the token the worker
-            // holds.
+            // Both halves of the credential picture: what Anthropic
+            // answered the placeholder inside the sandbox, and whether it
+            // still accepts the token the worker holds.
             const [credentialProbeResult, storedTokenCheck] = await Promise.all(
               [
                 credentialProbe ?? Promise.resolve("not started"),

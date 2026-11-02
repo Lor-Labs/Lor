@@ -113,18 +113,45 @@ export async function grantHarnessAccess(
 // One request that exercises the turn's credential path, for the failure log
 // when a turn dies on Anthropic's 401: it sends exactly what the CLI sends —
 // the placeholder, through the sandbox proxy, while the rule is granted — and
-// reports the status Anthropic answered. Read it with the worker's own
-// `storedTokenCheck` (claudeStoredTokenCheck): a 401 here alone is ambiguous,
-// because an unresolvable placeholder and a token Anthropic no longer accepts
-// look the same. "200" means the proxy substituted a token Anthropic took; a
-// 401 beside a stored token that checks out means the substitution happened
-// and Anthropic refused the token; a 401 beside a rejected stored token
-// means the token, not this path. Never fails or delays the turn it watches:
-// "aborted" when the turn's signal stopped it, "probe failed: …" otherwise.
-// Temporary: it exists to label the 401 that Claude Code turns fail with in
-// production.
+// reports the status Anthropic answered, with the message from its error body
+// when there is one. Read it with the worker's own `storedTokenCheck`
+// (claudeStoredTokenCheck). What that pair establishes, and what it does not:
+//   - "200": the proxy substituted a token Anthropic accepted.
+//   - "401" beside a rejected stored token: the stored token is what failed,
+//     and this says nothing about the sandbox path.
+//   - "401" beside an accepted stored token: the sandbox request did not
+//     authenticate with a token Anthropic currently accepts. That is all the
+//     status proves — an unresolved placeholder and a token Anthropic refused
+//     are the same 401, so a 401 is *not* evidence that substitution worked,
+//     nor that it failed. The body's message is what points at one of the
+//     two: 7a's spike saw the literal placeholder answered "Invalid bearer
+//     token", while an expired or revoked OAuth token is answered in other
+//     words. That is Anthropic's wording, not a measurement of the proxy,
+//     so it narrows the failure without naming the cause.
+// Never fails or delays the turn it watches: "aborted" when the turn's signal
+// stopped it, "probe failed: …" otherwise. Temporary: it exists to label the
+// 401 that Claude Code turns fail with in production.
 const CREDENTIAL_PROBE_TIMEOUT_SEC = 20
-const PROBE_ERROR_MAX_CHARS = 200
+const PROBE_TEXT_MAX_CHARS = 200
+// curl prints the marker and status after the body, so one run returns both.
+const PROBE_STATUS_MARKER = "\nSTATUS "
+
+// The message Anthropic puts in an error body; trimmed, never a credential.
+function credentialMessage(body: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return null
+  }
+  if (typeof parsed !== "object" || parsed === null) return null
+  const error = (parsed as { error?: unknown }).error
+  if (typeof error !== "object" || error === null) return null
+  const message = (error as { message?: unknown }).message
+  return typeof message === "string" && message.length > 0
+    ? message.slice(0, PROBE_TEXT_MAX_CHARS)
+    : null
+}
 
 export async function probeClaudeCredential(
   session: SandboxSession,
@@ -133,27 +160,37 @@ export async function probeClaudeCredential(
   try {
     const result = await session.run({
       command:
-        "curl -s -o /dev/null -w '%{http_code}' " +
+        "curl -sS " +
         `--max-time ${CREDENTIAL_PROBE_TIMEOUT_SEC} ` +
         `-H 'Authorization: Bearer ${CLAUDE_TOKEN_PLACEHOLDER}' ` +
         "-H 'anthropic-version: 2023-06-01' " +
         "-H 'anthropic-beta: oauth-2025-04-20' " +
+        "-w '\\nSTATUS %{http_code}' " +
         `'https://${CLAUDE_API_HOST}/v1/models?limit=1'`,
       workingDirectory: WORKSPACE_MOUNT,
       ...(abortSignal ? { abortSignal } : {}),
     })
-    const status = result.stdout.trim()
+    // Not trimmed first: an empty body leaves the marker as the first line.
+    const text = result.stdout
+    const marker = text.lastIndexOf(PROBE_STATUS_MARKER)
+    const status =
+      marker === -1
+        ? null
+        : text.slice(marker + PROBE_STATUS_MARKER.length).trim()
+    const body = marker === -1 ? "" : text.slice(0, marker)
     // curl writes 000 when the request never completed; its exit code says why.
     if (result.exitCode !== 0)
-      return status.length > 0 && status !== "000"
+      return status !== null && status !== "000"
         ? `${status} (curl exit ${result.exitCode})`
         : `curl exit ${result.exitCode}`
-    return status.length > 0 ? status : "no status"
+    if (status === null) return "no status"
+    const message = credentialMessage(body)
+    return message ? `${status}: ${message}` : status
   } catch (err) {
     // The turn is what matters: a probe that could not run reports itself.
     if (abortSignal?.aborted) return "aborted"
     const message = err instanceof Error ? err.message : String(err)
-    return `probe failed: ${message.slice(0, PROBE_ERROR_MAX_CHARS)}`
+    return `probe failed: ${message.slice(0, PROBE_TEXT_MAX_CHARS)}`
   }
 }
 
