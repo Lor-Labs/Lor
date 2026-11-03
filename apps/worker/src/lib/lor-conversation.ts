@@ -15,6 +15,7 @@ import {
 } from "@repo/db"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import { userDisplayName } from "@repo/lor"
+import { cardEmbedsText } from "./embed-context"
 import { meetingThreadContext } from "./meeting-context"
 import { LOOP_SCHEDULE_SPEAKER } from "./run-continuation"
 
@@ -50,9 +51,11 @@ export async function loadConversation(args: {
           // Attachment-only messages have null/blank content but are real
           // turns — dropping them made Lor blind to uploaded files. Blank
           // messages with nothing attached stay out (empty turns, placeholders).
+          // Webhook cards keep their text in embeds (cardEmbedsText).
           or(
             sql`btrim(coalesce(${schema.message.content}, '')) <> ''`,
-            sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`
+            sql`jsonb_array_length(coalesce(${schema.message.attachments}, '[]'::jsonb)) > 0`,
+            sql`exists (select 1 from jsonb_array_elements(coalesce(${schema.message.embeds}, '[]'::jsonb)) as card where card->>'type' = 'rich' and card->'meeting' is null)`
           ),
           // Still-queued messages haven't been "sent" yet — each gets its own
           // follow-up run, so they stay out of earlier runs' context (mirrors
@@ -154,6 +157,7 @@ export async function loadConversation(args: {
     }
   }
 
+  const backgroundIds = new Set(backgroundRows.map((row) => row.messageId))
   const toTurn = (r: (typeof rows)[number]) => {
     const toRef = (a: NonNullable<typeof r.attachments>[number]) => ({
       url: a.url,
@@ -180,11 +184,14 @@ export async function loadConversation(args: {
     return {
       messageId: r.messageId,
       authorName,
+      // A meeting card's recording rides along when it is the thread's root
+      // or what the session was asked about.
       content:
         (r.content ?? "") +
-        (r.messageId === args.threadRootId
+        (r.messageId === args.threadRootId || backgroundIds.has(r.messageId)
           ? meetingThreadContext(r.embeds)
-          : ""),
+          : "") +
+        cardEmbedsText(r.embeds),
       ...(images.length > 0 ? { images } : {}),
       ...(files.length > 0 ? { files } : {}),
     }
