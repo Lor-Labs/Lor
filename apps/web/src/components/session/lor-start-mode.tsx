@@ -36,13 +36,15 @@ export function useLorStartMode({
   const [withoutEnvironmentFor, setWithoutEnvironmentFor] = useState<
     string | null
   >(null)
-  const environmentFailed =
-    environment.failed && withoutEnvironmentFor !== code.repo
+  // Applies while the load is failing, even over a list cached earlier.
+  const withoutEnvironment =
+    environment.failed && withoutEnvironmentFor === code.repo
+  const environmentFailed = environment.failed && !withoutEnvironment
   const target =
     mode === "code" && code.target
       ? {
           ...code.target,
-          ...(environment.selected
+          ...(environment.selected && !withoutEnvironment
             ? { environmentId: environment.selected.id }
             : {}),
         }

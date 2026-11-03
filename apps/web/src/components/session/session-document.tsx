@@ -41,7 +41,10 @@ import { SessionTurnRail } from "@/components/session/session-turn-rail"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
 import { useModelChoice } from "@/hooks/use-agent-models"
-import { cachedSessionForThread } from "@/hooks/use-agent-session"
+import {
+  cachedSessionForThread,
+  sessionTouchesQueryOptions,
+} from "@/hooks/use-agent-session"
 import { useConversationScroll } from "@/hooks/use-conversation-scroll"
 import { useFileUpload } from "@/hooks/use-file-upload"
 import { useLorRunControls } from "@/hooks/use-lor-run-controls"
@@ -94,6 +97,7 @@ export function SessionDocument({
   workspaceSlug,
   channelId,
   threadRootId,
+  sessionId,
   targetMessageId,
   header,
   heading,
@@ -111,6 +115,7 @@ export function SessionDocument({
   workspaceSlug: string
   channelId: string
   threadRootId: string
+  sessionId: string
   harness: RealtimeAgentSession["harness"]
   // Above the reply line: why the agent won't answer this person (a Claude
   // Code session without their Claude subscription).
@@ -188,6 +193,8 @@ export function SessionDocument({
     fetchPage,
     socket,
     pendingNoncesRef: pendingNonces,
+    // Its Details panel hears about saved touches by thread event.
+    alsoRefresh: sessionTouchesQueryOptions(sessionId).queryKey,
   })
 
   // An open session is being read: advance its read cursor on open and on

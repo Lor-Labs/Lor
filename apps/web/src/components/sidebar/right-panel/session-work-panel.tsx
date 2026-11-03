@@ -154,9 +154,11 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
     if (!socket) return
     const onTouches = (payload: { threadRootId: string }) => {
       if (payload.threadRootId !== view.threadRootId) return
-      void queryClient.invalidateQueries({
-        queryKey: sessionTouchesQueryOptions(view.sessionId).queryKey,
-      })
+      // A first load still in flight would be reused, not refetched.
+      const { queryKey } = sessionTouchesQueryOptions(view.sessionId)
+      void queryClient
+        .cancelQueries({ queryKey })
+        .then(() => queryClient.invalidateQueries({ queryKey }))
     }
     socket.on("session:touches:updated", onTouches)
     return () => {
