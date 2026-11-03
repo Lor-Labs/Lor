@@ -298,7 +298,10 @@ export function SessionBrowserPanel({
       title="Browser"
       src={src}
       onLoad={() => setFrameLoading(false)}
-      className="min-h-0 w-full flex-1 border-0 bg-white"
+      // Light like a new browser tab. A dark-scheme page (JSON and plain text
+      // in OS dark mode) then gets its own opaque dark canvas, not white text
+      // on this white fill (css-color-adjust: mismatched iframe scheme).
+      className="min-h-0 w-full flex-1 border-0 bg-white scheme-light"
       allow="clipboard-read; clipboard-write"
       // Sandbox code must not navigate the app window (no top-navigation).
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
