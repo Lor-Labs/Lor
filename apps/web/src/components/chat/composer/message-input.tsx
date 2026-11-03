@@ -163,8 +163,8 @@ interface MessageInputProps {
   // Session only: the other subscribers, shown as faces when a message goes
   // to people.
   subscribers?: SubscriberFace[]
-  // New session only: controls after the attach button, in the destination
-  // bar.
+  // Shown while the message goes to Lor, after the destination pill: Claude
+  // Code's mode on New session, Chat | Code for `@Lor` in chat.
   leadingTools?: ReactNode
   // Floats just above the composer, e.g. the "Started … · Open" note.
   notice?: ReactNode
@@ -196,6 +196,9 @@ interface MessageInputProps {
   // Holds the send (keeping the draft) until a choice outside the editor is
   // made, e.g. a code session's repo.
   sendBlocked?: boolean
+  // The same, only while the message starts a Lor session (`@Lor` in Code
+  // mode without a repo yet).
+  lorSendBlocked?: boolean
   currentUserId?: string
   mentionCandidates?: MentionCandidate[]
   replyingTo?: Message | null
@@ -601,7 +604,8 @@ export function MessageInput({
   disabledReason,
   onSend,
   isSending,
-  sendBlocked = false,
+  sendBlocked: blockedAlways = false,
+  lorSendBlocked = false,
   currentUserId,
   mentionCandidates = [],
   replyingTo,
@@ -849,6 +853,7 @@ export function MessageInput({
     ]
   )
   const showLorState = Boolean(destination) && routing.toLor
+  const sendBlocked = blockedAlways || (routing.toLor && lorSendBlocked)
   const isInline = variant === "inline"
   const lorPillRef = useRef<HTMLSpanElement>(null)
   // Taught once the person types in a session, when the pill decides who

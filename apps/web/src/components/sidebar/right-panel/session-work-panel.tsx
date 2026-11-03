@@ -4,6 +4,7 @@ import {
   HashtagIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { toast } from "@repo/ui/components/toast"
 import {
   useInfiniteQuery,
@@ -11,7 +12,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { type ReactNode, useMemo } from "react"
+import { type ReactNode, useEffect, useMemo, useRef } from "react"
 import {
   ArtifactFileCard,
   UploadFileCard,
@@ -20,10 +21,12 @@ import { PlanStepList } from "@/components/chat/plan-step-list"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { SessionPanelTabs } from "@/components/sidebar/right-panel/session-changes-panel"
+import { SessionTouchedList } from "@/components/sidebar/right-panel/session-touched-list"
 import { MorphText } from "@/components/ui/morph-text"
 import {
   type AgentSessionDetail,
   sessionFilesQueryOptions,
+  sessionTouchesQueryOptions,
   useAgentSession,
 } from "@/hooks/use-agent-session"
 import { usePlanForThread } from "@/hooks/use-channel-plans"
@@ -84,10 +87,11 @@ function collectSessionWork(pages: ThreadPage[]) {
   }
 }
 
-// The session's details beside the session page: its starting context, plan
-// and files stay in view while the transcript scrolls (a code session shows
-// only its context and Pi's plan). Lor's tool activity
-// shows on its replies; approval and proposal cards render inline there too.
+// The session's details beside the session page: its starting context, what
+// Lor touched, plan and files stay in view while the transcript scrolls (a
+// code session, where this is the Details tab, shows no files). Lor's tool
+// activity shows on its replies; approval and proposal cards render inline
+// there too.
 export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
   const queryClient = useQueryClient()
   // Same query as the session page, so it shares the cache, live replies and
@@ -140,6 +144,34 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
   const hasContext = Boolean(
     detail && (detail.source || detail.context.length > 0)
   )
+  const { data: touched, isError: touchedFailed } = useQuery(
+    sessionTouchesQueryOptions(view.sessionId)
+  )
+  // Touches are recorded just after a run finishes, so the list catches up
+  // a moment after each finished reply.
+  const newestReply = useMemo(
+    () =>
+      (data?.pages ?? [])
+        .flatMap((page) => page.data)
+        .find(
+          (message) =>
+            message.authorId === LOR_USER_ID && message.status === "complete"
+        )?.id ?? null,
+    [data]
+  )
+  const seenReply = useRef(newestReply)
+  useEffect(() => {
+    if (newestReply === seenReply.current) return
+    seenReply.current = newestReply
+    const timer = setTimeout(
+      () =>
+        void queryClient.invalidateQueries({
+          queryKey: sessionTouchesQueryOptions(view.sessionId).queryKey,
+        }),
+      3000
+    )
+    return () => clearTimeout(timer)
+  }, [newestReply, queryClient, view.sessionId])
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -185,6 +217,31 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
             )}
           </PanelSection>
         )}
+        {detail && (
+          <PanelSection
+            title="Touched"
+            meta={
+              touched && touched.items.length > 0
+                ? String(touched.items.length)
+                : undefined
+            }
+          >
+            {touched && touched.items.length > 0 ? (
+              <SessionTouchedList
+                items={touched.items}
+                workspaceSlug={view.workspaceSlug}
+              />
+            ) : (
+              <PanelEmpty>
+                {touched
+                  ? "Nothing yet"
+                  : touchedFailed
+                    ? "Couldn't load"
+                    : "Loading…"}
+              </PanelEmpty>
+            )}
+          </PanelSection>
+        )}
         {showPlan && (
           <PanelSection
             title="Plan"
@@ -212,9 +269,6 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
               <PanelEmpty>No files yet</PanelEmpty>
             )}
           </PanelSection>
-        )}
-        {detail && !showPlan && !hasContext && (
-          <PanelEmpty>This session has no starting context.</PanelEmpty>
         )}
       </div>
     </div>
@@ -317,7 +371,7 @@ function SessionFileList({
         <div className="space-y-1.5">
           {outputs.length > 0 && (
             <p className="px-1 font-medium text-muted-foreground text-xs">
-              Sources
+              Uploads
             </p>
           )}
           {sources.map((source) => (

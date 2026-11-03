@@ -409,6 +409,11 @@ start from the per-provider `urlHost` regexes in
   preloaded into the prompt.
 - People: a join from `touch` to session starter, message authors and
   subscribers, for the context engine's ranking. No UI.
+- Built 2026-11-03: a session's own touches show in its Details panel
+  ("Touched", `GET /sessions/{id}/touches`), titled from stored sources, each
+  with the other sessions (in channels the viewer can open) that touched the
+  same item. `started_from` rows are left out: the transcript's context fold
+  shows those messages.
 
 **Also.**
 

@@ -18,6 +18,7 @@ import {
   scrollToMessage,
 } from "@/components/chat/message-list"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
+import { useLorStartMode } from "@/components/session/lor-start-mode"
 import { SessionStartedNote } from "@/components/session/session-started-note"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { VoiceChannelView } from "@/components/voice/voice-channel-view"
@@ -224,6 +225,7 @@ function ChannelView() {
     currentUser: session?.user,
     sessionStart: sessionStart.handlers,
   })
+  const lorStart = useLorStartMode({ workspaceSlug, channelId })
 
   const {
     messages,
@@ -641,7 +643,15 @@ function ChannelView() {
           }
           context={context}
           channelId={channelId}
-          onSend={handleSend}
+          leadingTools={lorStart.tools}
+          lorSendBlocked={lorStart.sendBlocked}
+          onSend={(content, options) =>
+            handleSend(content, {
+              mentions: [],
+              ...options,
+              ...lorStart.sendOptions,
+            })
+          }
           currentUserId={currentUserId}
           mentionCandidates={mentionCandidates}
           replyingTo={replyingTo}
