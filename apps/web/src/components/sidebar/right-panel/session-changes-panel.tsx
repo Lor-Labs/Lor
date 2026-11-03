@@ -87,9 +87,11 @@ const PANEL_TABS = [
   { type: "session-files", label: "Files", icon: null },
   { type: "session-terminal", label: "Terminal", icon: ComputerTerminal01Icon },
   { type: "session-browser", label: "Browser", icon: BrowserIcon },
+  { type: "session-work", label: "Details", icon: null },
 ] as const
 
-// Changes | Files | Terminal | Browser: the title of a code session's panel.
+// Changes | Files | Terminal | Browser | Details: the title of a code
+// session's panel.
 // The count shows once the Changes view has read the sandbox.
 export function SessionPanelTabs({ view }: { view: SessionPanelView }) {
   const { setView } = useRightSidebar()

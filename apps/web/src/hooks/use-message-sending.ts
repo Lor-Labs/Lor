@@ -183,8 +183,8 @@ export function useMessageSending({
         toPeople?: boolean
         // New session view: start a session in this channel.
         startSession?: boolean
-        // With startSession: start it in Code mode on this repo and branch,
-        // or a new branch made from it.
+        // A session start (New session, or `@Lor` with Code picked): Code
+        // mode on this repo and branch, or a new branch made from it.
         code?: SendMessagePayload["code"]
         // With code: Claude Code or Codex runs it instead of Lor's own agent.
         harness?: SendMessagePayload["harness"]
@@ -230,7 +230,7 @@ export function useMessageSending({
         startsSession && handlers
           ? { id: crypto.randomUUID(), threadRootId: crypto.randomUUID() }
           : null
-      const code = options?.startSession ? options.code : undefined
+      const code = startsSession ? options?.code : undefined
       const harness = code ? options?.harness : undefined
       const source = options?.startSession ? options.continueFrom : undefined
       const start: SessionStart | null = startIds

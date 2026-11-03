@@ -129,6 +129,40 @@ async function codeSessionStart(
   }
 }
 
+// The repo and harness a session start asked for, checked: Code mode from
+// the New session view or `@Lor` with Code picked in the composer.
+async function codeStartFor(
+  payload: SendMessagePayload,
+  workspaceId: string,
+  senderId: string
+) {
+  assertHostedHarness(payload.harness ?? "pi")
+  assertHarnessEnabled(payload.harness ?? "pi")
+  const code = payload.code
+    ? await codeSessionStart(workspaceId, payload.channelId, payload.code)
+    : undefined
+  // Claude Code and Codex: code sessions only for now; Claude Code on the
+  // starter's own Claude subscription (code-sessions-runbook.md chunks 7
+  // and 8).
+  const claudeCode = payload.harness === "claude_code"
+  const codex = payload.harness === "codex"
+  if ((claudeCode || codex) && !code) {
+    throw new Error(
+      `${claudeCode ? "Claude Code" : "Codex"} sessions need a repository`
+    )
+  }
+  if (claudeCode && !(await hasPersonalAccount(senderId, "claude"))) {
+    throw new Error(
+      "Connect your Claude subscription in Settings → Linked accounts to start a Claude Code session"
+    )
+  }
+  return {
+    ...(code ? { code } : {}),
+    ...(claudeCode ? { harness: "claude_code" as const } : {}),
+    ...(codex ? { harness: "codex" as const } : {}),
+  }
+}
+
 // `@Lor` in channel chat or a human thread starts a session seeded with what
 // led up to it, and nothing posts where it was sent
 // (reference/workspace-model.md). Undefined = a normal send.
@@ -150,39 +184,18 @@ export async function sessionStartFor(args: {
     threadRootId: payload.newSession?.threadRootId,
   }
   if (payload.startSession && !payload.threadRootId) {
-    assertHostedHarness(payload.harness ?? "pi")
-    assertHarnessEnabled(payload.harness ?? "pi")
-    const code = payload.code
-      ? await codeSessionStart(
-          channel.workspaceId,
-          payload.channelId,
-          payload.code
-        )
-      : undefined
+    const start = await codeStartFor(
+      payload,
+      channel.workspaceId,
+      args.senderId
+    )
     const source = payload.continueFrom
       ? await continuedSession(payload.continueFrom, payload.channelId)
       : null
-    // Claude Code and Codex: code sessions only for now; Claude Code on the
-    // starter's own Claude subscription (code-sessions-runbook.md chunks 7
-    // and 8).
-    const claudeCode = payload.harness === "claude_code"
-    const codex = payload.harness === "codex"
-    if ((claudeCode || codex) && !code) {
-      throw new Error(
-        `${claudeCode ? "Claude Code" : "Codex"} sessions need a repository`
-      )
-    }
-    if (claudeCode && !(await hasPersonalAccount(args.senderId, "claude"))) {
-      throw new Error(
-        "Connect your Claude subscription in Settings → Linked accounts to start a Claude Code session"
-      )
-    }
     return {
       ...ids,
       origin: "new",
-      ...(code ? { code } : {}),
-      ...(claudeCode ? { harness: "claude_code" as const } : {}),
-      ...(codex ? { harness: "codex" as const } : {}),
+      ...start,
       ...(source
         ? {
             sourceSessionId: source.id,
@@ -206,6 +219,7 @@ export async function sessionStartFor(args: {
     return undefined
   }
 
+  const start = await codeStartFor(payload, channel.workspaceId, args.senderId)
   const contextMessageIds = payload.threadRootId
     ? await loadThreadContextIds(payload.threadRootId)
     : await loadChatContextIds(payload.channelId)
@@ -215,6 +229,7 @@ export async function sessionStartFor(args: {
   return {
     ...ids,
     origin: "chat",
+    ...start,
     title: sessionTitleFromPrompt(payload.content),
     contextMessageIds,
     subscriberIds,

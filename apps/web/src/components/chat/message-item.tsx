@@ -94,6 +94,9 @@ interface MessageItemProps {
   // Session transcript: reads as a document. Each turn has a small avatar in
   // a narrow gutter and no name row.
   layout?: "chat" | "document"
+  // Another conversation's message shown for context (a session's starting
+  // context fold): no action bar or reply actions.
+  readOnly?: boolean
 }
 
 const PREVIEW_MAX_CHARS = 100
@@ -338,6 +341,7 @@ export const MessageItem = memo(function MessageItem({
   mentionCandidates,
   onJumpToMessage,
   layout = "chat",
+  readOnly = false,
 }: MessageItemProps) {
   const author = message.author
   // Webhook/connector messages render an overridden identity and aren't a
@@ -639,7 +643,7 @@ export const MessageItem = memo(function MessageItem({
             : !canWrapUnderAvatar && !isDocument && "hover:bg-muted/30"
       )}
     >
-      {!lorReplyRow && (
+      {!lorReplyRow && !readOnly && (
         <div
           className={cn(
             "absolute top-0 right-4 z-20 -translate-y-1/2 opacity-0 transition-opacity duration-100",
@@ -933,7 +937,7 @@ export const MessageItem = memo(function MessageItem({
               onReact={handleReact}
             />
           )}
-          {lorReplyRow && turnFinished && !isEditing && (
+          {lorReplyRow && turnFinished && !isEditing && !readOnly && (
             <LorReplyActions
               alwaysVisible={isLatestLorReply}
               time={formatTime(message.createdAt)}
