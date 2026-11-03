@@ -74,6 +74,7 @@ export function LinearIssuePicker({
     error,
     isFetching,
     isFetchingNextPage,
+    isPlaceholderData,
     hasNextPage,
     fetchNextPage,
   } = useInfiniteQuery({
@@ -177,6 +178,8 @@ export function LinearIssuePicker({
     }
     if (event.key === "Enter") {
       event.preventDefault()
+      // The rows still belong to the previous search until this one lands.
+      if (query !== debouncedQuery || isPlaceholderData) return
       const issue = issues[selectedIndex]
       if (issue) void pick(issue.id)
       return

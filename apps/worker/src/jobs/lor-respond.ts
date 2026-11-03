@@ -1529,9 +1529,15 @@ export function createLorRespondProcessor(
               runId: execution?.runId ?? null,
               replyText: finalText,
               promptTexts,
-            }).catch((err) =>
-              logger.warn({ err, threadRootId }, "Recording touches failed")
-            )
+            })
+              .then(() =>
+                emitter
+                  .to(threadRoom(threadRootId))
+                  .emit("session:touches:updated", { threadRootId })
+              )
+              .catch((err) =>
+                logger.warn({ err, threadRootId }, "Recording touches failed")
+              )
           }
           // Announce the set once the run is terminal: a decision made sooner
           // queues its resume behind this run. Ids only; cards refetch the
