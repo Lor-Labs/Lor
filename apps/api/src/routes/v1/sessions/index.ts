@@ -28,6 +28,8 @@ const sessionsRouter = createRouter()
   .openapi(routes.dropActWaiting, handlers.dropActWaiting)
   .openapi(routes.listSessionPorts, handlers.listSessionPorts)
   .openapi(routes.openSessionPort, handlers.openSessionPort)
+  .openapi(routes.getSessionSetup, handlers.getSessionSetup)
+  .openapi(routes.startSessionService, handlers.startSessionService)
   .openapi(routes.openSessionTerminal, handlers.openSessionTerminal)
   .openapi(routes.applySessionEnvironment, handlers.applySessionEnvironment)
 

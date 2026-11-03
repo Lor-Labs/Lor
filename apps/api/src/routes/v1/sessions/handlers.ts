@@ -50,6 +50,7 @@ import {
 } from "@repo/lor/code-checkpoints"
 import { applySessionEnvironment as applyEnvironment } from "@repo/lor/dev-env/environments"
 import { listOpenPorts, openPort } from "@repo/lor/dev-env/previews"
+import { repoSetupStatus, startService } from "@repo/lor/dev-env/repo-setup"
 import { openTerminal } from "@repo/lor/dev-env/terminal"
 import {
   BranchRefusedError,
@@ -89,6 +90,7 @@ import type {
   GetSessionChangeDiffRoute,
   GetSessionChangesRoute,
   GetSessionContextRoute,
+  GetSessionSetupRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
   ListSessionPortsRoute,
@@ -99,6 +101,7 @@ import type {
   PushSessionChangesRoute,
   RewindAgentSessionRoute,
   StageSessionChangesRoute,
+  StartSessionServiceRoute,
   UpdateAgentSessionRoute,
 } from "@/routes/v1/sessions/routes"
 
@@ -1475,6 +1478,90 @@ export const openSessionPort: AppRouteHandler<OpenSessionPortRoute> = async (
     )
   }
   return c.json({ url: result.url, query: result.query }, HttpStatusCodes.OK)
+}
+
+// The repo's run setup (.lor/environment.json): reading it needs channel
+// access; starting a service needs write access, like opening a port.
+
+export const getSessionSetup: AppRouteHandler<GetSessionSetupRoute> = async (
+  c
+) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row || row.session.mode !== "code") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const setup = await repoSetupStatus(sessionId)
+  return c.json(
+    {
+      status: setup.status,
+      error: setup.status === "invalid" ? setup.error : null,
+      install: setup.status === "ready" ? setup.install : null,
+      services: setup.status === "ready" ? setup.services : [],
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+export const startSessionService: AppRouteHandler<
+  StartSessionServiceRoute
+> = async (c) => {
+  const { sessionId, name } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row || row.session.mode !== "code") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const result = await startService(sessionId, name)
+  switch (result.status) {
+    case "started":
+    case "running":
+      return c.json({ status: result.status }, HttpStatusCodes.OK)
+    case "no_sandbox":
+      return c.json(
+        {
+          success: false as const,
+          message:
+            "This session has no sandbox yet. Send Lor a message to set one up.",
+        },
+        HttpStatusCodes.CONFLICT
+      )
+    case "unknown_service":
+      return c.json(
+        {
+          success: false as const,
+          message: `.lor/environment.json has no service named ${name}.`,
+        },
+        HttpStatusCodes.NOT_FOUND
+      )
+    case "missing":
+      return c.json(
+        {
+          success: false as const,
+          message: "This repo has no .lor/environment.json yet.",
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    case "invalid":
+      return c.json(
+        {
+          success: false as const,
+          message: `.lor/environment.json is invalid: ${result.error}`,
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+  }
 }
 
 // The Terminal tab (reference/dev-environment-runbook.md §4): a root shell in
