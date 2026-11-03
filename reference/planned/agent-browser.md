@@ -102,7 +102,9 @@ The spike decides.
 
 **Blaxel** (our sandbox vendor) has no managed browser. It has Playwright and
 VNC desktop images, so a live view would be noVNC behind a preview URL, built
-by us. Not for v1.
+by us. Not for v1 of this hosted browser. Code sessions get that browser
+inside their sandbox instead, because a hosted browser cannot reach the
+sandbox's localhost (`sandbox-browser-runbook.md`, 2026-11-03).
 
 **Looked at and dropped:**
 - Cloudflare Browser Run: its live view is a hosted page, not embeddable; it
