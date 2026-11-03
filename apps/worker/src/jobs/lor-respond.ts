@@ -499,6 +499,10 @@ export function createLorRespondProcessor(
           let gateText: string
           // This turn's prompts, for links people pasted (touches).
           let promptTexts: string[] = []
+          // A retried attempt that ran the turn again replaced the lost
+          // attempt's text; the trail reseeded from it has offsets into that
+          // discarded text.
+          let regenerated = false
           // Tools Lor consults while answering — accumulated for the durable
           // trail persisted on the message, and streamed live via lor:tool.
           const toolCalls: LorToolCall[] = trail ? [...trail.toolCalls] : []
@@ -582,6 +586,7 @@ export function createLorRespondProcessor(
               execution.resume && harnessState?.lastRunId === execution.runId
                 ? await savedTurnText(execution.runId)
                 : null
+            regenerated = Boolean(execution.resume) && savedAnswer === null
             // "Continue in Code": the first turn's background is the source
             // session's messages, labeled as the work being continued.
             const continuesSession =
@@ -1352,14 +1357,28 @@ export function createLorRespondProcessor(
                     at: await remapOffset(segment.at),
                   }))
                 )
-            // Fallback text has no tool/reasoning offsets of its own.
+            // Fallback text has no tool/reasoning offsets of its own. A
+            // regenerated answer uses only offsets recorded for it: reseeded
+            // rows, and rows upserted onto them, keep the discarded text's.
+            const staleToolIds = new Set(
+              regenerated
+                ? (trail?.toolCalls ?? []).map((tc) => tc.toolCallId)
+                : []
+            )
+            const staleReasoningCount = regenerated
+              ? (trail?.reasoningSegments.length ?? 0)
+              : 0
             replyPreview = emptyFallback
               ? finalText
               : lorReplyPreviewContent(finalText, [
                   ...persistedToolCalls.flatMap((tc) =>
-                    tc.at === undefined ? [] : [tc.at]
+                    tc.at === undefined || staleToolIds.has(tc.toolCallId)
+                      ? []
+                      : [tc.at]
                   ),
-                  ...persistedReasoningSegments.map((segment) => segment.at),
+                  ...persistedReasoningSegments
+                    .slice(staleReasoningCount)
+                    .map((segment) => segment.at),
                 ])
 
             await db

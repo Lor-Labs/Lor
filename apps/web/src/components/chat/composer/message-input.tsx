@@ -1192,9 +1192,11 @@ export function MessageInput({
   const canOpenLinearPicker =
     attachableConnectors.some((connector) => connector.id === "linear") &&
     (!isInline || Boolean(toolbarTarget))
-  slashCommandsRef.current = canOpenLinearPicker
-    ? [...SLASH_COMMANDS, LINEAR_SLASH_COMMAND]
-    : SLASH_COMMANDS
+  useEffect(() => {
+    slashCommandsRef.current = canOpenLinearPicker
+      ? [...SLASH_COMMANDS, LINEAR_SLASH_COMMAND]
+      : SLASH_COMMANDS
+  }, [canOpenLinearPicker])
   openLinearPickerRef.current = () => {
     returnFocusToEditorRef.current = true
     setAttachPanel("linear")

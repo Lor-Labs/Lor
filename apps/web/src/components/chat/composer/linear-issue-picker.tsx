@@ -159,6 +159,8 @@ export function LinearIssuePicker({
   }
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    // Enter and arrows belong to the IME while it composes.
+    if (event.nativeEvent.isComposing) return
     if (event.key === "ArrowDown" && issues.length > 0) {
       event.preventDefault()
       const next = selectedIndex + 1
