@@ -37,12 +37,12 @@ import { EmojiReactionPicker } from "@/components/chat/emoji-reaction-picker"
 const ACTION_CLASS = "size-7 text-muted-foreground hover:text-foreground"
 const COPIED_MS = 1500
 
-// The row under Lor's replies in a session, like ChatGPT's and Claude's:
-// always shown on the newest reply, on hover for older ones (their space is
-// kept, so nothing moves). People's messages and channel chat keep the
+// The row under Lor's replies in a session, like ChatGPT's and Claude's. The
+// actions always show; the time shows on the newest reply and on hover for
+// older ones (Jacob 2026-11-03). People's messages and channel chat keep the
 // floating bar (message-action-bar.tsx).
 export function LorReplyActions({
-  alwaysVisible,
+  timeAlwaysVisible,
   time,
   onCopyText,
   onReact,
@@ -52,7 +52,7 @@ export function LorReplyActions({
   onTogglePin,
   isPinned,
 }: {
-  alwaysVisible: boolean
+  timeAlwaysVisible: boolean
   // When the reply was sent; date dividers carry the day.
   time: string
   onCopyText?: () => void
@@ -74,18 +74,12 @@ export function LorReplyActions({
     const timer = setTimeout(() => setCopied(false), COPIED_MS)
     return () => clearTimeout(timer)
   }, [copied])
-  const shown = alwaysVisible || menuOpen || emojiOpen || forkOpen
+  const timeShown = timeAlwaysVisible || menuOpen || emojiOpen || forkOpen
 
   return (
-    <div
-      className={cn(
-        // The buttons' own padding is the gap: no extra margin above, and
-        // the next row tucks under their bottom padding.
-        "-ml-1.5 -mb-1 mt-0.5 flex items-center gap-0.5 transition-opacity duration-100",
-        !shown &&
-          "pointer-events-none opacity-0 focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
-      )}
-    >
+    // The buttons' own padding is the gap: no extra margin above, and the
+    // next row tucks under their bottom padding.
+    <div className="group/actions -ml-1.5 -mb-1 mt-0.5 flex items-center gap-0.5">
       {onCopyText && (
         <RowAction
           handle={tooltipHandle}
@@ -162,7 +156,13 @@ export function LorReplyActions({
           onOpenChange={setForkOpen}
         />
       )}
-      <span className="ml-1.5 text-muted-foreground/70 text-xs tabular-nums">
+      <span
+        className={cn(
+          "ml-1.5 text-muted-foreground/70 text-xs tabular-nums transition-opacity duration-100",
+          !timeShown &&
+            "opacity-0 group-hover:opacity-100 group-focus-within/actions:opacity-100"
+        )}
+      >
         {time}
       </span>
       <Tooltip handle={tooltipHandle}>
