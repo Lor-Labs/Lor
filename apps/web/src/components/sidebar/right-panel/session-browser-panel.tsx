@@ -205,7 +205,7 @@ export function SessionBrowserPanel({
     ) {
       setOpening(null)
     }
-  }, [opening, setup.data])
+  }, [opening, setup.data, setup.dataUpdatedAt])
 
   // Lor's tool calls may start a server or write the setup file: refresh
   // after a burst.
