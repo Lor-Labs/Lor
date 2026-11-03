@@ -22,6 +22,8 @@ const channelsRouter = createRouter()
   .openapi(routes.searchChannelConnector, handlers.searchChannelConnector)
   .openapi(routes.listConnectorScopes, handlers.listConnectorScopes)
   .openapi(routes.searchConnectorFiles, handlers.searchConnectorFiles)
+  .openapi(routes.listLinearIssues, handlers.listLinearIssues)
+  .openapi(routes.getLinearIssuePrompt, handlers.getLinearIssuePrompt)
   .openapi(routes.listCodeBranches, handlers.listCodeBranches)
 
 export default channelsRouter

@@ -6,6 +6,7 @@ import {
   forbiddenSchema,
   internalServerErrorSchema,
   notFoundSchema,
+  serviceUnavailableSchema,
   unauthorizedSchema,
 } from "@/lib/helpers/openapi/schemas"
 import { connectorLookupRateLimit } from "@/middleware/rate-limit"
@@ -24,6 +25,10 @@ import {
   createChannelRequestSchema,
   createChannelResponseSchema,
   deleteChannelResponseSchema,
+  linearIssueParamsSchema,
+  linearIssuePromptResponseSchema,
+  linearIssuesQuerySchema,
+  linearIssuesResponseSchema,
   listChannelConnectorsResponseSchema,
   listChannelsResponseSchema,
   listConnectorScopesResponseSchema,
@@ -485,6 +490,50 @@ export const searchConnectorFiles = createRoute({
   },
 })
 
+export const listLinearIssues = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/connectors/linear/issues",
+  method: "get",
+  summary: "Browse Linear issues for the composer's issue picker",
+  description:
+    "Pages of issues with status and assignee. scope=mine (default) lists open issues assigned to the caller, matched by email through the workspace's Linear connection; scope=all lists every issue, most recently updated first. q searches either scope. Gated like the connector search.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware, connectorLookupRateLimit] as const,
+  request: { params: channelParamsSchema, query: linearIssuesQuerySchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: linearIssuesResponseSchema,
+      description: "A page of issues",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.SERVICE_UNAVAILABLE]: serviceUnavailableSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const getLinearIssuePrompt = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/connectors/linear/issues/{issueId}",
+  method: "get",
+  summary: "Get a Linear issue for the composer's issue block",
+  description:
+    "The fields Linear's Copy as prompt includes (identifier, title, description, team, project), so a picked issue is sent as the same block as a pasted one. Gated like the connector search.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware, connectorLookupRateLimit] as const,
+  request: { params: linearIssueParamsSchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: linearIssuePromptResponseSchema,
+      description: "The issue",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.SERVICE_UNAVAILABLE]: serviceUnavailableSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
 export const listCodeBranches = createRoute({
   path: "/workspaces/{workspaceSlug}/channels/{channelId}/code/branches",
   method: "get",
@@ -526,4 +575,6 @@ export type ListChannelConnectorsRoute = typeof listChannelConnectors
 export type SearchChannelConnectorRoute = typeof searchChannelConnector
 export type ListConnectorScopesRoute = typeof listConnectorScopes
 export type SearchConnectorFilesRoute = typeof searchConnectorFiles
+export type ListLinearIssuesRoute = typeof listLinearIssues
+export type GetLinearIssuePromptRoute = typeof getLinearIssuePrompt
 export type ListCodeBranchesRoute = typeof listCodeBranches

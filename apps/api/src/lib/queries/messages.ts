@@ -72,7 +72,7 @@ export async function getAvatarColorsByUserId(
   return new Map(rows.map((row) => [row.userId, row.avatarColor]))
 }
 
-type BareMessageRow = {
+export type BareMessageRow = {
   id: string
   channelId: string
   content: string | null
@@ -368,6 +368,34 @@ export async function fetchMessages({
     messages = rows.slice(0, limit)
   }
 
+  const data = await hydrateMessages(messages, {
+    channelId,
+    currentUserId,
+    threadSummaries: !threadRootId,
+  })
+
+  const afterCursor = data[0]?.id ?? null
+  const beforeCursor = data[data.length - 1]?.id ?? null
+
+  return {
+    data,
+    beforeCursor,
+    afterCursor,
+    reachedOldest,
+    reachedNewest,
+  }
+}
+
+// Mentions, reactions, quoted messages and Lor run links for message rows.
+// Thread summaries only for channel-feed rows.
+export async function hydrateMessages(
+  messages: BareMessageRow[],
+  {
+    channelId,
+    currentUserId,
+    threadSummaries,
+  }: { channelId: string; currentUserId: string; threadSummaries: boolean }
+) {
   const messageIds = messages.map((msg) => msg.id)
   const referencedMessageIds = messages
     .map((msg) => msg.referencedMessageId)
@@ -435,7 +463,7 @@ export async function fetchMessages({
       : Promise.resolve([]),
     // Thread summaries only when fetching channel messages, not thread replies.
     // Live-only rule: a live call's chat shows no activity outside the call.
-    threadRootId || messageIds.length === 0
+    !threadSummaries || messageIds.length === 0
       ? Promise.resolve([])
       : db
           .select({
@@ -451,7 +479,7 @@ export async function fetchMessages({
             )
           )
           .groupBy(message.threadRootId),
-    threadRootId || messageIds.length === 0
+    !threadSummaries || messageIds.length === 0
       ? Promise.resolve([])
       : db
           .select({
@@ -599,7 +627,7 @@ export async function fetchMessages({
     reactionsByMessageId.set(reactionRow.messageId, reactionsByEmoji)
   }
 
-  const data = messages.map(({ lorMemories, ...msg }) => ({
+  return messages.map(({ lorMemories, ...msg }) => ({
     ...msg,
     author: {
       ...msg.author,
@@ -620,15 +648,4 @@ export async function fetchMessages({
         : null,
     threadSummary: threadSummaryById.get(msg.id) ?? null,
   }))
-
-  const afterCursor = data[0]?.id ?? null
-  const beforeCursor = data[data.length - 1]?.id ?? null
-
-  return {
-    data,
-    beforeCursor,
-    afterCursor,
-    reachedOldest,
-    reachedNewest,
-  }
 }

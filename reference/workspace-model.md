@@ -61,12 +61,16 @@ places.
    under the channel in the sidebar. Users can send many in a row, so sessions
    run in parallel. `@Lor @Sam` also adds Sam to the session and pings him.
 8. **The session gets the message plus the recent conversation it belongs
-   to.** The session's Details panel links to these messages ("#general ·
-   6 messages") in a Context section, so everyone can see what Lor was given.
-   (Jacob moved it there on 2026-10-09 from a block at the top of the
-   transcript, and preferred a link to quoting the messages.) Lor searches for
-   more with its existing tools. Safe because the session and the channel
-   have the same audience.
+   to.** The top of the transcript shows these messages, folded: "Started
+   from #general · 6 messages", "Asked about a message in #general" (open by
+   default), "Continued from X" or "Forked from X" (a fork's conversation up
+   to the forked reply). Expanded, they are the real messages, read-only.
+   The Details panel keeps a Context link, and its Touched section lists what
+   Lor read, cited or wrote since, with the other sessions that touched the
+   same items. Lor searches for more with its existing tools. Safe because
+   the session and the channel have the same audience. (Jacob 2026-11-03:
+   people couldn't tell what Lor was given or how sessions link up. This
+   reverses his 2026-10-09 move of the context block into a Details link.)
 9. **Cost does not limit the design.** Parallel sessions are billed usage.
 10. **Session states reuse today's thread and plan indicators.** Spinner =
     running. Blue dot = unread. Alert icon = needs something (an approval,
