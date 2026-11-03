@@ -13,6 +13,10 @@ const TOUCHES_MAX = 200
 const OTHER_ROWS_MAX = 2000
 const OTHER_SESSIONS_SHOWN = 3
 const PREVIEW_CHARS = 280
+// Canonical 8-4-4-4-12 form only: anything else would fail the uuid casts and
+// comparisons below and take the whole panel down.
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const SOURCE_KEYED: ReadonlySet<TouchKind> = new Set([
   "github_pr",
@@ -115,7 +119,7 @@ export async function fetchSessionTouches(args: {
       .filter((item) => kinds.includes(item.kind))
       .map((item) => item.value)
   const uuidsOf = (...kinds: TouchKind[]) =>
-    valuesOf(...kinds).filter((value) => /^[0-9a-f-]{36}$/i.test(value))
+    valuesOf(...kinds).filter((value) => UUID_PATTERN.test(value))
 
   const accessible = await listAccessibleChannelIds(
     args.userId,

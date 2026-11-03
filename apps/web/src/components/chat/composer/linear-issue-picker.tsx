@@ -74,6 +74,7 @@ export function LinearIssuePicker({
     error,
     isFetching,
     isFetchingNextPage,
+    isPlaceholderData,
     hasNextPage,
     fetchNextPage,
   } = useInfiniteQuery({
@@ -159,6 +160,8 @@ export function LinearIssuePicker({
   }
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    // Enter and arrows belong to the IME while it composes.
+    if (event.nativeEvent.isComposing) return
     if (event.key === "ArrowDown" && issues.length > 0) {
       event.preventDefault()
       const next = selectedIndex + 1
@@ -175,6 +178,8 @@ export function LinearIssuePicker({
     }
     if (event.key === "Enter") {
       event.preventDefault()
+      // The rows still belong to the previous search until this one lands.
+      if (query !== debouncedQuery || isPlaceholderData) return
       const issue = issues[selectedIndex]
       if (issue) void pick(issue.id)
       return

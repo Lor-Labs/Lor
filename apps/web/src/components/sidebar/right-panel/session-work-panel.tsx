@@ -4,7 +4,6 @@ import {
   HashtagIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { LOR_USER_ID } from "@repo/db/constants"
 import { toast } from "@repo/ui/components/toast"
 import {
   useInfiniteQuery,
@@ -12,7 +11,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { type ReactNode, useEffect, useMemo, useRef } from "react"
+import { type ReactNode, useEffect, useMemo } from "react"
 import {
   ArtifactFileCard,
   UploadFileCard,
@@ -23,6 +22,7 @@ import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/ri
 import { SessionPanelTabs } from "@/components/sidebar/right-panel/session-changes-panel"
 import { SessionTouchedList } from "@/components/sidebar/right-panel/session-touched-list"
 import { MorphText } from "@/components/ui/morph-text"
+import { useSocket } from "@/context/socket-context"
 import {
   type AgentSessionDetail,
   sessionFilesQueryOptions,
@@ -147,31 +147,24 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
   const { data: touched, isError: touchedFailed } = useQuery(
     sessionTouchesQueryOptions(view.sessionId)
   )
-  // Touches are recorded just after a run finishes, so the list catches up
-  // a moment after each finished reply.
-  const newestReply = useMemo(
-    () =>
-      (data?.pages ?? [])
-        .flatMap((page) => page.data)
-        .find(
-          (message) =>
-            message.authorId === LOR_USER_ID && message.status === "complete"
-        )?.id ?? null,
-    [data]
-  )
-  const seenReply = useRef(newestReply)
+  // Touches are recorded just after a run finishes; the worker announces
+  // when they're saved.
+  const socket = useSocket()
   useEffect(() => {
-    if (newestReply === seenReply.current) return
-    seenReply.current = newestReply
-    const timer = setTimeout(
-      () =>
-        void queryClient.invalidateQueries({
-          queryKey: sessionTouchesQueryOptions(view.sessionId).queryKey,
-        }),
-      3000
-    )
-    return () => clearTimeout(timer)
-  }, [newestReply, queryClient, view.sessionId])
+    if (!socket) return
+    const onTouches = (payload: { threadRootId: string }) => {
+      if (payload.threadRootId !== view.threadRootId) return
+      // A first load still in flight would be reused, not refetched.
+      const { queryKey } = sessionTouchesQueryOptions(view.sessionId)
+      void queryClient
+        .cancelQueries({ queryKey })
+        .then(() => queryClient.invalidateQueries({ queryKey }))
+    }
+    socket.on("session:touches:updated", onTouches)
+    return () => {
+      socket.off("session:touches:updated", onTouches)
+    }
+  }, [socket, queryClient, view.sessionId, view.threadRootId])
 
   return (
     <div className="flex h-full w-full flex-col">

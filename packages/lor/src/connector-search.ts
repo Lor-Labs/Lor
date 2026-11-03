@@ -153,8 +153,11 @@ export async function listLinearPickerIssues(
               },
             ],
           }),
-      // A typed identifier ("LOR-123") leads the first page, mine or not.
-      !input.cursor && LINEAR_IDENTIFIER.test(query.toUpperCase())
+      // A typed identifier ("LOR-123") leads All's first page; My issues
+      // keeps to its filter.
+      !input.cursor &&
+      input.scope === "all" &&
+      LINEAR_IDENTIFIER.test(query.toUpperCase())
         ? client.issue(query.toUpperCase()).catch(() => null)
         : null,
     ])

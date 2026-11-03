@@ -872,6 +872,9 @@ export interface ServerToClientEvents {
   // A run in this thread became terminal (complete, failed, stopped). Thread
   // room; sent after the run row is updated, unlike message:stream's done.
   "run:settled": (payload: { threadRootId: string }) => void
+  // A run's touches (what it read, cited, wrote) were saved; the session's
+  // Details panel refetches them. Thread room; sent after the write.
+  "session:touches:updated": (payload: { threadRootId: string }) => void
   // Someone staged, committed, pushed or pulled in a code session. Thread
   // room; ids only. filesChanged: a pull changed the files too.
   "session:changes:updated": (payload: {

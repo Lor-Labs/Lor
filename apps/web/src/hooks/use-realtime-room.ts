@@ -3,20 +3,32 @@ import {
   type JoinLeaveAck,
   threadRoom,
 } from "@repo/realtime-types"
-import { useQueryClient } from "@tanstack/react-query"
-import { useEffect } from "react"
+import { type QueryKey, useQueryClient } from "@tanstack/react-query"
+import { type RefObject, useEffect, useRef } from "react"
 import type { AppSocket } from "@/lib/socket"
 
-type Subscription = { owners: number; dispose: () => void }
+type Subscription = {
+  owners: number
+  // Owners' extra queries, refreshed with the room's own after each join.
+  refreshers: Set<RefObject<QueryKey | undefined>>
+  dispose: () => void
+}
 const subscriptions = new WeakMap<AppSocket, Map<string, Subscription>>()
 
 // The route and sidebar can share a room; one unmount must not evict the other.
 export function useRealtimeRoom(
   socket: AppSocket | null,
   kind: "channel" | "thread",
-  id: string | undefined
+  id: string | undefined,
+  // Another query fed by this room's events (a session document's touches):
+  // events missed while the socket was away are caught up after the rejoin.
+  alsoRefresh?: QueryKey
 ) {
   const queryClient = useQueryClient()
+  const alsoRefreshRef = useRef(alsoRefresh)
+  useEffect(() => {
+    alsoRefreshRef.current = alsoRefresh
+  })
   useEffect(() => {
     if (!socket || !id) return
     const room = kind === "channel" ? channelRoom(id) : threadRoom(id)
@@ -27,6 +39,7 @@ export function useRealtimeRoom(
     }
     let subscription = rooms.get(room)
     if (!subscription) {
+      const refreshers = new Set<RefObject<QueryKey | undefined>>()
       let disposed = false
       let generation = 0
       let delay = 1_000
@@ -54,11 +67,21 @@ export function useRealtimeRoom(
           delay = 1_000
           // Cancel pre-join fetches: an initial query cannot otherwise be refetched
           // until it completes, potentially installing a snapshot from before join.
-          const queryKey =
-            kind === "channel" ? ["messages", id] : ["thread", id]
-          void queryClient.cancelQueries({ queryKey }).then(() => {
+          const queryKeys: QueryKey[] = [
+            kind === "channel" ? ["messages", id] : ["thread", id],
+            ...[...refreshers].flatMap((ref) =>
+              ref.current ? [ref.current] : []
+            ),
+          ]
+          void Promise.all(
+            queryKeys.map((queryKey) => queryClient.cancelQueries({ queryKey }))
+          ).then(() => {
             if (disposed || attempt !== generation || !socket.connected) return
-            return queryClient.invalidateQueries({ queryKey })
+            return Promise.all(
+              queryKeys.map((queryKey) =>
+                queryClient.invalidateQueries({ queryKey })
+              )
+            )
           })
         }
         if (kind === "channel") {
@@ -71,6 +94,7 @@ export function useRealtimeRoom(
       join()
       subscription = {
         owners: 0,
+        refreshers,
         dispose: () => {
           disposed = true
           if (ackTimer) clearTimeout(ackTimer)
@@ -85,7 +109,9 @@ export function useRealtimeRoom(
       rooms.set(room, subscription)
     }
     subscription.owners += 1
+    subscription.refreshers.add(alsoRefreshRef)
     return () => {
+      subscription.refreshers.delete(alsoRefreshRef)
       subscription.owners -= 1
       if (subscription.owners > 0) return
       subscription.dispose()

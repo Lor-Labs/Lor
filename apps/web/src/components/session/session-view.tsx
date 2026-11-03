@@ -328,6 +328,7 @@ function SessionConversation({
       workspaceSlug={workspaceSlug}
       channelId={session.channelId}
       threadRootId={session.threadRootId}
+      sessionId={session.id}
       repoSessionId={code ? session.id : undefined}
       onShowChat={() => tabs.select(null)}
       targetMessageId={targetMessageId}
