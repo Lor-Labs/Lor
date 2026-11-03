@@ -1,3 +1,4 @@
+import { Button } from "@repo/ui/components/button"
 import { useState } from "react"
 import {
   CodeTargetPicker,
@@ -30,6 +31,13 @@ export function useLorStartMode({
     workspaceSlug,
     mode === "code" ? code.repo : null
   )
+  // Sending waits for the environment list so a remembered pick isn't
+  // dropped; a failed load needs Retry or an explicit start without one.
+  const [withoutEnvironmentFor, setWithoutEnvironmentFor] = useState<
+    string | null
+  >(null)
+  const environmentFailed =
+    environment.failed && withoutEnvironmentFor !== code.repo
   const target =
     mode === "code" && code.target
       ? {
@@ -51,9 +59,28 @@ export function useLorStartMode({
             code={code}
           />
         )}
+        {mode === "code" && code.repo && environmentFailed && (
+          <span className="flex min-w-0 items-center gap-1.5 text-xs">
+            <span className="min-w-0 truncate text-muted-foreground">
+              Couldn't load environments
+            </span>
+            <Button size="xs" variant="outline" onClick={environment.retry}>
+              Retry
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => setWithoutEnvironmentFor(code.repo)}
+            >
+              Start without
+            </Button>
+          </span>
+        )}
       </>
     ),
-    sendBlocked: mode === "code" && !code.target,
+    sendBlocked:
+      mode === "code" &&
+      (!code.target || environment.loading || environmentFailed),
     // Only a send that starts a session reads it.
     sendOptions: target ? { code: target } : {},
   }
