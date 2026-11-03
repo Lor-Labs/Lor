@@ -2,7 +2,7 @@ import { PaginationNulls, PaginationSortOrder } from "@linear/sdk"
 import type { IntegrationProvider } from "@repo/db/schema"
 import { attioSearchResult, resolveWorkspaceAttio } from "./attio"
 import { resolveRepoTree, resolveWorkspaceGithub } from "./github"
-import { resolveWorkspaceLinear } from "./linear"
+import { compactLinearIssues, resolveWorkspaceLinear } from "./linear"
 import { notionSearchHit, resolveWorkspaceNotion } from "./notion"
 import { attioRequest } from "./providers/attio"
 import type { RepoTreeEntry } from "./providers/github"
@@ -94,6 +94,125 @@ const searchLinear: ConnectorSearcher = async (workspaceId, query, limit) => {
     subtitle: issue.identifier,
     url: issue.url,
   }))
+}
+
+const LINEAR_PICKER_PAGE_SIZE = 25
+const LINEAR_IDENTIFIER = /^[A-Z][A-Z0-9]*-\d+$/
+
+export type LinearPickerIssue = {
+  id: string
+  identifier: string
+  title: string
+  url: string
+  // Linear's lifecycle type (started, completed…) and the team's own label.
+  state: string | null
+  status: string | null
+  assignee: string | null
+}
+
+// The composer's Linear issue picker. "mine" is open issues assigned to the
+// person, matched by their Lor email, so the workspace connection is enough
+// (no per-user Linear OAuth). null = Linear unreachable: not connected, auth
+// failed, or the request errored.
+export async function listLinearPickerIssues(
+  workspaceId: string,
+  input: {
+    scope: "mine" | "all"
+    email: string
+    query: string
+    cursor?: string
+  }
+): Promise<{ issues: LinearPickerIssue[]; nextCursor: string | null } | null> {
+  const connection = await resolveWorkspaceLinear(workspaceId)
+  if (!connection) return null
+  const client = await linearClientFor(connection.externalId)
+  if (!client) return null
+
+  const query = input.query.trim()
+  const filter =
+    input.scope === "mine"
+      ? {
+          assignee: { email: { eqIgnoreCase: input.email } },
+          state: { type: { nin: ["completed", "canceled", "duplicate"] } },
+        }
+      : undefined
+  const page = { first: LINEAR_PICKER_PAGE_SIZE, after: input.cursor, filter }
+  try {
+    const [results, exact] = await Promise.all([
+      query
+        ? client.searchIssues(query, { ...page, includeArchived: false })
+        : client.issues({
+            ...page,
+            includeArchived: false,
+            sort: [
+              {
+                updatedAt: {
+                  order: PaginationSortOrder.Descending,
+                  nulls: PaginationNulls.Last,
+                },
+              },
+            ],
+          }),
+      // A typed identifier ("LOR-123") leads the first page, mine or not.
+      !input.cursor && LINEAR_IDENTIFIER.test(query.toUpperCase())
+        ? client.issue(query.toUpperCase()).catch(() => null)
+        : null,
+    ])
+    const nodes = exact
+      ? [exact, ...results.nodes.filter((issue) => issue.id !== exact.id)]
+      : results.nodes
+    const issues = await compactLinearIssues(client, nodes)
+    return {
+      issues: issues.map((issue) => ({
+        id: issue.id,
+        identifier: issue.identifier,
+        title: issue.title,
+        url: issue.url,
+        state: issue.state,
+        status: issue.status,
+        assignee: issue.assignee,
+      })),
+      nextCursor: results.pageInfo.hasNextPage
+        ? (results.pageInfo.endCursor ?? null)
+        : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+// What Linear's Copy as prompt includes, so a picked issue becomes the same
+// issue block as a pasted one. null = Linear unreachable or no such issue.
+export async function loadLinearIssuePrompt(
+  workspaceId: string,
+  issueId: string
+): Promise<{
+  identifier: string
+  title: string
+  description: string
+  team: string | null
+  project: { name: string; description: string } | null
+} | null> {
+  const connection = await resolveWorkspaceLinear(workspaceId)
+  if (!connection) return null
+  const client = await linearClientFor(connection.externalId)
+  if (!client) return null
+
+  const issue = await client.issue(issueId).catch(() => null)
+  if (!issue) return null
+  const [team, project] = await Promise.all([
+    Promise.resolve(issue.team).catch(() => undefined),
+    Promise.resolve(issue.project).catch(() => undefined),
+  ])
+  return {
+    identifier: issue.identifier,
+    title: issue.title,
+    description: issue.description ?? "",
+    team: team?.name ?? null,
+    project: project
+      ? { name: project.name, description: project.description }
+      : null,
+  }
 }
 
 const searchNotion: ConnectorSearcher = async (workspaceId, query, limit) => {

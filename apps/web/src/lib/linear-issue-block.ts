@@ -63,6 +63,41 @@ export function parseLinearIssue(raw: string): LinearIssueBlock | null {
   }
 }
 
+// Long descriptions are cut so a picked issue leaves room in the message
+// (MESSAGE_CONTENT_MAX_LENGTH); Lor can still fetch the whole issue.
+const PICKED_DESCRIPTION_MAX_LENGTH = 8000
+
+// A picked issue as the block Copy as prompt pastes, so both become the same
+// card and Lor reads them the same way.
+export function formatLinearIssueBlock(issue: {
+  identifier: string
+  title: string
+  description: string
+  team: string | null
+  project: { name: string; description: string } | null
+}): string {
+  const attr = (value: string) => value.replaceAll('"', "'")
+  const description =
+    issue.description.length > PICKED_DESCRIPTION_MAX_LENGTH
+      ? `${issue.description.slice(0, PICKED_DESCRIPTION_MAX_LENGTH)}…`
+      : issue.description
+  const projectSummary = issue.project?.description.trim()
+  return [
+    `<issue identifier="${issue.identifier}">`,
+    `<title>${issue.title}</title>`,
+    `<description>${description}</description>`,
+    ...(issue.team ? [`<team name="${attr(issue.team)}"/>`] : []),
+    ...(issue.project
+      ? [
+          projectSummary
+            ? `<project name="${attr(issue.project.name)}">${projectSummary}</project>`
+            : `<project name="${attr(issue.project.name)}"/>`,
+        ]
+      : []),
+    "</issue>",
+  ].join("\n")
+}
+
 export function hasLinearIssue(text: string): boolean {
   return new RegExp(ISSUE_BLOCK_SOURCE).test(text)
 }

@@ -58,6 +58,8 @@ interface ConnectorAttachMenuProps {
   channelId?: string
   onUploadFile: () => void
   onAttach: (connector: ConnectorKey, record: ConnectorRecord) => void
+  // Linear opens its own issue picker instead of the record list.
+  onOpenLinear?: () => void
 }
 
 const rowClassName =
@@ -69,6 +71,7 @@ export function ConnectorAttachMenu({
   channelId,
   onUploadFile,
   onAttach,
+  onOpenLinear,
 }: ConnectorAttachMenuProps) {
   const [view, setView] = useState<View>({ kind: "root" })
   const [query, setQuery] = useState("")
@@ -257,7 +260,11 @@ export function ConnectorAttachMenu({
               key={candidate.id}
               type="button"
               className={rowClassName}
-              onClick={() => go({ kind: "records", connector: candidate })}
+              onClick={() =>
+                candidate.id === "linear" && onOpenLinear
+                  ? onOpenLinear()
+                  : go({ kind: "records", connector: candidate })
+              }
             >
               <Logo className="size-4 text-muted-foreground" />
               Add from {candidate.label}

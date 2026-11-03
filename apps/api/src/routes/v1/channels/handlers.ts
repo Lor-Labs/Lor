@@ -23,7 +23,9 @@ import {
 } from "@repo/db/schema"
 import { channelCodeRepo, listRepoBranches } from "@repo/lor/code-repo"
 import {
+  listLinearPickerIssues,
   listConnectorScopes as listScopes,
+  loadLinearIssuePrompt,
   searchConnector,
   searchConnectorFiles as searchFiles,
 } from "@repo/lor/connector-search"
@@ -72,12 +74,14 @@ import type {
   GetChannelAudienceRoute,
   GetChannelReadPositionRoute,
   GetChannelRoute,
+  GetLinearIssuePromptRoute,
   GetMessageLocationRoute,
   ListChannelConnectorsRoute,
   ListChannelMessagesRoute,
   ListChannelsRoute,
   ListCodeBranchesRoute,
   ListConnectorScopesRoute,
+  ListLinearIssuesRoute,
   ListPinnedMessagesRoute,
   ListThreadActivityRoute,
   ListThreadRepliesRoute,
@@ -1526,6 +1530,61 @@ export const listConnectorScopes: AppRouteHandler<
 
   const scopes = await listScopes(provider, workspace.id)
   return c.json({ scopes: scopes ?? [] }, HttpStatusCodes.OK)
+}
+
+const LINEAR_UNREACHABLE = {
+  success: false as const,
+  message: "Couldn't reach Linear",
+}
+
+export const listLinearIssues: AppRouteHandler<ListLinearIssuesRoute> = async (
+  c
+) => {
+  const workspace = c.var.workspace
+  const currentUser = c.var.user
+  const { channelId } = c.req.valid("param")
+  const { q, scope, cursor } = c.req.valid("query")
+
+  const denied = await assertConnectorAllowed(
+    workspace.id,
+    channelId,
+    "linear",
+    currentUser.id
+  )
+  if (denied) return c.json(denied.body, denied.status)
+
+  const page = await listLinearPickerIssues(workspace.id, {
+    scope: scope ?? "mine",
+    email: currentUser.email,
+    query: q ?? "",
+    cursor,
+  })
+  if (!page) {
+    return c.json(LINEAR_UNREACHABLE, HttpStatusCodes.SERVICE_UNAVAILABLE)
+  }
+  return c.json(page, HttpStatusCodes.OK)
+}
+
+export const getLinearIssuePrompt: AppRouteHandler<
+  GetLinearIssuePromptRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const currentUser = c.var.user
+  const { channelId, issueId } = c.req.valid("param")
+
+  const denied = await assertConnectorAllowed(
+    workspace.id,
+    channelId,
+    "linear",
+    currentUser.id
+  )
+  if (denied) return c.json(denied.body, denied.status)
+
+  const issue = await loadLinearIssuePrompt(workspace.id, issueId)
+  if (!issue) {
+    return c.json(LINEAR_UNREACHABLE, HttpStatusCodes.SERVICE_UNAVAILABLE)
+  }
+  return c.json(issue, HttpStatusCodes.OK)
 }
 
 export const listCodeBranches: AppRouteHandler<ListCodeBranchesRoute> = async (

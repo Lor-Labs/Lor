@@ -282,3 +282,41 @@ export const connectorSearchResponseSchema = z.object({
     })
   ),
 })
+
+export const linearIssuesQuerySchema = z.object({
+  q: z.string().max(200).optional(),
+  // mine (default): open issues assigned to the caller, matched by email.
+  scope: z.enum(["mine", "all"]).optional(),
+  cursor: z.string().max(500).optional(),
+})
+
+export const linearIssuesResponseSchema = z.object({
+  issues: z.array(
+    z.object({
+      id: z.string(),
+      identifier: z.string(),
+      title: z.string(),
+      url: z.string(),
+      state: z.string().nullable(),
+      status: z.string().nullable(),
+      assignee: z.string().nullable(),
+    })
+  ),
+  nextCursor: z.string().nullable(),
+})
+
+export const linearIssueParamsSchema = channelParamsSchema.extend({
+  issueId: z
+    .string()
+    .min(1)
+    .max(100)
+    .openapi({ param: { name: "issueId", in: "path", required: true } }),
+})
+
+export const linearIssuePromptResponseSchema = z.object({
+  identifier: z.string(),
+  title: z.string(),
+  description: z.string(),
+  team: z.string().nullable(),
+  project: z.object({ name: z.string(), description: z.string() }).nullable(),
+})
