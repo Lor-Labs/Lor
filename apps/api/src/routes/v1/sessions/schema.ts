@@ -143,6 +143,37 @@ export const openTerminalResponseSchema = z.object({
   expiresAt: z.string(),
 })
 
+// A repo's run setup, `.lor/environment.json`: its services and whether each
+// runs in the session's sandbox. `error`: why the file is invalid.
+export const sessionSetupResponseSchema = z.object({
+  status: z.enum(["no_sandbox", "missing", "invalid", "ready"]),
+  error: z.string().nullable(),
+  install: z.string().nullable(),
+  services: z.array(
+    z.object({
+      name: z.string(),
+      command: z.string(),
+      port: z.number().int(),
+      cwd: z.string().nullable(),
+      state: z.enum(["stopped", "starting", "running", "exited"]),
+      // The end of its log while starting or after it exited.
+      log: z.string().nullable(),
+    })
+  ),
+})
+
+export const startServiceResponseSchema = z.object({
+  status: z.enum(["started", "running"]),
+})
+
+export const serviceParamsSchema = sessionParamsSchema.extend({
+  name: z
+    .string()
+    .min(1)
+    .max(40)
+    .openapi({ param: { name: "name", in: "path", required: true } }),
+})
+
 export const applyEnvironmentResponseSchema = z.object({
   applied: z.boolean(),
 })

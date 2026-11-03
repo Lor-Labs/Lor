@@ -1,5 +1,6 @@
 import { shellQuote } from "@ai-sdk/harness/utils"
 import { env } from "@repo/env/server"
+import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { logger } from "../logger"
 import { ensureProcess, exposePort, portReady } from "../sandbox/sandbox-ports"
 import { attachSessionSandbox } from "../sandbox/session-sandbox"
@@ -16,7 +17,10 @@ export type OpenPort = { port: number; process: string | null }
 const owner = (sessionId: string) => ({ sessionId })
 const RELAY_MARKER = "lor-relay"
 // Blaxel's sandbox API and the harness bridge.
-const HIDDEN_PORTS = [8080, 8790, TERMINAL_PORT]
+export const HIDDEN_PORTS = [8080, 8790, TERMINAL_PORT]
+// Blaxel's sandbox API also listens on other ports (49152), which kept the
+// Browser panel's port list from ever being empty.
+const HIDDEN_PROCESS = "sandbox-api"
 
 // Private on Lor's own preview domain (the cookie is same-site with the web
 // app); public on Blaxel's, where a private preview's cookie would be a
@@ -71,7 +75,7 @@ for (const entry of ports.values()) {
     try { name = fs.readFileSync("/proc/" + pid + "/comm", "utf8").trim() } catch {}
     try { cmdline = fs.readFileSync("/proc/" + pid + "/cmdline", "utf8") } catch {}
   }
-  if (cmdline.includes("${RELAY_MARKER}")) continue
+  if (cmdline.includes("${RELAY_MARKER}") || name === "${HIDDEN_PROCESS}") continue
   out.push({ port: entry.port, loopbackOnly: entry.loopbackOnly, process: name })
 }
 out.sort((a, b) => a.port - b.port)
@@ -106,17 +110,23 @@ net.createServer((client) => {
 
 const relayPort = (port: number) => 40000 + (port % 10000)
 
+export async function readListeningPorts(
+  session: SandboxSession
+): Promise<(OpenPort & { loopbackOnly: boolean })[]> {
+  const result = await session.run({
+    command: `node -e ${shellQuote(LIST_PORTS)} ${HIDDEN_PORTS.join(" ")}`,
+  })
+  if (result.exitCode !== 0) return []
+  return JSON.parse(result.stdout.trim() || "[]")
+}
+
 async function scanPorts(
   sessionId: string
 ): Promise<(OpenPort & { loopbackOnly: boolean })[] | null> {
   const sandbox = await attachSessionSandbox(owner(sessionId))
   if (!sandbox) return null
   try {
-    const result = await sandbox.session.run({
-      command: `node -e ${shellQuote(LIST_PORTS)} ${HIDDEN_PORTS.join(" ")}`,
-    })
-    if (result.exitCode !== 0) return []
-    return JSON.parse(result.stdout.trim() || "[]")
+    return await readListeningPorts(sandbox.session)
   } finally {
     sandbox.close()
   }

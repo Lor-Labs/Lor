@@ -74,7 +74,7 @@ interface MessageItemProps {
   onForward?: (message: Message) => void
   // Session: a new session from one of Lor's finished replies.
   onFork?: (message: Message) => Promise<unknown>
-  // Session: the newest Lor reply keeps its action row in view.
+  // Session: the newest Lor reply keeps its reply time in view.
   isLatestLorReply?: boolean
   // Session: a Lor reply whose turn goes on (paused on approvals, or resumed
   // in a later reply). The turn's last reply gets the action row.
@@ -939,7 +939,7 @@ export const MessageItem = memo(function MessageItem({
           )}
           {lorReplyRow && turnFinished && !isEditing && !readOnly && (
             <LorReplyActions
-              alwaysVisible={isLatestLorReply}
+              timeAlwaysVisible={isLatestLorReply}
               time={formatTime(message.createdAt)}
               onCopyText={message.content ? handleCopyText : undefined}
               onReact={handleReact}

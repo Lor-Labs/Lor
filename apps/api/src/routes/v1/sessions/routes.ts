@@ -34,6 +34,7 @@ import {
   repoTreeResponseSchema,
   rewindAgentSessionRequestSchema,
   rewindAgentSessionResponseSchema,
+  serviceParamsSchema,
   sessionChangeDiffQuerySchema,
   sessionChangeDiffResponseSchema,
   sessionChangesResponseSchema,
@@ -41,8 +42,10 @@ import {
   sessionFilesResponseSchema,
   sessionParamsSchema,
   sessionPortsResponseSchema,
+  sessionSetupResponseSchema,
   sessionTouchesResponseSchema,
   stageSessionChangesRequestSchema,
+  startServiceResponseSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
 } from "@/routes/v1/sessions/schema"
@@ -624,6 +627,55 @@ export const openSessionPort = createRoute({
 })
 
 export type OpenSessionPortRoute = typeof openSessionPort
+
+export const getSessionSetup = createRoute({
+  path: "/sessions/{sessionId}/setup",
+  method: "get",
+  summary: "Read a code session's run setup",
+  description:
+    "The repo's .lor/environment.json as the session's sandbox has it: the install command and each service with whether it runs.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionSetupResponseSchema,
+      description: "The run setup",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetSessionSetupRoute = typeof getSessionSetup
+
+export const startSessionService = createRoute({
+  path: "/sessions/{sessionId}/setup/services/{name}/start",
+  method: "post",
+  summary: "Start a service from a code session's run setup",
+  description:
+    "Runs the repo's install command, then the service's command, as a process that outlives Lor's turns. Returns at once; the setup shows when it listens. Anyone who can write in the channel can do this.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: serviceParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: startServiceResponseSchema,
+      description: "Started, or already running",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type StartSessionServiceRoute = typeof startSessionService
 
 export const openSessionTerminal = createRoute({
   path: "/sessions/{sessionId}/terminal",
