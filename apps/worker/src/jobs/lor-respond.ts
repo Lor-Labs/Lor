@@ -45,6 +45,7 @@ import { recordRunTouches } from "@repo/lor/touches"
 import {
   buildMessageFanout,
   loadThreadSummary,
+  lorReplyPreviewContent,
   sendInstructionsProposalPush,
   sendMessagePushNotifications,
   sendReactionPushNotification,
@@ -1266,6 +1267,7 @@ export function createLorRespondProcessor(
           // status; fanout is best-effort and never downgrades a saved reply.
           await runWriter.transition("finalizing")
           let finalText = ""
+          let replyPreview = ""
           let emptyFallback = false
           // Resolved @mentions from fanout, delivered on the terminal stream frame
           // so the client highlights them live (reload uses the persisted rows).
@@ -1350,6 +1352,15 @@ export function createLorRespondProcessor(
                     at: await remapOffset(segment.at),
                   }))
                 )
+            // Fallback text has no tool/reasoning offsets of its own.
+            replyPreview = emptyFallback
+              ? finalText
+              : lorReplyPreviewContent(finalText, [
+                  ...persistedToolCalls.flatMap((tc) =>
+                    tc.at === undefined ? [] : [tc.at]
+                  ),
+                  ...persistedReasoningSegments.map((segment) => segment.at),
+                ])
 
             await db
               .update(schema.message)
@@ -1419,6 +1430,7 @@ export function createLorRespondProcessor(
                 message: {
                   id: lorMessageId,
                   content: finalText,
+                  previewContent: replyPreview,
                   author: {
                     name: lorAuthor?.name ?? "Lor",
                     image: lorAuthor?.image ?? null,
