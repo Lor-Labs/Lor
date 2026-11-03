@@ -11,7 +11,7 @@ import {
   CollapsibleTrigger,
 } from "@repo/ui/components/collapsible"
 import { cn } from "@repo/ui/lib/utils"
-import { type ReactNode, useRef, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { MorphText } from "@/components/ui/morph-text"
@@ -129,6 +129,59 @@ export function LorActivity({
   )
 }
 
+// Pixels from the end that still count as the bottom (fractional offsets).
+const AT_BOTTOM_PX = 2
+
+// A streaming group's scroll box follows new reasoning and tool steps while
+// the reader is at the bottom, like the main thread. Scrolling up hands it to
+// the reader until they scroll back to the end. Mounts with the open panel,
+// so reopening a live group starts at its latest step.
+function FollowingScrollBox({
+  startFollowing,
+  className,
+  children,
+}: {
+  startFollowing: boolean
+  className: string
+  children: ReactNode
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const followRef = useRef(startFollowing)
+  const lastTopRef = useRef(0)
+
+  useEffect(() => {
+    const viewport = scrollRef.current
+    const content = contentRef.current
+    if (!(viewport && content)) return
+    const observer = new ResizeObserver(() => {
+      if (followRef.current) viewport.scrollTop = viewport.scrollHeight
+    })
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [])
+
+  const handleScroll = () => {
+    const viewport = scrollRef.current
+    if (!viewport) return
+    const top = viewport.scrollTop
+    const distance = viewport.scrollHeight - top - viewport.clientHeight
+    // Checked first: content shrinking also lowers scrollTop, but leaves the
+    // box at its end.
+    if (distance <= AT_BOTTOM_PX) followRef.current = true
+    else if (top < lastTopRef.current) followRef.current = false
+    lastTopRef.current = top
+  }
+
+  return (
+    <div ref={scrollRef} onScroll={handleScroll} className={className}>
+      <div ref={contentRef} className="space-y-2">
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export function LorActivityGroup({
   active,
   runActive,
@@ -155,14 +208,16 @@ export function LorActivityGroup({
   }
 
   const content = (
-    <div
+    // Settled groups open at the top, to be read from the start.
+    <FollowingScrollBox
+      startFollowing={active}
       className={cn(
-        "max-h-80 space-y-2 overflow-y-auto overscroll-contain pr-2 text-muted-foreground [&_[data-slot=chain-of-thought-step-title]]:text-xs [&_[data-slot=chain-of-thought-step-title]_[data-nx-text-shimmer]]:text-xs",
+        "max-h-80 overflow-y-auto overscroll-contain pr-2 text-muted-foreground [&_[data-slot=chain-of-thought-step-title]]:text-xs [&_[data-slot=chain-of-thought-step-title]_[data-nx-text-shimmer]]:text-xs",
         !bare && "mt-2 pl-5"
       )}
     >
       {children}
-    </div>
+    </FollowingScrollBox>
   )
 
   // A lone group repeats the panel's own label, so it renders without a header.
