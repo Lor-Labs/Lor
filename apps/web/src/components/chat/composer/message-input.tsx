@@ -65,6 +65,7 @@ import {
   type SubscriberFace,
 } from "@/components/chat/composer/destination-bar"
 import { LinearIssue } from "@/components/chat/composer/linear-issue-node"
+import { LinearIssuePicker } from "@/components/chat/composer/linear-issue-picker"
 import {
   MentionSuggestionList,
   type MentionSuggestionListProps,
@@ -128,6 +129,13 @@ const SLASH_COMMANDS: SlashCommandItem[] = [
     search: "code snippet block fence",
   },
 ]
+// Offered only where Linear is attachable; opens the + menu's issue picker.
+const LINEAR_SLASH_COMMAND: SlashCommandItem = {
+  id: "linear-issue",
+  label: "Linear Issue",
+  description: "Find a Linear issue and add it",
+  search: "linear issue ticket",
+}
 
 interface MessageInputProps {
   composerDraft?: { id: string; text: string }
@@ -155,8 +163,8 @@ interface MessageInputProps {
   // Session only: the other subscribers, shown as faces when a message goes
   // to people.
   subscribers?: SubscriberFace[]
-  // New session only: controls after the attach button, in the destination
-  // bar.
+  // Shown while the message goes to Lor, after the destination pill: Claude
+  // Code's mode on New session, Chat | Code for `@Lor` in chat.
   leadingTools?: ReactNode
   // Floats just above the composer, e.g. the "Started … · Open" note.
   notice?: ReactNode
@@ -188,6 +196,9 @@ interface MessageInputProps {
   // Holds the send (keeping the draft) until a choice outside the editor is
   // made, e.g. a code session's repo.
   sendBlocked?: boolean
+  // The same, only while the message starts a Lor session (`@Lor` in Code
+  // mode without a repo yet).
+  lorSendBlocked?: boolean
   currentUserId?: string
   mentionCandidates?: MentionCandidate[]
   replyingTo?: Message | null
@@ -360,16 +371,16 @@ export function createMentionSuggestion(
   }
 }
 
-function createSlashCommandSuggestion(): Omit<
-  SuggestionOptions<SlashCommandItem, SlashCommandItem>,
-  "editor"
-> {
+function createSlashCommandSuggestion(
+  getCommands: () => SlashCommandItem[],
+  onLinearIssue: () => void
+): Omit<SuggestionOptions<SlashCommandItem, SlashCommandItem>, "editor"> {
   return {
     pluginKey: SLASH_COMMAND_PLUGIN_KEY,
     char: "/",
     items: ({ query }) => {
       const normalized = query.trim().toLowerCase()
-      const results = SLASH_COMMANDS.filter((command) => {
+      const results = getCommands().filter((command) => {
         if (!normalized) return true
         return (
           command.label.toLowerCase().includes(normalized) ||
@@ -379,6 +390,11 @@ function createSlashCommandSuggestion(): Omit<
       return results.slice(0, MAX_SLASH_RESULTS)
     },
     command: ({ editor, range, props }) => {
+      if (props.id === "linear-issue") {
+        editor.chain().focus().deleteRange(range).run()
+        onLinearIssue()
+        return
+      }
       if (props.id !== "code-block") {
         return
       }
@@ -588,7 +604,8 @@ export function MessageInput({
   disabledReason,
   onSend,
   isSending,
-  sendBlocked = false,
+  sendBlocked: blockedAlways = false,
+  lorSendBlocked = false,
   currentUserId,
   mentionCandidates = [],
   replyingTo,
@@ -609,6 +626,11 @@ export function MessageInput({
   onShiftTab,
 }: MessageInputProps) {
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
+  const [attachPanel, setAttachPanel] = useState<"menu" | "linear">("menu")
+  const linearSearchRef = useRef<HTMLInputElement>(null)
+  // Opened from /linear, or an issue was picked: closing goes back to typing,
+  // not to the + button.
+  const returnFocusToEditorRef = useRef(false)
   const mentionCandidatesRef = useRef<MentionCandidate[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const handleSubmitRef = useRef<(stay: boolean) => void>(() => undefined)
@@ -682,8 +704,14 @@ export function MessageInput({
     () => createMentionSuggestion(() => mentionCandidatesRef.current),
     []
   )
+  const slashCommandsRef = useRef(SLASH_COMMANDS)
+  const openLinearPickerRef = useRef<() => void>(() => undefined)
   const slashCommandSuggestion = useMemo(
-    () => createSlashCommandSuggestion(),
+    () =>
+      createSlashCommandSuggestion(
+        () => slashCommandsRef.current,
+        () => openLinearPickerRef.current()
+      ),
     []
   )
   const slashCommandExtension = useMemo(
@@ -825,6 +853,7 @@ export function MessageInput({
     ]
   )
   const showLorState = Boolean(destination) && routing.toLor
+  const sendBlocked = blockedAlways || (routing.toLor && lorSendBlocked)
   const isInline = variant === "inline"
   const lorPillRef = useRef<HTMLSpanElement>(null)
   // Taught once the person types in a session, when the pill decides who
@@ -1145,6 +1174,40 @@ export function MessageInput({
     [editor]
   )
 
+  const handleAttachLinearIssue = useCallback(
+    (block: string) => {
+      if (!editor) return
+
+      editor
+        .chain()
+        .focus()
+        .insertContent([
+          { type: "linearIssue", attrs: { raw: block } },
+          { type: "paragraph" },
+        ])
+        .run()
+      returnFocusToEditorRef.current = true
+      setIsAttachmentMenuOpen(false)
+    },
+    [editor]
+  )
+
+  // The + menu needs its button, which the inline bar renders only once its
+  // target exists.
+  const canOpenLinearPicker =
+    attachableConnectors.some((connector) => connector.id === "linear") &&
+    (!isInline || Boolean(toolbarTarget))
+  useEffect(() => {
+    slashCommandsRef.current = canOpenLinearPicker
+      ? [...SLASH_COMMANDS, LINEAR_SLASH_COMMAND]
+      : SLASH_COMMANDS
+  }, [canOpenLinearPicker])
+  openLinearPickerRef.current = () => {
+    returnFocusToEditorRef.current = true
+    setAttachPanel("linear")
+    setIsAttachmentMenuOpen(true)
+  }
+
   const handleFileInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = event.target.files
@@ -1429,7 +1492,13 @@ export function MessageInput({
           >
             <Popover
               open={isAttachmentMenuOpen}
-              onOpenChange={setIsAttachmentMenuOpen}
+              onOpenChange={(open) => {
+                if (open) {
+                  returnFocusToEditorRef.current = false
+                  setAttachPanel("menu")
+                }
+                setIsAttachmentMenuOpen(open)
+              }}
             >
               <PopoverTrigger
                 render={
@@ -1455,19 +1524,38 @@ export function MessageInput({
                 side="top"
                 align="start"
                 sideOffset={10}
-                className="w-72"
+                className={attachPanel === "linear" ? "w-96" : "w-72"}
                 viewportClassName="p-2"
+                initialFocus={
+                  attachPanel === "linear" ? linearSearchRef : undefined
+                }
+                finalFocus={() => {
+                  if (!returnFocusToEditorRef.current) return true
+                  editor?.commands.focus()
+                  return false
+                }}
               >
-                <ConnectorAttachMenu
-                  connectors={attachableConnectors}
-                  workspaceSlug={workspaceSlug}
-                  channelId={channelId}
-                  onUploadFile={() => {
-                    fileInputRef.current?.click()
-                    setIsAttachmentMenuOpen(false)
-                  }}
-                  onAttach={handleAttachRecord}
-                />
+                {attachPanel === "linear" && workspaceSlug && channelId ? (
+                  <LinearIssuePicker
+                    workspaceSlug={workspaceSlug}
+                    channelId={channelId}
+                    inputRef={linearSearchRef}
+                    onBack={() => setAttachPanel("menu")}
+                    onPick={handleAttachLinearIssue}
+                  />
+                ) : (
+                  <ConnectorAttachMenu
+                    connectors={attachableConnectors}
+                    workspaceSlug={workspaceSlug}
+                    channelId={channelId}
+                    onUploadFile={() => {
+                      fileInputRef.current?.click()
+                      setIsAttachmentMenuOpen(false)
+                    }}
+                    onAttach={handleAttachRecord}
+                    onOpenLinear={() => setAttachPanel("linear")}
+                  />
+                )}
               </PopoverContent>
             </Popover>
             {destination && (

@@ -1615,3 +1615,13 @@ alone is about 4,500–5,200 changed mobile lines (Steps 20–35), plus Phase E2
   carries `sessionId` and the dock ignores sessions, while old Lor threads
   still visible in chat keep live footers. Human-thread replies still count
   toward the channel unread badge (unchanged); only sessions left it.
+- Starting context visible again (Jacob 2026-11-03, after Step 6's
+  follow-up removed it): `GET /sessions/{id}/context` returns the messages a
+  session started with, oldest segment first (a fork chain's conversations
+  up to each forked reply, without rewound turns, then the chat, asked-about
+  message or continued session's messages; newest 150). The session heading
+  folds them under one row (`session-context-fold.tsx`), replacing the
+  "Forked from" line. `GET /sessions/{id}/touches` feeds a Touched section in
+  Details (`session-touched-list.tsx`), and code sessions get a Details tab.
+  `@Lor` in channel chat gets Chat | Code with a repo picker in the
+  composer's Lor state (`lor-start-mode.tsx`); it runs on Lor's own agent.

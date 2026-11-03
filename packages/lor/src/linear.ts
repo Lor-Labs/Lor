@@ -57,14 +57,35 @@ type IssueUpdate = Parameters<LinearClient["updateIssue"]>[1]
 type IssuesArgs = NonNullable<Parameters<LinearClient["issues"]>[0]>
 type IssueFilter = NonNullable<IssuesArgs["filter"]>
 
+// What compacting reads; issue lists and search results both have it.
+type CompactableIssue = Pick<
+  LinearIssue,
+  | "id"
+  | "identifier"
+  | "title"
+  | "url"
+  | "stateId"
+  | "teamId"
+  | "assigneeId"
+  | "projectId"
+  | "labelIds"
+  | "priority"
+  | "priorityLabel"
+  | "createdAt"
+  | "updatedAt"
+  | "startedAt"
+  | "completedAt"
+  | "dueDate"
+>
+
 const compactName = (value: { displayName?: string | null; name: string }) =>
   value.displayName || value.name
 
 // `visuals` adds what a card draws (avatar, label colours); tool results for
 // the model leave it out.
-async function compactLinearIssues(
+export async function compactLinearIssues(
   client: LinearClient,
-  issues: LinearIssue[],
+  issues: CompactableIssue[],
   options: { visuals?: boolean } = {}
 ) {
   const unique = (ids: Array<string | undefined>) => [

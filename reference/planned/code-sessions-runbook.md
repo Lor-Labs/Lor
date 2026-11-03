@@ -345,7 +345,10 @@ may lag web), a Lor-offered "Continue in Code" card.
     to the fork point at the top of the fork, read-only and dimmed under the
     "Forked from X" header. The same messages, not copies. The transcript
     must then load and page another session's messages, with actions on
-    them turned off or sent to the parent.
+    them turned off or sent to the parent. **Built 2026-11-03** as the
+    context fold (workspace-model.md #8): collapsed under "Forked from X ·
+    N messages", read-only at normal contrast like "Previous history", and
+    walked up the fork chain.
 
   Plan (Pi 1.3.0 source read 2026-10-24):
   - **Where a turn ends.** A Lor reply → its run → the last entry of the

@@ -3,7 +3,10 @@ import {
   agentSessionModeEnum,
   agentSessionOriginEnum,
   harnessKindEnum,
+  TOUCH_ACTIONS,
+  TOUCH_KINDS,
 } from "@repo/db/schema"
+import { messageWithAuthorSchema } from "@/lib/helpers/openapi/message-schemas"
 
 export const sessionParamsSchema = z.object({
   sessionId: z
@@ -45,7 +48,8 @@ export const agentSessionSchema = z
   })
   .openapi("AgentSession")
 
-// A message the session started with. Clients link to it, not quote it.
+// A message the session started with. The full messages come from
+// /sessions/{id}/context.
 export const sessionContextMessageSchema = z.object({
   id: z.string().uuid(),
   createdAt: z.string(),
@@ -190,6 +194,49 @@ export const getAgentSessionResponseSchema = z.object({
   // "Continue in Code" or a fork: the session this one comes from. Same
   // channel.
   source: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
+})
+
+// What the session started with, oldest segment first: a fork chain's
+// conversations, then (at most one) the chat, asked-about message or
+// continued session's messages it began from.
+export const sessionContextResponseSchema = z.object({
+  segments: z.array(
+    z.object({
+      kind: z.enum(["fork", "continued", "asked", "conversation"]),
+      // fork and continued: the session the messages come from.
+      session: z
+        .object({ id: z.string().uuid(), title: z.string() })
+        .nullable(),
+      // Oldest first.
+      messages: z.array(messageWithAuthorSchema),
+      // Older messages in this segment that weren't sent.
+      omitted: z.number().int(),
+    })
+  ),
+})
+
+// What the session's runs touched, newest first.
+export const sessionTouchesResponseSchema = z.object({
+  items: z.array(
+    z.object({
+      kind: z.enum(TOUCH_KINDS),
+      value: z.string(),
+      actions: z.array(z.enum(TOUCH_ACTIONS)),
+      at: z.string(),
+      title: z.string().nullable(),
+      // A source's state, a message's text, a call's start time.
+      detail: z.string().nullable(),
+      url: z.string().nullable(),
+      // A message, or a call's chat, to open in the app.
+      messageId: z.string().uuid().nullable(),
+      provider: z.string().nullable(),
+      mentions: z.array(z.object({ id: z.string(), name: z.string() })),
+      otherSessions: z.array(
+        z.object({ id: z.string().uuid(), title: z.string() })
+      ),
+      otherSessionCount: z.number().int(),
+    })
+  ),
 })
 
 export const forkAgentSessionRequestSchema = z.object({

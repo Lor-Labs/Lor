@@ -9,6 +9,9 @@ import {
   useImperativeHandle,
   useState,
 } from "react"
+import { connectorLogo } from "@/lib/connector-ui"
+
+const LinearLogo = connectorLogo("linear")
 
 export interface SlashCommandItem {
   id: string
@@ -28,6 +31,7 @@ export interface SlashCommandListProps {
 }
 
 function CommandIcon({ id }: { id: SlashCommandItem["id"] }) {
+  if (id === "linear-issue") return <LinearLogo className="size-4" />
   if (id.startsWith("code-block")) {
     return (
       <HugeiconsIcon
@@ -112,10 +116,10 @@ export const SlashCommandList = forwardRef<
               ? "bg-accent text-accent-foreground"
               : "hover:bg-accent/70"
           )}
-          onMouseDown={(event) => {
-            event.preventDefault()
-            selectItem(index)
-          }}
+          // Select on click, not mousedown: a command that opens a popover
+          // (Linear Issue) would be closed again by this same click.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => selectItem(index)}
         >
           <span className="mt-0.5 text-muted-foreground">
             <CommandIcon id={item.id} />

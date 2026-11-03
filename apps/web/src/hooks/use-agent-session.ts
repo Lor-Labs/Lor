@@ -61,6 +61,45 @@ export function sessionFilesQueryOptions(sessionId: string) {
   }
 }
 
+// The messages the session started with, for the fold atop its transcript.
+export function sessionContextQueryOptions(sessionId: string) {
+  return {
+    queryKey: ["agent-session-context", sessionId] as const,
+    queryFn: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].context.$get({
+        param: { sessionId },
+      })
+      if (!res.ok) throw new Error("Couldn't load the session's context")
+      return res.json()
+    },
+    // Written once at the start; a fork's source can't change before its
+    // reply either.
+    staleTime: Number.POSITIVE_INFINITY,
+  }
+}
+
+export type SessionContextSegment = Awaited<
+  ReturnType<ReturnType<typeof sessionContextQueryOptions>["queryFn"]>
+>["segments"][number]
+
+// What the session's runs touched, for the Details panel.
+export function sessionTouchesQueryOptions(sessionId: string) {
+  return {
+    queryKey: ["agent-session-touches", sessionId] as const,
+    queryFn: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].touches.$get({
+        param: { sessionId },
+      })
+      if (!res.ok) throw new Error("Couldn't load what the session touched")
+      return res.json()
+    },
+  }
+}
+
+export type SessionTouch = Awaited<
+  ReturnType<ReturnType<typeof sessionTouchesQueryOptions>["queryFn"]>
+>["items"][number]
+
 export function useAgentSession(sessionId: string) {
   return useQuery(agentSessionQueryOptions(sessionId))
 }

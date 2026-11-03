@@ -45,6 +45,7 @@ import { recordRunTouches } from "@repo/lor/touches"
 import {
   buildMessageFanout,
   loadThreadSummary,
+  lorReplyPreviewContent,
   sendInstructionsProposalPush,
   sendMessagePushNotifications,
   sendReactionPushNotification,
@@ -498,6 +499,10 @@ export function createLorRespondProcessor(
           let gateText: string
           // This turn's prompts, for links people pasted (touches).
           let promptTexts: string[] = []
+          // A retried attempt that ran the turn again replaced the lost
+          // attempt's text; the trail reseeded from it has offsets into that
+          // discarded text.
+          let regenerated = false
           // Tools Lor consults while answering — accumulated for the durable
           // trail persisted on the message, and streamed live via lor:tool.
           const toolCalls: LorToolCall[] = trail ? [...trail.toolCalls] : []
@@ -581,6 +586,7 @@ export function createLorRespondProcessor(
               execution.resume && harnessState?.lastRunId === execution.runId
                 ? await savedTurnText(execution.runId)
                 : null
+            regenerated = Boolean(execution.resume) && savedAnswer === null
             // "Continue in Code": the first turn's background is the source
             // session's messages, labeled as the work being continued.
             const continuesSession =
@@ -1266,6 +1272,7 @@ export function createLorRespondProcessor(
           // status; fanout is best-effort and never downgrades a saved reply.
           await runWriter.transition("finalizing")
           let finalText = ""
+          let replyPreview = ""
           let emptyFallback = false
           // Resolved @mentions from fanout, delivered on the terminal stream frame
           // so the client highlights them live (reload uses the persisted rows).
@@ -1350,6 +1357,29 @@ export function createLorRespondProcessor(
                     at: await remapOffset(segment.at),
                   }))
                 )
+            // Fallback text has no tool/reasoning offsets of its own. A
+            // regenerated answer uses only offsets recorded for it: reseeded
+            // rows, and rows upserted onto them, keep the discarded text's.
+            const staleToolIds = new Set(
+              regenerated
+                ? (trail?.toolCalls ?? []).map((tc) => tc.toolCallId)
+                : []
+            )
+            const staleReasoningCount = regenerated
+              ? (trail?.reasoningSegments.length ?? 0)
+              : 0
+            replyPreview = emptyFallback
+              ? finalText
+              : lorReplyPreviewContent(finalText, [
+                  ...persistedToolCalls.flatMap((tc) =>
+                    tc.at === undefined || staleToolIds.has(tc.toolCallId)
+                      ? []
+                      : [tc.at]
+                  ),
+                  ...persistedReasoningSegments
+                    .slice(staleReasoningCount)
+                    .map((segment) => segment.at),
+                ])
 
             await db
               .update(schema.message)
@@ -1419,6 +1449,7 @@ export function createLorRespondProcessor(
                 message: {
                   id: lorMessageId,
                   content: finalText,
+                  previewContent: replyPreview,
                   author: {
                     name: lorAuthor?.name ?? "Lor",
                     image: lorAuthor?.image ?? null,
@@ -1498,9 +1529,15 @@ export function createLorRespondProcessor(
               runId: execution?.runId ?? null,
               replyText: finalText,
               promptTexts,
-            }).catch((err) =>
-              logger.warn({ err, threadRootId }, "Recording touches failed")
-            )
+            })
+              .then(() =>
+                emitter
+                  .to(threadRoom(threadRootId))
+                  .emit("session:touches:updated", { threadRootId })
+              )
+              .catch((err) =>
+                logger.warn({ err, threadRootId }, "Recording touches failed")
+              )
           }
           // Announce the set once the run is terminal: a decision made sooner
           // queues its resume behind this run. Ids only; cards refetch the

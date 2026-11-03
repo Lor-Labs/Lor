@@ -45,6 +45,9 @@ type FanoutMessage = {
   id: string
   type?: UnreadNotification["messageType"]
   content: string | null
+  // Notification preview text when it differs from content; mentions are
+  // still read from content.
+  previewContent?: string | null
   author: { name: string; image?: string | null }
   attachments: readonly unknown[]
   embeds?: readonly Embed[]
@@ -397,6 +400,23 @@ export function buildNotificationContentPreview(input: {
   return `${normalized.slice(0, maxLength)}…`
 }
 
+// Lor notifications preview its final reply ("Here's what I found…"), not the
+// "Let me look…" lead-in before its tool calls and reasoning: the last
+// non-blank text block between those offsets, split like the Lor message body.
+export function lorReplyPreviewContent(
+  content: string,
+  offsets: readonly number[]
+) {
+  let end = content.length
+  for (const at of [...offsets].sort((a, b) => b - a)) {
+    if (at <= 0 || at >= end) continue
+    const block = content.slice(at, end)
+    if (block.trim()) return block
+    end = at
+  }
+  return content.slice(0, end)
+}
+
 async function buildResolvedNotificationContentPreview(content: string) {
   const mentionIds = [...extractDirectMentionUserIds(content)]
   const mentions =
@@ -501,9 +521,10 @@ export async function buildMessageFanout(input: MessageFanoutInput) {
   const outsideCall = (userId: string) =>
     callMemberIds !== null && !callMemberIds.has(userId)
 
+  const previewSource = input.message.previewContent ?? input.message.content
   const contentPreview =
-    (input.message.content
-      ? await buildResolvedNotificationContentPreview(input.message.content)
+    (previewSource
+      ? await buildResolvedNotificationContentPreview(previewSource)
       : "") ||
     buildNotificationEmbedPreview(input.message.embeds) ||
     (input.message.attachments.length > 0

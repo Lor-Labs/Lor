@@ -67,6 +67,8 @@ import { githubAccountToken } from "@/lib/github-account"
 import { pullRequestLink, pushCommits } from "@/lib/github-push"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
+import { fetchSessionContext } from "@/lib/queries/session-context"
+import { fetchSessionTouches } from "@/lib/queries/session-touches"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import {
@@ -87,10 +89,12 @@ import type {
   GetRepoTreeRoute,
   GetSessionChangeDiffRoute,
   GetSessionChangesRoute,
+  GetSessionContextRoute,
   GetSessionSetupRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
   ListSessionPortsRoute,
+  ListSessionTouchesRoute,
   OpenSessionPortRoute,
   OpenSessionTerminalRoute,
   PullSessionChangesRoute,
@@ -241,6 +245,40 @@ export const listSessionFiles: AppRouteHandler<ListSessionFilesRoute> = async (
     },
     HttpStatusCodes.OK
   )
+}
+
+export const getSessionContext: AppRouteHandler<
+  GetSessionContextRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const segments = await fetchSessionContext(row.session, c.var.user.id)
+  return c.json({ segments }, HttpStatusCodes.OK)
+}
+
+export const listSessionTouches: AppRouteHandler<
+  ListSessionTouchesRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const items = await fetchSessionTouches({
+    sessionId,
+    workspaceId: row.session.workspaceId,
+    userId: c.var.user.id,
+  })
+  return c.json({ items }, HttpStatusCodes.OK)
 }
 
 // Bounded for now; older sessions stay reachable from search.

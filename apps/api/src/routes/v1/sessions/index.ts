@@ -5,6 +5,8 @@ import * as routes from "@/routes/v1/sessions/routes"
 const sessionsRouter = createRouter()
   .openapi(routes.getAgentSession, handlers.getAgentSession)
   .openapi(routes.listSessionFiles, handlers.listSessionFiles)
+  .openapi(routes.getSessionContext, handlers.getSessionContext)
+  .openapi(routes.listSessionTouches, handlers.listSessionTouches)
   .openapi(routes.getSessionChanges, handlers.getSessionChanges)
   .openapi(routes.getSessionChangeDiff, handlers.getSessionChangeDiff)
   .openapi(routes.stageSessionChanges, handlers.stageSessionChanges)

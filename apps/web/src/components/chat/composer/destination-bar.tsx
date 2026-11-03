@@ -43,8 +43,9 @@ export function DestinationBar({
   subscribers?: SubscriberFace[]
   // Session only, when nothing in the message decides the destination.
   onSwitch?: () => void
-  // New session only: its controls after the attach button (Claude Code's
-  // mode). Its channel is in the page's headline, so it has no pill.
+  // Lor state only: New session's controls (Claude Code's mode; its channel
+  // is in the page's headline, so it has no pill), or Chat | Code after the
+  // pill for `@Lor` in chat.
   leadingTools?: ReactNode
   // Anchors the session_reply hint on the Lor pill. Only the Lor state takes
   // it: the people state's exit would clear the ref after the swap.

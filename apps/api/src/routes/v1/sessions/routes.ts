@@ -38,10 +38,12 @@ import {
   sessionChangeDiffQuerySchema,
   sessionChangeDiffResponseSchema,
   sessionChangesResponseSchema,
+  sessionContextResponseSchema,
   sessionFilesResponseSchema,
   sessionParamsSchema,
   sessionPortsResponseSchema,
   sessionSetupResponseSchema,
+  sessionTouchesResponseSchema,
   stageSessionChangesRequestSchema,
   startServiceResponseSchema,
   updateAgentSessionRequestSchema,
@@ -97,6 +99,56 @@ export const listSessionFiles = createRoute({
 })
 
 export type ListSessionFilesRoute = typeof listSessionFiles
+
+export const getSessionContext = createRoute({
+  path: "/sessions/{sessionId}/context",
+  method: "get",
+  summary: "Get a Lor session's starting context",
+  description:
+    "Returns the messages the session started with: a fork's conversation up to the forked reply, a continued session's messages, the chat before @Lor, or an asked-about message.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionContextResponseSchema,
+      description: "Starting context segments",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetSessionContextRoute = typeof getSessionContext
+
+export const listSessionTouches = createRoute({
+  path: "/sessions/{sessionId}/touches",
+  method: "get",
+  summary: "List what a Lor session touched",
+  description:
+    "Returns the issues, pages, messages, memory pages, files and links the session's runs read, cited, wrote or were pointed at, with other sessions that touched the same items.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionTouchesResponseSchema,
+      description: "Touched items",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListSessionTouchesRoute = typeof listSessionTouches
 
 export const getSessionChanges = createRoute({
   path: "/sessions/{sessionId}/changes",

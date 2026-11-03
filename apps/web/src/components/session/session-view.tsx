@@ -1,8 +1,6 @@
 import {
   Archive02Icon,
-  BubbleChatIcon,
   GitBranchIcon,
-  GitForkIcon,
   HashtagIcon,
   Link01Icon,
   MoreHorizontalIcon,
@@ -44,6 +42,7 @@ import { ArchiveSessionDialog } from "@/components/session/archive-session-dialo
 import { EnvironmentDialog } from "@/components/session/environment-dialog"
 import { HarnessLogo } from "@/components/session/harness-logo"
 import { HARNESS_LABELS } from "@/components/session/harness-picker"
+import { SessionContextFold } from "@/components/session/session-context-fold"
 import { SessionDocument } from "@/components/session/session-document"
 import {
   SessionTabBar,
@@ -173,8 +172,8 @@ function SessionConversation({
   ])
 
   // The right panel shows this session's details while the page is open, the
-  // way a channel page sets its own panel view. A code session's panel has
-  // no Details for now: it opens on Changes.
+  // way a channel page sets its own panel view. A code session's panel opens
+  // on Changes; Details is its last tab.
   const { view, setView, openView, clearView, isHydrated } = useRightSidebar()
   const isMobile = useIsMobile()
   const code = session.mode === "code"
@@ -329,6 +328,7 @@ function SessionConversation({
       workspaceSlug={workspaceSlug}
       channelId={session.channelId}
       threadRootId={session.threadRootId}
+      sessionId={session.id}
       repoSessionId={code ? session.id : undefined}
       onShowChat={() => tabs.select(null)}
       targetMessageId={targetMessageId}
@@ -608,7 +608,8 @@ function ClaudeCodeNote({
   )
 }
 
-// The document's opening: title and metadata, with the source on its own row.
+// The document's opening: title and metadata, then what Lor started with
+// (folded).
 function SessionHeading({
   session,
   channelName,
@@ -721,32 +722,13 @@ function SessionHeading({
         <span aria-hidden="true">·</span>
         <span>{timeAgo(session.createdAt)}</span>
       </p>
-      {source && workspaceSlug && (
-        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
-          <HugeiconsIcon
-            icon={session.forkedFromMessageId ? GitForkIcon : BubbleChatIcon}
-            className="size-3.5 shrink-0"
-            strokeWidth={2}
-            aria-hidden="true"
-          />
-          <span className="shrink-0">
-            {session.forkedFromMessageId ? "Forked from" : "Continued from"}
-          </span>
-          <Link
-            to="/$workspaceSlug/session/$sessionId"
-            params={{ workspaceSlug, sessionId: source.id }}
-            // A fork opens its source at the reply it was forked from.
-            search={
-              session.forkedFromMessageId
-                ? { msgId: session.forkedFromMessageId }
-                : {}
-            }
-            title={source.title}
-            className="min-w-0 truncate font-medium transition-colors hover:text-foreground"
-          >
-            {source.title}
-          </Link>
-        </div>
+      {workspaceSlug && (
+        <SessionContextFold
+          session={session}
+          source={source}
+          channelName={channelName}
+          workspaceSlug={workspaceSlug}
+        />
       )}
       <div className="mt-6 border-border/50 border-t" />
     </div>

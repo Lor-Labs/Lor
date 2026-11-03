@@ -3,6 +3,7 @@ import {
   type InfiniteData,
   infiniteQueryOptions,
   type QueryClient,
+  type QueryKey,
   useInfiniteQuery,
   useQueryClient,
 } from "@tanstack/react-query"
@@ -244,6 +245,8 @@ interface UseThreadMessagesOptions {
   socket: AppSocket | null
   pendingNoncesRef?: MutableRefObject<Set<string>>
   perPage?: number
+  // Refreshed with the thread after each room rejoin (useRealtimeRoom).
+  alsoRefresh?: QueryKey
 }
 
 /**
@@ -259,6 +262,7 @@ export function useThreadMessages({
   socket,
   pendingNoncesRef,
   perPage = 50,
+  alsoRefresh,
 }: UseThreadMessagesOptions) {
   const queryClient = useQueryClient()
 
@@ -268,7 +272,12 @@ export function useThreadMessages({
   })
 
   useRealtimeRoom(socket, "channel", enabled ? channelId : undefined)
-  useRealtimeRoom(socket, "thread", enabled ? threadRootId : undefined)
+  useRealtimeRoom(
+    socket,
+    "thread",
+    enabled ? threadRootId : undefined,
+    alsoRefresh
+  )
 
   // Subscribe to live replies in this thread.
   useEffect(() => {
