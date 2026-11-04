@@ -27,8 +27,10 @@ const AGENT_BROWSER = "/opt/agent-browser/bin/agent-browser"
 const PROCESS = "browser"
 const READY_WAIT_MS = 30_000
 const PREVIEW_TOKEN_TTL_MS = 15 * 60_000
-// Exit code: the sandbox's image predates the browser.
+// Exit code: the sandbox's image predates the browser, or has the first
+// browser build whose websockify view had no tokens or view-only.
 const MISSING = 3
+const GATEWAY = "/opt/lor-browser/gateway.mjs"
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const owner = (sessionId: string) => ({ sessionId })
@@ -67,7 +69,7 @@ async function runInBrowserDir(
   try {
     const result = await sandbox.session.run({
       command: [
-        `command -v lor-browser-start >/dev/null || exit ${MISSING}`,
+        `[ -f ${GATEWAY} ] || exit ${MISSING}`,
         `d=${q(BROWSER_DIR)}`,
         `mkdir -p "$d/viewers"`,
         ...lines,

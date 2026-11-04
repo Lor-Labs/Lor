@@ -478,8 +478,30 @@ Each step is a review chunk of about 300–400 lines.
       `session:browser:control` to the thread room) and `/browser/open`
       (`{ port, path }`). Write access in a live code session, like the
       terminal.
-  - [ ] Push the image, then 4c: the panel's live view (noVNC client).
-  - [ ] 4d take control / hand back UI, 4e browser-step rows, 4f phone. Probably
+  - [x] Image pushed with the gateway (2026-11-03). The API treats a
+    sandbox without `/opt/lor-browser/gateway.mjs` as `unavailable`: the
+    step-3 build's websockify view had no tokens and no view-only.
+  - [x] 4c + 4d, panel (2026-11-03, not run live yet):
+    - `session-browser-live-view.tsx`: `useSessionBrowserLive` asks the API
+      for a view, connects noVNC (`@novnc/novnc` 1.7, loaded on first use,
+      its own 55 KB chunk), reconnects with a new token after any
+      disconnect (0.3–10 s, then a Reconnect button) and pauses after
+      2 minutes hidden. It follows `session:browser:control`.
+      `SessionBrowserControl` shows who drives, with Take control / Hand
+      back.
+    - `session-browser-panel.tsx`: live mode when the API says `ready`.
+      Toolbar: the app menu (ports, services, "Ask Lor to set up the app"
+      when nothing runs), control, "Open in your browser" (the last page
+      opened from the panel). Start and Open go through `/browser/open`.
+      Older sandboxes keep the iframe toolbar.
+    - `apps/web/vite.config.ts`: build and dependency target ES2022, since
+      noVNC uses top-level await (Vite 6's default targets reject it).
+    - To check in live QA: macOS Command shortcuts (Linux Chromium expects
+      Control, so Cmd+C/V/A may do nothing), copying and pasting between
+      the person's machine and the browser (noVNC's clipboard events are
+      not wired yet), and text size, since the 1280×800 display is scaled
+      down to fit the panel.
+  - [ ] 4e browser-step rows, 4f phone. Probably
   two chunks: view and navigation, then control.
 - [ ] **5. Element comments.** Picker over CDP, node context and cropped
   screenshot in the gateway, the note box and markers, the message with

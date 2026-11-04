@@ -25,16 +25,24 @@ import { useEffect, useRef, useState } from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionBrowserSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import {
+  SessionBrowserControl,
+  SessionBrowserLiveView,
+  useSessionBrowserLive,
+} from "@/components/sidebar/right-panel/session-browser-live-view"
 import { SessionPanelTabs } from "@/components/sidebar/right-panel/session-changes-panel"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
 
-// A code session's browser on its sandbox (reference/dev-environment-runbook.md
-// §3). People type `localhost:3000/path`; behind it is the port's preview URL.
-// Ports come from what listens in the sandbox, whoever started the server
-// (the terminal, Lor, a script). The iframe holds the sandbox awake, so it
-// unmounts after the page has been hidden a while. Services from the repo's
+// A code session's browser on its sandbox. Sandboxes with the session browser
+// (reference/planned/sandbox-browser-runbook.md §4) show the live view of the
+// Chromium running there, which people and Lor share; older ones keep the
+// port preview iframe (reference/dev-environment-runbook.md §3), where people
+// type `localhost:3000/path` and the port's preview URL serves it. Ports come
+// from what listens in the sandbox, whoever started the server (the terminal,
+// Lor, a script). Either view holds the sandbox awake, so it closes after the
+// page has been hidden a while. Services from the repo's
 // `.lor/environment.json` get Start buttons; without the file, Lor is asked to
 // work out the setup and write it.
 
@@ -88,6 +96,21 @@ async function failure(res: Response, fallback: string): Promise<Error> {
     message?: string
   } | null
   return new Error(body?.message ?? fallback)
+}
+
+// The port's preview URL for a page, with the private preview's token.
+async function previewUrl(sessionId: string, target: Target): Promise<string> {
+  const res = await apiClient.v1.sessions[":sessionId"].ports[
+    ":port"
+  ].open.$post({ param: { sessionId, port: String(target.port) } })
+  if (!res.ok) throw await failure(res, "Couldn't open that port")
+  const { url, query } = await res.json()
+  // The token goes before any #fragment, which never reaches the server.
+  const hash = target.path.indexOf("#")
+  const path = hash === -1 ? target.path : target.path.slice(0, hash)
+  const fragment = hash === -1 ? "" : target.path.slice(hash)
+  const joiner = path.includes("?") ? "&" : "?"
+  return `${url}${path}${query ? `${joiner}${query}` : ""}${fragment}`
 }
 
 export function SessionBrowserPanel({
@@ -154,19 +177,7 @@ export function SessionBrowserPanel({
   })
 
   const open = useMutation({
-    mutationFn: async (target: Target) => {
-      const res = await apiClient.v1.sessions[":sessionId"].ports[
-        ":port"
-      ].open.$post({ param: { sessionId, port: String(target.port) } })
-      if (!res.ok) throw await failure(res, "Couldn't open that port")
-      const { url, query } = await res.json()
-      // The token goes before any #fragment, which never reaches the server.
-      const hash = target.path.indexOf("#")
-      const path = hash === -1 ? target.path : target.path.slice(0, hash)
-      const fragment = hash === -1 ? "" : target.path.slice(hash)
-      const joiner = path.includes("?") ? "&" : "?"
-      return `${url}${path}${query ? `${joiner}${query}` : ""}${fragment}`
-    },
+    mutationFn: (target: Target) => previewUrl(sessionId, target),
     onSuccess: (next) => {
       setSrc(next)
       setFrameLoading(true)
@@ -175,11 +186,35 @@ export function SessionBrowserPanel({
     onError: (err) => toast.error(err.message),
   })
 
+  const live = useSessionBrowserLive(sessionId, ports.data?.available === true)
+  const liveMode = ports.data?.available === true && !live.unavailable
+  // The last page opened from here, for "Open in your browser".
+  const [lastTarget, setLastTarget] = useState<Target | null>(null)
+
+  const openPage = useMutation({
+    mutationFn: async (target: Target) => {
+      const res = await apiClient.v1.sessions[":sessionId"].browser.open.$post({
+        param: { sessionId },
+        json: target,
+      })
+      if (!res.ok) throw await failure(res, "Couldn't open that page")
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  const openOutside = useMutation({
+    mutationFn: (target: Target) => previewUrl(sessionId, target),
+    onSuccess: (url) => openExternal(url),
+    onError: (err) => toast.error(err.message),
+  })
+
   const go = (target: Target) => {
     setAddress(
       `localhost:${target.port}${target.path === "/" ? "" : target.path}`
     )
-    open.mutate(target)
+    setLastTarget(target)
+    if (liveMode) openPage.mutate(target)
+    else open.mutate(target)
   }
 
   // A terminal link (or another view) asks for a port.
@@ -275,6 +310,32 @@ export function SessionBrowserPanel({
       sessionId,
       threadRootId,
     })
+  // With nothing to run yet, the menu offers Lor's help.
+  const setupAction =
+    services.length > 0 || list.length > 0
+      ? null
+      : setupError !== null
+        ? {
+            label: "Ask Lor to fix the run setup",
+            onClick: () => void askLor(askLorToFixFile(setupError)),
+          }
+        : {
+            label: "Ask Lor to set up the app",
+            onClick: () => void askLor(ASK_LOR_SETUP),
+          }
+  const menuItems = (
+    <RunMenuItems
+      ports={list}
+      stoppedServices={stoppedServices}
+      setupAction={liveMode ? setupAction : null}
+      onOpen={(port) => go({ port, path: "/" })}
+      onStart={(name) => start.mutate(name)}
+      onRefresh={() => {
+        void ports.refetch()
+        void setup.refetch()
+      }}
+    />
+  )
 
   const body = ports.isPending ? (
     <BrowserEmpty title="Looking for running servers…" />
@@ -283,6 +344,8 @@ export function SessionBrowserPanel({
       title="No sandbox yet"
       text="Send Lor a message in this session to set one up."
     />
+  ) : liveMode ? (
+    <SessionBrowserLiveView live={live} />
   ) : paused ? (
     <BrowserEmpty
       title="Paused"
@@ -379,14 +442,60 @@ export function SessionBrowserPanel({
     </BrowserEmpty>
   )
 
+  const header = (
+    <RightPanelHeader
+      title={<SessionPanelTabs view={view} />}
+      workspaceSlug={view.workspaceSlug}
+      channelId={view.channelId}
+      hideBack
+    />
+  )
+
+  // The live view shows Chromium's own tabs and address bar, so the toolbar
+  // only opens the app, shows who drives and hands control around.
+  if (liveMode) {
+    return (
+      <div className="flex h-full w-full flex-col">
+        {header}
+        <div className="relative flex shrink-0 items-center gap-1.5 border-border/70 border-b px-2 py-2">
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              title="Open the app"
+              className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-muted-foreground text-xs transition-colors hover:bg-foreground/[0.06] hover:text-foreground data-popup-open:bg-foreground/[0.06] data-popup-open:text-foreground"
+            >
+              <HugeiconsIcon
+                icon={Globe02Icon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              <span className="font-mono">
+                {lastTarget ? `localhost:${lastTarget.port}` : "Open app"}
+              </span>
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                className="size-3"
+                strokeWidth={2}
+              />
+            </DropdownMenuTrigger>
+            {menuItems}
+          </DropdownMenu>
+          <SessionBrowserControl live={live} />
+          <ToolbarButton
+            label="Open in your browser"
+            icon={LinkSquare02Icon}
+            disabled={!lastTarget || openOutside.isPending}
+            onClick={() => lastTarget && openOutside.mutate(lastTarget)}
+          />
+          {openPage.isPending && <PendingBar />}
+        </div>
+        {body}
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full w-full flex-col">
-      <RightPanelHeader
-        title={<SessionPanelTabs view={view} />}
-        workspaceSlug={view.workspaceSlug}
-        channelId={view.channelId}
-        hideBack
-      />
+      {header}
       <form
         className="relative flex shrink-0 items-center gap-1.5 border-border/70 border-b px-2 py-2"
         onSubmit={(e) => {
@@ -435,58 +544,7 @@ export function SessionBrowserPanel({
                 strokeWidth={2}
               />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>Open ports</DropdownMenuLabel>
-                {list.length === 0 && (
-                  <DropdownMenuItem disabled>
-                    Nothing listening
-                  </DropdownMenuItem>
-                )}
-                {list.map((entry) => (
-                  <DropdownMenuItem
-                    key={entry.port}
-                    onClick={() => go({ port: entry.port, path: "/" })}
-                  >
-                    <span className="font-mono">{entry.port}</span>
-                    {entry.process && (
-                      <span className="ml-auto text-muted-foreground text-xs">
-                        {entry.process}
-                      </span>
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
-              {stoppedServices.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>Services</DropdownMenuLabel>
-                    {stoppedServices.map((service) => (
-                      <DropdownMenuItem
-                        key={service.name}
-                        disabled={service.state === "starting"}
-                        onClick={() => start.mutate(service.name)}
-                      >
-                        Start {service.name}
-                        <span className="ml-auto font-mono text-muted-foreground text-xs">
-                          {service.port}
-                        </span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                </>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => {
-                  void ports.refetch()
-                  void setup.refetch()
-                }}
-              >
-                Refresh
-              </DropdownMenuItem>
-            </DropdownMenuContent>
+            {menuItems}
           </DropdownMenu>
         </div>
         <ToolbarButton
@@ -495,15 +553,84 @@ export function SessionBrowserPanel({
           disabled={!src}
           onClick={() => src && openExternal(src)}
         />
-        {open.isPending && (
-          <span
-            aria-hidden="true"
-            className="absolute inset-x-0 -bottom-px h-0.5 animate-pulse bg-primary/70"
-          />
-        )}
+        {open.isPending && <PendingBar />}
       </form>
       {body}
     </div>
+  )
+}
+
+// The ports and stopped services menu, shared by both toolbars.
+function RunMenuItems({
+  ports,
+  stoppedServices,
+  setupAction,
+  onOpen,
+  onStart,
+  onRefresh,
+}: {
+  ports: { port: number; process: string | null }[]
+  stoppedServices: Service[]
+  setupAction: { label: string; onClick: () => void } | null
+  onOpen: (port: number) => void
+  onStart: (name: string) => void
+  onRefresh: () => void
+}) {
+  return (
+    <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>Open ports</DropdownMenuLabel>
+        {ports.length === 0 && (
+          <DropdownMenuItem disabled>Nothing listening</DropdownMenuItem>
+        )}
+        {ports.map((entry) => (
+          <DropdownMenuItem key={entry.port} onClick={() => onOpen(entry.port)}>
+            <span className="font-mono">{entry.port}</span>
+            {entry.process && (
+              <span className="ml-auto text-muted-foreground text-xs">
+                {entry.process}
+              </span>
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuGroup>
+      {stoppedServices.length > 0 && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Services</DropdownMenuLabel>
+            {stoppedServices.map((service) => (
+              <DropdownMenuItem
+                key={service.name}
+                disabled={service.state === "starting"}
+                onClick={() => onStart(service.name)}
+              >
+                Start {service.name}
+                <span className="ml-auto font-mono text-muted-foreground text-xs">
+                  {service.port}
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        </>
+      )}
+      <DropdownMenuSeparator />
+      {setupAction && (
+        <DropdownMenuItem onClick={setupAction.onClick}>
+          {setupAction.label}
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem onClick={onRefresh}>Refresh</DropdownMenuItem>
+    </DropdownMenuContent>
+  )
+}
+
+function PendingBar() {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute inset-x-0 -bottom-px h-0.5 animate-pulse bg-primary/70"
+    />
   )
 }
 
