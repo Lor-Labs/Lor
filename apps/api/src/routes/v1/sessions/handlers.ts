@@ -51,6 +51,7 @@ import {
 import {
   openBrowserPage,
   openBrowserView,
+  pickBrowserElement,
   setBrowserControl,
 } from "@repo/lor/dev-env/browser"
 import { applySessionEnvironment as applyEnvironment } from "@repo/lor/dev-env/environments"
@@ -104,6 +105,7 @@ import type {
   OpenSessionBrowserRoute,
   OpenSessionPortRoute,
   OpenSessionTerminalRoute,
+  PickSessionBrowserElementRoute,
   PullSessionChangesRoute,
   PushSessionChangesRoute,
   RewindAgentSessionRoute,
@@ -1789,6 +1791,67 @@ export const openSessionBrowserPage: AppRouteHandler<
         {
           success: false as const,
           message: "The browser couldn't open that page",
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+  }
+}
+
+// Element comments (reference/planned/sandbox-browser-runbook.md §5).
+export const pickSessionBrowserElement: AppRouteHandler<
+  PickSessionBrowserElementRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const result = await pickBrowserElement(
+    sessionId,
+    c.var.user.id,
+    body.mode === "pick" ? { mode: "pick", index: body.index } : body
+  )
+  switch (result.status) {
+    case "picked":
+      return c.json(
+        {
+          status: "picked" as const,
+          element: result.element,
+          image: result.image,
+        },
+        HttpStatusCodes.OK
+      )
+    case "timeout":
+    case "no_page":
+    case "ok":
+      return c.json({ status: result.status }, HttpStatusCodes.OK)
+    case "busy":
+      return c.json(
+        {
+          success: false as const,
+          message: "Take control of the browser to comment on the page.",
+        },
+        HttpStatusCodes.CONFLICT
+      )
+    case "no_sandbox":
+      return c.json(
+        { success: false as const, message: NO_SANDBOX_MESSAGE },
+        HttpStatusCodes.CONFLICT
+      )
+    case "unavailable":
+      return c.json(
+        { success: false as const, message: OLD_SANDBOX_MESSAGE },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    case "error":
+      return c.json(
+        {
+          success: false as const,
+          message: "Couldn't read that element from the page",
         },
         HttpStatusCodes.BAD_REQUEST
       )

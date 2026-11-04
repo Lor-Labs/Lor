@@ -182,6 +182,32 @@ export const openBrowserPageRequestSchema = z.object({
     .default("/"),
 })
 
+// Element comments: pick one element (the person in control), stop picking,
+// or clear the page's numbered markers.
+export const browserPickRequestSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("pick"), index: z.number().int().min(1).max(99) }),
+  z.object({ mode: z.enum(["cancel", "clear"]) }),
+])
+
+// `image`: a JPEG crop around the element, base64. `timeout`: nobody clicked
+// within about 50 s, so the panel asks again.
+export const browserPickResponseSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("picked"),
+    element: z.object({
+      selector: z.string(),
+      tag: z.string(),
+      role: z.string().nullable(),
+      name: z.string().nullable(),
+      text: z.string(),
+      html: z.string(),
+      url: z.string(),
+    }),
+    image: z.string().nullable(),
+  }),
+  z.object({ status: z.enum(["timeout", "no_page", "ok"]) }),
+])
+
 export const openBrowserPageResponseSchema = z.object({
   status: z.literal("ok"),
 })

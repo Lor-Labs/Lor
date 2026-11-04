@@ -1,6 +1,7 @@
 import {
   ArrowExpand01Icon,
   ArrowShrink02Icon,
+  Comment01Icon,
   Loading03Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -13,6 +14,10 @@ import { cn } from "@repo/ui/lib/utils"
 import { browserStep } from "@repo/utils/browser-step"
 import { useMutation } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
+import {
+  type SessionBrowserComments,
+  SessionBrowserCommentsCard,
+} from "@/components/sidebar/right-panel/session-browser-comments"
 import { attachBrowserKeys } from "@/components/sidebar/right-panel/session-browser-keys"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
@@ -229,6 +234,9 @@ export function useSessionBrowserLive(
     expanded,
     setExpanded,
     takeControl: () => control.mutate(true),
+    takeControlAsync: async () => {
+      await control.mutateAsync(true)
+    },
     handBack: () => control.mutate(false),
     resume: () => {
       failures.current = 0
@@ -241,7 +249,13 @@ export function useSessionBrowserLive(
 
 export type SessionBrowserLive = ReturnType<typeof useSessionBrowserLive>
 
-export function SessionBrowserLiveView({ live }: { live: SessionBrowserLive }) {
+export function SessionBrowserLiveView({
+  live,
+  comments,
+}: {
+  live: SessionBrowserLive
+  comments?: SessionBrowserComments
+}) {
   const { expanded, setExpanded, youControl } = live
 
   useEffect(() => {
@@ -331,7 +345,8 @@ export function SessionBrowserLiveView({ live }: { live: SessionBrowserLive }) {
           <DriverPill live={live} />
         </div>
       </div>
-      <BrowserFooter live={live} />
+      {comments && <SessionBrowserCommentsCard comments={comments} />}
+      <BrowserFooter live={live} comments={comments} />
     </div>
   )
 }
@@ -359,8 +374,16 @@ function DriverPill({ live }: { live: SessionBrowserLive }) {
   )
 }
 
-// The status line and the one control toggle under the frame.
-function BrowserFooter({ live }: { live: SessionBrowserLive }) {
+// The status line, Comment and the one control toggle under the frame.
+function BrowserFooter({
+  live,
+  comments,
+}: {
+  live: SessionBrowserLive
+  comments?: SessionBrowserComments
+}) {
+  const commenting =
+    comments !== undefined && (comments.picking || comments.comments.length > 0)
   const status = live.switching
     ? "Switching control…"
     : live.youControl
@@ -382,6 +405,22 @@ function BrowserFooter({ live }: { live: SessionBrowserLive }) {
       <p className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
         {status}
       </p>
+      {comments && !commenting && (
+        <Button
+          size="sm"
+          variant="outline"
+          title="Pick elements on the page and tell Lor what to change"
+          disabled={live.switching || live.unavailable || !live.everConnected}
+          onClick={comments.pick}
+        >
+          <HugeiconsIcon
+            icon={Comment01Icon}
+            className="size-3.5"
+            strokeWidth={2}
+          />
+          Comment
+        </Button>
+      )}
       <Button
         size="sm"
         variant={live.youControl ? "default" : "outline"}

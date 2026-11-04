@@ -25,6 +25,7 @@ import { useEffect, useRef, useState } from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionBrowserSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { useSessionBrowserComments } from "@/components/sidebar/right-panel/session-browser-comments"
 import {
   SessionBrowserLiveView,
   useSessionBrowserLive,
@@ -220,6 +221,12 @@ export function SessionBrowserPanel({
     threadRootId,
     ports.data?.available === true
   )
+  const comments = useSessionBrowserComments(
+    sessionId,
+    view.channelId,
+    threadRootId,
+    live
+  )
   const liveMode = ports.data?.available === true && !live.unavailable
   // The last page opened from here, for "Open in your browser".
   const [lastTarget, setLastTarget] = useState<Target | null>(null)
@@ -379,7 +386,7 @@ export function SessionBrowserPanel({
       text="Send Lor a message in this session to set one up."
     />
   ) : liveMode ? (
-    <SessionBrowserLiveView live={live} />
+    <SessionBrowserLiveView live={live} comments={comments} />
   ) : paused ? (
     <BrowserEmpty
       title="Paused"

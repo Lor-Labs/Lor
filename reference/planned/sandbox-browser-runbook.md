@@ -537,9 +537,28 @@ Each step is a review chunk of about 300–400 lines.
       command), a live card in chat (an extra stream per viewer), and our
       own address bar over CDP with Chromium in app mode. Probably
   two chunks: view and navigation, then control.
-- [ ] **5. Element comments.** Picker over CDP, node context and cropped
-  screenshot in the gateway, the note box and markers, the message with
-  element chips, and Lor's prompt line for acting on them.
+- [x] **5. Element comments** (2026-11-03, not run live yet; no image
+  push). Simpler than §5 first said:
+  - The picker runs as a script the API sends through process exec
+    (`PICK_SCRIPT` in `dev-env/browser.ts`, named `browser-pick`, through
+    the new seam helper `runNamed`), not inside the gateway. It finds the
+    open tab over CDP, turns on `Overlay.setInspectMode`, waits up to 50 s
+    for the click, and reads the element in an isolated world: selector,
+    role, name, text, a 300-character HTML snippet and the page URL. Then
+    it takes a JPEG crop (`Page.captureScreenshot` with a clip in document
+    coordinates; unverified across scrolled pages) and adds a numbered
+    marker (a shadow-root badge, no pointer events).
+  - API: `POST /sessions/{id}/browser/pick`: `{ mode: "pick", index }`
+    (person in control only; `timeout` asks again), `cancel`, `clear`.
+  - Panel (`session-browser-comments.tsx`): Comment in the footer takes
+    control if needed and picks one element per click. The picked elements
+    sit in a card above the footer, each with its note field, not next to
+    the element. Send to Lor uploads the crops (`uploadAttachment`), sends
+    one message (each element's label, note, selector, page and snippet,
+    with "A screenshot of each element is attached, in order."), clears the
+    markers and hands control back so Lor can make and check the fix.
+  - No element chips in the transcript and no prompt line: the message is
+    plain markdown that Lor reads as it is.
 - [ ] **6. Remove the iframe and run live QA.** Delete the iframe path and
   its `scheme-light` fix. Keep "Open in your browser". Live QA on a Next.js
   16 monorepo with better-auth: profile start, sign in, Lor checks a UI

@@ -16,6 +16,8 @@ import {
   applyEnvironmentResponseSchema,
   browserControlRequestSchema,
   browserControlResponseSchema,
+  browserPickRequestSchema,
+  browserPickResponseSchema,
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
   commitMessageResponseSchema,
@@ -791,6 +793,33 @@ export const openSessionBrowserPage = createRoute({
 })
 
 export type OpenSessionBrowserPageRoute = typeof openSessionBrowserPage
+
+export const pickSessionBrowserElement = createRoute({
+  path: "/sessions/{sessionId}/browser/pick",
+  method: "post",
+  summary: "Pick an element in a code session's browser for a comment",
+  description:
+    "Turns on the browser's element picker and waits up to about 50 seconds for a click, then returns the element and a cropped screenshot and marks it on the page. Also stops picking or clears the markers. Picking needs control of the browser.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: browserPickRequestSchema,
+      description: "Pick, cancel or clear",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: browserPickResponseSchema,
+      description: "The picked element, or what happened",
+    }),
+    ...browserErrors,
+  },
+})
+
+export type PickSessionBrowserElementRoute = typeof pickSessionBrowserElement
 
 export const applySessionEnvironment = createRoute({
   path: "/sessions/{sessionId}/environment/apply",
