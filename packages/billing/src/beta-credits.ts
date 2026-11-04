@@ -22,6 +22,60 @@ import { sendBetaCreditsExhaustedEmail } from "./emails"
 const logger = createLogger("beta-billing")
 const MICRO_USD_PER_CREDIT = MICRO_USD * CREDIT_USD
 
+// The Autumn SDK validates every response against a generated schema and throws
+// a `ResponseValidationError` when it doesn't match. That error carries the
+// failing paths (`cause.issues`) and the raw body, but error reporting keeps
+// only the message and stack — so a rejected response names no field and can't
+// be fixed. Fold the paths into the log message instead.
+type AutumnIssues = Array<{ path?: unknown[]; message?: string }>
+
+function autumnResponseIssues(error: unknown): AutumnIssues | null {
+  const issues = (error as { cause?: { issues?: unknown } })?.cause?.issues
+  return Array.isArray(issues) && issues.length > 0
+    ? (issues as AutumnIssues)
+    : null
+}
+
+function failureMessage(base: string, issues: AutumnIssues | null): string {
+  if (!issues) return base
+  const detail = issues
+    .slice(0, 4)
+    .map(
+      (issue) =>
+        `${(issue.path ?? []).join(".") || "(root)"}: ${issue.message ?? "invalid"}`
+    )
+    .join("; ")
+  return `${base} (${detail})`
+}
+
+// One workspace whose Autumn response can't be parsed must not dominate the
+// error tracker, so report it in full at most once an hour; repeats go to
+// `warn`, which the error tracker does not ingest.
+const RECONCILE_REPORT_INTERVAL_MS = 60 * 60 * 1000
+const reconcileReportedAt = new Map<string, number>()
+
+function logReconcileFailure(error: unknown, workspaceId: string) {
+  const issues = autumnResponseIssues(error)
+  const now = Date.now()
+  const last = reconcileReportedAt.get(workspaceId)
+  if (
+    issues &&
+    last !== undefined &&
+    now - last < RECONCILE_REPORT_INTERVAL_MS
+  ) {
+    logger.warn(
+      { err: error, workspaceId },
+      "Beta balance reconciliation still failing"
+    )
+    return
+  }
+  reconcileReportedAt.set(workspaceId, now)
+  logger.error(
+    { err: error, workspaceId },
+    failureMessage("Beta balance reconciliation failed", issues)
+  )
+}
+
 // Autumn owns free + purchased balances. Postgres records the offer and delivery state.
 export async function syncBetaCredits(workspaceId: string) {
   if (!hostedBetaConfig().enabled) return null
@@ -194,7 +248,10 @@ export async function checkBetaCredits(
   } catch (error) {
     logger.error(
       { err: error, workspaceId },
-      "Beta credit check unavailable; refusing new inference"
+      failureMessage(
+        "Beta credit check unavailable; refusing new inference",
+        autumnResponseIssues(error)
+      )
     )
     return { allowed: false, failOpen: false }
   }
@@ -333,10 +390,7 @@ export async function sweepBetaBilling() {
     try {
       await syncBetaCredits(trial.workspaceId)
     } catch (error) {
-      logger.error(
-        { err: error, workspaceId: trial.workspaceId },
-        "Beta balance reconciliation failed"
-      )
+      logReconcileFailure(error, trial.workspaceId)
     }
   }
   const notices = await db
