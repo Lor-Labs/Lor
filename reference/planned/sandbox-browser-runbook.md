@@ -258,6 +258,11 @@ A v1 file reads as invalid, and the panel's "Ask Lor to fix it" rewrites it.
     40,000 characters.
 - **Code sessions only.** Only the code-session prompt tells Lor about the
   browser. Chat sandboxes (4 GB) have the image but never start it.
+- **A command, not a registered tool** (Jacob, 2026-11-03). Lor runs
+  `lor-browser` through its harness's own shell tool. Snapshots come back
+  as the command's text output, and screenshots as files that Lor publishes
+  with `share_file`. The transcript renders these shell calls as browser
+  steps (step 4) instead of a typed `browser` tool.
 
 ### 4. Live view
 
@@ -450,7 +455,9 @@ Each step is a review chunk of about 300–400 lines.
     approves first). Existing sandboxes keep their image until replaced.
 - [ ] **4. Live view.** Gateway, the three API routes, the panel with the
   noVNC client, address bar over CDP, take control and hand back, the
-  hidden-tab and idle reconnects, desktop CSP, and the phone row. Probably
+  hidden-tab and idle reconnects, desktop CSP, and the phone row. Tool
+  rows for shell calls that start with `lor-browser` render as browser
+  steps ("Opened localhost:3000", "Clicked Sign in"), on web and mobile. Probably
   two chunks: view and navigation, then control.
 - [ ] **5. Element comments.** Picker over CDP, node context and cropped
   screenshot in the gateway, the note box and markers, the message with
