@@ -517,7 +517,32 @@ Each step is a review chunk of about 300–400 lines.
       control first, opens the page in an in-app browser
       (`expo-web-browser`) and hands control back when it closes on iOS;
       elsewhere the gateway hands it back 2 minutes after the view closes.
-      JS only, so `eas update` ships it. Probably
+      JS only, so `eas update` ships it.
+  - [x] 4g panel polish (2026-11-03, Jacob; patterns from OpenAI Dots, xAI
+    Grok Bot, Meta Muse and CopilotKit's OpenBot/OpenDots/openmuse clones):
+    - The view sits in a rounded 16:10 frame (container units, so it fits
+      both ways). Pill on the frame: "Lor" with a live dot while Lor works,
+      "{Name} has control", or a primary "You have control" with a primary
+      ring on the frame.
+    - Footer under the frame: status line ("Lor is using the browser ·
+      Opened localhost:3000", from `lor:tool` events through
+      `browserStep`; "{Name} has control."; "You have control. Lor waits
+      until you hand it back."; "Watching") and one toggle: Take control
+      (outline), Take over when someone else drives, Hand back (filled).
+      Taking still always wins (Jacob).
+    - States: "Starting the browser…" until the first connection, then a
+      corner "Reconnecting…" or "Switching control…" pill instead of a full
+      overlay; the error with Reconnect only after the retries run out;
+      Paused with Resume.
+    - Expand: the same nodes become a fixed overlay (`bg-black/60`, like
+      the dialog backdrop), so noVNC keeps its connection and rescales. Esc
+      closes it; clicking the backdrop closes it only while watching.
+    - A browser step in the web tool trail has "Open browser", which opens
+      the session's Browser panel when a session panel is open.
+    - Later (Jacob): Lor asking for help (an amber "Lor needs you" strip
+      and a dot on the Browser tab, through a new `lor-browser` request
+      command), a live card in chat (an extra stream per viewer), and our
+      own address bar over CDP with Chromium in app mode. Probably
   two chunks: view and navigation, then control.
 - [ ] **5. Element comments.** Picker over CDP, node context and cropped
   screenshot in the gateway, the note box and markers, the message with

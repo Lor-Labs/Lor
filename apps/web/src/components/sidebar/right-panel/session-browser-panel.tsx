@@ -26,7 +26,6 @@ import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-h
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionBrowserSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import {
-  SessionBrowserControl,
   SessionBrowserLiveView,
   useSessionBrowserLive,
 } from "@/components/sidebar/right-panel/session-browser-live-view"
@@ -186,7 +185,11 @@ export function SessionBrowserPanel({
     onError: (err) => toast.error(err.message),
   })
 
-  const live = useSessionBrowserLive(sessionId, ports.data?.available === true)
+  const live = useSessionBrowserLive(
+    sessionId,
+    threadRootId,
+    ports.data?.available === true
+  )
   const liveMode = ports.data?.available === true && !live.unavailable
   // The last page opened from here, for "Open in your browser".
   const [lastTarget, setLastTarget] = useState<Target | null>(null)
@@ -452,7 +455,7 @@ export function SessionBrowserPanel({
   )
 
   // The live view shows Chromium's own tabs and address bar, so the toolbar
-  // only opens the app, shows who drives and hands control around.
+  // only opens the app; who drives and the control toggle sit under the view.
   if (liveMode) {
     return (
       <div className="flex h-full w-full flex-col">
@@ -479,7 +482,7 @@ export function SessionBrowserPanel({
             </DropdownMenuTrigger>
             {menuItems}
           </DropdownMenu>
-          <SessionBrowserControl live={live} />
+          <span className="flex-1" />
           <ToolbarButton
             label="Open in your browser"
             icon={LinkSquare02Icon}

@@ -292,6 +292,11 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// For parts that also render outside the app shell (demos): null there.
+export function useOptionalRightSidebar() {
+  return useContext(RightSidebarContext)
+}
+
 export function useRightSidebar() {
   const context = useContext(RightSidebarContext)
   if (!context) {

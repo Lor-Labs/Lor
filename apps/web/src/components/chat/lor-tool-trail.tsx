@@ -30,6 +30,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { browserStep } from "@repo/utils/browser-step"
 import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { useOptionalRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { useOpenFile } from "@/hooks/use-file-panel"
 import type { LorToolCallView } from "@/lib/api-types"
 import {
@@ -223,8 +224,15 @@ function SandboxRow({
   delivered: DeliveredFile[]
 }) {
   const openFile = useOpenFile()
+  const sidebar = useOptionalRightSidebar()
   const [open, setOpen] = useState(false)
   const { verb, target, browser } = splitLabel(toolCall)
+  // A browser step opens the session's Browser panel, when a session panel
+  // (whose ids it needs) is open.
+  const sessionView =
+    browser && sidebar?.view && "sessionId" in sidebar.view
+      ? sidebar.view
+      : null
   const Icon = browser ? BrowserGlyph : toolIcon(toolCall.toolName)
   const diff = toolCall.diff
   const file = deliveredFile(diff?.path ?? target, delivered)
@@ -257,6 +265,24 @@ function SandboxRow({
             {target}
           </span>
         ) : null}
+        {sessionView && sidebar && sessionView.type !== "session-browser" && (
+          <button
+            type="button"
+            title="Open the session's browser"
+            onClick={() =>
+              sidebar.setView({
+                type: "session-browser",
+                workspaceSlug: sessionView.workspaceSlug,
+                channelId: sessionView.channelId,
+                sessionId: sessionView.sessionId,
+                threadRootId: sessionView.threadRootId,
+              })
+            }
+            className="relative z-10 shrink-0 cursor-pointer rounded bg-muted px-1 py-px text-[11px] text-foreground transition-colors hover:bg-accent"
+          >
+            Open browser
+          </button>
+        )}
         {diff && <DiffCounts diff={diff} />}
         {toolCall.status === "error" && (
           <span className="shrink-0 rounded bg-destructive/10 px-1 text-destructive">
