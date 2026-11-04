@@ -5,6 +5,7 @@ import { and, db, desc, eq, inArray, schema, sql } from "@repo/db"
 import { env } from "@repo/env/server"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { type CodeSandbox, codeSandboxIn } from "./code-changes"
+import { sessionSandboxMemoryMb } from "./dev-env/environments"
 import { normalizePrivateKey } from "./providers/github"
 import {
   attachOrCreateSessionSandbox,
@@ -248,9 +249,10 @@ export async function rewindWorkFolder(input: {
   const workDir = piWorkDir(SESSION_WORK_DIR, input.sessionId)
   await db.transaction(async (tx) => {
     await lockSession(tx, input.sessionId)
-    const sandbox = await attachOrCreateSessionSandbox({
-      sessionId: input.sessionId,
-    })
+    const sandbox = await attachOrCreateSessionSandbox(
+      { sessionId: input.sessionId },
+      () => sessionSandboxMemoryMb(input.sessionId)
+    )
     if (!sandbox) throw new Error("The session has no sandbox")
     try {
       await runRestore(
@@ -263,9 +265,10 @@ export async function rewindWorkFolder(input: {
       sandbox.close()
     }
   })
-  const sandbox = await attachOrCreateSessionSandbox({
-    sessionId: input.sessionId,
-  })
+  const sandbox = await attachOrCreateSessionSandbox(
+    { sessionId: input.sessionId },
+    () => sessionSandboxMemoryMb(input.sessionId)
+  )
   if (!sandbox) return
   try {
     await writeCheckpoint(codeSandboxIn(sandbox.session, workDir), {
@@ -290,9 +293,10 @@ export async function restoreSessionFiles(input: {
   sessionId: string
   repoFullName: string
 }): Promise<RestoreResult> {
-  const sandbox = await attachOrCreateSessionSandbox({
-    sessionId: input.sessionId,
-  })
+  const sandbox = await attachOrCreateSessionSandbox(
+    { sessionId: input.sessionId },
+    () => sessionSandboxMemoryMb(input.sessionId)
+  )
   if (!sandbox) return "none"
   try {
     return await restoreWorkFolder(sandbox.session, {

@@ -162,6 +162,29 @@ export async function listProcesses(
   }
 }
 
+// A command that may wait up to `timeoutSec` (under Blaxel's 60 s
+// waitForCompletion), named so stopProcess can end it early. A run of the
+// same name still going is stopped first.
+export async function runNamed(
+  owner: HarnessOwner,
+  input: { name: string; command: string; timeoutSec: number }
+): Promise<{ exitCode: number; stdout: string } | null> {
+  const sandbox = await existingSandbox(owner)
+  if (!sandbox) return null
+  try {
+    await sandbox.process.kill(input.name).catch(() => {})
+    const result = await sandbox.process.exec({
+      name: input.name,
+      command: `bash -c ${shellQuote(input.command)}`,
+      waitForCompletion: true,
+      timeout: input.timeoutSec,
+    })
+    return { exitCode: result.exitCode ?? 1, stdout: result.stdout ?? "" }
+  } finally {
+    closeConnection(sandbox)
+  }
+}
+
 // Blaxel's waitForCompletion stops at 60 s, so longer waits are rounds of
 // shorter checks.
 const PORT_CHECK_ROUND_SEC = 20

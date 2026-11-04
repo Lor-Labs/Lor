@@ -315,12 +315,14 @@ export type SessionSandbox = {
   close(): void
 }
 
-// Code sessions get the larger size. A sandbox keeps its size until it is
-// replaced: an older, smaller code sandbox is still reused, since replacing
-// it would lose installed packages and ignored files.
+// Code sessions get the larger size, or their environment's size. A sandbox
+// keeps its size until it is replaced: an older, smaller code sandbox is
+// still reused, since replacing it would lose installed packages and ignored
+// files.
 async function createSessionSandbox(
   name: string,
-  code: boolean
+  code: boolean,
+  memoryMb: number | null
 ): Promise<SandboxInstance> {
   await guardSandbox(name)
   const sandbox = await SandboxInstance.createIfNotExists({
@@ -328,7 +330,7 @@ async function createSessionSandbox(
       ? baseConfig(
           name,
           env.LOR_CODE_SANDBOX_DISK_MB,
-          env.LOR_CODE_SANDBOX_MEMORY_MB
+          memoryMb ?? env.LOR_CODE_SANDBOX_MEMORY_MB
         )
       : baseConfig(name, env.LOR_SESSION_DISK_MB)),
     lifecycle: persistentLifecycle(env.LOR_SESSION_SANDBOX_TTL),
@@ -401,10 +403,16 @@ async function stopLeftoverCommands(
 }
 
 // `proxy`: the run is a Claude Code or Codex turn, whose model credential
-// only Blaxel's proxy can fill in (grantHarnessAccess).
+// only Blaxel's proxy can fill in (grantHarnessAccess). `memoryMb`: a code
+// session's environment size, used only when a sandbox is created.
 export async function openSessionSandbox(
   owner: HarnessOwner,
-  options: { keepBridges?: boolean; code?: boolean; proxy?: boolean } = {}
+  options: {
+    keepBridges?: boolean
+    code?: boolean
+    proxy?: boolean
+    memoryMb?: number | null
+  } = {}
 ): Promise<SessionSandbox> {
   const name = sessionSandboxName(owner)
   await guardSandbox(name)
@@ -465,7 +473,11 @@ export async function openSessionSandbox(
     await SandboxInstance.delete(name)
   }
 
-  const created = await createSessionSandbox(name, options.code ?? false)
+  const created = await createSessionSandbox(
+    name,
+    options.code ?? false,
+    options.memoryMb ?? null
+  )
   return {
     session: blaxelSandboxSession(created),
     fresh: true,
@@ -499,11 +511,16 @@ export async function attachSessionSandbox(
 // new one when it is gone. Like attachSessionSandbox it never stops a run's
 // commands or replaces an unhealthy sandbox; the worker does that.
 export async function attachOrCreateSessionSandbox(
-  owner: HarnessOwner
+  owner: HarnessOwner,
+  memoryMb: () => Promise<number | null>
 ): Promise<SessionSandbox | null> {
   const existing = await attachSessionSandbox(owner)
   if (existing || !blaxelConfigured()) return existing
-  const created = await createSessionSandbox(sessionSandboxName(owner), true)
+  const created = await createSessionSandbox(
+    sessionSandboxName(owner),
+    true,
+    await memoryMb()
+  )
   return {
     session: blaxelSandboxSession(created),
     fresh: true,

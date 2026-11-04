@@ -3,6 +3,7 @@ import {
   BrowserIcon,
   Globe02Icon,
   LinkSquare02Icon,
+  Loading03Icon,
   ReloadIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -24,23 +25,58 @@ import { useEffect, useRef, useState } from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionBrowserSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
+import { useSessionBrowserComments } from "@/components/sidebar/right-panel/session-browser-comments"
+import {
+  SessionBrowserLiveView,
+  useSessionBrowserLive,
+} from "@/components/sidebar/right-panel/session-browser-live-view"
 import { SessionPanelTabs } from "@/components/sidebar/right-panel/session-changes-panel"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
 
-// A code session's browser on its sandbox (reference/dev-environment-runbook.md
-// §3). People type `localhost:3000/path`; behind it is the port's preview URL.
-// Ports come from what listens in the sandbox, whoever started the server
-// (the terminal, Lor, a script). The iframe holds the sandbox awake, so it
-// unmounts after the page has been hidden a while.
+// A code session's browser on its sandbox. Sandboxes with the session browser
+// (reference/planned/sandbox-browser-runbook.md §4) show the live view of the
+// Chromium running there, which people and Lor share; older ones keep the
+// port preview iframe (reference/dev-environment-runbook.md §3), where people
+// type `localhost:3000/path` and the port's preview URL serves it. Ports come
+// from what listens in the sandbox, whoever started the server (the terminal,
+// Lor, a script). Either view holds the sandbox awake, so it closes after the
+// page has been hidden a while. Services from the repo's
+// `.lor/environment.json` get Start buttons; without the file, Lor is asked to
+// work out the setup and write it.
 
 const HIDDEN_PAUSE_MS = 2 * 60_000
 const TOOL_REFRESH_MS = 1_500
-const ASK_LOR =
-  "Install the dependencies if needed and start this repo's dev server in the background, bound to 0.0.0.0, so I can open it in the Browser tab. Tell me the port."
+const STARTING_POLL_MS = 2_000
+// A just-started service can still read as exited from its last run.
+const START_GRACE_MS = 4_000
+// Polling keeps the sandbox awake, so it stops for a service that never listens.
+const START_TIMEOUT_MS = 5 * 60_000
+const LOG_LINES = 40
+const ASK_LOR_SETUP =
+  "Set up this repo to run in the sandbox: install its dependencies, start its dev server in the background and check it answers, then write .lor/environment.json so the Browser tab can start it next time. Tell me the port."
 
 const portsKey = (sessionId: string) => ["session-ports", sessionId] as const
+const setupKey = (sessionId: string) => ["session-setup", sessionId] as const
+
+type Service = {
+  name: string
+  command: string
+  port: number
+  default: boolean
+  state: "stopped" | "starting" | "running" | "exited"
+  log: string | null
+}
+
+const logTail = (log: string | null) =>
+  (log ?? "").trimEnd().split("\n").slice(-LOG_LINES).join("\n")
+
+const askLorToFix = (service: Service) =>
+  `The ${service.name} service from .lor/environment.json stopped (\`${service.command}\`). Find out why, fix .lor/environment.json or the code, and start it again. The end of its log:\n\n\`\`\`\n${logTail(service.log)}\n\`\`\``
+
+const askLorToFixFile = (error: string) =>
+  `.lor/environment.json is invalid (${error}). Fix it so the Browser tab can start the app.`
 
 type Target = { port: number; path: string }
 
@@ -63,6 +99,21 @@ async function failure(res: Response, fallback: string): Promise<Error> {
   return new Error(body?.message ?? fallback)
 }
 
+// The port's preview URL for a page, with the private preview's token.
+async function previewUrl(sessionId: string, target: Target): Promise<string> {
+  const res = await apiClient.v1.sessions[":sessionId"].ports[
+    ":port"
+  ].open.$post({ param: { sessionId, port: String(target.port) } })
+  if (!res.ok) throw await failure(res, "Couldn't open that port")
+  const { url, query } = await res.json()
+  // The token goes before any #fragment, which never reaches the server.
+  const hash = target.path.indexOf("#")
+  const path = hash === -1 ? target.path : target.path.slice(0, hash)
+  const fragment = hash === -1 ? "" : target.path.slice(hash)
+  const joiner = path.includes("?") ? "&" : "?"
+  return `${url}${path}${query ? `${joiner}${query}` : ""}${fragment}`
+}
+
 export function SessionBrowserPanel({
   view,
 }: {
@@ -78,6 +129,10 @@ export function SessionBrowserPanel({
   // From a reload or a new page until the frame's load event.
   const [frameLoading, setFrameLoading] = useState(false)
   const [paused, setPaused] = useState(false)
+  // The service a Start click waits for, to open it once it listens.
+  const [opening, setOpening] = useState<{ name: string; at: number } | null>(
+    null
+  )
 
   const ports = useQuery({
     queryKey: portsKey(sessionId),
@@ -90,20 +145,69 @@ export function SessionBrowserPanel({
     },
   })
 
-  const open = useMutation({
-    mutationFn: async (target: Target) => {
-      const res = await apiClient.v1.sessions[":sessionId"].ports[
-        ":port"
-      ].open.$post({ param: { sessionId, port: String(target.port) } })
-      if (!res.ok) throw await failure(res, "Couldn't open that port")
-      const { url, query } = await res.json()
-      // The token goes before any #fragment, which never reaches the server.
-      const hash = target.path.indexOf("#")
-      const path = hash === -1 ? target.path : target.path.slice(0, hash)
-      const fragment = hash === -1 ? "" : target.path.slice(hash)
-      const joiner = path.includes("?") ? "&" : "?"
-      return `${url}${path}${query ? `${joiner}${query}` : ""}${fragment}`
+  const setup = useQuery({
+    queryKey: setupKey(sessionId),
+    queryFn: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].setup.$get({
+        param: { sessionId },
+      })
+      if (!res.ok) throw await failure(res, "Couldn't read the run setup")
+      return res.json()
     },
+    refetchInterval: () =>
+      opening && Date.now() - opening.at < START_TIMEOUT_MS
+        ? STARTING_POLL_MS
+        : false,
+  })
+  const services: Service[] =
+    setup.data?.status === "ready" ? setup.data.services : []
+
+  const start = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiClient.v1.sessions[":sessionId"].setup.services[
+        ":name"
+      ].start.$post({ param: { sessionId, name } })
+      if (!res.ok) throw await failure(res, "Couldn't start that service")
+      return res.json()
+    },
+    onSuccess: (_result, name) => {
+      setOpening({ name, at: Date.now() })
+      void queryClient.invalidateQueries({ queryKey: setupKey(sessionId) })
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  // "The app": every service not marked `default: false`. Start app runs the
+  // stopped ones together and opens the first once it listens.
+  const appServices = services.filter((service) => service.default)
+  const appStopped = appServices.filter(
+    (service) => service.state === "stopped" || service.state === "exited"
+  )
+  const startApp = useMutation({
+    mutationFn: async () => {
+      await Promise.all(
+        appStopped.map(async (service) => {
+          const res = await apiClient.v1.sessions[":sessionId"].setup.services[
+            ":name"
+          ].start.$post({
+            param: { sessionId, name: service.name },
+          })
+          if (!res.ok) {
+            throw await failure(res, `Couldn't start ${service.name}`)
+          }
+        })
+      )
+    },
+    onSuccess: () => {
+      const first = appServices[0]
+      if (first) setOpening({ name: first.name, at: Date.now() })
+      void queryClient.invalidateQueries({ queryKey: setupKey(sessionId) })
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  const open = useMutation({
+    mutationFn: (target: Target) => previewUrl(sessionId, target),
     onSuccess: (next) => {
       setSrc(next)
       setFrameLoading(true)
@@ -112,11 +216,45 @@ export function SessionBrowserPanel({
     onError: (err) => toast.error(err.message),
   })
 
+  const live = useSessionBrowserLive(
+    sessionId,
+    threadRootId,
+    ports.data?.available === true
+  )
+  const comments = useSessionBrowserComments(
+    sessionId,
+    view.channelId,
+    threadRootId,
+    live
+  )
+  const liveMode = ports.data?.available === true && !live.unavailable
+  // The last page opened from here, for "Open in your browser".
+  const [lastTarget, setLastTarget] = useState<Target | null>(null)
+
+  const openPage = useMutation({
+    mutationFn: async (target: Target) => {
+      const res = await apiClient.v1.sessions[":sessionId"].browser.open.$post({
+        param: { sessionId },
+        json: target,
+      })
+      if (!res.ok) throw await failure(res, "Couldn't open that page")
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  const openOutside = useMutation({
+    mutationFn: (target: Target) => previewUrl(sessionId, target),
+    onSuccess: (url) => openExternal(url),
+    onError: (err) => toast.error(err.message),
+  })
+
   const go = (target: Target) => {
     setAddress(
       `localhost:${target.port}${target.path === "/" ? "" : target.path}`
     )
-    open.mutate(target)
+    setLastTarget(target)
+    if (liveMode) openPage.mutate(target)
+    else open.mutate(target)
   }
 
   // A terminal link (or another view) asks for a port.
@@ -128,7 +266,24 @@ export function SessionBrowserPanel({
     go({ port: requested.port, path: requested.path })
   }, [requested])
 
-  // Lor's tool calls may start a server: refresh the list after a burst.
+  useEffect(() => {
+    if (!opening) return
+    const service = services.find((s) => s.name === opening.name)
+    if (service?.state === "running") {
+      setOpening(null)
+      void queryClient.invalidateQueries({ queryKey: portsKey(sessionId) })
+      go({ port: service.port, path: "/" })
+    } else if (
+      ((!service || service.state === "exited") &&
+        Date.now() - opening.at > START_GRACE_MS) ||
+      Date.now() - opening.at > START_TIMEOUT_MS
+    ) {
+      setOpening(null)
+    }
+  }, [opening, setup.data, setup.dataUpdatedAt])
+
+  // Lor's tool calls may start a server or write the setup file: refresh
+  // after a burst.
   useEffect(() => {
     if (!socket) return
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -136,11 +291,10 @@ export function SessionBrowserPanel({
       if (payload.threadRootId !== threadRootId || !payload.toolCall.status)
         return
       if (timer) clearTimeout(timer)
-      timer = setTimeout(
-        () =>
-          void queryClient.invalidateQueries({ queryKey: portsKey(sessionId) }),
-        TOOL_REFRESH_MS
-      )
+      timer = setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: portsKey(sessionId) })
+        void queryClient.invalidateQueries({ queryKey: setupKey(sessionId) })
+      }, TOOL_REFRESH_MS)
     }
     socket.on("lor:tool", onTool)
     return () => {
@@ -164,7 +318,7 @@ export function SessionBrowserPanel({
     }
   }, [])
 
-  const askLor = async () => {
+  const askLor = async (content: string) => {
     if (!socket?.connected) {
       toast.error("Connection lost. Try again")
       return
@@ -172,13 +326,21 @@ export function SessionBrowserPanel({
     const result = await socket.timeout(12_000).emitWithAck("message:send", {
       channelId: view.channelId,
       threadRootId,
-      content: ASK_LOR,
+      content,
       nonce: crypto.randomUUID(),
     })
     if (!result.ok) toast.error(result.error)
   }
 
   const list = ports.data?.ports ?? []
+  const otherPorts = list.filter(
+    (entry) => !services.some((service) => service.port === entry.port)
+  )
+  const stoppedServices = services.filter(
+    (service) => service.state !== "running"
+  )
+  const setupError =
+    setup.data?.status === "invalid" ? (setup.data.error ?? "unreadable") : null
   const currentPort = parseAddress(address)?.port ?? null
   const openTerminal = () =>
     setView({
@@ -188,6 +350,33 @@ export function SessionBrowserPanel({
       sessionId,
       threadRootId,
     })
+  // With nothing to run yet, the menu offers Lor's help.
+  const setupAction =
+    services.length > 0 || list.length > 0
+      ? null
+      : setupError !== null
+        ? {
+            label: "Ask Lor to fix the run setup",
+            onClick: () => void askLor(askLorToFixFile(setupError)),
+          }
+        : {
+            label: "Ask Lor to set up the app",
+            onClick: () => void askLor(ASK_LOR_SETUP),
+          }
+  const menuItems = (
+    <RunMenuItems
+      ports={list}
+      stoppedServices={stoppedServices}
+      setupAction={liveMode ? setupAction : null}
+      onStartApp={appStopped.length > 0 ? () => startApp.mutate() : null}
+      onOpen={(port) => go({ port, path: "/" })}
+      onStart={(name) => start.mutate(name)}
+      onRefresh={() => {
+        void ports.refetch()
+        void setup.refetch()
+      }}
+    />
+  )
 
   const body = ports.isPending ? (
     <BrowserEmpty title="Looking for running servers…" />
@@ -196,6 +385,8 @@ export function SessionBrowserPanel({
       title="No sandbox yet"
       text="Send Lor a message in this session to set one up."
     />
+  ) : liveMode ? (
+    <SessionBrowserLiveView live={live} comments={comments} />
   ) : paused ? (
     <BrowserEmpty
       title="Paused"
@@ -211,15 +402,38 @@ export function SessionBrowserPanel({
       title="Browser"
       src={src}
       onLoad={() => setFrameLoading(false)}
-      className="min-h-0 w-full flex-1 border-0 bg-white"
+      // Light like a new browser tab. A dark-scheme page (JSON and plain text
+      // in OS dark mode) then gets its own opaque dark canvas, not white text
+      // on this white fill (css-color-adjust: mismatched iframe scheme).
+      className="min-h-0 w-full flex-1 border-0 bg-white scheme-light"
       allow="clipboard-read; clipboard-write"
       // Sandbox code must not navigate the app window (no top-navigation).
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
     />
-  ) : list.length > 0 ? (
-    <BrowserEmpty title="Open a port" text="Servers running in the sandbox:">
-      <div className="w-full max-w-xs overflow-hidden rounded-lg border border-border/70">
-        {list.map((entry) => (
+  ) : services.length > 0 || list.length > 0 ? (
+    <BrowserEmpty
+      title={services.length > 0 ? "Run the app" : "Open a port"}
+      text={
+        services.length > 0
+          ? "Services from .lor/environment.json, and anything else running in the sandbox:"
+          : "Servers running in the sandbox:"
+      }
+    >
+      <div className="w-full max-w-sm overflow-hidden rounded-lg border border-border/70 text-left">
+        {services.map((service) => (
+          <ServiceRow
+            key={service.name}
+            service={service}
+            pending={
+              (start.isPending && start.variables === service.name) ||
+              opening?.name === service.name
+            }
+            onStart={() => start.mutate(service.name)}
+            onOpen={() => go({ port: service.port, path: "/" })}
+            onAskFix={() => void askLor(askLorToFix(service))}
+          />
+        ))}
+        {otherPorts.map((entry) => (
           <button
             key={entry.port}
             type="button"
@@ -236,14 +450,31 @@ export function SessionBrowserPanel({
         ))}
       </div>
     </BrowserEmpty>
+  ) : setupError !== null ? (
+    <BrowserEmpty
+      title="The run setup is invalid"
+      text={`.lor/environment.json: ${setupError}`}
+    >
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button
+          size="sm"
+          onClick={() => void askLor(askLorToFixFile(setupError))}
+        >
+          Ask Lor to fix it
+        </Button>
+        <Button size="sm" variant="outline" onClick={openTerminal}>
+          Open terminal
+        </Button>
+      </div>
+    </BrowserEmpty>
   ) : (
     <BrowserEmpty
       title="Nothing running yet"
-      text="Start the dev server in the terminal, or ask Lor to. Its port shows up here."
+      text="Lor can work out how to run this repo and save it in .lor/environment.json, so next time the app starts from here."
     >
       <div className="flex flex-wrap justify-center gap-2">
-        <Button size="sm" onClick={() => void askLor()}>
-          Ask Lor to start the app
+        <Button size="sm" onClick={() => void askLor(ASK_LOR_SETUP)}>
+          Ask Lor to set up the app
         </Button>
         <Button size="sm" variant="outline" onClick={openTerminal}>
           Open terminal
@@ -252,14 +483,69 @@ export function SessionBrowserPanel({
     </BrowserEmpty>
   )
 
+  const header = (
+    <RightPanelHeader
+      title={<SessionPanelTabs view={view} />}
+      workspaceSlug={view.workspaceSlug}
+      channelId={view.channelId}
+      hideBack
+    />
+  )
+
+  // The live view shows Chromium's own tabs and address bar, so the toolbar
+  // only opens the app; who drives and the control toggle sit under the view.
+  if (liveMode) {
+    return (
+      <div className="flex h-full w-full flex-col">
+        {header}
+        <div className="relative flex shrink-0 items-center gap-1.5 border-border/70 border-b px-2 py-2">
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              title="Open the app"
+              className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-muted-foreground text-xs transition-colors hover:bg-foreground/[0.06] hover:text-foreground data-popup-open:bg-foreground/[0.06] data-popup-open:text-foreground"
+            >
+              <HugeiconsIcon
+                icon={Globe02Icon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+              <span className="font-mono">
+                {lastTarget ? `localhost:${lastTarget.port}` : "Open app"}
+              </span>
+              <HugeiconsIcon
+                icon={ArrowDown01Icon}
+                className="size-3"
+                strokeWidth={2}
+              />
+            </DropdownMenuTrigger>
+            {menuItems}
+          </DropdownMenu>
+          {appStopped.length > 0 && (
+            <Button
+              size="xs"
+              disabled={startApp.isPending || opening !== null}
+              onClick={() => startApp.mutate()}
+            >
+              {startApp.isPending || opening ? "Starting…" : "Start app"}
+            </Button>
+          )}
+          <span className="flex-1" />
+          <ToolbarButton
+            label="Open in your browser"
+            icon={LinkSquare02Icon}
+            disabled={!lastTarget || openOutside.isPending}
+            onClick={() => lastTarget && openOutside.mutate(lastTarget)}
+          />
+          {openPage.isPending && <PendingBar />}
+        </div>
+        {body}
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full w-full flex-col">
-      <RightPanelHeader
-        title={<SessionPanelTabs view={view} />}
-        workspaceSlug={view.workspaceSlug}
-        channelId={view.channelId}
-        hideBack
-      />
+      {header}
       <form
         className="relative flex shrink-0 items-center gap-1.5 border-border/70 border-b px-2 py-2"
         onSubmit={(e) => {
@@ -275,6 +561,7 @@ export function SessionBrowserPanel({
           spinning={frameLoading || open.isPending || ports.isFetching}
           onClick={() => {
             void ports.refetch()
+            void setup.refetch()
             if (src) setFrameLoading(true)
             setReloads((n) => n + 1)
           }}
@@ -307,33 +594,7 @@ export function SessionBrowserPanel({
                 strokeWidth={2}
               />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>Open ports</DropdownMenuLabel>
-                {list.length === 0 && (
-                  <DropdownMenuItem disabled>
-                    Nothing listening
-                  </DropdownMenuItem>
-                )}
-                {list.map((entry) => (
-                  <DropdownMenuItem
-                    key={entry.port}
-                    onClick={() => go({ port: entry.port, path: "/" })}
-                  >
-                    <span className="font-mono">{entry.port}</span>
-                    {entry.process && (
-                      <span className="ml-auto text-muted-foreground text-xs">
-                        {entry.process}
-                      </span>
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => void ports.refetch()}>
-                Refresh
-              </DropdownMenuItem>
-            </DropdownMenuContent>
+            {menuItems}
           </DropdownMenu>
         </div>
         <ToolbarButton
@@ -342,14 +603,153 @@ export function SessionBrowserPanel({
           disabled={!src}
           onClick={() => src && openExternal(src)}
         />
-        {open.isPending && (
-          <span
-            aria-hidden="true"
-            className="absolute inset-x-0 -bottom-px h-0.5 animate-pulse bg-primary/70"
-          />
-        )}
+        {open.isPending && <PendingBar />}
       </form>
       {body}
+    </div>
+  )
+}
+
+// The ports and stopped services menu, shared by both toolbars.
+function RunMenuItems({
+  ports,
+  stoppedServices,
+  setupAction,
+  onStartApp,
+  onOpen,
+  onStart,
+  onRefresh,
+}: {
+  ports: { port: number; process: string | null }[]
+  stoppedServices: Service[]
+  setupAction: { label: string; onClick: () => void } | null
+  // Null when every service of the app already runs.
+  onStartApp: (() => void) | null
+  onOpen: (port: number) => void
+  onStart: (name: string) => void
+  onRefresh: () => void
+}) {
+  return (
+    <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>Open ports</DropdownMenuLabel>
+        {ports.length === 0 && (
+          <DropdownMenuItem disabled>Nothing listening</DropdownMenuItem>
+        )}
+        {ports.map((entry) => (
+          <DropdownMenuItem key={entry.port} onClick={() => onOpen(entry.port)}>
+            <span className="font-mono">{entry.port}</span>
+            {entry.process && (
+              <span className="ml-auto text-muted-foreground text-xs">
+                {entry.process}
+              </span>
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuGroup>
+      {stoppedServices.length > 0 && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Services</DropdownMenuLabel>
+            {onStartApp && (
+              <DropdownMenuItem onClick={onStartApp}>
+                Start app
+              </DropdownMenuItem>
+            )}
+            {stoppedServices.map((service) => (
+              <DropdownMenuItem
+                key={service.name}
+                disabled={service.state === "starting"}
+                onClick={() => onStart(service.name)}
+              >
+                Start {service.name}
+                <span className="ml-auto font-mono text-muted-foreground text-xs">
+                  {service.port}
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        </>
+      )}
+      <DropdownMenuSeparator />
+      {setupAction && (
+        <DropdownMenuItem onClick={setupAction.onClick}>
+          {setupAction.label}
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem onClick={onRefresh}>Refresh</DropdownMenuItem>
+    </DropdownMenuContent>
+  )
+}
+
+function PendingBar() {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute inset-x-0 -bottom-px h-0.5 animate-pulse bg-primary/70"
+    />
+  )
+}
+
+function ServiceRow({
+  service,
+  pending,
+  onStart,
+  onOpen,
+  onAskFix,
+}: {
+  service: Service
+  pending: boolean
+  onStart: () => void
+  onOpen: () => void
+  onAskFix: () => void
+}) {
+  const starting = service.state === "starting" || pending
+  const lastLine = service.log?.trimEnd().split("\n").at(-1)
+  return (
+    <div className="border-border/70 border-b px-3 py-2 last:border-b-0">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="font-medium">{service.name}</span>
+        <span className="font-mono text-muted-foreground text-xs">
+          localhost:{service.port}
+        </span>
+        <span className="ml-auto flex items-center">
+          {service.state === "running" ? (
+            <Button size="xs" variant="outline" onClick={onOpen}>
+              Open
+            </Button>
+          ) : starting ? (
+            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              <HugeiconsIcon
+                icon={Loading03Icon}
+                className="size-3.5 animate-spin motion-reduce:animate-none"
+                strokeWidth={2}
+              />
+              Starting
+            </span>
+          ) : (
+            <Button size="xs" onClick={onStart}>
+              {service.state === "exited" ? "Restart" : "Start"}
+            </Button>
+          )}
+        </span>
+      </div>
+      {starting && lastLine && (
+        <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+          {lastLine}
+        </p>
+      )}
+      {service.state === "exited" && !pending && (
+        <div className="mt-2 space-y-2">
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/60 p-2 font-mono text-[11px] text-muted-foreground leading-relaxed">
+            {logTail(service.log) || "It stopped without output."}
+          </pre>
+          <Button size="xs" variant="outline" onClick={onAskFix}>
+            Ask Lor to fix it
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

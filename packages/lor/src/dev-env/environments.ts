@@ -13,6 +13,40 @@ import { sessionWorkDir } from "./work-dir"
 // (reference/dev-environment-runbook.md §2): every env file the environment
 // keeps for the session's repo. Proxy-delivered variables never reach a file.
 
+// Sandbox sizes a code environment can choose, in MB
+// (reference/planned/sandbox-browser-runbook.md §2). Hosted beta stops at 16.
+export const CODE_SANDBOX_MEMORY_OPTIONS_MB = [8192, 16384] as const
+
+// The memory a new code sandbox gets from the session's environment; null
+// for the default.
+export async function environmentSandboxMemoryMb(
+  environmentId: string | null | undefined
+): Promise<number | null> {
+  if (!environmentId) return null
+  const [row] = await db
+    .select({ memoryMb: schema.environment.sandboxMemoryMb })
+    .from(schema.environment)
+    .where(eq(schema.environment.id, environmentId))
+    .limit(1)
+  return row?.memoryMb ?? null
+}
+
+// The same through the session (a restore that creates the sandbox).
+export async function sessionSandboxMemoryMb(
+  sessionId: string
+): Promise<number | null> {
+  const [row] = await db
+    .select({ memoryMb: schema.environment.sandboxMemoryMb })
+    .from(schema.agentSession)
+    .innerJoin(
+      schema.environment,
+      eq(schema.agentSession.environmentId, schema.environment.id)
+    )
+    .where(eq(schema.agentSession.id, sessionId))
+    .limit(1)
+  return row?.memoryMb ?? null
+}
+
 const HEADER =
   "# Written by Lor from this session's environment. Edit it in Lor: changes here are replaced on Lor's next turn."
 

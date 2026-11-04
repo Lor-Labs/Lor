@@ -117,6 +117,12 @@ plainly that Lor can read file values: use development credentials.
 
 ## 3. Preview tab
 
+> 2026-11-03: the Browser panel's iframe is to be replaced by Chromium in
+> the session sandbox, and the run setup (step 4b) gets profiles and
+> readiness checks (LOR-125). See `planned/sandbox-browser-runbook.md`. The
+> iframe's origin is the preview host, so Next.js 16 dev never hydrates
+> (`allowedDevOrigins`, no env var) and auth origin checks fail.
+
 - **Dev server.** Per repo, a dev command and port (`pnpm dev`, 3000),
   detected from `package.json` on first use and editable. The Preview tab's
   Start runs it as the named process `preview-<port>` with `HOST=0.0.0.0`,
@@ -294,6 +300,24 @@ first load). The client behavior is the same.
     ports from `/proc/net/tcp*`, a Node TCP relay for localhost-bound
     servers, address bar at `localhost:<port>`, "Ask Lor to start the
     app") replaces the Preview form.
+- [x] **4b. Repo run setup** (Jacob, 2026-11-02: no script can guess every
+  language's commands). Built 2026-11-02, not run live yet.
+  - The repo's `.lor/environment.json`, committed like any file: `install`
+    and `services` (`name`, `command`, `port`, optional `cwd`). Lor writes it
+    the first time someone asks it to run the app and fixes it when it fails
+    (code-session prompt line, every harness). No Lor-side copy: a branch
+    without the file gets one written again; merges handle the rest.
+  - `packages/lor/src/dev-env/repo-setup.ts`: `repoSetupStatus` (each
+    service stopped / starting / running / exited with its log tail; running
+    means its port listens, whoever started it) and `startService` (named
+    process `service-<name>`: install under a flock, then the command, with
+    `PORT`; pid and log in `/workspace/tmp/lor-services`).
+  - API: `GET /sessions/{id}/setup`, `POST
+    /sessions/{id}/setup/services/{name}/start` (write access).
+  - Browser panel: Start / Restart / Open per service, the log and "Ask Lor
+    to fix it" when one exits, "Ask Lor to set up the app" without the file.
+  - Not built: install in turn prep, Stop, a sandbox for a session that has
+    had no turn yet.
 - [ ] **5. Live QA.** A Next app with a `.env.local`: preview, edit through
   Lor with hot reload, terminal, idle and return, archive revokes.
 

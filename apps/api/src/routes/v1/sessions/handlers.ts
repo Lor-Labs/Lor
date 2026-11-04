@@ -48,8 +48,15 @@ import {
   type SessionCheckpointRow,
   writeCheckpoint,
 } from "@repo/lor/code-checkpoints"
+import {
+  openBrowserPage,
+  openBrowserView,
+  pickBrowserElement,
+  setBrowserControl,
+} from "@repo/lor/dev-env/browser"
 import { applySessionEnvironment as applyEnvironment } from "@repo/lor/dev-env/environments"
 import { listOpenPorts, openPort } from "@repo/lor/dev-env/previews"
+import { repoSetupStatus, startService } from "@repo/lor/dev-env/repo-setup"
 import { openTerminal } from "@repo/lor/dev-env/terminal"
 import {
   BranchRefusedError,
@@ -89,16 +96,22 @@ import type {
   GetSessionChangeDiffRoute,
   GetSessionChangesRoute,
   GetSessionContextRoute,
+  GetSessionSetupRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
   ListSessionPortsRoute,
   ListSessionTouchesRoute,
+  OpenSessionBrowserPageRoute,
+  OpenSessionBrowserRoute,
   OpenSessionPortRoute,
   OpenSessionTerminalRoute,
+  PickSessionBrowserElementRoute,
   PullSessionChangesRoute,
   PushSessionChangesRoute,
   RewindAgentSessionRoute,
+  SetSessionBrowserControlRoute,
   StageSessionChangesRoute,
+  StartSessionServiceRoute,
   UpdateAgentSessionRoute,
 } from "@/routes/v1/sessions/routes"
 
@@ -1477,6 +1490,90 @@ export const openSessionPort: AppRouteHandler<OpenSessionPortRoute> = async (
   return c.json({ url: result.url, query: result.query }, HttpStatusCodes.OK)
 }
 
+// The repo's run setup (.lor/environment.json): reading it needs channel
+// access; starting a service needs write access, like opening a port.
+
+export const getSessionSetup: AppRouteHandler<GetSessionSetupRoute> = async (
+  c
+) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row || row.session.mode !== "code") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const setup = await repoSetupStatus(sessionId)
+  return c.json(
+    {
+      status: setup.status,
+      error: setup.status === "invalid" ? setup.error : null,
+      install: setup.status === "ready" ? setup.install : null,
+      services: setup.status === "ready" ? setup.services : [],
+    },
+    HttpStatusCodes.OK
+  )
+}
+
+export const startSessionService: AppRouteHandler<
+  StartSessionServiceRoute
+> = async (c) => {
+  const { sessionId, name } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row || row.session.mode !== "code") {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!row.canWrite) {
+    return c.json(
+      { success: false as const, message: "Forbidden" },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+  const result = await startService(sessionId, name)
+  switch (result.status) {
+    case "started":
+    case "running":
+      return c.json({ status: result.status }, HttpStatusCodes.OK)
+    case "no_sandbox":
+      return c.json(
+        {
+          success: false as const,
+          message:
+            "This session has no sandbox yet. Send Lor a message to set one up.",
+        },
+        HttpStatusCodes.CONFLICT
+      )
+    case "unknown_service":
+      return c.json(
+        {
+          success: false as const,
+          message: `.lor/environment.json has no service named ${name}.`,
+        },
+        HttpStatusCodes.NOT_FOUND
+      )
+    case "missing":
+      return c.json(
+        {
+          success: false as const,
+          message: "This repo has no .lor/environment.json yet.",
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    case "invalid":
+      return c.json(
+        {
+          success: false as const,
+          message: `.lor/environment.json is invalid: ${result.error}`,
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+  }
+}
+
 // The Terminal tab (reference/dev-environment-runbook.md §4): a root shell in
 // the session's sandbox, so it needs write access like Lor's own turns.
 export const openSessionTerminal: AppRouteHandler<
@@ -1523,6 +1620,242 @@ export const openSessionTerminal: AppRouteHandler<
     { url: result.url, expiresAt: result.expiresAt },
     HttpStatusCodes.OK
   )
+}
+
+// The session browser (reference/planned/sandbox-browser-runbook.md §4): a
+// live view of the sandbox's Chromium, so like the terminal it needs write
+// access in a live code session.
+async function browserSession(sessionId: string, userId: string) {
+  const row = await findAccessibleSession(sessionId, userId)
+  if (!row) {
+    return {
+      ok: false,
+      status: HttpStatusCodes.NOT_FOUND,
+      message: "Session not found",
+    } as const
+  }
+  if (!row.canWrite) {
+    return {
+      ok: false,
+      status: HttpStatusCodes.FORBIDDEN,
+      message: "Forbidden",
+    } as const
+  }
+  if (row.session.mode !== "code" || row.session.archivedAt) {
+    return {
+      ok: false,
+      status: HttpStatusCodes.BAD_REQUEST,
+      message: "The browser is for code sessions",
+    } as const
+  }
+  return { ok: true, session: row.session } as const
+}
+
+const NO_SANDBOX_MESSAGE =
+  "This session has no sandbox yet. Send Lor a message to set one up."
+const OLD_SANDBOX_MESSAGE =
+  "This session's sandbox predates the browser. Start a new session to use it."
+
+export const openSessionBrowser: AppRouteHandler<
+  OpenSessionBrowserRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const result = await openBrowserView(sessionId, c.var.user.id)
+  switch (result.status) {
+    case "ready":
+      return c.json(
+        {
+          status: "ready" as const,
+          url: result.url,
+          pageUrl: result.pageUrl,
+          expiresAt: result.expiresAt,
+          role: result.role,
+          controller: result.controller,
+        },
+        HttpStatusCodes.OK
+      )
+    case "unavailable":
+      return c.json({ status: "unavailable" as const }, HttpStatusCodes.OK)
+    case "no_sandbox":
+      return c.json(
+        { success: false as const, message: NO_SANDBOX_MESSAGE },
+        HttpStatusCodes.CONFLICT
+      )
+    case "not_ready":
+      return c.json(
+        { success: false as const, message: "The browser didn't start" },
+        HttpStatusCodes.BAD_REQUEST
+      )
+  }
+}
+
+export const setSessionBrowserControl: AppRouteHandler<
+  SetSessionBrowserControlRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const { take } = c.req.valid("json")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const result = await setBrowserControl(
+    sessionId,
+    { userId: c.var.user.id, name: c.var.user.name },
+    take
+  )
+  switch (result.status) {
+    case "no_sandbox":
+      return c.json(
+        { success: false as const, message: NO_SANDBOX_MESSAGE },
+        HttpStatusCodes.CONFLICT
+      )
+    case "unavailable":
+      return c.json(
+        { success: false as const, message: OLD_SANDBOX_MESSAGE },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    case "not_controller":
+      return c.json(
+        {
+          success: false as const,
+          message: `${result.controller?.name ?? "Someone else"} has control of the browser.`,
+        },
+        HttpStatusCodes.CONFLICT
+      )
+    case "ok": {
+      const { session } = access
+      void getEmitter()
+        .then((io) =>
+          io
+            .to(threadRoom(session.threadRootId))
+            .emit("session:browser:control", {
+              sessionId: session.id,
+              threadRootId: session.threadRootId,
+              controller: result.controller,
+            })
+        )
+        .catch((err) =>
+          logger.warn({ err, sessionId }, "Browser control broadcast failed")
+        )
+      return c.json({ controller: result.controller }, HttpStatusCodes.OK)
+    }
+  }
+}
+
+export const openSessionBrowserPage: AppRouteHandler<
+  OpenSessionBrowserPageRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const target = c.req.valid("json")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const result = await openBrowserPage(sessionId, c.var.user.id, target)
+  switch (result.status) {
+    case "ok":
+      return c.json({ status: "ok" as const }, HttpStatusCodes.OK)
+    case "busy":
+      return c.json(
+        {
+          success: false as const,
+          message: `${result.controller.name} has control of the browser.`,
+        },
+        HttpStatusCodes.CONFLICT
+      )
+    case "no_sandbox":
+      return c.json(
+        { success: false as const, message: NO_SANDBOX_MESSAGE },
+        HttpStatusCodes.CONFLICT
+      )
+    case "unavailable":
+      return c.json(
+        { success: false as const, message: OLD_SANDBOX_MESSAGE },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    case "not_ready":
+      return c.json(
+        {
+          success: false as const,
+          message: "The browser couldn't open that page",
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+  }
+}
+
+// Element comments (reference/planned/sandbox-browser-runbook.md §5).
+export const pickSessionBrowserElement: AppRouteHandler<
+  PickSessionBrowserElementRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const result = await pickBrowserElement(
+    sessionId,
+    c.var.user.id,
+    body.mode === "pick" ? { mode: "pick", index: body.index } : body
+  )
+  switch (result.status) {
+    case "picked":
+      return c.json(
+        {
+          status: "picked" as const,
+          element: result.element,
+          image: result.image,
+        },
+        HttpStatusCodes.OK
+      )
+    case "timeout":
+    case "no_page":
+    case "ok":
+      return c.json({ status: result.status }, HttpStatusCodes.OK)
+    case "busy":
+      return c.json(
+        {
+          success: false as const,
+          message: "Take control of the browser to comment on the page.",
+        },
+        HttpStatusCodes.CONFLICT
+      )
+    case "no_sandbox":
+      return c.json(
+        { success: false as const, message: NO_SANDBOX_MESSAGE },
+        HttpStatusCodes.CONFLICT
+      )
+    case "unavailable":
+      return c.json(
+        { success: false as const, message: OLD_SANDBOX_MESSAGE },
+        HttpStatusCodes.BAD_REQUEST
+      )
+    case "error":
+      return c.json(
+        {
+          success: false as const,
+          message: "Couldn't read that element from the page",
+        },
+        HttpStatusCodes.BAD_REQUEST
+      )
+  }
 }
 
 // A saved environment edit from the session menu, written into the sandbox
