@@ -340,22 +340,22 @@ Rules that keep it portable:
 
 Each step is a review chunk of about 300–400 lines.
 
-- [ ] **0. Spike (1–2 days).**
-  - [ ] Image with Xvfb, openbox, headful Chromium, x11vnc (and KasmVNC to
-    compare), websockify and noVNC. Measure RAM and CPU idle, then with a
-    Next.js 16 dev server and three tabs at 1280×800, at 8 GB. Check `nproc`.
-  - [ ] noVNC through a private preview in Chrome, the Tauri app and an iOS
-    webview: latency, typing, clipboard, scaling.
-  - [ ] agent-browser and playwright-cli attach to the headful Chromium
-    over CDP: snapshot, click, fill, screenshot. Pick one.
-  - [ ] A Next.js 16 app with better-auth hydrates and signs in at
-    localhost, with no `allowedDevOrigins` or `trustedOrigins` edits.
-  - [ ] Ask Blaxel whether UDP or TCP ports can be reached from outside (for
-    neko later).
-  - [ ] Check Boat: WebSockets through its port exposure, and the browser
-    process restarting after a stop.
-  - Exit: the default code sandbox size (8 or 16 GB), x11vnc or KasmVNC,
-    the agent command.
+- [x] **0. Spike** (2026-11-03).
+  - [x] Image with Xvfb, openbox, headful Chromium, x11vnc, websockify and
+    noVNC; RAM and CPU measured locally and on Blaxel (notes below).
+    KasmVNC was not compared: x11vnc was fast enough.
+  - [x] noVNC through a private preview: Jacob in Safari on macOS, "feels
+    pretty damn responsive to be a remote desktop". Chrome and iOS not
+    tried yet; the Tauri app needs the panel (step 4).
+  - [x] agent-browser attaches to the headful Chromium over CDP. Chosen;
+    playwright-cli not tried.
+  - [x] A Next.js 16 app hydrates at localhost with no `allowedDevOrigins`
+    edit. better-auth sign-in moves to the live QA in step 6.
+  - Dropped: asking Blaxel about UDP (WebRTC is on hold).
+  - Moved to the Boat evaluation: WebSockets through Boat's port exposure
+    and the browser restart after a stop.
+  - Exit: the default code sandbox stays 8 GB (the stack used 1.8 GB with a
+    Next dev server and two tabs); x11vnc; agent-browser.
   - Local run, 2026-11-03 (Docker on arm64, the workbench's Debian trixie
     base). Image section and `browser/lor-browser-start` added to
     `sandbox-image/`; not pushed to Blaxel yet.
@@ -374,6 +374,33 @@ Each step is a review chunk of about 300–400 lines.
       localhost, no blocked cross-origin requests in the dev log), with no
       `allowedDevOrigins` edit. Not yet tried with better-auth.
     - playwright-cli was not tried; agent-browser covers what Lor needs.
+  - Blaxel run, 2026-11-03: image `sandbox/workbench-browser-spike` (pushed
+    with `bl push --name`, so `workbench` was untouched), one 8 GB sandbox
+    with the production egress config (`proxy: { routing: [] }`).
+    - 8 GB gives 4 cores (`nproc`), so the API schema's MB / 2048 rule holds.
+    - **Blaxel's egress proxy re-signs HTTPS** ("Blaxel MITM CA", in
+      `SANDBOX_EXTRA_CA_CERTS`). Chromium trusts only its NSS store, so every
+      outside site failed with `ERR_CERT_AUTHORITY_INVALID`.
+      `lor-browser-start` now imports that CA with `certutil` (new package
+      `libnss3-tools`) before it starts Chromium; react.dev and GitHub then
+      loaded. `NO_PROXY` covers localhost, so dev servers never touch the
+      proxy.
+    - The private preview carries the noVNC page and its WebSocket:
+      `vnc.html` 200 with `bl_preview_token`, then the cookie alone; the
+      `/websockify` upgrade answers 101 with the cookie and 401 without.
+    - A Next 16.4.5 dev app at `http://localhost:3000` hydrates in the
+      sandbox's Chromium, with no blocked requests in the dev log.
+    - Memory (PSS) with two tabs (the Next app, GitHub): Chromium 624 MB,
+      Next dev 462 MB, display and VNC 76 MB, agent-browser 17 MB; 1.8 GB
+      used of 8 GB. CPU idle with no viewer connected.
+    - Chromium's restart loop works: killing Chromium brought it back on the
+      same profile within seconds.
+    - Standby keeps it: after the sandbox sat idle, Chromium, noVNC and
+      the Next dev server were still running with both tabs.
+    - CPU with Jacob connected from Safari for 90 s: the sandbox stayed
+      81–95% idle on 4 cores. x11vnc and Xvfb together took about 3–12% of
+      one core (websockify under 1%). Chromium itself reached 43% of one
+      core while rendering, which any browser spends.
 - [ ] **1. Sandbox size on the environment.** Column
   `environment.sandbox_memory_mb` (Jacob runs `db:push`), API validation,
   the editor field with the credit cost, `createSessionSandbox` reads it,
@@ -425,9 +452,8 @@ Each step is a review chunk of about 300–400 lines.
 
 ## Open questions
 
-- The default code sandbox size after the spike, and whether 16 GB stays
-  the hosted-beta cap.
-- agent-browser or playwright-cli for Lor (the spike decides).
+- Whether 16 GB stays the hosted-beta cap. (The default stays 8 GB, and
+  Lor uses agent-browser: spike, 2026-11-03.)
 - Whether Lor's browser use counts against anything beyond sandbox time.
 - How the Browser panel picks between this browser and the hosted vendor
   browser when a code session needs a site with logins.

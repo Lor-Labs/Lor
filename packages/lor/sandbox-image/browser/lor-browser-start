@@ -52,6 +52,17 @@ websockify --web /usr/share/novnc "0.0.0.0:${VIEW_PORT}" "localhost:${VNC_PORT}"
   >"$DIR/logs/websockify.log" 2>&1 &
 pids+=($!)
 
+# Blaxel's egress proxy re-signs HTTPS with its own CA, and Chromium trusts
+# only its NSS store (not SSL_CERT_FILE): without this every outside site is
+# ERR_CERT_AUTHORITY_INVALID. Localhost bypasses the proxy (NO_PROXY).
+if [ -n "${SANDBOX_EXTRA_CA_CERTS:-}" ] && [ -f "$SANDBOX_EXTRA_CA_CERTS" ]; then
+  nssdb="sql:$HOME/.pki/nssdb"
+  mkdir -p "$HOME/.pki/nssdb"
+  certutil -d "$nssdb" -L >/dev/null 2>&1 || certutil -d "$nssdb" -N --empty-password
+  certutil -d "$nssdb" -A -t "C,," -n sandbox-proxy -i "$SANDBOX_EXTRA_CA_CERTS" \
+    || echo "Couldn't trust the sandbox proxy CA; HTTPS sites will fail"
+fi
+
 # A profile copied from a stopped run keeps its singleton lock.
 rm -f "$DIR/profile/SingletonLock" "$DIR/profile/SingletonSocket" \
   "$DIR/profile/SingletonCookie"

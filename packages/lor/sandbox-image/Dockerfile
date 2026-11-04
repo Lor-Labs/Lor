@@ -100,7 +100,7 @@ COPY terminal/zshrc /root/.zshrc
 # measured 2026-11-03 at about 0.75 GB of memory with three real tabs.
 ARG AGENT_BROWSER_VERSION=0.41.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium xvfb xauth openbox x11vnc novnc websockify \
+    chromium xvfb xauth openbox x11vnc novnc websockify libnss3-tools \
     fonts-liberation fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g agent-browser@${AGENT_BROWSER_VERSION}
