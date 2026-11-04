@@ -534,6 +534,20 @@ Each step is a review chunk of about 300–400 lines.
       and a backdrop click close it while watching; while you drive, Esc
       goes to the page (closing the app's own dialogs), and the Shrink
       button closes it.
+  - [x] 4i Lor asks for the browser back (2026-11-04, Jacob: Lor must be
+    able to take it back; no second browser):
+    - `lor-browser`: a command that needs control, while a person has it,
+      waits up to 45 s for the `controller` file to go, then runs; if it
+      stays, it fails and Lor asks in the chat. Snapshots and screenshots
+      still run at once.
+    - The panel sees that command start (`lor:tool`,
+      `needsBrowserControl` in `@repo/utils/browser-step`). The person in
+      control sees "Lor wants the browser. It goes back in N s unless you
+      keep using it." with Keep and Hand back; their panel hands back after
+      15 s without a key, click or scroll in the view (at least 5 s after
+      the request). Others see "Lor is waiting for {name} to hand the
+      browser back." A phone controller has no panel, so Lor waits the 45 s
+      and asks in the chat.
   - [x] 4h keyboard and clipboard (2026-11-03,
     `session-browser-keys.ts`, for the person in control only; Jacob ran it
     live the same day: "working great"):

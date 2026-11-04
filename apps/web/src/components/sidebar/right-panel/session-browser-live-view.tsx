@@ -11,7 +11,7 @@ import type { LorToolEventPayload } from "@repo/realtime-types"
 import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
-import { browserStep } from "@repo/utils/browser-step"
+import { browserStep, needsBrowserControl } from "@repo/utils/browser-step"
 import { useMutation } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 import {
@@ -38,6 +38,8 @@ const HIDDEN_PAUSE_MS = 2 * 60_000
 const STEP_FRESH_MS = 8_000
 // Give up on showing "Switching control…" if the reconnect never lands.
 const SWITCH_TIMEOUT_MS = 10_000
+// Lor asked for the browser: the controller's idle time before it goes back.
+const IDLE_HAND_BACK_MS = 15_000
 
 async function errorMessage(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as {
@@ -78,6 +80,11 @@ export function useSessionBrowserLive(
   const [expanded, setExpanded] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const failures = useRef(0)
+  // Lor's running command that waits for a person to hand the browser back.
+  const [lorWaiting, setLorWaiting] = useState<string | null>(null)
+  const [kept, setKept] = useState<string | null>(null)
+  const [handBackIn, setHandBackIn] = useState<number | null>(null)
+  const lastInputAt = useRef(Date.now())
 
   useEffect(() => {
     if (!enabled || !screen || paused || unavailable || failed) return
@@ -183,6 +190,12 @@ export function useSessionBrowserLive(
       setLorStep({ text, running })
       if (fade) clearTimeout(fade)
       fade = running ? null : setTimeout(() => setLorStep(null), STEP_FRESH_MS)
+      const { toolCallId, label } = payload.toolCall
+      if (running && needsBrowserControl(label.slice(4))) {
+        setLorWaiting(toolCallId)
+      } else if (!running) {
+        setLorWaiting((current) => (current === toolCallId ? null : current))
+      }
     }
     socket.on("lor:tool", onTool)
     return () => {
@@ -190,6 +203,20 @@ export function useSessionBrowserLive(
       socket.off("lor:tool", onTool)
     }
   }, [socket, threadRootId])
+
+  // The controller's own input in the view: idle long enough, and the
+  // browser goes back to a waiting Lor.
+  useEffect(() => {
+    if (!screen) return
+    const onInput = () => {
+      lastInputAt.current = Date.now()
+    }
+    const events = ["pointerdown", "keydown", "wheel"] as const
+    for (const name of events) screen.addEventListener(name, onInput, true)
+    return () => {
+      for (const name of events) screen.removeEventListener(name, onInput, true)
+    }
+  }, [screen])
 
   useEffect(() => {
     if (!switching) return
@@ -218,6 +245,34 @@ export function useSessionBrowserLive(
   // Right after taking control the view is still reconnecting as a viewer.
   const youControl =
     role === "control" || (myId !== null && controller?.userId === myId)
+  const lorWants =
+    lorWaiting !== null && controller !== null && kept !== lorWaiting
+
+  // Lor asked: hand back after the controller has been idle 15 s, counting
+  // from at least 5 s after the request so the notice is seen.
+  useEffect(() => {
+    if (!youControl || !lorWants) {
+      setHandBackIn(null)
+      return
+    }
+    lastInputAt.current = Math.max(
+      lastInputAt.current,
+      Date.now() - IDLE_HAND_BACK_MS + 5_000
+    )
+    let handedBack = false
+    const tick = () => {
+      const left = IDLE_HAND_BACK_MS - (Date.now() - lastInputAt.current)
+      if (left > 0) {
+        setHandBackIn(Math.ceil(left / 1000))
+      } else if (!handedBack) {
+        handedBack = true
+        control.mutate(false)
+      }
+    }
+    tick()
+    const timer = setInterval(tick, 500)
+    return () => clearInterval(timer)
+  }, [youControl, lorWants])
 
   return {
     setScreen,
@@ -238,6 +293,10 @@ export function useSessionBrowserLive(
       await control.mutateAsync(true)
     },
     handBack: () => control.mutate(false),
+    // Lor is waiting for the browser while a person has control.
+    lorWants,
+    handBackIn,
+    keep: () => setKept(lorWaiting),
     resume: () => {
       failures.current = 0
       setPaused(false)
@@ -384,15 +443,20 @@ function BrowserFooter({
 }) {
   const commenting =
     comments !== undefined && (comments.picking || comments.comments.length > 0)
+  const asking = live.youControl && live.lorWants
   const status = live.switching
     ? "Switching control…"
-    : live.youControl
-      ? "You have control. Lor waits until you hand it back."
-      : live.controller
-        ? `${live.controller.name} has control.`
-        : live.lorStep
-          ? `Lor is using the browser · ${live.lorStep.text}`
-          : "Watching"
+    : asking
+      ? `Lor wants the browser. It goes back in ${live.handBackIn ?? 15} s unless you keep using it.`
+      : live.youControl
+        ? "You have control. Lor waits until you hand it back."
+        : live.controller && live.lorWants
+          ? `Lor is waiting for ${live.controller.name} to hand the browser back.`
+          : live.controller
+            ? `${live.controller.name} has control.`
+            : live.lorStep
+              ? `Lor is using the browser · ${live.lorStep.text}`
+              : "Watching"
   return (
     <div
       className={cn(
@@ -401,11 +465,23 @@ function BrowserFooter({
           "mx-auto w-full max-w-3xl rounded-lg bg-popover px-3 py-2 text-popover-foreground shadow-lg"
       )}
     >
-      {live.lorStep && !live.controller && !live.youControl && <LiveDot />}
-      <p className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
+      {((live.lorStep && !live.controller && !live.youControl) ||
+        live.lorWants) && <LiveDot />}
+      <p
+        className={cn(
+          "min-w-0 flex-1 truncate text-xs",
+          asking ? "font-medium text-foreground" : "text-muted-foreground"
+        )}
+        title={status}
+      >
         {status}
       </p>
-      {comments && !commenting && (
+      {asking && (
+        <Button size="sm" variant="ghost" onClick={live.keep}>
+          Keep
+        </Button>
+      )}
+      {comments && !commenting && !asking && (
         <Button
           size="sm"
           variant="outline"
