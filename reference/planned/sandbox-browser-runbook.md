@@ -438,10 +438,11 @@ Each step is a review chunk of about 300–400 lines.
   `POST /sessions/{id}/setup/profiles/{name}/start`. The panel's Start runs
   the default profile, and a menu lists the other profiles and services.
   Prompt update in `code-session.ts`. Works with the iframe until step 4.
-- [ ] **3. Browser process and Lor's browser command.** Image (`bl push`),
+- [x] **3. Browser process and Lor's browser command.** Image (`bl push`),
   the `browser` process and start script, `HIDDEN_PORTS`, `lor-browser`
   with the control-file check, prompt lines, and screenshots through
-  `share_file`. Built 2026-11-03; image not pushed yet.
+  `share_file`. Built and pushed 2026-11-03 (commit `b0476c15`); not yet
+  used in a real code session.
   - `sandbox-image/browser/lor-browser-start`: one browser per sandbox
     (flock on `run.lock`, held by every child), proxy CA import, a 256 MB
     disk cache.
@@ -451,8 +452,9 @@ Each step is a review chunk of about 300–400 lines.
   - `packages/lor/src/dev-env/browser.ts`: the browser's ports, added to
     `HIDDEN_PORTS` (so services in the run setup can't use them either).
   - `code-session.ts`: the "Checking the app" prompt line, every harness.
-  - [ ] `harness-bootstrap.ts`, then `bl push` of `workbench` (Jacob
-    approves first). Existing sandboxes keep their image until replaced.
+  - [x] `harness-bootstrap.ts`, then `bl push` of `workbench` (2026-11-03,
+    rootfs 3,141 MiB; the build checks `agent-browser --version`). Existing
+    sandboxes keep their image until replaced.
 - [ ] **4. Live view.** Gateway, the three API routes, the panel with the
   noVNC client, address bar over CDP, take control and hand back, the
   hidden-tab and idle reconnects, desktop CSP, and the phone row. Tool
