@@ -18,5 +18,7 @@ declare module "@novnc/novnc" {
     disconnect(): void
     focus(): void
     clipboardPasteFrom(text: string): void
+    // X keysym; `down` omitted sends a press and a release.
+    sendKey(keysym: number, code: string | null, down?: boolean): void
   }
 }

@@ -536,7 +536,21 @@ Each step is a review chunk of about 300–400 lines.
       Paused with Resume.
     - Expand: the same nodes become a fixed overlay (`bg-black/60`, like
       the dialog backdrop), so noVNC keeps its connection and rescales. Esc
-      closes it; clicking the backdrop closes it only while watching.
+      and a backdrop click close it while watching; while you drive, Esc
+      goes to the page (closing the app's own dialogs), and the Shrink
+      button closes it.
+  - [x] 4h keyboard and clipboard (2026-11-03,
+    `session-browser-keys.ts`, for the person in control only; Jacob ran it
+    live the same day: "working great"):
+    - Mac: Command reaches the sandbox as Control, Cmd+Left/Right as
+      Home/End and Cmd+Up/Down as Control+Home/End. Keys pressed while
+      Command is held go as taps, because macOS sends no keyup for them.
+    - Paste (Cmd/Ctrl+V): the paste event's text, else
+      `navigator.clipboard.readText()` (Safari asks first), goes to the
+      sandbox with `clipboardPasteFrom` before the V keystroke.
+    - Copy: text x11vnc sends within 3 s of a Cmd/Ctrl+C or X goes to the
+      person's clipboard (`writeText`; Safari may refuse without a fresh
+      click). Plain selections never overwrite it.
     - A browser step in the web tool trail has "Open browser", which opens
       the session's Browser panel when a session panel is open.
     - Later (Jacob): Lor asking for help (an amber "Lor needs you" strip

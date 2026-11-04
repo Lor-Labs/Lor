@@ -13,6 +13,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { browserStep } from "@repo/utils/browser-step"
 import { useMutation } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
+import { attachBrowserKeys } from "@/components/sidebar/right-panel/session-browser-keys"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
@@ -77,6 +78,7 @@ export function useSessionBrowserLive(
     if (!enabled || !screen || paused || unavailable || failed) return
     let cancelled = false
     let rfb: RFB | null = null
+    let detachKeys: (() => void) | null = null
     let retry: ReturnType<typeof setTimeout> | null = null
     const retryLater = (message: string) => {
       const delay = RETRY_MS[failures.current]
@@ -109,6 +111,7 @@ export function useSessionBrowserLive(
       rfb.viewOnly = view.role === "watch"
       rfb.focusOnClick = view.role === "control"
       rfb.background = "transparent"
+      if (view.role === "control") detachKeys = attachBrowserKeys(screen, rfb)
       rfb.addEventListener("connect", () => {
         failures.current = 0
         setConnected(true)
@@ -127,6 +130,7 @@ export function useSessionBrowserLive(
     return () => {
       cancelled = true
       if (retry) clearTimeout(retry)
+      detachKeys?.()
       rfb?.disconnect()
       setConnected(false)
     }
@@ -312,7 +316,8 @@ export function SessionBrowserLiveView({ live }: { live: SessionBrowserLive }) {
           )}
           <button
             type="button"
-            title={expanded ? "Shrink (Esc)" : "Expand"}
+            // While you drive, Esc goes to the page (noVNC takes it).
+            title={expanded ? "Shrink" : "Expand"}
             aria-label={expanded ? "Shrink the browser" : "Expand the browser"}
             onClick={() => setExpanded(!expanded)}
             className="absolute top-2 right-2 flex size-7 cursor-pointer items-center justify-center rounded-md bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-ring"
