@@ -108,7 +108,10 @@ import {
 } from "./code-session"
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
-import { writeEnvironmentFiles } from "./dev-env/environments"
+import {
+  environmentSandboxMemoryMb,
+  writeEnvironmentFiles,
+} from "./dev-env/environments"
 import { embedBrainQueryWithUsage } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import { saveHarnessModels } from "./harness-models"
@@ -3181,6 +3184,9 @@ export async function respond(
       keepBridges: bridgePaused,
       code: Boolean(ctx.code),
       proxy: Boolean(agentHarness),
+      memoryMb: ctx.code
+        ? await environmentSandboxMemoryMb(ctx.code.environmentId)
+        : null,
     })
     let uncommitted: UncommittedLinesTracker | null = null
     try {

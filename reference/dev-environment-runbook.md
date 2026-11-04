@@ -117,6 +117,12 @@ plainly that Lor can read file values: use development credentials.
 
 ## 3. Preview tab
 
+> 2026-11-03: the Browser panel's iframe is to be replaced by Chromium in
+> the session sandbox, and the run setup (step 4b) gets profiles and
+> readiness checks (LOR-125). See `planned/sandbox-browser-runbook.md`. The
+> iframe's origin is the preview host, so Next.js 16 dev never hydrates
+> (`allowedDevOrigins`, no env var) and auth origin checks fail.
+
 - **Dev server.** Per repo, a dev command and port (`pnpm dev`, 3000),
   detected from `package.json` on first use and editable. The Preview tab's
   Start runs it as the named process `preview-<port>` with `HOST=0.0.0.0`,

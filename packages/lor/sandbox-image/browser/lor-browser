@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Lor's command for the session browser (reference/planned/sandbox-browser-runbook.md
+# §3): agent-browser over CDP, attached to the Chromium that people watch.
+# It starts the browser on first use, waits while a person has control, acts
+# (click, type, eval, ...) only on localhost pages and only reads other
+# sites. A guard against mistakes, not a security boundary: the sandbox runs
+# as root.
+set -u
+
+AGENT_BROWSER=/opt/agent-browser/bin/agent-browser
+CDP_PORT="${LOR_BROWSER_CDP_PORT:-9222}"
+DIR="${LOR_BROWSER_DIR:-/workspace/.cache/lor-browser}"
+# The person who has control, written by the API when they take it.
+CONTROLLER_FILE="$DIR/controller"
+
+# Page text is untrusted: boundaries mark it, and long snapshots are cut.
+export AGENT_BROWSER_CONTENT_BOUNDARIES=1
+export AGENT_BROWSER_MAX_OUTPUT="${AGENT_BROWSER_MAX_OUTPUT:-40000}"
+
+fail() {
+  echo "lor-browser: $*" >&2
+  exit 2
+}
+
+# Observing only; allowed while a person has control.
+OBSERVE=" snapshot screenshot get is console errors session skills "
+# Reads or navigates; allowed on any site.
+READ=" open read pdf wait scroll scrollintoview hover focus highlight back forward reload tab diff trace profiler record react vitals a11y pushstate network set "
+# Changes the page; allowed on localhost pages only.
+ACT=" click dblclick type fill press keyboard check uncheck select drag upload download eval find mouse cookies storage clipboard webmcp "
+
+command=""
+for arg in "$@"; do
+  case "$arg" in
+    --cdp | --cdp=* | -p | --provider | --provider=* | --engine | --engine=* | \
+      --executable-path | --executable-path=* | --profile | --profile=* | \
+      --auto-connect | --session | --session=* | --namespace | --namespace=* | \
+      --config | --config=* | --extension | --extension=* | --args | --args=* | \
+      --proxy | --proxy=* | --ignore-https-errors | --allow-file-access)
+      fail "$arg is set by Lor's browser and can't be changed"
+      ;;
+  esac
+  if [ -z "$command" ] && [ "${arg#-}" = "$arg" ]; then
+    command="$arg"
+  fi
+done
+
+# A javascript: URL would run script on the open page from a read command.
+case "$command" in
+  open | tab | read | pushstate | diff | vitals | a11y | record)
+    for arg in "$@"; do
+      if printf '%s' "$arg" | grep -qiE '^[[:space:]]*(javascript|data|file|vbscript|chrome|view-source):'; then
+        fail "only http(s) pages open in this browser"
+      fi
+    done
+    ;;
+esac
+
+if [ -z "$command" ] || [ "$command" = "help" ] || [ "$command" = "--help" ]; then
+  exec "$AGENT_BROWSER" --help
+fi
+case " $OBSERVE $READ $ACT " in
+  *" $command "*) ;;
+  *) fail "'$command' isn't available in Lor's browser" ;;
+esac
+
+if [ -s "$CONTROLLER_FILE" ] && [[ "$OBSERVE" != *" $command "* ]]; then
+  fail "$(head -c 200 "$CONTROLLER_FILE") is using the browser. Wait until they hand it back, or ask them to."
+fi
+
+cdp_up() {
+  curl -fsS -o /dev/null --max-time 1 "http://127.0.0.1:${CDP_PORT}/json/version"
+}
+if ! cdp_up; then
+  setsid nohup lor-browser-start >/dev/null 2>&1 </dev/null &
+  for _ in $(seq 1 100); do
+    cdp_up && break
+    sleep 0.2
+  done
+  cdp_up || fail "the browser did not start; its logs are in $DIR/logs"
+fi
+
+if [[ "$ACT" == *" $command "* ]]; then
+  url="$("$AGENT_BROWSER" --cdp "$CDP_PORT" get url 2>/dev/null | grep -oE '(https?://[^[:space:]]+|about:blank)' | head -1)"
+  host="$(printf '%s' "$url" | sed -E 's#^[a-zA-Z]+://##; s#[/?\#].*$##; s#^(\[[^]]*\]|[^:]*).*#\1#' | tr '[:upper:]' '[:lower:]')"
+  case "$url" in
+    about:blank) ;;
+    http://* | https://*)
+      case "$host" in
+        localhost | *.localhost | 127.0.0.1 | 0.0.0.0 | "[::1]") ;;
+        *) fail "'$command' changes the page, so it works only on localhost pages; this tab is on $host. Other sites are read-only (open, snapshot, screenshot, get)." ;;
+      esac
+      ;;
+    *) fail "'$command' works only on localhost pages; this tab is on ${url:-an unknown page}" ;;
+  esac
+fi
+
+exec "$AGENT_BROWSER" --cdp "$CDP_PORT" "$@"

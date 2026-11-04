@@ -10,7 +10,8 @@ import { HIDDEN_PORTS, readListeningPorts } from "./previews"
 import { REPO_SETUP_FILE, sessionWorkDir } from "./work-dir"
 
 // A repo's run setup, `.lor/environment.json`, committed with the repo: how to
-// install it and which dev servers to start. Lor writes it the first time
+// install it and which dev servers to start ("the app": every service not
+// marked `default: false`). Lor writes it the first time
 // someone asks it to run the app; after that the Browser tab's Start buttons
 // run it without a turn, in any language. Each service is a named process
 // that outlives turns; its pid and log are files, so this is provider-neutral.
@@ -42,6 +43,9 @@ const serviceSchema = z.object({
     .string()
     .refine(isSafeEnvFilePath, "use a folder relative to the repository root")
     .optional(),
+  // false: not part of "the app" (a monorepo's docs site, a rarely used
+  // tool). Start app and Lor skip it unless asked; it keeps its own Start.
+  default: z.boolean().optional(),
 })
 
 const setupSchema = z
@@ -182,6 +186,7 @@ export type RepoSetupStatus =
         command: string
         port: number
         cwd: string | null
+        default: boolean
         state: ServiceState
         log: string | null
       }[]
@@ -224,6 +229,7 @@ export async function repoSetupStatus(
           command: service.command,
           port: service.port,
           cwd: service.cwd ?? null,
+          default: service.default !== false,
           state,
           log: state === "running" ? null : (proc?.tail ?? null),
         }

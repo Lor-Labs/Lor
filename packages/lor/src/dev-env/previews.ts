@@ -4,6 +4,7 @@ import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { logger } from "../logger"
 import { ensureProcess, exposePort, portReady } from "../sandbox/sandbox-ports"
 import { attachSessionSandbox } from "../sandbox/session-sandbox"
+import { BROWSER_PORTS } from "./browser"
 import { TERMINAL_PORT } from "./terminal"
 
 // A code session's Browser tab (reference/dev-environment-runbook.md §3):
@@ -16,8 +17,9 @@ export type OpenPort = { port: number; process: string | null }
 
 const owner = (sessionId: string) => ({ sessionId })
 const RELAY_MARKER = "lor-relay"
-// Blaxel's sandbox API and the harness bridge.
-export const HIDDEN_PORTS = [8080, 8790, TERMINAL_PORT]
+// Blaxel's sandbox API, the harness bridge, the terminal and the session
+// browser.
+export const HIDDEN_PORTS = [8080, 8790, TERMINAL_PORT, ...BROWSER_PORTS]
 // Blaxel's sandbox API also listens on other ports (49152), which kept the
 // Browser panel's port list from ever being empty.
 const HIDDEN_PROCESS = "sandbox-api"

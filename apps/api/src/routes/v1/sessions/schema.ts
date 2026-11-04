@@ -143,6 +143,75 @@ export const openTerminalResponseSchema = z.object({
   expiresAt: z.string(),
 })
 
+// The session browser (reference/planned/sandbox-browser-runbook.md §4).
+// `controller`: the person driving it; null while Lor may.
+const browserControllerSchema = z
+  .object({ userId: z.string(), name: z.string() })
+  .nullable()
+
+// `unavailable`: the sandbox's image predates the browser, so the panel
+// keeps the port preview. `url`: the live view's WebSocket, with a one-time
+// token; `role` says whether this caller's view takes input.
+export const openBrowserResponseSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ready"),
+    url: z.string(),
+    // noVNC's own page with the same token, for the phone's in-app browser.
+    pageUrl: z.string(),
+    expiresAt: z.string(),
+    role: z.enum(["control", "watch"]),
+    controller: browserControllerSchema,
+  }),
+  z.object({ status: z.literal("unavailable") }),
+])
+
+export const browserControlRequestSchema = z.object({
+  take: z.boolean(),
+})
+
+export const browserControlResponseSchema = z.object({
+  controller: browserControllerSchema,
+})
+
+export const openBrowserPageRequestSchema = z.object({
+  port: z.number().int().min(1).max(65535),
+  path: z
+    .string()
+    .max(2000)
+    .regex(/^\/[^\s]*$/, "use a path that starts with /")
+    .default("/"),
+})
+
+// Element comments: pick one element (the person in control), stop picking,
+// or clear the page's numbered markers.
+export const browserPickRequestSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("pick"), index: z.number().int().min(1).max(99) }),
+  z.object({ mode: z.enum(["cancel", "clear"]) }),
+])
+
+// `image`: a JPEG crop around the element, base64. `timeout`: nobody clicked
+// within about 50 s, so the panel asks again.
+export const browserPickResponseSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("picked"),
+    element: z.object({
+      selector: z.string(),
+      tag: z.string(),
+      role: z.string().nullable(),
+      name: z.string().nullable(),
+      text: z.string(),
+      html: z.string(),
+      url: z.string(),
+    }),
+    image: z.string().nullable(),
+  }),
+  z.object({ status: z.enum(["timeout", "no_page", "ok"]) }),
+])
+
+export const openBrowserPageResponseSchema = z.object({
+  status: z.literal("ok"),
+})
+
 // A repo's run setup, `.lor/environment.json`: its services and whether each
 // runs in the session's sandbox. `error`: why the file is invalid.
 export const sessionSetupResponseSchema = z.object({
@@ -155,6 +224,8 @@ export const sessionSetupResponseSchema = z.object({
       command: z.string(),
       port: z.number().int(),
       cwd: z.string().nullable(),
+      // Part of "the app" that Start app runs (`default` is not false).
+      default: z.boolean(),
       state: z.enum(["stopped", "starting", "running", "exited"]),
       // The end of its log while starting or after it exited.
       log: z.string().nullable(),

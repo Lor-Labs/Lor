@@ -195,6 +195,30 @@ async function uploadFile(
   return { url: fileUrl }
 }
 
+// One file uploaded outside the composer (the session browser's element
+// comments): the attachment `message:send` takes, or null when it failed.
+export async function uploadAttachment(channelId: string, file: File) {
+  const dims = await getImageDimensions(file)
+  const pending: PendingAttachment = {
+    id: crypto.randomUUID(),
+    file,
+    filename: file.name,
+    contentType: file.type,
+    size: file.size,
+    status: "uploading",
+    ...(dims ?? {}),
+  }
+  const uploaded = await uploadFile(channelId, pending, () => {})
+  if (!uploaded) return null
+  return {
+    url: uploaded.url,
+    filename: file.name,
+    contentType: file.type,
+    size: file.size,
+    ...(dims ?? {}),
+  }
+}
+
 export function useFileUpload(channelId: string) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([])
   // Mirror for reads outside render: state updaters must stay pure (React

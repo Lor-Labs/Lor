@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# The session browser (reference/planned/sandbox-browser-runbook.md): headful
+# Chromium on a virtual display, so pages run at a real localhost next to the
+# dev servers. x11vnc serves the display and gateway.mjs relays it to noVNC
+# viewers (the live view, the only port meant for a preview); CDP stays on
+# 127.0.0.1 for Lor's agent-browser commands. Runs as one process; Chromium
+# is restarted
+# when it exits (someone closed the window), anything else ends the process
+# so the next ensureProcess starts it clean.
+set -u
+
+DISPLAY_NUM="${LOR_BROWSER_DISPLAY:-99}"
+SIZE="${LOR_BROWSER_SIZE:-1280x800}"
+CDP_PORT="${LOR_BROWSER_CDP_PORT:-9222}"
+VNC_PORT="${LOR_BROWSER_VNC_PORT:-5900}"
+WATCH_PORT="${LOR_BROWSER_WATCH_PORT:-5901}"
+VIEW_PORT="${LOR_BROWSER_VIEW_PORT:-6080}"
+# Profile and cache on the workspace disk: the root filesystem's writable
+# layer is held in RAM on Blaxel.
+DIR="${LOR_BROWSER_DIR:-/workspace/.cache/lor-browser}"
+
+export DISPLAY=":${DISPLAY_NUM}"
+mkdir -p "$DIR/profile" "$DIR/logs"
+
+# One browser per sandbox: Lor's lor-browser and the Browser panel both start
+# it. Every child inherits the lock, so leftovers of a killed run still hold
+# it and the stale-file cleanup below never runs under a live browser.
+exec 9>"$DIR/run.lock"
+if ! flock -n 9; then
+  echo "The browser is already running"
+  exit 0
+fi
+
+pids=()
+chromium_pid=""
+cleanup() {
+  for pid in "${pids[@]}" $chromium_pid; do kill "$pid" 2>/dev/null; done
+  wait 2>/dev/null
+}
+trap cleanup EXIT
+trap 'exit 0' TERM INT
+
+# A display left by a killed run blocks Xvfb from starting.
+rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
+
+Xvfb "$DISPLAY" -screen 0 "${SIZE}x24" -nolisten tcp -dpi 96 \
+  >"$DIR/logs/xvfb.log" 2>&1 &
+pids+=($!)
+for _ in $(seq 1 50); do
+  [ -S "/tmp/.X11-unix/X${DISPLAY_NUM}" ] && break
+  sleep 0.1
+done
+[ -S "/tmp/.X11-unix/X${DISPLAY_NUM}" ] || { echo "Xvfb did not start"; exit 1; }
+
+openbox >"$DIR/logs/openbox.log" 2>&1 &
+pids+=($!)
+
+# Two VNC servers on one display: the person in control gets the one that
+# takes input, watchers the -viewonly one. The gateway picks per viewer.
+x11vnc -display "$DISPLAY" -localhost -rfbport "$VNC_PORT" -shared -forever \
+  -nopw -xkb -repeat -quiet >"$DIR/logs/x11vnc.log" 2>&1 &
+pids+=($!)
+x11vnc -display "$DISPLAY" -localhost -rfbport "$WATCH_PORT" -shared -forever \
+  -nopw -viewonly -quiet >"$DIR/logs/x11vnc-watch.log" 2>&1 &
+pids+=($!)
+
+mkdir -p "$DIR/viewers"
+LOR_BROWSER_DIR="$DIR" LOR_BROWSER_VIEW_PORT="$VIEW_PORT" \
+  LOR_BROWSER_VNC_PORT="$VNC_PORT" LOR_BROWSER_WATCH_PORT="$WATCH_PORT" \
+  node /opt/lor-browser/gateway.mjs >"$DIR/logs/gateway.log" 2>&1 &
+pids+=($!)
+
+# Blaxel's egress proxy re-signs HTTPS with its own CA, and Chromium trusts
+# only its NSS store (not SSL_CERT_FILE): without this every outside site is
+# ERR_CERT_AUTHORITY_INVALID. Localhost bypasses the proxy (NO_PROXY).
+if [ -n "${SANDBOX_EXTRA_CA_CERTS:-}" ] && [ -f "$SANDBOX_EXTRA_CA_CERTS" ]; then
+  nssdb="sql:$HOME/.pki/nssdb"
+  mkdir -p "$HOME/.pki/nssdb"
+  certutil -d "$nssdb" -L >/dev/null 2>&1 || certutil -d "$nssdb" -N --empty-password
+  certutil -d "$nssdb" -A -t "C,," -n sandbox-proxy -i "$SANDBOX_EXTRA_CA_CERTS" \
+    || echo "Couldn't trust the sandbox proxy CA; HTTPS sites will fail"
+fi
+
+# A profile copied from a stopped run keeps its singleton lock.
+rm -f "$DIR/profile/SingletonLock" "$DIR/profile/SingletonSocket" \
+  "$DIR/profile/SingletonCookie"
+
+width="${SIZE%x*}"
+height="${SIZE#*x}"
+run_chromium() {
+  # --no-sandbox: the sandbox runs as root. --test-type hides the infobar
+  # that flags it.
+  chromium \
+    --no-sandbox --test-type \
+    --disable-dev-shm-usage \
+    --no-first-run --no-default-browser-check \
+    --disable-session-crashed-bubble --hide-crash-restore-bubble \
+    --password-store=basic \
+    --remote-debugging-address=127.0.0.1 \
+    --remote-debugging-port="$CDP_PORT" \
+    --user-data-dir="$DIR/profile" \
+    --disk-cache-size=268435456 \
+    --window-position=0,0 --window-size="${width},${height}" \
+    --start-maximized \
+    about:blank >>"$DIR/logs/chromium.log" 2>&1
+}
+
+run_chromium &
+chromium_pid=$!
+while true; do
+  wait -n
+  if ! kill -0 "$chromium_pid" 2>/dev/null; then
+    sleep 1
+    run_chromium &
+    chromium_pid=$!
+    continue
+  fi
+  echo "A browser service exited; stopping"
+  exit 1
+done

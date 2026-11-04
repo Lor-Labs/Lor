@@ -4,7 +4,9 @@ import {
 } from "@gorhom/bottom-sheet"
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import ArchiveRestoreIcon from "@hugeicons/core-free-icons/ArchiveRestoreIcon"
+import BrowserIcon from "@hugeicons/core-free-icons/BrowserIcon"
 import BubbleChatIcon from "@hugeicons/core-free-icons/BubbleChatIcon"
+import Cursor01Icon from "@hugeicons/core-free-icons/Cursor01Icon"
 import GitForkIcon from "@hugeicons/core-free-icons/GitForkIcon"
 import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
 import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon"
@@ -30,6 +32,7 @@ import { api } from "@/lib/api"
 import type { AgentSession, Message, SessionFiles } from "@/lib/api-types"
 import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
 import { type FileTarget, openFile } from "@/lib/open-file"
+import { openSessionBrowser } from "@/lib/session-browser"
 
 type SessionFile = {
   key: string
@@ -293,6 +296,31 @@ export function SessionSheet({
                   ) : (
                     <Empty>No plan yet</Empty>
                   )}
+                </Section>
+              ) : null}
+              {code && !archived ? (
+                <Section title="Browser">
+                  <View className="gap-two">
+                    <ActionRow
+                      detail="See the app as Lor uses it"
+                      icon={BrowserIcon}
+                      label="Watch the browser"
+                      onPress={() => {
+                        close(false)
+                        void openSessionBrowser(session.id, false)
+                      }}
+                    />
+                    <ActionRow
+                      detail="Lor waits until you close it"
+                      icon={Cursor01Icon}
+                      label="Use the browser"
+                      onPress={() => {
+                        triggerHaptic("soft")
+                        close(false)
+                        void openSessionBrowser(session.id, true)
+                      }}
+                    />
+                  </View>
                 </Section>
               ) : null}
               {code ? null : (

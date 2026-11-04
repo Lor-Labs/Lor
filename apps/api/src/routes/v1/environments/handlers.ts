@@ -1,6 +1,8 @@
+import { SANDBOX_CREDITS_PER_GB_HOUR } from "@repo/billing"
 import { and, db, desc, eq, inArray, isUniqueViolation, schema } from "@repo/db"
 import { env } from "@repo/env/server"
 import {
+  CODE_SANDBOX_MEMORY_OPTIONS_MB,
   encodeEnvValue,
   isSafeEnvFilePath,
 } from "@repo/lor/dev-env/environments"
@@ -68,6 +70,7 @@ async function environmentRows(
     .select({
       id: schema.environment.id,
       name: schema.environment.name,
+      sandboxMemoryMb: schema.environment.sandboxMemoryMb,
       updatedAt: schema.environment.updatedAt,
       updatedByName: schema.user.name,
     })
@@ -129,6 +132,7 @@ async function environmentRows(
   return envs.map((e) => ({
     id: e.id,
     name: e.name,
+    sandboxMemoryMb: e.sandboxMemoryMb,
     updatedAt: e.updatedAt.toISOString(),
     updatedByName: e.updatedByName,
     repos: repos
@@ -252,6 +256,11 @@ export const listEnvironments: AppRouteHandler<ListEnvironmentsRoute> = async (
       canManage: hasWorkspaceAuthority(c.var.authority, {
         environment: ["manage"],
       }),
+      defaultSandboxMemoryMb: env.LOR_CODE_SANDBOX_MEMORY_MB,
+      sandboxSizes: CODE_SANDBOX_MEMORY_OPTIONS_MB.map((memoryMb) => ({
+        memoryMb,
+        creditsPerHour: (memoryMb / 1024) * SANDBOX_CREDITS_PER_GB_HOUR,
+      })),
     },
     HttpStatusCodes.OK
   )
@@ -273,6 +282,7 @@ export const createEnvironment: AppRouteHandler<
         .values({
           workspaceId,
           name: body.name,
+          sandboxMemoryMb: body.sandboxMemoryMb ?? null,
           createdById: c.var.user.id,
           updatedById: c.var.user.id,
         })
@@ -317,7 +327,13 @@ export const updateEnvironment: AppRouteHandler<
     const found = await db.transaction(async (tx) => {
       const [updated] = await tx
         .update(schema.environment)
-        .set({ name: body.name, updatedById: c.var.user.id })
+        .set({
+          name: body.name,
+          updatedById: c.var.user.id,
+          ...(body.sandboxMemoryMb !== undefined
+            ? { sandboxMemoryMb: body.sandboxMemoryMb }
+            : {}),
+        })
         .where(
           and(
             eq(schema.environment.id, environmentId),
