@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm"
 import {
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -37,6 +38,11 @@ export const environment = pgTable(
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    // Memory of the sandbox a code session on this environment gets, in MB
+    // (reference/planned/sandbox-browser-runbook.md §2). Null: the default
+    // (LOR_CODE_SANDBOX_MEMORY_MB). Applies to sandboxes created after it is
+    // set; Blaxel cannot resize one in place.
+    sandboxMemoryMb: integer("sandbox_memory_mb"),
     createdById: uuid("created_by_id").references(() => user.id, {
       onDelete: "set null",
     }),

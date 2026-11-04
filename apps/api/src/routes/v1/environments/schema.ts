@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi"
+import { CODE_SANDBOX_MEMORY_OPTIONS_MB } from "@repo/lor/dev-env/environments"
 
 // Environments for code sessions (reference/dev-environment-runbook.md §2).
 // The model holds several repos per environment; this API takes one until
@@ -28,6 +29,8 @@ export const listEnvironmentsQuerySchema = z.object({
 export const environmentSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
+  // Null: the default size (listEnvironments' `defaultSandboxMemoryMb`).
+  sandboxMemoryMb: z.number().int().nullable(),
   updatedAt: z.string(),
   updatedByName: z.string().nullable(),
   repos: z.array(
@@ -45,9 +48,15 @@ export const environmentSchema = z.object({
   ),
 })
 
+// The sandbox sizes an environment can pick, with what each costs while it
+// runs, so the editor shows the price without its own copy of the rate.
 export const listEnvironmentsResponseSchema = z.object({
   environments: z.array(environmentSchema),
   canManage: z.boolean(),
+  defaultSandboxMemoryMb: z.number().int(),
+  sandboxSizes: z.array(
+    z.object({ memoryMb: z.number().int(), creditsPerHour: z.number() })
+  ),
 })
 
 export const environmentResponseSchema = z.object({
@@ -70,8 +79,20 @@ const variablesSchema = z
   )
   .max(300)
 
+// Null: the default. Left out on update: unchanged.
+const sandboxMemorySchema = z
+  .number()
+  .int()
+  .refine(
+    (mb) => (CODE_SANDBOX_MEMORY_OPTIONS_MB as readonly number[]).includes(mb),
+    "Pick one of the listed sandbox sizes"
+  )
+  .nullable()
+  .optional()
+
 export const createEnvironmentRequestSchema = z.object({
   name: nameSchema,
+  sandboxMemoryMb: sandboxMemorySchema,
   repo: z.string().regex(REPO_FULL_NAME),
   files: z
     .array(z.object({ path: pathSchema, variables: variablesSchema }))
@@ -83,6 +104,7 @@ export const createEnvironmentRequestSchema = z.object({
 // deleted; a file without an id is new.
 export const updateEnvironmentRequestSchema = z.object({
   name: nameSchema,
+  sandboxMemoryMb: sandboxMemorySchema,
   files: z
     .array(
       z.object({

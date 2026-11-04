@@ -408,10 +408,23 @@ Each step is a review chunk of about 300–400 lines.
       81–95% idle on 4 cores. x11vnc and Xvfb together took about 3–12% of
       one core (websockify under 1%). Chromium itself reached 43% of one
       core while rendering, which any browser spends.
-- [ ] **1. Sandbox size on the environment.** Column
-  `environment.sandbox_memory_mb` (Jacob runs `db:push`), API validation,
-  the editor field with the credit cost, `createSessionSandbox` reads it,
-  the hosted-beta cap, and Lor's prompt line about memory failures.
+- [x] **1. Sandbox size on the environment** (2026-11-03; Jacob runs
+  `db:push` for the new nullable `environment.sandbox_memory_mb` column).
+  - `CODE_SANDBOX_MEMORY_OPTIONS_MB` (8192, 16384) in
+    `dev-env/environments.ts`; the API refuses other values, which is also
+    the 16 GB hosted-beta cap. Null means the default
+    (`LOR_CODE_SANDBOX_MEMORY_MB`).
+  - A run reads its environment's size (`environmentSandboxMemoryMb`) and
+    passes it to `openSessionSandbox`, used only when a sandbox is created.
+    The Changes panel's restore, which can also create one, reads it
+    through the session (`sessionSandboxMemoryMb`).
+  - `GET …/environments` lists `sandboxSizes` with `creditsPerHour` and
+    `defaultSandboxMemoryMb`; the rate is `SANDBOX_CREDITS_PER_GB_HOUR` in
+    `@repo/billing` (must match `autumn.config.ts`). The environment dialog
+    shows the two sizes with their cost; picking the default stores null.
+  - Lor's prompt: on out-of-memory failures, say so and suggest 16 GB in
+    the environment settings, never change it itself. Filing it as a change
+    proposal comes when `change-proposals.md` can carry the operation.
 - [x] **2. Run setup v2** (2026-11-03, the smaller design in §1; not run
   live yet). `repo-setup.ts`: optional `default` on each service, reported
   as `default: boolean` by `GET /sessions/{id}/setup`. Panel: Start app in

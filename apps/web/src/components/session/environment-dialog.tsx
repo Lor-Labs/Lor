@@ -16,11 +16,16 @@ import {
 } from "@repo/ui/components/dialog"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
+import { Radio, RadioGroup } from "@repo/ui/components/radio-group"
 import { Textarea } from "@repo/ui/components/textarea"
 import { toast } from "@repo/ui/components/toast"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { cn } from "@repo/ui/lib/utils"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
-import type { EnvironmentSummary } from "@/hooks/use-environments"
+import {
+  type EnvironmentSummary,
+  environmentsQueryOptions,
+} from "@/hooks/use-environments"
 import { apiClient } from "@/lib/api-client"
 
 // Create or edit an environment for one repo
@@ -92,7 +97,12 @@ export function EnvironmentDialog({
   note?: string
 }) {
   const queryClient = useQueryClient()
+  // The sizes and their cost come with the list (no copy of the rate here).
+  const { data: list } = useQuery(environmentsQueryOptions(workspaceSlug, repo))
+  const defaultMemoryMb = list?.defaultSandboxMemoryMb ?? null
   const [name, setName] = useState("")
+  // Null: the default size, so the environment follows it if it changes.
+  const [memoryMb, setMemoryMb] = useState<number | null>(null)
   const [files, setFiles] = useState<FileDraft[]>([])
   const [pasting, setPasting] = useState<number | null>(null)
   const [pasteText, setPasteText] = useState("")
@@ -102,6 +112,7 @@ export function EnvironmentDialog({
   if (open && !filled) {
     setFilled(true)
     setName(environment?.name ?? repo.split("/")[1] ?? repo)
+    setMemoryMb(environment?.sandboxMemoryMb ?? null)
     setFiles(draftFrom(environment, repo))
     setPasting(null)
     setPasteText("")
@@ -161,11 +172,20 @@ export function EnvironmentDialog({
             ":environmentId"
           ].$put({
             param: { workspaceSlug, environmentId: environment.id },
-            json: { name: name.trim(), files: payload },
+            json: {
+              name: name.trim(),
+              sandboxMemoryMb: memoryMb,
+              files: payload,
+            },
           })
         : await apiClient.v1.workspaces[":workspaceSlug"].environments.$post({
             param: { workspaceSlug },
-            json: { name: name.trim(), repo, files: payload },
+            json: {
+              name: name.trim(),
+              sandboxMemoryMb: memoryMb,
+              repo,
+              files: payload,
+            },
           })
       if (!res.ok) throw await failure(res, "Couldn't save the environment")
       return (await res.json()).environment
@@ -239,6 +259,46 @@ export function EnvironmentDialog({
               onChange={(e) => setName(e.target.value)}
             />
           </div>
+          {list && list.sandboxSizes.length > 1 && (
+            <div className="space-y-1.5">
+              <Label>Sandbox size</Label>
+              <RadioGroup
+                value={String(memoryMb ?? defaultMemoryMb ?? "")}
+                onValueChange={(value) => {
+                  const picked = Number(value)
+                  setMemoryMb(picked === defaultMemoryMb ? null : picked)
+                }}
+                className="flex flex-wrap gap-2"
+              >
+                {list.sandboxSizes.map((size) => (
+                  // biome-ignore lint/a11y/noLabelWithoutControl: Base UI's Radio renders the input
+                  <label
+                    key={size.memoryMb}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
+                      (memoryMb ?? defaultMemoryMb) === size.memoryMb
+                        ? "border-primary"
+                        : "border-border"
+                    )}
+                  >
+                    <Radio value={String(size.memoryMb)} />
+                    <span className="font-medium">
+                      {size.memoryMb / 1024} GB
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {size.creditsPerHour} credits an hour
+                      {size.memoryMb === defaultMemoryMb && " · default"}
+                    </span>
+                  </label>
+                ))}
+              </RadioGroup>
+              <p className="text-muted-foreground text-xs">
+                The memory of each new code session's sandbox; it uses credits
+                while it runs. A session keeps the size its sandbox started
+                with.
+              </p>
+            </div>
+          )}
           {files.map((file, fileIndex) => (
             <div
               key={file.id ?? `new-${fileIndex}`}
