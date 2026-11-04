@@ -410,6 +410,9 @@ Each step is a review chunk of about 300–400 lines.
       core while rendering, which any browser spends.
 - [x] **1. Sandbox size on the environment** (2026-11-03; Jacob runs
   `db:push` for the new nullable `environment.sandbox_memory_mb` column).
+  - Rollout order: `db:push` first, then deploy the API and the worker.
+    The API's environment list and every code-session run select the
+    column, so either fails with "column does not exist" until it is there.
   - `CODE_SANDBOX_MEMORY_OPTIONS_MB` (8192, 16384) in
     `dev-env/environments.ts`; the API refuses other values, which is also
     the 16 GB hosted-beta cap. Null means the default

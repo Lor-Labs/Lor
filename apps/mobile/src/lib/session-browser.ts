@@ -33,7 +33,8 @@ export async function openSessionBrowser(sessionId: string, drive: boolean) {
       return
     }
     const result = await WebBrowser.openBrowserAsync(view.pageUrl)
-    if (drive && result.type === "dismiss") {
+    // iOS: "cancel" when the person closes it, "dismiss" when code does.
+    if (drive && (result.type === "cancel" || result.type === "dismiss")) {
       await api.v1.sessions[":sessionId"].browser.control
         .$post({ param: { sessionId }, json: { take: false } })
         .catch(() => {})

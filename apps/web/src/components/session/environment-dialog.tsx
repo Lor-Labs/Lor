@@ -100,6 +100,10 @@ export function EnvironmentDialog({
   // The sizes and their cost come with the list (no copy of the rate here).
   const { data: list } = useQuery(environmentsQueryOptions(workspaceSlug, repo))
   const defaultMemoryMb = list?.defaultSandboxMemoryMb ?? null
+  // A configured default outside the listed sizes gets its own option.
+  const defaultListed =
+    list?.sandboxSizes.some((size) => size.memoryMb === defaultMemoryMb) ??
+    false
   const [name, setName] = useState("")
   // Null: the default size, so the environment follows it if it changes.
   const [memoryMb, setMemoryMb] = useState<number | null>(null)
@@ -263,20 +267,48 @@ export function EnvironmentDialog({
             <div className="space-y-1.5">
               <Label>Sandbox size</Label>
               <RadioGroup
-                value={String(memoryMb ?? defaultMemoryMb ?? "")}
+                value={
+                  memoryMb !== null
+                    ? String(memoryMb)
+                    : defaultListed
+                      ? String(defaultMemoryMb)
+                      : "default"
+                }
                 onValueChange={(value) => {
+                  if (value === "default") {
+                    setMemoryMb(null)
+                    return
+                  }
                   const picked = Number(value)
                   setMemoryMb(picked === defaultMemoryMb ? null : picked)
                 }}
                 className="flex flex-wrap gap-2"
               >
+                {!defaultListed && defaultMemoryMb !== null && (
+                  // biome-ignore lint/a11y/noLabelWithoutControl: Base UI's Radio renders the input
+                  <label
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
+                      memoryMb === null ? "border-primary" : "border-border"
+                    )}
+                  >
+                    <Radio value="default" />
+                    <span className="font-medium">
+                      {defaultMemoryMb / 1024} GB
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      default
+                    </span>
+                  </label>
+                )}
                 {list.sandboxSizes.map((size) => (
                   // biome-ignore lint/a11y/noLabelWithoutControl: Base UI's Radio renders the input
                   <label
                     key={size.memoryMb}
                     className={cn(
                       "flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
-                      (memoryMb ?? defaultMemoryMb) === size.memoryMb
+                      (memoryMb ?? (defaultListed ? defaultMemoryMb : null)) ===
+                        size.memoryMb
                         ? "border-primary"
                         : "border-border"
                     )}
