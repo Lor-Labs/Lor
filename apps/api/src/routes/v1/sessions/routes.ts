@@ -14,6 +14,8 @@ import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   actWaitingResponseSchema,
   applyEnvironmentResponseSchema,
+  browserControlRequestSchema,
+  browserControlResponseSchema,
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
   commitMessageResponseSchema,
@@ -24,6 +26,9 @@ import {
   forkAgentSessionResponseSchema,
   getAgentSessionResponseSchema,
   listChannelSessionsResponseSchema,
+  openBrowserPageRequestSchema,
+  openBrowserPageResponseSchema,
+  openBrowserResponseSchema,
   openPortResponseSchema,
   openTerminalResponseSchema,
   portParamsSchema,
@@ -702,6 +707,90 @@ export const openSessionTerminal = createRoute({
 })
 
 export type OpenSessionTerminalRoute = typeof openSessionTerminal
+
+const browserErrors = {
+  [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+  [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+  [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+  [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  [HttpStatusCodes.CONFLICT]: conflictSchema,
+  [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+}
+
+export const openSessionBrowser = createRoute({
+  path: "/sessions/{sessionId}/browser",
+  method: "post",
+  summary: "Open the live view of a code session's browser",
+  description:
+    "Starts the sandbox's browser if needed and returns a WebSocket URL to its live view with a one-time token, and who has control. The view takes input only for the person in control. Anyone who can write in the channel can do this.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: openBrowserResponseSchema,
+      description: "The live view's WebSocket URL",
+    }),
+    ...browserErrors,
+  },
+})
+
+export type OpenSessionBrowserRoute = typeof openSessionBrowser
+
+export const setSessionBrowserControl = createRoute({
+  path: "/sessions/{sessionId}/browser/control",
+  method: "post",
+  summary: "Take or hand back control of a code session's browser",
+  description:
+    "Taking control pauses Lor's browser commands and moves the caller's live view to input; it replaces whoever had control. Handing back works for the person in control. Everyone in the session is told.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: browserControlRequestSchema,
+      description: "Take (true) or hand back (false)",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: browserControlResponseSchema,
+      description: "Who has control now",
+    }),
+    ...browserErrors,
+  },
+})
+
+export type SetSessionBrowserControlRoute = typeof setSessionBrowserControl
+
+export const openSessionBrowserPage = createRoute({
+  path: "/sessions/{sessionId}/browser/open",
+  method: "post",
+  summary: "Show a sandbox page in a code session's browser",
+  description:
+    "Navigates the session browser to http://localhost:{port}{path}. Refused while someone else has control.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: openBrowserPageRequestSchema,
+      description: "The sandbox port and path",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: openBrowserPageResponseSchema,
+      description: "The page is opening",
+    }),
+    ...browserErrors,
+  },
+})
+
+export type OpenSessionBrowserPageRoute = typeof openSessionBrowserPage
 
 export const applySessionEnvironment = createRoute({
   path: "/sessions/{sessionId}/environment/apply",

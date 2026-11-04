@@ -884,6 +884,13 @@ export interface ServerToClientEvents {
     filesChanged?: boolean
   }) => void
   "session:uncommitted:updated": (payload: SessionUncommittedUpdated) => void
+  // Someone took or handed back the code session's browser (thread room).
+  // Open live views reconnect themselves; this updates who-has-control text.
+  "session:browser:control": (payload: {
+    sessionId: string
+    threadRootId: string
+    controller: { userId: string; name: string } | null
+  }) => void
   // A run parked on an approval gate. Channel room; ids only — the
   // durable card data comes from the channel approvals query this invalidates.
   "approval:created": (payload: ApprovalCreatedEvent) => void

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # The session browser (reference/planned/sandbox-browser-runbook.md): headful
 # Chromium on a virtual display, so pages run at a real localhost next to the
-# dev servers. x11vnc + websockify serve the display to noVNC (the live view,
-# the only port meant for a preview); CDP stays on 127.0.0.1 for Lor's
-# agent-browser commands. Runs as one named process; Chromium is restarted
+# dev servers. x11vnc serves the display and gateway.mjs relays it to noVNC
+# viewers (the live view, the only port meant for a preview); CDP stays on
+# 127.0.0.1 for Lor's agent-browser commands. Runs as one process; Chromium
+# is restarted
 # when it exits (someone closed the window), anything else ends the process
 # so the next ensureProcess starts it clean.
 set -u
@@ -12,6 +13,7 @@ DISPLAY_NUM="${LOR_BROWSER_DISPLAY:-99}"
 SIZE="${LOR_BROWSER_SIZE:-1280x800}"
 CDP_PORT="${LOR_BROWSER_CDP_PORT:-9222}"
 VNC_PORT="${LOR_BROWSER_VNC_PORT:-5900}"
+WATCH_PORT="${LOR_BROWSER_WATCH_PORT:-5901}"
 VIEW_PORT="${LOR_BROWSER_VIEW_PORT:-6080}"
 # Profile and cache on the workspace disk: the root filesystem's writable
 # layer is held in RAM on Blaxel.
@@ -53,12 +55,19 @@ done
 openbox >"$DIR/logs/openbox.log" 2>&1 &
 pids+=($!)
 
+# Two VNC servers on one display: the person in control gets the one that
+# takes input, watchers the -viewonly one. The gateway picks per viewer.
 x11vnc -display "$DISPLAY" -localhost -rfbport "$VNC_PORT" -shared -forever \
   -nopw -xkb -repeat -quiet >"$DIR/logs/x11vnc.log" 2>&1 &
 pids+=($!)
+x11vnc -display "$DISPLAY" -localhost -rfbport "$WATCH_PORT" -shared -forever \
+  -nopw -viewonly -quiet >"$DIR/logs/x11vnc-watch.log" 2>&1 &
+pids+=($!)
 
-websockify --web /usr/share/novnc "0.0.0.0:${VIEW_PORT}" "localhost:${VNC_PORT}" \
-  >"$DIR/logs/websockify.log" 2>&1 &
+mkdir -p "$DIR/viewers"
+LOR_BROWSER_DIR="$DIR" LOR_BROWSER_VIEW_PORT="$VIEW_PORT" \
+  LOR_BROWSER_VNC_PORT="$VNC_PORT" LOR_BROWSER_WATCH_PORT="$WATCH_PORT" \
+  node /opt/lor-browser/gateway.mjs >"$DIR/logs/gateway.log" 2>&1 &
 pids+=($!)
 
 # Blaxel's egress proxy re-signs HTTPS with its own CA, and Chromium trusts

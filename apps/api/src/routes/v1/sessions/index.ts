@@ -31,6 +31,9 @@ const sessionsRouter = createRouter()
   .openapi(routes.getSessionSetup, handlers.getSessionSetup)
   .openapi(routes.startSessionService, handlers.startSessionService)
   .openapi(routes.openSessionTerminal, handlers.openSessionTerminal)
+  .openapi(routes.openSessionBrowser, handlers.openSessionBrowser)
+  .openapi(routes.setSessionBrowserControl, handlers.setSessionBrowserControl)
+  .openapi(routes.openSessionBrowserPage, handlers.openSessionBrowserPage)
   .openapi(routes.applySessionEnvironment, handlers.applySessionEnvironment)
 
 export default sessionsRouter

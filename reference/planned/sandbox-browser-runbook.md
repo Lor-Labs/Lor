@@ -459,7 +459,27 @@ Each step is a review chunk of about 300–400 lines.
   noVNC client, address bar over CDP, take control and hand back, the
   hidden-tab and idle reconnects, desktop CSP, and the phone row. Tool
   rows for shell calls that start with `lor-browser` render as browser
-  steps ("Opened localhost:3000", "Clicked Sign in"), on web and mobile. Probably
+  steps ("Opened localhost:3000", "Clicked Sign in"), on web and mobile.
+  - [x] 4a+4b, sandbox and server (2026-11-03, not pushed or run yet):
+    - `sandbox-image/browser/gateway.mjs` (Node + `ws`) replaces
+      websockify on 6080. One-time viewer tokens in `viewers/`, written by
+      the API with the sandbox's clock and valid 2 minutes. The person in
+      `controller-id` is relayed to the x11vnc on 5900, everyone else to a
+      second, `-viewonly` x11vnc on 5901. A role change closes the affected
+      connections with code 4001, and the client reconnects. The gateway
+      hands control back to Lor after 2 minutes without a connection from
+      the controller.
+    - `packages/lor/src/dev-env/browser.ts`: `openBrowserView`,
+      `setBrowserControl` (taking always wins; only the controller hands
+      back) and `openBrowserPage` (refused while someone else drives).
+    - API: `POST /sessions/{id}/browser` (`ready` with the `wss` URL, role
+      and controller, or `unavailable` for sandboxes older than the
+      browser), `/browser/control` (`{ take }`, broadcasts
+      `session:browser:control` to the thread room) and `/browser/open`
+      (`{ port, path }`). Write access in a live code session, like the
+      terminal.
+  - [ ] Push the image, then 4c: the panel's live view (noVNC client).
+  - [ ] 4d take control / hand back UI, 4e browser-step rows, 4f phone. Probably
   two chunks: view and navigation, then control.
 - [ ] **5. Element comments.** Picker over CDP, node context and cropped
   screenshot in the gateway, the note box and markers, the message with
@@ -553,3 +573,10 @@ Each step is a review chunk of about 300–400 lines.
   `lor-browser` reads it without a JSON parser.
 - 2026-11-03: the image does not need Blaxel's D-Bus or hostname fixes;
   Chromium ran without them in the spike.
+- 2026-11-03: view-only is two x11vnc servers (one `-viewonly`), not a
+  gateway that parses RFB and drops viewers' input. x11vnc enforces it,
+  and there is no RFB message table to keep in step with noVNC.
+- 2026-11-03: no address bar or CDP URL feed in the panel. The live view
+  shows Chromium's own tabs and address bar, which the person in control
+  uses; the panel keeps Start/Open buttons (`/browser/open`) and "Open in
+  your browser".
