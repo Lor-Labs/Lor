@@ -6,9 +6,11 @@
 // control changes, connections whose role changed are closed and their
 // clients reconnect with a new token. Control goes back to Lor after the
 // controller has had no connection for a while.
-import { readFile, unlink } from "node:fs/promises"
+import { createReadStream } from "node:fs"
+import { readFile, stat, unlink } from "node:fs/promises"
 import { createServer } from "node:http"
 import net from "node:net"
+import path from "node:path"
 import { WebSocketServer } from "ws"
 
 const DIR = process.env.LOR_BROWSER_DIR ?? "/workspace/.cache/lor-browser"
@@ -120,8 +122,44 @@ async function syncControl() {
   }
 }
 
+// noVNC's own page (vnc.html) for the phone, which opens the view in an
+// in-app browser. Read-only files from the image's noVNC package.
+const NOVNC = "/usr/share/novnc"
+const TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".json": "application/json",
+}
+
+async function serveNoVnc(req, res) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return res.writeHead(405).end()
+  }
+  let file
+  try {
+    const { pathname } = new URL(req.url ?? "/", "http://gateway")
+    file = path.normalize(path.join(NOVNC, decodeURIComponent(pathname)))
+  } catch {
+    return res.writeHead(400).end()
+  }
+  if (!file.startsWith(`${NOVNC}/`)) return res.writeHead(404).end()
+  const info = await stat(file).catch(() => null)
+  if (!info?.isFile()) return res.writeHead(404).end()
+  res.writeHead(200, {
+    "content-type": TYPES[path.extname(file)] ?? "application/octet-stream",
+    "content-length": info.size,
+  })
+  if (req.method === "HEAD") return res.end()
+  createReadStream(file).pipe(res)
+}
+
 const server = createServer((req, res) => {
-  res.writeHead(req.url === "/health" ? 200 : 404).end()
+  if (req.url === "/health") return res.writeHead(200).end()
+  void serveNoVnc(req, res)
 })
 const wss = new WebSocketServer({
   noServer: true,

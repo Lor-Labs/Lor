@@ -42,6 +42,8 @@ export type BrowserView =
   | {
       status: "ready"
       url: string
+      // noVNC's own page with the same one-time token, for the phone.
+      pageUrl: string
       expiresAt: string
       role: "control" | "watch"
       controller: BrowserController | null
@@ -122,15 +124,28 @@ export async function openBrowserView(
   })
   if (!exposed?.token) return { status: "no_sandbox" }
   const controller = parseControl(prepared.stdout)
+  const role = controller?.userId === userId ? "control" : "watch"
   const params = new URLSearchParams({
     token,
+    [exposed.token.param]: exposed.token.value,
+  })
+  // vnc.html opens `path` on its own host; the page load's preview token
+  // leaves the cookie its WebSocket then carries. One-time token, so no
+  // automatic reconnect.
+  const page = new URLSearchParams({
+    autoconnect: "1",
+    resize: "scale",
+    reconnect: "0",
+    view_only: role === "watch" ? "1" : "0",
+    path: `vnc?token=${token}`,
     [exposed.token.param]: exposed.token.value,
   })
   return {
     status: "ready",
     url: `${exposed.url.replace(/^http/, "ws")}/vnc?${params.toString()}`,
+    pageUrl: `${exposed.url}/vnc.html?${page.toString()}`,
     expiresAt: exposed.token.expiresAt.toISOString(),
-    role: controller?.userId === userId ? "control" : "watch",
+    role,
     controller,
   }
 }

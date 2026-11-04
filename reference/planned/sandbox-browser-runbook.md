@@ -455,7 +455,7 @@ Each step is a review chunk of about 300–400 lines.
   - [x] `harness-bootstrap.ts`, then `bl push` of `workbench` (2026-11-03,
     rootfs 3,141 MiB; the build checks `agent-browser --version`). Existing
     sandboxes keep their image until replaced.
-- [ ] **4. Live view.** Gateway, the three API routes, the panel with the
+- [x] **4. Live view** (built 2026-11-03; live QA in step 6). Gateway, the three API routes, the panel with the
   noVNC client, address bar over CDP, take control and hand back, the
   hidden-tab and idle reconnects, desktop CSP, and the phone row. Tool
   rows for shell calls that start with `lor-browser` render as browser
@@ -501,7 +501,23 @@ Each step is a review chunk of about 300–400 lines.
       the person's machine and the browser (noVNC's clipboard events are
       not wired yet), and text size, since the 1280×800 display is scaled
       down to fit the panel.
-  - [ ] 4e browser-step rows, 4f phone. Probably
+  - [x] 4e browser-step rows (2026-11-03): `@repo/utils/browser-step`
+    turns a `lor-browser …` command into a step ("Opened localhost:3000",
+    "Read the page", "Clicked an element", "Filled a field"; typed values
+    never show). The web and mobile tool trails use it for bash rows, with
+    a browser icon, and for the streaming summary line. Chained commands
+    stay as the command Lor ran. Display only: stored labels are unchanged.
+  - [x] 4f phone (2026-11-03, image pushed, not run live yet):
+    - The gateway serves noVNC's own page (`vnc.html`, the image's
+      `novnc` package, read-only). `/browser` also returns `pageUrl`: that
+      page with the same one-time token, `view_only` by role and no
+      automatic reconnect.
+    - Session sheet (code sessions): "Watch the browser" and "Use the
+      browser" (`apps/mobile/src/lib/session-browser.ts`). Using it takes
+      control first, opens the page in an in-app browser
+      (`expo-web-browser`) and hands control back when it closes on iOS;
+      elsewhere the gateway hands it back 2 minutes after the view closes.
+      JS only, so `eas update` ships it. Probably
   two chunks: view and navigation, then control.
 - [ ] **5. Element comments.** Picker over CDP, node context and cropped
   screenshot in the gateway, the note box and markers, the message with

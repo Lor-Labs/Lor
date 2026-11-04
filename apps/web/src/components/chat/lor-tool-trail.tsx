@@ -1,6 +1,7 @@
 import {
   ArrowRight01Icon,
   BookOpen01Icon,
+  BrowserIcon,
   ComputerTerminal01Icon,
   Download01Icon,
   LinkSquare02Icon,
@@ -26,6 +27,7 @@ import {
   ChainOfThoughtTrigger,
 } from "@repo/ui/components/nexus-ui/chain-of-thought"
 import { cn } from "@repo/ui/lib/utils"
+import { browserStep } from "@repo/utils/browser-step"
 import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { useOpenFile } from "@/hooks/use-file-panel"
@@ -59,6 +61,7 @@ const ReadGlyph = glyph(BookOpen01Icon)
 const TerminalGlyph = glyph(ComputerTerminal01Icon)
 const WriteGlyph = glyph(PencilEdit02Icon)
 const WrenchGlyph = glyph(Wrench01Icon)
+const BrowserGlyph = glyph(BrowserIcon)
 const ExternalLinkGlyph = glyph(LinkSquare02Icon)
 
 export function toolIcon(toolName: string): TrailIcon {
@@ -182,15 +185,22 @@ const SANDBOX_TOOLS = new Set([
   "glob",
   "ls",
 ])
+// A bash label is "Ran <command>"; Lor's `lor-browser` commands read as
+// browser steps instead.
 function splitLabel(toolCall: LorToolCallView) {
   const space = toolCall.label.indexOf(" ")
   if (!TARGET_TOOLS.has(toolCall.toolName) || space < 0) {
-    return { verb: toolCall.label, target: null }
+    return { verb: toolCall.label, target: null, browser: false }
   }
-  return {
-    verb: toolCall.label.slice(0, space),
-    target: toolCall.label.slice(space + 1),
-  }
+  const target = toolCall.label.slice(space + 1)
+  const step = toolCall.toolName === "bash" ? browserStep(target) : null
+  if (step) return { ...step, browser: true }
+  return { verb: toolCall.label.slice(0, space), target, browser: false }
+}
+
+function displayLabel(toolCall: LorToolCallView) {
+  const { verb, target } = splitLabel(toolCall)
+  return target ? `${verb} ${target}` : verb
 }
 
 // A sandbox call that wrote one of the files the turn shared (shared paths
@@ -214,8 +224,8 @@ function SandboxRow({
 }) {
   const openFile = useOpenFile()
   const [open, setOpen] = useState(false)
-  const Icon = toolIcon(toolCall.toolName)
-  const { verb, target } = splitLabel(toolCall)
+  const { verb, target, browser } = splitLabel(toolCall)
+  const Icon = browser ? BrowserGlyph : toolIcon(toolCall.toolName)
   const diff = toolCall.diff
   const file = deliveredFile(diff?.path ?? target, delivered)
   const summary = toolCall.detail?.summary
@@ -226,7 +236,7 @@ function SandboxRow({
       <div className="relative flex min-w-0 items-center gap-1.5 rounded-sm text-muted-foreground text-xs hover:text-foreground">
         {expandable && (
           <CollapsibleTrigger
-            aria-label={toolCall.label}
+            aria-label={displayLabel(toolCall)}
             className="absolute inset-0 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         )}
@@ -331,8 +341,11 @@ export function LorToolTrail({
   // Force open while streaming so live progress is visible; collapse to a
   // summary once the answer settles (the user can re-open).
   const expanded = embedded || open || Boolean(streaming)
+  const last = toolCalls[toolCalls.length - 1]
   const summary = streaming
-    ? (toolCalls[toolCalls.length - 1]?.label ?? "Working…")
+    ? last
+      ? displayLabel(last)
+      : "Working…"
     : `Used ${toolCalls.length} tool${toolCalls.length === 1 ? "" : "s"}`
 
   return (

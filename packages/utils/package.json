@@ -13,6 +13,7 @@
     "./github": "./src/github.ts",
     "./network": "./src/network.ts",
     "./avatar-colors": "./src/avatar-colors.ts",
+    "./browser-step": "./src/browser-step.ts",
     "./domain": "./src/domain.ts",
     "./file-preview": "./src/file-preview.ts",
     "./html": "./src/html.ts",

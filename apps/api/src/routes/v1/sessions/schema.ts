@@ -156,6 +156,8 @@ export const openBrowserResponseSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("ready"),
     url: z.string(),
+    // noVNC's own page with the same token, for the phone's in-app browser.
+    pageUrl: z.string(),
     expiresAt: z.string(),
     role: z.enum(["control", "watch"]),
     controller: browserControllerSchema,

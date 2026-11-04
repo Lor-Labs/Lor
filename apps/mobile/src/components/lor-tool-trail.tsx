@@ -1,6 +1,7 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import BookOpen01Icon from "@hugeicons/core-free-icons/BookOpen01Icon"
+import BrowserIcon from "@hugeicons/core-free-icons/BrowserIcon"
 import Download01Icon from "@hugeicons/core-free-icons/Download01Icon"
 import ExternalLinkIcon from "@hugeicons/core-free-icons/ExternalLinkIcon"
 import Globe02Icon from "@hugeicons/core-free-icons/Globe02Icon"
@@ -9,6 +10,7 @@ import Search01Icon from "@hugeicons/core-free-icons/Search01Icon"
 import TerminalIcon from "@hugeicons/core-free-icons/TerminalIcon"
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
+import { browserStep } from "@repo/utils/browser-step"
 import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { useState } from "react"
@@ -147,15 +149,22 @@ const SANDBOX_TOOLS = new Set([
   "glob",
   "ls",
 ])
+// A bash label is "Ran <command>"; Lor's `lor-browser` commands read as
+// browser steps instead. Mirrors web.
 function splitLabel(toolCall: LorToolCall) {
   const space = toolCall.label.indexOf(" ")
   if (!TARGET_TOOLS.has(toolCall.toolName) || space < 0) {
-    return { verb: toolCall.label, target: null }
+    return { verb: toolCall.label, target: null, browser: false }
   }
-  return {
-    verb: toolCall.label.slice(0, space),
-    target: toolCall.label.slice(space + 1),
-  }
+  const target = toolCall.label.slice(space + 1)
+  const step = toolCall.toolName === "bash" ? browserStep(target) : null
+  if (step) return { ...step, browser: true }
+  return { verb: toolCall.label.slice(0, space), target, browser: false }
+}
+
+function displayLabel(toolCall: LorToolCall) {
+  const { verb, target } = splitLabel(toolCall)
+  return target ? `${verb} ${target}` : verb
 }
 
 // A sandbox call that wrote one of the files the turn shared (shared paths
@@ -203,7 +212,7 @@ function SandboxRow({
 }) {
   const muted = useThemeColor("muted")
   const [open, setOpen] = useState(false)
-  const { verb, target } = splitLabel(toolCall)
+  const { verb, target, browser } = splitLabel(toolCall)
   const diff = toolCall.diff
   const file = deliveredFile(diff?.path ?? target, delivered)
   const output = toolCall.detail?.summary
@@ -212,14 +221,18 @@ function SandboxRow({
   return (
     <View>
       <Pressable
-        accessibilityLabel={toolCall.label}
+        accessibilityLabel={displayLabel(toolCall)}
         accessibilityRole={expandable ? "button" : undefined}
         accessibilityState={expandable ? { expanded: open } : undefined}
         className="min-h-7 flex-row items-center gap-two"
         disabled={!expandable}
         onPress={() => setOpen((current) => !current)}
       >
-        <ToolGlyph color={muted} size={12} toolName={toolCall.toolName} />
+        {browser ? (
+          <HugeiconsIcon color={muted} icon={BrowserIcon} size={12} />
+        ) : (
+          <ToolGlyph color={muted} size={12} toolName={toolCall.toolName} />
+        )}
         <Text className="text-[11px] text-muted">{verb}</Text>
         {file ? (
           <Pressable
@@ -330,8 +343,11 @@ export function LorToolTrail({
     : null
 
   const expanded = isOpen || streaming
+  const last = toolCalls.at(-1)
   const summary = streaming
-    ? (toolCalls.at(-1)?.label ?? "Working…")
+    ? last
+      ? displayLabel(last)
+      : "Working…"
     : `Used ${toolCalls.length} tool${toolCalls.length === 1 ? "" : "s"}`
 
   return (
