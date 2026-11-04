@@ -198,6 +198,8 @@ export const sessionSetupResponseSchema = z.object({
       command: z.string(),
       port: z.number().int(),
       cwd: z.string().nullable(),
+      // Part of "the app" that Start app runs (`default` is not false).
+      default: z.boolean(),
       state: z.enum(["stopped", "starting", "running", "exited"]),
       // The end of its log while starting or after it exited.
       log: z.string().nullable(),

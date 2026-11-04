@@ -13,8 +13,8 @@ This runbook does three things in one pass:
    server, so `http://localhost:3000` works. People watch and drive it in the
    Browser panel. Lor drives the same browser to check its own work. It
    replaces the iframe of `dev-environment-runbook.md` §3 and step 3b.
-2. **Run setup v2** (LOR-125). `.lor/environment.json` gets profiles,
-   readiness checks, start order, a path to open and notes for Lor. It
+2. **Run setup v2** (LOR-125). `.lor/environment.json` marks which
+   services make up "the app" (`"default": false` for the rest). It
    extends step 4b of `dev-environment-runbook.md`.
 3. **Sandbox size on the Lor environment.** A memory setting (8 or 16 GB)
    on the `environment` row, not in the repo file.
@@ -152,55 +152,36 @@ for localhost, and Kernel's private networking rejects loopback addresses.
 
 ### 1. Run setup v2 (`.lor/environment.json`)
 
-v2 replaces v1 with no compatibility (Jacob, 2026-11-03). `services` becomes
-an object keyed by service name, so `dependsOn` and `profiles` refer to keys.
-A v1 file reads as invalid, and the panel's "Ask Lor to fix it" rewrites it.
+Smaller than first planned (Jacob, 2026-11-03): the file keeps v1's shape,
+so existing files stay valid, and gains one optional field per service.
 
 ```json
 {
   "install": "pnpm install",
-  "services": {
-    "api": {
-      "command": "pnpm dev",
-      "cwd": "apps/api",
-      "port": 8787,
-      "ready": { "http": "/health", "timeout": 120 }
-    },
-    "web": {
-      "command": "pnpm dev",
-      "cwd": "apps/web",
-      "port": 3000,
-      "dependsOn": ["api"],
-      "open": "/",
-      "description": "Main app. Sign in with the seeded user from apps/api/seed.ts."
-    },
-    "www": { "command": "pnpm dev", "cwd": "apps/www", "port": 3001, "open": "/" }
-  },
-  "profiles": { "default": ["web"], "marketing": ["www"] }
+  "services": [
+    { "name": "web", "command": "pnpm dev", "port": 3000, "cwd": "apps/web" },
+    { "name": "api", "command": "pnpm dev", "port": 8787, "cwd": "apps/api" },
+    { "name": "www", "command": "pnpm dev", "port": 3001, "cwd": "apps/www", "default": false }
+  ]
 }
 ```
 
-- Service keys use today's name rule: short, lowercase letters, digits and
-  dashes.
-- `install` runs before each start under the existing flock, as now.
-- `ready`: optional. `http` is a path that must answer 2xx or 3xx on the
-  service's port. `timeout` is in seconds (default 120). Without `ready`, the
-  service is ready when its port listens, which is today's rule.
-- `dependsOn`: services to start first. A service starts when everything it
-  depends on is ready. The schema rejects cycles and unknown names.
-- `open`: the path the Browser panel opens when the service is ready. A
-  service without `open` (an API, a worker) gets no Open action.
-- `description`: notes for Lor (seed users, quirks). The panel doesn't show
-  them.
-- `profiles`: named lists of services. Starting a profile also starts each
-  service's `dependsOn`. The key `default` is what the panel's Start runs.
-  Without `profiles`, Start runs every service, which is today's rule.
-- Start is idempotent. A service whose port already listens counts as
-  running, whoever started it (today's rule).
-- After a profile starts, the browser goes to the first service in it with
-  `open`.
-- Lor's code-session prompt explains each field, and says to write profiles
-  for monorepos and to fix the file when a start fails.
+- `"default": false`: not part of "the app" people usually run (a
+  monorepo's docs site, a rarely used tool). Every other service is.
+- **Start app** (the live view's toolbar, and the app menu in both modes)
+  starts every default service that is stopped or exited, together, and
+  opens the first default service in the browser once its port listens.
+  Other services keep their own Start in the menu.
+- Lor runs the default services when asked to run the app, unless someone
+  asks for others, and marks rarely used services `"default": false` when it
+  writes the file.
+- Dropped from the first design, because the real browser and the repo's
+  instruction files cover them: `ready` (a listening port is enough; dev
+  servers compile on the first request), `dependsOn` (starting together
+  works, and Lor can fix a strict order), `open` (Chromium's own address
+  bar), `description` (`AGENTS.md`/`CLAUDE.md`) and named `profiles` (one
+  default set plus per-service Start covers the monorepo case). The keyed
+  `services` object went with them.
 
 ### 2. Sandbox size
 
@@ -431,13 +412,11 @@ Each step is a review chunk of about 300–400 lines.
   `environment.sandbox_memory_mb` (Jacob runs `db:push`), API validation,
   the editor field with the credit cost, `createSessionSandbox` reads it,
   the hosted-beta cap, and Lor's prompt line about memory failures.
-- [ ] **2. Run setup v2.** Schema and validation in `repo-setup.ts`
-  (services keyed by name; `ready`, `dependsOn`, `open`, `description`,
-  `profiles`; no v1 support). Start a
-  profile in dependency order with readiness checks. API
-  `POST /sessions/{id}/setup/profiles/{name}/start`. The panel's Start runs
-  the default profile, and a menu lists the other profiles and services.
-  Prompt update in `code-session.ts`. Works with the iframe until step 4.
+- [x] **2. Run setup v2** (2026-11-03, the smaller design in §1; not run
+  live yet). `repo-setup.ts`: optional `default` on each service, reported
+  as `default: boolean` by `GET /sessions/{id}/setup`. Panel: Start app in
+  the live toolbar and the app menu, starting the stopped default services
+  through the existing per-service route. Prompt line in `code-session.ts`.
 - [x] **3. Browser process and Lor's browser command.** Image (`bl push`),
   the `browser` process and start script, `HIDDEN_PORTS`, `lor-browser`
   with the control-file check, prompt lines, and screenshots through

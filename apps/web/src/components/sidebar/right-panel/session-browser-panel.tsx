@@ -63,6 +63,7 @@ type Service = {
   name: string
   command: string
   port: number
+  default: boolean
   state: "stopped" | "starting" | "running" | "exited"
   log: string | null
 }
@@ -170,6 +171,35 @@ export function SessionBrowserPanel({
     },
     onSuccess: (_result, name) => {
       setOpening({ name, at: Date.now() })
+      void queryClient.invalidateQueries({ queryKey: setupKey(sessionId) })
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  // "The app": every service not marked `default: false`. Start app runs the
+  // stopped ones together and opens the first once it listens.
+  const appServices = services.filter((service) => service.default)
+  const appStopped = appServices.filter(
+    (service) => service.state === "stopped" || service.state === "exited"
+  )
+  const startApp = useMutation({
+    mutationFn: async () => {
+      await Promise.all(
+        appStopped.map(async (service) => {
+          const res = await apiClient.v1.sessions[":sessionId"].setup.services[
+            ":name"
+          ].start.$post({
+            param: { sessionId, name: service.name },
+          })
+          if (!res.ok) {
+            throw await failure(res, `Couldn't start ${service.name}`)
+          }
+        })
+      )
+    },
+    onSuccess: () => {
+      const first = appServices[0]
+      if (first) setOpening({ name: first.name, at: Date.now() })
       void queryClient.invalidateQueries({ queryKey: setupKey(sessionId) })
     },
     onError: (err) => toast.error(err.message),
@@ -331,6 +361,7 @@ export function SessionBrowserPanel({
       ports={list}
       stoppedServices={stoppedServices}
       setupAction={liveMode ? setupAction : null}
+      onStartApp={appStopped.length > 0 ? () => startApp.mutate() : null}
       onOpen={(port) => go({ port, path: "/" })}
       onStart={(name) => start.mutate(name)}
       onRefresh={() => {
@@ -482,6 +513,15 @@ export function SessionBrowserPanel({
             </DropdownMenuTrigger>
             {menuItems}
           </DropdownMenu>
+          {appStopped.length > 0 && (
+            <Button
+              size="xs"
+              disabled={startApp.isPending || opening !== null}
+              onClick={() => startApp.mutate()}
+            >
+              {startApp.isPending || opening ? "Starting…" : "Start app"}
+            </Button>
+          )}
           <span className="flex-1" />
           <ToolbarButton
             label="Open in your browser"
@@ -568,6 +608,7 @@ function RunMenuItems({
   ports,
   stoppedServices,
   setupAction,
+  onStartApp,
   onOpen,
   onStart,
   onRefresh,
@@ -575,6 +616,8 @@ function RunMenuItems({
   ports: { port: number; process: string | null }[]
   stoppedServices: Service[]
   setupAction: { label: string; onClick: () => void } | null
+  // Null when every service of the app already runs.
+  onStartApp: (() => void) | null
   onOpen: (port: number) => void
   onStart: (name: string) => void
   onRefresh: () => void
@@ -602,6 +645,11 @@ function RunMenuItems({
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuLabel>Services</DropdownMenuLabel>
+            {onStartApp && (
+              <DropdownMenuItem onClick={onStartApp}>
+                Start app
+              </DropdownMenuItem>
+            )}
             {stoppedServices.map((service) => (
               <DropdownMenuItem
                 key={service.name}
