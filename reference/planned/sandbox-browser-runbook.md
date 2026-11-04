@@ -356,6 +356,24 @@ Each step is a review chunk of about 300–400 lines.
     process restarting after a stop.
   - Exit: the default code sandbox size (8 or 16 GB), x11vnc or KasmVNC,
     the agent command.
+  - Local run, 2026-11-03 (Docker on arm64, the workbench's Debian trixie
+    base). Image section and `browser/lor-browser-start` added to
+    `sandbox-image/`; not pushed to Blaxel yet.
+    - Packages: Chromium 156, x11vnc 0.9.17, noVNC 1.6, websockify 0.12,
+      agent-browser 0.41.1. The browser layer adds 1.06 GB to the image.
+    - Memory (PSS): Chromium with three real tabs (a Next app, GitHub,
+      react.dev) about 673 MB; Xvfb, openbox, x11vnc and websockify about
+      67 MB; the agent-browser daemon 20 MB; a fresh Next 16.4.5 dev server
+      about 480 MB. The container total was 1.08 GiB, CPU about 1% at rest.
+      Idle on `about:blank` the stack took about 240 MB.
+    - `agent-browser connect 9222` attaches to the headful Chromium (no
+      second browser). `snapshot -i`, `open`, `tab new`, `eval` and
+      `screenshot` work.
+    - A `create-next-app` Next 16.4.5 page opened at
+      `http://localhost:3000` hydrates (React fibers on the DOM, origin
+      localhost, no blocked cross-origin requests in the dev log), with no
+      `allowedDevOrigins` edit. Not yet tried with better-auth.
+    - playwright-cli was not tried; agent-browser covers what Lor needs.
 - [ ] **1. Sandbox size on the environment.** Column
   `environment.sandbox_memory_mb` (Jacob runs `db:push`), API validation,
   the editor field with the credit cost, `createSessionSandbox` reads it,
