@@ -98,13 +98,15 @@ COPY terminal/zshrc /root/.zshrc
 # headful Chromium on Xvfb, x11vnc + websockify serving noVNC for the live
 # view, and agent-browser for Lor over CDP on 127.0.0.1. About 1 GB of image;
 # measured 2026-11-03 at about 0.75 GB of memory with three real tabs.
+# agent-browser lives off PATH: Lor drives it only through lor-browser.
 ARG AGENT_BROWSER_VERSION=0.41.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium xvfb xauth openbox x11vnc novnc websockify libnss3-tools \
     fonts-liberation fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g agent-browser@${AGENT_BROWSER_VERSION}
-COPY browser/lor-browser-start /usr/local/bin/lor-browser-start
+    && npm install -g --prefix /opt/agent-browser agent-browser@${AGENT_BROWSER_VERSION} \
+    && /opt/agent-browser/bin/agent-browser --version
+COPY browser/lor-browser-start browser/lor-browser /usr/local/bin/
 
 RUN mkdir -p /workspace/in /workspace/out /workspace/.pi-sessions /root/.pi/agent
 

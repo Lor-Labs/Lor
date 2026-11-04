@@ -227,11 +227,12 @@ A v1 file reads as invalid, and the panel's "Ask Lor to fix it" rewrites it.
   Chromium, the VNC server, websockify and the agent browser command. Copy
   the details from Blaxel's `xfce-vnc` and `chromium` hub templates (fake
   D-Bus socket, hostname fix, `slim: false`).
-- **One named process, `browser`**, started through `ensureProcess` the
-  first time the Browser panel opens or Lor runs a browser command. A start
+- **One browser per sandbox**, started on first use: the Browser panel
+  through `ensureProcess` (named process `browser`), Lor's `lor-browser` as
+  a detached process. A lock in the start script keeps it to one copy. The
   script runs the display, Chromium, the VNC server and the gateway (§4),
   and restarts Chromium when it exits. Turn fencing does not kill it.
-  Nothing assumes it survives idle: each open calls `ensureProcess` first.
+  Nothing assumes it survives idle: each use checks it first.
 - Chromium's profile and cache go under `${WORKSPACE_MOUNT}/.cache/lor-browser`
   (disk, not RAM, and outside the repo).
 - Add 9222 (CDP), the VNC port and the gateway port to `HIDDEN_PORTS`.
@@ -241,6 +242,22 @@ A v1 file reads as invalid, and the panel's "Ask Lor to fix it" rewrites it.
   Claude Code and Codex. Lor posts screenshots with `share_file`. The
   prompt tells Lor to check its UI changes in the browser and how to start
   the run setup's services.
+- **What `lor-browser` allows** (Jacob, 2026-11-03):
+  - Lor clicks, types and runs scripts (`click`, `fill`, `eval`, ...) only
+    on localhost pages, and only reads other sites (`open`, `snapshot`,
+    `screenshot`, `get`). Acting on outside sites belongs to the hosted
+    browser, which has approvals (`agent-browser.md`).
+  - Commands outside its three lists are refused: `close`, `connect`,
+    `chat`, `auth`, `plugin`, `stream`, `install`, `batch` and so on.
+  - So are flags that would point it at another browser (`--cdp`,
+    `--provider`, `--engine`, `--profile`, ...).
+  - It is a guard against mistakes, not a security boundary: the sandbox
+    runs as root. agent-browser lives off `PATH` (`/opt/agent-browser`), so
+    Lor reaches it through `lor-browser`.
+  - Page output carries agent-browser's content boundaries and is capped at
+    40,000 characters.
+- **Code sessions only.** Only the code-session prompt tells Lor about the
+  browser. Chat sandboxes (4 GB) have the image but never start it.
 
 ### 4. Live view
 
@@ -252,9 +269,12 @@ A v1 file reads as invalid, and the panel's "Ask Lor to fix it" rewrites it.
     setting. If KasmVNC's view-only users cover this, use them instead and
     record it in the log.
   - It also pushes the page URL and title from CDP, for the address bar.
-  - Roles live in a control file under `/workspace/tmp/lor-browser` that the
-    API writes through process exec. The gateway and `lor-browser` read it.
-    Files and processes keep it provider-neutral.
+  - Control lives in files the API writes through process exec, which keeps
+    it provider-neutral. `lor-browser` (step 3) already reads
+    `$LOR_BROWSER_DIR/controller` (default
+    `/workspace/.cache/lor-browser/controller`): the display name of the
+    person who has control, or no file when Lor may drive. The gateway's
+    viewer tokens go next to it.
 - **API** (code sessions, channel write access, like the terminal):
   - `POST /sessions/{id}/browser` runs `ensureProcess` and `portReady`,
     writes a viewer token, and returns the gateway's `wss` URL through a
@@ -416,7 +436,18 @@ Each step is a review chunk of about 300–400 lines.
 - [ ] **3. Browser process and Lor's browser command.** Image (`bl push`),
   the `browser` process and start script, `HIDDEN_PORTS`, `lor-browser`
   with the control-file check, prompt lines, and screenshots through
-  `share_file`.
+  `share_file`. Built 2026-11-03; image not pushed yet.
+  - `sandbox-image/browser/lor-browser-start`: one browser per sandbox
+    (flock on `run.lock`, held by every child), proxy CA import, a 256 MB
+    disk cache.
+  - `sandbox-image/browser/lor-browser`: starts the browser detached on
+    first use (detached processes outlive turn fencing), the control check,
+    the localhost rule and the command lists above.
+  - `packages/lor/src/dev-env/browser.ts`: the browser's ports, added to
+    `HIDDEN_PORTS` (so services in the run setup can't use them either).
+  - `code-session.ts`: the "Checking the app" prompt line, every harness.
+  - [ ] `harness-bootstrap.ts`, then `bl push` of `workbench` (Jacob
+    approves first). Existing sandboxes keep their image until replaced.
 - [ ] **4. Live view.** Gateway, the three API routes, the panel with the
   noVNC client, address bar over CDP, take control and hand back, the
   hidden-tab and idle reconnects, desktop CSP, and the phone row. Probably
@@ -505,4 +536,11 @@ Each step is a review chunk of about 300–400 lines.
 
 ## Deviations log
 
-(none yet)
+- 2026-11-03: build order is 0, 3, 4, 2, 5, 1, 6 (Jacob). The spike showed
+  8 GB is enough, so the size setting no longer blocks the browser, and run
+  setup v2's `open` and `ready` fields mostly drive the browser.
+- 2026-11-03: the person in control is a plain-text `controller` file in the
+  browser's folder, not a control file under `/workspace/tmp`, so the bash
+  `lor-browser` reads it without a JSON parser.
+- 2026-11-03: the image does not need Blaxel's D-Bus or hostname fixes;
+  Chromium ran without them in the spike.

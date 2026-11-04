@@ -20,6 +20,15 @@ DIR="${LOR_BROWSER_DIR:-/workspace/.cache/lor-browser}"
 export DISPLAY=":${DISPLAY_NUM}"
 mkdir -p "$DIR/profile" "$DIR/logs"
 
+# One browser per sandbox: Lor's lor-browser and the Browser panel both start
+# it. Every child inherits the lock, so leftovers of a killed run still hold
+# it and the stale-file cleanup below never runs under a live browser.
+exec 9>"$DIR/run.lock"
+if ! flock -n 9; then
+  echo "The browser is already running"
+  exit 0
+fi
+
 pids=()
 chromium_pid=""
 cleanup() {
@@ -81,6 +90,7 @@ run_chromium() {
     --remote-debugging-address=127.0.0.1 \
     --remote-debugging-port="$CDP_PORT" \
     --user-data-dir="$DIR/profile" \
+    --disk-cache-size=268435456 \
     --window-position=0,0 --window-size="${width},${height}" \
     --start-maximized \
     about:blank >>"$DIR/logs/chromium.log" 2>&1
