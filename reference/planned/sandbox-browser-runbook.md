@@ -345,8 +345,9 @@ Each step is a review chunk of about 300–400 lines.
     noVNC; RAM and CPU measured locally and on Blaxel (notes below).
     KasmVNC was not compared: x11vnc was fast enough.
   - [x] noVNC through a private preview: Jacob in Safari on macOS, "feels
-    pretty damn responsive to be a remote desktop". Chrome and iOS not
-    tried yet; the Tauri app needs the panel (step 4).
+    pretty damn responsive to be a remote desktop", and in iPhone Safari,
+    "worked pretty good too". The Tauri app needs the panel (step 4).
+    The spike sandbox and image were deleted afterwards.
   - [x] agent-browser attaches to the headful Chromium over CDP. Chosen;
     playwright-cli not tried.
   - [x] A Next.js 16 app hydrates at localhost with no `allowedDevOrigins`
