@@ -84,6 +84,7 @@ import {
 } from "@/hooks/use-workspace-activity"
 import { apiClient } from "@/lib/api-client"
 import { clearLastSessionId, writeLastSession } from "@/lib/last-location"
+import { readSessionPanel, writeSessionPanel } from "@/lib/session-panel-memory"
 
 export function SessionView({
   workspaceSlug,
@@ -178,8 +179,16 @@ function SessionConversation({
 
   // The right panel shows this session's details while the page is open, the
   // way a channel page sets its own panel view. A code session's panel opens
-  // on Changes; Details is its last tab.
-  const { view, setView, openView, clearView, isHydrated } = useRightSidebar()
+  // on the tab it was left on (Changes at first); Details is its last tab.
+  const {
+    view,
+    setView,
+    openView,
+    clearView,
+    isHydrated,
+    isCollapsed,
+    setCollapsed,
+  } = useRightSidebar()
   const isMobile = useIsMobile()
   const code = session.mode === "code"
   const workView = useMemo<SessionPanelView>(
@@ -225,14 +234,57 @@ function SessionConversation({
     if (isMobile !== false || waitingForFiles) return
     const type = openOn.current
     openOn.current = null
+    const remembered = readSessionPanel(session.id)
+    if (remembered.collapsed !== undefined) setCollapsed(remembered.collapsed)
     if (type) openView({ ...workView, type })
-    else setView(workView)
+    else if (code && remembered.type) {
+      setView({ ...workView, type: remembered.type })
+    } else setView(workView)
     return () => clearView()
-  }, [workView, isMobile, waitingForFiles, setView, openView, clearView])
+  }, [
+    workView,
+    isMobile,
+    waitingForFiles,
+    setView,
+    openView,
+    clearView,
+    setCollapsed,
+    code,
+    session.id,
+  ])
+  const panelType =
+    view && "sessionId" in view && view.sessionId === session.id
+      ? view.type
+      : null
+  useEffect(() => {
+    if (panelType) writeSessionPanel(session.id, { type: panelType })
+  }, [panelType, session.id])
+  // Only changes after open: the first value is the previous page's.
+  const lastCollapsed = useRef(isCollapsed)
+  useEffect(() => {
+    if (isMobile !== false || lastCollapsed.current === isCollapsed) return
+    lastCollapsed.current = isCollapsed
+    writeSessionPanel(session.id, { collapsed: isCollapsed })
+  }, [isCollapsed, isMobile, session.id])
 
   // Code sessions: files and diffs open in tabs beside the chat.
   useLiveSessionChanges(session.id, session.threadRootId, code)
   const tabs = useSessionTabs(session.id)
+  // A sidebar link carries no ?open: go back to the tab that was active.
+  const tabRestored = useRef(false)
+  useEffect(() => {
+    if (!code) return
+    if (!tabRestored.current) {
+      tabRestored.current = true
+      const remembered = readSessionPanel(session.id).tab
+      if (!tabs.active && remembered && parseTabId(remembered)) {
+        tabs.adopt(remembered)
+        tabs.select(remembered)
+        return
+      }
+    }
+    writeSessionPanel(session.id, { tab: tabs.active })
+  }, [code, session.id, tabs.active])
   const activeTab = code && tabs.active ? parseTabId(tabs.active) : null
   const showTabs = code && (tabs.ids.length > 0 || activeTab !== null)
 

@@ -569,6 +569,7 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
       <TypingIndicator users={typingUsers} className="from-sidebar" />
       <MessageInput
         key={view.threadRootId}
+        draftKey={`thread:${view.threadRootId}`}
         composerDraft={view.composerDraft}
         onComposerDraftConsumed={consumeComposerDraft}
         context={channelContext}

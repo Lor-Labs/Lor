@@ -90,6 +90,7 @@ import { ARRIVE_IN } from "@/hooks/use-appended-ids"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
 import { apiClient } from "@/lib/api-client"
 import type { ConnectorKey, Message } from "@/lib/api-types"
+import { readComposerDraft, writeComposerDraft } from "@/lib/composer-drafts"
 import {
   extractMentionIds,
   toStoredMarkdown,
@@ -138,6 +139,9 @@ const LINEAR_SLASH_COMMAND: SlashCommandItem = {
 }
 
 interface MessageInputProps {
+  // What's typed is kept under this key (with currentUserId) on this device
+  // until sent, e.g. `channel:<id>`. Changing it swaps in that draft.
+  draftKey?: string
   composerDraft?: { id: string; text: string }
   onComposerDraftConsumed?: (id: string) => void
   composerFileReference?: ComposerFileReference
@@ -582,6 +586,7 @@ function resolveRouting({
 }
 
 export function MessageInput({
+  draftKey,
   composerDraft,
   onComposerDraftConsumed,
   composerFileReference,
@@ -862,6 +867,30 @@ export function MessageInput({
     "session_reply",
     routing.canSwitch && routing.toLor && !isEmpty && !disabled
   )
+
+  // Before the composerDraft effect: a suggestion appends to the restored
+  // draft instead of being overwritten by it.
+  useEffect(() => {
+    if (!editor || !draftKey || !currentUserId) return
+    const restore = () => {
+      const stored = readComposerDraft(currentUserId, draftKey)
+      if (stored) editor.commands.setContent(stored, { emitUpdate: false })
+      else if (!editor.isEmpty) editor.commands.clearContent(false)
+    }
+    const save = () =>
+      writeComposerDraft(
+        currentUserId,
+        draftKey,
+        editor.isEmpty ? null : editor.getJSON()
+      )
+    if (editor.isInitialized) restore()
+    else editor.on("create", restore)
+    editor.on("update", save)
+    return () => {
+      editor.off("create", restore)
+      editor.off("update", save)
+    }
+  }, [editor, draftKey, currentUserId])
 
   const appliedDraftRef = useRef<string | null>(null)
   useEffect(() => {

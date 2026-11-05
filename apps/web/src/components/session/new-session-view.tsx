@@ -343,6 +343,7 @@ function NewSessionComposer({
           )}
         </div>
         <MessageInput
+          draftKey={`new-session:${workspaceSlug}`}
           composerDraft={composerDraft}
           onComposerDraftConsumed={() => setComposerDraft(undefined)}
           context={{ type: "channel", name: channelName }}

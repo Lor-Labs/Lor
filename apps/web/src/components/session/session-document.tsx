@@ -505,6 +505,7 @@ export function SessionDocument({
       {composerNote}
       <MessageInput
         key={threadRootId}
+        draftKey={`thread:${threadRootId}`}
         context={CHANNEL_CONTEXT}
         channelId={channelId}
         contextScopeKey={threadRootId}
