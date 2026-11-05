@@ -291,7 +291,7 @@ const microsoftTeams: SeoPage = {
   ],
   summary: [
     "Teams is chat, meetings and calling inside Microsoft 365. Copilot adds AI that works across Microsoft 365 data, mostly as a personal assistant.",
-    "Microsoft 365 Business Standard with Teams is $14 per user per month paid yearly. The Copilot Business add-on starts at $18 per user per month paid yearly, and some agent features bill in Copilot Credits on top.",
+    "Microsoft 365 Business Standard with Teams is $14 per user per month paid yearly. The Copilot Business add-on is $21 per user per month paid yearly, or $18 for the first year if bought between July 1 and December 31, 2026, and some agent features bill in Copilot Credits on top.",
     "Lor puts AI work in sessions the whole channel can join, with connectors, approvals, schedules and a sandbox for each session.",
     "Teams wins on meetings, calling, Microsoft 365 integration and compliance. Lor wins on shared, steerable AI work across non-Microsoft tools and code.",
   ],
@@ -353,7 +353,7 @@ const microsoftTeams: SeoPage = {
             [
               "Price",
               LOR.price,
-              "Business Standard $14, plus Copilot Business from $18, per user per month paid yearly",
+              "Business Standard $14, plus Copilot Business $21 ($18 for the first year if bought by December 31, 2026), per user per month paid yearly",
             ],
           ],
         },
@@ -388,7 +388,7 @@ const microsoftTeams: SeoPage = {
             ],
             [
               "Microsoft 365 Copilot Business add-on",
-              "From $18.00 ($25.20 paid monthly)",
+              "$21.00, or $18.00 for the first year if bought July 1 to December 31, 2026 ($25.20 paid monthly)",
               "Copilot in Microsoft 365 apps and agents in Teams",
             ],
           ],
@@ -468,7 +468,7 @@ const microsoftTeams: SeoPage = {
     {
       question: "How much does Copilot cost for small businesses?",
       answer:
-        "Microsoft lists the Copilot Business add-on from $18 per user per month paid yearly, on top of a Microsoft 365 business plan. Some agent features bill in Copilot Credits on top of that.",
+        "Microsoft lists the Copilot Business add-on at $21 per user per month paid yearly, on top of a Microsoft 365 business plan, or $18 for the first year if bought between July 1 and December 31, 2026. Some agent features bill in Copilot Credits on top of that.",
     },
     {
       question: "Can Lor connect to Microsoft 365?",

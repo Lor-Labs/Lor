@@ -366,7 +366,7 @@ const slackAlternative: SeoPage = {
             ],
             [
               "Microsoft 365 Business Standard plus Copilot Business",
-              "$14 plus from $18",
+              "$14 plus $21 ($18 for the first year if bought by December 31, 2026)",
               "Some agent features bill in Copilot Credits",
             ],
           ],
@@ -545,7 +545,7 @@ const smallTeamPlatforms: SeoPage = {
       blocks: [
         {
           type: "p",
-          text: "Slack Business+ ($15 per user per month paid yearly) includes Slackbot, AI search and recaps, and Slackbot can use tools from apps that include an MCP server. Microsoft 365 Business Standard ($14) includes Teams and Copilot Chat, and the Copilot Business add-on (from $18) adds Copilot across the apps plus agents in Teams.",
+          text: "Slack Business+ ($15 per user per month paid yearly) includes Slackbot, AI search and recaps, and Slackbot can use tools from apps that include an MCP server. Microsoft 365 Business Standard ($14) includes Teams and Copilot Chat, and the Copilot Business add-on ($21, or $18 for the first year if bought by December 31, 2026) adds Copilot across the apps plus agents in Teams.",
         },
         {
           type: "p",
