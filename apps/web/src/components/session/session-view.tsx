@@ -386,6 +386,7 @@ function SessionConversation({
             sessionId={session.id}
             tab={activeTab}
             onOpen={tabs.open}
+            onOpenChange={tabs.openChange}
           />
         ) : undefined
       }
