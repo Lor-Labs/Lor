@@ -71,11 +71,12 @@ rm -f "$socket"
     "$control_token" "$watch_token" >"$DIR/selkies-tokens.json"
 )
 # H.264 in software with 4:4:4 colour; --video-paintover-crf sharpens a
-# still screen. Everything but video and input is off.
+# still screen. JPEG is the fallback for browsers that can't decode H.264
+# (Firefox). Everything but video and input is off.
 XDG_RUNTIME_DIR=/tmp selkies --unix-socket="$socket" --mode=websockets \
   --master-token="$(token)" --tokens-file="$DIR/selkies-tokens.json" \
   --enable-basic-auth=false --enable-sharing=false --frame-ancestors='*' \
-  --encoder=h264enc --use-cpu=true --framerate=60 --rate-control-mode=crf \
+  --encoder=h264enc,jpeg --use-cpu=true --framerate=60 --rate-control-mode=crf \
   --video-crf=23 --video-fullcolor=true --video-paintover-crf=8 \
   --enable-resize=true --mac-cmd-as-ctrl=true --ui-show-sidebar=false \
   --audio-enabled=false --microphone-enabled=false --webcam-enabled=false \
