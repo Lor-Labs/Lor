@@ -416,7 +416,11 @@ async function createSessionSandbox(
     })
     return boatSessionSandbox(boat, true)
   }
-  if (!blaxelConfigured()) return onBoatInstead(null)
+  if (
+    !blaxelConfigured() ||
+    (env.LOR_SANDBOX_PRIMARY === "boat" && boatConfigured())
+  )
+    return onBoatInstead(null)
   let sandbox: SandboxInstance
   try {
     sandbox = await SandboxInstance.createIfNotExists({

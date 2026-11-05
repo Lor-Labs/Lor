@@ -112,6 +112,9 @@ const serverSchema = z.object({
   // from the saved snapshot LOR_BOAT_TEMPLATE (packages/lor/sandbox-image/boat).
   BOAT_API_KEY: z.preprocess(blankToUndefined, z.string().min(1).optional()),
   LOR_BOAT_TEMPLATE: defaultedString("lor-workbench"),
+  // "boat": new sandboxes go to Boat first (QA, or a Blaxel outage);
+  // existing ones stay where they are.
+  LOR_SANDBOX_PRIMARY: z.enum(["blaxel", "boat"]).default("blaxel"),
   // Custom sandbox image (pushed via `bl push` from packages/lor/sandbox-image).
   LOR_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),

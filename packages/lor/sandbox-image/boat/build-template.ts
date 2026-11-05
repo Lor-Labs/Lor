@@ -2,9 +2,11 @@
 // fresh Boat VM, the image folder copied in, setup.sh run as root, then the
 // disk saved as a named snapshot new Boat sandboxes start from. Run after
 // harness-bootstrap.ts (it fills claude-code/ and codex/), from packages/lor:
-//   pnpm --filter @repo/lor exec tsx sandbox-image/boat/build-template.ts
+//   pnpm --filter @repo/lor exec tsx sandbox-image/boat/build-template.ts [vm]
+// With a VM id, it builds on that VM instead (a kept build VM retries).
 import { readdirSync, readFileSync, statSync } from "node:fs"
-import { join, relative } from "node:path"
+import { dirname, join, relative } from "node:path"
+import { fileURLToPath } from "node:url"
 import {
   BoatApi,
   type CommandStartedResponse,
@@ -13,12 +15,13 @@ import {
 } from "@boatdev/sdk"
 import { config } from "dotenv"
 
-config({ path: join(__dirname, "../../../../.env"), quiet: true })
+const here = dirname(fileURLToPath(import.meta.url))
+config({ path: join(here, "../../../../.env"), quiet: true })
 const name = process.env.LOR_BOAT_TEMPLATE || "lor-workbench"
 const boat = new BoatApi(
   new Configuration({ accessToken: process.env.BOAT_API_KEY ?? "" })
 )
-const IMAGE = join(__dirname, "..")
+const IMAGE = join(here, "..")
 const FILES = [
   "claude-code",
   "codex",
@@ -36,14 +39,17 @@ function walk(path: string): string[] {
 }
 
 async function main() {
-  const { sandbox } = await boat.create({
-    createSandboxRequest: {
-      name: `lor-template-build-${Date.now()}`,
-      type: "default",
-      ttlSeconds: 2 * 3600,
-      labels: { lor: "template-build" },
-    },
-  })
+  const existing = process.argv[2]
+  const { sandbox } = existing
+    ? await boat.get({ sandboxId: existing })
+    : await boat.create({
+        createSandboxRequest: {
+          name: `lor-template-build-${Date.now()}`,
+          type: "default",
+          ttlSeconds: 2 * 3600,
+          labels: { lor: "template-build" },
+        },
+      })
   console.log(`Building on ${sandbox.id}`)
   try {
     await waitUntilReady(boat, sandbox.id)
@@ -96,10 +102,14 @@ async function main() {
       if (snapshot.status === "failed") throw new Error(snapshot.error)
       await new Promise((r) => setTimeout(r, 5000))
     }
-  } finally {
-    await boat
-      .deleteSandbox({ sandboxId: sandbox.id, xAsciiConfirmDelete: sandbox.id })
-      .catch((err: unknown) => console.error("Build VM not deleted", err))
+    await boat.deleteSandbox({
+      sandboxId: sandbox.id,
+      xAsciiConfirmDelete: sandbox.id,
+    })
+  } catch (err) {
+    // Kept so a failed save can be retried without building again.
+    console.error(`Build VM ${sandbox.id} kept for a retry`)
+    throw err
   }
 }
 

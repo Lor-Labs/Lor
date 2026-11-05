@@ -426,48 +426,46 @@ export function boatSandboxSession(
 ): SandboxSession & { defaultWorkingDirectory: string } {
   const access = () => guardSandbox(sandbox.name)
 
+  // Boat's file API reaches only /home/user and /tmp, so files go through a
+  // copy in /tmp that a root command moves (checked 2026-11-05).
+  const staging = () => `/tmp/lor-io/${randomUUID()}`
+
   const readBytes = async (path: string): Promise<Uint8Array | null> => {
     await access()
-    try {
-      const file = await boat().readFile({
-        sandboxId: sandbox.id,
-        path,
-        encoding: "base64",
-      })
-      return new Uint8Array(Buffer.from(file.content, "base64"))
-    } catch (err) {
-      if (boatStatus(err) === 404) return null
-      // Large files: a signed download URL.
-      const download = await boat().createDownloadUrl({
-        sandboxId: sandbox.id,
-        fileUrlRequest: { path },
-      })
-      const response = await fetch(download.url)
-      if (response.status === 404) return null
-      if (!response.ok) throw err
-      return new Uint8Array(await response.arrayBuffer())
+    // One root command prints it as base64: the output is paged, so size
+    // only costs more polls.
+    const read = await boatExec(sandbox, {
+      label: "io-read",
+      command: `[ -f ${shellQuote(path)} ] || exit 3; base64 -w0 ${shellQuote(path)}`,
+      timeoutSec: 120,
+    })
+    if (read.exitCode === 3) return null
+    if (read.exitCode !== 0) {
+      throw new Error(`Reading ${path} failed: ${read.stderr.trim()}`)
     }
+    return new Uint8Array(Buffer.from(read.stdout, "base64"))
   }
 
-  const writeOnce = (path: string, bytes: Uint8Array) =>
-    boat().writeFile({
+  // `cat >` keeps an existing file's mode (a script stays executable).
+  const writeBytes = async (path: string, bytes: Uint8Array): Promise<void> => {
+    await access()
+    const copy = staging()
+    await boat().writeFile({
       sandboxId: sandbox.id,
       fileWriteRequest: {
-        path,
+        path: copy,
         content: Buffer.from(bytes).toString("base64"),
         encoding: "base64",
       },
     })
-
-  const writeBytes = async (path: string, bytes: Uint8Array): Promise<void> => {
-    await access()
-    try {
-      await writeOnce(path, bytes)
-    } catch {
-      await boatExec(sandbox, {
-        command: `mkdir -p ${shellQuote(posix.dirname(path))}`,
-      })
-      await writeOnce(path, bytes)
+    const target = shellQuote(path)
+    const moved = await boatExec(sandbox, {
+      label: "io-write",
+      command: `mkdir -p ${shellQuote(posix.dirname(path))} && cat ${copy} > ${target}; code=$?; rm -f ${copy}; exit $code`,
+      timeoutSec: 60,
+    })
+    if (moved.exitCode !== 0) {
+      throw new Error(`Writing ${path} failed: ${moved.stderr.trim()}`)
     }
   }
 
