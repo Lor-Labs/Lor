@@ -40,22 +40,24 @@ shared apps. Voice presence stays out while voice is hidden for launch.
 
 ## Page sequence
 
-- Hero and connected product story.
-- “A pasted answer leaves a lot out”: join the session and keep the context.
-  Explicitly say Lor works alongside existing team chat.
-- “Take the conversation into code”: repositories, files, diffs, personal
-  GitHub commits and pushes. Show a fork exploring a background export while
-  the original approach stays intact. Rewind restores code and conversation
-  together in code sessions.
-- “Work out the process once. Put it to work every week”: recurring account
-  research in #gtm, a downloadable shortlist, and an Attio write with an
-  example approval policy. Approval updates local preview state only.
-  Connectors and per-tool approvals support the story.
-- Team memory through an account handover, answered by Lor.
-- Agent choice: Lor in early access, Claude Code in development, Codex
-  planned. Do not claim arbitrary custom agents are available.
-- “Bring your next piece of work”: start with one project and its people;
-  early-access signup remains the call to action.
+As built 2026-11-05 (`apps/www/app/page.tsx`):
+
+- Hero headline “The multiplayer runtime for your agents.” (Jacob,
+  2026-11-05), with the recorded demo video (`DEMO_VIDEO`); the illustrated
+  `WorkspaceStory` is only the fallback when no video is set.
+- **Code sessions**, “See it working before anyone commits.”
+  (`code-session-preview.tsx`): a code session with the app's Changes |
+  Files | Terminal | Browser panel. The Browser tab opens first and shows the
+  fictional Kestrel app Lor ran in its sandbox; staging, commit and push work
+  on local state. Three points follow: a sandbox per session, review together,
+  a person commits and pushes with their own GitHub account (fork and rewind).
+- **Automations**, “Let your tools start the work.”
+  (`automation-preview.tsx`): a Better Stack alert arrives through a channel
+  webhook (Better Stack has no connector events), an Act trigger set to work
+  in Code starts a session in #health, and Lor has a fix on a `lor/…` branch
+  for the person who shipped the change. The copy lists Linear, GitHub and
+  Loops as other starts and notes that chosen actions wait for approval.
+- FAQ, then the closing call to action.
 
 ## Copy and presentation
 

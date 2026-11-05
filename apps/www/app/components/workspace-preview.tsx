@@ -48,6 +48,7 @@ export function PreviewTurn({
   revealAt = 0,
   answerAt,
   workingDetail = "Working…",
+  time,
 }: {
   person: "Zoe" | "Theo" | "Rafael" | "Lor" | "Claude Code" | "Codex"
   children: ReactNode
@@ -56,6 +57,7 @@ export function PreviewTurn({
   revealAt?: number
   answerAt?: number
   workingDetail?: string
+  time?: string
 }) {
   const avatars = { Zoe: ZOE, Theo: THEO, Rafael: RAFAEL }
   return (
@@ -86,7 +88,7 @@ export function PreviewTurn({
           (person === "Lor" ||
             person === "Claude Code" ||
             person === "Codex") ? (
-            <PreviewReplyActions onFork={onFork} />
+            <PreviewReplyActions onFork={onFork} time={time} />
           ) : null}
         </PreviewResponse>
       </div>
@@ -169,6 +171,8 @@ export function PreviewDocument({
   source,
   repo,
   hideStrip = false,
+  automation = false,
+  age = "2m ago",
   onContinueInCode,
 }: {
   title: string
@@ -181,6 +185,9 @@ export function PreviewDocument({
   source?: PreviewSource
   repo?: { name: string; branch: string }
   hideStrip?: boolean
+  // Sessions an automation (trigger) started have no person in the header.
+  automation?: boolean
+  age?: string
   onContinueInCode?: () => void
 }) {
   const Heading = headingLevel === 2 ? "h2" : "h3"
@@ -238,12 +245,16 @@ export function PreviewDocument({
               </>
             ) : null}
             <span>·</span>
-            <span className="inline-flex items-center gap-1.5">
-              <PersonAvatar src={avatar} size="size-4" />
-              Started by {starter}
-            </span>
+            {automation ? (
+              <span>Started by an automation</span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5">
+                <PersonAvatar src={avatar} size="size-4" />
+                Started by {starter}
+              </span>
+            )}
             <span>·</span>
-            <span>2m ago</span>
+            <span>{age}</span>
           </p>
           {source ? (
             <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[13px] text-lor-text-tertiary-dark">
