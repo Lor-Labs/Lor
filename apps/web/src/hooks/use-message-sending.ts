@@ -201,6 +201,7 @@ export function useMessageSending({
         contextMessageId?: string
         // Cmd+Enter: a session start stays where it was sent.
         stay?: boolean
+        onFailed?: (error: string) => void
       }
     ) => {
       if (!socket?.connected || !currentUser) return undefined
@@ -332,6 +333,7 @@ export function useMessageSending({
               messages.filter((message) => message.id !== nonce)
             )
             onSendFailed?.(nonce)
+            options?.onFailed?.(result.error)
             if (start) sessionStartRef.current?.failed(start)
           }
           if (refetchOwed.current && pendingNonces.current.size === 0) {

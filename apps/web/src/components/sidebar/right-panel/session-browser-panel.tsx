@@ -33,6 +33,7 @@ import {
 } from "@/components/sidebar/right-panel/session-browser-live-view"
 import { SessionPanelTabs } from "@/components/sidebar/right-panel/session-changes-panel"
 import { useSocket } from "@/context/socket-context"
+import { sessionSend } from "@/hooks/use-session-send"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
 import { readSessionPanel, writeSessionPanel } from "@/lib/session-panel-memory"
@@ -353,6 +354,8 @@ export function SessionBrowserPanel({
   }, [])
 
   const askLor = async (content: string) => {
+    const send = sessionSend(threadRootId)
+    if (send?.(content, (error) => toast.error(error))) return
     if (!socket?.connected) {
       toast.error("Connection lost. Try again")
       return
