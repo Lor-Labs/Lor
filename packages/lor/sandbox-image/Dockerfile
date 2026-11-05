@@ -95,16 +95,24 @@ COPY terminal/tmux.conf /root/.tmux.conf
 COPY terminal/zshrc /root/.zshrc
 
 # The session browser (reference/planned/sandbox-browser-runbook.md):
-# headful Chromium on Xvfb, x11vnc + websockify serving noVNC for the live
-# view, and agent-browser for Lor over CDP on 127.0.0.1. About 1 GB of image;
+# headful Chromium on Xvfb, Selkies streaming it as H.264 for the live view,
+# and agent-browser for Lor over CDP on 127.0.0.1. About 1.3 GB of image;
 # measured 2026-11-03 at about 0.75 GB of memory with three real tabs.
 # agent-browser lives off PATH: Lor drives it only through lor-browser.
-# gateway.mjs relays viewers to x11vnc (ws is its only dependency).
+# gateway.mjs relays viewers to Selkies (ws is its only dependency). Selkies'
+# .deb is built for Debian trixie, this image's base.
 ARG AGENT_BROWSER_VERSION=0.41.1
 ARG WS_VERSION=8.22.1
+ARG SELKIES_VERSION=2.2.1
+ARG SELKIES_SHA256=c59c3e5a528778d80f09daa552faae9b0c0cfae853c3ebbb380d8e6a850eb43d
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium xvfb xauth openbox x11vnc novnc libnss3-tools \
+    chromium xvfb xauth x11-xserver-utils openbox libnss3-tools \
     fonts-liberation fonts-noto-color-emoji \
+    && cd /tmp \
+    && curl -fsSLO "https://github.com/selkies-project/selkies/releases/download/${SELKIES_VERSION}/selkies-${SELKIES_VERSION}-debiantrixie-amd64.deb" \
+    && echo "${SELKIES_SHA256}  selkies-${SELKIES_VERSION}-debiantrixie-amd64.deb" | sha256sum -c - \
+    && apt-get install -y --no-install-recommends "./selkies-${SELKIES_VERSION}-debiantrixie-amd64.deb" \
+    && rm -f "selkies-${SELKIES_VERSION}-debiantrixie-amd64.deb" \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g --prefix /opt/agent-browser agent-browser@${AGENT_BROWSER_VERSION} \
     && /opt/agent-browser/bin/agent-browser --version \

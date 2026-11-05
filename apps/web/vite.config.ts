@@ -28,10 +28,6 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [tanstackRouter(), react(), versionPlugin()],
-    // noVNC (the session browser's live view) uses top-level await, which
-    // Vite's default targets reject; ES2022 is Safari 15 / Chrome 89 and up.
-    build: { target: "es2022" },
-    optimizeDeps: { esbuildOptions: { target: "es2022" } },
     resolve: {
       alias: {
         "@": resolve(__dirname, "./src"),

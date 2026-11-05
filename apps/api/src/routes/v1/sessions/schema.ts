@@ -150,15 +150,13 @@ const browserControllerSchema = z
   .nullable()
 
 // `unavailable`: the sandbox's image predates the browser, so the panel
-// keeps the port preview. `url`: the live view's WebSocket, with a one-time
-// token; `role` says whether this caller's view takes input.
+// keeps the port preview. `url`: the live view's page under this caller's
+// grant, for an iframe or the phone's in-app browser; `role` says whether
+// this caller's view takes input.
 export const openBrowserResponseSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("ready"),
     url: z.string(),
-    // noVNC's own page with the same token, for the phone's in-app browser.
-    pageUrl: z.string(),
-    expiresAt: z.string(),
     role: z.enum(["control", "watch"]),
     controller: browserControllerSchema,
   }),
