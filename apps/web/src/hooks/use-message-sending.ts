@@ -66,6 +66,9 @@ export function useMessageSending({
   // A cancelled refetch is owed until every send has settled: running it while
   // another send is unacknowledged could commit a snapshot without that send.
   const refetchOwed = useRef(false)
+  // Bounded sends that timed out, by text: sending the same text again reuses
+  // the nonce, and the server's nonce dedupe returns the original message.
+  const unconfirmed = useRef(new Map<string, string>())
 
   // Memoize so it's a stable reference across renders — otherwise the
   // useCallback deps below would invalidate every render.
@@ -209,7 +212,9 @@ export function useMessageSending({
     ) => {
       if (!socket?.connected || !currentUser) return undefined
 
-      const nonce = crypto.randomUUID()
+      const nonce =
+        (options?.ackTimeoutMs && unconfirmed.current.get(content)) ||
+        crypto.randomUUID()
       pendingNonces.current.add(nonce)
 
       const author = {
@@ -302,6 +307,15 @@ export function useMessageSending({
           ? { id: start.id, threadRootId: start.threadRootId }
           : undefined,
       }
+      const refetchWhenSettled = () => {
+        if (refetchOwed.current && pendingNonces.current.size === 0) {
+          refetchOwed.current = false
+          void queryClient.invalidateQueries({
+            queryKey: cacheKey,
+            exact: true,
+          })
+        }
+      }
       const onAck: SendMessageAck = (result) => {
         if (cancelInFlightRefetch()) refetchOwed.current = true
         pendingNonces.current.delete(nonce)
@@ -337,27 +351,29 @@ export function useMessageSending({
           options?.onFailed?.(result.error)
           if (start) sessionStartRef.current?.failed(start)
         }
-        if (refetchOwed.current && pendingNonces.current.size === 0) {
-          refetchOwed.current = false
-          void queryClient.invalidateQueries({
-            queryKey: cacheKey,
-            exact: true,
-          })
-        }
+        refetchWhenSettled()
       }
       if (options?.ackTimeoutMs) {
-        // An unanswered send fails, but it may have landed: the list
-        // refetches so it shows before the person sends it again.
-        void socket
-          .timeout(options.ackTimeoutMs)
-          .emitWithAck("message:send", payload)
-          .then(onAck, () => {
-            refetchOwed.current = true
-            onAck({
-              ok: false,
-              error: "Couldn't confirm it was sent. Check before sending again",
-            })
-          })
+        // An unanswered send fails, but the server may still post it: a late
+        // answer refetches the list (the sender gets no created echo), and
+        // sending the same text again reuses this nonce.
+        let timedOut = false
+        const timer = setTimeout(() => {
+          timedOut = true
+          unconfirmed.current.set(content, nonce)
+          refetchOwed.current = true
+          onAck({ ok: false, error: "Couldn't confirm it was sent. Try again" })
+        }, options.ackTimeoutMs)
+        socket.emit("message:send", payload, (result) => {
+          clearTimeout(timer)
+          if (result.ok && unconfirmed.current.get(content) === nonce) {
+            unconfirmed.current.delete(content)
+          }
+          if (!timedOut) return onAck(result)
+          if (!result.ok) return
+          refetchOwed.current = true
+          refetchWhenSettled()
+        })
       } else {
         socket.emit("message:send", payload, onAck)
       }
