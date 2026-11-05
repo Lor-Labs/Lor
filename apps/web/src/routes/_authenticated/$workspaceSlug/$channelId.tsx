@@ -631,6 +631,7 @@ function ChannelView() {
         </div>
       ) : (
         <MessageInput
+          draftKey={`channel:${channelId}`}
           composerDraft={composerDraft}
           onComposerDraftConsumed={consumeComposerDraft}
           lorIntro

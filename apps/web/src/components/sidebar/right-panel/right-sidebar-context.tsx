@@ -38,6 +38,7 @@ interface RightSidebarContextValue {
   clearView: () => void
   consumeComposerDraft: (id: string) => void
   isCollapsed: boolean
+  setCollapsed: (collapsed: boolean) => void
   toggleCollapsed: () => void
   panelWidth: number
   setPanelWidth: (width: number) => void
@@ -230,6 +231,13 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
+  const setCollapsed = useCallback((collapsed: boolean) => {
+    setIsCollapsed(collapsed)
+    try {
+      localStorage.setItem(PANEL_COLLAPSED_KEY, String(collapsed))
+    } catch {}
+  }, [])
+
   const toggleCollapsed = useCallback(() => {
     setIsCollapsed((prev) => {
       const next = !prev
@@ -265,6 +273,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       clearView,
       consumeComposerDraft,
       isCollapsed,
+      setCollapsed,
       toggleCollapsed,
       panelWidth,
       setPanelWidth,
@@ -278,6 +287,7 @@ export function RightSidebarProvider({ children }: { children: ReactNode }) {
       clearView,
       consumeComposerDraft,
       isCollapsed,
+      setCollapsed,
       toggleCollapsed,
       panelWidth,
       setPanelWidth,

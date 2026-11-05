@@ -111,11 +111,12 @@ export function useSessionTabs(sessionId: string) {
     useSearch({ strict: false, select: (search) => search.open }) ?? null
   const navigate = useNavigate()
 
+  // `at`: the file the All changes tab scrolls to.
   const select = useCallback(
-    (id: string | null) =>
+    (id: string | null, at?: string) =>
       void navigate({
         to: ".",
-        search: (prev) => ({ ...prev, open: id ?? undefined }),
+        search: (prev) => ({ ...prev, open: id ?? undefined, at }),
         replace: true,
       }),
     [navigate]
@@ -125,6 +126,15 @@ export function useSessionTabs(sessionId: string) {
     (id: string, { preview = true }: { preview?: boolean } = {}) => {
       addTab(key, id, preview)
       select(id)
+    },
+    [key, select]
+  )
+
+  // The All changes tab, scrolled to one file's diff.
+  const openChange = useCallback(
+    (path: string) => {
+      addTab(key, CHANGES_TAB_ID, false)
+      select(CHANGES_TAB_ID, path)
     },
     [key, select]
   )
@@ -140,7 +150,8 @@ export function useSessionTabs(sessionId: string) {
     [key]
   )
 
-  // Closing the active tab shows its neighbor, or the Chat tab.
+  // Closing the active tab shows its neighbor, or the Chat tab. Closing All
+  // changes always goes back to Chat.
   const close = useCallback(
     (id: string) => {
       const current = readTabs(key)
@@ -150,7 +161,32 @@ export function useSessionTabs(sessionId: string) {
         ids,
         preview: current.preview === id ? null : current.preview,
       })
-      if (active === id) select(ids[Math.min(index, ids.length - 1)] ?? null)
+      if (active !== id) return
+      select(
+        id === CHANGES_TAB_ID
+          ? null
+          : (ids[Math.min(index, ids.length - 1)] ?? null)
+      )
+    },
+    [key, active, select]
+  )
+
+  // Diffs of files a commit left unchanged; the Chat tab if one was active.
+  const closeDiffs = useCallback(
+    (keepPaths: Set<string>) => {
+      const current = readTabs(key)
+      const stale = (id: string) => {
+        const tab = parseTabId(id)
+        return tab?.kind === "diff" && !keepPaths.has(tab.path)
+      }
+      const ids = current.ids.filter((id) => !stale(id))
+      if (ids.length === current.ids.length) return
+      writeTabs(key, {
+        ids,
+        preview:
+          current.preview && stale(current.preview) ? null : current.preview,
+      })
+      if (active && stale(active)) select(null)
     },
     [key, active, select]
   )
@@ -184,9 +220,11 @@ export function useSessionTabs(sessionId: string) {
     active,
     select,
     open,
+    openChange,
     adopt,
     keep,
     close,
+    closeDiffs,
     closeOthers,
     cycle,
   }

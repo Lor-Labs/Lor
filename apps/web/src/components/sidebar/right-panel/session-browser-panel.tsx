@@ -7,6 +7,7 @@ import {
   ReloadIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+import { authClient } from "@repo/auth/client"
 import type { LorToolEventPayload } from "@repo/realtime-types"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -34,6 +35,7 @@ import { SessionPanelTabs } from "@/components/sidebar/right-panel/session-chang
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
+import { readSessionPanel, writeSessionPanel } from "@/lib/session-panel-memory"
 
 // A code session's browser on its sandbox. Sandboxes with the session browser
 // (reference/planned/sandbox-browser-runbook.md §4) show the live view of the
@@ -80,6 +82,9 @@ const askLorToFixFile = (error: string) =>
 
 type Target = { port: number; path: string }
 
+const addressOf = (target: Target) =>
+  `localhost:${target.port}${target.path === "/" ? "" : target.path}`
+
 // `3000`, `localhost:3000/x`, `http://127.0.0.1:3000/x?y` → port and path.
 function parseAddress(input: string): Target | null {
   const text = input.trim().replace(/^https?:\/\//, "")
@@ -120,10 +125,29 @@ export function SessionBrowserPanel({
   view: SessionBrowserSidebarView
 }) {
   const { sessionId, threadRootId } = view
+  const { data: auth } = authClient.useSession()
+  const userId = auth?.user.id
   const { setView } = useRightSidebar()
   const socket = useSocket()
   const queryClient = useQueryClient()
-  const [address, setAddress] = useState("")
+  // The last page opened here, kept per session so going back reopens it.
+  const [lastTarget, setLastTarget] = useState<Target | null>(
+    () => readSessionPanel(userId, sessionId).browser ?? null
+  )
+  const [address, setAddress] = useState(() =>
+    lastTarget ? addressOf(lastTarget) : ""
+  )
+  // The person can still be loading on the first render: restore once they
+  // are known, unless a page was opened meanwhile.
+  const hydrated = useRef(Boolean(userId))
+  useEffect(() => {
+    if (hydrated.current || !userId) return
+    hydrated.current = true
+    const stored = readSessionPanel(userId, sessionId).browser
+    if (!stored) return
+    setLastTarget((current) => current ?? stored)
+    setAddress((current) => current || addressOf(stored))
+  }, [userId, sessionId])
   const [src, setSrc] = useState<string | null>(null)
   const [reloads, setReloads] = useState(0)
   // From a reload or a new page until the frame's load event.
@@ -228,8 +252,6 @@ export function SessionBrowserPanel({
     live
   )
   const liveMode = ports.data?.available === true && !live.unavailable
-  // The last page opened from here, for "Open in your browser".
-  const [lastTarget, setLastTarget] = useState<Target | null>(null)
 
   const openPage = useMutation({
     mutationFn: async (target: Target) => {
@@ -242,6 +264,9 @@ export function SessionBrowserPanel({
     onError: (err) => toast.error(err.message),
   })
 
+  // Set by any open, so the remembered page never reopens over it.
+  const reopened = useRef(false)
+
   const openOutside = useMutation({
     mutationFn: (target: Target) => previewUrl(sessionId, target),
     onSuccess: (url) => openExternal(url),
@@ -249,10 +274,10 @@ export function SessionBrowserPanel({
   })
 
   const go = (target: Target) => {
-    setAddress(
-      `localhost:${target.port}${target.path === "/" ? "" : target.path}`
-    )
+    reopened.current = true
+    setAddress(addressOf(target))
     setLastTarget(target)
+    writeSessionPanel(userId, sessionId, { browser: target })
     if (liveMode) openPage.mutate(target)
     else open.mutate(target)
   }
@@ -265,6 +290,15 @@ export function SessionBrowserPanel({
     handledRequest.current = requested.id
     go({ port: requested.port, path: requested.path })
   }, [requested])
+
+  // Live mode's browser keeps its page in the sandbox; the preview frame
+  // reloads the remembered one.
+  useEffect(() => {
+    if (reopened.current || src || !lastTarget) return
+    if (ports.data?.available !== true || !live.unavailable) return
+    reopened.current = true
+    open.mutate(lastTarget)
+  }, [ports.data?.available, live.unavailable, lastTarget])
 
   useEffect(() => {
     if (!opening) return

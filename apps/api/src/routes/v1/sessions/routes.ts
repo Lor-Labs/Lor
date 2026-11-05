@@ -209,7 +209,7 @@ export type GetSessionChangeDiffRoute = typeof getSessionChangeDiff
 export const stageSessionChanges = createRoute({
   path: "/sessions/{sessionId}/changes/stage",
   method: "post",
-  summary: "Stage or unstage a code session's files",
+  summary: "Stage or unstage a code session's files or one hunk",
   description:
     "Anyone in the session can stage. Refused while Lor works in the session. Returns the changes after staging.",
   tags: ["Sessions"],
@@ -218,7 +218,7 @@ export const stageSessionChanges = createRoute({
     params: sessionParamsSchema,
     body: jsonContent({
       schema: stageSessionChangesRequestSchema,
-      description: "Paths (or all) and whether to stage them",
+      description: "Paths, all, or one hunk, and whether to stage them",
     }),
   },
   hide: true,

@@ -10,6 +10,8 @@ type SessionSearchParams = {
   msgId?: string
   // A code session's active tab beside the chat (use-session-tabs.ts).
   open?: string
+  // The All changes tab scrolls to this file's diff, then drops it.
+  at?: string
   // A folder reference reveals its directory in the Files panel.
   folder?: string
 }
@@ -24,6 +26,7 @@ export const Route = createFileRoute(
     upload: typeof search.upload === "string" ? search.upload : undefined,
     msgId: typeof search.msgId === "string" ? search.msgId : undefined,
     open: typeof search.open === "string" ? search.open : undefined,
+    at: typeof search.at === "string" ? search.at : undefined,
     folder: typeof search.folder === "string" ? search.folder : undefined,
   }),
 })

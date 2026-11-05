@@ -20,6 +20,12 @@ import {
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
 import { cn } from "@repo/ui/lib/utils"
+import {
+  type HunkStage,
+  lastChangedLine,
+  type PatchHunk,
+  parsePatch,
+} from "@repo/utils/diff-hunks"
 import { useQuery } from "@tanstack/react-query"
 import { useTheme } from "next-themes"
 import { type ReactNode, useMemo, useState } from "react"
@@ -53,8 +59,8 @@ import {
 } from "@/hooks/use-session-tabs"
 
 // A code session's changes, laid out like Zed's git panel: one row per file
-// with its line counts and a staging checkbox, a click opening its diff in a
-// tab beside the chat, and the commit box at the bottom
+// with its line counts and a staging checkbox, a click scrolling the All
+// changes tab beside the chat to its diff, and the commit box at the bottom
 // (reference/planned/code-sessions-runbook.md, chunks 3 and 4). Commits are
 // made as the person's linked GitHub account.
 
@@ -285,6 +291,8 @@ function ChangesView({
     changes.files.every((file) => stagedState(file) === "all")
   const totals = changeTotals(changes.files)
   const stagedCount = changes.files.filter((file) => file.staged).length
+  // The row last clicked, highlighted while All changes is open.
+  const [picked, setPicked] = useState<string | null>(null)
   const setStaged = (files: ChangedFile[], staged: boolean) =>
     stage.mutate({
       paths: files.flatMap((file) =>
@@ -294,10 +302,14 @@ function ChangesView({
     })
   const groupProps = {
     locked,
-    activeTab: tabs.active,
+    selectedPath: (path: string) =>
+      tabs.active === diffTabId(path) ||
+      (tabs.active === CHANGES_TAB_ID && picked === path),
     onToggleGroup: setStaged,
-    onOpen: (path: string, preview: boolean) =>
-      tabs.open(diffTabId(path), { preview }),
+    onOpen: (path: string) => {
+      setPicked(path)
+      tabs.openChange(path)
+    },
   }
 
   return (
@@ -369,16 +381,16 @@ function FileGroup({
   title,
   files,
   locked,
-  activeTab,
+  selectedPath,
   onToggleGroup,
   onOpen,
 }: {
   title: string
   files: ChangedFile[]
   locked: boolean
-  activeTab: string | null
+  selectedPath: (path: string) => boolean
   onToggleGroup: (files: ChangedFile[], staged: boolean) => void
-  onOpen: (path: string, preview: boolean) => void
+  onOpen: (path: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
   if (files.length === 0) return null
@@ -425,8 +437,8 @@ function FileGroup({
             key={file.path}
             file={file}
             locked={locked}
-            selected={activeTab === diffTabId(file.path)}
-            onOpen={(preview) => onOpen(file.path, preview)}
+            selected={selectedPath(file.path)}
+            onOpen={() => onOpen(file.path)}
             onToggle={(staged) => onToggleGroup([file], staged)}
           />
         ))}
@@ -515,9 +527,9 @@ function FileRow({
 }: {
   file: ChangedFile
   locked: boolean
-  // Its diff is the active tab.
+  // Its diff is the one in view.
   selected: boolean
-  onOpen: (preview: boolean) => void
+  onOpen: () => void
   onToggle: (staged: boolean) => void
 }) {
   const { name, folder } = splitPath(file.path)
@@ -530,8 +542,7 @@ function FileRow({
     >
       <button
         type="button"
-        onClick={() => onOpen(true)}
-        onDoubleClick={() => onOpen(false)}
+        onClick={onOpen}
         title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
         className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-3 text-left text-[13px]"
       >
@@ -565,18 +576,38 @@ export function ChangeDiff({
   sessionId,
   file,
   version,
+  locked,
   framed = true,
 }: {
   sessionId: string
   file: ChangedFile
   version: number
+  // Lor is working: hunks can't be staged.
+  locked: boolean
   // False when the caller draws the card (the All changes tab).
   framed?: boolean
 }) {
   const { resolvedTheme } = useTheme()
   const diff = useChangeDiff(sessionId, file, version)
+  const stage = useStageChanges(sessionId)
   const { ready: highlighterReady, language } = useDiffHighlighter(file.path)
   const patch = diff.data?.kind === "patch" ? diff.data.patch : null
+  const stages = diff.data?.kind === "patch" ? diff.data.hunks : undefined
+  // A Stage/Unstage bar under each hunk's last changed line. Only worth it
+  // when there is more than one hunk; the file's checkbox covers one. A
+  // conflicted file is fixed and staged whole.
+  const hunkBars = useMemo(() => {
+    if (!patch || !stages || file.status !== "modified") return []
+    const { hunks } = parsePatch(patch)
+    if (hunks.length < 2 || hunks.length !== stages.length) return []
+    return hunks.flatMap((hunk, index) => {
+      const anchor = lastChangedLine(hunk)
+      const stageState = stages[index]
+      return anchor && stageState
+        ? [{ ...anchor, metadata: { hunk, stage: stageState } }]
+        : []
+    })
+  }, [patch, stages, file.status])
   // A patch with no hunks (a mode change) or one the parser rejects shows
   // as text instead.
   const fileDiff = useMemo(() => {
@@ -624,8 +655,21 @@ export function ChangeDiff({
       }
     >
       {fileDiff ? (
-        <FileDiff
+        <FileDiff<HunkBarData>
           fileDiff={fileDiff}
+          lineAnnotations={hunkBars}
+          renderAnnotation={({ metadata }) => (
+            <HunkBar
+              stage={metadata.stage}
+              disabled={locked || stage.isPending}
+              onToggle={() =>
+                stage.mutate({
+                  hunk: { path: file.path, ...hunkRange(metadata.hunk) },
+                  staged: metadata.stage !== "staged",
+                })
+              }
+            />
+          )}
           options={{
             themeType: resolvedTheme === "dark" ? "dark" : "light",
             diffStyle: "unified",
@@ -645,6 +689,43 @@ export function ChangeDiff({
   )
 }
 
+type HunkBarData = { hunk: PatchHunk; stage: HunkStage }
+
+function hunkRange({ oldStart, oldLines, newStart, newLines }: PatchHunk) {
+  return { oldStart, oldLines, newStart, newLines }
+}
+
+const HUNK_LABEL: Record<HunkStage, string> = {
+  staged: "Staged",
+  unstaged: "Not staged",
+  partial: "Partly staged",
+}
+
+// A partly staged hunk stages the rest first, like the file checkbox.
+function HunkBar({
+  stage,
+  disabled,
+  onToggle,
+}: {
+  stage: HunkStage
+  disabled: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="flex items-center justify-end gap-2 px-3 py-1 font-sans text-muted-foreground text-xs">
+      <span>{HUNK_LABEL[stage]}</span>
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={disabled}
+        onClick={onToggle}
+      >
+        {stage === "staged" ? "Unstage hunk" : "Stage hunk"}
+      </Button>
+    </div>
+  )
+}
+
 // Flat, like Zed's git panel: the message flush under a hairline, then one
 // quiet row with the branch, ✨ and Commit.
 function CommitBox({
@@ -659,6 +740,7 @@ function CommitBox({
   const [message, setMessage] = useState("")
   const generate = useCommitMessage(sessionId)
   const commit = useCommitChanges(sessionId)
+  const tabs = useSessionTabs(sessionId)
   const push = usePushChanges(sessionId)
   const pull = usePullChanges(sessionId)
   const accounts = usePersonalAccounts()
@@ -675,7 +757,15 @@ function CommitBox({
         : null
   const submit = () => {
     if (blocked || !account || commit.isPending) return
-    commit.mutate(message.trim(), { onSuccess: () => setMessage("") })
+    commit.mutate(message.trim(), {
+      onSuccess: ({ changes: after }) => {
+        setMessage("")
+        // Committed files' diff tabs would only say "no changes now".
+        if (after.state === "ready") {
+          tabs.closeDiffs(new Set(after.files.map((file) => file.path)))
+        }
+      },
+    })
   }
   return (
     <div className="shrink-0 border-border/70 border-t">

@@ -39,6 +39,7 @@ import {
   readRepoImage,
   readRepoTree,
   readUnpushedCommits,
+  stageHunk,
   stagePaths,
 } from "@repo/lor/code-changes"
 import {
@@ -891,10 +892,15 @@ export const stageSessionChanges: AppRouteHandler<
     )
   }
   const result = await withCodeSandbox(session, async (sandbox) => {
-    await stagePaths(sandbox, {
-      paths: body.all ? "all" : (body.paths ?? []),
-      staged: body.staged,
-    })
+    if (body.hunk) {
+      const { path, ...hunk } = body.hunk
+      await stageHunk(sandbox, { path, hunk, staged: body.staged })
+    } else {
+      await stagePaths(sandbox, {
+        paths: body.all ? "all" : (body.paths ?? []),
+        staged: body.staged,
+      })
+    }
     return changesBody(session, sandbox)
   })
   if (isGap(result)) return c.json({ state: result }, HttpStatusCodes.OK)
@@ -1674,8 +1680,6 @@ export const openSessionBrowser: AppRouteHandler<
         {
           status: "ready" as const,
           url: result.url,
-          pageUrl: result.pageUrl,
-          expiresAt: result.expiresAt,
           role: result.role,
           controller: result.controller,
         },

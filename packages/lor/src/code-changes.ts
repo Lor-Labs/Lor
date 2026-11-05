@@ -1,6 +1,14 @@
 import { createHash, randomUUID } from "node:crypto"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
+  type HunkRange,
+  type HunkStage,
+  hunkStages,
+  insideHunk,
+  parsePatch,
+  subsetPatch,
+} from "@repo/utils/diff-hunks"
+import {
   imageMimeForPath,
   MAX_IMAGE_PREVIEW_BYTES,
 } from "@repo/utils/file-preview"
@@ -56,7 +64,8 @@ export type CodeChanges = {
 }
 
 export type FileDiff =
-  | { kind: "patch"; patch: string }
+  // hunks: each hunk's staging, for a modified file only.
+  | { kind: "patch"; patch: string; hunks?: HunkStage[] }
   | { kind: "binary" }
   | { kind: "too_large" }
 
@@ -71,6 +80,7 @@ const LOG_MARKER = "__LOR_LOG__"
 const STAT_MARKER = "__LOR_STAT__"
 const NEW_MARKER = "__LOR_NEW__"
 const MERGE_MARKER = "__LOR_MERGE__"
+const HUNKS_MARKER = "__LOR_HUNKS__"
 // Untracked files are counted one by one, so only the first ones are.
 const MAX_COUNTED_NEW_FILES = 300
 const GIT = "git --no-optional-locks --literal-pathspecs"
@@ -319,23 +329,59 @@ export async function readFileDiff(
   const diff = untracked
     ? `${GIT} diff --no-index --no-color --no-ext-diff -- /dev/null ${q(file.path)}`
     : `${GIT} diff HEAD --no-color --no-ext-diff --find-renames -- ${paths.join(" ")}`
+  // A tracked file's staged and unstaged parts, without context, mark which
+  // of its hunks are staged.
+  const parts = untracked || file.oldPath ? [] : [true, false]
+  const marker = `printf '\\0${HUNKS_MARKER}\\0'`
   // git's own exit code: a huge diff cut by head ends with SIGPIPE (141).
   const result = await runLarge(
     sandbox,
-    `${diff} | head -c ${MAX_PATCH_BYTES + 1}\nexit "\${PIPESTATUS[0]}"`
+    [
+      `${diff} | head -c ${MAX_PATCH_BYTES + 1}`,
+      `code="\${PIPESTATUS[0]}"`,
+      ...parts.flatMap((cached) => [
+        marker,
+        `${zeroDiff(file.path, cached)} | head -c ${MAX_PATCH_BYTES + 1}`,
+      ]),
+      `exit "$code"`,
+    ].join("\n")
   )
   const okCodes = untracked ? [0, 1, SIGPIPE_EXIT] : [0, SIGPIPE_EXIT]
   if (!okCodes.includes(result.exitCode)) {
     throw new Error(`git diff failed: ${result.stderr.slice(0, 300)}`)
   }
-  if (
-    result.exitCode === SIGPIPE_EXIT ||
-    result.stdout.length > MAX_PATCH_BYTES
-  ) {
+  const [patch = "", staged, unstaged] = result.stdout.split(
+    `\0${HUNKS_MARKER}\0`
+  )
+  if (result.exitCode === SIGPIPE_EXIT || patch.length > MAX_PATCH_BYTES) {
     return { kind: "too_large" }
   }
-  if (/^Binary files .* differ$/m.test(result.stdout)) return { kind: "binary" }
-  return { kind: "patch", patch: result.stdout }
+  if (/^Binary files .* differ$/m.test(patch)) return { kind: "binary" }
+  // Whole-file adds and deletes stage as files, not hunks.
+  if (
+    staged === undefined ||
+    unstaged === undefined ||
+    staged.length > MAX_PATCH_BYTES ||
+    unstaged.length > MAX_PATCH_BYTES ||
+    /^(new|deleted) file mode/m.test(patch)
+  ) {
+    return { kind: "patch", patch }
+  }
+  return {
+    kind: "patch",
+    patch,
+    hunks: hunkStages(
+      parsePatch(patch).hunks,
+      parsePatch(staged).hunks,
+      parsePatch(unstaged).hunks
+    ),
+  }
+}
+
+// The index's (cached) or the work folder's changes with no context: the
+// pieces hunk staging applies.
+function zeroDiff(path: string, cached: boolean) {
+  return `${GIT} diff${cached ? " --cached" : ""} -U0 --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ -- ${shellQuote(path)}`
 }
 
 // ── Files tab: the repo's tree and file previews ─────
@@ -452,6 +498,40 @@ export async function stagePaths(
   const result = await sandbox.run(command)
   if (result.exitCode !== 0) {
     throw new Error(`git staging failed: ${result.stderr.slice(0, 300)}`)
+  }
+}
+
+// Stages (or unstages) one hunk of the file's combined diff: the work
+// folder's changes inside it go into the index, or the index's changes
+// inside it go back to HEAD's. Like git add -p, through git apply.
+export async function stageHunk(
+  sandbox: CodeSandbox,
+  input: { path: string; hunk: HunkRange; staged: boolean }
+): Promise<void> {
+  const { hunk, staged } = input
+  const result = await sandbox.run(zeroDiff(input.path, !staged))
+  if (result.exitCode !== 0) {
+    throw new Error(`git diff failed: ${result.stderr.slice(0, 300)}`)
+  }
+  const { header, hunks } = parsePatch(result.stdout)
+  const picked = hunks.filter((part) =>
+    staged
+      ? insideHunk(
+          [part.newStart, part.newLines],
+          [hunk.newStart, hunk.newLines]
+        )
+      : insideHunk(
+          [part.oldStart, part.oldLines],
+          [hunk.oldStart, hunk.oldLines]
+        )
+  )
+  if (picked.length === 0) return
+  const patch = subsetPatch(header, picked, staged ? "forward" : "reverse")
+  const applied = await sandbox.run(
+    `printf '%s' ${shellQuote(patch)} | ${GIT} apply --cached --unidiff-zero --whitespace=nowarn${staged ? "" : " --reverse"} -`
+  )
+  if (applied.exitCode !== 0) {
+    throw new Error(`git apply failed: ${applied.stderr.slice(0, 300)}`)
   }
 }
 

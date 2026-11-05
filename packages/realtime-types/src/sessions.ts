@@ -18,7 +18,7 @@ const TITLE_WORDS = 6
 
 // A new session's first title: its prompt's first words. The server names
 // the row with it and web shows it before the server confirms, so both must
-// agree; Lor's generated title replaces it after the first reply.
+// agree; Lor's generated title replaces it when Lor's first run starts.
 export function sessionTitleFromPrompt(content: string) {
   const words = content
     .replace(USER_MENTION_REGEX, "")

@@ -1,15 +1,4 @@
-import {
-  and,
-  asc,
-  count,
-  db,
-  eq,
-  isNull,
-  LOR_USER_ID,
-  ne,
-  or,
-  schema,
-} from "@repo/db"
+import { and, asc, db, eq, isNull, LOR_USER_ID, ne, or, schema } from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import { generateSessionTitle, type OnUsage } from "@repo/lor"
@@ -20,14 +9,15 @@ import type { Emitter } from "@socket.io/redis-emitter"
 import { logger } from "@/lib/logger"
 import { notifyWorkspaceActivity } from "@/lib/workspace-activity"
 
-// After Lor's first finished reply in a person-started or Act session, a
-// small model names it, replacing the prompt's first line (or the event
-// source). Web types the new title out. A person's rename (titleEditedAt)
-// always wins, even mid-generation.
-export async function titleSessionAfterFirstReply(input: {
+// When Lor's first run in a person-started or Act session starts, a small
+// model names it from the opening request, replacing the prompt's first line
+// (or the event source) without waiting for the reply. Web types the new
+// title out. A person's rename (titleEditedAt) always wins, even
+// mid-generation.
+export async function titleSessionOnFirstRun(input: {
   emitter: Emitter<ServerToClientEvents>
   threadRootId: string
-  reply: string
+  runId: string
   onUsage?: OnUsage
 }) {
   const session = await findAgentSessionByThreadRoot(input.threadRootId)
@@ -39,16 +29,15 @@ export async function titleSessionAfterFirstReply(input: {
   ) {
     return
   }
-  const [completed] = await db
-    .select({ runs: count() })
+  // Only the thread's earliest run, on its first attempt: retries and
+  // follow-up runs never rename.
+  const [first] = await db
+    .select({ id: schema.agentRun.id, attempt: schema.agentRun.attempt })
     .from(schema.agentRun)
-    .where(
-      and(
-        eq(schema.agentRun.threadRootId, input.threadRootId),
-        eq(schema.agentRun.state, "complete")
-      )
-    )
-  if (completed?.runs !== 1) return
+    .where(eq(schema.agentRun.threadRootId, input.threadRootId))
+    .orderBy(asc(schema.agentRun.createdAt), asc(schema.agentRun.id))
+    .limit(1)
+  if (first?.id !== input.runId || first.attempt !== 1) return
 
   const request = await db
     .select({ content: schema.message.content })
@@ -64,10 +53,13 @@ export async function titleSessionAfterFirstReply(input: {
     )
     .orderBy(asc(schema.message.createdAt))
     .limit(1)
-    .then((rows) => rows[0]?.content ?? "")
+    .then((rows) => rows[0]?.content?.trim() ?? "")
+  // An attachment-only opening has nothing to name it from: it keeps its
+  // placeholder title.
+  if (!request) return
 
   const title = await generateSessionTitle(
-    { workspaceId: session.workspaceId, request, reply: input.reply },
+    { workspaceId: session.workspaceId, request },
     input.onUsage
   )
   if (!title || title === session.title) return

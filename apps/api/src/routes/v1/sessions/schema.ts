@@ -150,15 +150,13 @@ const browserControllerSchema = z
   .nullable()
 
 // `unavailable`: the sandbox's image predates the browser, so the panel
-// keeps the port preview. `url`: the live view's WebSocket, with a one-time
-// token; `role` says whether this caller's view takes input.
+// keeps the port preview. `url`: the live view's page under this caller's
+// grant, for an iframe or the phone's in-app browser; `role` says whether
+// this caller's view takes input.
 export const openBrowserResponseSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("ready"),
     url: z.string(),
-    // noVNC's own page with the same token, for the phone's in-app browser.
-    pageUrl: z.string(),
-    expiresAt: z.string(),
     role: z.enum(["control", "watch"]),
     controller: browserControllerSchema,
   }),
@@ -388,7 +386,12 @@ export const sessionChangeDiffQuerySchema = z.object({
 })
 
 export const sessionChangeDiffResponseSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("patch"), patch: z.string() }),
+  z.object({
+    kind: z.literal("patch"),
+    patch: z.string(),
+    // Each hunk's staging, in patch order; modified files only.
+    hunks: z.array(z.enum(["staged", "unstaged", "partial"])).optional(),
+  }),
   z.object({ kind: z.literal("binary") }),
   z.object({ kind: z.literal("too_large") }),
   z.object({ kind: z.literal("gone") }),
@@ -397,16 +400,32 @@ export const sessionChangeDiffResponseSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("restore_failed") }),
 ])
 
+const lineSchema = z.number().int().min(0).max(100_000_000)
+
 export const stageSessionChangesRequestSchema = z
   .object({
-    // Omitted with all: true.
+    // Exactly one of paths, all: true, or hunk.
     paths: z.array(pathSchema).min(1).max(1_000).optional(),
     all: z.boolean().optional(),
+    // One hunk of the file's diff against HEAD, by its @@ ranges.
+    hunk: z
+      .object({
+        path: pathSchema,
+        oldStart: lineSchema,
+        oldLines: lineSchema,
+        newStart: lineSchema,
+        newLines: lineSchema,
+      })
+      .optional(),
     staged: z.boolean(),
   })
-  .refine((body) => Boolean(body.paths) !== Boolean(body.all), {
-    message: "Pass paths or all, not both",
-  })
+  .refine(
+    (body) =>
+      [Boolean(body.paths), Boolean(body.all), Boolean(body.hunk)].filter(
+        Boolean
+      ).length === 1,
+    { message: "Pass one of paths, all or hunk" }
+  )
 
 export const commitSessionChangesRequestSchema = z.object({
   message: z.string().trim().min(1).max(10_000),

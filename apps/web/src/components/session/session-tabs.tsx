@@ -4,6 +4,7 @@ import {
   Cancel01Icon,
   File01Icon,
   FileDiffIcon,
+  FileExportIcon,
   GitCompareIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
@@ -16,7 +17,13 @@ import {
 } from "@repo/ui/components/context-menu"
 import { Spinner } from "@repo/ui/components/spinner"
 import { toast } from "@repo/ui/components/toast"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@repo/ui/components/tooltip"
 import { cn } from "@repo/ui/lib/utils"
+import { useNavigate, useSearch } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { useDesktopChrome } from "@/components/desktop-window-frame"
 import { RepoFileView } from "@/components/session/repo-file-view"
@@ -36,7 +43,6 @@ import {
   useStageChanges,
 } from "@/hooks/use-session-changes"
 import {
-  diffTabId,
   fileTabId,
   parseTabId,
   type SessionTab,
@@ -249,13 +255,17 @@ export function SessionTabView({
   sessionId,
   tab,
   onOpen,
+  onOpenChange,
 }: {
   sessionId: string
   tab: SessionTab
   onOpen: SessionTabs["open"]
+  onOpenChange: SessionTabs["openChange"]
 }) {
   const changes = useSessionChanges(sessionId)
-  if (tab.kind === "changes") return <AllChangesTab sessionId={sessionId} />
+  if (tab.kind === "changes") {
+    return <AllChangesTab sessionId={sessionId} onOpen={onOpen} />
+  }
 
   const ready = changes.data?.state === "ready" ? changes.data : null
   const file = ready?.files.find((changed) => changed.path === tab.path) ?? null
@@ -270,7 +280,7 @@ export function SessionTabView({
             <Button
               size="xs"
               variant="outline"
-              onClick={() => onOpen(diffTabId(tab.path))}
+              onClick={() => onOpenChange(tab.path)}
             >
               View changes
             </Button>
@@ -316,6 +326,7 @@ export function SessionTabView({
             sessionId={sessionId}
             file={file}
             version={changes.dataUpdatedAt}
+            locked={ready?.lorWorking ?? true}
           />
         ) : (
           <PanelNote>
@@ -350,16 +361,75 @@ function changesNote(changes: ReturnType<typeof useSessionChanges>) {
 }
 
 // Every changed file's diff, one card each, like a pull request's files.
-function AllChangesTab({ sessionId }: { sessionId: string }) {
+// A file picked in the Changes panel (?at=) scrolls into view.
+function AllChangesTab({
+  sessionId,
+  onOpen,
+}: {
+  sessionId: string
+  onOpen: SessionTabs["open"]
+}) {
   const changes = useSessionChanges(sessionId)
   const ready = changes.data?.state === "ready" ? changes.data : null
   const files = ready?.files ?? []
   const totals = changeTotals(files)
+  const at = useSearch({ strict: false, select: (search) => search.at })
+  const navigate = useNavigate()
+  const listRef = useRef<HTMLDivElement>(null)
+  // A new object per pick, so picking the same file again pins it again.
+  const [target, setTarget] = useState<{ path: string } | null>(null)
+  const focused = target?.path ?? null
+  const hasFiles = files.length > 0
+
+  // ?at= is taken once, then cleared from the URL; pinning runs on its own
+  // so clearing the URL doesn't stop it.
+  useEffect(() => {
+    if (!at || !hasFiles) return
+    setTarget({ path: at })
+    void navigate({
+      to: ".",
+      search: (prev) => ({ ...prev, at: undefined }),
+      replace: true,
+    })
+  }, [at, hasFiles, navigate])
+
+  // Diffs above the target load as they near the view and push it down: it
+  // stays pinned until the person scrolls, or for a couple of seconds.
+  useEffect(() => {
+    const list = listRef.current
+    if (!target || !list) return
+    const scroller = list.closest<HTMLElement>("[data-tab-scroll]")
+    const section = [
+      ...list.querySelectorAll<HTMLElement>("[data-change-path]"),
+    ].find((element) => element.dataset.changePath === target.path)
+    if (!scroller || !section) return
+    const pin = () => {
+      scroller.scrollTop +=
+        section.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top -
+        16
+    }
+    pin()
+    const observer = new ResizeObserver(pin)
+    observer.observe(list)
+    const stop = () => observer.disconnect()
+    const timer = setTimeout(stop, 2_000)
+    scroller.addEventListener("wheel", stop, { once: true, passive: true })
+    scroller.addEventListener("touchstart", stop, { once: true, passive: true })
+    scroller.addEventListener("keydown", stop, { once: true })
+    return () => {
+      stop()
+      clearTimeout(timer)
+      scroller.removeEventListener("wheel", stop)
+      scroller.removeEventListener("touchstart", stop)
+      scroller.removeEventListener("keydown", stop)
+    }
+  }, [target])
 
   const body =
     changesNote(changes) ??
     (ready && files.length > 0 ? (
-      <div className="flex flex-col gap-3 p-4">
+      <div ref={listRef} className="flex flex-col gap-3 p-4">
         {files.map((file) => (
           <ChangeSection
             key={file.path}
@@ -367,6 +437,8 @@ function AllChangesTab({ sessionId }: { sessionId: string }) {
             file={file}
             version={changes.dataUpdatedAt}
             locked={ready.lorWorking}
+            focused={focused === file.path}
+            onOpenFile={() => onOpen(fileTabId(file.path))}
           />
         ))}
         {ready.truncated && (
@@ -405,16 +477,27 @@ function ChangeSection({
   file,
   version,
   locked,
+  focused,
+  onOpenFile,
 }: {
   sessionId: string
   file: ChangedFile
   version: number
   locked: boolean
+  // Picked in the Changes panel: shown open.
+  focused: boolean
+  onOpenFile: () => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
+  useEffect(() => {
+    if (focused) setCollapsed(false)
+  }, [focused])
   // overflow-clip, not hidden: the header stays sticky while scrolling.
   return (
-    <section className="overflow-clip rounded-lg border border-border/70 bg-card">
+    <section
+      data-change-path={file.path}
+      className="overflow-clip rounded-lg border border-border/70 bg-card"
+    >
       <div
         className={cn(
           "sticky top-0 z-10 flex h-9 items-center gap-2 bg-card pr-3 text-[13px]",
@@ -438,10 +521,36 @@ function ChangeSection({
           <PathTitle path={file.path} file={file} />
         </button>
         <LineCounts additions={file.additions} deletions={file.deletions} />
+        {file.status !== "deleted" && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Open ${file.path}`}
+                  onClick={onOpenFile}
+                  className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                />
+              }
+            >
+              <HugeiconsIcon
+                icon={FileExportIcon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+            </TooltipTrigger>
+            <TooltipContent>Open file</TooltipContent>
+          </Tooltip>
+        )}
         <TabStageCheckbox sessionId={sessionId} file={file} locked={locked} />
       </div>
       {!collapsed && (
-        <LazyDiff sessionId={sessionId} file={file} version={version} />
+        <LazyDiff
+          sessionId={sessionId}
+          file={file}
+          version={version}
+          locked={locked}
+        />
       )}
     </section>
   )
@@ -453,10 +562,12 @@ function LazyDiff({
   sessionId,
   file,
   version,
+  locked,
 }: {
   sessionId: string
   file: ChangedFile
   version: number
+  locked: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [near, setNear] = useState(false)
@@ -480,6 +591,7 @@ function LazyDiff({
           sessionId={sessionId}
           file={file}
           version={version}
+          locked={locked}
           framed={false}
         />
       )}

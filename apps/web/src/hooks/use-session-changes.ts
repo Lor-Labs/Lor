@@ -1,6 +1,7 @@
 import { authClient } from "@repo/auth/client"
 import type { LorToolEventPayload } from "@repo/realtime-types"
 import { toast } from "@repo/ui/components/toast"
+import type { HunkRange } from "@repo/utils/diff-hunks"
 import { MAX_PREVIEW_BYTES } from "@repo/utils/file-preview"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect } from "react"
@@ -202,8 +203,10 @@ export function useRepoImage(sessionId: string, path: string) {
 }
 
 type StageInput = { staged: boolean } & (
-  | { paths: string[]; all?: never }
-  | { all: true; paths?: never }
+  | { paths: string[]; all?: never; hunk?: never }
+  | { all: true; paths?: never; hunk?: never }
+  // One hunk of the file's diff against HEAD, by its @@ ranges.
+  | { hunk: HunkRange & { path: string }; paths?: never; all?: never }
 )
 
 export function useStageChanges(sessionId: string) {
@@ -222,11 +225,12 @@ export function useStageChanges(sessionId: string) {
       if (!res.ok) throw new Error("Couldn't update the staged files")
       return res.json()
     },
-    // The file moves between lists at once; the response is the truth.
+    // The file moves between lists at once; the response is the truth. A
+    // hunk waits for it.
     onMutate: async (input) => {
       await queryClient.cancelQueries({ queryKey: key })
       const previous = queryClient.getQueryData<SessionChanges>(key)
-      if (previous?.state === "ready") {
+      if (previous?.state === "ready" && !input.hunk) {
         const touched = (file: ChangedFile) =>
           input.all || input.paths?.includes(file.path)
         queryClient.setQueryData<SessionChanges>(key, {

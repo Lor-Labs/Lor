@@ -129,6 +129,20 @@ export const togglePinResponseSchema = z.object({
   pinned: z.boolean(),
 })
 
+export const removeMessageEmbedQuerySchema = z.object({
+  url: z
+    .string()
+    .min(1)
+    .openapi({
+      param: { name: "url", in: "query", required: true },
+      example: "https://example.com/article",
+    }),
+})
+
+export const removeMessageEmbedResponseSchema = z.object({
+  success: z.literal(true),
+})
+
 // ── Message location (jump-to-message) ──────────────────────────────────────
 
 export const messageLocationParamsSchema = workspaceSlugParamsSchema.extend({

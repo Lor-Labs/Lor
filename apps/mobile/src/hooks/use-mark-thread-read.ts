@@ -9,8 +9,8 @@ const RESEND_INTERVAL_MS = 4000
 
 // An open thread or session is being read: advance the per-thread read
 // cursor (thread_read_state) on focus, on each reply or Lor status change
-// while it's on screen, and when the app comes back. This clears a session's
-// unread state on every device. Mirrors web's use-mark-thread-read.ts.
+// while it's on screen, when the app comes back and on leave. This clears a
+// session's unread state on every device. Mirrors web's use-mark-thread-read.ts.
 export function useMarkThreadRead({
   workspaceSlug,
   channelId,
@@ -61,14 +61,15 @@ export function useMarkThreadRead({
       request()
       return () => {
         focusedRef.current = false
-        // Leaving flushes a pending send instead of dropping it.
-        if (timerRef.current) {
-          clearTimeout(timerRef.current)
-          timerRef.current = null
-          send()
-        }
+        const pending = timerRef.current !== null
+        if (timerRef.current) clearTimeout(timerRef.current)
+        timerRef.current = null
+        // Leaving reads it up to now, so a Lor run that finishes just after
+        // the last read doesn't leave the session unread. A pending send
+        // flushes either way.
+        if (pending || (enabled && AppState.currentState === "active")) send()
       }
-    }, [request, send])
+    }, [enabled, request, send])
   )
 
   // A new reply or a finished Lor reply while on screen.

@@ -534,6 +534,66 @@ Each step is a review chunk of about 300–400 lines.
       and a backdrop click close it while watching; while you drive, Esc
       goes to the page (closing the app's own dialogs), and the Shrink
       button closes it.
+  - [x] 4k Selkies replaces VNC (2026-11-05; built, image not pushed, not
+    run in the app yet). Spike (sandbox `spike-stream-*`): Selkies 2.2.1
+    (H.264 over a WebSocket, WebCodecs in the page, no TURN) felt "almost
+    instant" to Jacob; voxl 0.3.3 connected but never sent a frame. As
+    built:
+    - `lor-browser-start`: Xvfb at 3840x2400, sized to 1280x800 with
+      `selkies resize` (an `xrandr --newmode` with zero timings does
+      nothing on a fresh Xvfb). Selkies on a Unix socket in secure mode
+      (`--tokens-file`): one controller and one viewer token, made at start,
+      known only to the gateway. Software x264 at 60 fps, CRF 23, 4:4:4,
+      paint-over CRF 8; resize on; sidebar, audio, files and the rest off.
+      Chromium gets `--enable-unsafe-swiftshader` (no GPU; without it WebGL
+      pages such as stripe.com and linear.app break).
+    - Gateway: a grant per viewer (`viewers/<id>`, made by the API) is the
+      URL path, `/v/<id>/`; Selkies' client takes its prefix from the page
+      URL. No cookies, so the view works in a cross-site iframe (Blaxel's
+      private-preview cookie is `SameSite=None` without `Partitioned`, which
+      Safari drops in iframes); the gateway's preview (`browser-view`) is
+      public. A grant lapses 10 minutes after its last connection and 12
+      hours after it was made. HTTP and WebSockets go to Selkies with the
+      controller or viewer token; watchers' `r,`/`s,` (display size) are
+      dropped. A role change closes the stream with 4001. The gateway
+      keeps Chromium's windows the display's size over CDP (openbox does not
+      follow an RandR change), and injects a bridge script into Selkies'
+      page: it posts `control` (role, controller), `input` (throttled to 1 s),
+      `disconnected` and `expired` to the parent, and reloads the page when
+      its role changes.
+    - Panel: an iframe filling the frame (no 16:10 box), so the controller's
+      panel sizes the display: a narrow panel can show a site's mobile
+      layout, and Lor sees the same. Idle hand-back counts the bridge's
+      `input` messages. Selkies maps Mac Command to Control and syncs the
+      clipboard; `session-browser-keys.ts`, `@novnc/novnc` and the ES2022
+      build target are gone. The phone opens the same URL.
+    - Sandboxes from images before this one report `unavailable` (the
+      panel's port preview), checked by `/usr/bin/selkies`.
+    - QA owed: push the image, then two viewers in the app, Safari, the
+      phone (Selkies' touch input; typing on iOS unverified with the
+      sidebar off), CPU under scrolling, Lor screenshots after a resize.
+  - [x] 4j smoother picture, step one (2026-11-04). Jacob: typing feels
+    fine, scrolling and page changes feel janky in production. Measured in
+    a fresh sandbox: Chromium scrolls react.dev at 60 fps with about 20% of
+    a core per process (no GPU), so the stream loses the frames. x11vnc's
+    defaults are `-wait 20 -defer 20` (from `x11vnc -help`). Both servers
+    now run `-wait 5 -defer 5 -nowait_bog`; image pushed. If that is not
+    enough: noVNC's `qualityLevel`/`compressionLevel`, then a video stream
+    spike (voxl first: H.264 over a WebSocket, no TURN; neko needs TURN).
+  - [x] 4i Lor asks for the browser back (2026-11-04, Jacob: Lor must be
+    able to take it back; no second browser):
+    - `lor-browser`: a command that needs control, while a person has it,
+      waits up to 45 s for the `controller` file to go, then runs; if it
+      stays, it fails and Lor asks in the chat. Snapshots and screenshots
+      still run at once.
+    - The panel sees that command start (`lor:tool`,
+      `needsBrowserControl` in `@repo/utils/browser-step`). The person in
+      control sees "Lor wants the browser. It goes back in N s unless you
+      keep using it." with Keep and Hand back; their panel hands back after
+      15 s without a key, click or scroll in the view (at least 5 s after
+      the request). Others see "Lor is waiting for {name} to hand the
+      browser back." A phone controller has no panel, so Lor waits the 45 s
+      and asks in the chat.
   - [x] 4h keyboard and clipboard (2026-11-03,
     `session-browser-keys.ts`, for the person in control only; Jacob ran it
     live the same day: "working great"):
@@ -586,15 +646,6 @@ Each step is a review chunk of about 300–400 lines.
 - **Multi-repo.** One environment with several repos and one sandbox. Each
   repo is cloned into its own folder, and its file's services are named
   `repo/service`. Profiles that span repos live on the environment.
-- **Better video.** Only if VNC is not smooth enough for scrolling and
-  animations. Jacob, 2026-11-03: not in the spike. Options:
-  - neko over WebRTC with a TURN relay (Cloudflare: $0.05/GB after 1,000 GB
-    free a month), at about 2–2.5 cores of software encoding during
-    full-screen 1080p motion;
-  - voxl (H.264 over a WebSocket, no TURN; young, GPL through x264).
-
-  The transport sits behind the gateway, so control, navigation and
-  comments do not change.
 - **Resize a live session.** Replace the sandbox at the new size and restore
   from the newest checkpoint.
 - **Larger sizes** (32 GB) once there's real demand and a price.
@@ -667,6 +718,12 @@ Each step is a review chunk of about 300–400 lines.
 - 2026-11-03: view-only is two x11vnc servers (one `-viewonly`), not a
   gateway that parses RFB and drops viewers' input. x11vnc enforces it,
   and there is no RFB message table to keep in step with noVNC.
+- 2026-11-05: the live view is Selkies (H.264), not VNC (4k). The two
+  x11vnc servers, websockify and noVNC are gone; view-only is Selkies'
+  viewer token. The view is an iframe of Selkies' page under a grant path on
+  a public preview, not our own client on a private preview.
+- 2026-11-05: Chromium keeps its own tabs and address bar (Jacob tried app
+  mode with a Lor toolbar in the spike and chose Chromium's own).
 - 2026-11-03: no address bar or CDP URL feed in the panel. The live view
   shows Chromium's own tabs and address bar, which the person in control
   uses; the panel keeps Start/Open buttons (`/browser/open`) and "Open in

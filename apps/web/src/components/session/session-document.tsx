@@ -105,6 +105,7 @@ export function SessionDocument({
   cover,
   repoSessionId,
   onShowChat,
+  onRead,
   onFork,
   onRewind,
   rewindRestoresFiles,
@@ -144,6 +145,8 @@ export function SessionDocument({
   cover?: ReactNode
   repoSessionId?: string
   onShowChat?: () => void
+  // The person read the session: the page clears its sidebar unread state.
+  onRead?: () => void
 }) {
   const queryClient = useQueryClient()
   const socket = useSocket()
@@ -196,28 +199,6 @@ export function SessionDocument({
     // Its Details panel hears about saved touches by thread event.
     alsoRefresh: sessionTouchesQueryOptions(sessionId).queryKey,
   })
-
-  // An open session is being read: advance its read cursor on open and on
-  // every reply that lands while it's visible. Status too, so a Lor reply
-  // finishing while open doesn't leave the sidebar row unread.
-  const markThreadRead = useMarkThreadRead(workspaceSlug, channelId)
-  const newestReplyKey = messages[0]
-    ? `${messages[0].id}:${messages[0].status}`
-    : null
-  useEffect(() => {
-    if (document.visibilityState !== "visible") return
-    const timer = setTimeout(() => markThreadRead(threadRootId), 500)
-    return () => clearTimeout(timer)
-  }, [threadRootId, newestReplyKey, markThreadRead])
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") markThreadRead(threadRootId)
-    }
-    document.addEventListener("visibilitychange", onVisibilityChange)
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange)
-    }
-  }, [threadRootId, markThreadRead])
 
   const lorRun = useLorRunControls({
     socket,
@@ -403,6 +384,43 @@ export function SessionDocument({
   )
   // First load: the skeleton shows and the input line waits.
   const isAwaitingReplies = isLoading && orderedReplies.length === 0
+
+  // An open session is read while its transcript shows (loaded, not under a
+  // code tab): its read cursor advances then, on every reply that lands, and
+  // when the transcript is left. Status too, so a Lor reply finishing while
+  // open doesn't leave the sidebar row unread.
+  const transcriptShown = !cover && !isAwaitingReplies
+  const markThreadRead = useMarkThreadRead(
+    workspaceSlug,
+    channelId,
+    transcriptShown ? threadRootId : undefined
+  )
+  const onReadRef = useRef(onRead)
+  onReadRef.current = onRead
+  const newestReplyKey = messages[0]
+    ? `${messages[0].id}:${messages[0].status}`
+    : null
+  useEffect(() => {
+    if (!transcriptShown || document.visibilityState !== "visible") return
+    const timer = setTimeout(() => {
+      markThreadRead(threadRootId)
+      onReadRef.current?.()
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [threadRootId, newestReplyKey, markThreadRead, transcriptShown])
+  useEffect(() => {
+    if (!transcriptShown) return
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return
+      markThreadRead(threadRootId)
+      onReadRef.current?.()
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      if (document.visibilityState === "visible") onReadRef.current?.()
+    }
+  }, [threadRootId, markThreadRead, transcriptShown])
   const scroll = useConversationScroll({
     threadRootId,
     targetMessageId,
@@ -501,6 +519,7 @@ export function SessionDocument({
       {composerNote}
       <MessageInput
         key={threadRootId}
+        draftKey={`thread:${threadRootId}`}
         context={CHANNEL_CONTEXT}
         channelId={channelId}
         contextScopeKey={threadRootId}

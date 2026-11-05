@@ -90,7 +90,7 @@ import { buildTurnDelta } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { turnSandboxMode } from "@/lib/sandbox-mode"
-import { titleSessionAfterFirstReply } from "@/lib/session-title"
+import { titleSessionOnFirstRun } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
 import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
 import {
@@ -777,6 +777,19 @@ export function createLorRespondProcessor(
                 reason: "out_of_credits",
               })
               return
+            }
+
+            // Named only once the run may spend: titling is metered too.
+            if (threadRootId && job.data.runId) {
+              void titleSessionOnFirstRun({
+                emitter,
+                threadRootId,
+                runId: job.data.runId,
+                onUsage: (u) =>
+                  void recordUsage(u, { messageId: lorMessageId, channelId }),
+              }).catch((err) =>
+                logger.warn({ err, threadRootId }, "Session title failed")
+              )
             }
 
             // Attribution only — never fail the answer over it (and jobs queued
@@ -1510,17 +1523,6 @@ export function createLorRespondProcessor(
           await settlePlan(stoppedByUser ? "stopped" : "complete")
           await emitThreadSummary()
           drainQueue()
-          if (threadRootId && !stoppedByUser) {
-            void titleSessionAfterFirstReply({
-              emitter,
-              threadRootId,
-              reply: finalText,
-              onUsage: (u) =>
-                void recordUsage(u, { messageId: lorMessageId, channelId }),
-            }).catch((err) =>
-              logger.warn({ err, threadRootId }, "Session title failed")
-            )
-          }
           if (threadRootId) {
             void recordRunTouches({
               workspaceId,

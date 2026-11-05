@@ -18,7 +18,8 @@
     "./file-preview": "./src/file-preview.ts",
     "./html": "./src/html.ts",
     "./short-code": "./src/short-code.ts",
-    "./inference": "./src/inference.ts"
+    "./inference": "./src/inference.ts",
+    "./diff-hunks": "./src/diff-hunks.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

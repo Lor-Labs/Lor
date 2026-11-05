@@ -1,4 +1,4 @@
-import { LinkSquare02Icon } from "@hugeicons/core-free-icons"
+import { Cancel01Icon, LinkSquare02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "@repo/ui/lib/utils"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
@@ -11,6 +11,8 @@ type Embed = Message["embeds"][number]
 interface EmbedCardProps {
   embed: Embed
   className?: string
+  // Shows a hover X that asks to remove the preview for everyone.
+  onRemove?: () => void
 }
 
 function formatTimestamp(value: string): string | null {
@@ -27,7 +29,7 @@ function formatTimestamp(value: string): string | null {
 // Link previews and webhook cards (Discord embeds / Slack attachments) share
 // this card. Sender-chosen accent colors are respected; description and field
 // values render as markdown (both dialects allow it there).
-export function EmbedCard({ embed, className }: EmbedCardProps) {
+export function EmbedCard({ embed, className, onRemove }: EmbedCardProps) {
   const hasMeta = Boolean(embed.title || embed.description)
   const timestamp = embed.timestamp ? formatTimestamp(embed.timestamp) : null
   const footerParts = [embed.footer, timestamp].filter(Boolean)
@@ -40,7 +42,7 @@ export function EmbedCard({ embed, className }: EmbedCardProps) {
   return (
     <div
       className={cn(
-        "mt-1 max-w-lg overflow-hidden rounded border border-border/70 bg-card",
+        "group/embed relative mt-1 max-w-lg overflow-hidden rounded border border-border/70 bg-card",
         "border-l-4",
         !embed.color && "border-l-primary/60",
         siteConnector &&
@@ -49,7 +51,24 @@ export function EmbedCard({ embed, className }: EmbedCardProps) {
       )}
       style={embed.color ? { borderLeftColor: embed.color } : undefined}
     >
-      <div className="flex min-w-0 flex-col gap-1.5 p-3">
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label="Remove preview"
+          title="Remove preview"
+          className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/embed:opacity-100"
+        >
+          <HugeiconsIcon
+            icon={Cancel01Icon}
+            className="size-3.5"
+            strokeWidth={2}
+          />
+        </button>
+      )}
+      <div
+        className={cn("flex min-w-0 flex-col gap-1.5 p-3", onRemove && "pr-8")}
+      >
         {embed.author?.name &&
           (embed.author.url ? (
             <a

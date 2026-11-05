@@ -278,6 +278,7 @@ function DMConversation() {
       />
       <TypingIndicator users={typingUsers} />
       <MessageInput
+        draftKey={`dm:${dmId}`}
         context={context}
         onSend={sendAndPreview}
         currentUserId={currentUserId}

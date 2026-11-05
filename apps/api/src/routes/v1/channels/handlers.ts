@@ -2,6 +2,7 @@ import { db, schema } from "@repo/db"
 import { chatFeedMessage } from "@repo/db/queries/agent-sessions"
 import {
   listAccessibleChannelIds,
+  resolveChannelAccess,
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
 import {
@@ -86,6 +87,7 @@ import type {
   ListThreadActivityRoute,
   ListThreadRepliesRoute,
   MarkThreadReadRoute,
+  RemoveMessageEmbedRoute,
   ReorderChannelsRoute,
   SearchChannelConnectorRoute,
   SearchConnectorFilesRoute,
@@ -1010,6 +1012,100 @@ export const toggleMessagePin: AppRouteHandler<ToggleMessagePinRoute> = async (
     { success: true as const, pinned: newPinned },
     HttpStatusCodes.OK
   )
+}
+
+// Removing a link preview (LOR-138) hides it for everyone. Only unfurled link
+// previews qualify; webhook/connector cards are part of the bot's message.
+export const removeMessageEmbed: AppRouteHandler<
+  RemoveMessageEmbedRoute
+> = async (c) => {
+  const workspace = c.var.workspace
+  const currentUser = c.var.user
+  const { channelId, messageId } = c.req.valid("param")
+  const { url } = c.req.valid("query")
+
+  const access = await resolveChannelAccess(currentUser.id, channelId)
+  if (!access.ok || access.access.channel.workspaceId !== workspace.id) {
+    return c.json(
+      { success: false, message: "Message not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (!access.access.canWrite) {
+    return c.json(
+      {
+        success: false,
+        message: "Channel is read-only (archived or beta access ended)",
+      },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+
+  const result = await db.transaction(async (tx) => {
+    const msg = await tx
+      .select({
+        authorId: message.authorId,
+        threadRootId: message.threadRootId,
+        embeds: message.embeds,
+      })
+      .from(message)
+      .where(and(eq(message.id, messageId), eq(message.channelId, channelId)))
+      .for("update")
+      .limit(1)
+      .then((rows) => rows[0])
+    if (!msg) return { kind: "not_found" as const }
+
+    if (
+      msg.authorId !== currentUser.id &&
+      !hasWorkspaceAuthority(c.var.authority, { message: ["delete"] })
+    ) {
+      return { kind: "forbidden" as const }
+    }
+
+    const current = msg.embeds ?? []
+    const embeds = current.filter(
+      (embed) => !(embed.type === "link" && embed.url === url)
+    )
+    if (embeds.length === current.length) return { kind: "not_found" as const }
+
+    await tx.update(message).set({ embeds }).where(eq(message.id, messageId))
+    return { kind: "removed" as const, embeds, threadRootId: msg.threadRootId }
+  })
+
+  if (result.kind === "not_found") {
+    return c.json(
+      { success: false, message: "Link preview not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  if (result.kind === "forbidden") {
+    return c.json(
+      {
+        success: false,
+        message: "You can only remove previews from your own messages",
+      },
+      HttpStatusCodes.FORBIDDEN
+    )
+  }
+
+  try {
+    const emitter = await getEmitter()
+    emitter
+      .to(
+        result.threadRootId
+          ? threadRoom(result.threadRootId)
+          : [channelRoom(channelId), threadRoom(messageId)]
+      )
+      .emit("message:embeds:updated", {
+        channelId,
+        messageId,
+        embeds: result.embeds,
+      })
+  } catch (err) {
+    logger.warn({ err, messageId }, "Message embeds emit failed")
+  }
+
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
 export const listPinnedMessages: AppRouteHandler<

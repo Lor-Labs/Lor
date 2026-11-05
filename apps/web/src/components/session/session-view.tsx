@@ -84,6 +84,7 @@ import {
 } from "@/hooks/use-workspace-activity"
 import { apiClient } from "@/lib/api-client"
 import { clearLastSessionId, writeLastSession } from "@/lib/last-location"
+import { readSessionPanel, writeSessionPanel } from "@/lib/session-panel-memory"
 
 export function SessionView({
   workspaceSlug,
@@ -150,10 +151,14 @@ function SessionConversation({
   useChannelApprovals(session.channelId, session.threadRootId)
   useChannelProposals(session.channelId)
   const queryClient = useQueryClient()
+  const { data: auth } = authClient.useSession()
+  const userId = auth?.user.id
   useEffect(() => {
     writeLastSession(workspaceSlug, session.id, session.channelId)
-    // Opening it reads it: the sidebar's unread state clears now, not after
-    // the read marker round trip.
+  }, [workspaceSlug, session.id, session.channelId])
+  // Reading it (SessionDocument decides when) clears the sidebar's unread
+  // state now, not after the read marker round trip.
+  const markSidebarRead = () =>
     patchSidebarSession(
       queryClient,
       {
@@ -163,18 +168,19 @@ function SessionConversation({
       },
       { state: "idle", from: "unread" }
     )
-  }, [
-    workspaceSlug,
-    session.id,
-    session.channelId,
-    session.workspaceId,
-    queryClient,
-  ])
 
   // The right panel shows this session's details while the page is open, the
   // way a channel page sets its own panel view. A code session's panel opens
-  // on Changes; Details is its last tab.
-  const { view, setView, openView, clearView, isHydrated } = useRightSidebar()
+  // on the tab it was left on (Changes at first); Details is its last tab.
+  const {
+    view,
+    setView,
+    openView,
+    clearView,
+    isHydrated,
+    isCollapsed,
+    setCollapsed,
+  } = useRightSidebar()
   const isMobile = useIsMobile()
   const code = session.mode === "code"
   const workView = useMemo<SessionPanelView>(
@@ -220,14 +226,64 @@ function SessionConversation({
     if (isMobile !== false || waitingForFiles) return
     const type = openOn.current
     openOn.current = null
+    const remembered = readSessionPanel(userId, session.id)
+    if (remembered.collapsed !== undefined) setCollapsed(remembered.collapsed)
     if (type) openView({ ...workView, type })
-    else setView(workView)
+    else if (code && remembered.type) {
+      setView({ ...workView, type: remembered.type })
+    } else setView(workView)
     return () => clearView()
-  }, [workView, isMobile, waitingForFiles, setView, openView, clearView])
+  }, [
+    workView,
+    isMobile,
+    waitingForFiles,
+    setView,
+    openView,
+    clearView,
+    setCollapsed,
+    code,
+    session.id,
+    userId,
+  ])
+  const panelType =
+    view && "sessionId" in view && view.sessionId === session.id
+      ? view.type
+      : null
+  useEffect(() => {
+    if (panelType) writeSessionPanel(userId, session.id, { type: panelType })
+  }, [panelType, session.id, userId])
+  // Only changes after open: the first value is the previous page's.
+  const lastCollapsed = useRef(isCollapsed)
+  useEffect(() => {
+    if (isMobile !== false || lastCollapsed.current === isCollapsed) return
+    lastCollapsed.current = isCollapsed
+    writeSessionPanel(userId, session.id, { collapsed: isCollapsed })
+  }, [isCollapsed, isMobile, session.id, userId])
 
   // Code sessions: files and diffs open in tabs beside the chat.
   useLiveSessionChanges(session.id, session.threadRootId, code)
   const tabs = useSessionTabs(session.id)
+  // A sidebar link carries no ?open: go back to the tab that was active.
+  const tabRestored = useRef(false)
+  useEffect(() => {
+    if (!code || !userId) return
+    if (!tabRestored.current) {
+      tabRestored.current = true
+      const remembered = readSessionPanel(userId, session.id).tab
+      // A link to a message opens on the chat.
+      if (
+        !targetMessageId &&
+        !tabs.active &&
+        remembered &&
+        parseTabId(remembered)
+      ) {
+        tabs.adopt(remembered)
+        tabs.select(remembered)
+        return
+      }
+    }
+    writeSessionPanel(userId, session.id, { tab: tabs.active })
+  }, [code, session.id, tabs.active, userId])
   const activeTab = code && tabs.active ? parseTabId(tabs.active) : null
   const showTabs = code && (tabs.ids.length > 0 || activeTab !== null)
 
@@ -255,7 +311,6 @@ function SessionConversation({
     channelId: session.channelId,
     sessionId: session.id,
   }
-  const { data: auth } = authClient.useSession()
   const people = useChannelPeople(workspaceSlug, session.channelId)
   const nameOf = (userId: string | null) =>
     userId === auth?.user.id
@@ -331,6 +386,7 @@ function SessionConversation({
       sessionId={session.id}
       repoSessionId={code ? session.id : undefined}
       onShowChat={() => tabs.select(null)}
+      onRead={markSidebarRead}
       targetMessageId={targetMessageId}
       onFork={(message) =>
         fork.mutateAsync({ sessionId: session.id, messageId: message.id })
@@ -386,6 +442,7 @@ function SessionConversation({
             sessionId={session.id}
             tab={activeTab}
             onOpen={tabs.open}
+            onOpenChange={tabs.openChange}
           />
         ) : undefined
       }
