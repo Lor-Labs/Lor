@@ -20,6 +20,18 @@ import {
   SANDBOX_PROCESS_ENV,
   WORKSPACE_MOUNT,
 } from "./blaxel"
+import {
+  type BoatSandbox,
+  boatConfigured,
+  boatExec,
+  boatSandboxSession,
+  boatStatus,
+  createBoatSandbox,
+  deleteBoatSandbox,
+  findBoatSandbox,
+  hostBoatPort,
+  stopBoatLeftovers,
+} from "./boat"
 
 // Every agent run gets its conversation's sandbox: one per Lor session or
 // voice call, created on the first run and reused after, with standby in
@@ -100,6 +112,8 @@ const GATEWAY_HOST = "ai-gateway.vercel.sh"
 
 export type HarnessAccess = { claudeToken: string } | { gatewayKey: string }
 
+// Boat has no proxy: a turn on a Boat sandbox passes the credential itself in
+// place of the placeholder (SessionSandbox.provider), so these do nothing.
 export async function grantHarnessAccess(
   owner: HarnessOwner,
   access: HarnessAccess
@@ -108,6 +122,7 @@ export async function grantHarnessAccess(
     "claudeToken" in access
       ? [CLAUDE_API_HOST, { claude: access.claudeToken }]
       : [GATEWAY_HOST, { gateway: access.gatewayKey }]
+  if (await onBoat(owner)) return
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: {
       // The session's own open filter, unchanged for the turn: the routing
@@ -223,6 +238,7 @@ export async function probeClaudeCredential(
 }
 
 export async function revokeHarnessAccess(owner: HarnessOwner): Promise<void> {
+  if (await onBoat(owner)) return
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: SESSION_NETWORK,
   })
@@ -237,7 +253,21 @@ export async function harnessBridgeEndpoint(
   owner: HarnessOwner
 ): Promise<{ url: string; headers: Record<string, string> }> {
   await guardSandbox(sessionSandboxName(owner))
-  const sandbox = await SandboxInstance.get(sessionSandboxName(owner))
+  const sandbox = await SandboxInstance.get(sessionSandboxName(owner)).catch(
+    (err: unknown) => {
+      if (isNotFound(err)) return null
+      throw err
+    }
+  )
+  if (!sandbox) {
+    const boat = await findBoatSandbox(sessionSandboxName(owner))
+    if (!boat) throw new Error("The session's sandbox is gone")
+    const hosted = await hostBoatPort(boat, HARNESS_BRIDGE_PORT, "private")
+    const url = new URL(hosted.url.replace(/^http/, "ws"))
+    if (hosted.token)
+      url.searchParams.set(hosted.token.param, hosted.token.value)
+    return { url: url.toString(), headers: {} }
+  }
   try {
     // Named in chunk 7; existing sandboxes already have it on this port.
     const preview = await sandbox.previews.createIfNotExists({
@@ -305,6 +335,9 @@ export function sessionSandboxName(owner: HarnessOwner): string {
 
 export type SessionSandbox = {
   session: SandboxSession
+  // Boat has no credential proxy: a harness turn there passes the credential
+  // in place of the placeholder (grantHarnessAccess).
+  provider: "blaxel" | "boat"
   // Created on this run: the conversation's first run, or its sandbox was
   // missing or unhealthy. When earlier turns are saved, the caller tells the
   // model and the session that earlier files are gone.
@@ -315,31 +348,94 @@ export type SessionSandbox = {
   close(): void
 }
 
+// Sandboxes this process found or made on Boat.
+const boatNames = new Set<string>()
+
+async function onBoat(owner: HarnessOwner): Promise<boolean> {
+  return boatNames.has(sessionSandboxName(owner))
+}
+
+function boatSessionSandbox(
+  boat: BoatSandbox,
+  fresh: boolean,
+  bridgeRunning?: boolean
+): SessionSandbox {
+  boatNames.add(boat.name)
+  return {
+    session: boatSandboxSession(boat, {
+      bridgeEnv: (bridge) => (bridge === "claude-code" ? CLAUDE_CODE_ENV : {}),
+    }),
+    provider: "boat",
+    fresh,
+    ...(bridgeRunning !== undefined ? { bridgeRunning } : {}),
+    close: () => {},
+  }
+}
+
+function blaxelSessionSandbox(
+  sandbox: SandboxInstance,
+  fresh: boolean,
+  bridgeRunning?: boolean
+): SessionSandbox {
+  return {
+    session: blaxelSandboxSession(sandbox),
+    provider: "blaxel",
+    fresh,
+    ...(bridgeRunning !== undefined ? { bridgeRunning } : {}),
+    close: () => closeConnection(sandbox),
+  }
+}
+
+// The session's Boat sandbox, when it has one and Blaxel has none.
+async function existingBoatSandbox(name: string): Promise<BoatSandbox | null> {
+  if (!boatConfigured()) return null
+  const boat = await findBoatSandbox(name)
+  if (boat) boatNames.add(name)
+  return boat
+}
+
 // Code sessions get the larger size, or their environment's size. A sandbox
 // keeps its size until it is replaced: an older, smaller code sandbox is
 // still reused, since replacing it would lose installed packages and ignored
-// files.
+// files. When Blaxel's memory quota is full, the sandbox goes to Boat.
 async function createSessionSandbox(
   name: string,
   code: boolean,
   memoryMb: number | null
-): Promise<SandboxInstance> {
+): Promise<SessionSandbox> {
   await guardSandbox(name)
-  const sandbox = await SandboxInstance.createIfNotExists({
-    ...(code
-      ? baseConfig(
-          name,
-          env.LOR_CODE_SANDBOX_DISK_MB,
-          memoryMb ?? env.LOR_CODE_SANDBOX_MEMORY_MB
-        )
-      : baseConfig(name, env.LOR_SESSION_DISK_MB)),
-    lifecycle: persistentLifecycle(env.LOR_SESSION_SANDBOX_TTL),
-    network: SESSION_NETWORK,
-    labels: { [EGRESS_LABEL]: EGRESS_VERSION },
-  }).catch((err: unknown) => {
-    if (hasCode(err, ["QUOTA_EXCEEDED"])) throw new SandboxCapacityError(err)
-    throw err
-  })
+  const size = code
+    ? (memoryMb ?? env.LOR_CODE_SANDBOX_MEMORY_MB)
+    : env.LOR_WORKBENCH_MEMORY_MB
+  const onBoatInstead = async (cause: unknown) => {
+    const boat = await createBoatSandbox(name, size).catch((err: unknown) => {
+      // Boat's own plan limits (active sandboxes, starts per day).
+      if ([402, 429].includes(boatStatus(err) ?? 0))
+        throw new SandboxCapacityError(cause)
+      throw err
+    })
+    return boatSessionSandbox(boat, true)
+  }
+  if (!blaxelConfigured()) return onBoatInstead(null)
+  let sandbox: SandboxInstance
+  try {
+    sandbox = await SandboxInstance.createIfNotExists({
+      ...(code
+        ? baseConfig(name, env.LOR_CODE_SANDBOX_DISK_MB, size)
+        : baseConfig(name, env.LOR_SESSION_DISK_MB)),
+      lifecycle: persistentLifecycle(env.LOR_SESSION_SANDBOX_TTL),
+      network: SESSION_NETWORK,
+      labels: { [EGRESS_LABEL]: EGRESS_VERSION },
+    })
+  } catch (err) {
+    if (!hasCode(err, ["QUOTA_EXCEEDED"])) throw err
+    if (!boatConfigured()) throw new SandboxCapacityError(err)
+    logger.warn(
+      { sandbox: name },
+      "Sandbox: Blaxel capacity is full; creating it on Boat"
+    )
+    return onBoatInstead(err)
+  }
   const health = await probeSandbox(sandbox).catch((err: unknown) => {
     closeConnection(sandbox)
     throw err
@@ -355,7 +451,7 @@ async function createSessionSandbox(
     )
   }
   logger.info({ sandbox: name }, "Sandbox: session sandbox created")
-  return sandbox
+  return blaxelSessionSandbox(sandbox, true)
 }
 
 // Process fencing (harness-sessions.md, writer ownership). A turn's commands
@@ -416,10 +512,30 @@ export async function openSessionSandbox(
 ): Promise<SessionSandbox> {
   const name = sessionSandboxName(owner)
   await guardSandbox(name)
-  const existing = await SandboxInstance.get(name).catch((err: unknown) => {
-    if (isNotFound(err)) return null
-    throw err
-  })
+  const existing = blaxelConfigured()
+    ? await SandboxInstance.get(name).catch((err: unknown) => {
+        if (isNotFound(err)) return null
+        throw err
+      })
+    : null
+  const boat = existing ? null : await existingBoatSandbox(name)
+  if (boat) {
+    // A probe error does not prove the workspace is gone (as below): only a
+    // sandbox that answers unhealthy is replaced.
+    const health = await boatExec(boat, { command: "true", timeoutSec: 30 })
+    if (health.exitCode === 0) {
+      const bridgeRunning = await stopBoatLeftovers(
+        boat,
+        options.keepBridges ?? false
+      )
+      return boatSessionSandbox(boat, false, bridgeRunning)
+    }
+    logger.warn(
+      { sandbox: name },
+      "Sandbox: Boat sandbox unhealthy; replacing it"
+    )
+    await deleteBoatSandbox(name)
+  }
   const version = existing ? egressVersion(existing) : undefined
   const proxyless =
     version !== undefined && PROXYLESS_EGRESS_VERSIONS.has(version)
@@ -458,12 +574,7 @@ export async function openSessionSandbox(
         name,
         options.keepBridges ?? false
       )
-      return {
-        session: blaxelSandboxSession(existing),
-        fresh: false,
-        bridgeRunning,
-        close: () => closeConnection(existing),
-      }
+      return blaxelSessionSandbox(existing, false, bridgeRunning)
     }
     logger.warn(
       { sandbox: name, health },
@@ -473,16 +584,11 @@ export async function openSessionSandbox(
     await SandboxInstance.delete(name)
   }
 
-  const created = await createSessionSandbox(
+  return createSessionSandbox(
     name,
     options.code ?? false,
     options.memoryMb ?? null
   )
-  return {
-    session: blaxelSandboxSession(created),
-    fresh: true,
-    close: () => closeConnection(created),
-  }
 }
 
 // People's actions on a session's files (the Changes panel) use the sandbox
@@ -491,20 +597,18 @@ export async function openSessionSandbox(
 export async function attachSessionSandbox(
   owner: HarnessOwner
 ): Promise<SessionSandbox | null> {
-  if (!blaxelConfigured()) return null
-  await guardSandbox(sessionSandboxName(owner))
-  const existing = await SandboxInstance.get(sessionSandboxName(owner)).catch(
-    (err: unknown) => {
-      if (isNotFound(err)) return null
-      throw err
-    }
-  )
-  if (!existing) return null
-  return {
-    session: blaxelSandboxSession(existing),
-    fresh: false,
-    close: () => closeConnection(existing),
-  }
+  const name = sessionSandboxName(owner)
+  if (!blaxelConfigured() && !boatConfigured()) return null
+  await guardSandbox(name)
+  const existing = blaxelConfigured()
+    ? await SandboxInstance.get(name).catch((err: unknown) => {
+        if (isNotFound(err)) return null
+        throw err
+      })
+    : null
+  if (existing) return blaxelSessionSandbox(existing, false)
+  const boat = await existingBoatSandbox(name)
+  return boat ? boatSessionSandbox(boat, false) : null
 }
 
 // A code session's restore from the Changes panel: the sandbox as it is, or a
@@ -515,17 +619,8 @@ export async function attachOrCreateSessionSandbox(
   memoryMb: () => Promise<number | null>
 ): Promise<SessionSandbox | null> {
   const existing = await attachSessionSandbox(owner)
-  if (existing || !blaxelConfigured()) return existing
-  const created = await createSessionSandbox(
-    sessionSandboxName(owner),
-    true,
-    await memoryMb()
-  )
-  return {
-    session: blaxelSandboxSession(created),
-    fresh: true,
-    close: () => closeConnection(created),
-  }
+  if (existing || (!blaxelConfigured() && !boatConfigured())) return existing
+  return createSessionSandbox(sessionSandboxName(owner), true, await memoryMb())
 }
 
 // A turn parked on an approval keeps its sandbox out of standby (billed as
@@ -533,14 +628,22 @@ export async function attachOrCreateSessionSandbox(
 // live window the bridge stops; the next decision finds none and drops the
 // turn with a note. Never creates a sandbox. Returns how many were stopped.
 export async function stopParkedBridges(owner: HarnessOwner): Promise<number> {
-  if (!blaxelConfigured()) return 0
-  const sandbox = await SandboxInstance.get(sessionSandboxName(owner)).catch(
-    (err: unknown) => {
-      if (isNotFound(err)) return null
-      throw err
-    }
-  )
-  if (!sandbox) return 0
+  const name = sessionSandboxName(owner)
+  const sandbox = blaxelConfigured()
+    ? await SandboxInstance.get(name).catch((err: unknown) => {
+        if (isNotFound(err)) return null
+        throw err
+      })
+    : null
+  if (!sandbox) {
+    const boat = await existingBoatSandbox(name)
+    if (!boat) return 0
+    // Fencing with no bridge kept stops every marked bridge.
+    const running = await stopBoatLeftovers(boat, true)
+    if (!running) return 0
+    await stopBoatLeftovers(boat, false)
+    return 1
+  }
   try {
     const bridges = (await sandbox.process.list()).filter(
       (record) =>
@@ -558,8 +661,10 @@ export async function stopParkedBridges(owner: HarnessOwner): Promise<number> {
 // The conversation's files go with it; Pi's saved state and shared files
 // live in Postgres and R2. A sandbox that is already gone counts as deleted.
 export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
-  if (!blaxelConfigured()) return
   const name = sessionSandboxName(owner)
+  boatNames.delete(name)
+  await deleteBoatSandbox(name)
+  if (!blaxelConfigured()) return
   await SandboxInstance.delete(name).catch((err: unknown) => {
     if (!isNotFound(err)) throw err
   })

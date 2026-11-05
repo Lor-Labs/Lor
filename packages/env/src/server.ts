@@ -84,8 +84,8 @@ const serverSchema = z.object({
     .int()
     .positive()
     .default(104_857_600),
-  // Blaxel sandbox provider — the only one. Session sandboxes run on it. The
-  // BL_* names are fixed — @blaxel/core reads them from process.env directly.
+  // Blaxel sandbox provider, the primary one. The BL_* names are fixed —
+  // @blaxel/core reads them from process.env directly.
   BL_API_KEY: z.string().min(1).optional(),
   BL_WORKSPACE: z.string().min(1).optional(),
   // Blaxel account that owns BL_WORKSPACE (GET /v0/accounts). Enables
@@ -107,6 +107,11 @@ const serverSchema = z.object({
       )
       .optional()
   ),
+  // Boat (boat.dev), the fallback provider: a new session sandbox goes there
+  // when Blaxel refuses for capacity. Unset: Blaxel only. Its sandboxes start
+  // from the saved snapshot LOR_BOAT_TEMPLATE (packages/lor/sandbox-image/boat).
+  BOAT_API_KEY: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  LOR_BOAT_TEMPLATE: defaultedString("lor-workbench"),
   // Custom sandbox image (pushed via `bl push` from packages/lor/sandbox-image).
   LOR_WORKBENCH_IMAGE: defaultedString("sandbox/workbench:latest"),
   LOR_WORKBENCH_MEMORY_MB: z.coerce.number().int().positive().default(4096),

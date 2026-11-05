@@ -28,7 +28,11 @@ export const SANDBOX_PROCESS_ENV = {
   NODE_OPTIONS: "--disable-warning=UNDICI-EHPA",
   // Vite refuses unknown Host headers; a dev server started anywhere in the
   // sandbox (Lor, the terminal) must accept the Browser tab's preview host.
-  __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: [".bl.run", env.LOR_PREVIEW_DOMAIN]
+  __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: [
+    ".bl.run",
+    ".on.boat.dev",
+    env.LOR_PREVIEW_DOMAIN,
+  ]
     .filter(Boolean)
     .join(","),
 }

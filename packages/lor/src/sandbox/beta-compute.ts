@@ -6,6 +6,7 @@ import {
 } from "@repo/db/queries/beta-access"
 import { logger } from "../logger"
 import { closeConnection } from "./blaxel"
+import { stopBoatSandbox } from "./boat"
 
 // The guard runs on every file read and command, so an allowed answer is
 // reused briefly. A sandbox's workspace never changes.
@@ -59,7 +60,12 @@ export async function stopBlockedSandboxes(
     try {
       // The control-plane read does not wake a VM in standby.
       const response = await getSandbox({ path: { sandboxName } })
-      if (response.data?.state !== "RUNNING") continue
+      // Not on Blaxel: a Boat sandbox, which has no standby, so it stops.
+      if (!response.data) {
+        await stopBoatSandbox(sandboxName)
+        continue
+      }
+      if (response.data.state !== "RUNNING") continue
       const sandbox = await SandboxInstance.get(sandboxName)
       try {
         for (const preview of await sandbox.previews.list())

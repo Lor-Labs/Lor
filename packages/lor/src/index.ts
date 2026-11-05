@@ -3691,7 +3691,11 @@ export async function respond(
             saved: harness.saved,
             sandbox: sandbox.session,
             bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
-            tokenPlaceholder: CLAUDE_TOKEN_PLACEHOLDER,
+            // Boat has no proxy to fill it in, so the token itself goes.
+            tokenPlaceholder:
+              sandbox.provider === "boat"
+                ? claude.token
+                : CLAUDE_TOKEN_PLACEHOLDER,
             mode: claude.mode,
             ...(ctx.turn?.model ? { model: ctx.turn.model } : {}),
             ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
@@ -3768,7 +3772,10 @@ export async function respond(
             saved: harness.saved,
             sandbox: sandbox.session,
             bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
-            keyPlaceholder: GATEWAY_KEY_PLACEHOLDER,
+            keyPlaceholder:
+              sandbox.provider === "boat"
+                ? (piGatewayAuth().AI_GATEWAY_API_KEY ?? "")
+                : GATEWAY_KEY_PLACEHOLDER,
             model: codexModel,
             ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
             instructions,
