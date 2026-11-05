@@ -41,6 +41,8 @@ import {
   messageIdParamsSchema,
   messageLocationParamsSchema,
   messageLocationResponseSchema,
+  removeMessageEmbedQuerySchema,
+  removeMessageEmbedResponseSchema,
   reorderChannelsRequestSchema,
   reorderChannelsResponseSchema,
   threadReadParamsSchema,
@@ -253,6 +255,30 @@ export const toggleMessagePin = createRoute({
     [HttpStatusCodes.OK]: jsonContent({
       schema: togglePinResponseSchema,
       description: "Pin toggled",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export const removeMessageEmbed = createRoute({
+  path: "/workspaces/{workspaceSlug}/channels/{channelId}/messages/{messageId}/embeds",
+  method: "delete",
+  summary: "Remove a link preview",
+  description:
+    "Removes a message's link preview for everyone. Allowed for the message author or with message:delete permission.",
+  tags: ["Channels"],
+  middleware: [workspaceAuthMiddleware] as const,
+  request: {
+    params: messageIdParamsSchema,
+    query: removeMessageEmbedQuerySchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: removeMessageEmbedResponseSchema,
+      description: "Link preview removed",
     }),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
     [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
@@ -565,6 +591,7 @@ export type UpdateChannelRoute = typeof updateChannel
 export type DeleteChannelRoute = typeof deleteChannel
 export type ListChannelMessagesRoute = typeof listChannelMessages
 export type ToggleMessagePinRoute = typeof toggleMessagePin
+export type RemoveMessageEmbedRoute = typeof removeMessageEmbed
 export type ListPinnedMessagesRoute = typeof listPinnedMessages
 export type ListThreadRepliesRoute = typeof listThreadReplies
 export type GetChannelAudienceRoute = typeof getChannelAudience
