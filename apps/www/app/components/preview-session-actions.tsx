@@ -26,7 +26,13 @@ import {
 } from "@repo/ui/components/popover"
 import { useState } from "react"
 
-export function PreviewReplyActions({ onFork }: { onFork?: () => void }) {
+export function PreviewReplyActions({
+  onFork,
+  time = "10:49 AM",
+}: {
+  onFork?: () => void
+  time?: string
+}) {
   const [open, setOpen] = useState(false)
   return (
     <div className="-ml-1.5 -mb-1 mt-0.5 flex items-center gap-0.5 text-lor-text-tertiary-dark">
@@ -94,7 +100,7 @@ export function PreviewReplyActions({ onFork }: { onFork?: () => void }) {
         </span>
       )}
       <span className="ml-1.5 text-[11px] text-lor-text-tertiary-dark/70">
-        10:49 AM
+        {time}
       </span>
     </div>
   )
