@@ -320,8 +320,9 @@ the caller's subscribed, unarchived sessions (`SidebarSession`: title, state,
 loop flag, last activity; capped at 200, newest first). State per session:
 `needs_you` (a pending approval, or a plan waiting for input or approval, in
 the session), `running` (an active run; queued folds in), `unread` (a message
-from someone else, or a run change, after the user's `thread_read_state`
-cursor; with no cursor only the last 7 days count), `idle`. Realtime emits
+from someone else, or a run finishing (`finished_at`), after the user's
+`thread_read_state` cursor; with no cursor only the last 7 days count),
+`idle`. Realtime emits
 `workspace:activity:updated` when a session is created or posted in; web
 also refreshes on `thread-read:updated`. The thread panel marks read when the
 newest reply's status changes, so a reply that finishes while open is read.

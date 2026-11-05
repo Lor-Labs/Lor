@@ -48,9 +48,11 @@ export async function getWorkspaceActivity(
   if (accessible.size === 0) return []
   const channelIds = [...accessible]
 
-  // Unread: a message from someone else, or a run that changed (finished),
-  // after the user's read cursor. With no cursor only the last week counts,
-  // so backfilled sessions don't all start unread.
+  // Unread: a message from someone else, or a run that finished, after the
+  // user's read cursor. finished_at, not updated_at: write-back and usage
+  // keep writing the run row after a reply the user already read. With no
+  // cursor only the last week counts, so backfilled sessions don't all start
+  // unread.
   const readCursor = sql`coalesce(${schema.threadReadState.lastReadAt}, now() - interval '7 days')`
   const lastActivityAt =
     sql<Date>`greatest(${schema.agentSession.createdAt}, (select max(m.created_at) from message m where m.thread_root_id = ${schema.agentSession.threadRootId}))`.mapWith(
@@ -120,7 +122,7 @@ export async function getWorkspaceActivity(
         uncommittedAdditions: schema.agentSession.uncommittedAdditions,
         uncommittedDeletions: schema.agentSession.uncommittedDeletions,
         lastActivityAt,
-        unread: sql<boolean>`(exists (select 1 from message m where m.thread_root_id = ${schema.agentSession.threadRootId} and m.author_id <> ${userId}::uuid and m.created_at > ${readCursor}) or exists (select 1 from agent_run r where r.thread_root_id = ${schema.agentSession.threadRootId} and r.updated_at > ${readCursor}))`,
+        unread: sql<boolean>`(exists (select 1 from message m where m.thread_root_id = ${schema.agentSession.threadRootId} and m.author_id <> ${userId}::uuid and m.created_at > ${readCursor}) or exists (select 1 from agent_run r where r.thread_root_id = ${schema.agentSession.threadRootId} and r.finished_at > ${readCursor}))`,
       })
       .from(schema.agentSession)
       .innerJoin(

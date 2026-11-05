@@ -9,10 +9,18 @@ import { apiClient } from "@/lib/api-client"
  * send — the server cursor is "now" at request time, so the trailing call
  * covers every reply seen during the window. Pending trailing sends are
  * flushed (not dropped) when the caller unmounts.
+ *
+ * `openThreadRootId`: the thread this view shows. Leaving it while the page
+ * is visible reads it up to now, so a Lor run that finishes just after the
+ * last read doesn't leave the session unread.
  */
 const RESEND_INTERVAL_MS = 4000
 
-export function useMarkThreadRead(workspaceSlug: string, channelId: string) {
+export function useMarkThreadRead(
+  workspaceSlug: string,
+  channelId: string,
+  openThreadRootId?: string
+) {
   const lastSentRef = useRef(new Map<string, number>())
   const pendingTimersRef = useRef(
     new Map<string, ReturnType<typeof setTimeout>>()
@@ -37,13 +45,20 @@ export function useMarkThreadRead(workspaceSlug: string, channelId: string) {
   useEffect(() => {
     const timers = pendingTimersRef.current
     return () => {
+      if (
+        openThreadRootId &&
+        !timers.has(openThreadRootId) &&
+        document.visibilityState === "visible"
+      ) {
+        send(openThreadRootId)
+      }
       for (const [threadRootId, timer] of timers) {
         clearTimeout(timer)
         send(threadRootId)
       }
       timers.clear()
     }
-  }, [send])
+  }, [send, openThreadRootId])
 
   return useCallback(
     (threadRootId: string) => {
