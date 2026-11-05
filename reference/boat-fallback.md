@@ -4,8 +4,12 @@ Status: built 2026-11-05; template `lor-workbench` saved. Checked live on Boat
 VMs: commands, files, env, spawn, named processes, fencing, keep-alive,
 private ports and WebSockets, and on a sandbox from the template the browser
 stack (Selkies, gateway on a public port, `lor-browser`), the terminal, a
-dev-server preview and usage metering. A session forced onto Boat in the app
-(Lor turn, Claude Code turn, live view in the panel) is still owed.
+dev-server preview and usage metering. Through the real session code
+(LOR_SANDBOX_PRIMARY=boat): open, reopen, attach, the harness bridge URL, the
+terminal and the browser view; with a dev session: charging, the blocked
+check, stop, resume (files kept, processes ended) and the idle sweep. A
+session forced onto Boat in the app (Lor turn, Claude Code turn with a real
+token, live view in the panel) is still owed.
 
 ## Why
 
@@ -36,7 +40,9 @@ once on its $20 plan, so it takes the overflow (Jacob, 2026-11-05).
     GB.
   - Keep-alive: every command and open sets `ttlSeconds` to 30 minutes (at most
     once a minute), which moves Boat's stop deadline to now + 30 minutes. A
-    stopped sandbox is resumed on the next open.
+    stopped sandbox is resumed on the next open; one still stopping answers
+    409 `sandbox_stopping`, so resume retries for up to 3 minutes (a stop
+    took about 40 s).
   - Commands run as root through `sudo -n -H` (Boat runs as `user` with
     passwordless sudo), detached, with output read by offset. Env values the
     caller passes go through a `/tmp` file the script reads and deletes, so a

@@ -100,13 +100,30 @@ export async function findBoatSandbox(
   const sandbox = await lookup(name)
   if (!sandbox) return null
   if (STOPPED_STATES.has(sandbox.state)) {
-    await boat().resume({ sandboxId: sandbox.id })
-    await waitUntilReady(boat(), sandbox.id)
-    extendedAt.set(sandbox.id, Date.now())
+    await resume(sandbox.id)
   } else {
     await keepAwake(sandbox.id)
   }
   return toBoatSandbox(sandbox)
+}
+
+// A sandbox Boat is still stopping can't resume yet (409 sandbox_stopping):
+// someone came back as its keep-alive ran out. Retries until it has stopped.
+const RESUME_WAIT_MS = 3 * 60_000
+
+async function resume(sandboxId: string): Promise<void> {
+  const deadline = Date.now() + RESUME_WAIT_MS
+  for (;;) {
+    try {
+      await boat().resume({ sandboxId })
+      break
+    } catch (err) {
+      if (boatStatus(err) !== 409 || Date.now() > deadline) throw err
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+    }
+  }
+  await waitUntilReady(boat(), sandboxId)
+  extendedAt.set(sandboxId, Date.now())
 }
 
 // Every use pushes the stop deadline back, so a long run is not stopped
