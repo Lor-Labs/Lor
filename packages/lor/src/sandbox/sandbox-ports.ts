@@ -33,11 +33,16 @@ export type ExposedPort = {
   token?: { param: string; value: string; expiresAt: Date }
 }
 
+// Blaxel's SDK reports a missing sandbox as `code: 404`, other calls as
+// `status`.
 const isNotFound = (err: unknown) =>
   typeof err === "object" &&
   err !== null &&
-  "status" in err &&
-  (err.status === 404 || err.status === "404")
+  [404, "404"].some(
+    (value) =>
+      ("status" in err && err.status === value) ||
+      ("code" in err && err.code === value)
+  )
 
 type Located =
   | { provider: "blaxel"; sandbox: SandboxInstance }
