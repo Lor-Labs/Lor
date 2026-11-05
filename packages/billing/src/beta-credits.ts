@@ -69,7 +69,9 @@ function logReconcileFailure(error: unknown, workspaceId: string) {
     )
     return
   }
-  reconcileReportedAt.set(workspaceId, now)
+  // Only a validation failure starts the throttle: a network or database
+  // error must not hide the next validation report.
+  if (issues) reconcileReportedAt.set(workspaceId, now)
   logger.error(
     { err: error, workspaceId },
     failureMessage("Beta balance reconciliation failed", issues)

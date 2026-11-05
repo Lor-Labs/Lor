@@ -39,6 +39,7 @@ import {
   canDownloadDesktopApp,
   downloadDesktopApp,
 } from "@/lib/desktop-download"
+import { clearSessionPanels } from "@/lib/session-panel-memory"
 
 // The shortcut handler in settings-dialog accepts metaKey || ctrlKey, so the
 // label has to follow the platform rather than always showing ⌘ (the desktop
@@ -68,6 +69,7 @@ export function UserBar() {
       console.error("Sign out failed:", err)
       return
     }
+    clearSessionPanels(session?.user.id)
     queryClient.clear()
     await navigate({ to: "/login", replace: true })
   }

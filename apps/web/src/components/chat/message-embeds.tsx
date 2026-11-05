@@ -123,6 +123,15 @@ export function MessageEmbeds({
       !(embed.type === "link" && embed.url && removedUrls.includes(embed.url))
   )
   if (embeds.length === 0) return null
+  // Keyed by URL and its occurrence, not position: removing an earlier
+  // preview must not remount the cards after it.
+  const seen = new Map<string, number>()
+  const keys = embeds.map((embed) => {
+    const url = embed.url ?? ""
+    const n = seen.get(url) ?? 0
+    seen.set(url, n + 1)
+    return `${url}#${n}`
+  })
 
   return (
     <>
@@ -133,13 +142,13 @@ export function MessageEmbeds({
               // recordingId keeps card state (transcript expand) pinned
               // to the recording if embeds reorder; eventLabel-matched
               // embeds lack it.
-              key={embed.meeting?.recordingId ?? `${embed.url}-${index}`}
+              key={embed.meeting?.recordingId ?? keys[index]}
               embed={embed}
               message={message}
             />
           ) : (
             <EmbedCard
-              key={`${embed.url}-${index}`}
+              key={keys[index]}
               embed={embed}
               onRemove={
                 canRemove && embed.type === "link" && embed.url

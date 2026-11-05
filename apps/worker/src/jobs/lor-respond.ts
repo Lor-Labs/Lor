@@ -342,17 +342,6 @@ export function createLorRespondProcessor(
           return
         }
         const execution = claim.kind === "claimed" ? claim.execution : null
-        if (execution && threadRootId && job.data.runId) {
-          void titleSessionOnFirstRun({
-            emitter,
-            threadRootId,
-            runId: job.data.runId,
-            onUsage: (u) =>
-              void recordUsage(u, { messageId: lorMessageId, channelId }),
-          }).catch((err) =>
-            logger.warn({ err, threadRootId }, "Session title failed")
-          )
-        }
         loopRun = await loadLoopRun(threadRootId, triggerMessageId).catch(
           () => null
         )
@@ -788,6 +777,19 @@ export function createLorRespondProcessor(
                 reason: "out_of_credits",
               })
               return
+            }
+
+            // Named only once the run may spend: titling is metered too.
+            if (threadRootId && job.data.runId) {
+              void titleSessionOnFirstRun({
+                emitter,
+                threadRootId,
+                runId: job.data.runId,
+                onUsage: (u) =>
+                  void recordUsage(u, { messageId: lorMessageId, channelId }),
+              }).catch((err) =>
+                logger.warn({ err, threadRootId }, "Session title failed")
+              )
             }
 
             // Attribution only — never fail the answer over it (and jobs queued

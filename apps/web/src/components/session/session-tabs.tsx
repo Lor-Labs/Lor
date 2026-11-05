@@ -376,24 +376,32 @@ function AllChangesTab({
   const at = useSearch({ strict: false, select: (search) => search.at })
   const navigate = useNavigate()
   const listRef = useRef<HTMLDivElement>(null)
-  const [focused, setFocused] = useState<string | null>(null)
+  // A new object per pick, so picking the same file again pins it again.
+  const [target, setTarget] = useState<{ path: string } | null>(null)
+  const focused = target?.path ?? null
   const hasFiles = files.length > 0
 
-  // Diffs above the target load as they near the view and push it down: it
-  // stays pinned until the person scrolls, or for a couple of seconds.
+  // ?at= is taken once, then cleared from the URL; pinning runs on its own
+  // so clearing the URL doesn't stop it.
   useEffect(() => {
-    const list = listRef.current
-    if (!at || !hasFiles || !list) return
-    setFocused(at)
+    if (!at || !hasFiles) return
+    setTarget({ path: at })
     void navigate({
       to: ".",
       search: (prev) => ({ ...prev, at: undefined }),
       replace: true,
     })
+  }, [at, hasFiles, navigate])
+
+  // Diffs above the target load as they near the view and push it down: it
+  // stays pinned until the person scrolls, or for a couple of seconds.
+  useEffect(() => {
+    const list = listRef.current
+    if (!target || !list) return
     const scroller = list.closest<HTMLElement>("[data-tab-scroll]")
     const section = [
       ...list.querySelectorAll<HTMLElement>("[data-change-path]"),
-    ].find((element) => element.dataset.changePath === at)
+    ].find((element) => element.dataset.changePath === target.path)
     if (!scroller || !section) return
     const pin = () => {
       scroller.scrollTop +=
@@ -416,7 +424,7 @@ function AllChangesTab({
       scroller.removeEventListener("touchstart", stop)
       scroller.removeEventListener("keydown", stop)
     }
-  }, [at, hasFiles, navigate])
+  }, [target])
 
   const body =
     changesNote(changes) ??

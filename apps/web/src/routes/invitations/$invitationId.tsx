@@ -18,6 +18,7 @@ import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { SocketProvider, useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 import { acceptInvitation } from "@/lib/invitations"
+import { clearSessionPanels } from "@/lib/session-panel-memory"
 
 export const Route = createFileRoute("/invitations/$invitationId")({
   component: InvitationPage,
@@ -52,6 +53,7 @@ function InvitationCard({
   sessionUserId: string | null
   sessionPending: boolean
 }) {
+  const { data: session } = authClient.useSession()
   const { invitationId } = Route.useParams()
   const { sig } = Route.useSearch()
   const navigate = useNavigate()
@@ -124,7 +126,10 @@ function InvitationCard({
       const { error } = await authClient.signOut()
       if (error) throw new Error("Couldn't sign out")
     },
-    onSuccess: () => queryClient.clear(),
+    onSuccess: () => {
+      clearSessionPanels(session?.user.id)
+      queryClient.clear()
+    },
     onError: (error) => toast.error(error.message),
   })
 

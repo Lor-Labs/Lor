@@ -32,6 +32,8 @@ const MAX_BUFFERED = 8 * 1024 * 1024
 const ROLE_CHANGED = 4001
 // Selkies sizes the display from these; only the person in control may.
 const CONTROLLER_ONLY = ["r,", "s,"]
+// Each CDP step in the window fit; a hung Chromium must not stall the ticks.
+const CDP_TIMEOUT_MS = 2000
 
 const GRANT = /^[a-f0-9]{32,64}$/
 const VIEW_PATH = /^\/v\/([^/]+)(\/.*)?$/
@@ -121,29 +123,43 @@ async function fitWindows() {
   const size = stdout.match(/current (\d+) x (\d+)/)
   if (!size) return
   const version = await (
-    await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`)
+    await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`, {
+      signal: AbortSignal.timeout(CDP_TIMEOUT_MS),
+    })
   ).json()
   const key = `${size[1]}x${size[2]} ${version.webSocketDebuggerUrl}`
   if (key === fitted) return
-  const cdp = new WebSocket(version.webSocketDebuggerUrl)
-  await new Promise((resolve, reject) => {
-    cdp.once("open", resolve)
-    cdp.once("error", reject)
+  const cdp = new WebSocket(version.webSocketDebuggerUrl, {
+    handshakeTimeout: CDP_TIMEOUT_MS,
   })
+  cdp.on("error", () => {})
   let next = 0
+  // Null on a timeout or a closed connection, like a failed command.
   const send = (method, params = {}) =>
     new Promise((resolve) => {
+      if (cdp.readyState !== WebSocket.OPEN) return resolve(null)
       const id = ++next
+      const done = (result) => {
+        clearTimeout(timer)
+        cdp.off("message", onMessage)
+        cdp.off("close", onClose)
+        resolve(result)
+      }
       const onMessage = (raw) => {
         const msg = JSON.parse(raw)
-        if (msg.id !== id) return
-        cdp.off("message", onMessage)
-        resolve(msg.result ?? null)
+        if (msg.id === id) done(msg.result ?? null)
       }
+      const onClose = () => done(null)
+      const timer = setTimeout(() => done(null), CDP_TIMEOUT_MS)
       cdp.on("message", onMessage)
+      cdp.on("close", onClose)
       cdp.send(JSON.stringify({ id, method, params }))
     })
   try {
+    await new Promise((resolve, reject) => {
+      cdp.once("open", resolve)
+      cdp.once("error", reject)
+    })
     const targets = await send("Target.getTargets")
     const windows = new Set()
     for (const t of targets?.targetInfos ?? []) {
@@ -165,7 +181,7 @@ async function fitWindows() {
     }
     if (windows.size > 0) fitted = key
   } finally {
-    cdp.close()
+    cdp.terminate()
   }
 }
 
@@ -305,6 +321,8 @@ function relay(client, upstream, grant, role) {
 }
 
 server.on("upgrade", async (req, socket, head) => {
+  // A client gone mid-upgrade must not throw from the raw socket.
+  socket.on("error", () => socket.destroy())
   const url = new URL(req.url ?? "/", "http://gateway")
   const match = url.pathname.match(VIEW_PATH)
   const grant =
@@ -332,10 +350,13 @@ server.on("upgrade", async (req, socket, head) => {
     .split(",")
     .map((p) => p.trim())
     .filter((p) => p && !p.startsWith("selkies.token."))
+  if (socket.destroyed) return
   const upstream = new WebSocket(
     `ws+unix://${SOCKET}:${match[2]}${url.search}`,
     protocols
   )
+  // The viewer left before Selkies answered: drop the upstream too.
+  socket.once("close", () => upstream.terminate())
   upstream.once("open", () => {
     req.upstreamProtocol = upstream.protocol
     wss.handleUpgrade(req, socket, head, (client) =>
@@ -348,14 +369,28 @@ server.on("upgrade", async (req, socket, head) => {
   upstream.once("error", () => socket.destroy())
 })
 
-// Grants that lapsed are refused by readGrant; this tells their pages.
+// Grants that lapsed or were deleted are refused by readGrant; this tells
+// their pages and ends their streams.
 setInterval(async () => {
   for (const l of listeners) {
     if (!(await readGrant(l.grant))) l.ws.close(4004, "expired")
   }
+  for (const c of streams) {
+    if (!(await readGrant(c.grant))) c.ws.close(4004, "expired")
+  }
 }, 60_000)
 setInterval(() => void syncControl().catch(() => {}), 1000)
-setInterval(() => void fitWindows().catch(() => {}), 1000)
+// A fit still running skips the tick instead of stacking another.
+let fitting = false
+setInterval(() => {
+  if (fitting) return
+  fitting = true
+  fitWindows()
+    .catch(() => {})
+    .finally(() => {
+      fitting = false
+    })
+}, 1000)
 server.listen(VIEW_PORT, "0.0.0.0", () => {
   console.log(`gateway on ${VIEW_PORT}`)
 })

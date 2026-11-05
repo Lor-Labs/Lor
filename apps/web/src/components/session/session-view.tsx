@@ -151,31 +151,23 @@ function SessionConversation({
   useChannelApprovals(session.channelId, session.threadRootId)
   useChannelProposals(session.channelId)
   const queryClient = useQueryClient()
+  const { data: auth } = authClient.useSession()
+  const userId = auth?.user.id
   useEffect(() => {
     writeLastSession(workspaceSlug, session.id, session.channelId)
-    // Opening it reads it, and so does leaving it while visible: the
-    // sidebar's unread state clears now, not after the read marker round trip.
-    const markRead = () =>
-      patchSidebarSession(
-        queryClient,
-        {
-          workspaceId: session.workspaceId,
-          channelId: session.channelId,
-          sessionId: session.id,
-        },
-        { state: "idle", from: "unread" }
-      )
-    markRead()
-    return () => {
-      if (document.visibilityState === "visible") markRead()
-    }
-  }, [
-    workspaceSlug,
-    session.id,
-    session.channelId,
-    session.workspaceId,
-    queryClient,
-  ])
+  }, [workspaceSlug, session.id, session.channelId])
+  // Reading it (SessionDocument decides when) clears the sidebar's unread
+  // state now, not after the read marker round trip.
+  const markSidebarRead = () =>
+    patchSidebarSession(
+      queryClient,
+      {
+        workspaceId: session.workspaceId,
+        channelId: session.channelId,
+        sessionId: session.id,
+      },
+      { state: "idle", from: "unread" }
+    )
 
   // The right panel shows this session's details while the page is open, the
   // way a channel page sets its own panel view. A code session's panel opens
@@ -234,7 +226,7 @@ function SessionConversation({
     if (isMobile !== false || waitingForFiles) return
     const type = openOn.current
     openOn.current = null
-    const remembered = readSessionPanel(session.id)
+    const remembered = readSessionPanel(userId, session.id)
     if (remembered.collapsed !== undefined) setCollapsed(remembered.collapsed)
     if (type) openView({ ...workView, type })
     else if (code && remembered.type) {
@@ -251,21 +243,22 @@ function SessionConversation({
     setCollapsed,
     code,
     session.id,
+    userId,
   ])
   const panelType =
     view && "sessionId" in view && view.sessionId === session.id
       ? view.type
       : null
   useEffect(() => {
-    if (panelType) writeSessionPanel(session.id, { type: panelType })
-  }, [panelType, session.id])
+    if (panelType) writeSessionPanel(userId, session.id, { type: panelType })
+  }, [panelType, session.id, userId])
   // Only changes after open: the first value is the previous page's.
   const lastCollapsed = useRef(isCollapsed)
   useEffect(() => {
     if (isMobile !== false || lastCollapsed.current === isCollapsed) return
     lastCollapsed.current = isCollapsed
-    writeSessionPanel(session.id, { collapsed: isCollapsed })
-  }, [isCollapsed, isMobile, session.id])
+    writeSessionPanel(userId, session.id, { collapsed: isCollapsed })
+  }, [isCollapsed, isMobile, session.id, userId])
 
   // Code sessions: files and diffs open in tabs beside the chat.
   useLiveSessionChanges(session.id, session.threadRootId, code)
@@ -273,18 +266,24 @@ function SessionConversation({
   // A sidebar link carries no ?open: go back to the tab that was active.
   const tabRestored = useRef(false)
   useEffect(() => {
-    if (!code) return
+    if (!code || !userId) return
     if (!tabRestored.current) {
       tabRestored.current = true
-      const remembered = readSessionPanel(session.id).tab
-      if (!tabs.active && remembered && parseTabId(remembered)) {
+      const remembered = readSessionPanel(userId, session.id).tab
+      // A link to a message opens on the chat.
+      if (
+        !targetMessageId &&
+        !tabs.active &&
+        remembered &&
+        parseTabId(remembered)
+      ) {
         tabs.adopt(remembered)
         tabs.select(remembered)
         return
       }
     }
-    writeSessionPanel(session.id, { tab: tabs.active })
-  }, [code, session.id, tabs.active])
+    writeSessionPanel(userId, session.id, { tab: tabs.active })
+  }, [code, session.id, tabs.active, userId])
   const activeTab = code && tabs.active ? parseTabId(tabs.active) : null
   const showTabs = code && (tabs.ids.length > 0 || activeTab !== null)
 
@@ -312,7 +311,6 @@ function SessionConversation({
     channelId: session.channelId,
     sessionId: session.id,
   }
-  const { data: auth } = authClient.useSession()
   const people = useChannelPeople(workspaceSlug, session.channelId)
   const nameOf = (userId: string | null) =>
     userId === auth?.user.id
@@ -388,6 +386,7 @@ function SessionConversation({
       sessionId={session.id}
       repoSessionId={code ? session.id : undefined}
       onShowChat={() => tabs.select(null)}
+      onRead={markSidebarRead}
       targetMessageId={targetMessageId}
       onFork={(message) =>
         fork.mutateAsync({ sessionId: session.id, messageId: message.id })

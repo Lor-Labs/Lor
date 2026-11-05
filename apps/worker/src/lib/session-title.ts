@@ -53,7 +53,10 @@ export async function titleSessionOnFirstRun(input: {
     )
     .orderBy(asc(schema.message.createdAt))
     .limit(1)
-    .then((rows) => rows[0]?.content ?? "")
+    .then((rows) => rows[0]?.content?.trim() ?? "")
+  // An attachment-only opening has nothing to name it from: it keeps its
+  // placeholder title.
+  if (!request) return
 
   const title = await generateSessionTitle(
     { workspaceId: session.workspaceId, request },

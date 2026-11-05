@@ -28,6 +28,7 @@ import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { apiClient } from "@/lib/api-client"
 import { acceptInvitation } from "@/lib/invitations"
 import { formatWorkspaceRole } from "@/lib/permissions"
+import { clearSessionPanels } from "@/lib/session-panel-memory"
 
 export const Route = createFileRoute("/onboarding")({
   component: OnboardingPage,
@@ -105,6 +106,7 @@ function OnboardingPage() {
 }
 
 function OnboardingFlow({ email }: { email: string }) {
+  const { data: session } = authClient.useSession()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [step, setStep] = useState<Step>("choose")
@@ -265,6 +267,7 @@ function OnboardingFlow({ email }: { email: string }) {
       toast.error("Couldn't sign out. Please try again.")
       return
     }
+    clearSessionPanels(session?.user.id)
     queryClient.clear()
     await navigate({ to: "/login", replace: true })
   }

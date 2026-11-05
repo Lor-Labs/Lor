@@ -7,6 +7,7 @@ import {
   ReloadIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
+import { authClient } from "@repo/auth/client"
 import type { LorToolEventPayload } from "@repo/realtime-types"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -124,12 +125,14 @@ export function SessionBrowserPanel({
   view: SessionBrowserSidebarView
 }) {
   const { sessionId, threadRootId } = view
+  const { data: auth } = authClient.useSession()
+  const userId = auth?.user.id
   const { setView } = useRightSidebar()
   const socket = useSocket()
   const queryClient = useQueryClient()
   // The last page opened here, kept per session so going back reopens it.
   const [lastTarget, setLastTarget] = useState<Target | null>(
-    () => readSessionPanel(sessionId).browser ?? null
+    () => readSessionPanel(userId, sessionId).browser ?? null
   )
   const [address, setAddress] = useState(() =>
     lastTarget ? addressOf(lastTarget) : ""
@@ -259,7 +262,7 @@ export function SessionBrowserPanel({
   const go = (target: Target) => {
     setAddress(addressOf(target))
     setLastTarget(target)
-    writeSessionPanel(sessionId, { browser: target })
+    writeSessionPanel(userId, sessionId, { browser: target })
     if (liveMode) openPage.mutate(target)
     else open.mutate(target)
   }

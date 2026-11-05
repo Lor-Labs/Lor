@@ -50,6 +50,9 @@ const STEP_FRESH_MS = 8_000
 const SWITCH_TIMEOUT_MS = 10_000
 // Lor asked for the browser: the controller's idle time before it goes back.
 const IDLE_HAND_BACK_MS = 15_000
+// lor-browser gives up waiting for control after CONTROL_WAIT_SECONDS (45 s):
+// a request whose finish never arrived lapses just after.
+const LOR_WAIT_MS = 50_000
 
 async function errorMessage(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as {
@@ -216,12 +219,26 @@ export function useSessionBrowserLive(
         setLorWaiting((current) => (current === toolCallId ? null : current))
       }
     }
+    // A finish missed while disconnected would leave Lor waiting forever.
+    const onDisconnect = () => setLorWaiting(null)
     socket.on("lor:tool", onTool)
+    socket.on("disconnect", onDisconnect)
     return () => {
       if (fade) clearTimeout(fade)
       socket.off("lor:tool", onTool)
+      socket.off("disconnect", onDisconnect)
     }
   }, [socket, threadRootId])
+
+  useEffect(() => {
+    if (!lorWaiting) return
+    const timer = setTimeout(
+      () =>
+        setLorWaiting((current) => (current === lorWaiting ? null : current)),
+      LOR_WAIT_MS
+    )
+    return () => clearTimeout(timer)
+  }, [lorWaiting])
 
   useEffect(() => {
     if (!switching) return
