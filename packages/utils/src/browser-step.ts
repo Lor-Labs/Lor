@@ -50,6 +50,29 @@ const PAGE_STEPS: Record<string, string> = {
   mouse: "Used the mouse",
 }
 
+// Commands `lor-browser` runs while a person has control (they only look).
+const OBSERVE_ONLY = new Set([
+  "snapshot",
+  "screenshot",
+  "get",
+  "is",
+  "console",
+  "errors",
+  "session",
+  "skills",
+])
+
+// A `lor-browser` command that needs the browser: while a person has control
+// it asks for it back and waits (sandbox-image/browser/lor-browser).
+export function needsBrowserControl(command: string): boolean {
+  const text = command.trim()
+  if (!/^lor-browser(\s|$)/.test(text) || CHAINED.test(text)) return false
+  const name = (text.match(TOKENS) ?? [])
+    .slice(1)
+    .find((token) => !token.startsWith("-"))
+  return name !== undefined && !OBSERVE_ONLY.has(unquote(name))
+}
+
 export function browserStep(command: string): BrowserStep | null {
   const text = command.trim()
   if (!/^lor-browser(\s|$)/.test(text) || CHAINED.test(text)) return null

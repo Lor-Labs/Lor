@@ -5,39 +5,51 @@ import {
   Loading03Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import type RFB from "@novnc/novnc"
 import { authClient } from "@repo/auth/client"
 import type { LorToolEventPayload } from "@repo/realtime-types"
 import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
-import { browserStep } from "@repo/utils/browser-step"
+import { browserStep, needsBrowserControl } from "@repo/utils/browser-step"
 import { useMutation } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 import {
   type SessionBrowserComments,
   SessionBrowserCommentsCard,
 } from "@/components/sidebar/right-panel/session-browser-comments"
-import { attachBrowserKeys } from "@/components/sidebar/right-panel/session-browser-keys"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
 // The session browser's live view (reference/planned/sandbox-browser-runbook.md
-// §4): noVNC on the sandbox's gateway, in a 16:10 frame with who drives on it
-// and one Take control / Hand back toggle under it. Each connection needs a
-// fresh one-time token, so every reconnect asks the API again. The gateway
-// closes a viewer whose role changed, and the view reconnects in its new
-// role. A hidden page disconnects, since live traffic keeps the sandbox awake
-// and billed. Lor's `lor-browser` commands show as a live caption.
+// §4): Selkies' page from the sandbox's gateway in an iframe, filling the
+// panel, with who drives on it and one Take control / Hand back toggle under
+// it. The person in control's view sizes the sandbox's display. The gateway's
+// bridge script in the page posts who has control and the controller's input
+// (Lor's idle hand-back), and reloads the page when its role changes. A
+// hidden page unloads, since live traffic keeps the sandbox awake and
+// billed. Lor's `lor-browser` commands show as a live caption.
 
 export type BrowserController = { userId: string; name: string } | null
 
+type BridgeMessage =
+  | {
+      source: "lor-browser"
+      type: "control"
+      role: "control" | "watch"
+      controller: BrowserController
+    }
+  | { source: "lor-browser"; type: "input" | "disconnected" | "expired" }
+
 const RETRY_MS = [300, 1000, 2000, 5000, 10_000]
 const HIDDEN_PAUSE_MS = 2 * 60_000
+// The page never reported in: load it again with a new grant.
+const LOAD_TIMEOUT_MS = 30_000
 // How long Lor's last browser step stays on the caption after it finished.
 const STEP_FRESH_MS = 8_000
-// Give up on showing "Switching control…" if the reconnect never lands.
+// Give up on showing "Switching control…" if the reload never lands.
 const SWITCH_TIMEOUT_MS = 10_000
+// Lor asked for the browser: the controller's idle time before it goes back.
+const IDLE_HAND_BACK_MS = 15_000
 
 async function errorMessage(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as {
@@ -62,7 +74,8 @@ export function useSessionBrowserLive(
   const socket = useSocket()
   const { data: auth } = authClient.useSession()
   const myId = auth?.user.id ?? null
-  const [screen, setScreen] = useState<HTMLDivElement | null>(null)
+  const frame = useRef<HTMLIFrameElement | null>(null)
+  const [url, setUrl] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
   const [everConnected, setEverConnected] = useState(false)
   const [paused, setPaused] = useState(false)
@@ -78,12 +91,17 @@ export function useSessionBrowserLive(
   const [expanded, setExpanded] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const failures = useRef(0)
+  // Lor's running command that waits for a person to hand the browser back.
+  const [lorWaiting, setLorWaiting] = useState<string | null>(null)
+  const [kept, setKept] = useState<string | null>(null)
+  const [handBackIn, setHandBackIn] = useState<number | null>(null)
+  const lastInputAt = useRef(Date.now())
 
+  // Each load asks the API for a new grant; the page then reconnects on its
+  // own until the grant lapses.
   useEffect(() => {
-    if (!enabled || !screen || paused || unavailable || failed) return
+    if (!enabled || paused || unavailable || failed) return
     let cancelled = false
-    let rfb: RFB | null = null
-    let detachKeys: (() => void) | null = null
     let retry: ReturnType<typeof setTimeout> | null = null
     const retryLater = (message: string) => {
       const delay = RETRY_MS[failures.current]
@@ -91,7 +109,7 @@ export function useSessionBrowserLive(
       if (delay === undefined) setFailed(message)
       else retry = setTimeout(() => setAttempt((n) => n + 1), delay)
     }
-    const connect = async () => {
+    const load = async () => {
       const res = await apiClient.v1.sessions[":sessionId"].browser.$post({
         param: { sessionId },
       })
@@ -108,38 +126,46 @@ export function useSessionBrowserLive(
       }
       setRole(view.role)
       setController(view.controller)
-      // Loaded on first use: noVNC stays out of the app's main bundle.
-      const { default: Rfb } = await import("@novnc/novnc")
-      if (cancelled) return
-      rfb = new Rfb(screen, view.url)
-      rfb.scaleViewport = true
-      rfb.viewOnly = view.role === "watch"
-      rfb.focusOnClick = view.role === "control"
-      rfb.background = "transparent"
-      if (view.role === "control") detachKeys = attachBrowserKeys(screen, rfb)
-      rfb.addEventListener("connect", () => {
-        failures.current = 0
-        setConnected(true)
-        setEverConnected(true)
-        setSwitching(false)
-      })
-      rfb.addEventListener("disconnect", () => {
-        setConnected(false)
-        if (!cancelled) retryLater("The live view disconnected")
-      })
+      setUrl(view.url)
+      retry = setTimeout(
+        () => retryLater("The live view didn't load"),
+        LOAD_TIMEOUT_MS
+      )
     }
-    connect().catch((err: unknown) => {
+    load().catch((err: unknown) => {
       if (cancelled) return
       retryLater(err instanceof Error ? err.message : "Couldn't open it")
     })
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow) return
+      const msg = event.data as BridgeMessage
+      if (msg?.source !== "lor-browser") return
+      if (msg.type === "control") {
+        if (retry) clearTimeout(retry)
+        failures.current = 0
+        setRole(msg.role)
+        setController(msg.controller)
+        setConnected(true)
+        setEverConnected(true)
+        setSwitching(false)
+      } else if (msg.type === "input") {
+        lastInputAt.current = Date.now()
+      } else if (msg.type === "disconnected") {
+        setConnected(false)
+      } else if (msg.type === "expired") {
+        setConnected(false)
+        setAttempt((n) => n + 1)
+      }
+    }
+    window.addEventListener("message", onMessage)
     return () => {
       cancelled = true
       if (retry) clearTimeout(retry)
-      detachKeys?.()
-      rfb?.disconnect()
+      window.removeEventListener("message", onMessage)
+      setUrl(null)
       setConnected(false)
     }
-  }, [enabled, screen, paused, unavailable, failed, attempt, sessionId])
+  }, [enabled, paused, unavailable, failed, attempt, sessionId])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -183,6 +209,12 @@ export function useSessionBrowserLive(
       setLorStep({ text, running })
       if (fade) clearTimeout(fade)
       fade = running ? null : setTimeout(() => setLorStep(null), STEP_FRESH_MS)
+      const { toolCallId, label } = payload.toolCall
+      if (running && needsBrowserControl(label.slice(4))) {
+        setLorWaiting(toolCallId)
+      } else if (!running) {
+        setLorWaiting((current) => (current === toolCallId ? null : current))
+      }
     }
     socket.on("lor:tool", onTool)
     return () => {
@@ -218,9 +250,38 @@ export function useSessionBrowserLive(
   // Right after taking control the view is still reconnecting as a viewer.
   const youControl =
     role === "control" || (myId !== null && controller?.userId === myId)
+  const lorWants =
+    lorWaiting !== null && controller !== null && kept !== lorWaiting
+
+  // Lor asked: hand back after the controller has been idle 15 s, counting
+  // from at least 5 s after the request so the notice is seen.
+  useEffect(() => {
+    if (!youControl || !lorWants) {
+      setHandBackIn(null)
+      return
+    }
+    lastInputAt.current = Math.max(
+      lastInputAt.current,
+      Date.now() - IDLE_HAND_BACK_MS + 5_000
+    )
+    let handedBack = false
+    const tick = () => {
+      const left = IDLE_HAND_BACK_MS - (Date.now() - lastInputAt.current)
+      if (left > 0) {
+        setHandBackIn(Math.ceil(left / 1000))
+      } else if (!handedBack) {
+        handedBack = true
+        control.mutate(false)
+      }
+    }
+    tick()
+    const timer = setInterval(tick, 500)
+    return () => clearInterval(timer)
+  }, [youControl, lorWants])
 
   return {
-    setScreen,
+    frame,
+    url,
     connected,
     everConnected,
     paused,
@@ -238,6 +299,10 @@ export function useSessionBrowserLive(
       await control.mutateAsync(true)
     },
     handBack: () => control.mutate(false),
+    // Lor is waiting for the browser while a person has control.
+    lorWants,
+    handBackIn,
+    keep: () => setKept(lorWaiting),
     resume: () => {
       failures.current = 0
       setPaused(false)
@@ -292,7 +357,8 @@ export function SessionBrowserLiveView({
       ? "Reconnecting…"
       : null
 
-  // The same nodes in both sizes, so noVNC keeps its connection and rescales.
+  // The same nodes in both sizes, so the iframe keeps its page; the display
+  // follows the controller's frame size.
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: Esc closes the expanded view (window listener above); the backdrop click is a mouse shortcut for it
     <div
@@ -309,14 +375,22 @@ export function SessionBrowserLiveView({
         }
       }}
     >
-      <div className="relative flex min-h-0 flex-1 items-center justify-center [container-type:size]">
+      <div className="relative flex min-h-0 flex-1">
         <div
           className={cn(
-            "relative aspect-[16/10] w-[min(100cqw,calc(100cqh*1.6))] overflow-hidden rounded-lg border border-border/70 bg-muted/40 shadow-xs transition-shadow duration-200",
+            "relative flex-1 overflow-hidden rounded-lg border border-border/70 bg-muted/40 shadow-xs transition-shadow duration-200",
             youControl && "ring-2 ring-primary"
           )}
         >
-          <div ref={live.setScreen} className="absolute inset-0" />
+          {live.url && (
+            <iframe
+              ref={live.frame}
+              src={live.url}
+              title="Session browser"
+              allow="clipboard-read; clipboard-write"
+              className="absolute inset-0 size-full border-0"
+            />
+          )}
           {center}
           {corner && (
             <FramePill className="absolute top-2 left-2">
@@ -330,7 +404,7 @@ export function SessionBrowserLiveView({
           )}
           <button
             type="button"
-            // While you drive, Esc goes to the page (noVNC takes it).
+            // While you drive, Esc goes to the page (the iframe takes it).
             title={expanded ? "Shrink" : "Expand"}
             aria-label={expanded ? "Shrink the browser" : "Expand the browser"}
             onClick={() => setExpanded(!expanded)}
@@ -384,15 +458,20 @@ function BrowserFooter({
 }) {
   const commenting =
     comments !== undefined && (comments.picking || comments.comments.length > 0)
+  const asking = live.youControl && live.lorWants
   const status = live.switching
     ? "Switching control…"
-    : live.youControl
-      ? "You have control. Lor waits until you hand it back."
-      : live.controller
-        ? `${live.controller.name} has control.`
-        : live.lorStep
-          ? `Lor is using the browser · ${live.lorStep.text}`
-          : "Watching"
+    : asking
+      ? `Lor wants the browser. It goes back in ${live.handBackIn ?? 15} s unless you keep using it.`
+      : live.youControl
+        ? "You have control. Lor waits until you hand it back."
+        : live.controller && live.lorWants
+          ? `Lor is waiting for ${live.controller.name} to hand the browser back.`
+          : live.controller
+            ? `${live.controller.name} has control.`
+            : live.lorStep
+              ? `Lor is using the browser · ${live.lorStep.text}`
+              : "Watching"
   return (
     <div
       className={cn(
@@ -401,11 +480,23 @@ function BrowserFooter({
           "mx-auto w-full max-w-3xl rounded-lg bg-popover px-3 py-2 text-popover-foreground shadow-lg"
       )}
     >
-      {live.lorStep && !live.controller && !live.youControl && <LiveDot />}
-      <p className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
+      {((live.lorStep && !live.controller && !live.youControl) ||
+        live.lorWants) && <LiveDot />}
+      <p
+        className={cn(
+          "min-w-0 flex-1 truncate text-xs",
+          asking ? "font-medium text-foreground" : "text-muted-foreground"
+        )}
+        title={status}
+      >
         {status}
       </p>
-      {comments && !commenting && (
+      {asking && (
+        <Button size="sm" variant="ghost" onClick={live.keep}>
+          Keep
+        </Button>
+      )}
+      {comments && !commenting && !asking && (
         <Button
           size="sm"
           variant="outline"

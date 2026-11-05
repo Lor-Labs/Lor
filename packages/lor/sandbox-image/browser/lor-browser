@@ -12,6 +12,7 @@ CDP_PORT="${LOR_BROWSER_CDP_PORT:-9222}"
 DIR="${LOR_BROWSER_DIR:-/workspace/.cache/lor-browser}"
 # The person who has control, written by the API when they take it.
 CONTROLLER_FILE="$DIR/controller"
+CONTROL_WAIT_SECONDS=45
 
 # Page text is untrusted: boundaries mark it, and long snapshots are cut.
 export AGENT_BROWSER_CONTENT_BOUNDARIES=1
@@ -64,8 +65,18 @@ case " $OBSERVE $READ $ACT " in
   *) fail "'$command' isn't available in Lor's browser" ;;
 esac
 
+# A person has control: their panel sees this command start, asks them for
+# the browser and hands it back once they are idle. Wait for that.
 if [ -s "$CONTROLLER_FILE" ] && [[ "$OBSERVE" != *" $command "* ]]; then
-  fail "$(head -c 200 "$CONTROLLER_FILE") is using the browser. Wait until they hand it back, or ask them to."
+  who="$(head -c 200 "$CONTROLLER_FILE")"
+  echo "lor-browser: $who has the browser; asking for it back (up to ${CONTROL_WAIT_SECONDS}s)." >&2
+  for _ in $(seq 1 $((CONTROL_WAIT_SECONDS * 2))); do
+    [ -s "$CONTROLLER_FILE" ] || break
+    sleep 0.5
+  done
+  if [ -s "$CONTROLLER_FILE" ]; then
+    fail "$who kept the browser. Ask them in the chat, or do other work first and try again."
+  fi
 fi
 
 cdp_up() {

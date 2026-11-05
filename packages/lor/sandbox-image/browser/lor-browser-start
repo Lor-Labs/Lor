@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # The session browser (reference/planned/sandbox-browser-runbook.md): headful
 # Chromium on a virtual display, so pages run at a real localhost next to the
-# dev servers. x11vnc serves the display and gateway.mjs relays it to noVNC
-# viewers (the live view, the only port meant for a preview); CDP stays on
-# 127.0.0.1 for Lor's agent-browser commands. Runs as one process; Chromium
-# is restarted
-# when it exits (someone closed the window), anything else ends the process
-# so the next ensureProcess starts it clean.
+# dev servers. Selkies streams the display as H.264 on a Unix socket and
+# gateway.mjs relays it to viewers (the live view, the only port meant for a
+# preview); CDP stays on 127.0.0.1 for Lor's agent-browser commands. Runs as
+# one process; Chromium is restarted when it exits (someone closed the
+# window), anything else ends the process so the next ensureProcess starts it
+# clean.
 set -u
 
 DISPLAY_NUM="${LOR_BROWSER_DISPLAY:-99}"
+# The display starts at SIZE; the person in control resizes it to their view,
+# up to MAX_SIZE.
 SIZE="${LOR_BROWSER_SIZE:-1280x800}"
+MAX_SIZE="${LOR_BROWSER_MAX_SIZE:-3840x2400}"
 CDP_PORT="${LOR_BROWSER_CDP_PORT:-9222}"
-VNC_PORT="${LOR_BROWSER_VNC_PORT:-5900}"
-WATCH_PORT="${LOR_BROWSER_WATCH_PORT:-5901}"
 VIEW_PORT="${LOR_BROWSER_VIEW_PORT:-6080}"
 # Profile and cache on the workspace disk: the root filesystem's writable
 # layer is held in RAM on Blaxel.
@@ -43,30 +44,50 @@ trap 'exit 0' TERM INT
 # A display left by a killed run blocks Xvfb from starting.
 rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
 
-Xvfb "$DISPLAY" -screen 0 "${SIZE}x24" -nolisten tcp -dpi 96 \
+Xvfb "$DISPLAY" -screen 0 "${MAX_SIZE}x24" -nolisten tcp -dpi 96 \
   >"$DIR/logs/xvfb.log" 2>&1 &
 pids+=($!)
 for _ in $(seq 1 50); do
-  [ -S "/tmp/.X11-unix/X${DISPLAY_NUM}" ] && break
+  xrandr >/dev/null 2>&1 && break
   sleep 0.1
 done
-[ -S "/tmp/.X11-unix/X${DISPLAY_NUM}" ] || { echo "Xvfb did not start"; exit 1; }
+xrandr >/dev/null 2>&1 || { echo "Xvfb did not start"; exit 1; }
+selkies resize "$SIZE" >/dev/null 2>&1 || echo "Couldn't size the display to $SIZE"
 
 openbox >"$DIR/logs/openbox.log" 2>&1 &
 pids+=($!)
 
-# Two VNC servers on one display: the person in control gets the one that
-# takes input, watchers the -viewonly one. The gateway picks per viewer.
-x11vnc -display "$DISPLAY" -localhost -rfbport "$VNC_PORT" -shared -forever \
-  -nopw -xkb -repeat -quiet >"$DIR/logs/x11vnc.log" 2>&1 &
-pids+=($!)
-x11vnc -display "$DISPLAY" -localhost -rfbport "$WATCH_PORT" -shared -forever \
-  -nopw -viewonly -quiet >"$DIR/logs/x11vnc-watch.log" 2>&1 &
+# Selkies in secure mode: one token for the person in control, one for
+# watchers. Only the gateway holds them; it picks one per viewer, so a
+# watcher's input is dropped by Selkies itself.
+token() { head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
+control_token="$(token)"
+watch_token="$(token)"
+socket="$DIR/selkies.sock"
+rm -f "$socket"
+(
+  umask 077
+  printf '{"%s":{"role":"controller"},"%s":{"role":"viewer"}}' \
+    "$control_token" "$watch_token" >"$DIR/selkies-tokens.json"
+)
+# H.264 in software with 4:4:4 colour; --video-paintover-crf sharpens a
+# still screen. Everything but video and input is off.
+XDG_RUNTIME_DIR=/tmp selkies --unix-socket="$socket" --mode=websockets \
+  --master-token="$(token)" --tokens-file="$DIR/selkies-tokens.json" \
+  --enable-basic-auth=false --enable-sharing=false --frame-ancestors='*' \
+  --encoder=h264enc --use-cpu=true --framerate=60 --rate-control-mode=crf \
+  --video-crf=23 --video-fullcolor=true --video-paintover-crf=8 \
+  --enable-resize=true --mac-cmd-as-ctrl=true --ui-show-sidebar=false \
+  --audio-enabled=false --microphone-enabled=false --webcam-enabled=false \
+  --gamepad-enabled=false --file-transfers=none --printing-enabled=false \
+  --command-enabled=false >"$DIR/logs/selkies.log" 2>&1 &
 pids+=($!)
 
 mkdir -p "$DIR/viewers"
 LOR_BROWSER_DIR="$DIR" LOR_BROWSER_VIEW_PORT="$VIEW_PORT" \
-  LOR_BROWSER_VNC_PORT="$VNC_PORT" LOR_BROWSER_WATCH_PORT="$WATCH_PORT" \
+  LOR_BROWSER_CDP_PORT="$CDP_PORT" LOR_BROWSER_SELKIES_SOCKET="$socket" \
+  LOR_BROWSER_CONTROL_TOKEN="$control_token" \
+  LOR_BROWSER_WATCH_TOKEN="$watch_token" \
   node /opt/lor-browser/gateway.mjs >"$DIR/logs/gateway.log" 2>&1 &
 pids+=($!)
 
@@ -87,11 +108,13 @@ rm -f "$DIR/profile/SingletonLock" "$DIR/profile/SingletonSocket" \
 
 width="${SIZE%x*}"
 height="${SIZE#*x}"
+# The gateway keeps the window the display's size as it changes.
 run_chromium() {
   # --no-sandbox: the sandbox runs as root. --test-type hides the infobar
-  # that flags it.
+  # that flags it. There is no GPU, and Chromium blocks software WebGL
+  # (SwiftShader) without --enable-unsafe-swiftshader, so WebGL pages break.
   chromium \
-    --no-sandbox --test-type \
+    --no-sandbox --test-type --enable-unsafe-swiftshader \
     --disable-dev-shm-usage \
     --no-first-run --no-default-browser-check \
     --disable-session-crashed-bubble --hide-crash-restore-bubble \
@@ -101,7 +124,6 @@ run_chromium() {
     --user-data-dir="$DIR/profile" \
     --disk-cache-size=268435456 \
     --window-position=0,0 --window-size="${width},${height}" \
-    --start-maximized \
     about:blank >>"$DIR/logs/chromium.log" 2>&1
 }
 

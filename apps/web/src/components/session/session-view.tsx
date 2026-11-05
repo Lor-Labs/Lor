@@ -152,17 +152,22 @@ function SessionConversation({
   const queryClient = useQueryClient()
   useEffect(() => {
     writeLastSession(workspaceSlug, session.id, session.channelId)
-    // Opening it reads it: the sidebar's unread state clears now, not after
-    // the read marker round trip.
-    patchSidebarSession(
-      queryClient,
-      {
-        workspaceId: session.workspaceId,
-        channelId: session.channelId,
-        sessionId: session.id,
-      },
-      { state: "idle", from: "unread" }
-    )
+    // Opening it reads it, and so does leaving it while visible: the
+    // sidebar's unread state clears now, not after the read marker round trip.
+    const markRead = () =>
+      patchSidebarSession(
+        queryClient,
+        {
+          workspaceId: session.workspaceId,
+          channelId: session.channelId,
+          sessionId: session.id,
+        },
+        { state: "idle", from: "unread" }
+      )
+    markRead()
+    return () => {
+      if (document.visibilityState === "visible") markRead()
+    }
   }, [
     workspaceSlug,
     session.id,

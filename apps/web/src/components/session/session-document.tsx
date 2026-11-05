@@ -198,9 +198,13 @@ export function SessionDocument({
   })
 
   // An open session is being read: advance its read cursor on open and on
-  // every reply that lands while it's visible. Status too, so a Lor reply
-  // finishing while open doesn't leave the sidebar row unread.
-  const markThreadRead = useMarkThreadRead(workspaceSlug, channelId)
+  // every reply that lands while it's visible, and on leave. Status too, so a
+  // Lor reply finishing while open doesn't leave the sidebar row unread.
+  const markThreadRead = useMarkThreadRead(
+    workspaceSlug,
+    channelId,
+    threadRootId
+  )
   const newestReplyKey = messages[0]
     ? `${messages[0].id}:${messages[0].status}`
     : null
