@@ -31,9 +31,9 @@ function Hero() {
       </div>
       <div className="mx-auto max-w-[1240px]">
         <div className="grid items-start gap-8 lg:grid-cols-[1.4fr_1fr] lg:gap-16">
-          <h1 className="max-w-[14ch] text-balance font-medium text-[clamp(3.25rem,6.7vw,6rem)] leading-[1.02] tracking-[-0.055em]">
-            Work with AI,
-            <span className="block text-foreground/45">together.</span>
+          <h1 className="max-w-[16ch] text-balance font-medium text-[clamp(3rem,5.6vw,5.25rem)] leading-[1.02] tracking-[-0.055em]">
+            The multiplayer runtime
+            <span className="block text-foreground/45">for your agents.</span>
           </h1>
           <div id="early-access" className="scroll-mt-8 pb-1 lg:pb-2">
             <p className="max-w-[36ch] text-pretty text-[17px] text-foreground/70 leading-relaxed md:text-lg">
