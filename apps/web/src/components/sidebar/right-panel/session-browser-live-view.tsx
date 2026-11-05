@@ -123,6 +123,8 @@ export function useSessionBrowserLive(
       rfb.viewOnly = view.role === "watch"
       rfb.focusOnClick = view.role === "control"
       rfb.background = "transparent"
+      // JPEG quality 0–9 (noVNC's default 6 left text and edges blocky).
+      rfb.qualityLevel = 8
       if (view.role === "control") detachKeys = attachBrowserKeys(screen, rfb)
       rfb.addEventListener("connect", () => {
         failures.current = 0

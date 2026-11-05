@@ -57,11 +57,15 @@ pids+=($!)
 
 # Two VNC servers on one display: the person in control gets the one that
 # takes input, watchers the -viewonly one. The gateway picks per viewer.
+# x11vnc polls every 20 ms and holds updates 20 ms by default; Chromium
+# scrolls at 60 fps (measured 2026-11-04), so both go to 5 ms, and
+# -nowait_bog stops it backing off when the whole screen changes.
+VNC_TIMING=(-wait 5 -defer 5 -nowait_bog)
 x11vnc -display "$DISPLAY" -localhost -rfbport "$VNC_PORT" -shared -forever \
-  -nopw -xkb -repeat -quiet >"$DIR/logs/x11vnc.log" 2>&1 &
+  -nopw -xkb -repeat -quiet "${VNC_TIMING[@]}" >"$DIR/logs/x11vnc.log" 2>&1 &
 pids+=($!)
 x11vnc -display "$DISPLAY" -localhost -rfbport "$WATCH_PORT" -shared -forever \
-  -nopw -viewonly -quiet >"$DIR/logs/x11vnc-watch.log" 2>&1 &
+  -nopw -viewonly -quiet "${VNC_TIMING[@]}" >"$DIR/logs/x11vnc-watch.log" 2>&1 &
 pids+=($!)
 
 mkdir -p "$DIR/viewers"

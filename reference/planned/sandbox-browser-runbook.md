@@ -534,6 +534,14 @@ Each step is a review chunk of about 300–400 lines.
       and a backdrop click close it while watching; while you drive, Esc
       goes to the page (closing the app's own dialogs), and the Shrink
       button closes it.
+  - [x] 4j smoother picture, step one (2026-11-04). Jacob: typing feels
+    fine, scrolling and page changes feel janky in production. Measured in
+    a fresh sandbox: Chromium scrolls react.dev at 60 fps with about 20% of
+    a core per process (no GPU), so the stream loses the frames. x11vnc's
+    defaults are `-wait 20 -defer 20` (from `x11vnc -help`). Both servers
+    now run `-wait 5 -defer 5 -nowait_bog`; image pushed. If that is not
+    enough: noVNC's `qualityLevel`/`compressionLevel`, then a video stream
+    spike (voxl first: H.264 over a WebSocket, no TURN; neko needs TURN).
   - [x] 4i Lor asks for the browser back (2026-11-04, Jacob: Lor must be
     able to take it back; no second browser):
     - `lor-browser`: a command that needs control, while a person has it,
