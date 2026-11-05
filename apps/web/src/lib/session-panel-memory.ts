@@ -20,13 +20,34 @@ const key = (userId: string, sessionId: string) =>
 const SENSITIVE_PARAM =
   /token|secret|password|passwd|key|auth|code|session|sig/i
 
+function dropSensitive(params: URLSearchParams) {
+  for (const name of [...params.keys()]) {
+    if (SENSITIVE_PARAM.test(name)) params.delete(name)
+  }
+}
+
+// Hash routes (`#/dashboard`) are kept; credentials in the fragment are not
+// (`#access_token=…`, `#/callback?code=…`).
+function safeHash(hash: string): string {
+  const body = hash.slice(1)
+  if (!body) return ""
+  const q = body.indexOf("?")
+  const onlyParams = q === -1 && body.includes("=")
+  const route = q !== -1 ? body.slice(0, q) : onlyParams ? "" : body
+  const params = new URLSearchParams(
+    q !== -1 ? body.slice(q + 1) : onlyParams ? body : ""
+  )
+  dropSensitive(params)
+  const query = params.toString()
+  const kept = query ? (route ? `${route}?${query}` : query) : route
+  return kept ? `#${kept}` : ""
+}
+
 function safePath(path: string): string {
   try {
     const url = new URL(path, "http://sandbox")
-    for (const name of [...url.searchParams.keys()]) {
-      if (SENSITIVE_PARAM.test(name)) url.searchParams.delete(name)
-    }
-    return `${url.pathname}${url.search}`
+    dropSensitive(url.searchParams)
+    return `${url.pathname}${url.search}${safeHash(url.hash)}`
   } catch {
     return "/"
   }

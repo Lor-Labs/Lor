@@ -137,6 +137,17 @@ export function SessionBrowserPanel({
   const [address, setAddress] = useState(() =>
     lastTarget ? addressOf(lastTarget) : ""
   )
+  // The person can still be loading on the first render: restore once they
+  // are known, unless a page was opened meanwhile.
+  const hydrated = useRef(Boolean(userId))
+  useEffect(() => {
+    if (hydrated.current || !userId) return
+    hydrated.current = true
+    const stored = readSessionPanel(userId, sessionId).browser
+    if (!stored) return
+    setLastTarget((current) => current ?? stored)
+    setAddress((current) => current || addressOf(stored))
+  }, [userId, sessionId])
   const [src, setSrc] = useState<string | null>(null)
   const [reloads, setReloads] = useState(0)
   // From a reload or a new page until the frame's load event.
@@ -253,6 +264,9 @@ export function SessionBrowserPanel({
     onError: (err) => toast.error(err.message),
   })
 
+  // Set by any open, so the remembered page never reopens over it.
+  const reopened = useRef(false)
+
   const openOutside = useMutation({
     mutationFn: (target: Target) => previewUrl(sessionId, target),
     onSuccess: (url) => openExternal(url),
@@ -260,6 +274,7 @@ export function SessionBrowserPanel({
   })
 
   const go = (target: Target) => {
+    reopened.current = true
     setAddress(addressOf(target))
     setLastTarget(target)
     writeSessionPanel(userId, sessionId, { browser: target })
@@ -278,13 +293,12 @@ export function SessionBrowserPanel({
 
   // Live mode's browser keeps its page in the sandbox; the preview frame
   // reloads the remembered one.
-  const reopened = useRef(false)
   useEffect(() => {
     if (reopened.current || src || !lastTarget) return
     if (ports.data?.available !== true || !live.unavailable) return
     reopened.current = true
     open.mutate(lastTarget)
-  }, [ports.data?.available, live.unavailable])
+  }, [ports.data?.available, live.unavailable, lastTarget])
 
   useEffect(() => {
     if (!opening) return
