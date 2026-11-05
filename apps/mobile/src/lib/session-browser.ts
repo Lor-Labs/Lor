@@ -3,7 +3,7 @@ import { Alert } from "react-native"
 import { api, responseMessage } from "@/lib/api"
 
 // A code session's browser on the phone (reference/planned/sandbox-browser-runbook.md
-// §4): noVNC's own page from the sandbox in an in-app browser. Driving takes
+// §4): the live view's page from the sandbox in an in-app browser. Driving takes
 // control first and hands it back when the browser closes. iOS reports the
 // close; elsewhere the sandbox's gateway hands control back 2 minutes after
 // the view goes away.
@@ -32,7 +32,7 @@ export async function openSessionBrowser(sessionId: string, drive: boolean) {
       )
       return
     }
-    const result = await WebBrowser.openBrowserAsync(view.pageUrl)
+    const result = await WebBrowser.openBrowserAsync(view.url)
     // iOS: "cancel" when the person closes it, "dismiss" when code does.
     if (drive && (result.type === "cancel" || result.type === "dismiss")) {
       await api.v1.sessions[":sessionId"].browser.control

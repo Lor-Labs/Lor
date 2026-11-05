@@ -1680,8 +1680,6 @@ export const openSessionBrowser: AppRouteHandler<
         {
           status: "ready" as const,
           url: result.url,
-          pageUrl: result.pageUrl,
-          expiresAt: result.expiresAt,
           role: result.role,
           controller: result.controller,
         },
