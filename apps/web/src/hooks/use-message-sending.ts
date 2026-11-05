@@ -1,6 +1,7 @@
 import { LOR_USER_ID } from "@repo/db/constants"
 import {
   type RealtimeMessageEmbedsUpdated,
+  type SendMessageAck,
   type SendMessagePayload,
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
@@ -202,6 +203,8 @@ export function useMessageSending({
         // Cmd+Enter: a session start stays where it was sent.
         stay?: boolean
         onFailed?: (error: string) => void
+        // Fail the send when the server hasn't answered by then.
+        ackTimeoutMs?: number
       }
     ) => {
       if (!socket?.connected || !currentUser) return undefined
@@ -279,72 +282,85 @@ export function useMessageSending({
       const referencedMessageId =
         options?.referencedMessage?.id ?? options?.contextMessageId
       const attachments = options?.attachments ?? undefined
-      socket.emit(
-        "message:send",
-        {
-          channelId,
-          content: content || undefined,
-          nonce,
-          referencedMessageId,
-          threadRootId,
-          attachments,
-          toPeople: options?.toPeople || undefined,
-          startSession: options?.startSession || undefined,
-          code,
-          harness,
-          claudeCodeMode: options?.claudeCodeMode,
-          model: options?.model,
-          effort: options?.effort,
-          fast: options?.fast || undefined,
-          continueFrom: source?.id,
-          newSession: start
-            ? { id: start.id, threadRootId: start.threadRootId }
-            : undefined,
-        },
-        (result) => {
-          if (cancelInFlightRefetch()) refetchOwed.current = true
-          pendingNonces.current.delete(nonce)
-          if (result.ok) {
-            // The server moved the message into a new Lor session (`@Lor` in
-            // chat or a human thread), so it leaves this list.
-            const movedToSession =
-              result.message.threadRootId !== (threadRootId ?? null)
-            if (start) {
-              if (movedToSession && result.session) {
-                sessionStartRef.current?.started(start, result.session)
-              } else {
-                // The server posted it here instead; the list refetches.
-                sessionStartRef.current?.failed(start)
-                refetchOwed.current = true
-              }
+      const payload: SendMessagePayload = {
+        channelId,
+        content: content || undefined,
+        nonce,
+        referencedMessageId,
+        threadRootId,
+        attachments,
+        toPeople: options?.toPeople || undefined,
+        startSession: options?.startSession || undefined,
+        code,
+        harness,
+        claudeCodeMode: options?.claudeCodeMode,
+        model: options?.model,
+        effort: options?.effort,
+        fast: options?.fast || undefined,
+        continueFrom: source?.id,
+        newSession: start
+          ? { id: start.id, threadRootId: start.threadRootId }
+          : undefined,
+      }
+      const onAck: SendMessageAck = (result) => {
+        if (cancelInFlightRefetch()) refetchOwed.current = true
+        pendingNonces.current.delete(nonce)
+        if (result.ok) {
+          // The server moved the message into a new Lor session (`@Lor` in
+          // chat or a human thread), so it leaves this list.
+          const movedToSession =
+            result.message.threadRootId !== (threadRootId ?? null)
+          if (start) {
+            if (movedToSession && result.session) {
+              sessionStartRef.current?.started(start, result.session)
+            } else {
+              // The server posted it here instead; the list refetches.
+              sessionStartRef.current?.failed(start)
+              refetchOwed.current = true
             }
-            updateMessagesInCache((messages) =>
-              movedToSession
-                ? messages.filter((message) => message.id !== nonce)
-                : messages.map((message) =>
-                    message.id === nonce
-                      ? realtimeMessageToMessage(result.message)
-                      : message
-                  )
-            )
-          } else {
-            console.error("[chat] send failed:", result.error)
-            updateMessagesInCache((messages) =>
-              messages.filter((message) => message.id !== nonce)
-            )
-            onSendFailed?.(nonce)
-            options?.onFailed?.(result.error)
-            if (start) sessionStartRef.current?.failed(start)
           }
-          if (refetchOwed.current && pendingNonces.current.size === 0) {
-            refetchOwed.current = false
-            void queryClient.invalidateQueries({
-              queryKey: cacheKey,
-              exact: true,
-            })
-          }
+          updateMessagesInCache((messages) =>
+            movedToSession
+              ? messages.filter((message) => message.id !== nonce)
+              : messages.map((message) =>
+                  message.id === nonce
+                    ? realtimeMessageToMessage(result.message)
+                    : message
+                )
+          )
+        } else {
+          console.error("[chat] send failed:", result.error)
+          updateMessagesInCache((messages) =>
+            messages.filter((message) => message.id !== nonce)
+          )
+          onSendFailed?.(nonce)
+          options?.onFailed?.(result.error)
+          if (start) sessionStartRef.current?.failed(start)
         }
-      )
+        if (refetchOwed.current && pendingNonces.current.size === 0) {
+          refetchOwed.current = false
+          void queryClient.invalidateQueries({
+            queryKey: cacheKey,
+            exact: true,
+          })
+        }
+      }
+      if (options?.ackTimeoutMs) {
+        // An unanswered send fails, but it may have landed: the list
+        // refetches so it shows before the person sends it again.
+        void socket
+          .timeout(options.ackTimeoutMs)
+          .emitWithAck("message:send", payload)
+          .then(onAck, () => {
+            refetchOwed.current = true
+            onAck({
+              ok: false,
+              error: "Couldn't confirm it was sent. Check before sending again",
+            })
+          })
+      } else {
+        socket.emit("message:send", payload, onAck)
+      }
       // The optimistic message's id until the created echo — callers use it
       // to mirror the send into other optimistic state (e.g. the run queue).
       return nonce

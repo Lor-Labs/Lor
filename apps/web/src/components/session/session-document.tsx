@@ -90,6 +90,8 @@ import {
 } from "@/lib/repo-file-reference"
 
 const CHANNEL_CONTEXT = { type: "channel" as const, name: "thread" }
+// A panel's "Ask Lor" has no draft to resend from: an unanswered send fails.
+const PANEL_SEND_ACK_TIMEOUT_MS = 12_000
 
 // A Lor session in the main area: its thread read top-down like a document,
 // with the input line as the document's last line and the composer's tools
@@ -505,7 +507,13 @@ export function SessionDocument({
     return nonce
   }
   useProvideSessionSend(threadRootId, (content, onFailed) =>
-    Boolean(send(content, { mentions: [], onFailed }))
+    Boolean(
+      send(content, {
+        mentions: [],
+        onFailed,
+        ackTimeoutMs: PANEL_SEND_ACK_TIMEOUT_MS,
+      })
+    )
   )
 
   // The heading renders once the oldest page is loaded; until then, and once
