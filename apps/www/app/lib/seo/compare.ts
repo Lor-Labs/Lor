@@ -688,7 +688,7 @@ const chatgptBusiness: SeoPage = {
     {
       question: "Can teammates share ChatGPT chats?",
       answer:
-        "Teams in ChatGPT can share projects, workspace agents and recurring team tasks. Personal chats and app connections stay with the person who made them.",
+        "Yes, by link. ChatGPT Business chats are private by default, but a member can share a conversation through a link that only members of the same workspace can open. A teammate who continues it gets their own private copy. Teams in ChatGPT can also share projects, workspace agents and recurring team tasks. App connections stay with the person who made them.",
     },
     {
       question: "Can I use Lor and ChatGPT together?",
@@ -716,6 +716,10 @@ const chatgptBusiness: SeoPage = {
     {
       label: "ChatGPT workspace agents",
       url: "https://help.openai.com/en/articles/20001143-chatgpt-workspace-agents-for-enterprise-and-business",
+    },
+    {
+      label: "Sharing conversations and scheduled tasks in ChatGPT",
+      url: "https://help.openai.com/en/articles/7925741-chatgpt-shared-links-faq",
     },
     {
       label: "ChatGPT Business release notes",
