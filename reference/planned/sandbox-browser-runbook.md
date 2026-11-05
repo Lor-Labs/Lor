@@ -569,9 +569,14 @@ Each step is a review chunk of about 300–400 lines.
       build target are gone. The phone opens the same URL.
     - Sandboxes from images before this one report `unavailable` (the
       panel's port preview), checked by `/usr/bin/selkies`.
-    - QA owed: push the image, then two viewers in the app, Safari, the
-      phone (Selkies' touch input; typing on iOS unverified with the
-      sidebar off), CPU under scrolling, Lor screenshots after a resize.
+    - Fixed after the first prod deploy (2026-11-05): the desktop app
+      showed nothing, since Selkies' `frame-ancestors *` doesn't cover
+      `tauri://localhost`; the gateway drops that header from the page.
+      Firefox couldn't decode the H.264 stream; `--encoder=h264enc,jpeg`
+      lets it fall back to JPEG. Both checked by Jacob, image pushed.
+    - QA owed: two viewers in the app, Safari, the phone (Selkies' touch
+      input; typing on iOS unverified with the sidebar off), CPU under
+      scrolling, Lor screenshots after a resize.
   - [x] 4j smoother picture, step one (2026-11-04). Jacob: typing feels
     fine, scrolling and page changes feel janky in production. Measured in
     a fresh sandbox: Chromium scrolls react.dev at 60 fps with about 20% of

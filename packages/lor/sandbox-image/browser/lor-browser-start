@@ -70,13 +70,15 @@ rm -f "$socket"
   printf '{"%s":{"role":"controller"},"%s":{"role":"viewer"}}' \
     "$control_token" "$watch_token" >"$DIR/selkies-tokens.json"
 )
-# H.264 in software with 4:4:4 colour; --video-paintover-crf sharpens a
-# still screen. Everything but video and input is off.
+# H.264 in software; --video-paintover-crf sharpens a still screen. 4:2:0,
+# not 4:4:4: watchers share the controller's stream and can't fall back,
+# and Firefox can't decode 4:4:4 H.264. JPEG is the controller's fallback
+# for browsers without H.264. Everything but video and input is off.
 XDG_RUNTIME_DIR=/tmp selkies --unix-socket="$socket" --mode=websockets \
   --master-token="$(token)" --tokens-file="$DIR/selkies-tokens.json" \
   --enable-basic-auth=false --enable-sharing=false --frame-ancestors='*' \
-  --encoder=h264enc --use-cpu=true --framerate=60 --rate-control-mode=crf \
-  --video-crf=23 --video-fullcolor=true --video-paintover-crf=8 \
+  --encoder=h264enc,jpeg --use-cpu=true --framerate=60 --rate-control-mode=crf \
+  --video-crf=23 --video-fullcolor=false --video-paintover-crf=8 \
   --enable-resize=true --mac-cmd-as-ctrl=true --ui-show-sidebar=false \
   --audio-enabled=false --microphone-enabled=false --webcam-enabled=false \
   --gamepad-enabled=false --file-transfers=none --printing-enabled=false \

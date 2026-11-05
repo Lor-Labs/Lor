@@ -239,7 +239,14 @@ function proxyHttp(req, res, grant, path) {
         const html = Buffer.concat(chunks)
           .toString("utf8")
           .replace("<head>", '<head><script src="__lor/bridge.js"></script>')
-        const { "content-length": _length, ...rest } = up.headers
+        // Selkies' frame-ancestors `*` covers only http(s) pages, so the
+        // desktop app (tauri://localhost) couldn't frame it; the grant in
+        // the path is the credential.
+        const {
+          "content-length": _length,
+          "content-security-policy": _csp,
+          ...rest
+        } = up.headers
         res.writeHead(200, { ...rest, "cache-control": "no-store" })
         res.end(html)
       })
