@@ -93,9 +93,10 @@ width="${SIZE%x*}"
 height="${SIZE#*x}"
 run_chromium() {
   # --no-sandbox: the sandbox runs as root. --test-type hides the infobar
-  # that flags it.
+  # that flags it. There is no GPU, and Chromium blocks software WebGL
+  # (SwiftShader) without --enable-unsafe-swiftshader, so WebGL pages break.
   chromium \
-    --no-sandbox --test-type \
+    --no-sandbox --test-type --enable-unsafe-swiftshader \
     --disable-dev-shm-usage \
     --no-first-run --no-default-browser-check \
     --disable-session-crashed-bubble --hide-crash-restore-bubble \
