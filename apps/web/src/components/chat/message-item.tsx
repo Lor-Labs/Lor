@@ -35,13 +35,10 @@ import { LorFailureNotice } from "@/components/chat/lor-failure-notice"
 import { LorMessageBody } from "@/components/chat/lor-message-body"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
 import { LorReplyActions } from "@/components/chat/lor-reply-actions"
-import {
-  isAttioRecording,
-  MeetingRecordingCard,
-} from "@/components/chat/meeting-recording-card"
 import { MessageActionBar } from "@/components/chat/message-action-bar"
 import { AttachmentGrid } from "@/components/chat/message-attachment"
 import { MessageEditInput } from "@/components/chat/message-edit-input"
+import { MessageEmbeds } from "@/components/chat/message-embeds"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { PlanCard } from "@/components/chat/plan-card"
 import { ProposalCard } from "@/components/chat/proposal-card"
@@ -913,22 +910,11 @@ export const MessageItem = memo(function MessageItem({
             />
           )}
           {message.embeds.length > 0 && (
-            <div className="flex flex-col gap-1">
-              {message.embeds.map((embed, index) =>
-                isAttioRecording(embed) ? (
-                  <MeetingRecordingCard
-                    // recordingId keeps card state (transcript expand) pinned
-                    // to the recording if embeds reorder; eventLabel-matched
-                    // embeds lack it.
-                    key={embed.meeting?.recordingId ?? `${embed.url}-${index}`}
-                    embed={embed}
-                    message={message}
-                  />
-                ) : (
-                  <EmbedCard key={`${embed.url}-${index}`} embed={embed} />
-                )
-              )}
-            </div>
+            <MessageEmbeds
+              message={message}
+              isOwnMessage={isOwnMessage}
+              readOnly={readOnly}
+            />
           )}
           {message.reactions.length > 0 && (
             <ReactionPills

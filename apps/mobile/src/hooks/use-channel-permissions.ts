@@ -7,6 +7,7 @@ import { authClient } from "@/lib/auth-client"
 type ChannelPermissions = {
   canCreateChannel: boolean
   canDeleteChannel: boolean
+  canDeleteOthersMessages: boolean
   canPinMessages: boolean
   canUpdateChannel: boolean
   isLoading: boolean
@@ -15,6 +16,7 @@ type ChannelPermissions = {
 const EMPTY_PERMISSIONS: ChannelPermissions = {
   canCreateChannel: false,
   canDeleteChannel: false,
+  canDeleteOthersMessages: false,
   canPinMessages: false,
   canUpdateChannel: false,
   isLoading: false,
@@ -48,6 +50,9 @@ export function useChannelPermissions(workspaceId?: string) {
       }),
       canDeleteChannel: workspaceAuthorityHasPermissions(authority, {
         channel: ["delete"],
+      }),
+      canDeleteOthersMessages: workspaceAuthorityHasPermissions(authority, {
+        message: ["delete"],
       }),
       canPinMessages: workspaceAuthorityHasPermissions(authority, {
         message: ["pin"],

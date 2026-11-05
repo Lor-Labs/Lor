@@ -42,6 +42,8 @@ export function MessageList({
   onPressAuthor,
   onToggleReaction,
   onTogglePin,
+  onRemoveEmbed,
+  canRemoveOthersEmbeds = false,
   currentUserId,
   editingMessageId,
   replyingToId,
@@ -67,6 +69,9 @@ export function MessageList({
   onPressAuthor?: (message: Message) => void
   onToggleReaction?: (messageId: string, emoji: string) => void
   onTogglePin?: (message: Message) => void
+  onRemoveEmbed?: (message: Message, url: string) => void
+  // "Delete others' messages" also removes others' link previews.
+  canRemoveOthersEmbeds?: boolean
   currentUserId?: string
   editingMessageId?: string | null
   replyingToId?: string | null
@@ -407,6 +412,13 @@ export function MessageList({
           onToggleReaction?.(message.id, emoji)
         }
         onTogglePin={onTogglePin}
+        onRemoveEmbed={
+          selectedMessage &&
+          !isOptimisticMessage(selectedMessage) &&
+          (canRemoveOthersEmbeds || currentUserId === selectedMessage.authorId)
+            ? onRemoveEmbed
+            : undefined
+        }
       />
     </>
   )

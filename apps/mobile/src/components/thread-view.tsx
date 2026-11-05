@@ -51,8 +51,8 @@ import {
 } from "@/hooks/use-approvals"
 import { useAutoMarkRead } from "@/hooks/use-auto-mark-read"
 import { useBetaAvailability } from "@/hooks/use-beta"
-import { useCanPinMessages } from "@/hooks/use-can-pin-messages"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
+import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { useMarkThreadRead } from "@/hooks/use-mark-thread-read"
 import { useOpenDM } from "@/hooks/use-open-dm"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
@@ -73,6 +73,7 @@ import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-can
 import type { AgentSession, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 import { HARNESS_LABELS } from "@/lib/harness"
+import { confirmRemoveEmbed } from "@/lib/remove-embed"
 
 // A call's chat: Summary (ended calls only), Chat, Transcript.
 export type CallTab = "summary" | "chat" | "transcript"
@@ -127,7 +128,9 @@ export function ThreadView({
   const { workspace } = useWorkspace()
   const { call } = useVoiceCall()
   const { data: session } = authClient.useSession()
-  const canPinMessages = useCanPinMessages(workspace?.id)
+  const { canPinMessages, canDeleteOthersMessages } = useChannelPermissions(
+    workspace?.id
+  )
   const channelState = useChannelDetail({
     workspaceSlug: workspace?.slug ?? "",
     channelId: channelId ?? "",
@@ -837,6 +840,18 @@ export function ThreadView({
                     }
                   : undefined
               }
+              onRemoveEmbed={
+                archivedBar
+                  ? undefined
+                  : (message, url) =>
+                      confirmRemoveEmbed({
+                        workspaceSlug: workspace.slug,
+                        channelId: message.channelId,
+                        messageId: message.id,
+                        url,
+                      })
+              }
+              canRemoveOthersEmbeds={canDeleteOthersMessages}
               paginationError={thread.paginationError}
               root={thread.root}
               replyingToId={replyingTo?.id}

@@ -6,6 +6,7 @@ import MessageCircleReplyIcon from "@hugeicons/core-free-icons/MessageCircleRepl
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
 import PinOffIcon from "@hugeicons/core-free-icons/PinOffIcon"
 import ThreadIcon from "@hugeicons/core-free-icons/ThreadIcon"
+import Unlink02Icon from "@hugeicons/core-free-icons/Unlink02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import * as Clipboard from "expo-clipboard"
 import { useThemeColor } from "heroui-native/hooks"
@@ -30,6 +31,7 @@ export function MessageActionMenu({
   onDelete,
   onToggleReaction,
   onTogglePin,
+  onRemoveEmbed,
 }: {
   message: Message | null
   onOpenChange: (isOpen: boolean) => void
@@ -44,6 +46,8 @@ export function MessageActionMenu({
   onDelete?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
   onTogglePin?: (message: Message) => void
+  // Unset unless the person may remove this message's link previews.
+  onRemoveEmbed?: (message: Message, url: string) => void
 }) {
   const [foreground, accent, danger] = useThemeColor([
     "foreground",
@@ -53,6 +57,11 @@ export function MessageActionMenu({
   const threadActionLabel = message?.threadSummary
     ? "Open thread"
     : "Reply in thread"
+  const previewUrls = onRemoveEmbed
+    ? (message?.embeds ?? []).flatMap((embed) =>
+        embed.type === "link" && embed.url ? [embed.url] : []
+      )
+    : []
 
   return (
     <Menu
@@ -196,24 +205,58 @@ export function MessageActionMenu({
             </View>
           ) : null}
 
-          {message && onDelete ? (
+          {message && (onDelete || previewUrls.length > 0) ? (
             <View className="overflow-hidden rounded-lor-lg bg-surface-secondary">
-              <ActionRow
-                danger
-                icon={Delete02Icon}
-                label="Delete message"
-                onPress={() => {
-                  onOpenChange(false)
-                  onDelete(message)
-                }}
-                tint={danger}
-              />
+              {previewUrls.map((url, index) => (
+                <View key={url}>
+                  {index > 0 ? (
+                    <View className="ml-14 h-px bg-separator" />
+                  ) : null}
+                  <ActionRow
+                    danger
+                    icon={Unlink02Icon}
+                    label={
+                      previewUrls.length > 1
+                        ? `Remove preview · ${previewHost(url)}`
+                        : "Remove preview"
+                    }
+                    onPress={() => {
+                      onOpenChange(false)
+                      onRemoveEmbed?.(message, url)
+                    }}
+                    tint={danger}
+                  />
+                </View>
+              ))}
+              {previewUrls.length > 0 && onDelete ? (
+                <View className="ml-14 h-px bg-separator" />
+              ) : null}
+              {onDelete ? (
+                <ActionRow
+                  danger
+                  icon={Delete02Icon}
+                  label="Delete message"
+                  onPress={() => {
+                    onOpenChange(false)
+                    onDelete(message)
+                  }}
+                  tint={danger}
+                />
+              ) : null}
             </View>
           ) : null}
         </Menu.Content>
       </Menu.Portal>
     </Menu>
   )
+}
+
+function previewHost(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "")
+  } catch {
+    return url
+  }
 }
 
 function ActionRow({

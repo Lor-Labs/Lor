@@ -44,6 +44,7 @@ import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-can
 import type { ChannelSearchResult, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
+import { confirmRemoveEmbed } from "@/lib/remove-embed"
 
 export default function ChannelRoute() {
   const { workspace } = useWorkspace()
@@ -474,6 +475,18 @@ function ChannelScreen() {
                     }
                   : undefined
               }
+              onRemoveEmbed={
+                workspace
+                  ? (message, url) =>
+                      confirmRemoveEmbed({
+                        workspaceSlug: workspace.slug,
+                        channelId: message.channelId,
+                        messageId: message.id,
+                        url,
+                      })
+                  : undefined
+              }
+              canRemoveOthersEmbeds={permissions.canDeleteOthersMessages}
               replyingToId={replyingTo?.id}
               resolveUserName={resolveUserName}
             />
