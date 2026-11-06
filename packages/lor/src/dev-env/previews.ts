@@ -22,8 +22,10 @@ const RELAY_MARKER = "lor-relay"
 export const HIDDEN_PORTS = [8080, 8790, TERMINAL_PORT, ...BROWSER_PORTS]
 // The provider's own services: Blaxel's sandbox API (also on 49152, which
 // kept the port list from ever being empty), and on a Boat VM its system
-// daemons, desktop streamer (sunshine) and agent services (ascii-*); and
-// agent-browser's daemon behind lor-browser.
+// daemons and desktop streamer (sunshine); and agent-browser's daemon behind
+// lor-browser. Boat's own services (agent server, moonlight-web's
+// "web-server") are known by where they run from, not a name a dev server
+// could share.
 const HIDDEN_PROCESSES = [
   "sandbox-api",
   "sshd",
@@ -31,9 +33,9 @@ const HIDDEN_PROCESSES = [
   "cupsd",
   "epmd",
   "sunshine",
-  "web-server",
 ]
-const HIDDEN_PROCESS_PREFIXES = ["ascii-", "agent-browser"]
+const HIDDEN_PROCESS_PREFIXES = ["agent-browser"]
+const HIDDEN_EXE = /^\/(opt|var\/lib)\/ascii-/
 
 // Private on Lor's own preview domain (the cookie is same-site with the web
 // app); public on Blaxel's, where a private preview's cookie would be a
@@ -89,7 +91,9 @@ for (const entry of ports.values()) {
     try { cmdline = fs.readFileSync("/proc/" + pid + "/cmdline", "utf8") } catch {}
   }
   if (cmdline.includes("${RELAY_MARKER}")) continue
-  if (${JSON.stringify(HIDDEN_PROCESSES)}.includes(name) || ${JSON.stringify(HIDDEN_PROCESS_PREFIXES)}.some((p) => (name ?? "").startsWith(p))) continue
+  let exe = ""
+  if (pid) { try { exe = fs.readlinkSync("/proc/" + pid + "/exe") } catch {} }
+  if (${JSON.stringify(HIDDEN_PROCESSES)}.includes(name) || ${JSON.stringify(HIDDEN_PROCESS_PREFIXES)}.some((p) => (name ?? "").startsWith(p)) || ${HIDDEN_EXE}.test(exe)) continue
   out.push({ port: entry.port, loopbackOnly: entry.loopbackOnly, process: name })
 }
 out.sort((a, b) => a.port - b.port)
