@@ -414,7 +414,10 @@ function createSlashCommandSuggestion(
     items: ({ query, editor }) => {
       // The harness takes its commands only as the message's first word.
       const slashAt = editor.state.selection.from - query.length - 1
-      const atStart = !editor.state.doc.textBetween(0, slashAt, "\n").trim()
+      // A leaf placeholder so a mention or chip before the slash counts.
+      const atStart = !editor.state.doc
+        .textBetween(0, slashAt, "\n", "\ufffc")
+        .trim()
       const results = [
         ...(atStart ? getHarnessCommands() : []),
         ...getCommands(),

@@ -3991,8 +3991,15 @@ export async function respond(
                   : deadline.aborted
                     ? "budget_wall_clock"
                     : undefined
-      // Commands like /compact answer with no text; say what ran.
-      if (command && commandText && !turn.aborted && !text.trim()) {
+      // Commands like /compact answer with no text; say what ran. A turn that
+      // paused (approvals) or stopped has its own reply.
+      if (
+        command &&
+        commandText &&
+        !turn.aborted &&
+        !stoppedFor &&
+        !text.trim()
+      ) {
         const name = commandText.trim().split(/\s/)[0]
         if (harnessKind === "codex" && command.kind === "compact") {
           compactionMarker("ok")
