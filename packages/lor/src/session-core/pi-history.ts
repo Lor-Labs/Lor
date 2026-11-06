@@ -28,7 +28,7 @@ type Rec = Record<string, unknown>
 const isRec = (value: unknown): value is Rec =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-function jsonRecord(text: string): Rec | null {
+export function jsonRecord(text: string): Rec | null {
   if (!text.trim()) return null
   try {
     const value: unknown = JSON.parse(text)
@@ -95,8 +95,16 @@ export function piToolCalls(chunks: PiLogChunk[]): PiToolCallRecord[] {
     })
   }
 
-  // Saves append whole lines, but a line split across chunks still counts
-  // for the chunk that completes it.
+  readLogLines(chunks, read)
+  return records
+}
+
+// Saves append whole lines, but a line split across chunks still counts for
+// the chunk that completes it.
+export function readLogLines(
+  chunks: PiLogChunk[],
+  read: (line: string, runId: string | null) => void
+): void {
   let partial = ""
   for (const chunk of chunks) {
     const lines = `${partial}${chunk.content}`.split("\n")
@@ -104,5 +112,4 @@ export function piToolCalls(chunks: PiLogChunk[]): PiToolCallRecord[] {
     for (const line of lines) read(line, chunk.runId)
   }
   if (partial) read(partial, chunks.at(-1)?.runId ?? null)
-  return records
 }

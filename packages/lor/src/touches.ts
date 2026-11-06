@@ -17,7 +17,7 @@ import {
   EMPTY_LOR_RUN_SCOPE,
   resolveLorRunScope,
 } from "@repo/db/queries/channel-access"
-import type { TouchAction, TouchKind } from "@repo/db/schema"
+import type { HarnessKind, TouchAction, TouchKind } from "@repo/db/schema"
 import { pageNodeId } from "./brain"
 import {
   classifyToken,
@@ -32,7 +32,13 @@ import {
   type SearchFilters,
 } from "./retrieval"
 import { deniedReason } from "./sandbox/pi-events"
-import { type PiToolCallRecord, piToolCalls } from "./session-core/pi-history"
+import { claudeToolCalls } from "./session-core/claude-history"
+import { codexToolCalls } from "./session-core/codex-history"
+import {
+  type PiLogChunk,
+  type PiToolCallRecord,
+  piToolCalls,
+} from "./session-core/pi-history"
 
 // What a session's run touched, recorded after the run persists: tool calls,
 // citations in the reply, and the chat it started from. No model call.
@@ -257,8 +263,19 @@ function touchesForCall(call: ToolCall): (Touch | BrainPathTouch | null)[] {
 
 type ToolCall = { toolName: string; input: Rec; output: Rec }
 
-// The run's tool calls from the session's saved Pi log, without failed or
-// refused calls. Text results (Pi's built-ins, MCP) carry no typed fields.
+// Each harness saves its own log format; a new harness does not compile until
+// it has a reader.
+const TOOL_CALL_READERS: Record<
+  HarnessKind,
+  (chunks: PiLogChunk[]) => PiToolCallRecord[]
+> = {
+  pi: piToolCalls,
+  claude_code: claudeToolCalls,
+  codex: codexToolCalls,
+}
+
+// The run's tool calls from the session's saved harness log, without failed
+// or refused calls. Text results (built-in tools, MCP) carry no typed fields.
 async function runToolCalls(
   sessionId: string,
   runId: string
@@ -267,6 +284,7 @@ async function runToolCalls(
     .select({
       content: schema.harnessLog.content,
       runId: schema.harnessLog.runId,
+      kind: schema.harnessState.kind,
     })
     .from(schema.harnessLog)
     .innerJoin(
@@ -275,7 +293,9 @@ async function runToolCalls(
     )
     .where(eq(schema.harnessState.sessionId, sessionId))
     .orderBy(asc(schema.harnessLog.seq))
-  return piToolCalls(chunks).filter(
+  const kind = chunks[0]?.kind
+  const calls = kind ? TOOL_CALL_READERS[kind](chunks) : []
+  return calls.filter(
     (call) =>
       call.runId === runId &&
       !call.isError &&

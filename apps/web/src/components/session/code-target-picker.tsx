@@ -33,6 +33,10 @@ const MODE_KEY = "lor:new-session-mode"
 const repoKey = (workspaceSlug: string) => `lor:code-repo:${workspaceSlug}`
 const branchKey = (workspaceSlug: string, repo: string) =>
   `lor:code-branch:${workspaceSlug}:${repo}`
+// "off" once the person picks an existing branch; unset or "on": each new
+// session gets its own lor/ branch (LOR-127).
+const autoBranchKey = (workspaceSlug: string, repo: string) =>
+  `lor:code-auto-branch:${workspaceSlug}:${repo}`
 const SEARCH_DEBOUNCE_MS = 200
 const REPOS_STALE_MS = 5 * 60 * 1000
 const BRANCHES_STALE_MS = 30 * 1000
@@ -158,6 +162,8 @@ export function useCodeTarget({
     branch: string | null
     // A branch the session makes from `branch` at its start.
     newBranch?: string
+    // The server names the new branch (lor/<title>-<id>); unset: as stored.
+    autoBranch?: boolean
   } | null>(null)
   const repos = useCodeRepos(workspaceSlug, channelId, enabled)
   const list = repos.data?.available ? repos.data.repos : []
@@ -185,15 +191,14 @@ export function useCodeTarget({
   const checking = Boolean(stored) && storedCheck.isPending
   const own = picked?.repo === repo ? picked : null
   const newBranch = own?.newBranch ?? null
-  // With a new branch, `branch` is its base: the repo's default branch until
-  // one is picked in "from".
+  const autoBranch =
+    !newBranch &&
+    (own?.autoBranch ??
+      (repo ? readStored(autoBranchKey(workspaceSlug, repo)) !== "off" : true))
+  // With a new branch, `branch` is its base: the person's last branch for the
+  // repo, else its default, until one is picked in "from".
   const branch =
-    own?.branch ??
-    (newBranch
-      ? defaultBranch
-      : checking
-        ? null
-        : (remembered ?? defaultBranch))
+    own?.branch ?? (checking ? null : (remembered ?? defaultBranch))
   const status = repos.isPending
     ? "loading"
     : repos.isError
@@ -210,10 +215,19 @@ export function useCodeTarget({
     repo,
     branch,
     newBranch,
+    autoBranch,
     defaultBranch,
     target:
       repo && branch
-        ? { repo, branch, ...(newBranch ? { newBranch } : {}) }
+        ? {
+            repo,
+            branch,
+            ...(newBranch
+              ? { newBranch }
+              : autoBranch
+                ? { autoBranch: true }
+                : {}),
+          }
         : null,
     pickRepo: (next: string) => {
       setPicked({ repo: next, branch: null })
@@ -221,15 +235,28 @@ export function useCodeTarget({
     },
     pickBranch: (next: string) => {
       if (!repo) return
-      setPicked({ repo, branch: next })
+      setPicked({ repo, branch: next, autoBranch: false })
       writeStored(branchKey(workspaceSlug, repo), next)
+      writeStored(autoBranchKey(workspaceSlug, repo), "off")
+    },
+    pickAutoBranch: () => {
+      if (!repo) return
+      setPicked({ repo, branch: own?.branch ?? null, autoBranch: true })
+      writeStored(autoBranchKey(workspaceSlug, repo), "on")
     },
     // Not remembered: it isn't on GitHub until the session's first push.
     createBranch: (name: string) => {
       if (repo) setPicked({ repo, branch: null, newBranch: name })
     },
+    // Remembered: the next new branch starts from it too.
     pickBase: (next: string) => {
-      if (repo && newBranch) setPicked({ repo, branch: next, newBranch })
+      if (!repo || !(newBranch || autoBranch)) return
+      setPicked({
+        repo,
+        branch: next,
+        ...(newBranch ? { newBranch } : { autoBranch: true }),
+      })
+      writeStored(branchKey(workspaceSlug, repo), next)
     },
   }
 }
@@ -275,14 +302,18 @@ export function CodeTargetPicker({
             workspaceSlug={workspaceSlug}
             channelId={channelId}
             code={code}
-            value={code.newBranch ?? code.branch}
+            value={
+              code.newBranch ??
+              (code.autoBranch ? AUTO_BRANCH_ITEM : code.branch)
+            }
             labelBadge={code.newBranch ? "new" : undefined}
             onPick={code.pickBranch}
             onCreate={code.createBranch}
+            onAutoBranch={code.pickAutoBranch}
           />
           {/* A new branch's base, in sight: the session's diff and pull
             request count from it. */}
-          {code.newBranch && (
+          {(code.newBranch || code.autoBranch) && (
             <>
               <span className="text-muted-foreground">from</span>
               <BranchPicker
@@ -489,8 +520,13 @@ function GithubSetupNote({
   )
 }
 
+// The pinned "New Lor branch" row's value; the NUL keeps it from matching a
+// real branch.
+const AUTO_BRANCH_ITEM = "\u0000auto-branch"
+
 // One existing branch to pick; with onCreate, a typed name that matches none
-// can be made instead.
+// can be made instead; with onAutoBranch, a first row lets the server name a
+// new lor/ branch from the session's first message.
 function BranchPicker({
   workspaceSlug,
   channelId,
@@ -500,6 +536,7 @@ function BranchPicker({
   disabled,
   onPick,
   onCreate,
+  onAutoBranch,
 }: {
   workspaceSlug: string
   channelId: string
@@ -509,6 +546,7 @@ function BranchPicker({
   disabled?: boolean
   onPick: (branch: string) => void
   onCreate?: (name: string) => void
+  onAutoBranch?: () => void
 }) {
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
@@ -537,6 +575,16 @@ function BranchPicker({
       icon={GitBranchIcon}
       value={value}
       labelBadge={labelBadge}
+      pinned={
+        onAutoBranch && {
+          value: AUTO_BRANCH_ITEM,
+          label: "New Lor branch",
+          hint: "lor/…",
+          title:
+            "Named from your first message, like lor/fix-login-redirect-3f9a2c",
+          onPick: onAutoBranch,
+        }
+      }
       create={
         onCreate && {
           label: (name) =>
@@ -589,6 +637,7 @@ function SearchPicker({
   loading = false,
   badgeFor,
   create,
+  pinned,
 }: {
   icon: IconSvgElement
   value: string
@@ -609,6 +658,14 @@ function SearchPicker({
     label: (name: string) => ReactNode | null
     onCreate: (name: string) => void
   }
+  // A first row that is not an item, shown until a search is typed.
+  pinned?: {
+    value: string
+    label: string
+    hint: string
+    title: string
+    onPick: () => void
+  }
 }) {
   const [query, setQuery] = useState("")
   const changeQuery = (next: string) => {
@@ -618,22 +675,30 @@ function SearchPicker({
   const typed = query.trim()
   const createLabel =
     create && typed && !items.includes(typed) ? create.label(typed) : null
+  const pinnedOn = pinned?.value === value
   return (
     <Combobox<string>
-      items={createLabel ? [...items, `${CREATE_ITEM}${typed}`] : items}
+      items={[
+        ...(pinned ? [pinned.value] : []),
+        ...items,
+        ...(createLabel ? [`${CREATE_ITEM}${typed}`] : []),
+      ]}
       value={value}
       disabled={disabled}
       onValueChange={(next) => {
         if (!next) return
-        if (next.startsWith(CREATE_ITEM)) {
+        if (next === pinned?.value) pinned.onPick()
+        else if (next.startsWith(CREATE_ITEM)) {
           create?.onCreate(next.slice(CREATE_ITEM.length))
         } else onPick(next)
       }}
       filter={
-        create
+        create || pinned
           ? (item: string, text: string) =>
-              item.startsWith(CREATE_ITEM) ||
-              item.toLowerCase().includes(text.trim().toLowerCase())
+              item === pinned?.value
+                ? text.trim() === ""
+                : item.startsWith(CREATE_ITEM) ||
+                  item.toLowerCase().includes(text.trim().toLowerCase())
           : undefined
       }
       autoHighlight
@@ -645,7 +710,7 @@ function SearchPicker({
       }}
     >
       <ComboboxPrimitive.Trigger
-        title={value}
+        title={pinnedOn ? pinned.title : value}
         className="inline-flex h-7 min-w-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground data-popup-open:bg-foreground/[0.04] data-popup-open:text-foreground"
       >
         <HugeiconsIcon
@@ -653,7 +718,9 @@ function SearchPicker({
           className="size-3.5 shrink-0"
           strokeWidth={2}
         />
-        <span className="max-w-48 truncate">{label}</span>
+        <span className="max-w-48 truncate">
+          {pinnedOn ? pinned.label : label}
+        </span>
         {labelBadge && (
           <span className="shrink-0 text-muted-foreground/70">
             {labelBadge}
@@ -686,7 +753,24 @@ function SearchPicker({
             </ComboboxPrimitive.Empty>
             <ComboboxPrimitive.List className="max-h-64 overflow-y-auto p-1 empty:hidden">
               {(item: string) =>
-                item.startsWith(CREATE_ITEM) ? (
+                item === pinned?.value ? (
+                  <ComboboxPrimitive.Item
+                    key={item}
+                    value={item}
+                    title={pinned.title}
+                    className="group flex min-h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1 text-[13px] outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                  >
+                    <span className="min-w-0 truncate">{pinned.label}</span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {pinned.hint}
+                    </span>
+                    <HugeiconsIcon
+                      icon={Tick02Icon}
+                      className="ml-auto size-3.5 shrink-0 opacity-0 group-data-selected:opacity-100"
+                      strokeWidth={2}
+                    />
+                  </ComboboxPrimitive.Item>
+                ) : item.startsWith(CREATE_ITEM) ? (
                   <ComboboxPrimitive.Item
                     key={item}
                     value={item}
