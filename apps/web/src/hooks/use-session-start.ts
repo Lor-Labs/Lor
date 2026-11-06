@@ -4,6 +4,7 @@ import type {
   SendMessagePayload,
 } from "@repo/realtime-types"
 import { toast } from "@repo/ui/components/toast"
+import { lorBranchName } from "@repo/utils/github"
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useRouter } from "@tanstack/react-router"
 import { useRef } from "react"
@@ -108,7 +109,11 @@ export function useSessionStart({
       harness: start.harness ?? "pi",
       repoFullName: start.code?.repo ?? null,
       baseBranch: start.code?.branch ?? null,
-      newBranch: start.code?.newBranch ?? null,
+      newBranch:
+        start.code?.newBranch ??
+        (start.code?.autoBranch
+          ? lorBranchName(start.title, start.id, "session")
+          : null),
       environmentId: start.code?.environmentId ?? null,
       uncommittedAdditions: null,
       uncommittedDeletions: null,
