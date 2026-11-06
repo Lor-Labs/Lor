@@ -32,6 +32,7 @@ import {
   type SearchFilters,
 } from "./retrieval"
 import { deniedReason } from "./sandbox/pi-events"
+import { claudeToolCalls } from "./session-core/claude-history"
 import { type PiToolCallRecord, piToolCalls } from "./session-core/pi-history"
 
 // What a session's run touched, recorded after the run persists: tool calls,
@@ -257,8 +258,9 @@ function touchesForCall(call: ToolCall): (Touch | BrainPathTouch | null)[] {
 
 type ToolCall = { toolName: string; input: Rec; output: Rec }
 
-// The run's tool calls from the session's saved Pi log, without failed or
-// refused calls. Text results (Pi's built-ins, MCP) carry no typed fields.
+// The run's tool calls from the session's saved harness log (Pi's or Claude
+// Code's; Codex's rollout is not read yet), without failed or refused calls.
+// Text results (built-in tools, MCP) carry no typed fields.
 async function runToolCalls(
   sessionId: string,
   runId: string
@@ -267,6 +269,7 @@ async function runToolCalls(
     .select({
       content: schema.harnessLog.content,
       runId: schema.harnessLog.runId,
+      kind: schema.harnessState.kind,
     })
     .from(schema.harnessLog)
     .innerJoin(
@@ -275,7 +278,14 @@ async function runToolCalls(
     )
     .where(eq(schema.harnessState.sessionId, sessionId))
     .orderBy(asc(schema.harnessLog.seq))
-  return piToolCalls(chunks).filter(
+  const kind = chunks[0]?.kind
+  const calls =
+    kind === "pi"
+      ? piToolCalls(chunks)
+      : kind === "claude_code"
+        ? claudeToolCalls(chunks)
+        : []
+  return calls.filter(
     (call) =>
       call.runId === runId &&
       !call.isError &&
