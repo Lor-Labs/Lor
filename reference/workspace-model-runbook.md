@@ -361,11 +361,11 @@ turn has a 28px avatar in the gutter (Lor's mark too), no name row (name and
 time on the avatar's hover), document prose (15px, leading 7) for everyone,
 and no row hover fill. The session's input line is the transcript's last
 child: `MessageInput variant="inline"` with the writer's avatar as `gutter`,
-no box, same column and prose size. It follows the last turn and is never
-pinned: you scroll to the end to reach it, like a document (Jacob rejected a
-sticky version that floated over the transcript). It has no placeholder, and
+no box, same column and prose size. Since LOR-129 (2026-11-06) it is pinned
+under the scroller, above the tools bar, not floated over the transcript (see
+Deviations). It has no placeholder, and
 typing a printable key anywhere outside another field or open dialog focuses
-it, types the key and scrolls to it (`MessageInput onTypeToFocus`). Its tools
+it and types the key (`MessageInput typeToFocus`). Its tools
 (attach, destination, context meter, stop/send) render through a portal
 (`toolbarTarget`) into a bar under the scroller, like an editor status bar.
 The transcript starts at the top. Only the writer's own avatar shows at the
@@ -1626,3 +1626,8 @@ alone is about 4,500–5,200 changed mobile lines (Steps 20–35), plus Phase E2
   Details (`session-touched-list.tsx`), and code sessions get a Details tab.
   `@Lor` in channel chat gets Chat | Code with a repo picker in the
   composer's Lor state (`lor-start-mode.tsx`); it runs on Lor's own agent.
+- Session input line pinned (LOR-129, 2026-11-06): it was the transcript's
+  last child, so scrolling back hid it. It now sits under the scroller, above
+  the tools bar, like the thread panel's composer. It is not the rejected
+  sticky version: it never floats over the transcript. Typing to focus no
+  longer scrolls to the end.

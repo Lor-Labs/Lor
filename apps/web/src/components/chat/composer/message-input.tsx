@@ -29,6 +29,7 @@ import { PluginKey } from "@tiptap/pm/state"
 import {
   EditorContent,
   Extension,
+  isNodeActive,
   ReactRenderer,
   useEditor,
   useEditorState,
@@ -180,9 +181,8 @@ interface MessageInputProps {
   variant?: "box" | "inline"
   gutter?: ReactNode
   toolbarTarget?: HTMLElement | null
-  // Session document: typing anywhere on the page lands in this editor; called
-  // after it takes focus (to scroll the input line into view).
-  onTypeToFocus?: () => void
+  // Session document: typing anywhere on the page lands in this editor.
+  typeToFocus?: boolean
   placeholder?: string
   disabled?: boolean
   disabledReason?: string
@@ -675,7 +675,7 @@ export function MessageInput({
   variant = "box",
   gutter,
   toolbarTarget,
-  onTypeToFocus,
+  typeToFocus = false,
   placeholder: placeholderOverride,
   disabled,
   disabledReason,
@@ -862,10 +862,16 @@ export function MessageInput({
       editorProps: {
         attributes: {
           class:
-            "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
+            "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_ul]:my-0.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
         },
-        handleKeyDown: (_view, event) => {
-          if (event.key === "Tab" && event.shiftKey && onShiftTabRef.current) {
+        handleKeyDown: (view, event) => {
+          // Shift+Tab in a list item outdents it instead of cycling the mode.
+          if (
+            event.key === "Tab" &&
+            event.shiftKey &&
+            onShiftTabRef.current &&
+            !isNodeActive(view.state, "listItem")
+          ) {
             event.preventDefault()
             onShiftTabRef.current()
             return true
@@ -873,6 +879,15 @@ export function MessageInput({
           if (event.key !== "Enter" || event.shiftKey) return false
           if (event.isComposing) return false
           if (document.querySelector(SUGGESTION_MENU_SELECTOR)) return false
+          // In a list, Enter adds the next item (an empty item exits the
+          // list); Cmd+Enter still sends.
+          if (
+            !event.metaKey &&
+            !event.ctrlKey &&
+            isNodeActive(view.state, "listItem")
+          ) {
+            return false
+          }
 
           event.preventDefault()
           event.stopPropagation()
@@ -1147,9 +1162,6 @@ export function MessageInput({
 
   // Session document: a printable key pressed anywhere outside another field
   // or open dialog starts writing here, like typing into a doc.
-  const onTypeToFocusRef = useRef(onTypeToFocus)
-  onTypeToFocusRef.current = onTypeToFocus
-  const typeToFocus = Boolean(onTypeToFocus)
   useEffect(() => {
     if (!editor || !typeToFocus) return
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1168,7 +1180,6 @@ export function MessageInput({
       }
       event.preventDefault()
       editor.chain().focus("end").insertContent(event.key).run()
-      onTypeToFocusRef.current?.()
     }
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
