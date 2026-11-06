@@ -15,6 +15,13 @@ export type UncommittedLinesUpdate = {
   userIds: string[]
 }
 
+// Every read's full file list, even when the totals didn't change: overlap
+// detection needs which files a session is editing, not how many lines.
+export type ChangedFilesUpdate = {
+  sessionId: string
+  files: ChangedFile[]
+}
+
 // Null when the count didn't change.
 export async function recordUncommittedLines(
   sessionId: string,
@@ -79,6 +86,7 @@ export function trackUncommittedLines(input: {
   sessionId: string
   baseBranch: string
   onUpdate?: (update: UncommittedLinesUpdate) => void
+  onFiles?: (update: ChangedFilesUpdate) => void
 }) {
   let timer: ReturnType<typeof setTimeout> | null = null
   let reading: Promise<void> = Promise.resolve()
@@ -88,6 +96,7 @@ export function trackUncommittedLines(input: {
     reading = reading.then(async () => {
       try {
         const changes = await readChanges(input.sandbox, input.baseBranch)
+        input.onFiles?.({ sessionId: input.sessionId, files: changes.files })
         const update = await recordUncommittedLines(
           input.sessionId,
           changes.files

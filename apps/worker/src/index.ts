@@ -67,6 +67,7 @@ import {
   parseRedisUrl,
 } from "@/lib/approval-notify"
 import { logger } from "@/lib/logger"
+import { installOverlapDetection } from "@/lib/overlap"
 import { awaitInflightDrains } from "@/lib/run-queue"
 import {
   deleteArchivedSessionSandbox,
@@ -113,6 +114,7 @@ async function bootstrap() {
   const emitter = new Emitter<ServerToClientEvents>(redisEmitterClient)
   setWorkspaceActivityEmitter(emitter)
   installVoiceNotifier(emitter)
+  installOverlapDetection(emitter, redisEmitterClient)
 
   // Immediate-stop fast path: abort the in-flight model request for runs this
   // process holds a lease on. The stopRequestedAt flag stays the durable

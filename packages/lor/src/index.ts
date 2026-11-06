@@ -259,6 +259,7 @@ import {
   triggerSessionPromptSection,
 } from "./triggered"
 import {
+  type ChangedFilesUpdate,
   trackUncommittedLines,
   type UncommittedLinesTracker,
   type UncommittedLinesUpdate,
@@ -693,6 +694,8 @@ export type RespondCallbacks = {
   notifyWorkspaceActivity?: (workspaceId: string) => void
   // A code session's uncommitted lines changed during the turn.
   onUncommittedLines?: (update: UncommittedLinesUpdate) => void
+  // A code session's uncommitted file list after each read (overlap alerts).
+  onChangedFiles?: (update: ChangedFilesUpdate) => void
   // The harness's commands and skills for the session's "/" and "$" menus.
   onHarnessCommands?: (list: HarnessCommandList) => void
 }
@@ -2545,6 +2548,7 @@ export async function respond(
     onPlanUpdated,
     notifyWorkspaceActivity,
     onUncommittedLines,
+    onChangedFiles,
     onHarnessCommands,
   }: RespondCallbacks,
   run?: RunHandle
@@ -3249,6 +3253,7 @@ export async function respond(
           sessionId: conversationId,
           baseBranch: ctx.code.baseBranch,
           ...(onUncommittedLines ? { onUpdate: onUncommittedLines } : {}),
+          ...(onChangedFiles ? { onFiles: onChangedFiles } : {}),
         })
       }
       // The harness's own commands and skills, as its CLI finds them: the
