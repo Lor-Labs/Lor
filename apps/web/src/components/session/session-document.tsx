@@ -58,6 +58,7 @@ import { useMessageEditing } from "@/hooks/use-message-editing"
 import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useReplyState } from "@/hooks/use-reply-state"
+import { useProvideSessionSend } from "@/hooks/use-session-send"
 import {
   dropOptimisticLorTurns,
   type FetchPageParams,
@@ -89,6 +90,8 @@ import {
 } from "@/lib/repo-file-reference"
 
 const CHANNEL_CONTEXT = { type: "channel" as const, name: "thread" }
+// A panel's "Ask Lor" has no draft to resend from: an unanswered send fails.
+const PANEL_SEND_ACK_TIMEOUT_MS = 12_000
 
 // A Lor session in the main area: its thread read top-down like a document,
 // with the input line as the document's last line and the composer's tools
@@ -484,6 +487,35 @@ export function SessionDocument({
   const claudeMode = useClaudeCodeMode()
   const modelChoice = useModelChoice(harness)
 
+  const send = (
+    content: string,
+    options?: Parameters<typeof handleSend>[1]
+  ) => {
+    const nonce = handleSend(content, {
+      mentions: [],
+      ...options,
+      ...(agentAnswers ? modelChoice.turn : {}),
+      ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
+    })
+    if (nonce) showSendEffects(nonce, options)
+    scroll.scrollAfterSend()
+    // Lor is mid-answer, so a message for Lor will queue — show it in
+    // the pill now instead of waiting for the routed round trip.
+    if (nonce && pendingLorMessage && !options?.toPeople && agentAnswers) {
+      lorRun.addOptimistic(nonce)
+    }
+    return nonce
+  }
+  useProvideSessionSend(threadRootId, (content, onFailed) =>
+    Boolean(
+      send(content, {
+        mentions: [],
+        onFailed,
+        ackTimeoutMs: PANEL_SEND_ACK_TIMEOUT_MS,
+      })
+    )
+  )
+
   // The heading renders once the oldest page is loaded; until then, and once
   // it scrolls away, the header carries the title.
   const [headingElement, setHeadingElement] = useState<HTMLDivElement | null>(
@@ -571,26 +603,7 @@ export function SessionDocument({
           ) : undefined
         }
         onShiftTab={claudeCode ? claudeMode.cycle : undefined}
-        onSend={(content, options) => {
-          const nonce = handleSend(content, {
-            mentions: [],
-            ...options,
-            ...(agentAnswers ? modelChoice.turn : {}),
-            ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
-          })
-          if (nonce) showSendEffects(nonce, options)
-          scroll.scrollAfterSend()
-          // Lor is mid-answer, so a message for Lor will queue — show it in
-          // the pill now instead of waiting for the routed round trip.
-          if (
-            nonce &&
-            pendingLorMessage &&
-            !options?.toPeople &&
-            agentAnswers
-          ) {
-            lorRun.addOptimistic(nonce)
-          }
-        }}
+        onSend={send}
         currentUserId={currentUserId}
         replyingTo={replyingTo}
         onCancelReply={clearReply}

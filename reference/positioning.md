@@ -96,6 +96,17 @@ The broader ambition remains a workspace where teams can create and evolve
 their own tools. Generated shared apps are a future direction, not the
 homepage's current product demonstration.
 
+## SEO pages: comparisons and blog
+
+`/compare/*` and `/blog/*` (data in `apps/www/app/lib/seo/`) may name
+competitors, Slack included (Jacob, 2026-11-05); the homepage still does not.
+Competitor prices and features come only from vendor pages, listed under
+Sources, with the page's `checkedOn` date updated on each recheck. Each page
+says where the competitor is the better pick and states Lor's gaps (no Slack
+reading, no SAML SSO or SCIM). Lor may claim email, CRM writes and other
+tools through bring-your-own MCP, open source (AGPL-3.0), and Claude Code
+sessions on a teammate's own Claude subscription.
+
 ## Earlier direction — 2026-10-12 (historical)
 
 This doc sets how Lor is described in all marketing copy and in sales
@@ -184,8 +195,9 @@ build the tools your team needs.
 - **Avoid:** "AI teammate" (Grok Bot's launch coverage uses "AI teammates"),
   "AI SDR" (crowded category), "autonomous" (scares buyers when the agent talks
   to their customers).
-- Existing copy rules still apply: no em dashes, do not name Slack, no
-  uppercase mono eyebrow labels, no invented numbers.
+- Existing copy rules still apply: no em dashes, do not name Slack (except
+  on SEO pages, see above), no uppercase mono eyebrow labels, no invented
+  numbers.
 
 ## Do not claim until true
 
