@@ -13,7 +13,11 @@ const senders = new Map<string, SessionSend>()
 
 export function useProvideSessionSend(threadRootId: string, send: SessionSend) {
   const sendRef = useRef(send)
-  sendRef.current = send
+  // After commit: a render React discards must not change which thread a
+  // panel's send posts to.
+  useEffect(() => {
+    sendRef.current = send
+  })
   useEffect(() => {
     const entry: SessionSend = (content, onFailed) =>
       sendRef.current(content, onFailed)

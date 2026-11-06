@@ -66,8 +66,9 @@ export function useMessageSending({
   // A cancelled refetch is owed until every send has settled: running it while
   // another send is unacknowledged could commit a snapshot without that send.
   const refetchOwed = useRef(false)
-  // Bounded sends that timed out, by text: sending the same text again reuses
-  // the nonce, and the server's nonce dedupe returns the original message.
+  // Bounded sends that timed out, by everything they sent: sending the same
+  // again reuses the nonce, and the server's nonce dedupe returns the original
+  // message. Same text with other attachments or settings is a new send.
   const unconfirmed = useRef(new Map<string, string>())
 
   // Memoize so it's a stable reference across renders — otherwise the
@@ -212,8 +213,10 @@ export function useMessageSending({
     ) => {
       if (!socket?.connected || !currentUser) return undefined
 
+      const { onFailed: _onFailed, ackTimeoutMs, ...sent } = options ?? {}
+      const sendKey = JSON.stringify([threadRootId, content, sent])
       const nonce =
-        (options?.ackTimeoutMs && unconfirmed.current.get(content)) ||
+        (ackTimeoutMs && unconfirmed.current.get(sendKey)) ||
         crypto.randomUUID()
       pendingNonces.current.add(nonce)
 
@@ -353,21 +356,21 @@ export function useMessageSending({
         }
         refetchWhenSettled()
       }
-      if (options?.ackTimeoutMs) {
+      if (ackTimeoutMs) {
         // An unanswered send fails, but the server may still post it: a late
         // answer refetches the list (the sender gets no created echo), and
-        // sending the same text again reuses this nonce.
+        // sending the same message again reuses this nonce.
         let timedOut = false
         const timer = setTimeout(() => {
           timedOut = true
-          unconfirmed.current.set(content, nonce)
+          unconfirmed.current.set(sendKey, nonce)
           refetchOwed.current = true
           onAck({ ok: false, error: "Couldn't confirm it was sent. Try again" })
-        }, options.ackTimeoutMs)
+        }, ackTimeoutMs)
         socket.emit("message:send", payload, (result) => {
           clearTimeout(timer)
-          if (result.ok && unconfirmed.current.get(content) === nonce) {
-            unconfirmed.current.delete(content)
+          if (result.ok && unconfirmed.current.get(sendKey) === nonce) {
+            unconfirmed.current.delete(sendKey)
           }
           if (!timedOut) return onAck(result)
           if (!result.ok) return
