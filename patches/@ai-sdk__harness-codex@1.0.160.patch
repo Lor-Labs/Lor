@@ -1,8 +1,26 @@
 diff --git a/dist/bridge/index.mjs b/dist/bridge/index.mjs
-index e4c1e200e578fb80349944d30e2eb1f55fb9cc4f..66f1208139221c9248507c4b16b30705af203e4a 100644
+index e4c1e200e578fb80349944d30e2eb1f55fb9cc4f..d7074c55296da75f75a5540b549e5f8191b0a4a0 100644
 --- a/dist/bridge/index.mjs
 +++ b/dist/bridge/index.mjs
-@@ -1339,11 +1339,48 @@ function asRecord$1(value) {
+@@ -1133,6 +1133,17 @@ function normalizeItem({ item, textByItem, reasoningByItem }) {
+ 			text
+ 		};
+ 	}
++	// Lor patch: a /review's findings arrive on its exit item, not as an
++	// agent message; show them as the turn's text.
++	if (item.type === "exitedReviewMode") {
++		const text = typeof item.review === "string" ? item.review : "";
++		if (id != null) textByItem.set(id, text);
++		return {
++			type: "agent_message",
++			id,
++			text
++		};
++	}
+ 	if (item.type === "reasoning") {
+ 		const summary = stringArray(item.summary).join("\n\n");
+ 		const content = stringArray(item.content).join("\n\n");
+@@ -1339,11 +1350,48 @@ function asRecord$1(value) {
  //#endregion
  //#region src/bridge/codex-app-server-driver.ts
  const CODEX_CLI_PATH = fileURLToPath(new URL("./node_modules/@openai/codex/bin/codex.js", import.meta.url));
@@ -51,7 +69,7 @@ index e4c1e200e578fb80349944d30e2eb1f55fb9cc4f..66f1208139221c9248507c4b16b30705
  	const close = async () => {
  		const previous = client;
  		client = void 0;
-@@ -1499,6 +1536,8 @@ function createCodexAppServerRuntime() {
+@@ -1499,6 +1547,8 @@ function createCodexAppServerRuntime() {
  				clientName: "ai-sdk-harness-codex",
  				clientVersion: "1"
  			}) });
@@ -60,7 +78,59 @@ index e4c1e200e578fb80349944d30e2eb1f55fb9cc4f..66f1208139221c9248507c4b16b30705
  			if (start.restartThread && loadedThreadId != null) {
  				await raceWithProcess({ operation: runningClient.request({
  					method: "thread/unsubscribe",
-@@ -1594,7 +1633,8 @@ function createCodexAppServerRuntime() {
+@@ -1550,20 +1600,37 @@ function createCodexAppServerRuntime() {
+ 			}
+ 			handler.announceThread(currentTurn.threadId);
+ 			emit({ type: "stream-start" });
+-			currentTurn.turnId = readNestedString({
+-				value: await raceWithProcess({ operation: runningClient.request({
+-					method: "turn/start",
+-					params: createTurnParams({
+-						threadId: currentTurn.threadId,
+-						start,
+-						codexModel,
+-						disableEnvironments: toolPolicy.disableEnvironments
+-					})
+-				}) }),
+-				path: ["turn", "id"],
+-				method: "turn/start"
+-			});
+-			handler.setTurnId(currentTurn.turnId);
++			// Lor patch: Codex's own /compact and /review run as the turn instead
++			// of a prompt. Compaction answers with no turn id; its turn/started
++			// notification names it.
++			if (start.command?.type === "compact") await raceWithProcess({ operation: runningClient.request({
++				method: "thread/compact/start",
++				params: { threadId: currentTurn.threadId }
++			}) });
++			else {
++				const method = start.command?.type === "review" ? "review/start" : "turn/start";
++				currentTurn.turnId = readNestedString({
++					value: await raceWithProcess({ operation: runningClient.request({
++						method,
++						params: start.command?.type === "review" ? {
++							threadId: currentTurn.threadId,
++							target: start.command.instructions ? {
++								type: "custom",
++								instructions: start.command.instructions
++							} : { type: "uncommittedChanges" },
++							delivery: "inline"
++						} : createTurnParams({
++							threadId: currentTurn.threadId,
++							start,
++							codexModel,
++							disableEnvironments: toolPolicy.disableEnvironments
++						})
++					}) }),
++					path: ["turn", "id"],
++					method
++				});
++				handler.setTurnId(currentTurn.turnId);
++			}
+ 			userMessageLoop();
+ 			const result = await raceWithProcess({ operation: handler.waitForCompletion() });
+ 			keepClient = true;
+@@ -1594,7 +1661,8 @@ function createCodexAppServerRuntime() {
  	};
  	return {
  		runTurn,
@@ -70,7 +140,7 @@ index e4c1e200e578fb80349944d30e2eb1f55fb9cc4f..66f1208139221c9248507c4b16b30705
  	};
  }
  function createCodexAppServerArgs({ cliOverrides = [] } = {}) {
-@@ -2101,9 +2141,15 @@
+@@ -2101,9 +2169,15 @@ const bridgeStateDir = requireArg({
  const HARNESS_CLIENT_APP = env.AI_SDK_HARNESS_CLIENT_APP;
  const threadState = { id: void 0 };
  const appServer = createCodexAppServerRuntime();
@@ -86,7 +156,7 @@ index e4c1e200e578fb80349944d30e2eb1f55fb9cc4f..66f1208139221c9248507c4b16b30705
  	onStart: runTurn,
  	onStop: async () => {
  		const data = threadState.id ? { threadId: threadState.id } : {};
-@@ -2146,13 +2192,15 @@ async function runTurn(start, turn) {
+@@ -2146,13 +2220,15 @@ async function runTurn(start, turn) {
  		});
  		return;
  	}
@@ -103,11 +173,71 @@ index e4c1e200e578fb80349944d30e2eb1f55fb9cc4f..66f1208139221c9248507c4b16b30705
  	});
  }
  function resolveCodexRuntime({ start }) {
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 7b51073322bc0603d266716cea7d6803a4356cea..9ca26e9f8d0fe3091a3a82d8b78d634a17cc5d6e 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -30,6 +30,17 @@ type CodexHarnessSettings = {
+    * defers to the CLI's default.
+    */
+   readonly reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
++  /**
++   * Lor patch: run one of Codex's own commands as this session's turns
++   * instead of a prompt: `compact` (thread/compact/start) or `review`
++   * (review/start inline; uncommitted changes, or the given instructions).
++   */
++  readonly command?: {
++    readonly type: 'compact';
++  } | {
++    readonly type: 'review';
++    readonly instructions?: string;
++  };
+   /**
+    * When `true`, allow the underlying runtime to use live web search.
+    */
 diff --git a/dist/index.js b/dist/index.js
-index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..41681c5f73f7c59e97525bc273a778d3a0a781bb 100644
+index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..f178ce73e64ce4d5c3879aa45eeb29f6be208073 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -817,7 +817,10 @@ function createSession({ sessionId, channel, proc, model, reasoningEffort, webSe
+@@ -394,7 +394,11 @@ const startMessageSchema = harnessV1BridgeStartBaseSchema.extend({
+ 	mcpServers: z.record(z.string(), z.unknown()).optional(),
+ 	headers: z.record(z.string(), z.string()).optional(),
+ 	resumeThreadId: z.string().optional(),
+-	restartThread: z.boolean().optional()
++	restartThread: z.boolean().optional(),
++	command: z.discriminatedUnion("type", [z.object({ type: z.literal("compact") }), z.object({
++		type: z.literal("review"),
++		instructions: z.string().optional()
++	})]).optional()
+ });
+ z.discriminatedUnion("type", [startMessageSchema, ...harnessV1BridgeInboundCommandSchemas]);
+ //#endregion
+@@ -578,6 +582,7 @@ function createCodex(settings = {}) {
+ 					proc: void 0,
+ 					model,
+ 					reasoningEffort: settings.reasoningEffort,
++					command: settings.command,
+ 					webSearch: settings.webSearch,
+ 					builtinToolFiltering: startOpts.builtinToolFiltering,
+ 					codexConfig: settings.codexConfig,
+@@ -700,6 +705,7 @@ function createCodex(settings = {}) {
+ 				proc,
+ 				model,
+ 				reasoningEffort: settings.reasoningEffort,
++					command: settings.command,
+ 				webSearch: settings.webSearch,
+ 				builtinToolFiltering: startOpts.builtinToolFiltering,
+ 				codexConfig: settings.codexConfig,
+@@ -794,7 +800,7 @@ function openWebSocket({ url, headers, abortSignal }) {
+ 		abortSignal.addEventListener("abort", onAbort, { once: true });
+ 	});
+ }
+-function createSession({ sessionId, channel, proc, model, reasoningEffort, webSearch, builtinToolFiltering, codexConfig, mcpServers, headers, resumeThreadId, isResume, seedResumeThreadOnFirstPrompt, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, sandbox, sandboxHomeDir, turnConfigurationFingerprint }) {
++function createSession({ sessionId, channel, proc, model, reasoningEffort, command, webSearch, builtinToolFiltering, codexConfig, mcpServers, headers, resumeThreadId, isResume, seedResumeThreadOnFirstPrompt, rerunContinue, bridgePort, bridgeToken, sandboxId, sandboxCredentialEnvironment, debug, permissionMode, sandbox, sandboxHomeDir, turnConfigurationFingerprint }) {
+ 	let stopped = false;
+ 	let stopPromise;
+ 	let pendingResumeThreadId = seedResumeThreadOnFirstPrompt ? resumeThreadId : void 0;
+@@ -817,7 +823,10 @@ function createSession({ sessionId, channel, proc, model, reasoningEffort, webSe
  			instructions,
  			tools
  		});
@@ -119,3 +249,11 @@ index 1a64f760f9d04e77593ea3aad2f6f6db9c5eeec5..41681c5f73f7c59e97525bc273a778d3
  		latestTurnConfigurationFingerprint = nextFingerprint;
  		if (restartThread) pendingResumeThreadId = void 0;
  		return { restartThread };
+@@ -968,6 +977,7 @@ function createSession({ sessionId, channel, proc, model, reasoningEffort, webSe
+ 				...promptOpts.instructions ? { instructions: promptOpts.instructions } : {},
+ 				model: promptOpts.model ?? model,
+ 				reasoningEffort,
++				...command ? { command } : {},
+ 				webSearch,
+ 				...builtinToolFiltering == null ? {} : { builtinToolFiltering },
+ 				...codexConfig == null ? {} : { codexConfig },

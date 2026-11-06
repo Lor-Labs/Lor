@@ -1,5 +1,5 @@
 diff --git a/dist/bridge/index.mjs b/dist/bridge/index.mjs
-index e21cffa448869313e6b9a136c91b69c60850cb26..9f4483c99df359142b20492d1adfaa7fff1ea3f8 100644
+index e21cffa448869313e6b9a136c91b69c60850cb26..54d966f9e4782039b4d4cd0cc901366f982b0f77 100644
 --- a/dist/bridge/index.mjs
 +++ b/dist/bridge/index.mjs
 @@ -1461,25 +1461,35 @@ const mcpModule = mcpServerModule;
@@ -87,18 +87,19 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..9f4483c99df359142b20492d1adfaa7f
  			mcpServers,
  			cwd: workdir,
  			abortSignal: abortCtl.signal
-@@ -1770,6 +1796,10 @@ async function runTurn(start, turn) {
+@@ -1770,6 +1796,11 @@ async function runTurn(start, turn) {
  	};
  	let turnUsage;
  	let totalCostUsd;
 +	let contextUsage;
 +	let models;
++	let commands;
 +	let fastModeState;
 +	let fastModeDisabledReason;
  	let emittedTerminalError = false;
  	let emittedTerminalFinish = false;
  	const emitTerminalError = (message) => {
-@@ -1799,6 +1829,11 @@ async function runTurn(start, turn) {
+@@ -1799,6 +1830,11 @@ async function runTurn(start, turn) {
  			if (type === "command_lifecycle") queryInput.handleLifecycle(msg);
  			const sessionId = msg.session_id;
  			if (typeof sessionId === "string" && sessionId.length > 0) lastClaudeSessionId = sessionId;
@@ -110,35 +111,38 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..9f4483c99df359142b20492d1adfaa7f
  			emitStreamEvent(msg);
  			if (type === "result") {
  				if (msg.subtype === "success") {
-@@ -1838,6 +1873,8 @@ async function runTurn(start, turn) {
+@@ -1838,6 +1874,9 @@ async function runTurn(start, turn) {
  					if (!queryInput.answersSentMessage(msg)) continue;
  					queryInput.observeResult();
  					if (!queryInput.hasActiveUserMessages()) {
 +						contextUsage = await readContextUsage(q);
 +						models = await readModels(q);
++				commands = await readCommands(q);
  						queryInput.close();
  						break;
  					}
-@@ -1845,6 +1882,8 @@ async function runTurn(start, turn) {
+@@ -1845,6 +1884,9 @@ async function runTurn(start, turn) {
  				continue;
  			}
  			if (queryInput.hasObservedResult && !queryInput.hasActiveUserMessages()) {
 +				contextUsage = await readContextUsage(q);
 +				models = await readModels(q);
++				commands = await readCommands(q);
  				queryInput.close();
  				break;
  			}
-@@ -1873,12 +1912,69 @@ async function runTurn(start, turn) {
+@@ -1873,12 +1915,91 @@ async function runTurn(start, turn) {
  			raw: "stop"
  		},
  		totalUsage: turnUsage ?? streamEventState.stepUsage ?? defaultUsage(),
 -		...totalCostUsd !== void 0 || lastClaudeSessionId !== void 0 ? { harnessMetadata: { "claude-code": {
-+		...totalCostUsd !== void 0 || lastClaudeSessionId !== void 0 || contextUsage !== void 0 || models !== void 0 || fastModeState !== void 0 ? { harnessMetadata: { "claude-code": {
++		...totalCostUsd !== void 0 || lastClaudeSessionId !== void 0 || contextUsage !== void 0 || models !== void 0 || commands !== void 0 || fastModeState !== void 0 ? { harnessMetadata: { "claude-code": {
  			...totalCostUsd !== void 0 ? { costUsd: totalCostUsd } : {},
 -			...lastClaudeSessionId !== void 0 ? { sessionId: lastClaudeSessionId } : {}
 +			...lastClaudeSessionId !== void 0 ? { sessionId: lastClaudeSessionId } : {},
 +			...contextUsage !== void 0 ? { contextUsage } : {},
 +			...models !== void 0 ? { models } : {},
++			...commands !== void 0 ? { commands } : {},
 +			...fastModeState !== void 0 ? { fastMode: {
 +				state: fastModeState,
 +				...fastModeDisabledReason ? { disabledReason: fastModeDisabledReason } : {}
@@ -149,6 +153,27 @@ index e21cffa448869313e6b9a136c91b69c60850cb26..9f4483c99df359142b20492d1adfaa7f
 +// Lor patch: the models this person's Claude Code offers (their account
 +// decides the list), with each model's effort levels and fast mode, for the
 +// host's model picker. initializationResult() is the cached init response.
++// Lor patch: the commands this session's Claude Code takes (built-ins,
++// bundled skills, the repo's and the person's skills and command files), for
++// the host's "/" menu. Same cached init response as the models.
++async function readCommands(q) {
++	let timer;
++	try {
++		const init = await Promise.race([q.initializationResult(), new Promise((resolve) => {
++			timer = setTimeout(resolve, 5e3);
++		})]);
++		if (!init || !Array.isArray(init.commands)) return void 0;
++		return init.commands.filter((command) => typeof command?.name === "string" && command.name.length > 0).map((command) => ({
++			name: command.name,
++			description: typeof command.description === "string" ? command.description : "",
++			...typeof command.argumentHint === "string" && command.argumentHint ? { argumentHint: command.argumentHint } : {}
++		}));
++	} catch {
++		return void 0;
++	} finally {
++		clearTimeout(timer);
++	}
++}
 +async function readModels(q) {
 +	let timer;
 +	try {

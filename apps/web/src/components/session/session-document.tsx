@@ -114,6 +114,7 @@ export function SessionDocument({
   rewindRestoresFiles,
   composerNote,
   harness,
+  harnessCommands,
   claudeCode = false,
 }: {
   workspaceSlug: string
@@ -121,6 +122,8 @@ export function SessionDocument({
   threadRootId: string
   sessionId: string
   harness: RealtimeAgentSession["harness"]
+  // Its harness's own commands and skills, for the composer's menus.
+  harnessCommands?: RealtimeAgentSession["harnessCommands"]
   // Above the reply line: why the agent won't answer this person (a Claude
   // Code session without their Claude subscription).
   composerNote?: ReactNode
@@ -603,6 +606,7 @@ export function SessionDocument({
           ) : undefined
         }
         onShiftTab={claudeCode ? claudeMode.cycle : undefined}
+        harnessCommands={agentAnswers ? harnessCommands : null}
         onSend={send}
         currentUserId={currentUserId}
         replyingTo={replyingTo}

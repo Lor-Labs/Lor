@@ -90,6 +90,7 @@ import { buildTurnDelta } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
 import { drainScopeQueue } from "@/lib/run-queue"
 import { turnSandboxMode } from "@/lib/sandbox-mode"
+import { saveSessionCommands } from "@/lib/session-commands"
 import { titleSessionOnFirstRun } from "@/lib/session-title"
 import { updateStreamMentionState } from "@/lib/stream-mentions"
 import { briefActEvent, loadTriggerRun } from "@/lib/trigger-session"
@@ -567,6 +568,7 @@ export function createLorRespondProcessor(
                     forkedFromMessageId:
                       schema.agentSession.forkedFromMessageId,
                     harness: schema.agentSession.harness,
+                    harnessCommands: schema.agentSession.harnessCommands,
                   })
                   .from(schema.agentSession)
                   .where(eq(schema.agentSession.threadRootId, threadRootId))
@@ -881,6 +883,24 @@ export function createLorRespondProcessor(
                       .where(eq(schema.message.id, triggerMessageId))
                       .then((rows) => rows[0] ?? null)
                   : null
+            // A person's message that starts with "/" may be one of the
+            // harness's own commands; respond() decides, since the repo's
+            // skills are in the sandbox. Never for a session's first turn
+            // that carries a fork's or a continued session's context.
+            const commandText =
+              !automated &&
+              !continueOnly &&
+              !execution.resume &&
+              !forkedFrom &&
+              !(continuesSession && !delta) &&
+              triggerMessageId &&
+              triggerUserId !== LOR_USER_ID
+                ? await db
+                    .select({ content: schema.message.content })
+                    .from(schema.message)
+                    .where(eq(schema.message.id, triggerMessageId))
+                    .then((rows) => rows[0]?.content?.trim() ?? null)
+                : null
             const turn = {
               ...(picks?.model ? { model: picks.model } : {}),
               ...(picks?.effort ? { effort: picks.effort } : {}),
@@ -1066,6 +1086,10 @@ export function createLorRespondProcessor(
                   ? { codex: true as const }
                   : {}),
                 turn,
+                ...(commandText?.startsWith("/")
+                  ? { command: { text: commandText } }
+                  : {}),
+                harnessCommands: session.harnessCommands,
                 ...(loopRun && threadRootId
                   ? {
                       loop: loopRunContext(
@@ -1093,6 +1117,17 @@ export function createLorRespondProcessor(
                 onPlanUpdated: emitPlanUpdated,
                 notifyWorkspaceActivity,
                 onUncommittedLines: notifyUncommittedLines,
+                onHarnessCommands: (list) =>
+                  void saveSessionCommands({
+                    emitter,
+                    sessionId: session.id,
+                    list,
+                  }).catch((err) =>
+                    logger.warn(
+                      { err, sessionId: session.id },
+                      "Saving the session's commands failed"
+                    )
+                  ),
                 onMessageReaction: ({ update, notification }) => {
                   emitter
                     .to(channelRoom(update.channelId))

@@ -94,6 +94,9 @@ export type CodexTurnInput = {
   // reads the waiting calls as not run (8d-1 spike).
   dropPaused?: boolean
   prompt?: UserModelMessage
+  // Codex's own /compact or /review runs as the new turn instead of the
+  // prompt (Lor's adapter patch; reference/skills-and-commands.md).
+  command?: { type: "compact" } | { type: "review"; instructions?: string }
   tools: ToolSet
   toolsContext?: Record<string, unknown>
   toolApproval?: Record<string, ToolApprovalStatus>
@@ -156,6 +159,7 @@ export async function runCodexTurn(
       port: input.bridge.port,
       portEndpoint: input.bridge.endpoint,
       ...(isCodexEffort(input.effort) ? { reasoningEffort: input.effort } : {}),
+      ...(input.command ? { command: input.command } : {}),
     }),
     model: input.model ?? CODEX_DEFAULT_MODEL,
     instructions: input.instructions,

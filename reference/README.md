@@ -39,6 +39,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 | `act-sessions-runbook.md` | Act session modes (per event, per subject, ongoing), people-first waiting, code sessions from triggers and webhooks. Started 2026-10-28 |
 | `dev-environment-runbook.md` | Code session Environments, Preview tab and Terminal tab behind a provider seam (Blaxel now, cheaper provider or own infra later). Started 2026-10-29 |
 | `boat-fallback.md` | Boat (boat.dev) VMs take new session sandboxes when Blaxel's RAM quota is full; built 2026-11-05, full in-app session still owed |
+| `skills-and-commands.md` | LOR-151, 2026-11-06: each harness's own slash commands and skills as its CLI takes them, repo skills included; command turns, per-session menus. `db:push` and live QA owed |
 | `connector-tools.md` | Shared tool selections, MCP read-only hints, Better Stack, Notion/Attio writes |
 | `voice-channels-runbook.md` | Voice calls, transcription, Lor in the call, memory. V0–V7 built; prod setup, live QA and merge open |
 | `approval-policies.md` | Per-tool approval rules, resolver controls, breaking schema rollout, and pause/resume on the Pi path (2026-10-22) |

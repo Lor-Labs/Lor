@@ -12,6 +12,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { isTauri } from "@repo/auth/tauri-fetch"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { MESSAGE_CONTENT_MAX_LENGTH } from "@repo/realtime-types"
+import type { RealtimeHarnessCommandList } from "@repo/realtime-types/events"
 import { Button } from "@repo/ui/components/button"
 import {
   Popover,
@@ -113,6 +114,7 @@ const POPUP_GAP = 6
 export const SUGGESTION_MENU_SELECTOR =
   "[data-suggestion-open='true'], [data-mention-suggestion-open='true'], [data-slash-suggestion-open='true'], [data-slash-command-open='true']"
 const SLASH_COMMAND_PLUGIN_KEY = new PluginKey("slash-command")
+const SKILL_MENTION_PLUGIN_KEY = new PluginKey("skill-mention")
 const DEFAULT_CODE_BLOCK_LANGUAGE = "plaintext"
 const CODE_BLOCK_LANGUAGE_OPTIONS = [
   { value: "plaintext", label: "Plain Text" },
@@ -223,6 +225,10 @@ interface MessageInputProps {
   tools?: ReactNode
   // Shift+Tab in the editor, like Claude Code's mode cycle.
   onShiftTab?: () => void
+  // Session only: its harness's own commands ("/" at the start of the
+  // message) and Codex's skills ("$" anywhere), sent as typed
+  // (reference/skills-and-commands.md).
+  harnessCommands?: RealtimeHarnessCommandList | null
 }
 
 interface SuggestionPopupListRef {
@@ -375,25 +381,51 @@ export function createMentionSuggestion(
   }
 }
 
+function matchesQuery(command: SlashCommandItem, query: string) {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return true
+  return (
+    command.label.toLowerCase().includes(normalized) ||
+    Boolean(command.search?.toLowerCase().includes(normalized))
+  )
+}
+
+function harnessCommandItems(
+  commands: RealtimeHarnessCommandList["slash"],
+  sigil: "/" | "$"
+): SlashCommandItem[] {
+  return commands.map((command) => ({
+    id: `${sigil === "$" || command.name.startsWith("skill:") ? "skill" : "harness"}:${command.name}`,
+    label: `${sigil}${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ""}`,
+    description: command.description,
+    search: command.name,
+    insert: `${sigil}${command.name} `,
+  }))
+}
+
 function createSlashCommandSuggestion(
   getCommands: () => SlashCommandItem[],
+  getHarnessCommands: () => SlashCommandItem[],
   onLinearIssue: () => void
 ): Omit<SuggestionOptions<SlashCommandItem, SlashCommandItem>, "editor"> {
   return {
     pluginKey: SLASH_COMMAND_PLUGIN_KEY,
     char: "/",
-    items: ({ query }) => {
-      const normalized = query.trim().toLowerCase()
-      const results = getCommands().filter((command) => {
-        if (!normalized) return true
-        return (
-          command.label.toLowerCase().includes(normalized) ||
-          command.search?.toLowerCase().includes(normalized)
-        )
-      })
+    items: ({ query, editor }) => {
+      // The harness takes its commands only as the message's first word.
+      const slashAt = editor.state.selection.from - query.length - 1
+      const atStart = !editor.state.doc.textBetween(0, slashAt, "\n").trim()
+      const results = [
+        ...(atStart ? getHarnessCommands() : []),
+        ...getCommands(),
+      ].filter((command) => matchesQuery(command, query))
       return results.slice(0, MAX_SLASH_RESULTS)
     },
     command: ({ editor, range, props }) => {
+      if (props.insert) {
+        editor.chain().focus().insertContentAt(range, props.insert).run()
+        return
+      }
       if (props.id === "linear-issue") {
         editor.chain().focus().deleteRange(range).run()
         onLinearIssue()
@@ -433,14 +465,51 @@ function createSlashCommandSuggestion(
   }
 }
 
+// Codex's skills, mentioned as "$name" anywhere in the message.
+function createSkillMentionSuggestion(
+  getSkills: () => SlashCommandItem[]
+): Omit<SuggestionOptions<SlashCommandItem, SlashCommandItem>, "editor"> {
+  return {
+    pluginKey: SKILL_MENTION_PLUGIN_KEY,
+    char: "$",
+    items: ({ query }) =>
+      getSkills()
+        .filter((skill) => matchesQuery(skill, query))
+        .slice(0, MAX_SLASH_RESULTS),
+    command: ({ editor, range, props }) => {
+      if (props.insert) {
+        editor.chain().focus().insertContentAt(range, props.insert).run()
+      }
+    },
+    allow: ({ editor }) =>
+      editor.isEditable &&
+      !editor.isActive("codeBlock") &&
+      getSkills().length > 0,
+    render: () =>
+      createSuggestionPopupManager<
+        SlashCommandItem,
+        SlashCommandListRef,
+        SlashCommandListProps
+      >({
+        rendererComponent: SlashCommandList,
+        popupClassName:
+          "fixed z-50 w-72 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md",
+        popupDataAttribute: "slashSuggestionOpen",
+        popupFallbackWidth: 288,
+        popupFallbackHeight: 240,
+      }),
+  }
+}
+
 function createSlashCommandExtension(
   suggestion: Omit<
     SuggestionOptions<SlashCommandItem, SlashCommandItem>,
     "editor"
-  >
+  >,
+  name = "slashCommand"
 ) {
   return Extension.create({
-    name: "slashCommand",
+    name,
     addProseMirrorPlugins() {
       return [
         Suggestion({
@@ -629,6 +698,7 @@ export function MessageInput({
   isSteeringQueued = false,
   tools,
   onShiftTab,
+  harnessCommands,
 }: MessageInputProps) {
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
   const [attachPanel, setAttachPanel] = useState<"menu" | "linear">("menu")
@@ -710,11 +780,24 @@ export function MessageInput({
     []
   )
   const slashCommandsRef = useRef(SLASH_COMMANDS)
+  const harnessSlashRef = useRef<SlashCommandItem[]>([])
+  const harnessSkillsRef = useRef<SlashCommandItem[]>([])
+  useEffect(() => {
+    harnessSlashRef.current = harnessCommandItems(
+      harnessCommands?.slash ?? [],
+      "/"
+    )
+    harnessSkillsRef.current = harnessCommandItems(
+      harnessCommands?.mentions ?? [],
+      "$"
+    )
+  }, [harnessCommands])
   const openLinearPickerRef = useRef<() => void>(() => undefined)
   const slashCommandSuggestion = useMemo(
     () =>
       createSlashCommandSuggestion(
         () => slashCommandsRef.current,
+        () => harnessSlashRef.current,
         () => openLinearPickerRef.current()
       ),
     []
@@ -722,6 +805,14 @@ export function MessageInput({
   const slashCommandExtension = useMemo(
     () => createSlashCommandExtension(slashCommandSuggestion),
     [slashCommandSuggestion]
+  )
+  const skillMentionExtension = useMemo(
+    () =>
+      createSlashCommandExtension(
+        createSkillMentionSuggestion(() => harnessSkillsRef.current),
+        "skillMention"
+      ),
+    []
   )
 
   const editor = useEditor(
@@ -763,6 +854,7 @@ export function MessageInput({
         LinearIssue,
         RepoFileChip,
         slashCommandExtension,
+        skillMentionExtension,
       ],
       editorProps: {
         attributes: {

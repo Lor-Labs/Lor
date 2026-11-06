@@ -435,6 +435,11 @@ export type AgentRunContext = {
   // The run only finished a paused turn and sent no prompt; the next delta
   // walks back through it (continuedFromRunId) to the paused run.
   continueOnly?: boolean
+  // A command turn: the trigger message's harness command, sent as typed
+  // instead of the delta (reference/skills-and-commands.md). Its delta's
+  // other messages wait for the next turn, which walks back through it like
+  // continueOnly.
+  command?: { text: string }
   // A Claude Code turn: the person whose subscription it runs on, and the
   // mode they picked. A run that continues its paused turn reads both here
   // (the resume's trigger is Lor's own message, and the approver may be

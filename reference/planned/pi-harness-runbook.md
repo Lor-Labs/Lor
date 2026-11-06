@@ -1876,7 +1876,9 @@ compatibility layer; old code tools break and are deleted.
   the code index.
 
 Skills and slash commands are out of phase 1 (moved to the self-configuration
-work). User text that starts with `/` is still escaped (§4.9).
+work). User text that starts with `/` is still escaped (§4.9), except a
+command turn's command ([skills-and-commands.md](../skills-and-commands.md),
+LOR-151).
 
 Exit: every agent run has its conversation's sandbox (at most one per session
 or voice call), with reuse, standby and explicit lost-workspace handling. No

@@ -1,4 +1,8 @@
-import { SourceCodeSquareIcon } from "@hugeicons/core-free-icons"
+import {
+  BookOpen01Icon,
+  CommandLineIcon,
+  SourceCodeSquareIcon,
+} from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "@repo/ui/lib/utils"
 import type { SuggestionKeyDownProps } from "@tiptap/suggestion"
@@ -19,6 +23,8 @@ export interface SlashCommandItem {
   description: string
   language?: string
   search?: string
+  // A session harness's own command or skill: inserted as this text.
+  insert?: string
 }
 
 export interface SlashCommandListRef {
@@ -32,6 +38,15 @@ export interface SlashCommandListProps {
 
 function CommandIcon({ id }: { id: SlashCommandItem["id"] }) {
   if (id === "linear-issue") return <LinearLogo className="size-4" />
+  if (id.startsWith("harness:") || id.startsWith("skill:")) {
+    return (
+      <HugeiconsIcon
+        icon={id.startsWith("skill:") ? BookOpen01Icon : CommandLineIcon}
+        className="size-4"
+        strokeWidth={2}
+      />
+    )
+  }
   if (id.startsWith("code-block")) {
     return (
       <HugeiconsIcon
