@@ -389,7 +389,12 @@ function blaxelSessionSandbox(
 // The session's Boat sandbox, when it has one and Blaxel has none.
 async function existingBoatSandbox(name: string): Promise<BoatSandbox | null> {
   if (!boatConfigured()) return null
-  const boat = await findBoatSandbox(name)
+  // Boat down must not stop sessions that belong on Blaxel: a failed lookup
+  // counts as none (a Boat session then gets a new sandbox, like a lost one).
+  const boat = await findBoatSandbox(name).catch((err: unknown) => {
+    logger.error({ err, sandbox: name }, "Sandbox: Boat lookup failed")
+    return null
+  })
   if (boat) boatNames.add(name)
   return boat
 }
@@ -667,7 +672,10 @@ export async function stopParkedBridges(owner: HarnessOwner): Promise<number> {
 export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
   const name = sessionSandboxName(owner)
   boatNames.delete(name)
-  await deleteBoatSandbox(name)
+  // A Boat error never blocks deleting the Blaxel sandbox.
+  await deleteBoatSandbox(name).catch((err: unknown) =>
+    logger.error({ err, sandbox: name }, "Sandbox: Boat delete failed")
+  )
   if (!blaxelConfigured()) return
   await SandboxInstance.delete(name).catch((err: unknown) => {
     if (!isNotFound(err)) throw err

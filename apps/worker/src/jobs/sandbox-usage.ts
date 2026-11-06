@@ -2,6 +2,7 @@ import { blockedSandboxes, chargeSandboxUsage } from "@repo/billing"
 import { stopBlockedSandboxes } from "@repo/lor/beta-compute"
 import { boatSandboxUsage, deleteIdleBoatSandboxes } from "@repo/lor/boat"
 import { blaxelSandboxUsage } from "@repo/lor/sandbox-usage"
+import { logger } from "@/lib/logger"
 
 export const SANDBOX_STOP_SWEEP_EVERY_MS = 5 * 60 * 1000
 export const SANDBOX_CHARGE_EVERY_MS = 60 * 60 * 1000
@@ -13,10 +14,15 @@ const CHARGE_HOURS = 2
 
 // Both providers' hourly compute: Blaxel's Billing API, and Boat's per
 // sandbox usage for those that went there when Blaxel was full.
+// A Boat failure never holds up Blaxel's charges: its hours are charged on
+// a later run (each hour has a retry, and charges are idempotent).
 async function sandboxUsage(start: Date, end: Date) {
   const [blaxel, boat] = await Promise.all([
     blaxelSandboxUsage(start, end),
-    boatSandboxUsage(start, end),
+    boatSandboxUsage(start, end).catch((err: unknown) => {
+      logger.error({ err }, "Boat sandbox usage failed; the next run retries")
+      return []
+    }),
   ])
   return [...blaxel, ...boat]
 }
@@ -42,5 +48,7 @@ export async function chargeClosedSandboxHours() {
       new Date(settledBefore)
     )
   )
-  await deleteIdleBoatSandboxes()
+  await deleteIdleBoatSandboxes().catch((err: unknown) =>
+    logger.error({ err }, "Deleting idle Boat sandboxes failed")
+  )
 }

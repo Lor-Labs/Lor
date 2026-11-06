@@ -59,7 +59,7 @@ async function existingSandbox(owner: HarnessOwner): Promise<Located | null> {
     })
     if (sandbox) return { provider: "blaxel", sandbox }
   }
-  const boat = await findBoatSandbox(name)
+  const boat = await findBoatSandbox(name).catch(() => null)
   return boat ? { provider: "boat", sandbox: boat } : null
 }
 
