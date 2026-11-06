@@ -414,10 +414,15 @@ function createSlashCommandSuggestion(
     items: ({ query, editor }) => {
       // The harness takes its commands only as the message's first word.
       const slashAt = editor.state.selection.from - query.length - 1
-      // A leaf placeholder so a mention or chip before the slash counts.
-      const atStart = !editor.state.doc
-        .textBetween(0, slashAt, "\n", "\ufffc")
-        .trim()
+      // A leaf placeholder so a mention or chip before the slash counts. A
+      // list item sends a marker ("- ") before it, so it never counts.
+      const { $from } = editor.state.selection
+      const inListItem = Array.from({ length: $from.depth + 1 }, (_, depth) =>
+        $from.node(depth)
+      ).some((node) => node.type.name === "listItem")
+      const atStart =
+        !inListItem &&
+        !editor.state.doc.textBetween(0, slashAt, "\n", "\ufffc").trim()
       const results = [
         ...(atStart ? getHarnessCommands() : []),
         ...getCommands(),
