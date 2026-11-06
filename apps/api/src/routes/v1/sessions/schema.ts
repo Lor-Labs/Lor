@@ -17,6 +17,12 @@ export const sessionParamsSchema = z.object({
     }),
 })
 
+const harnessCommandSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  argumentHint: z.string().optional(),
+})
+
 export const agentSessionSchema = z
   .object({
     id: z.string().uuid(),
@@ -43,6 +49,13 @@ export const agentSessionSchema = z
     archivedAt: z.string().nullable(),
     archivedById: z.string().uuid().nullable(),
     lastActivityAt: z.string(),
+    // The harness's "/" commands and Codex's "$" skills, from its last turn.
+    harnessCommands: z
+      .object({
+        slash: z.array(harnessCommandSchema),
+        mentions: z.array(harnessCommandSchema),
+      })
+      .nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })

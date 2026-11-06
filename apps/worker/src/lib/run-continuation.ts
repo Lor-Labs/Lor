@@ -275,12 +275,15 @@ export async function buildTurnDelta(args: {
     }
   }
   const predecessor = await loadPredecessorRun(args.predecessorRunId)
-  // A run that only finished a paused turn sent no prompt: what was said
-  // while that turn waited still dates from the paused run, so the bound and
-  // coverage walk back to it.
+  // A run that only finished a paused turn sent no prompt, and a command
+  // turn sent only its command: what was said around them still dates from
+  // the run before, so the bound and coverage walk back to it.
   const chain = [predecessor]
   let earliest = predecessor
-  while (earliest.context.continueOnly && earliest.continuedFromRunId) {
+  while (
+    (earliest.context.continueOnly || earliest.context.command) &&
+    earliest.continuedFromRunId
+  ) {
     earliest = await loadPredecessorRun(earliest.continuedFromRunId)
     chain.push(earliest)
   }

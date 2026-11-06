@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import {
   and,
   db,
@@ -25,7 +26,7 @@ import {
   sessionTitleFromPrompt,
 } from "@repo/realtime-types"
 import { assertHarnessEnabled } from "@repo/utils/features"
-import { isValidNewBranchName } from "@repo/utils/github"
+import { isValidNewBranchName, lorBranchName } from "@repo/utils/github"
 import { logger } from "@/lib/logger"
 import type { AccessibleChannel } from "@/services/channel-access"
 import { isLorMentioned } from "@/services/lor-routing"
@@ -93,13 +94,18 @@ async function continuedSession(sessionId: string, channelId: string) {
 async function codeSessionStart(
   workspaceId: string,
   channelId: string,
-  code: NonNullable<SendMessagePayload["code"]>
+  code: NonNullable<SendMessagePayload["code"]>,
+  session: { id: string; title: string }
 ) {
   if (!isSafeBranch(code.branch)) {
     throw new Error(`"${code.branch}" can't be used as a base branch`)
   }
-  const newBranch =
-    code.newBranch && code.newBranch !== code.branch ? code.newBranch : null
+  const named = code.newBranch
+    ? code.newBranch
+    : code.autoBranch
+      ? lorBranchName(session.title, session.id, "session")
+      : null
+  const newBranch = named && named !== code.branch ? named : null
   if (newBranch && !isValidNewBranchName(newBranch)) {
     throw new Error(`"${newBranch}" can't be used as a branch name`)
   }
@@ -134,12 +140,18 @@ async function codeSessionStart(
 async function codeStartFor(
   payload: SendMessagePayload,
   workspaceId: string,
-  senderId: string
+  senderId: string,
+  session: { id: string; title: string }
 ) {
   assertHostedHarness(payload.harness ?? "pi")
   assertHarnessEnabled(payload.harness ?? "pi")
   const code = payload.code
-    ? await codeSessionStart(workspaceId, payload.channelId, payload.code)
+    ? await codeSessionStart(
+        workspaceId,
+        payload.channelId,
+        payload.code,
+        session
+      )
     : undefined
   // Claude Code and Codex: code sessions only for now; Claude Code on the
   // starter's own Claude subscription (code-sessions-runbook.md chunks 7
@@ -179,15 +191,19 @@ export async function sessionStartFor(args: {
     args.senderId,
     ...extractDirectMentionUserIds(payload.content ?? ""),
   ]
+  // Picked here when the client didn't, so an automatic branch's name
+  // carries the session's own id.
   const ids = {
-    id: payload.newSession?.id,
+    id: payload.newSession?.id ?? randomUUID(),
     threadRootId: payload.newSession?.threadRootId,
   }
+  const title = sessionTitleFromPrompt(payload.content ?? "")
   if (payload.startSession && !payload.threadRootId) {
     const start = await codeStartFor(
       payload,
       channel.workspaceId,
-      args.senderId
+      args.senderId,
+      { id: ids.id, title }
     )
     const source = payload.continueFrom
       ? await continuedSession(payload.continueFrom, payload.channelId)
@@ -202,7 +218,7 @@ export async function sessionStartFor(args: {
             sourceThreadRootId: source.threadRootId,
           }
         : {}),
-      title: sessionTitleFromPrompt(payload.content ?? ""),
+      title,
       // "Ask Lor about this": the quoted message is the only context.
       contextMessageIds: [
         ...(source?.contextMessageIds ?? []),
@@ -219,7 +235,15 @@ export async function sessionStartFor(args: {
     return undefined
   }
 
-  const start = await codeStartFor(payload, channel.workspaceId, args.senderId)
+  const start = await codeStartFor(
+    payload,
+    channel.workspaceId,
+    args.senderId,
+    {
+      id: ids.id,
+      title,
+    }
+  )
   const contextMessageIds = payload.threadRootId
     ? await loadThreadContextIds(payload.threadRootId)
     : await loadChatContextIds(payload.channelId)
@@ -230,7 +254,7 @@ export async function sessionStartFor(args: {
     ...ids,
     origin: "chat",
     ...start,
-    title: sessionTitleFromPrompt(payload.content),
+    title,
     contextMessageIds,
     subscriberIds,
   }

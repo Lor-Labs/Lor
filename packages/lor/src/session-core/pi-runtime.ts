@@ -347,6 +347,24 @@ function lorPiExtension(input: {
   compaction?: PiCompaction
   onBoundary?: (final: boolean) => Promise<string | null>
 }): PiHarnessExtensionFactory {
+  // The saved conversation must be the one Pi loaded; false aborts.
+  const checkLoaded = (ctx: ExtensionContext): boolean => {
+    input.probe.logFile = ctx.sessionManager.getSessionFile()
+    const expected = input.expected
+    if (!expected) return true
+    const entries = ctx.sessionManager.getEntries()
+    // A format conversion may rewrite ids; only the count must hold then.
+    const matches = input.convertsFormat
+      ? entries.length >= expected.entryCount
+      : ctx.sessionManager.getHeader()?.id === expected.harnessSessionId &&
+        entries.length >= expected.entryCount &&
+        entries[expected.entryCount - 1]?.id === expected.headEntryId
+    if (!matches) {
+      input.probe.loadMismatch = true
+      ctx.abort()
+    }
+    return matches
+  }
   return (pi) => {
     // Pi takes steering messages right after `turn_end`, saves them as
     // custom messages (sent to the model as user text) and continues when
@@ -383,10 +401,16 @@ function lorPiExtension(input: {
     // here. If this throws, Pi falls back to its own summary.
     let compacted = false
     pi.on("session_before_compact", async (event, ctx) => {
+      // A /compact runs with no agent_start to check the load first.
+      if (!input.probe.logFile && !checkLoaded(ctx)) return { cancel: true }
       if (!(await canRequest(ctx))) return { cancel: true }
       const { compaction: lor } = input
       lor?.onStart?.()
       if (!lor || !ctx.model) return
+      // A person's /compact focus goes after Lor's.
+      const focus = event.customInstructions
+        ? `${lor.focus}\n\n${event.customInstructions}`
+        : lor.focus
       let answeredBy = ctx.model.id
       let summaryCost: number | undefined
       const compaction = await compact(
@@ -394,7 +418,7 @@ function lorPiExtension(input: {
         ctx.model,
         undefined,
         undefined,
-        lor.focus,
+        focus,
         event.signal,
         ctx.thinkingLevel,
         (model, context, options) => {
@@ -482,20 +506,7 @@ function lorPiExtension(input: {
       return reason ? { block: true, reason } : undefined
     })
     pi.on("agent_start", (_event, ctx) => {
-      input.probe.logFile = ctx.sessionManager.getSessionFile()
-      const expected = input.expected
-      if (!expected) return
-      const entries = ctx.sessionManager.getEntries()
-      // A format conversion may rewrite ids; only the count must hold then.
-      const matches = input.convertsFormat
-        ? entries.length >= expected.entryCount
-        : ctx.sessionManager.getHeader()?.id === expected.harnessSessionId &&
-          entries.length >= expected.entryCount &&
-          entries[expected.entryCount - 1]?.id === expected.headEntryId
-      if (!matches) {
-        input.probe.loadMismatch = true
-        ctx.abort()
-      }
+      checkLoaded(ctx)
     })
   }
 }
@@ -589,6 +600,11 @@ export type PiTurnInput = {
   dropPaused?: boolean
   // Text first, then images (the adapter rejects text after an image).
   prompt?: UserModelMessage
+  // A person's /compact: Pi compacts instead of taking a prompt.
+  compact?: { instructions: string | null }
+  // The repo's skills, read in place from the sandbox (Pi's own discovery
+  // reads the worker's disk, so it stays off).
+  skills?: { name: string; description: string; filePath: string }[]
   // The host can switch turn-scoped policy after finishing a paused turn.
   onPrompt?: () => void | Promise<void>
   tools: ToolSet
@@ -647,6 +663,8 @@ export type PiTurnResult = {
   pendingToolResults?: HarnessAgentPendingToolResult[]
   // Null when Pi never reported one (it did not start, or no model answered).
   contextUsage: PiContextUsage | null
+  // Why a /compact did not run ("Nothing to compact"), for the answer.
+  commandError?: string
 }
 
 function addUsage(total: PiTurnUsage, usage: LanguageModelUsage): PiTurnUsage {
@@ -699,7 +717,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
       },
       systemPrompt: () => input.systemPrompt,
       contextFiles: input.contextFiles ?? false,
-      skills: false,
+      skills: input.skills?.length ? input.skills : false,
       fileToolPathPolicy: { deniedRoots: [sandboxStateRoot(home)] },
       ...(input.builtinToolApproval
         ? { builtinToolApproval: input.builtinToolApproval }
@@ -809,6 +827,16 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
         await agent.stream({ session, messages: [input.prompt], ...abort })
       )
     }
+    let commandError: string | undefined
+    if (input.compact && !aborted && !session.hasUnfinishedTurn()) {
+      await input.onPrompt?.()
+      await session
+        .compact(input.compact.instructions ?? undefined)
+        .catch((err: unknown) => {
+          if (input.abortSignal?.aborted) aborted = true
+          else commandError = err instanceof Error ? err.message : String(err)
+        })
+    }
     if (probe.accessError) throw new Error(probe.accessError)
     if (probe.loadMismatch) {
       throw new SessionCoreError(
@@ -855,6 +883,7 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
           : withContinuation(log, input.saved, continuation),
       pendingApprovals: [...(continuation?.pendingToolApprovals ?? [])],
       contextUsage: probe.contextUsage ?? null,
+      ...(commandError ? { commandError } : {}),
     }
   } finally {
     // Lor supplies the sandbox, so destroy leaves it alone.

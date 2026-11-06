@@ -12,6 +12,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { isTauri } from "@repo/auth/tauri-fetch"
 import { LOR_USER_ID } from "@repo/db/constants"
 import { MESSAGE_CONTENT_MAX_LENGTH } from "@repo/realtime-types"
+import type { RealtimeHarnessCommandList } from "@repo/realtime-types/events"
 import { Button } from "@repo/ui/components/button"
 import {
   Popover,
@@ -28,6 +29,7 @@ import { PluginKey } from "@tiptap/pm/state"
 import {
   EditorContent,
   Extension,
+  isNodeActive,
   ReactRenderer,
   useEditor,
   useEditorState,
@@ -113,6 +115,7 @@ const POPUP_GAP = 6
 export const SUGGESTION_MENU_SELECTOR =
   "[data-suggestion-open='true'], [data-mention-suggestion-open='true'], [data-slash-suggestion-open='true'], [data-slash-command-open='true']"
 const SLASH_COMMAND_PLUGIN_KEY = new PluginKey("slash-command")
+const SKILL_MENTION_PLUGIN_KEY = new PluginKey("skill-mention")
 const DEFAULT_CODE_BLOCK_LANGUAGE = "plaintext"
 const CODE_BLOCK_LANGUAGE_OPTIONS = [
   { value: "plaintext", label: "Plain Text" },
@@ -178,9 +181,8 @@ interface MessageInputProps {
   variant?: "box" | "inline"
   gutter?: ReactNode
   toolbarTarget?: HTMLElement | null
-  // Session document: typing anywhere on the page lands in this editor; called
-  // after it takes focus (to scroll the input line into view).
-  onTypeToFocus?: () => void
+  // Session document: typing anywhere on the page lands in this editor.
+  typeToFocus?: boolean
   placeholder?: string
   disabled?: boolean
   disabledReason?: string
@@ -223,6 +225,10 @@ interface MessageInputProps {
   tools?: ReactNode
   // Shift+Tab in the editor, like Claude Code's mode cycle.
   onShiftTab?: () => void
+  // Session only: its harness's own commands ("/" at the start of the
+  // message) and Codex's skills ("$" anywhere), sent as typed
+  // (reference/skills-and-commands.md).
+  harnessCommands?: RealtimeHarnessCommandList | null
 }
 
 interface SuggestionPopupListRef {
@@ -375,25 +381,59 @@ export function createMentionSuggestion(
   }
 }
 
+function matchesQuery(command: SlashCommandItem, query: string) {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return true
+  return (
+    command.label.toLowerCase().includes(normalized) ||
+    Boolean(command.search?.toLowerCase().includes(normalized))
+  )
+}
+
+function harnessCommandItems(
+  commands: RealtimeHarnessCommandList["slash"],
+  sigil: "/" | "$"
+): SlashCommandItem[] {
+  return commands.map((command) => ({
+    id: `${sigil === "$" || command.name.startsWith("skill:") ? "skill" : "harness"}:${command.name}`,
+    label: `${sigil}${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ""}`,
+    description: command.description,
+    search: command.name,
+    insert: `${sigil}${command.name} `,
+  }))
+}
+
 function createSlashCommandSuggestion(
   getCommands: () => SlashCommandItem[],
+  getHarnessCommands: () => SlashCommandItem[],
   onLinearIssue: () => void
 ): Omit<SuggestionOptions<SlashCommandItem, SlashCommandItem>, "editor"> {
   return {
     pluginKey: SLASH_COMMAND_PLUGIN_KEY,
     char: "/",
-    items: ({ query }) => {
-      const normalized = query.trim().toLowerCase()
-      const results = getCommands().filter((command) => {
-        if (!normalized) return true
-        return (
-          command.label.toLowerCase().includes(normalized) ||
-          command.search?.toLowerCase().includes(normalized)
-        )
-      })
+    items: ({ query, editor }) => {
+      // The harness takes its commands only as the message's first word.
+      const slashAt = editor.state.selection.from - query.length - 1
+      // A leaf placeholder so a mention or chip before the slash counts. A
+      // list item sends a marker ("- ") before it, so it never counts.
+      const { $from } = editor.state.selection
+      const inListItem = Array.from({ length: $from.depth + 1 }, (_, depth) =>
+        $from.node(depth)
+      ).some((node) => node.type.name === "listItem")
+      const atStart =
+        !inListItem &&
+        !editor.state.doc.textBetween(0, slashAt, "\n", "\ufffc").trim()
+      const results = [
+        ...(atStart ? getHarnessCommands() : []),
+        ...getCommands(),
+      ].filter((command) => matchesQuery(command, query))
       return results.slice(0, MAX_SLASH_RESULTS)
     },
     command: ({ editor, range, props }) => {
+      if (props.insert) {
+        editor.chain().focus().insertContentAt(range, props.insert).run()
+        return
+      }
       if (props.id === "linear-issue") {
         editor.chain().focus().deleteRange(range).run()
         onLinearIssue()
@@ -433,14 +473,51 @@ function createSlashCommandSuggestion(
   }
 }
 
+// Codex's skills, mentioned as "$name" anywhere in the message.
+function createSkillMentionSuggestion(
+  getSkills: () => SlashCommandItem[]
+): Omit<SuggestionOptions<SlashCommandItem, SlashCommandItem>, "editor"> {
+  return {
+    pluginKey: SKILL_MENTION_PLUGIN_KEY,
+    char: "$",
+    items: ({ query }) =>
+      getSkills()
+        .filter((skill) => matchesQuery(skill, query))
+        .slice(0, MAX_SLASH_RESULTS),
+    command: ({ editor, range, props }) => {
+      if (props.insert) {
+        editor.chain().focus().insertContentAt(range, props.insert).run()
+      }
+    },
+    allow: ({ editor }) =>
+      editor.isEditable &&
+      !editor.isActive("codeBlock") &&
+      getSkills().length > 0,
+    render: () =>
+      createSuggestionPopupManager<
+        SlashCommandItem,
+        SlashCommandListRef,
+        SlashCommandListProps
+      >({
+        rendererComponent: SlashCommandList,
+        popupClassName:
+          "fixed z-50 w-72 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md",
+        popupDataAttribute: "slashSuggestionOpen",
+        popupFallbackWidth: 288,
+        popupFallbackHeight: 240,
+      }),
+  }
+}
+
 function createSlashCommandExtension(
   suggestion: Omit<
     SuggestionOptions<SlashCommandItem, SlashCommandItem>,
     "editor"
-  >
+  >,
+  name = "slashCommand"
 ) {
   return Extension.create({
-    name: "slashCommand",
+    name,
     addProseMirrorPlugins() {
       return [
         Suggestion({
@@ -603,7 +680,7 @@ export function MessageInput({
   variant = "box",
   gutter,
   toolbarTarget,
-  onTypeToFocus,
+  typeToFocus = false,
   placeholder: placeholderOverride,
   disabled,
   disabledReason,
@@ -629,6 +706,7 @@ export function MessageInput({
   isSteeringQueued = false,
   tools,
   onShiftTab,
+  harnessCommands,
 }: MessageInputProps) {
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
   const [attachPanel, setAttachPanel] = useState<"menu" | "linear">("menu")
@@ -710,11 +788,24 @@ export function MessageInput({
     []
   )
   const slashCommandsRef = useRef(SLASH_COMMANDS)
+  const harnessSlashRef = useRef<SlashCommandItem[]>([])
+  const harnessSkillsRef = useRef<SlashCommandItem[]>([])
+  useEffect(() => {
+    harnessSlashRef.current = harnessCommandItems(
+      harnessCommands?.slash ?? [],
+      "/"
+    )
+    harnessSkillsRef.current = harnessCommandItems(
+      harnessCommands?.mentions ?? [],
+      "$"
+    )
+  }, [harnessCommands])
   const openLinearPickerRef = useRef<() => void>(() => undefined)
   const slashCommandSuggestion = useMemo(
     () =>
       createSlashCommandSuggestion(
         () => slashCommandsRef.current,
+        () => harnessSlashRef.current,
         () => openLinearPickerRef.current()
       ),
     []
@@ -722,6 +813,14 @@ export function MessageInput({
   const slashCommandExtension = useMemo(
     () => createSlashCommandExtension(slashCommandSuggestion),
     [slashCommandSuggestion]
+  )
+  const skillMentionExtension = useMemo(
+    () =>
+      createSlashCommandExtension(
+        createSkillMentionSuggestion(() => harnessSkillsRef.current),
+        "skillMention"
+      ),
+    []
   )
 
   const editor = useEditor(
@@ -763,14 +862,21 @@ export function MessageInput({
         LinearIssue,
         RepoFileChip,
         slashCommandExtension,
+        skillMentionExtension,
       ],
       editorProps: {
         attributes: {
           class:
-            "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
+            "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_ul]:my-0.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
         },
-        handleKeyDown: (_view, event) => {
-          if (event.key === "Tab" && event.shiftKey && onShiftTabRef.current) {
+        handleKeyDown: (view, event) => {
+          // Shift+Tab in a list item outdents it instead of cycling the mode.
+          if (
+            event.key === "Tab" &&
+            event.shiftKey &&
+            onShiftTabRef.current &&
+            !isNodeActive(view.state, "listItem")
+          ) {
             event.preventDefault()
             onShiftTabRef.current()
             return true
@@ -778,6 +884,15 @@ export function MessageInput({
           if (event.key !== "Enter" || event.shiftKey) return false
           if (event.isComposing) return false
           if (document.querySelector(SUGGESTION_MENU_SELECTOR)) return false
+          // In a list, Enter adds the next item (an empty item exits the
+          // list); Cmd+Enter still sends.
+          if (
+            !event.metaKey &&
+            !event.ctrlKey &&
+            isNodeActive(view.state, "listItem")
+          ) {
+            return false
+          }
 
           event.preventDefault()
           event.stopPropagation()
@@ -1052,9 +1167,6 @@ export function MessageInput({
 
   // Session document: a printable key pressed anywhere outside another field
   // or open dialog starts writing here, like typing into a doc.
-  const onTypeToFocusRef = useRef(onTypeToFocus)
-  onTypeToFocusRef.current = onTypeToFocus
-  const typeToFocus = Boolean(onTypeToFocus)
   useEffect(() => {
     if (!editor || !typeToFocus) return
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1073,7 +1185,6 @@ export function MessageInput({
       }
       event.preventDefault()
       editor.chain().focus("end").insertContent(event.key).run()
-      onTypeToFocusRef.current?.()
     }
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)

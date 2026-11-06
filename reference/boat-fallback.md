@@ -7,9 +7,11 @@ stack (Selkies, gateway on a public port, `lor-browser`), the terminal, a
 dev-server preview and usage metering. Through the real session code
 (LOR_SANDBOX_PRIMARY=boat): open, reopen, attach, the harness bridge URL, the
 terminal and the browser view; with a dev session: charging, the blocked
-check, stop, resume (files kept, processes ended) and the idle sweep. A
-session forced onto Boat in the app (Lor turn, Claude Code turn with a real
-token, live view in the panel) is still owed.
+check, stop, resume (files kept, processes ended) and the idle sweep.
+Production, 2026-11-06 (Jacob, LOR_SANDBOX_PRIMARY=boat): a new session on
+Boat ran a Lor turn and a Claude Code turn, and the Browser and Terminal tabs
+worked. The desktop app needed `*.on.boat.dev` in its CSP (frame-src,
+connect-src).
 
 ## Why
 
@@ -85,5 +87,10 @@ once on its $20 plan, so it takes the overflow (Jacob, 2026-11-05).
   PATH, ahead of the Node 26 setup.sh installs; bridges and repos run on 24.
   Lor's Pi runs in the worker, so Boat's `pi` is never used.
 - The free trial allows no saved snapshots: the template needs the paid plan.
+- Boat runs only in Europe ("Germany, Finland and France", docs.boat.dev
+  compliance); no region choice in its API. Sites see a European visitor
+  (Google answers in French by IP), and the live view and terminal are
+  80–150 ms further from US users than Blaxel's us-pdx-1. Keep Boat as
+  overflow (LOR_SANDBOX_PRIMARY unset) unless Boat offers a US region.
 - A live view or terminal left open with no commands still lets the VM stop
   30 minutes after Lor's last command.

@@ -26,7 +26,6 @@ import { ConversationMessages } from "@/components/chat/conversation-messages"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { ForwardDialog } from "@/components/chat/forward-dialog"
 import {
-  jumpScrollBehavior,
   MessageScrollerCommandBridge,
   MessageScrollerJumpToLatest,
 } from "@/components/chat/message-scroller-controls"
@@ -114,6 +113,7 @@ export function SessionDocument({
   rewindRestoresFiles,
   composerNote,
   harness,
+  harnessCommands,
   claudeCode = false,
 }: {
   workspaceSlug: string
@@ -121,6 +121,8 @@ export function SessionDocument({
   threadRootId: string
   sessionId: string
   harness: RealtimeAgentSession["harness"]
+  // Its harness's own commands and skills, for the composer's menus.
+  harnessCommands?: RealtimeAgentSession["harnessCommands"]
   // Above the reply line: why the agent won't answer this person (a Claude
   // Code session without their Claude subscription).
   composerNote?: ReactNode
@@ -431,7 +433,7 @@ export function SessionDocument({
     isLoading,
     ensureMessage,
   })
-  const { scrollRef, scrollToEndRef } = scroll
+  const { scrollRef } = scroll
   const [isRepoDragActive, setIsRepoDragActive] = useState(false)
   const [fileReference, setFileReference] = useState<ComposerFileReference>()
   const canReferenceFiles = Boolean(
@@ -476,10 +478,6 @@ export function SessionDocument({
     setFileReference(undefined)
     setIsRepoDragActive(false)
   }, [repoSessionId])
-  useEffect(() => {
-    if (cover || (!isRepoDragActive && !fileReference)) return
-    scrollToEndRef.current?.({ behavior: "auto" })
-  }, [cover, isRepoDragActive, fileReference, scrollToEndRef])
   // The bar under the document the inline composer's tools render into.
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
     null
@@ -571,11 +569,7 @@ export function SessionDocument({
         subscribers={otherSubscribers}
         variant="inline"
         toolbarTarget={toolbarTarget}
-        onTypeToFocus={
-          cover
-            ? undefined
-            : () => scrollToEndRef.current?.({ behavior: jumpScrollBehavior() })
-        }
+        typeToFocus={!cover}
         gutter={
           <UserAvatar
             name={session?.user.name}
@@ -603,6 +597,7 @@ export function SessionDocument({
           ) : undefined
         }
         onShiftTab={claudeCode ? claudeMode.cycle : undefined}
+        harnessCommands={agentAnswers ? harnessCommands : null}
         onSend={send}
         currentUserId={currentUserId}
         replyingTo={replyingTo}
@@ -719,11 +714,6 @@ export function SessionDocument({
                       rewindRestoresFiles,
                     }}
                   />
-                  {/* Inline input line: the document's last line, reached by
-                  scrolling to the end like any document (never pinned). */}
-                  {!archivedBar && !isAwaitingReplies && (
-                    <div className="pt-3">{composer}</div>
-                  )}
                 </MessageScrollerContent>
               </MessageScrollerViewport>
               <MessageScrollerJumpToLatest
@@ -741,10 +731,19 @@ export function SessionDocument({
                 {archivedBar}
               </div>
             ) : (
-              <div
-                ref={setToolbarTarget}
-                className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
-              />
+              <>
+                {/* Inline input line, pinned under the transcript so it stays
+                in reach while you scroll back. */}
+                {!isAwaitingReplies && (
+                  <div className="mx-auto w-full max-w-3xl shrink-0 pt-2">
+                    {composer}
+                  </div>
+                )}
+                <div
+                  ref={setToolbarTarget}
+                  className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
+                />
+              </>
             )}
           </div>
           {cover && <div className="absolute inset-0">{cover}</div>}

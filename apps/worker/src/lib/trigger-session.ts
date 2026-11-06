@@ -19,7 +19,7 @@ import {
   type TriggeredRunJobData,
 } from "@repo/realtime-types/queues"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
-import { isValidNewBranchName } from "@repo/utils/github"
+import { lorBranchName } from "@repo/utils/github"
 import type { Emitter } from "@socket.io/redis-emitter"
 import type { Queue } from "bullmq"
 import type { createClient } from "redis"
@@ -138,20 +138,11 @@ async function actCodeStart(
       note: `Note: this automation is set to start code sessions on ${input.code.repoFullName}, but that repository is not available for code sessions in this channel now, so this session cannot change code.`,
     }
   }
-  const slug = input.label
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
-    .replace(/-+$/, "")
-  const named = `lor/${slug || "event"}-${sessionId.slice(0, 6)}`
   return {
     code: {
       repoFullName: allowed.repo.fullName,
       baseBranch: input.code.baseBranch,
-      newBranch: isValidNewBranchName(named)
-        ? named
-        : `lor/event-${sessionId.slice(0, 6)}`,
+      newBranch: lorBranchName(input.label, sessionId, "event"),
     },
     note: null,
   }
