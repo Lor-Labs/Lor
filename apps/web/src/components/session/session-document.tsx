@@ -619,6 +619,16 @@ export function SessionDocument({
     </>
   )
 
+  const showInputLine = !archivedBar && !isAwaitingReplies
+  const jumpToLatest = (className?: string) => (
+    <MessageScrollerJumpToLatest
+      newestMessageId={orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null}
+      viewportRef={scrollRef}
+      isLorResponding={Boolean(pendingLorMessage)}
+      className={className}
+    />
+  )
+
   return (
     <div
       {...getRootProps()}
@@ -714,15 +724,18 @@ export function SessionDocument({
                       rewindRestoresFiles,
                     }}
                   />
+                  {/* Inline input line: the document's last line, right under
+                  the last turn. Sticky, so while you scroll back it stays at
+                  the bottom edge (LOR-129), with Jump to latest above it. */}
+                  {showInputLine && (
+                    <div className="sticky bottom-0 z-30 bg-background pt-3">
+                      {jumpToLatest("bottom-full mb-2")}
+                      {composer}
+                    </div>
+                  )}
                 </MessageScrollerContent>
               </MessageScrollerViewport>
-              <MessageScrollerJumpToLatest
-                newestMessageId={
-                  orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null
-                }
-                viewportRef={scrollRef}
-                isLorResponding={Boolean(pendingLorMessage)}
-              />
+              {!showInputLine && jumpToLatest()}
               <SessionTurnRail messages={orderedReplies} />
             </MessageScroller>
 
@@ -731,19 +744,10 @@ export function SessionDocument({
                 {archivedBar}
               </div>
             ) : (
-              <>
-                {/* Inline input line, pinned under the transcript so it stays
-                in reach while you scroll back. */}
-                {!isAwaitingReplies && (
-                  <div className="mx-auto w-full max-w-3xl shrink-0 pt-2">
-                    {composer}
-                  </div>
-                )}
-                <div
-                  ref={setToolbarTarget}
-                  className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
-                />
-              </>
+              <div
+                ref={setToolbarTarget}
+                className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
+              />
             )}
           </div>
           {cover && <div className="absolute inset-0">{cover}</div>}
