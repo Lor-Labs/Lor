@@ -306,22 +306,27 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
   webhooks.on("pull_request_review.submitted", async ({ payload }) => {
     const session = await sessionForPullRequest(pullRequestRef(payload))
     if (!session || payload.installation?.id === undefined) return
-    await announceReview({
-      session,
-      installationId: payload.installation.id,
-      pullRequest: {
-        number: payload.pull_request.number,
-        url: payload.pull_request.html_url,
-      },
-      review: {
-        id: payload.review.id,
-        state: payload.review.state,
-        body: payload.review.body,
-        login: payload.review.user?.login ?? "ghost",
-        bot: payload.review.user?.type === "Bot",
-      },
-    })
-    broadcastReviewUpdated(session)
+    // Open cards refetch even when the card can't be posted; the error still
+    // reaches the webhook handler.
+    try {
+      await announceReview({
+        session,
+        installationId: payload.installation.id,
+        pullRequest: {
+          number: payload.pull_request.number,
+          url: payload.pull_request.html_url,
+        },
+        review: {
+          id: payload.review.id,
+          state: payload.review.state,
+          body: payload.review.body,
+          login: payload.review.user?.login ?? "ghost",
+          bot: payload.review.user?.type === "Bot",
+        },
+      })
+    } finally {
+      broadcastReviewUpdated(session)
+    }
   })
 
   webhooks.on(

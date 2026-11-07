@@ -22,6 +22,7 @@ import { PlanStepList } from "@/components/chat/plan-step-list"
 import {
   ReviewThreadRow,
   sendFixWithLor,
+  threadFixItem,
 } from "@/components/session/review-threads"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -401,7 +402,11 @@ function SessionReviewSection({
               variant="outline"
               className="mx-2 self-start"
               onClick={() =>
-                sendFixWithLor(threadRootId, open, review.pullRequest)
+                sendFixWithLor(
+                  threadRootId,
+                  open.map(threadFixItem),
+                  review.pullRequest
+                )
               }
             >
               <HugeiconsIcon icon={AiMagicIcon} className="size-3.5" />
@@ -413,7 +418,11 @@ function SessionReviewSection({
               key={thread.id}
               thread={thread}
               onFix={() =>
-                sendFixWithLor(threadRootId, [thread], review.pullRequest)
+                sendFixWithLor(
+                  threadRootId,
+                  [threadFixItem(thread)],
+                  review.pullRequest
+                )
               }
             />
           ))}

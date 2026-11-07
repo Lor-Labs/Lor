@@ -15,6 +15,7 @@ import {
   ReviewerAvatar,
   ReviewThreadRow,
   sendFixWithLor,
+  threadFixItem,
 } from "@/components/session/review-threads"
 import { useSessionReview } from "@/hooks/use-session-review"
 import type { Message } from "@/lib/api-types"
@@ -138,7 +139,11 @@ export function ReviewCard({ message }: { message: Message }) {
               variant="outline"
               className="shrink-0"
               onClick={() =>
-                sendFixWithLor(threadRootId, open, review.pullRequest)
+                sendFixWithLor(
+                  threadRootId,
+                  open.map(threadFixItem),
+                  review.pullRequest
+                )
               }
             >
               <HugeiconsIcon icon={AiMagicIcon} className="size-3.5" />
@@ -165,12 +170,42 @@ export function ReviewCard({ message }: { message: Message }) {
                     <MessageMarkdown content={own.body} mentions={[]} />
                   </div>
                 )}
+                {/* A review bot's prompt for the whole review also covers
+                  findings with no thread (nitpicks, outside the diff). */}
+                {own?.agentPrompt && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    className="mx-1 self-start"
+                    onClick={() =>
+                      sendFixWithLor(
+                        threadRootId,
+                        [
+                          {
+                            where: "the whole review",
+                            author: own.author.login,
+                            url: own.url,
+                            text: own.agentPrompt ?? "",
+                          },
+                        ],
+                        review.pullRequest
+                      )
+                    }
+                  >
+                    <HugeiconsIcon icon={AiMagicIcon} className="size-3.5" />
+                    Fix the whole review with Lor
+                  </Button>
+                )}
                 {threads.map((thread) => (
                   <ReviewThreadRow
                     key={thread.id}
                     thread={thread}
                     onFix={() =>
-                      sendFixWithLor(threadRootId, [thread], review.pullRequest)
+                      sendFixWithLor(
+                        threadRootId,
+                        [threadFixItem(thread)],
+                        review.pullRequest
+                      )
                     }
                   />
                 ))}

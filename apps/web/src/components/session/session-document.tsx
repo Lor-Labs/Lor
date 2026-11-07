@@ -437,16 +437,22 @@ export function SessionDocument({
   const { scrollRef } = scroll
   const [isRepoDragActive, setIsRepoDragActive] = useState(false)
   const [fileReference, setFileReference] = useState<ComposerFileReference>()
+  // The input line, absent while archived or before the first page loads.
+  const showInputLine = !archivedBar && !isAwaitingReplies
   // Fix with Lor from a review card or the Details panel's Review list.
   const [composerDraft, setComposerDraft] = useState<{
     id: string
     text: string
-    markdown: true
+    lines: true
   }>()
-  useSessionComposerInbox(threadRootId, (text) => {
-    setComposerDraft({ id: crypto.randomUUID(), text, markdown: true })
-    if (cover) onShowChat?.()
-  })
+  useSessionComposerInbox(
+    threadRootId,
+    (text) => {
+      setComposerDraft({ id: crypto.randomUUID(), text, lines: true })
+      if (cover) onShowChat?.()
+    },
+    showInputLine
+  )
   const canReferenceFiles = Boolean(
     repoSessionId && !archivedBar && !isAwaitingReplies
   )
@@ -636,7 +642,6 @@ export function SessionDocument({
     </>
   )
 
-  const showInputLine = !archivedBar && !isAwaitingReplies
   const jumpToLatest = (className?: string) => (
     <MessageScrollerJumpToLatest
       newestMessageId={orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null}

@@ -148,6 +148,18 @@ export async function isFirstAccount() {
   return human.length === 0
 }
 
+// A sign-up's invitation id when its signature checks out; an unsigned or
+// forged one is no invitation.
+function signedInvitationId(body: unknown): string | null {
+  const { invitationId, invitationSig } =
+    (body as { invitationId?: unknown; invitationSig?: unknown } | null) ?? {}
+  return typeof invitationId === "string" &&
+    typeof invitationSig === "string" &&
+    verifyInvitationSignature(invitationId, invitationSig)
+    ? invitationId
+    : null
+}
+
 export const auth = betterAuth({
   baseURL: env.NEXT_PUBLIC_API_URL,
   database: betaAdapter,
@@ -378,12 +390,8 @@ export const auth = betterAuth({
               })
             }
           }
-          const { invitationId, invitationSig } = ctx.body ?? {}
-          if (
-            typeof invitationId !== "string" ||
-            typeof invitationSig !== "string" ||
-            !verifyInvitationSignature(invitationId, invitationSig)
-          ) {
+          const invitationId = signedInvitationId(ctx.body)
+          if (!invitationId) {
             await refuseSelfSignup()
             return
           }
@@ -412,7 +420,9 @@ export const auth = betterAuth({
           captureServerEvent({
             distinctId: user.id,
             event: "user_signed_up",
-            properties: { from_invitation: Boolean(ctx.body?.invitationId) },
+            properties: {
+              from_invitation: signedInvitationId(ctx.body) !== null,
+            },
           })
         },
       },

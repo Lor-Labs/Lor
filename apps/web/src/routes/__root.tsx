@@ -9,6 +9,13 @@ import { DesktopZoomProvider } from "@/context/desktop-zoom-context"
 const posthogProjectToken = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN
 const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST
 
+// Local runs without PostHog keys still render; analytics are just off.
+if (import.meta.env.DEV && (!posthogProjectToken || !posthogHost)) {
+  console.warn(
+    `${posthogProjectToken ? "NEXT_PUBLIC_POSTHOG_HOST" : "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN"} is not set: PostHog is off and its events are not sent.`
+  )
+}
+
 function PostHogIdentity({ children }: { children: React.ReactNode }) {
   const posthog = usePostHog()
   const { data: session, isPending } = authClient.useSession()
@@ -58,18 +65,7 @@ function RootComponent() {
     </DesktopZoomProvider>
   )
 
-  if (!posthogProjectToken || !posthogHost) {
-    if (import.meta.env.DEV) {
-      const missingVariable = posthogProjectToken
-        ? "NEXT_PUBLIC_POSTHOG_HOST"
-        : "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN"
-      throw new Error(
-        `${missingVariable} variable required by PostHog is missing or un-configured, this causes events to be silently missed. This error stops appearing once ${missingVariable} is configured`
-      )
-    }
-
-    return content
-  }
+  if (!posthogProjectToken || !posthogHost) return content
 
   return (
     <PostHogProvider

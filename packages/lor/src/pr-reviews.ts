@@ -37,6 +37,9 @@ export type SessionPullRequestReview = {
     author: ReviewAuthor
     state: ReviewState
     body: string
+    // A review bot's prompt for the whole review (CodeRabbit's covers its
+    // nitpicks and comments outside the diff, which have no thread).
+    agentPrompt: string | null
     url: string
     submittedAt: string | null
   }[]
@@ -56,6 +59,7 @@ export type SessionPullRequestReview = {
       body: string
       // A review bot's own instructions for an AI agent (CodeRabbit's "Prompt
       // for AI Agents", Greptile's "Prompt To Fix With AI"), for Fix with Lor.
+      // Bots only: a person's hidden <details> never reaches Lor unseen.
       agentPrompt: string | null
       url: string
       createdAt: string
@@ -73,18 +77,54 @@ function authorOf(author: GithubReviewAuthor): ReviewAuthor {
     : { login: "ghost", avatarUrl: null, bot: false }
 }
 
-const INNERMOST_DETAILS =
-  /<details\b[^>]*>\s*(?:<summary>([\s\S]*?)<\/summary>)?((?:(?!<details\b)[\s\S])*?)<\/details>/i
+// Bounded so a tag that never closes can't make the scan quadratic.
 const LEFTOVER_TAGS =
-  /<\/?(?:sub|sup|b|strong|i|em|p|div|span|br|img|a|blockquote|summary|details|table|thead|tbody|tr|td|th)\b[^>]*>/gi
+  /<\/?(?:sub|sup|b|strong|i|em|p|div|span|br|img|a|blockquote|summary|details|table|thead|tbody|tr|td|th)\b[^>]{0,2000}>/gi
 const MAX_DETAILS = 50
 
+// Comment bodies are anyone's text (up to GitHub's 65,536 characters), so
+// these scans are linear: no backtracking regex over the whole body.
+function stripHtmlComments(text: string): string {
+  let out = ""
+  let from = 0
+  for (;;) {
+    const open = text.indexOf("<!--", from)
+    if (open === -1) return out + text.slice(from)
+    out += text.slice(from, open)
+    const close = text.indexOf("-->", open + 4)
+    if (close === -1) return out
+    from = close + 3
+  }
+}
+
 function stripFences(text: string): string {
-  return text
-    .trim()
-    .replace(/^`{3,}[^\n]*\n/, "")
-    .replace(/\n?`{3,}\s*$/, "")
-    .trim()
+  const lines = text.trim().split("\n")
+  if (/^`{3,}/.test(lines[0] ?? "")) lines.shift()
+  const last = (lines.at(-1) ?? "").trim()
+  if (last.length >= 3 && [...last].every((char) => char === "`")) lines.pop()
+  return lines.join("\n").trim()
+}
+
+// The innermost <details> block: the first closing tag and the last opening
+// tag before it.
+function innermostDetails(text: string) {
+  const lower = text.toLowerCase()
+  const close = lower.indexOf("</details>")
+  if (close === -1) return null
+  const open = lower.lastIndexOf("<details", close)
+  if (open === -1) return null
+  const openEnd = lower.indexOf(">", open)
+  if (openEnd === -1 || openEnd > close) return null
+  let inner = text.slice(openEnd + 1, close)
+  let summary = ""
+  const innerLower = inner.toLowerCase()
+  const summaryOpen = innerLower.indexOf("<summary>")
+  const summaryClose = innerLower.indexOf("</summary>")
+  if (summaryOpen !== -1 && summaryClose > summaryOpen) {
+    summary = inner.slice(summaryOpen + "<summary>".length, summaryClose)
+    inner = inner.slice(summaryClose + "</summary>".length)
+  }
+  return { start: open, end: close + "</details>".length, summary, inner }
 }
 
 // Review bots fold their extras into <details> blocks and leave HTML
@@ -94,23 +134,31 @@ export function cleanReviewBody(raw: string): {
   body: string
   agentPrompt: string | null
 } {
-  let body = raw.replace(/<!--[\s\S]*?-->/g, "")
+  let body = stripHtmlComments(raw)
   let agentPrompt: string | null = null
   for (let i = 0; i < MAX_DETAILS; i++) {
-    const match = INNERMOST_DETAILS.exec(body)
-    if (!match) break
-    const summary = (match[1] ?? "").replace(/<[^>]+>/g, "")
+    const block = innermostDetails(body)
+    if (!block) break
+    const summary = block.summary.replace(LEFTOVER_TAGS, "")
     if (!agentPrompt && /prompt/i.test(summary)) {
-      agentPrompt = stripFences(match[2] ?? "") || null
+      agentPrompt = stripFences(block.inner) || null
     }
-    body =
-      body.slice(0, match.index) + body.slice(match.index + match[0].length)
+    body = body.slice(0, block.start) + body.slice(block.end)
   }
   body = body
     .replace(LEFTOVER_TAGS, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
   return { body, agentPrompt }
+}
+
+// A person's comment shows as written; only a bot's prompt goes to Lor.
+function commentText(raw: string, author: ReviewAuthor) {
+  const cleaned = cleanReviewBody(raw)
+  return {
+    body: cleaned.body,
+    agentPrompt: author.bot ? cleaned.agentPrompt : null,
+  }
 }
 
 const REVIEW_STATES: Record<string, ReviewState> = {
@@ -152,14 +200,17 @@ export async function sessionPullRequestReview(session: {
     },
     reviews: pr.reviews
       .filter((review) => review.state !== "PENDING")
-      .map((review) => ({
-        id: review.databaseId,
-        author: authorOf(review.author),
-        state: REVIEW_STATES[review.state] ?? "commented",
-        body: cleanReviewBody(review.body).body,
-        url: review.url,
-        submittedAt: review.submittedAt,
-      })),
+      .map((review) => {
+        const author = authorOf(review.author)
+        return {
+          id: review.databaseId,
+          author,
+          state: REVIEW_STATES[review.state] ?? "commented",
+          ...commentText(review.body, author),
+          url: review.url,
+          submittedAt: review.submittedAt,
+        }
+      }),
     threads: pr.threads.flatMap((thread) => {
       const first = thread.comments[0]
       if (!first) return []
@@ -172,13 +223,16 @@ export async function sessionPullRequestReview(session: {
           outdated: thread.isOutdated,
           reviewId: first.pullRequestReview?.databaseId ?? null,
           url: first.url,
-          comments: thread.comments.map((comment) => ({
-            id: comment.databaseId,
-            author: authorOf(comment.author),
-            ...cleanReviewBody(comment.body),
-            url: comment.url,
-            createdAt: comment.createdAt,
-          })),
+          comments: thread.comments.map((comment) => {
+            const author = authorOf(comment.author)
+            return {
+              id: comment.databaseId,
+              author,
+              ...commentText(comment.body, author),
+              url: comment.url,
+              createdAt: comment.createdAt,
+            }
+          }),
         },
       ]
     }),

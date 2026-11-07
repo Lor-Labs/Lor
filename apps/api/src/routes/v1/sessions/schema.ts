@@ -351,6 +351,7 @@ export const sessionReviewResponseSchema = z.object({
             "pending",
           ]),
           body: z.string(),
+          agentPrompt: z.string().nullable(),
           url: z.string(),
           submittedAt: z.string().nullable(),
         })

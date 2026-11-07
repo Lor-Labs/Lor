@@ -106,8 +106,11 @@ sidebar, and "Fix with Lor" on each comment.
   (`use-session-review.ts`). `postSessionEvent` moved to
   `apps/api/src/lib/session-events.ts`.
 - [x] **4. Fix with Lor.** Per comment and Fix all open, put in the session
-  composer as Markdown after @Lor (`lib/session-composer-inbox.ts`,
-  `composerDraft.markdown` in `message-input.tsx`).
+  composer after @Lor as plain lines, no Markdown parsing, each comment
+  between start and end lines with a random tag (`lib/session-composer-inbox.ts`,
+  `composerDraft.lines` in `message-input.tsx`; the composer has no
+  blockquotes, so `>` quoting did not survive sending). Bots' prompts only; a
+  bot review's own prompt adds "Fix the whole review with Lor" on its card.
 - [ ] **Later:** resolve a thread or reply "Fixed in abc123" on GitHub as the
   person's linked GitHub account (like push); opt-in automatic fixes; mobile
   card.
