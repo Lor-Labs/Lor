@@ -506,6 +506,31 @@ function droppedTurnNote(drop: PausedTurnDrop): string {
       : "Lor was updated while your last turn waited for approval, so that turn ended. The actions waiting for approval did not run. If they are still needed, say so and ask again."
 }
 
+// How long a code turn waits for its Linear issues to move to In Progress
+// before it starts without them (LOR-140).
+const LINEAR_START_WAIT_MS = 5000
+
+// The promise's value, or null when it hasn't settled in time or the turn
+// was stopped. The promise itself keeps running.
+function settledWithin<T>(
+  promise: Promise<T>,
+  ms: number,
+  signal?: AbortSignal
+): Promise<T | null> {
+  return new Promise((resolve) => {
+    const finish = (value: T | null) => {
+      clearTimeout(timer)
+      signal?.removeEventListener("abort", expire)
+      resolve(value)
+    }
+    const expire = () => finish(null)
+    const timer = setTimeout(expire, ms)
+    signal?.addEventListener("abort", expire, { once: true })
+    if (signal?.aborted) expire()
+    promise.then(finish, expire)
+  })
+}
+
 const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
 
 You can also see images people share — they're included inline in the conversation below.
@@ -3169,6 +3194,8 @@ async function respondImpl(
             }
           )
         : Promise.resolve([])
+    // Tool events for a late Linear result stop once the turn has ended.
+    let linearReportOpen = true
 
     // A gated call pauses the turn for a person's decision; request_approval
     // always does. In a call where nobody can approve, it is refused instead.
@@ -3400,23 +3427,44 @@ async function respondImpl(
       if (pausedDropped) {
         notes.push(droppedTurnNote(pausedDropped))
       }
-      const startedIssues = await linearStarted
-      for (const issue of startedIssues) {
-        onToolEvent?.({
-          toolCallId: `linear-start-${run.runId}-${issue.identifier}`,
-          toolName: "update_linear_issue",
-          label: `Moved ${issue.identifier} to ${issue.state}`,
-          at: 0,
-          status: "ok",
-          detail: {
-            summary: `Updated ${issue.identifier} · moved to ${issue.state}`,
-            items: [
-              { title: `${issue.identifier} ${issue.title}`, url: issue.url },
-            ],
-          },
+      const reportStarted = (issues: StartedLinearIssue[]) => {
+        for (const issue of issues) {
+          onToolEvent?.({
+            toolCallId: `linear-start-${run.runId}-${issue.identifier}`,
+            toolName: "update_linear_issue",
+            label: `Moved ${issue.identifier} to ${issue.state}`,
+            at: 0,
+            status: "ok",
+            detail: {
+              summary: `Updated ${issue.identifier} · moved to ${issue.state}`,
+              items: [
+                { title: `${issue.identifier} ${issue.title}`, url: issue.url },
+              ],
+            },
+          })
+        }
+      }
+      const startedIssues = await settledWithin(
+        linearStarted,
+        LINEAR_START_WAIT_MS,
+        run.abortSignal
+      )
+      if (startedIssues) {
+        reportStarted(startedIssues)
+      } else {
+        // Too slow to note: the prompt has Lor move unstarted issues itself,
+        // and a later result still shows while the turn runs.
+        void linearStarted.then((issues) => {
+          if (linearReportOpen) reportStarted(issues)
+          else if (issues.length > 0) {
+            logger.info(
+              { issues: issues.map((issue) => issue.identifier) },
+              "Linear issues moved to In Progress after the turn ended"
+            )
+          }
         })
       }
-      if (startedIssues.length > 0) {
+      if (startedIssues && startedIssues.length > 0) {
         notes.push(
           `Linear: ${startedIssues.map((issue) => `${issue.identifier} was moved to ${issue.state}`).join(", ")} as this turn started, so don't move ${startedIssues.length === 1 ? "it" : "them"} again now.`
         )
@@ -4292,6 +4340,7 @@ async function respondImpl(
         ...(stoppedFor ? { stoppedFor } : {}),
       }
     } finally {
+      linearReportOpen = false
       await uncommitted?.stop()
       sandbox.close()
     }
