@@ -9,9 +9,10 @@ import { TERMINAL_PORT } from "./terminal"
 
 // A code session's Browser tab (reference/dev-environment-runbook.md §3):
 // whatever listens in the sandbox, whoever started it, shown at
-// `localhost:<port>`. A preview URL serves it; previews reach only servers
-// bound to all addresses (spike 2026-10-29: 127.0.0.1 and ::1 answered 502),
-// so a localhost-only server gets a TCP relay. Built on the provider seam.
+// `localhost:<port>`. A preview URL serves it through a small proxy in the
+// sandbox: previews reach only servers bound to all addresses (spike
+// 2026-10-29: 127.0.0.1 and ::1 answered 502), and dev servers' cross-site
+// guards reject the preview origin (LOR-133). Built on the provider seam.
 
 export type OpenPort = { port: number; process: string | null }
 
@@ -100,33 +101,104 @@ out.sort((a, b) => a.port - b.port)
 console.log(JSON.stringify(out))
 `
 
-// Forwards a port on all addresses to a localhost-only server, trying IPv4
-// then IPv6 loopback per connection. Raw TCP: HTTP, WebSockets, hot reload.
-const RELAY = `
+// Serves a port on all addresses, connecting to the server over IPv4 then IPv6
+// loopback. Same-origin requests from the preview host get
+// `Origin: http://localhost:<port>`: Next 16 refuses its HMR socket and other
+// /_next dev resources from an origin missing from `allowedDevOrigins` (its
+// bare "Unauthorized" on the socket reaches the browser as a 502), so the page
+// never hydrates in "Open in your browser". Auth origin checks against a
+// localhost base URL pass the same way. Other origins pass through untouched.
+const PROXY = `
+const http = require("http")
 const net = require("net")
 const listen = Number(process.argv[1])
 const target = Number(process.argv[2])
-net.createServer((client) => {
-  client.pause()
-  const connect = (hosts) => {
-    const upstream = net.connect({ port: target, host: hosts[0] })
-    upstream.once("connect", () => {
-      client.pipe(upstream)
-      upstream.pipe(client)
-      client.resume()
+const previewHost = (process.argv[3] || "").toLowerCase()
+const local = "http://localhost:" + target
+
+// The loopback address the server answers on, found again after a refusal
+// (a restart can bind the other family).
+let found = null
+const upstreamHost = (done) => {
+  if (found) return done(found)
+  const attempt = (list) => {
+    const probe = net.connect({ host: list[0], port: target })
+    probe.once("connect", () => {
+      probe.destroy()
+      found = list[0]
+      done(found)
     })
-    upstream.once("error", () => {
-      if (hosts.length > 1) connect(hosts.slice(1))
-      else client.destroy()
-    })
-    client.on("error", () => upstream.destroy())
-    client.on("close", () => upstream.destroy())
+    probe.once("error", () => (list.length > 1 ? attempt(list.slice(1)) : done(null)))
   }
-  connect(["127.0.0.1", "::1"])
-}).listen(listen, "0.0.0.0")
+  attempt(["127.0.0.1", "::1"])
+}
+const forget = (err) => {
+  if (err && err.code === "ECONNREFUSED") found = null
+}
+
+const ownOrigin = (origin, headers) => {
+  let host = ""
+  try { host = new URL(origin).host.toLowerCase() } catch { return false }
+  const seen = [previewHost, headers.host, headers["x-forwarded-host"]]
+    .map((value) => String(value || "").split(",")[0].trim().toLowerCase())
+  return seen.includes(host)
+}
+const rewrite = (headers) => {
+  const out = { ...headers }
+  if (out.origin && ownOrigin(out.origin, headers)) out.origin = local
+  return out
+}
+
+const server = http.createServer((req, res) => {
+  upstreamHost((host) => {
+    if (!host) {
+      res.writeHead(502)
+      return res.end()
+    }
+    const upstream = http.request({ host, port: target, method: req.method, path: req.url, headers: rewrite(req.headers) }, (reply) => {
+      res.writeHead(reply.statusCode || 502, reply.statusMessage, reply.rawHeaders)
+      reply.pipe(res)
+    })
+    upstream.on("error", (err) => {
+      forget(err)
+      if (!res.headersSent) res.writeHead(502)
+      res.end()
+    })
+    res.on("close", () => upstream.destroy())
+    req.pipe(upstream)
+  })
+})
+server.requestTimeout = 0
+
+// WebSockets (hot reload): the handshake goes upstream with the rewritten
+// Origin, then raw bytes both ways.
+server.on("upgrade", (req, socket, head) => {
+  const lines = [req.method + " " + req.url + " HTTP/" + req.httpVersion]
+  for (const [name, value] of Object.entries(rewrite(req.headers))) {
+    for (const one of Array.isArray(value) ? value : [value]) lines.push(name + ": " + one)
+  }
+  socket.on("error", () => socket.destroy())
+  upstreamHost((host) => {
+    if (!host || socket.destroyed) return socket.destroy()
+    const upstream = net.connect({ host, port: target })
+    upstream.once("connect", () => {
+      upstream.write(lines.join("\\r\\n") + "\\r\\n\\r\\n")
+      if (head.length) upstream.write(head)
+      socket.pipe(upstream)
+      upstream.pipe(socket)
+    })
+    upstream.on("error", (err) => {
+      forget(err)
+      socket.destroy()
+    })
+    socket.on("close", () => upstream.destroy())
+    upstream.on("close", () => socket.destroy())
+  })
+})
+server.listen(listen, "0.0.0.0")
 `
 
-const relayPort = (port: number) => 40000 + (port % 10000)
+const proxyPort = (port: number) => 50000 + (port % 10000)
 
 export async function readListeningPorts(
   session: SandboxSession
@@ -173,24 +245,22 @@ export async function openPort(
   const found = ports.find((p) => p.port === port)
   if (!found) return { status: "not_listening" }
 
-  let target = port
-  if (found.loopbackOnly) {
-    target = relayPort(port)
-    const relay = await ensureProcess(owner(sessionId), {
-      name: `relay-${port}`,
-      command: `node -e ${shellQuote(RELAY)} ${target} ${port} ${RELAY_MARKER}`,
-    })
-    if (!relay) return { status: "no_sandbox" }
-    if (!(await portReady(owner(sessionId), target, 10_000))) {
-      return { status: "not_listening" }
-    }
-  }
+  const proxy = proxyPort(port)
   const exposed = await exposePort(owner(sessionId), {
-    name: found.loopbackOnly ? `port-${port}-relay` : `port-${port}`,
-    port: target,
+    name: `port-${port}-proxy`,
+    port: proxy,
     access: ACCESS,
   })
   if (!exposed) return { status: "no_sandbox" }
+  const previewHost = new URL(exposed.url).host
+  const started = await ensureProcess(owner(sessionId), {
+    name: `proxy-${port}`,
+    command: `node -e ${shellQuote(PROXY)} ${proxy} ${port} ${shellQuote(previewHost)} ${RELAY_MARKER}`,
+  })
+  if (!started) return { status: "no_sandbox" }
+  if (!(await portReady(owner(sessionId), proxy, 10_000))) {
+    return { status: "not_listening" }
+  }
   return {
     status: "ready",
     url: exposed.url.replace(/\/$/, ""),
