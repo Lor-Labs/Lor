@@ -1,5 +1,6 @@
 import { Copy01Icon, Link01Icon, Tick02Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { usePostHog } from "@posthog/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -74,6 +75,7 @@ export function CreateInviteDialog({
 }) {
   const { workspaceSlug } = useParams({ strict: false })
   const queryClient = useQueryClient()
+  const posthog = usePostHog()
   const { workspaceId, roleOptions } = useInviteAccess(workspaceSlug)
   const [emails, setEmails] = useState("")
   const [role, setRole] = useState("member")
@@ -110,6 +112,10 @@ export function CreateInviteDialog({
       const failed = results.filter((result) => result.error)
       const sent = results.length - failed.length
       if (sent > 0) {
+        posthog?.capture("invites_sent", {
+          invite_count: sent,
+          role,
+        })
         toast.success(sent === 1 ? "Invite sent" : `${sent} invites sent`)
       }
       // Keep only the failed addresses so they can be fixed and resent.
@@ -150,6 +156,10 @@ export function CreateInviteDialog({
       return res.json()
     },
     onSuccess: (data) => {
+      posthog?.capture("invite_link_generated", {
+        expires_in_minutes: expiresIn === "never" ? null : Number(expiresIn),
+        max_uses: maxUses === "none" ? null : Number(maxUses),
+      })
       setInviteCode(data.invite.code)
     },
     onError: (error) => {

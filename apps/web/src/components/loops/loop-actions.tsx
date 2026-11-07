@@ -1,3 +1,4 @@
+import { usePostHog } from "@posthog/react"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -306,6 +307,7 @@ const STATUS_AFTER: Record<LoopLifecycleAction, ChannelLoop["status"]> = {
 
 export function useLoopLifecycle(loop: ChannelLoop | null) {
   const queryClient = useQueryClient()
+  const posthog = usePostHog()
 
   const mutation = useMutation({
     mutationFn: async (action: LoopLifecycleAction) => {
@@ -333,7 +335,8 @@ export function useLoopLifecycle(loop: ChannelLoop | null) {
             setLoopStatus(loop.id, STATUS_AFTER[action])
           )
         : undefined,
-    onSuccess: (updated) => {
+    onSuccess: (updated, action) => {
+      posthog?.capture("loop_action_completed", { action })
       queryClient.setQueryData(
         ["channel-loops", updated.channelId],
         (existing: ChannelLoop[] | undefined) => {

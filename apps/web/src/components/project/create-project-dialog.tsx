@@ -4,6 +4,7 @@ import {
   SquareLock02Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { usePostHog } from "@posthog/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
@@ -39,6 +40,7 @@ export function CreateProjectDialog({
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const posthog = usePostHog()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
 
@@ -126,6 +128,14 @@ export function CreateProjectDialog({
       }
 
       const project = await res.json()
+      posthog?.capture("project_created", {
+        is_private: isPrivate,
+        member_count: selectedIds.size + 1,
+      })
+      posthog?.logger.info("project created", {
+        is_private: isPrivate,
+        member_count: selectedIds.size + 1,
+      })
       await queryClient.invalidateQueries({
         queryKey: ["channels", workspaceSlug],
       })

@@ -1,3 +1,4 @@
+import { usePostHog } from "@posthog/react"
 import { LOR_USER_ID } from "@repo/db/constants"
 import {
   type RealtimeMessageEmbedsUpdated,
@@ -60,6 +61,7 @@ export function useMessageSending({
   onSendFailed,
   sessionStart,
 }: UseMessageSendingOptions) {
+  const posthog = usePostHog()
   const pendingNonces = useRef(new Set<string>())
   const sessionStartRef = useRef(sessionStart)
   sessionStartRef.current = sessionStart
@@ -323,6 +325,16 @@ export function useMessageSending({
         if (cancelInFlightRefetch()) refetchOwed.current = true
         pendingNonces.current.delete(nonce)
         if (result.ok) {
+          posthog?.capture("message_sent", {
+            attachment_count: attachments?.length ?? 0,
+            is_thread_reply: Boolean(threadRootId),
+            starts_session: startsSession,
+          })
+          posthog?.logger.info("message sent", {
+            attachment_count: attachments?.length ?? 0,
+            is_thread_reply: Boolean(threadRootId),
+            starts_session: startsSession,
+          })
           // The server moved the message into a new Lor session (`@Lor` in
           // chat or a human thread), so it leaves this list.
           const movedToSession =
@@ -395,6 +407,7 @@ export function useMessageSending({
       prependToFirstPage,
       updateMessagesInCache,
       onSendFailed,
+      posthog,
     ]
   )
 
