@@ -203,31 +203,109 @@ export type LinearIssueCard = Awaited<
   ReturnType<typeof compactLinearIssues>
 >[number]
 
-// Issues by identifier ("ENG-412") in one query, for cards in Lor's window.
-// Identifiers that don't resolve are simply missing from the result.
-export async function loadLinearIssueCards(
-  externalId: string,
+// Matches issues by identifier ("ENG-412"); null when none parse.
+function identifiersFilter(
   identifiers: string[]
-): Promise<LinearIssueCard[]> {
+): { count: number; filter: IssueFilter } | null {
   const refs = identifiers.flatMap((identifier) => {
     const match = /^([A-Z][A-Z0-9]*)-(\d+)$/.exec(identifier)
     return match?.[1] && match[2]
       ? [{ key: match[1], number: Number(match[2]) }]
       : []
   })
-  if (refs.length === 0) return []
-  const client = await linearClientFor(externalId)
-  if (!client) return []
-  const result = await client.issues({
-    first: refs.length,
+  if (refs.length === 0) return null
+  return {
+    count: refs.length,
     filter: {
       or: refs.map((ref) => ({
         team: { key: { eq: ref.key } },
         number: { eq: ref.number },
       })),
     },
+  }
+}
+
+// Issues by identifier ("ENG-412") in one query, for cards in Lor's window.
+// Identifiers that don't resolve are simply missing from the result.
+export async function loadLinearIssueCards(
+  externalId: string,
+  identifiers: string[]
+): Promise<LinearIssueCard[]> {
+  const byIdentifier = identifiersFilter(identifiers)
+  if (!byIdentifier) return []
+  const client = await linearClientFor(externalId)
+  if (!client) return []
+  const result = await client.issues({
+    first: byIdentifier.count,
+    filter: byIdentifier.filter,
   })
   return await compactLinearIssues(client, result.nodes, { visuals: true })
+}
+
+const START_ISSUES_MAX = 5
+
+export type StartedLinearIssue = {
+  identifier: string
+  title: string
+  url: string
+  state: string
+}
+
+// A code session's picked or pasted issue moves to its team's first started
+// state (In Progress) when Lor starts on it (LOR-140). Only issues not yet
+// started move, so a person's own move to In Review, Done or Canceled stands.
+export async function startLinearIssues(
+  externalId: string,
+  identifiers: string[]
+): Promise<StartedLinearIssue[]> {
+  const byIdentifier = identifiersFilter(identifiers.slice(0, START_ISSUES_MAX))
+  if (!byIdentifier) return []
+  const client = await linearClientFor(externalId)
+  if (!client) return []
+  const issues = await client
+    .issues({
+      first: byIdentifier.count,
+      filter: {
+        and: [
+          byIdentifier.filter,
+          { state: { type: { in: ["triage", "backlog", "unstarted"] } } },
+        ],
+      },
+    })
+    .then((result) => result.nodes)
+  const teamIds = [...new Set(issues.flatMap((issue) => issue.teamId ?? []))]
+  if (teamIds.length === 0) return []
+  const startedStates = await client
+    .workflowStates({
+      first: LINEAR_PAGE_SIZE,
+      filter: { team: { id: { in: teamIds } }, type: { eq: "started" } },
+    })
+    .then((result) => result.nodes)
+  const firstStarted = new Map<string, (typeof startedStates)[number]>()
+  for (const state of startedStates) {
+    const current = state.teamId ? firstStarted.get(state.teamId) : undefined
+    if (state.teamId && (!current || state.position < current.position)) {
+      firstStarted.set(state.teamId, state)
+    }
+  }
+  const started = await Promise.all(
+    issues.map(async (issue): Promise<StartedLinearIssue | null> => {
+      const state = issue.teamId ? firstStarted.get(issue.teamId) : undefined
+      if (!state) return null
+      const payload = await client
+        .updateIssue(issue.id, { stateId: state.id })
+        .catch(() => null)
+      return payload?.success
+        ? {
+            identifier: issue.identifier,
+            title: issue.title,
+            url: issue.url,
+            state: state.name,
+          }
+        : null
+    })
+  )
+  return started.filter((issue) => issue !== null)
 }
 
 export const linearTools = {

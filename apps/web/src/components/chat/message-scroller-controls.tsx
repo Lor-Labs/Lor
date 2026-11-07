@@ -555,6 +555,9 @@ export function MessageScrollerJumpToLatest({
   }
 
   // Stays mounted so showing and hiding transition instead of popping.
+  // Solid background, no backdrop-blur: WebKit (the macOS desktop app) can
+  // keep drawing the blur after the opacity fade, leaving a blank blurred
+  // pill over the transcript (LOR-145).
   return (
     <Button
       type="button"
@@ -564,7 +567,7 @@ export function MessageScrollerJumpToLatest({
       inert={!shouldShow}
       data-visible={shouldShow}
       className={cn(
-        "absolute bottom-3 left-1/2 z-10 h-8 -translate-x-1/2 rounded-full bg-background/95 px-3 text-xs shadow-sm transition-[translate,scale,opacity] duration-200 ease-out hover:bg-accent data-[visible=false]:pointer-events-none data-[visible=false]:translate-y-2 data-[visible=false]:scale-95 data-[visible=false]:opacity-0 data-[visible=true]:backdrop-blur-sm motion-reduce:transition-opacity motion-reduce:data-[visible=false]:translate-y-0 motion-reduce:data-[visible=false]:scale-100",
+        "absolute bottom-3 left-1/2 z-10 h-8 -translate-x-1/2 rounded-full bg-background px-3 text-xs shadow-sm transition-[translate,scale,opacity] duration-200 ease-out hover:bg-accent data-[visible=false]:pointer-events-none data-[visible=false]:translate-y-2 data-[visible=false]:scale-95 data-[visible=false]:opacity-0 motion-reduce:transition-opacity motion-reduce:data-[visible=false]:translate-y-0 motion-reduce:data-[visible=false]:scale-100 dark:bg-popover dark:hover:bg-input",
         className
       )}
     >
