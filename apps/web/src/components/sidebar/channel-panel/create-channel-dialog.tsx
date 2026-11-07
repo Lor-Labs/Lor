@@ -5,6 +5,7 @@ import {
   VolumeHighIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { usePostHog } from "@posthog/react"
 import { authClient } from "@repo/auth/client"
 import { Button } from "@repo/ui/components/button"
 import { Checkbox } from "@repo/ui/components/checkbox"
@@ -68,6 +69,7 @@ export function CreateChannelDialog({
   const { workspaceSlug } = useParams({ strict: false })
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const posthog = usePostHog()
   const { data: session } = authClient.useSession()
   const currentUserId = session?.user.id
   const [name, setName] = useState("")
@@ -155,6 +157,13 @@ export function CreateChannelDialog({
       // The response is the sidebar's row and the channel page's data, so
       // both show it now; the list refetches behind the navigation.
       const channel = await res.json()
+      posthog.capture("channel_created", {
+        channel_type: isCategory ? "category" : type,
+        visibility: canBePrivate && isPrivate ? "private" : "workspace",
+        additional_member_count:
+          canBePrivate && isPrivate ? selectedIds.size : 0,
+        nested_in_category: Boolean(parentId),
+      })
       await patchChannelList(queryClient, workspaceSlug, (list) =>
         upsertChannel(list, channel)
       )

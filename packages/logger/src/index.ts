@@ -118,3 +118,8 @@ export {
   initErrorReporting,
   redactLogPath,
 } from "./error-reporting.js"
+export { captureServerEvent } from "./posthog-events.js"
+export {
+  initPostHogLogCapture,
+  type PostHogLogCapture,
+} from "./posthog-logs.js"

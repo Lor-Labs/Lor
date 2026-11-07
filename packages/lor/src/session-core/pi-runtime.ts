@@ -38,6 +38,7 @@ import {
   tool,
   type UserModelMessage,
 } from "ai"
+import { aiRuntimeContext, aiTelemetry } from "../ai-observability"
 import {
   checkCompatibility,
   type HarnessBinding,
@@ -761,6 +762,9 @@ export async function runPiTurn(input: PiTurnInput): Promise<PiTurnResult> {
       ? { inactiveTools: input.inactiveBuiltinTools as never }
       : {}),
     headers: { "x-session-id": input.sessionKey },
+    // The harness skips registerTelemetry's global integration without this.
+    telemetry: aiTelemetry("lor.turn.pi"),
+    runtimeContext: aiRuntimeContext(),
     // No fixed workDir: the adapter's fs redirect is process-wide and keyed by
     // sandbox path, so each session keeps its own `/workspace/pi-<sessionId>`.
   })

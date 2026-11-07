@@ -14,6 +14,7 @@ import {
 } from "@repo/billing"
 import { betaLimitsLifted } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
+import { captureServerEvent } from "@repo/logger"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -146,6 +147,11 @@ export const subscribe: AppRouteHandler<SubscribeRoute> = async (c) => {
       Math.max(1, seats),
       billingReturnUrl(workspace.slug)
     )
+    captureServerEvent({
+      distinctId: c.var.user.id,
+      event: "subscription_checkout_started",
+      properties: { workspace_id: workspace.id, seats },
+    })
     return c.json({ url }, HttpStatusCodes.OK)
   } catch (err) {
     logger.error({ err, workspaceId: workspace.id }, "Subscribe failed")
@@ -182,6 +188,11 @@ export const topup: AppRouteHandler<TopupRoute> = async (c) => {
       usd,
       billingReturnUrl(workspace.slug)
     )
+    captureServerEvent({
+      distinctId: c.var.user.id,
+      event: "credit_topup_checkout_started",
+      properties: { workspace_id: workspace.id, usd },
+    })
     return c.json({ url }, HttpStatusCodes.OK)
   } catch (err) {
     logger.error({ err, workspaceId: workspace.id }, "Top-up failed")

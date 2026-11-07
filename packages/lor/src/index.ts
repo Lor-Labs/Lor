@@ -54,6 +54,11 @@ import {
   type UserModelMessage,
 } from "ai"
 import { z } from "zod"
+import {
+  aiRuntimeContext,
+  aiTelemetry,
+  withAiObservabilityTurn,
+} from "./ai-observability"
 import { loadApprovalGates, ToolTargetMap } from "./approval-policy"
 import {
   createExportToolResultTool,
@@ -606,6 +611,9 @@ export type RespondContext = {
   threadRootId?: string
   triggerMessageId?: string
   runId?: string
+  // Stable person attribution and session grouping for AI observability.
+  userId?: string
+  aiSessionId?: string
   // Set when this run belongs to a plan (a plan row anchors to the scope's
   // thread root): plan prompt rules and workbench continuity. Plan tools bind
   // on every thread-scope run — start_plan adopts the thread mid-run.
@@ -2532,7 +2540,7 @@ function measureToolSchemaBytes(tools: Record<string, unknown>): number {
   return bytes
 }
 
-export async function respond(
+async function respondImpl(
   ctx: RespondContext,
   {
     onDelta,
@@ -4168,6 +4176,22 @@ export async function respond(
   }
 }
 
+export async function respond(
+  ctx: RespondContext,
+  callbacks: RespondCallbacks,
+  run?: RunHandle
+): Promise<RespondResult> {
+  return withAiObservabilityTurn(
+    {
+      sessionId:
+        ctx.aiSessionId ?? ctx.threadRootId ?? ctx.channelId ?? ctx.runId,
+      distinctId: ctx.userId ?? ctx.claudeCode?.userId,
+      traceName: "lor.respond",
+    },
+    () => respondImpl(ctx, callbacks, run)
+  )
+}
+
 export async function writeBack(
   ctx: WriteBackContext,
   { onMemoryWritten, onUsage, onInstructionsProposal }: WriteBackCallbacks
@@ -4219,6 +4243,8 @@ export async function writeBack(
     providerOptions: {
       gateway: mainGatewayOptions,
     },
+    runtimeContext: aiRuntimeContext(),
+    telemetry: aiTelemetry("lor.writeback"),
   })
   emitGenerateUsage(onUsage, ctx.workspaceId, "lor.writeback", body)
 }

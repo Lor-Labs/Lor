@@ -3,6 +3,7 @@ import { sweepBetaBilling } from "@repo/billing"
 import { env } from "@repo/env/server"
 import { flushErrorReports } from "@repo/logger"
 import { claimOverdueActWindows } from "@repo/lor/act-runs"
+import { shutdownAiObservability } from "@repo/lor/ai-observability"
 import { sweepCheckpointStorage } from "@repo/lor/code-checkpoints"
 import { setRepoCacheStore } from "@repo/lor/github"
 import type { ServerToClientEvents } from "@repo/realtime-types/events"
@@ -76,6 +77,7 @@ import {
 } from "@/lib/session-sandboxes"
 import { installVoiceNotifier } from "@/lib/voice-notify"
 import { setWorkspaceActivityEmitter } from "@/lib/workspace-activity"
+import { posthogLogCapture } from "./instrumentation"
 
 process.on("unhandledRejection", (reason) => {
   logger.error({ err: reason }, "Unhandled promise rejection")
@@ -516,9 +518,11 @@ async function bootstrap() {
     },
     "Worker started"
   )
+  posthogLogCapture.info("worker_started", { queue_count: 9 })
 
   const shutdown = async () => {
     logger.info("Shutting down...")
+    posthogLogCapture.info("worker_shutting_down")
     await linkUnfurlWorker.close()
     await attachmentIndexWorker.close()
     await sourceIngestWorker.close()
@@ -539,7 +543,9 @@ async function bootstrap() {
     await maintenanceQueue.close()
     await stopSubscriber.quit()
     await redisEmitterClient.quit()
+    await shutdownAiObservability()
     await flushErrorReports()
+    await posthogLogCapture.shutdown()
     process.exit(0)
   }
 
@@ -549,6 +555,8 @@ async function bootstrap() {
 
 bootstrap().catch(async (error) => {
   logger.fatal({ err: error }, "Failed to start")
+  await shutdownAiObservability()
   await flushErrorReports()
+  await posthogLogCapture.shutdown()
   process.exit(1)
 })

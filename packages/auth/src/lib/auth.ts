@@ -5,6 +5,7 @@ import { getBetaAvailability, hostedBetaConfig } from "@repo/billing/beta"
 import { and, db, eq, LOR_USER_ID, ne, schema } from "@repo/db"
 import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
+import { captureServerEvent } from "@repo/logger"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { features } from "@repo/utils/features"
 import { escapeHtml } from "@repo/utils/html"
@@ -29,7 +30,7 @@ import {
   owner as ownerRole,
   parseRolePermission,
 } from "./permissions"
-import { notifySignup } from "./signup-notifications"
+import { notifySignup, signupUser } from "./signup-notifications"
 import { seedWorkspaceTemplate } from "./workspace-template"
 
 const redis = new Redis(env.REDIS_URL)
@@ -328,8 +329,32 @@ export const auth = betterAuth({
       }
     }),
     after: createAuthMiddleware(async (ctx) => {
-      if (ctx.path !== "/sign-up/email") return
       if (ctx.context.returned instanceof APIError) return
+      if (ctx.path === "/sign-in/email") {
+        // A 2FA challenge returns no user, so it doesn't count as a sign-in.
+        const user = signupUser(ctx.context.returned)
+        if (user) {
+          captureServerEvent({ distinctId: user.id, event: "user_signed_in" })
+        }
+        return
+      }
+      if (ctx.path === "/organization/accept-invitation") {
+        const accepted = ctx.context.returned as {
+          member?: { userId: string; organizationId: string }
+        } | null
+        if (accepted?.member) {
+          captureServerEvent({
+            distinctId: accepted.member.userId,
+            event: "workspace_joined",
+            properties: {
+              workspace_id: accepted.member.organizationId,
+              source: "email_invite",
+            },
+          })
+        }
+        return
+      }
+      if (ctx.path !== "/sign-up/email") return
       // The endpoint has finished; notification failures cannot fail signup.
       void notifySignup(ctx.context.returned)
     }),
@@ -381,6 +406,14 @@ export const auth = betterAuth({
             return
           }
           return { data: { ...user, emailVerified: true } }
+        },
+        after: async (user, ctx) => {
+          if (ctx?.path !== "/sign-up/email") return
+          captureServerEvent({
+            distinctId: user.id,
+            event: "user_signed_up",
+            properties: { from_invitation: Boolean(ctx.body?.invitationId) },
+          })
         },
       },
     },

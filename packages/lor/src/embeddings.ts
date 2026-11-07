@@ -1,4 +1,5 @@
 import { embed, embedMany } from "ai"
+import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
 import { LOR_EMBED_DIM, LOR_EMBED_MODEL, lorEmbeddingModel } from "./models"
 
 export type EmbedResult = {
@@ -24,6 +25,8 @@ async function embedValue(value: string): Promise<EmbedResult> {
   const { embedding, usage } = await embed({
     model: lorEmbeddingModel,
     value,
+    runtimeContext: aiRuntimeContext(),
+    telemetry: aiTelemetry("lor.embed"),
   })
   if (embedding.length !== LOR_EMBED_DIM) {
     throw new Error(
@@ -43,6 +46,8 @@ export async function embedDocumentsWithUsage(
   const { embeddings, usage } = await embedMany({
     model: lorEmbeddingModel,
     values: texts,
+    runtimeContext: aiRuntimeContext(),
+    telemetry: aiTelemetry("lor.embed_many"),
   })
   if (embeddings.some((e) => e.length !== LOR_EMBED_DIM)) {
     throw new Error(

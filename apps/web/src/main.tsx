@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createRouter, RouterProvider } from "@tanstack/react-router"
 import { MotionConfig } from "motion/react"
 import { ThemeProvider } from "next-themes"
+import posthog from "posthog-js"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import "@repo/ui/globals.css"
@@ -28,7 +29,14 @@ queryClient.setQueryDefaults(["messages"], {
   gcTime: Number.POSITIVE_INFINITY,
 })
 
-const router = createRouter({ routeTree })
+const router = createRouter({
+  routeTree,
+  // Router error boundaries stop render errors before capture_exceptions sees
+  // them. __loaded is false when PostHog is not configured.
+  defaultOnCatch: (error) => {
+    if (posthog.__loaded) posthog.captureException(error)
+  },
+})
 
 declare module "@tanstack/react-router" {
   interface Register {

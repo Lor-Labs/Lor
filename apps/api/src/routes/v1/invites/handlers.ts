@@ -5,6 +5,7 @@ import {
   resolveChannelAccess,
   resolveChannelAudienceInfo,
 } from "@repo/db/queries/channel-access"
+import { captureServerEvent } from "@repo/logger"
 import { BASE62_ALPHABET, randomCode } from "@repo/utils/short-code"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { assertWorkspaceAuthority } from "@/lib/permissions"
@@ -445,7 +446,14 @@ export const acceptInvite: AppRouteHandler<AcceptInviteRoute> = async (c) => {
     )
   }
 
-  if ("joined" in result) afterWorkspaceJoin(invite.workspaceId)
+  if ("joined" in result) {
+    afterWorkspaceJoin(invite.workspaceId)
+    captureServerEvent({
+      distinctId: user.id,
+      event: "workspace_joined",
+      properties: { workspace_id: invite.workspaceId, source: "invite_link" },
+    })
+  }
 
   return c.json(
     {

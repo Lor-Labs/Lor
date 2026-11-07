@@ -1,5 +1,6 @@
 import { generateText, tool } from "ai"
 import type { z } from "zod"
+import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
 import { lorSmallModel, smallGatewayOptions } from "./models"
 
 /**
@@ -32,6 +33,8 @@ export async function generateSmallObject<T>({
       gateway: smallGatewayOptions,
     },
     abortSignal,
+    runtimeContext: aiRuntimeContext(),
+    telemetry: aiTelemetry("lor.structured"),
   })
 
   const submission = result.toolCalls.find(

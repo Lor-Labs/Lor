@@ -299,6 +299,8 @@ async function runVoiceRequest(
         ...(delta ? { delta: { text: delta, coveredMessageIds: [] } } : {}),
         channelId: request.channelId,
         runId,
+        userId: request.userId,
+        aiSessionId: request.sessionId,
         voice: {
           canApprove: async (target) =>
             (await listCallApprovers(request, target)).length > 0,

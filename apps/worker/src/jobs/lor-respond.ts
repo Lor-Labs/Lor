@@ -1048,6 +1048,7 @@ export function createLorRespondProcessor(
                 channelId,
                 ...(threadRootId ? { threadRootId } : {}),
                 triggerMessageId,
+                ...(triggerUserId ? { userId: triggerUserId } : {}),
                 ...(job.data.runId ? { runId: job.data.runId } : {}),
                 ...(delta
                   ? {

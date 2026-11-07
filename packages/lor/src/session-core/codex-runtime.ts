@@ -17,6 +17,7 @@ import type {
   ToolSet,
   UserModelMessage,
 } from "ai"
+import { aiRuntimeContext, aiTelemetry } from "../ai-observability"
 import { codexHeadOf } from "./codex-branch"
 import {
   checkCompatibility,
@@ -179,6 +180,8 @@ export async function runCodexTurn(
     // The session's own work folder, shared with clone, checkpoints and the
     // Changes panel.
     sandboxConfig: { workDir: sessionWorkFolder(input.sessionId) },
+    telemetry: aiTelemetry("lor.turn.codex"),
+    runtimeContext: aiRuntimeContext(),
   })
 
   const abort = input.abortSignal ? { abortSignal: input.abortSignal } : {}
