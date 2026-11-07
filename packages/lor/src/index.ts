@@ -3173,7 +3173,8 @@ async function respondImpl(
 
     // A code turn moves the Linear issues picked or pasted into its new
     // messages to In Progress (LOR-140), unless that update needs a person's
-    // approval. Runs while the sandbox opens; a retry finds them started.
+    // approval. Starts once the work folder is ready; a retry finds them
+    // started.
     const linearUpdateTarget = toolTargets.targetFor("update_linear_issue")
     const linearStartIdentifiers =
       ctx.code &&
@@ -3185,15 +3186,6 @@ async function respondImpl(
               request.conversation.map((turn) => turn.content).join("\n")
           )
         : []
-    const linearStarted: Promise<StartedLinearIssue[]> =
-      linear && linearStartIdentifiers.length > 0
-        ? startLinearIssues(linear.externalId, linearStartIdentifiers).catch(
-            (err: unknown) => {
-              logger.warn({ err }, "Linear issue start failed")
-              return []
-            }
-          )
-        : Promise.resolve([])
     // Tool events for a late Linear result stop once the turn has ended.
     let linearReportOpen = true
 
@@ -3332,6 +3324,20 @@ async function respondImpl(
             ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
           })
         : null
+      // A turn whose sandbox or clone failed, or that was stopped, leaves its
+      // issues as they were.
+      const linearStarted: Promise<StartedLinearIssue[]> =
+        linear &&
+        linearStartIdentifiers.length > 0 &&
+        workFolder?.status === "ready" &&
+        !run.abortSignal?.aborted
+          ? startLinearIssues(linear.externalId, linearStartIdentifiers).catch(
+              (err: unknown) => {
+                logger.warn({ err }, "Linear issue start failed")
+                return []
+              }
+            )
+          : Promise.resolve([])
       if (ctx.code && workFolder?.status === "ready") {
         if (ctx.code.environmentId) {
           await writeEnvironmentFiles({
