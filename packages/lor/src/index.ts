@@ -39,6 +39,7 @@ import type {
 import { env } from "@repo/env/server"
 import { assertHarnessEnabled } from "@repo/utils/features"
 import { fundedModelId } from "@repo/utils/inference"
+import { linearIssueBlockIdentifiers } from "@repo/utils/linear-issue-block"
 import {
   asSchema,
   generateText,
@@ -136,7 +137,13 @@ import {
   instructionsTools,
   loadWorkspaceInstructions,
 } from "./instructions"
-import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
+import {
+  linearTools,
+  linearWriteTools,
+  resolveWorkspaceLinear,
+  type StartedLinearIssue,
+  startLinearIssues,
+} from "./linear"
 import { logger } from "./logger"
 import { type ProposeLoopExecutor, proposeLoopTool } from "./loops"
 import { channelMcpServers, mcpServersPromptLine } from "./mcp-servers"
@@ -3085,9 +3092,12 @@ async function respondImpl(
       : ctx.codex
         ? "codex"
         : null
+    const codeLinear = Object.hasOwn(tools, "update_linear_issue")
+      ? { comment: Object.hasOwn(tools, "comment_linear") }
+      : null
     const instructions = agentHarness
-      ? `${[agentHarness === "claude_code" ? CLAUDE_CODE_PROMPT_HEAD : CODEX_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, agentHarness)}` : ""}`
-      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code)}` : ""}`
+      ? `${[agentHarness === "claude_code" ? CLAUDE_CODE_PROMPT_HEAD : CODEX_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, agentHarness, codeLinear)}` : ""}`
+      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, "pi", codeLinear)}` : ""}`
 
     // The turn's request. A retried attempt sends the saved one again. A run
     // that only finishes a paused turn sends none; its empty request still
@@ -3135,6 +3145,30 @@ async function respondImpl(
       await run.saveContext({ context: request, instructions })
     }
     const counters = run.resume?.counters ?? ZERO_RUN_COUNTERS
+
+    // A code turn moves the Linear issues picked or pasted into its new
+    // messages to In Progress (LOR-140), unless that update needs a person's
+    // approval. Runs while the sandbox opens; a retry finds them started.
+    const linearUpdateTarget = toolTargets.targetFor("update_linear_issue")
+    const linearStartIdentifiers =
+      ctx.code &&
+      !harness.continueOnly &&
+      Object.hasOwn(tools, "update_linear_issue") &&
+      !(linearUpdateTarget !== null && approvalGates.has(linearUpdateTarget))
+        ? linearIssueBlockIdentifiers(
+            request.continuationDelta ??
+              request.conversation.map((turn) => turn.content).join("\n")
+          )
+        : []
+    const linearStarted: Promise<StartedLinearIssue[]> =
+      linear && linearStartIdentifiers.length > 0
+        ? startLinearIssues(linear.externalId, linearStartIdentifiers).catch(
+            (err: unknown) => {
+              logger.warn({ err }, "Linear issue start failed")
+              return []
+            }
+          )
+        : Promise.resolve([])
 
     // A gated call pauses the turn for a person's decision; request_approval
     // always does. In a call where nobody can approve, it is refused instead.
@@ -3365,6 +3399,27 @@ async function respondImpl(
       }
       if (pausedDropped) {
         notes.push(droppedTurnNote(pausedDropped))
+      }
+      const startedIssues = await linearStarted
+      for (const issue of startedIssues) {
+        onToolEvent?.({
+          toolCallId: `linear-start-${run.runId}-${issue.identifier}`,
+          toolName: "update_linear_issue",
+          label: `Moved ${issue.identifier} to ${issue.state}`,
+          at: 0,
+          status: "ok",
+          detail: {
+            summary: `Updated ${issue.identifier} · moved to ${issue.state}`,
+            items: [
+              { title: `${issue.identifier} ${issue.title}`, url: issue.url },
+            ],
+          },
+        })
+      }
+      if (startedIssues.length > 0) {
+        notes.push(
+          `Linear: ${startedIssues.map((issue) => `${issue.identifier} was moved to ${issue.state}`).join(", ")} as this turn started, so don't move ${startedIssues.length === 1 ? "it" : "them"} again now.`
+        )
       }
       // Whether the prompt below carries the notes: a command sent as typed,
       // Pi's /compact and a continued Claude Code or Codex turn drop them, and
