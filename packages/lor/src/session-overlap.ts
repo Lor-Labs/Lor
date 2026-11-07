@@ -4,6 +4,7 @@ import {
   db,
   eq,
   gt,
+  inArray,
   isNotNull,
   isNull,
   ne,
@@ -13,6 +14,7 @@ import {
 import { tool } from "ai"
 import { z } from "zod"
 import { attachCodeSandbox, readChanges, readFileDiff } from "./code-changes"
+import { readCheckpointChanges } from "./code-checkpoints"
 import { logger } from "./logger"
 import { privateAudienceFilter, userDisplayName } from "./retrieval"
 import { sanitizeInlineLabel } from "./transcript"
@@ -148,12 +150,159 @@ const sessionChangesContext = z.object({
   privateContainerChannelId: z.string().nullable().optional(),
 })
 
-// Wakes the other session's sandbox: reads take no index lock, so they never
-// block that session's own git.
+type ChangesTarget = {
+  id: string
+  title: string
+  baseBranch: string
+  uncommittedPaths: string[] | null
+}
+
+type ListedFile = {
+  path: string
+  oldPath: string | null
+  status: string
+  additions: number | null
+  deletions: number | null
+}
+
+const listed = ({
+  path,
+  oldPath,
+  status,
+  additions,
+  deletions,
+}: ListedFile) => ({
+  path,
+  ...(oldPath ? { oldPath } : {}),
+  status,
+  additions,
+  deletions,
+})
+
+const cutPatch = (patch: string) =>
+  patch.length > MAX_PATCH_CHARS
+    ? `${patch.slice(0, MAX_PATCH_CHARS)}\n… (cut)`
+    : patch
+
+async function turnRunning(threadRootId: string) {
+  const [run] = await db
+    .select({ id: schema.agentRun.id })
+    .from(schema.agentRun)
+    .where(
+      and(
+        eq(schema.agentRun.threadRootId, threadRootId),
+        inArray(schema.agentRun.state, ["working", "finalizing"])
+      )
+    )
+    .limit(1)
+  return Boolean(run)
+}
+
+// Null when the checkpoint can't answer: storage is off, there is none, or the
+// session's files changed after it (a stopped turn, the terminal), which its
+// saved uncommitted paths show.
+async function changesFromCheckpoint(target: ChangesTarget, path?: string) {
+  const stored = await readCheckpointChanges(
+    target.id,
+    path ? [path] : undefined
+  )
+  if (!stored) return null
+  const files: (ListedFile & { diff: string | null })[] = [
+    ...stored.files.map((f) => ({
+      path: f.path,
+      oldPath: f.oldPath ?? null,
+      status: f.state,
+      additions: f.additions,
+      deletions: f.deletions,
+      diff: f.raw,
+    })),
+    ...stored.filteredFiles.map((f) => ({
+      path: f.path,
+      oldPath: f.oldPath ?? null,
+      status: f.state,
+      additions: null,
+      deletions: null,
+      diff: null,
+    })),
+  ]
+  const storedPaths = new Set(
+    files.flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path]))
+  )
+  const live = target.uncommittedPaths ?? []
+  const current = path
+    ? storedPaths.has(path) === live.includes(path)
+    : live.length === storedPaths.size && live.every((p) => storedPaths.has(p))
+  if (!current) return null
+
+  const asOf = stored.at.toISOString()
+  if (!path) {
+    return {
+      title: target.title,
+      branch: stored.branch,
+      asOf,
+      files: files.slice(0, MAX_LISTED_FILES).map(listed),
+      totalFiles: files.length,
+    }
+  }
+  const file = files.find((f) => f.path === path || f.oldPath === path)
+  if (!file) {
+    return { error: `${path} has no uncommitted changes in that session` }
+  }
+  return file.diff === null
+    ? { path: file.path, asOf, diff: "binary or too large to show" }
+    : {
+        path: file.path,
+        ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+        asOf,
+        patch: cutPatch(file.diff),
+      }
+}
+
+// Reads take no index lock, so they never block that session's own git.
+async function changesFromSandbox(target: ChangesTarget, path?: string) {
+  const sandbox = await attachCodeSandbox(target.id).catch(() => null)
+  if (!sandbox) {
+    return {
+      error: "that session's sandbox is gone; its changes can't be read",
+    }
+  }
+  try {
+    const changes = await readChanges(sandbox, target.baseBranch)
+    if (!path) {
+      return {
+        title: target.title,
+        branch: changes.branch,
+        files: changes.files.slice(0, MAX_LISTED_FILES).map(listed),
+        totalFiles: changes.files.length,
+      }
+    }
+    const file = changes.files.find(
+      (f) => f.path === path || f.oldPath === path
+    )
+    if (!file) {
+      return { error: `${path} has no uncommitted changes in that session` }
+    }
+    const diff = await readFileDiff(sandbox, file, file.status === "untracked")
+    if (diff.kind !== "patch") {
+      return {
+        path: file.path,
+        diff: diff.kind === "binary" ? "binary file" : "too large to show",
+      }
+    }
+    return {
+      path: file.path,
+      ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+      patch: cutPatch(diff.patch),
+    }
+  } finally {
+    sandbox.close()
+  }
+}
+
 export const sessionChangesTool = {
   read_session_changes: tool({
     description:
-      "Read another code session's uncommitted changes from its sandbox, as its Changes panel shows them. Without a path: its branch and changed files with line counts. With a path: that file's diff against the session's last commit. Use it when a note says another session is editing the same files as you. Its sandbox can take a few seconds to wake.",
+      "Read another code session's uncommitted changes, as its Changes panel shows them. Without a path: its branch and changed files with line counts. With a path: that file's diff against the session's last commit. Use it when a note says another session is editing the same files as you. A session that isn't working right now is read from its last checkpoint, and asOf says when that was taken; one in the middle of a turn is read live.",
     inputSchema: z.object({
       sessionId: z.string().describe("the session's id, from an overlap note"),
       path: z
@@ -168,6 +317,8 @@ export const sessionChangesTool = {
           id: schema.agentSession.id,
           title: schema.agentSession.title,
           baseBranch: schema.agentSession.baseBranch,
+          threadRootId: schema.agentSession.threadRootId,
+          uncommittedPaths: schema.agentSession.uncommittedPaths,
         })
         .from(schema.agentSession)
         .innerJoin(
@@ -188,58 +339,24 @@ export const sessionChangesTool = {
       if (!session?.baseBranch) {
         return { error: "code session not found or not accessible" }
       }
-      const sandbox = await attachCodeSandbox(session.id).catch(() => null)
-      if (!sandbox) {
-        return {
-          error: "that session's sandbox is gone; its changes can't be read",
-        }
-      }
+      const target = { ...session, baseBranch: session.baseBranch }
       try {
-        const changes = await readChanges(sandbox, session.baseBranch)
-        if (!path) {
-          return {
-            title: session.title,
-            branch: changes.branch,
-            files: changes.files.slice(0, MAX_LISTED_FILES).map((file) => ({
-              path: file.path,
-              ...(file.oldPath ? { oldPath: file.oldPath } : {}),
-              status: file.status,
-              additions: file.additions,
-              deletions: file.deletions,
-            })),
-            totalFiles: changes.files.length,
-          }
+        // An idle session's checkpoint holds its files, so Code Storage
+        // answers without waking its sandbox. A running turn has the sandbox
+        // open already, with edits the checkpoint doesn't have yet.
+        if (!(await turnRunning(session.threadRootId))) {
+          const stored = await changesFromCheckpoint(target, path).catch(
+            (err: unknown) => {
+              logger.warn({ err, sessionId }, "Checkpoint changes read failed")
+              return null
+            }
+          )
+          if (stored) return stored
         }
-        const file = changes.files.find(
-          (f) => f.path === path || f.oldPath === path
-        )
-        if (!file) {
-          return { error: `${path} has no uncommitted changes in that session` }
-        }
-        const diff = await readFileDiff(
-          sandbox,
-          file,
-          file.status === "untracked"
-        )
-        if (diff.kind !== "patch") {
-          return {
-            path: file.path,
-            diff: diff.kind === "binary" ? "binary file" : "too large to show",
-          }
-        }
-        return {
-          path: file.path,
-          ...(file.oldPath ? { oldPath: file.oldPath } : {}),
-          patch:
-            diff.patch.length > MAX_PATCH_CHARS
-              ? `${diff.patch.slice(0, MAX_PATCH_CHARS)}\n… (cut)`
-              : diff.patch,
-        }
+        return await changesFromSandbox(target, path)
       } catch (err) {
         logger.warn({ err, sessionId }, "Session changes read failed")
         return { error: "couldn't read that session's changes" }
-      } finally {
-        sandbox.close()
       }
     },
     strict: true,
