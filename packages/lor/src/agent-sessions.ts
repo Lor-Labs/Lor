@@ -20,8 +20,12 @@ import type { Exact, SerializedDates } from "./wire-guard"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
+// Drift guard (see wire-guard.ts), minus deliberate omissions.
+type OffWireSessionColumns =
+  // Overlap checks only (session-overlap.ts); up to a file list per session.
+  "uncommittedPaths"
 const _realtimeAgentSessionMirrorsDbRow: Exact<
-  SerializedDates<AgentSession>,
+  Omit<SerializedDates<AgentSession>, OffWireSessionColumns>,
   RealtimeAgentSession
 > = true
 void _realtimeAgentSessionMirrorsDbRow

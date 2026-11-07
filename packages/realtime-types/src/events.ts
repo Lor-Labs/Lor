@@ -37,17 +37,6 @@ export type SessionUncommittedUpdated = UncommittedLines & {
   sessionId: string
 }
 
-// Your code session and a teammate's both have uncommitted edits to the same
-// files. Sent to each side's owner (user room). A teammate session in a
-// channel you can't see comes without its title or link.
-export type SessionOverlap = {
-  workspaceId: string
-  repoFullName: string
-  paths: string[]
-  mine: { sessionId: string; title: string }
-  theirs: { sessionId: string | null; title: string | null; ownerName: string }
-}
-
 export type ChannelActivity = {
   channelId: string
   // The caller's subscribed, unarchived sessions here, newest activity first.
@@ -898,7 +887,6 @@ export interface ServerToClientEvents {
     filesChanged?: boolean
   }) => void
   "session:uncommitted:updated": (payload: SessionUncommittedUpdated) => void
-  "session:overlap": (payload: SessionOverlap) => void
   // Someone took or handed back the code session's browser (thread room).
   // Open live views reconnect themselves; this updates who-has-control text.
   "session:browser:control": (payload: {

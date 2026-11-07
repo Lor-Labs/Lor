@@ -22,6 +22,7 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
   ...CONNECTOR_TOOL_NAMES,
   "search",
   "read_thread",
+  "read_session_changes",
   "view_image",
   "read_attachment",
   "read_call",

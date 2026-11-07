@@ -27,6 +27,7 @@ import {
 import { toRealtimeAgentSession } from "@repo/lor/agent-sessions"
 import {
   attachCodeSandbox,
+  type ChangedFile,
   type CodeSandbox,
   CodeSandboxMissingError,
   commitStaged,
@@ -64,7 +65,10 @@ import {
   forkSession,
   rewindSession,
 } from "@repo/lor/session-branches"
-import { recordUncommittedLines } from "@repo/lor/uncommitted-lines"
+import {
+  recordUncommittedLines,
+  recordUncommittedPaths,
+} from "@repo/lor/uncommitted-lines"
 import { channelEventContent } from "@repo/messaging"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
@@ -794,11 +798,9 @@ async function withCodeSandbox<T>(
   return startRestore(session)
 }
 
-// The sidebar's +/− follows every read of the files. Never fails the caller.
-function syncUncommittedLines(
-  sessionId: string,
-  files: Parameters<typeof recordUncommittedLines>[1]
-) {
+// The sidebar's +/− and the overlap paths follow every read of the files.
+// Never fails the caller.
+function syncUncommittedLines(sessionId: string, files: ChangedFile[]) {
   void recordUncommittedLines(sessionId, files)
     .then((update) => {
       if (update) notifyUncommittedLines(update)
@@ -806,6 +808,9 @@ function syncUncommittedLines(
     .catch((err) =>
       logger.warn({ err, sessionId }, "Uncommitted lines save failed")
     )
+  void recordUncommittedPaths(sessionId, files).catch((err) =>
+    logger.warn({ err, sessionId }, "Uncommitted paths save failed")
+  )
 }
 
 // A rewind replaced the files outside a turn, maybe with no panel open.

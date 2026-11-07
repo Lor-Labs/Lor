@@ -241,6 +241,14 @@ import {
   piWorkDir,
   runPiTurn,
 } from "./session-core/pi-runtime"
+import {
+  type ClaimOverlapNotice,
+  findSessionOverlaps,
+  type OverlapScope,
+  overlapNotes,
+  type SessionOverlap,
+  sessionChangesTool,
+} from "./session-overlap"
 import { resolveSourceCitation, searchSources, sourceTools } from "./sources"
 import { generateSmallObject } from "./structured"
 import { chooseThreadWindow } from "./thread-window"
@@ -259,7 +267,6 @@ import {
   triggerSessionPromptSection,
 } from "./triggered"
 import {
-  type ChangedFilesUpdate,
   trackUncommittedLines,
   type UncommittedLinesTracker,
   type UncommittedLinesUpdate,
@@ -694,8 +701,9 @@ export type RespondCallbacks = {
   notifyWorkspaceActivity?: (workspaceId: string) => void
   // A code session's uncommitted lines changed during the turn.
   onUncommittedLines?: (update: UncommittedLinesUpdate) => void
-  // A code session's uncommitted file list after each read (overlap alerts).
-  onChangedFiles?: (update: ChangedFilesUpdate) => void
+  // Dedupes overlap notes (session-overlap.ts); without it every check notes
+  // again.
+  claimOverlapNotice?: ClaimOverlapNotice
   // The harness's commands and skills for the session's "/" and "$" menus.
   onHarnessCommands?: (list: HarnessCommandList) => void
 }
@@ -1742,6 +1750,10 @@ export function toolLabel(toolName: string, input: unknown): string {
       return query ? `Searching for “${query}”` : "Searching"
     case "read_thread":
       return "Reading a thread"
+    case "read_session_changes":
+      return path
+        ? `Reading another session's changes to ${path}`
+        : "Reading another session's changes"
     case "read_call":
       return "Reading a call"
     case "view_image": {
@@ -2548,7 +2560,7 @@ export async function respond(
     onPlanUpdated,
     notifyWorkspaceActivity,
     onUncommittedLines,
-    onChangedFiles,
+    claimOverlapNotice,
     onHarnessCommands,
   }: RespondCallbacks,
   run?: RunHandle
@@ -2742,6 +2754,7 @@ export async function respond(
         ? planTools
         : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
+      ...(ctx.code ? sessionChangesTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
@@ -2847,6 +2860,14 @@ export async function respond(
               threadRootId: ctx.threadRootId,
               triggerMessageId: ctx.triggerMessageId,
               onMessageReaction,
+            },
+          }
+        : {}),
+      ...(ctx.code
+        ? {
+            read_session_changes: {
+              workspaceId: ctx.workspaceId,
+              privateContainerChannelId: runScope.privateContainerChannelId,
             },
           }
         : {}),
@@ -3221,6 +3242,17 @@ export async function respond(
       const pausedDropped: PausedTurnDrop | null =
         harness.pausedDropped ?? (bridgeTurnLost ? { reason: "lost" } : null)
       const conversationId = conversationIdOf(harness.owner)
+      const overlapScope: OverlapScope | null = ctx.code
+        ? {
+            sessionId: conversationId,
+            workspaceId: ctx.workspaceId,
+            repoFullName: ctx.code.repoFullName,
+            privateContainerChannelId: runScope.privateContainerChannelId,
+          }
+        : null
+      // Overlaps found mid-turn wait for Pi's next step boundary. Claude Code
+      // and Codex have none, so theirs are noted when their next turn starts.
+      let pendingOverlaps: SessionOverlap[] = []
       const workFolder: CodeWorkFolder | null = ctx.code
         ? await prepareCodeWorkFolder({
             sandbox: sandbox.session,
@@ -3253,7 +3285,14 @@ export async function respond(
           sessionId: conversationId,
           baseBranch: ctx.code.baseBranch,
           ...(onUncommittedLines ? { onUpdate: onUncommittedLines } : {}),
-          ...(onChangedFiles ? { onFiles: onChangedFiles } : {}),
+          ...(overlapScope && !ctx.claudeCode && !ctx.codex
+            ? {
+                onPathsChanged: () =>
+                  void findSessionOverlaps(overlapScope).then((found) => {
+                    pendingOverlaps = found
+                  }),
+              }
+            : {}),
         })
       }
       // The harness's own commands and skills, as its CLI finds them: the
@@ -3318,6 +3357,20 @@ export async function respond(
       }
       if (pausedDropped) {
         notes.push(droppedTurnNote(pausedDropped))
+      }
+      // A fresh clone has no edits yet; its saved paths are from before.
+      if (
+        overlapScope &&
+        workFolder?.status === "ready" &&
+        !workFolder.cloned
+      ) {
+        notes.push(
+          ...(await overlapNotes(
+            conversationId,
+            await findSessionOverlaps(overlapScope),
+            claimOverlapNotice
+          ))
+        )
       }
       // A code session's repo can also be missing without a new sandbox
       // (the folder was deleted); either way it is a fresh clone.
@@ -3607,8 +3660,17 @@ export async function respond(
         const update = drain ? await drain() : { steered: [], ambient: [] }
         const ambient = final ? [] : update.ambient
         coveredAmbient.push(...ambient.map((m) => m.messageId))
+        const overlaps = pendingOverlaps
+        pendingOverlaps = []
         const parts = [
-          ...boundaryNotes.map((note) => `[${note}]`),
+          ...[
+            ...boundaryNotes,
+            ...(await overlapNotes(
+              conversationId,
+              overlaps,
+              claimOverlapNotice
+            )),
+          ].map((note) => `[${note}]`),
           conversationUpdateText({ steered: update.steered, ambient }),
         ].filter((part): part is string => Boolean(part))
         boundaryNotes = []

@@ -68,7 +68,6 @@ import {
   sidebarMenuSurface,
 } from "@/components/sidebar/sidebar-menu-styles"
 import { InstructionsApprovalAlert } from "@/components/workspace/instructions-approval-alert"
-import { OverlapAlerts } from "@/components/workspace/overlap-alerts"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import {
   toSectionId,
@@ -479,12 +478,6 @@ function WorkspaceSidebarInner() {
           <InstructionsApprovalAlert
             workspaceSlug={workspaceSlug}
             onReview={openInstructionsReview}
-          />
-        )}
-        {workspaceSlug && activeWorkspace?.id && (
-          <OverlapAlerts
-            workspaceId={activeWorkspace.id}
-            workspaceSlug={workspaceSlug}
           />
         )}
       </SidebarHeader>

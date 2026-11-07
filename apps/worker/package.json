@@ -17,7 +17,6 @@
     "@repo/logger": "workspace:^",
     "@repo/lor": "workspace:^",
     "@repo/messaging": "workspace:^",
-    "@repo/overlap": "workspace:*",
     "@repo/realtime-types": "workspace:*",
     "@repo/utils": "workspace:^",
     "@repo/voice": "workspace:*",
