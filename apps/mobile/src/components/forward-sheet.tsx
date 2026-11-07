@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { useSocket } from "@/context/socket-context"
 import type { Message } from "@/lib/api-types"
 import { isOptimisticMessage } from "@/lib/messages"
+import { posthog } from "@/lib/posthog"
 
 // A finished message with text, Lor's or a person's; never a placeholder,
 // an event line or a card. Mirrors the gateway's loadForwardSnapshot.
@@ -62,6 +63,7 @@ export function ForwardSheet({
         nonce: `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       })
       if (!result.ok) throw new Error(result.error)
+      posthog?.capture("message_forwarded", { has_note: Boolean(note.trim()) })
       setNote("")
       onClose()
       toast.show({

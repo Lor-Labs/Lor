@@ -17,6 +17,7 @@ import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 import { markEmailVerificationPending } from "@/lib/email-verification"
 import { consumePendingInviteCode } from "@/lib/invites"
+import { posthog } from "@/lib/posthog"
 import lorMark from "../../assets/images/splash-icon.png"
 
 const MIN_PASSWORD_LENGTH = 8
@@ -106,6 +107,7 @@ function SignUpScreen() {
         setError(result.error.message ?? "Could not create your account")
         return
       }
+      posthog?.capture("account_created")
       markEmailVerificationPending()
       router.replace({
         pathname: "/check-email",

@@ -14,6 +14,7 @@ import {
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 import { lorMention, mentionsLor } from "@/lib/mentions"
+import { posthog } from "@/lib/posthog"
 import {
   applyReactionUpdate,
   applyThreadSummaryUpdate,
@@ -414,6 +415,11 @@ export function useChannelMessages({
 
         if (!result.ok) throw new Error(result.error)
 
+        posthog?.capture("message_sent", {
+          has_attachments: attachments.length > 0,
+          is_reply: Boolean(referencedMessage),
+          starts_session: Boolean(start),
+        })
         const confirmed = realtimeMessageToMessage(result.message)
         // The server moved the message into a new Lor session.
         const movedToSession = confirmed.threadRootId !== null
