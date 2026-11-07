@@ -193,16 +193,24 @@ export const openBrowserPageRequestSchema = z.object({
     .default("/"),
 })
 
-// Element comments: pick one element (the person in control), stop picking,
-// or clear the page's numbered markers.
-export const browserPickRequestSchema = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("pick"), index: z.number().int().min(1).max(99) }),
-  z.object({ mode: z.enum(["cancel", "clear"]) }),
+// Page annotations: pick an element and open its note (the person in
+// control), wait for that note to be saved or removed, stop picking (an open
+// note is kept as written) or clear this person's annotations off the page.
+export const browserAnnotateRequestSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("pick"),
+    id: z.string().uuid(),
+    number: z.number().int().min(1).max(99),
+  }),
+  z.object({ mode: z.literal("wait"), id: z.string().uuid() }),
+  z.object({ mode: z.enum(["stop", "clear"]) }),
 ])
 
-// `image`: a JPEG crop around the element, base64. `timeout`: nobody clicked
-// within about 50 s, so the panel asks again.
-export const browserPickResponseSchema = z.discriminatedUnion("status", [
+// `image`: a JPEG crop around the element, base64. `reopened`: a click on one
+// of your pins opened its note again. `stopped`: each of your notes, null for
+// a removed one. `timeout`: nothing happened within about 50 s, so the panel
+// asks again.
+export const browserAnnotateResponseSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("picked"),
     element: z.object({
@@ -216,7 +224,13 @@ export const browserPickResponseSchema = z.discriminatedUnion("status", [
     }),
     image: z.string().nullable(),
   }),
-  z.object({ status: z.enum(["timeout", "no_page", "ok"]) }),
+  z.object({ status: z.literal("reopened"), id: z.string() }),
+  z.object({ status: z.literal("saved"), note: z.string() }),
+  z.object({
+    status: z.literal("stopped"),
+    notes: z.array(z.object({ id: z.string(), note: z.string().nullable() })),
+  }),
+  z.object({ status: z.enum(["timeout", "no_page", "removed", "ok"]) }),
 ])
 
 export const openBrowserPageResponseSchema = z.object({

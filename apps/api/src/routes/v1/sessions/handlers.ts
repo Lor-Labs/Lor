@@ -45,9 +45,9 @@ import {
   writeCheckpoint,
 } from "@repo/lor/code-checkpoints"
 import {
+  annotateBrowser,
   openBrowserPage,
   openBrowserView,
-  pickBrowserElement,
   setBrowserControl,
 } from "@repo/lor/dev-env/browser"
 import { applySessionEnvironment as applyEnvironment } from "@repo/lor/dev-env/environments"
@@ -83,6 +83,7 @@ import {
 } from "@/lib/workspace-activity"
 import { requestRunStop } from "@/routes/v1/runs/handlers"
 import type {
+  AnnotateSessionBrowserRoute,
   ApplySessionEnvironmentRoute,
   CommitSessionChangesRoute,
   DropActWaitingRoute,
@@ -106,7 +107,6 @@ import type {
   OpenSessionBrowserRoute,
   OpenSessionPortRoute,
   OpenSessionTerminalRoute,
-  PickSessionBrowserElementRoute,
   PullSessionChangesRoute,
   PushSessionChangesRoute,
   RewindAgentSessionRoute,
@@ -1772,9 +1772,9 @@ export const openSessionBrowserPage: AppRouteHandler<
   }
 }
 
-// Element comments (reference/planned/sandbox-browser-runbook.md §5).
-export const pickSessionBrowserElement: AppRouteHandler<
-  PickSessionBrowserElementRoute
+// Page annotations (reference/planned/sandbox-browser-runbook.md §5).
+export const annotateSessionBrowser: AppRouteHandler<
+  AnnotateSessionBrowserRoute
 > = async (c) => {
   const { sessionId } = c.req.valid("param")
   const body = c.req.valid("json")
@@ -1785,11 +1785,7 @@ export const pickSessionBrowserElement: AppRouteHandler<
       access.status
     )
   }
-  const result = await pickBrowserElement(
-    sessionId,
-    c.var.user.id,
-    body.mode === "pick" ? { mode: "pick", index: body.index } : body
-  )
+  const result = await annotateBrowser(sessionId, c.var.user.id, body)
   switch (result.status) {
     case "picked":
       return c.json(
@@ -1800,15 +1796,31 @@ export const pickSessionBrowserElement: AppRouteHandler<
         },
         HttpStatusCodes.OK
       )
+    case "reopened":
+      return c.json(
+        { status: "reopened" as const, id: result.id },
+        HttpStatusCodes.OK
+      )
+    case "saved":
+      return c.json(
+        { status: "saved" as const, note: result.note },
+        HttpStatusCodes.OK
+      )
+    case "stopped":
+      return c.json(
+        { status: "stopped" as const, notes: result.notes },
+        HttpStatusCodes.OK
+      )
     case "timeout":
     case "no_page":
+    case "removed":
     case "ok":
       return c.json({ status: result.status }, HttpStatusCodes.OK)
     case "busy":
       return c.json(
         {
           success: false as const,
-          message: "Take control of the browser to comment on the page.",
+          message: "Take control of the browser to annotate the page.",
         },
         HttpStatusCodes.CONFLICT
       )
@@ -1826,7 +1838,7 @@ export const pickSessionBrowserElement: AppRouteHandler<
       return c.json(
         {
           success: false as const,
-          message: "Couldn't read that element from the page",
+          message: "Couldn't annotate the page",
         },
         HttpStatusCodes.BAD_REQUEST
       )
