@@ -3358,9 +3358,18 @@ export async function respond(
       if (pausedDropped) {
         notes.push(droppedTurnNote(pausedDropped))
       }
+      // Whether the prompt below carries the notes: a command sent as typed,
+      // Pi's /compact and a continued Claude Code or Codex turn drop them, and
+      // an overlap note claimed there would never reach the model.
+      const notesDelivered = harness.continueOnly
+        ? harnessKind === "pi" || bridgeTurnLost
+        : !command ||
+          command.kind === "pi_skill" ||
+          command.kind === "pi_template"
       // A fresh clone has no edits yet; its saved paths are from before.
       if (
         overlapScope &&
+        notesDelivered &&
         workFolder?.status === "ready" &&
         !workFolder.cloned
       ) {
