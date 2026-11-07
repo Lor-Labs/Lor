@@ -162,7 +162,7 @@ export function useCodeTarget({
     branch: string | null
     // A branch the session makes from `branch` at its start.
     newBranch?: string
-    // The server names the new branch (lor/<title>-<id>); unset: as stored.
+    // The server names the new branch (lor/<place>-<id>); unset: as stored.
     autoBranch?: boolean
   } | null>(null)
   const repos = useCodeRepos(workspaceSlug, channelId, enabled)
@@ -526,7 +526,7 @@ const AUTO_BRANCH_ITEM = "\u0000auto-branch"
 
 // One existing branch to pick; with onCreate, a typed name that matches none
 // can be made instead; with onAutoBranch, a first row lets the server name a
-// new lor/ branch from the session's first message.
+// new lor/ branch after a far-off place, picked from the session's id.
 function BranchPicker({
   workspaceSlug,
   channelId,
@@ -580,8 +580,7 @@ function BranchPicker({
           value: AUTO_BRANCH_ITEM,
           label: "New Lor branch",
           hint: "lor/…",
-          title:
-            "Named from your first message, like lor/fix-login-redirect-3f9a2c",
+          title: "Named after a far-off place, like lor/riverwood-3f9a2c",
           onPick: onAutoBranch,
         }
       }
