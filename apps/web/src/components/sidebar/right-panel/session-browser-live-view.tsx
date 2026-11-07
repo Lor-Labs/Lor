@@ -560,8 +560,11 @@ function AnnotateBar({
 }) {
   const { phase, sending } = annotations
   const count = annotations.annotations.length
-  const status =
-    phase === "starting"
+  // The idle hand-back is held while annotating, so say Lor is waiting.
+  const asking = live.youControl && live.lorWants
+  const status = asking
+    ? "Lor wants the browser. Send or discard your notes to hand it back."
+    : phase === "starting"
       ? "Taking control…"
       : phase === "picking"
         ? "Click an element on the page to annotate it"

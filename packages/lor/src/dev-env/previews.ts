@@ -158,10 +158,16 @@ const server = http.createServer((req, res) => {
     const upstream = http.request({ host, port: target, method: req.method, path: req.url, headers: rewrite(req.headers) }, (reply) => {
       res.writeHead(reply.statusCode || 502, reply.statusMessage, reply.rawHeaders)
       reply.pipe(res)
+      // A cut-off reply must not look complete to the browser.
+      reply.on("error", () => res.destroy())
+      reply.on("close", () => {
+        if (!reply.complete) res.destroy()
+      })
     })
     upstream.on("error", (err) => {
       forget(err)
-      if (!res.headersSent) res.writeHead(502)
+      if (res.headersSent) return res.destroy()
+      res.writeHead(502)
       res.end()
     })
     res.on("close", () => upstream.destroy())

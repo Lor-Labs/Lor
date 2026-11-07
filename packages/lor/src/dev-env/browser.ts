@@ -484,13 +484,16 @@ async function main() {
     await send("Overlay.setInspectMode", { mode: "none", highlightConfig: {} })
     await run(toggleAll, "data-armed", false)
   }
+  // Only the person in control turns picking off; someone else's stop or
+  // clear leaves the controller's picker alone.
+  const controls = args[2] === "1"
   if (mode === "clear") {
-    await stopPicking()
+    if (controls) await stopPicking()
     await run(clearAll, args[1])
     return print({ status: "ok" })
   }
   if (mode === "stop") {
-    await stopPicking()
+    if (controls) await stopPicking()
     return print({ status: "stopped", notes: await run(finish, args[1]) })
   }
   if (mode === "wait") {
@@ -603,7 +606,8 @@ export async function annotateBrowser(
   if (!control) return { status: "no_sandbox" }
   if (control.exitCode === MISSING) return { status: "unavailable" }
   const controller = parseControl(control.stdout)
-  if (action.mode === "pick" && controller?.userId !== userId) {
+  const controls = controller?.userId === userId
+  if (action.mode === "pick" && !controls) {
     return { status: "busy", controller }
   }
   const args =
@@ -617,9 +621,13 @@ export async function annotateBrowser(
         ]
       : action.mode === "wait"
         ? ["wait", action.id]
-        : [action.mode, userId]
+        : [action.mode, userId, controls ? "1" : "0"]
   const result = await runNamed(owner(sessionId), {
-    name: ANNOTATE_PROCESS,
+    // A non-controller's stop or clear runs under its own name, so it never
+    // replaces the controller's pick or wait.
+    name: controls
+      ? ANNOTATE_PROCESS
+      : `${ANNOTATE_PROCESS}-${userId.replace(/[^\w-]/g, "")}`,
     command: `node -e ${q(ANNOTATE_SCRIPT)} ${args.map((arg) => q(arg)).join(" ")}`,
     timeoutSec: 58,
   })
