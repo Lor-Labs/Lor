@@ -122,6 +122,7 @@ export function useSessionStart(
       archivedAt: null,
       archivedById: null,
       lastActivityAt: now,
+      harnessCommands: null,
       createdAt: now,
       updatedAt: now,
     }

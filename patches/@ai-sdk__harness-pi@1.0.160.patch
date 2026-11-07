@@ -1,8 +1,8 @@
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index 092defda380f277002ccc446e6a0259286bd62b9..75242773ede5e29b7bec9e8f28aac28240a51c25 100644
+index 092defda380f277002ccc446e6a0259286bd62b9..8e8d2c92413b9ad4638d1117c0084e26507ec87c 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
-@@ -186,7 +186,49 @@ type PiHarnessSettings = {
+@@ -186,7 +186,57 @@ type PiHarnessSettings = {
     * is not restricted.
     */
    readonly fileToolPathPolicy?: PiFileToolPathPolicy;
@@ -26,11 +26,19 @@ index 092defda380f277002ccc446e6a0259286bd62b9..75242773ede5e29b7bec9e8f28aac282
 +    readonly content: string;
 +  }[];
 +  /**
-+   * Set `false` to load no skills (workspace or harness-provided).
++   * Set `false` to load no skills (workspace or harness-provided). A list
++   * loads only these skills, read in place from the sandbox (the host
++   * discovers them, e.g. a repository's `.agents/skills`), plus the
++   * harness-provided ones.
 +   *
 +   * @default true
 +   */
-+  readonly skills?: boolean;
++  readonly skills?: boolean | ReadonlyArray<{
++    readonly name: string;
++    readonly description: string;
++    /** Sandbox path of the skill's SKILL.md. */
++    readonly filePath: string;
++  }>;
 +  /**
 +   * Decides each built-in tool call. Replaces the `permissionMode` mapping
 +   * for built-in tools. A decision delivered on resume always wins, so a
@@ -52,7 +60,7 @@ index 092defda380f277002ccc446e6a0259286bd62b9..75242773ede5e29b7bec9e8f28aac282
  declare const PI_BUILTIN_TOOLS: {
    readonly read: HarnessV1BuiltinTool<{
      file_path: string;
-@@ -268,5 +310,5 @@ export declare const pi: import("@ai-sdk/harness").HarnessV1<{
+@@ -268,5 +318,5 @@ export declare const pi: import("@ai-sdk/harness").HarnessV1<{
    readonly ls: import("@ai-sdk/harness").HarnessV1BuiltinTool;
  }>;
  //#endregion
@@ -61,10 +69,38 @@ index 092defda380f277002ccc446e6a0259286bd62b9..75242773ede5e29b7bec9e8f28aac282
  //# sourceMappingURL=index.d.ts.map
 \ No newline at end of file
 diff --git a/dist/index.js b/dist/index.js
-index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c73754d548ee 100644
+index 01de5947269c110248dfb4d442e46767c42afb0c..ccf43bf4d1738adfca9bd69f20eed05b56ef8dd6 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -2401,7 +2401,7 @@ function resolveActivePiBuiltinNames(toolFiltering) {
+@@ -2346,6 +2346,27 @@ function isWithinDirectory(parent, child) {
+ function isWithinWorkspace(candidate, sessionWorkDir, hostWorkDir) {
+ 	return isWithinDirectory(sessionWorkDir, candidate) || isWithinDirectory(hostWorkDir, candidate);
+ }
++// Lor patch: skills the host found in the sandbox, read in place, so their
++// relative references resolve against their own folder.
++function createSandboxPiSkills(skills) {
++	return skills.map((skill) => {
++		const baseDir = path.posix.dirname(skill.filePath);
++		return {
++			name: skill.name,
++			description: skill.description,
++			filePath: skill.filePath,
++			baseDir,
++			sourceInfo: {
++				path: skill.filePath,
++				source: "local",
++				scope: "project",
++				origin: "top-level",
++				baseDir
++			},
++			disableModelInvocation: false
++		};
++	});
++}
+ function createHarnessPiSkills({ skills, sandboxSkillRootDir }) {
+ 	return skills.map((skill) => {
+ 		const name = safePiMetadataSegment(skill.name, "skill");
+@@ -2401,7 +2422,7 @@ function resolveActivePiBuiltinNames(toolFiltering) {
  	return PI_NATIVE_BUILTIN_NAMES.filter((native) => !toolFiltering.toolNames.includes(NATIVE_TO_COMMON[native] ?? native));
  }
  function hasCompatibleReattachSettings(parked, current) {
@@ -73,7 +109,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  }
  async function isWorkspaceAvailableOnHost({ sandbox, sessionWorkDir }) {
  	const probePath = path.join(sessionWorkDir, `.ai-sdk-harness-pi-${randomUUID()}`);
-@@ -2461,6 +2461,7 @@ async function createPiSession(input) {
+@@ -2461,6 +2482,7 @@ async function createPiSession(input) {
  		sessionId: input.sessionId
  	});
  	const permissionMode = input.permissionMode ?? "allow-all";
@@ -81,7 +117,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  	const activeBuiltinNames = resolveActivePiBuiltinNames(input.builtinToolFiltering);
  	const activeNativeToCommon = Object.fromEntries(Object.entries(NATIVE_TO_COMMON).filter(([native]) => activeBuiltinNames.some((name) => name === native)));
  	const sandboxSkillRootDir = path.posix.join(sandboxHomeDir, ".agents", "skills");
-@@ -2556,6 +2557,12 @@ async function createPiSession(input) {
+@@ -2556,6 +2578,12 @@ async function createPiSession(input) {
  		agentDir: hostAgentDir,
  		settingsManager,
  		appendSystemPromptOverride: () => sessionInstructions ? [sessionInstructions] : [],
@@ -94,16 +130,16 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  		extensionFactories,
  		...hasExtensionFactories ? { extensionsOverride: (extensions) => {
  			if (preserveExtensionsResult && currentExtensionsResult != null) return currentExtensionsResult;
-@@ -2567,7 +2574,7 @@ async function createPiSession(input) {
+@@ -2567,7 +2595,7 @@ async function createPiSession(input) {
  		noPromptTemplates: true,
  		skillsOverride: (base) => ({
  			...base,
 -			skills: [...base.skills.filter((skill) => isWithinWorkspace(skill.filePath, sessionWorkDir, hostWorkDir)), ...harnessSkills]
-+			skills: input.settings.skills === false ? [] : [...base.skills.filter((skill) => isWithinWorkspace(skill.filePath, sessionWorkDir, hostWorkDir)), ...harnessSkills]
++			skills: input.settings.skills === false ? [] : Array.isArray(input.settings.skills) ? [...createSandboxPiSkills(input.settings.skills), ...harnessSkills] : [...base.skills.filter((skill) => isWithinWorkspace(skill.filePath, sessionWorkDir, hostWorkDir)), ...harnessSkills]
  		})
  	});
  	await resourceLoader.reload();
-@@ -2855,15 +2862,26 @@ async function createPiSession(input) {
+@@ -2855,15 +2883,26 @@ async function createPiSession(input) {
  		};
  	}
  	async function requestBuiltinToolApproval(args) {
@@ -134,7 +170,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  		currentEmit?.({
  			type: "tool-approval-request",
  			approvalId: args.toolCallId,
-@@ -2903,6 +2921,9 @@ async function createPiSession(input) {
+@@ -2903,6 +2942,9 @@ async function createPiSession(input) {
  	}
  	async function rebuildPiSession(userTools, isFirstBuild) {
  		let resourcesReloaded = false;
@@ -144,7 +180,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  		if (piSession) {
  			await disposePiSession({ reason: "reload" });
  			await new Promise((resolve) => setTimeout(resolve, 25));
-@@ -2913,7 +2934,7 @@ async function createPiSession(input) {
+@@ -2913,7 +2955,7 @@ async function createPiSession(input) {
  		}
  		const { customTools, builtinNames } = buildToolDefinitions(userTools);
  		const toolNames = customTools.map((t) => t.name);
@@ -153,7 +189,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  		const { session } = await createAgentSession({
  			cwd: sessionWorkDir,
  			agentDir: hostAgentDir,
-@@ -3326,7 +3347,8 @@ function asPiToolResult(text) {
+@@ -3326,7 +3368,8 @@ function asPiToolResult(text) {
  async function maybeDenyPiBuiltinTool(input) {
  	const decision = await input.requestApproval({
  		toolCallId: input.toolCallId,
@@ -163,7 +199,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  	});
  	if (decision.approved) return void 0;
  	return asPiToolResult(serializeToolOutput({
-@@ -3359,7 +3381,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3359,7 +3402,7 @@ function buildBuiltinToolDefinition(input) {
  					}))
  				}),
  				async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -172,7 +208,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  						toolCallId,
  						nativeName: "read",
  						requestApproval: input.requestApproval
-@@ -3383,7 +3405,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3383,7 +3426,7 @@ function buildBuiltinToolDefinition(input) {
  				content: Type.String()
  			}),
  			async execute(toolCallId, params) {
@@ -181,7 +217,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  					toolCallId,
  					nativeName: "write",
  					requestApproval: input.requestApproval
-@@ -3403,7 +3425,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3403,7 +3446,7 @@ function buildBuiltinToolDefinition(input) {
  				new_string: Type.String()
  			}),
  			async execute(toolCallId, params) {
@@ -190,7 +226,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  					toolCallId,
  					nativeName: "edit",
  					requestApproval: input.requestApproval
-@@ -3422,7 +3444,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3422,7 +3465,7 @@ function buildBuiltinToolDefinition(input) {
  				timeout: Type.Optional(Type.Number({ description: "Timeout in seconds." }))
  			}),
  			async execute(toolCallId, params, signal) {
@@ -199,7 +235,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  					toolCallId,
  					nativeName: "bash",
  					requestApproval: input.requestApproval
-@@ -3453,7 +3475,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3453,7 +3496,7 @@ function buildBuiltinToolDefinition(input) {
  				limit: Type.Optional(Type.Number())
  			}),
  			async execute(toolCallId, params) {
@@ -208,7 +244,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  					toolCallId,
  					nativeName: "grep",
  					requestApproval: input.requestApproval
-@@ -3472,7 +3494,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3472,7 +3515,7 @@ function buildBuiltinToolDefinition(input) {
  				limit: Type.Optional(Type.Number())
  			}),
  			async execute(toolCallId, params) {
@@ -217,7 +253,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  					toolCallId,
  					nativeName: "find",
  					requestApproval: input.requestApproval
-@@ -3490,7 +3512,7 @@ function buildBuiltinToolDefinition(input) {
+@@ -3490,7 +3533,7 @@ function buildBuiltinToolDefinition(input) {
  				limit: Type.Optional(Type.Number())
  			}),
  			async execute(toolCallId, params) {
@@ -226,7 +262,7 @@ index 01de5947269c110248dfb4d442e46767c42afb0c..dd39e6d0da9791d5f4720fc15cc8c737
  					toolCallId,
  					nativeName: "ls",
  					requestApproval: input.requestApproval
-@@ -3654,6 +3676,10 @@ function createPi(settings = {}) {
+@@ -3654,6 +3697,10 @@ function createPi(settings = {}) {
  					...settings.providers ? { providers: settings.providers } : {},
  					...settings.extensionFactories ? { extensionFactories: settings.extensionFactories } : {},
  					...settings.fileToolPathPolicy ? { fileToolPathPolicy: settings.fileToolPathPolicy } : {},

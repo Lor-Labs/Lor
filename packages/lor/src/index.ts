@@ -31,6 +31,7 @@ import { outsideLiveSessionChatFilter } from "@repo/db/queries/session-chat-acce
 import type {
   AgentRunContext,
   ClaudeCodeMode,
+  HarnessCommandList,
   LorToolCall,
   LorToolCallUpdate,
   SandboxTurnContext,
@@ -114,6 +115,13 @@ import {
 } from "./dev-env/environments"
 import { embedBrainQueryWithUsage } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
+import {
+  discoverRepoCommands,
+  expandPiCommand,
+  type HarnessKind,
+  harnessCommandList,
+  parseHarnessCommand,
+} from "./harness-commands"
 import { saveHarnessModels } from "./harness-models"
 import { fetchImageForView, isViewableImage, MAX_IMAGE_BYTES } from "./images"
 import { buildInitialUserMessage } from "./initial-message"
@@ -649,6 +657,12 @@ export type RespondContext = {
   // Set on every turn after the conversation's first: what was said since the
   // last saved turn. Pi's saved state holds everything before it.
   delta?: RunDelta
+  // The trigger message's text when it starts with "/": a command turn when
+  // the session's harness has that command, sent as typed instead of the
+  // delta (reference/skills-and-commands.md).
+  command?: { text: string }
+  // The session's command list from its last turn (Claude Code's own report).
+  harnessCommands?: HarnessCommandList | null
 }
 
 export type RunDelta = {
@@ -679,6 +693,8 @@ export type RespondCallbacks = {
   notifyWorkspaceActivity?: (workspaceId: string) => void
   // A code session's uncommitted lines changed during the turn.
   onUncommittedLines?: (update: UncommittedLinesUpdate) => void
+  // The harness's commands and skills for the session's "/" and "$" menus.
+  onHarnessCommands?: (list: HarnessCommandList) => void
 }
 
 export { embedDocumentsWithUsage } from "./embeddings"
@@ -2529,6 +2545,7 @@ export async function respond(
     onPlanUpdated,
     notifyWorkspaceActivity,
     onUncommittedLines,
+    onHarnessCommands,
   }: RespondCallbacks,
   run?: RunHandle
 ): Promise<RespondResult> {
@@ -3234,6 +3251,52 @@ export async function respond(
           ...(onUncommittedLines ? { onUpdate: onUncommittedLines } : {}),
         })
       }
+      // The harness's own commands and skills, as its CLI finds them: the
+      // composer's menus, and whether the trigger message is one.
+      const harnessKind: HarnessKind = ctx.claudeCode
+        ? "claude_code"
+        : ctx.codex
+          ? "codex"
+          : "pi"
+      const repoCommands =
+        workFolder?.status === "ready"
+          ? await discoverRepoCommands(
+              sandbox.session,
+              piWorkDir(SESSION_WORK_DIR, conversationId),
+              harnessKind,
+              run.abortSignal
+            )
+          : []
+      const commandList = harnessCommandList(
+        harnessKind,
+        repoCommands,
+        ctx.harnessCommands?.slash
+      )
+      onHarnessCommands?.(commandList)
+      // A command turn sends only the command; the delta's other messages
+      // wait for the next turn, which walks back through this run.
+      const commandText = harness.continueOnly
+        ? undefined
+        : run.resume
+          ? request.command?.text
+          : ctx.command?.text
+      const command = commandText
+        ? parseHarnessCommand(
+            commandText,
+            harnessKind,
+            commandList,
+            repoCommands
+          )
+        : null
+      if (command && commandText && !run.resume) {
+        request = {
+          ...request,
+          command: { text: commandText },
+          coveredMessageIds: ctx.triggerMessageId ? [ctx.triggerMessageId] : [],
+        }
+        await run.saveContext({ context: request, instructions })
+      }
+
       const notes = run.resume ? [RETRY_NOTE] : []
       if (ctx.forkedFrom) {
         notes.push(
@@ -3289,6 +3352,9 @@ export async function respond(
       }
       // A lost Claude Code or Codex turn has nothing to finish, so a run that
       // only continued it tells the harness what happened instead.
+      // A command goes as typed: a leading note would make it ordinary text.
+      // Pi's /compact sends none, and Lor expands Pi's skills and templates,
+      // which can take notes again.
       const prompt: UserModelMessage | null = harness.continueOnly
         ? bridgeTurnLost
           ? {
@@ -3296,12 +3362,30 @@ export async function respond(
               content: notes.map((note) => `[${note}]`).join("\n"),
             }
           : null
-        : withNotes(
-            request.continuationDelta !== undefined
-              ? { role: "user", content: request.continuationDelta }
-              : await buildInitialUserMessage(request),
-            notes
-          )
+        : command
+          ? command.kind === "pi_skill" || command.kind === "pi_template"
+            ? withNotes(
+                {
+                  role: "user",
+                  content: await expandPiCommand(sandbox.session, command),
+                },
+                notes
+              )
+            : command.kind === "compact" && harnessKind === "pi"
+              ? null
+              : {
+                  role: "user",
+                  content:
+                    command.kind === "prompt"
+                      ? command.text
+                      : (commandText ?? ""),
+                }
+          : withNotes(
+              request.continuationDelta !== undefined
+                ? { role: "user", content: request.continuationDelta }
+                : await buildInitialUserMessage(request),
+              notes
+            )
 
       const deadline = AbortSignal.timeout(
         Math.max(30_000, budgets.deadlineAt.getTime() - Date.now())
@@ -3708,6 +3792,11 @@ export async function respond(
                   "Saving the Claude Code model list failed"
                 )
               ),
+            // Its own list has the account's bundled and personal skills.
+            onCommands: (commands) =>
+              onHarnessCommands?.(
+                harnessCommandList("claude_code", repoCommands, commands)
+              ),
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(answers && !pausedDropped ? { answers } : {}),
@@ -3778,6 +3867,18 @@ export async function respond(
                 : GATEWAY_KEY_PLACEHOLDER,
             model: codexModel,
             ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
+            ...(command?.kind === "compact"
+              ? { command: { type: "compact" as const } }
+              : command?.kind === "review"
+                ? {
+                    command: {
+                      type: "review" as const,
+                      ...(command.instructions
+                        ? { instructions: command.instructions }
+                        : {}),
+                    },
+                  }
+                : {}),
             instructions,
             ...(decisions && !pausedDropped ? { decisions } : {}),
             ...(pausedDropped ? { dropPaused: true } : {}),
@@ -3820,6 +3921,20 @@ export async function respond(
               ...(decisions ? { decisions } : {}),
               ...(harness.pausedDropped ? { dropPaused: true } : {}),
               ...(prompt ? { prompt } : {}),
+              ...(command?.kind === "compact"
+                ? { compact: { instructions: command.instructions } }
+                : {}),
+              skills: repoCommands.flatMap((file) =>
+                file.kind === "skill"
+                  ? [
+                      {
+                        name: file.name,
+                        description: file.description,
+                        filePath: file.path,
+                      },
+                    ]
+                  : []
+              ),
               tools: guarded.tools,
               toolsContext,
               toolApproval: limitedToolApproval,
@@ -3876,6 +3991,25 @@ export async function respond(
                   : deadline.aborted
                     ? "budget_wall_clock"
                     : undefined
+      // Commands like /compact answer with no text; say what ran. A turn that
+      // paused (approvals) or stopped has its own reply.
+      if (
+        command &&
+        commandText &&
+        !turn.aborted &&
+        !stoppedFor &&
+        !text.trim()
+      ) {
+        const name = commandText.trim().split(/\s/)[0]
+        if (harnessKind === "codex" && command.kind === "compact") {
+          compactionMarker("ok")
+        }
+        const note = turn.commandError
+          ? `\`${name}\` didn't run: ${turn.commandError}`
+          : `Ran \`${name}\`.`
+        text += note
+        await onDelta(note)
+      }
       // Any other abort is a lost lease: another attempt owns the run.
       if (turn.aborted && !stoppedFor) {
         await chargeTurn(null)

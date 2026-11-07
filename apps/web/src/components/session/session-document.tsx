@@ -26,7 +26,6 @@ import { ConversationMessages } from "@/components/chat/conversation-messages"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
 import { ForwardDialog } from "@/components/chat/forward-dialog"
 import {
-  jumpScrollBehavior,
   MessageScrollerCommandBridge,
   MessageScrollerJumpToLatest,
 } from "@/components/chat/message-scroller-controls"
@@ -115,6 +114,7 @@ export function SessionDocument({
   rewindRestoresFiles,
   composerNote,
   harness,
+  harnessCommands,
   claudeCode = false,
 }: {
   workspaceSlug: string
@@ -122,6 +122,8 @@ export function SessionDocument({
   threadRootId: string
   sessionId: string
   harness: RealtimeAgentSession["harness"]
+  // Its harness's own commands and skills, for the composer's menus.
+  harnessCommands?: RealtimeAgentSession["harnessCommands"]
   // Above the reply line: why the agent won't answer this person (a Claude
   // Code session without their Claude subscription).
   composerNote?: ReactNode
@@ -432,7 +434,7 @@ export function SessionDocument({
     isLoading,
     ensureMessage,
   })
-  const { scrollRef, scrollToEndRef } = scroll
+  const { scrollRef } = scroll
   const [isRepoDragActive, setIsRepoDragActive] = useState(false)
   const [fileReference, setFileReference] = useState<ComposerFileReference>()
   // Fix with Lor from a review card or the Details panel's Review list.
@@ -487,10 +489,6 @@ export function SessionDocument({
     setFileReference(undefined)
     setIsRepoDragActive(false)
   }, [repoSessionId])
-  useEffect(() => {
-    if (cover || (!isRepoDragActive && !fileReference)) return
-    scrollToEndRef.current?.({ behavior: "auto" })
-  }, [cover, isRepoDragActive, fileReference, scrollToEndRef])
   // The bar under the document the inline composer's tools render into.
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
     null
@@ -588,11 +586,7 @@ export function SessionDocument({
         subscribers={otherSubscribers}
         variant="inline"
         toolbarTarget={toolbarTarget}
-        onTypeToFocus={
-          cover
-            ? undefined
-            : () => scrollToEndRef.current?.({ behavior: jumpScrollBehavior() })
-        }
+        typeToFocus={!cover}
         gutter={
           <UserAvatar
             name={session?.user.name}
@@ -620,6 +614,7 @@ export function SessionDocument({
           ) : undefined
         }
         onShiftTab={claudeCode ? claudeMode.cycle : undefined}
+        harnessCommands={agentAnswers ? harnessCommands : null}
         onSend={send}
         currentUserId={currentUserId}
         replyingTo={replyingTo}
@@ -639,6 +634,16 @@ export function SessionDocument({
         isSteeringQueued={lorRun.steering.isSteering}
       />
     </>
+  )
+
+  const showInputLine = !archivedBar && !isAwaitingReplies
+  const jumpToLatest = (className?: string) => (
+    <MessageScrollerJumpToLatest
+      newestMessageId={orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null}
+      viewportRef={scrollRef}
+      isLorResponding={Boolean(pendingLorMessage)}
+      className={className}
+    />
   )
 
   return (
@@ -736,20 +741,18 @@ export function SessionDocument({
                       rewindRestoresFiles,
                     }}
                   />
-                  {/* Inline input line: the document's last line, reached by
-                  scrolling to the end like any document (never pinned). */}
-                  {!archivedBar && !isAwaitingReplies && (
-                    <div className="pt-3">{composer}</div>
+                  {/* Inline input line: the document's last line, right under
+                  the last turn. Sticky, so while you scroll back it stays at
+                  the bottom edge (LOR-129), with Jump to latest above it. */}
+                  {showInputLine && (
+                    <div className="sticky bottom-0 z-30 bg-background pt-3">
+                      {jumpToLatest("bottom-full mb-2")}
+                      {composer}
+                    </div>
                   )}
                 </MessageScrollerContent>
               </MessageScrollerViewport>
-              <MessageScrollerJumpToLatest
-                newestMessageId={
-                  orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null
-                }
-                viewportRef={scrollRef}
-                isLorResponding={Boolean(pendingLorMessage)}
-              />
+              {!showInputLine && jumpToLatest()}
               <SessionTurnRail messages={orderedReplies} />
             </MessageScroller>
 

@@ -9,7 +9,7 @@ import {
   type ClaudeCodeHarnessSettings,
   createClaudeCode,
 } from "@ai-sdk/harness-claude-code"
-import type { ReportedHarnessModel } from "@repo/db/schema"
+import type { HarnessCommand, ReportedHarnessModel } from "@repo/db/schema"
 import type {
   Experimental_SandboxSession as SandboxSession,
   TextStreamPart,
@@ -34,7 +34,7 @@ import {
   prepareTools,
   sandboxHome,
 } from "./pi-runtime"
-import { reportedModels } from "./reported-models"
+import { reportedCommands, reportedModels } from "./reported-models"
 import { sessionWorkFolder } from "./work-dir"
 
 // One Claude Code turn through Vercel's adapter, on the turn starter's own
@@ -111,6 +111,8 @@ export type ClaudeCodeTurnInput = {
   fast?: boolean
   // The models the sender's Claude Code offers, reported at the turn's end.
   onModels?: (models: ReportedHarnessModel[]) => void
+  // The commands its Claude Code takes, reported at the turn's end.
+  onCommands?: (commands: HarnessCommand[]) => void
   // Appended to Claude Code's own system prompt (it cannot be replaced).
   instructions: string
   // A paused turn in `saved` continues first, through its bridge process,
@@ -267,6 +269,8 @@ export async function runClaudeCodeTurn(
           // The SDK's initializationResult().models, per person.
           const models = reportedModels(metadata, "claude-code")
           if (models) input.onModels?.(models)
+          const commands = reportedCommands(metadata)
+          if (commands) input.onCommands?.(commands)
         }
         await input.onPart(part)
       }

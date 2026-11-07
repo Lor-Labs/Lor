@@ -54,6 +54,7 @@ export function toRealtimeAgentSession(
     archivedAt: row.archivedAt?.toISOString() ?? null,
     archivedById: row.archivedById,
     lastActivityAt: row.lastActivityAt.toISOString(),
+    harnessCommands: row.harnessCommands,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }

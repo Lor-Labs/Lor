@@ -1052,8 +1052,21 @@ export type RealtimeAgentSession = {
   archivedAt: string | null
   archivedById: string | null
   lastActivityAt: string
+  // The harness's "/" commands and Codex's "$" skills, from its last turn.
+  harnessCommands: RealtimeHarnessCommandList | null
   createdAt: string
   updatedAt: string
+}
+
+export type RealtimeHarnessCommand = {
+  name: string
+  description: string
+  argumentHint?: string
+}
+
+export type RealtimeHarnessCommandList = {
+  slash: RealtimeHarnessCommand[]
+  mentions: RealtimeHarnessCommand[]
 }
 
 export type AgentSessionUpdatedEvent = {

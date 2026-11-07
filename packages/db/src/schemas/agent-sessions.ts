@@ -3,6 +3,7 @@ import {
   type AnyPgColumn,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -42,6 +43,21 @@ export const harnessKindEnum = pgEnum("harness_kind", [
   "claude_code",
   "codex",
 ])
+
+// One entry of a session's "/" or "$" menu, as the harness names it.
+export type HarnessCommand = {
+  name: string
+  description: string
+  argumentHint?: string
+}
+
+// What a session's harness takes as typed (reference/skills-and-commands.md):
+// `slash` commands sent as "/name args", and Codex's skills, mentioned
+// anywhere as "$name".
+export type HarnessCommandList = {
+  slash: HarnessCommand[]
+  mentions: HarnessCommand[]
+}
 
 // A Lor session: one place where Lor works on one thing, next to the channel
 // chat (reference/workspace-model.md). Its anchor message (type
@@ -119,6 +135,9 @@ export const agentSession = pgTable(
       onDelete: "set null",
     }),
     lastActivityAt: timestamp("last_activity_at").defaultNow().notNull(),
+    // The commands and skills the session's harness offered on its last
+    // turn, for the composer's "/" and "$" menus. Null until a turn ran.
+    harnessCommands: jsonb("harness_commands").$type<HarnessCommandList>(),
   },
   (table) => [
     uniqueIndex("agent_session_threadRootId_uidx").on(table.threadRootId),
