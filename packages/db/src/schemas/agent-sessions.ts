@@ -106,6 +106,10 @@ export const agentSession = pgTable(
     // until first counted.
     uncommittedAdditions: integer("uncommitted_additions"),
     uncommittedDeletions: integer("uncommitted_deletions"),
+    // The files behind that count (a rename's old path too), sorted: code
+    // sessions on the same repo editing the same files are told about each
+    // other (packages/lor/src/session-overlap.ts).
+    uncommittedPaths: text("uncommitted_paths").array(),
     // "Continue in Code": the session this one continues, whose messages are
     // its starting context.
     sourceSessionId: uuid("source_session_id").references(
@@ -151,6 +155,9 @@ export const agentSession = pgTable(
       table.channelId,
       table.lastActivityAt
     ),
+    index("agent_session_workspaceId_repoFullName_idx")
+      .on(table.workspaceId, table.repoFullName)
+      .where(sql`repo_full_name is not null and archived_at is null`),
   ]
 )
 
