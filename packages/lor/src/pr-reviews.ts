@@ -134,7 +134,7 @@ export function cleanReviewBody(raw: string): {
   body: string
   agentPrompt: string | null
 } {
-  let body = stripHtmlComments(raw)
+  let body = stripHtmlComments(raw.replace(/\r\n?/g, "\n"))
   let agentPrompt: string | null = null
   for (let i = 0; i < MAX_DETAILS; i++) {
     const block = innermostDetails(body)

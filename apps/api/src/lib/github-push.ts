@@ -30,32 +30,11 @@ const BLOB_UPLOADS_AT_ONCE = 6
 
 // GitHub refuses a push that adds or changes a GitHub Actions workflow unless
 // the token has the Workflows permission, which Contents write doesn't give.
-const WORKFLOW_DIR = ".github/workflows/"
-
-function workflowPaths(commits: LocalCommit[]): string[] {
-  return [
-    ...new Set(
-      commits.flatMap((commit) =>
-        commit.changes
-          .filter((change) => change.path.startsWith(WORKFLOW_DIR))
-          .map((change) => change.path)
-      )
-    ),
-  ]
-}
-
-function refusedDetail(
-  err: GithubError,
-  repoFullName: string,
-  commits: LocalCommit[]
-): string {
-  const workflows = workflowPaths(commits)
-  if (workflows.length > 0 || /workflow/i.test(err.message)) {
-    const [first] = workflows
-    const what = first
-      ? `${first}${workflows.length > 1 ? ` and ${workflows.length - 1} more workflow files` : ""}`
-      : "a workflow file"
-    return `This push changes ${what}. GitHub only takes workflow files from the Lor GitHub App with its Workflows permission: a GitHub org owner can set Workflows to "Read and write" in the app's permissions and approve it on the installation`
+// Only GitHub's own message says so: a push touching .github/workflows/ can
+// also be refused for plain access.
+function refusedDetail(err: GithubError, repoFullName: string): string {
+  if (/workflow/i.test(err.message)) {
+    return `GitHub refused the push to ${repoFullName} because it changes a workflow file (${err.message}). GitHub only takes workflow files from the Lor GitHub App with its Workflows permission: an owner or manager of the app must request Workflows "Read and write" in the app's registration, then the owner of the organization or personal account it's installed on must approve the update`
   }
   return `GitHub refused the push to ${repoFullName} (${err.message}). Your account needs write access, and the Lor GitHub App needs the Contents write permission`
 }
@@ -201,7 +180,7 @@ export async function pushCommits(input: {
       )
       return {
         ok: false,
-        detail: refusedDetail(err, input.repoFullName, commits),
+        detail: refusedDetail(err, input.repoFullName),
       }
     }
     if (err.status === 422 && /fast.forward/i.test(err.message)) {
