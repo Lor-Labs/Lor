@@ -281,6 +281,20 @@ export type HarnessCommandTurn =
   | { kind: "pi_skill"; file: RepoCommandFile; args: string }
   | { kind: "pi_template"; file: RepoCommandFile; args: string }
 
+// Messages are stored as the composer's markdown, which backslash-escapes
+// \ ` * _ [ ] ~ and encodes & < > outside code: "/pr_comments" is stored as
+// "/pr\_comments". A command and its arguments are plain text.
+const STORED_MARKDOWN_ESCAPE = /(`+)[\s\S]*?\1|\\([\\`*_[\]~])|&(amp|lt|gt);/g
+const STORED_MARKDOWN_ENTITIES = { amp: "&", lt: "<", gt: ">" }
+
+function unescapeStoredMarkdown(text: string): string {
+  return text.replace(
+    STORED_MARKDOWN_ESCAPE,
+    (match, _code, escaped?: string, entity?: "amp" | "lt" | "gt") =>
+      escaped ?? (entity ? STORED_MARKDOWN_ENTITIES[entity] : match)
+  )
+}
+
 // A message is a command only when its first word names one the session's
 // harness has; anything else ("/etc/hosts is wrong") is ordinary text.
 export function parseHarnessCommand(
@@ -289,13 +303,14 @@ export function parseHarnessCommand(
   list: HarnessCommandList,
   repo: RepoCommandFile[]
 ): HarnessCommandTurn | null {
-  const match = text.trim().match(/^\/([^\s/]+)(?:\s+([\s\S]*))?$/)
+  const plain = unescapeStoredMarkdown(text.trim())
+  const match = plain.match(/^\/([^\s/]+)(?:\s+([\s\S]*))?$/)
   if (!match?.[1]) return null
   const name = match[1]
   const args = (match[2] ?? "").trim()
   if (EXCLUDED.has(name)) return null
   if (!list.slash.some((command) => command.name === name)) return null
-  if (harness === "claude_code") return { kind: "prompt", text: text.trim() }
+  if (harness === "claude_code") return { kind: "prompt", text: plain }
   if (name === "compact") return { kind: "compact", instructions: args || null }
   if (harness === "codex") {
     if (name === "review") return { kind: "review", instructions: args || null }

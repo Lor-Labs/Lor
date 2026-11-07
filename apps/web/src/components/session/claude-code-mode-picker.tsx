@@ -65,6 +65,14 @@ export function rememberClaudeCodeMode(mode: ClaudeCodeMode) {
   for (const listener of listeners) listener()
 }
 
+// Module-level so its identity is stable (a memoized composer's onShiftTab).
+function cycleClaudeCodeMode() {
+  currentMode ??= savedMode()
+  rememberClaudeCodeMode(
+    MODES[(MODES.indexOf(currentMode) + 1) % MODES.length] ?? "auto"
+  )
+}
+
 export function useClaudeCodeMode(): {
   mode: ClaudeCodeMode
   setMode: (mode: ClaudeCodeMode) => void
@@ -80,11 +88,7 @@ export function useClaudeCodeMode(): {
       return currentMode
     }
   )
-  const cycle = () =>
-    rememberClaudeCodeMode(
-      MODES[(MODES.indexOf(mode) + 1) % MODES.length] ?? "auto"
-    )
-  return { mode, setMode: rememberClaudeCodeMode, cycle }
+  return { mode, setMode: rememberClaudeCodeMode, cycle: cycleClaudeCodeMode }
 }
 
 export function ClaudeCodeModePicker({

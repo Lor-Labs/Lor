@@ -2,11 +2,7 @@ import {
   Cancel01Icon,
   PlusSignIcon,
   SentIcon,
-  SourceCodeIcon,
   StopIcon,
-  TextBoldIcon,
-  TextItalicIcon,
-  TextStrikethroughIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { isTauri } from "@repo/auth/tauri-fetch"
@@ -22,27 +18,20 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import Link from "@tiptap/extension-link"
-import Mention, { type MentionOptions } from "@tiptap/extension-mention"
-import { Markdown } from "@tiptap/markdown"
-import { PluginKey } from "@tiptap/pm/state"
+import type { Node as PMNode, Schema } from "@tiptap/pm/model"
+import type { EditorProps } from "@tiptap/pm/view"
 import {
+  type Editor,
   EditorContent,
-  Extension,
-  isNodeActive,
-  ReactRenderer,
+  type EditorStateSnapshot,
+  getTextSerializersFromSchema,
+  isNodeEmpty,
+  type TextSerializer,
   useEditor,
   useEditorState,
 } from "@tiptap/react"
-import { BubbleMenu } from "@tiptap/react/menus"
-import StarterKit from "@tiptap/starter-kit"
-import Suggestion, {
-  type SuggestionKeyDownProps,
-  type SuggestionOptions,
-  type SuggestionProps,
-} from "@tiptap/suggestion"
 import {
-  type ComponentType,
+  memo,
   type ReactNode,
   useCallback,
   useEffect,
@@ -52,13 +41,17 @@ import {
 } from "react"
 import { createPortal } from "react-dom"
 import { AttachmentPreview } from "@/components/chat/composer/attachment-preview"
-import { CodeBlockShiki } from "@/components/chat/composer/code-block-shiki"
+import { ComposerBubbleMenu } from "@/components/chat/composer/composer-bubble-menu"
+import {
+  type ComposerHost,
+  composerExtensions,
+  harnessCommandItems,
+} from "@/components/chat/composer/composer-extensions"
 import {
   type AttachableConnector,
   ConnectorAttachMenu,
   type ConnectorRecord,
 } from "@/components/chat/composer/connector-attach-menu"
-import { ConnectorChip } from "@/components/chat/composer/connector-chip"
 import { DesktopCaret } from "@/components/chat/composer/desktop-caret"
 import {
   type ComposerDestination,
@@ -66,25 +59,9 @@ import {
   type PingedPerson,
   type SubscriberFace,
 } from "@/components/chat/composer/destination-bar"
-import { LinearIssue } from "@/components/chat/composer/linear-issue-node"
 import { LinearIssuePicker } from "@/components/chat/composer/linear-issue-picker"
-import { ListShiftEnter } from "@/components/chat/composer/list-shift-enter"
-import {
-  MentionSuggestionList,
-  type MentionSuggestionListProps,
-  type MentionSuggestionListRef,
-} from "@/components/chat/composer/mention-suggestion-list"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
-import {
-  insertRepoFileReference,
-  RepoFileChip,
-} from "@/components/chat/composer/repo-file-chip"
-import {
-  type SlashCommandItem,
-  SlashCommandList,
-  type SlashCommandListProps,
-  type SlashCommandListRef,
-} from "@/components/chat/composer/slash-command-list"
+import { insertRepoFileReference } from "@/components/chat/composer/repo-file-chip"
 import { ContextMeter } from "@/components/chat/context-meter"
 import type { ChatContext } from "@/components/chat/header"
 import { HintPopover } from "@/components/hints/hint-popover"
@@ -93,54 +70,22 @@ import { ARRIVE_IN } from "@/hooks/use-appended-ids"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
 import { apiClient } from "@/lib/api-client"
 import type { ConnectorKey, Message } from "@/lib/api-types"
-import { readComposerDraft, writeComposerDraft } from "@/lib/composer-drafts"
 import {
-  extractMentionIds,
-  toStoredMarkdown,
-  whenEditorMounted,
-} from "@/lib/editor-utils"
+  type ComposerDraftWriter,
+  composerDraftWriter,
+  readComposerDraft,
+} from "@/lib/composer-drafts"
+import { extractMentionIds, toStoredMarkdown } from "@/lib/editor-utils"
 import { hasLinearIssue } from "@/lib/linear-issue-block"
 import type { ComposerFileReference } from "@/lib/repo-file-reference"
 
-const MAX_MENTION_RESULTS = 8
-const MAX_SLASH_RESULTS = 8
 const CONNECTORS_STALE_MS = 5 * 60 * 1000
 // Pastes longer than this become a .txt attachment instead of inline text,
 // matching ChatGPT/Claude/Discord. Keeps the editor responsive and stays well
 // under MESSAGE_CONTENT_MAX_LENGTH.
 const LARGE_PASTE_CHAR_THRESHOLD = 4000
 const LARGE_PASTE_FILENAME = "pasted-text.txt"
-const POPUP_HORIZONTAL_PADDING = 8
-const POPUP_VERTICAL_PADDING = 8
-const POPUP_GAP = 6
-export const SUGGESTION_MENU_SELECTOR =
-  "[data-suggestion-open='true'], [data-mention-suggestion-open='true'], [data-slash-suggestion-open='true'], [data-slash-command-open='true']"
-const SLASH_COMMAND_PLUGIN_KEY = new PluginKey("slash-command")
-const SKILL_MENTION_PLUGIN_KEY = new PluginKey("skill-mention")
-const DEFAULT_CODE_BLOCK_LANGUAGE = "plaintext"
-const CODE_BLOCK_LANGUAGE_OPTIONS = [
-  { value: "plaintext", label: "Plain Text" },
-  { value: "typescript", label: "TypeScript" },
-  { value: "javascript", label: "JavaScript" },
-  { value: "python", label: "Python" },
-  { value: "json", label: "JSON" },
-  { value: "bash", label: "Bash" },
-] as const
-const SLASH_COMMANDS: SlashCommandItem[] = [
-  {
-    id: "code-block",
-    label: "Code Block",
-    description: "Insert a code block",
-    search: "code snippet block fence",
-  },
-]
-// Offered only where Linear is attachable; opens the + menu's issue picker.
-const LINEAR_SLASH_COMMAND: SlashCommandItem = {
-  id: "linear-issue",
-  label: "Linear Issue",
-  description: "Find a Linear issue and add it",
-  search: "linear issue ticket",
-}
+const NO_MENTION_CANDIDATES: MentionCandidate[] = []
 
 interface MessageInputProps {
   // What's typed is kept under this key (with currentUserId) on this device
@@ -234,377 +179,89 @@ interface MessageInputProps {
   harnessCommands?: RealtimeHarnessCommandList | null
 }
 
-interface SuggestionPopupListRef {
-  onKeyDown: (props: SuggestionKeyDownProps) => boolean
+const textSerializersBySchema = new WeakMap<
+  Schema,
+  Record<string, TextSerializer>
+>()
+
+function textSerializers(schema: Schema) {
+  const cached = textSerializersBySchema.get(schema)
+  if (cached) return cached
+  const serializers = getTextSerializersFromSchema(schema)
+  textSerializersBySchema.set(schema, serializers)
+  return serializers
 }
 
-interface SuggestionPopupManagerOptions<
-  TItem,
-  TListProps extends { items: TItem[]; command: (item: TItem) => void },
-> {
-  rendererComponent: ComponentType<TListProps>
-  popupClassName: string
-  popupDataAttribute: string
-  popupFallbackWidth: number
-  popupFallbackHeight: number
-}
-
-function createSuggestionPopupManager<
-  TItem,
-  TListRef extends SuggestionPopupListRef,
-  TListProps extends { items: TItem[]; command: (item: TItem) => void },
->({
-  rendererComponent,
-  popupClassName,
-  popupDataAttribute,
-  popupFallbackWidth,
-  popupFallbackHeight,
-}: SuggestionPopupManagerOptions<TItem, TListProps>) {
-  let popup: HTMLDivElement | null = null
-  let currentProps: SuggestionProps<TItem, TItem> | null = null
-  let reactRenderer: ReactRenderer<TListRef, TListProps> | null = null
-  // Reposition when the rendered list changes height — onUpdate fires before
-  // React commits, so measuring there sees the previous list's height and
-  // strands a shrunken popup floating above the caret.
-  let resizeObserver: ResizeObserver | null = null
-
-  const positionPopup = () => {
-    const clientRect = currentProps?.clientRect?.()
-    if (!popup || !clientRect) return
-
-    const popupWidth = popup.offsetWidth || popupFallbackWidth
-    const popupHeight = popup.offsetHeight || popupFallbackHeight
-    const maxLeft = Math.max(
-      POPUP_HORIZONTAL_PADDING,
-      window.innerWidth - popupWidth - POPUP_HORIZONTAL_PADDING
-    )
-    const left = Math.min(
-      Math.max(POPUP_HORIZONTAL_PADDING, clientRect.left),
-      maxLeft
-    )
-    const top = Math.max(
-      POPUP_VERTICAL_PADDING,
-      clientRect.top - popupHeight - POPUP_GAP
-    )
-
-    popup.style.left = `${left}px`
-    popup.style.top = `${top}px`
-  }
-
-  const cleanup = () => {
-    window.removeEventListener("resize", positionPopup)
-    window.removeEventListener("scroll", positionPopup, true)
-    resizeObserver?.disconnect()
-    resizeObserver = null
-    reactRenderer?.destroy()
-    reactRenderer = null
-    popup?.remove()
-    popup = null
-    currentProps = null
-  }
-
-  return {
-    onStart: (props: SuggestionProps<TItem, TItem>) => {
-      cleanup()
-      currentProps = props
-
-      popup = document.createElement("div")
-      popup.className = popupClassName
-      popup.dataset[popupDataAttribute] = "true"
-      popup.dataset.suggestionOpen = "true"
-      document.body.append(popup)
-
-      reactRenderer = new ReactRenderer(rendererComponent, {
-        editor: props.editor,
-        props: {
-          items: props.items,
-          command: props.command,
-        } as TListProps,
-      })
-
-      popup.append(reactRenderer.element)
-      window.addEventListener("resize", positionPopup)
-      window.addEventListener("scroll", positionPopup, true)
-      resizeObserver = new ResizeObserver(() => positionPopup())
-      resizeObserver.observe(popup)
-      positionPopup()
-    },
-    onUpdate: (props: SuggestionProps<TItem, TItem>) => {
-      currentProps = props
-      reactRenderer?.updateProps({
-        items: props.items,
-        command: props.command,
-      } as TListProps)
-      positionPopup()
-    },
-    onKeyDown: (props: SuggestionKeyDownProps) => {
-      if (props.event.key === "Escape") {
-        props.event.preventDefault()
-        cleanup()
-        return true
-      }
-
-      const suggestionList = reactRenderer?.ref as TListRef | null
-      return suggestionList?.onKeyDown(props) ?? false
-    },
-    onExit: cleanup,
-  }
-}
-
-export function createMentionSuggestion(
-  getMentionCandidates: () => MentionCandidate[]
-): MentionOptions<MentionCandidate>["suggestion"] {
-  return {
-    char: "@",
-    items: ({ query }) => {
-      const normalized = query.trim().toLowerCase()
-      const results = getMentionCandidates().filter((candidate) => {
-        if (!normalized) return true
-        return (
-          candidate.label.toLowerCase().includes(normalized) ||
-          candidate.search?.toLowerCase().includes(normalized)
-        )
-      })
-      return results.slice(0, MAX_MENTION_RESULTS)
-    },
-    render: () => {
-      return createSuggestionPopupManager<
-        MentionCandidate,
-        MentionSuggestionListRef,
-        MentionSuggestionListProps
-      >({
-        rendererComponent: MentionSuggestionList,
-        popupClassName:
-          "fixed z-50 w-72 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md",
-        popupDataAttribute: "mentionSuggestionOpen",
-        popupFallbackWidth: 288,
-        popupFallbackHeight: 240,
-      })
-    },
-  }
-}
-
-function matchesQuery(command: SlashCommandItem, query: string) {
-  const normalized = query.trim().toLowerCase()
-  if (!normalized) return true
-  return (
-    command.label.toLowerCase().includes(normalized) ||
-    Boolean(command.search?.toLowerCase().includes(normalized))
-  )
-}
-
-function harnessCommandItems(
-  commands: RealtimeHarnessCommandList["slash"],
-  sigil: "/" | "$"
-): SlashCommandItem[] {
-  return commands.map((command) => ({
-    id: `${sigil === "$" || command.name.startsWith("skill:") ? "skill" : "harness"}:${command.name}`,
-    label: `${sigil}${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ""}`,
-    description: command.description,
-    search: command.name,
-    insert: `${sigil}${command.name} `,
-  }))
-}
-
-function createSlashCommandSuggestion(
-  getCommands: () => SlashCommandItem[],
-  getHarnessCommands: () => SlashCommandItem[],
-  onLinearIssue: () => void
-): Omit<SuggestionOptions<SlashCommandItem, SlashCommandItem>, "editor"> {
-  return {
-    pluginKey: SLASH_COMMAND_PLUGIN_KEY,
-    char: "/",
-    items: ({ query, editor }) => {
-      // The harness takes its commands only as the message's first word.
-      const slashAt = editor.state.selection.from - query.length - 1
-      // A leaf placeholder so a mention or chip before the slash counts. A
-      // list item sends a marker ("- ") before it, so it never counts.
-      const { $from } = editor.state.selection
-      const inListItem = Array.from({ length: $from.depth + 1 }, (_, depth) =>
-        $from.node(depth)
-      ).some((node) => node.type.name === "listItem")
-      const atStart =
-        !inListItem &&
-        !editor.state.doc.textBetween(0, slashAt, "\n", "\ufffc").trim()
-      const results = [
-        ...(atStart ? getHarnessCommands() : []),
-        ...getCommands(),
-      ].filter((command) => matchesQuery(command, query))
-      return results.slice(0, MAX_SLASH_RESULTS)
-    },
-    command: ({ editor, range, props }) => {
-      if (props.insert) {
-        editor.chain().focus().insertContentAt(range, props.insert).run()
-        return
-      }
-      if (props.id === "linear-issue") {
-        editor.chain().focus().deleteRange(range).run()
-        onLinearIssue()
-        return
-      }
-      if (props.id !== "code-block") {
-        return
-      }
-
-      editor
-        .chain()
-        .focus()
-        .insertContentAt(range, {
-          type: "codeBlock",
-          attrs: { language: DEFAULT_CODE_BLOCK_LANGUAGE },
-        })
-        .run()
-    },
-    allow: ({ editor }) => {
-      if (!editor.isEditable) return false
-      return !editor.isActive("codeBlock")
-    },
-    render: () => {
-      return createSuggestionPopupManager<
-        SlashCommandItem,
-        SlashCommandListRef,
-        SlashCommandListProps
-      >({
-        rendererComponent: SlashCommandList,
-        popupClassName:
-          "fixed z-50 w-72 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md",
-        popupDataAttribute: "slashSuggestionOpen",
-        popupFallbackWidth: 288,
-        popupFallbackHeight: 240,
-      })
-    },
-  }
-}
-
-// Codex's skills, mentioned as "$name" anywhere in the message.
-function createSkillMentionSuggestion(
-  getSkills: () => SlashCommandItem[]
-): Omit<SuggestionOptions<SlashCommandItem, SlashCommandItem>, "editor"> {
-  return {
-    pluginKey: SKILL_MENTION_PLUGIN_KEY,
-    char: "$",
-    items: ({ query }) =>
-      getSkills()
-        .filter((skill) => matchesQuery(skill, query))
-        .slice(0, MAX_SLASH_RESULTS),
-    command: ({ editor, range, props }) => {
-      if (props.insert) {
-        editor.chain().focus().insertContentAt(range, props.insert).run()
-      }
-    },
-    allow: ({ editor }) =>
-      editor.isEditable &&
-      !editor.isActive("codeBlock") &&
-      getSkills().length > 0,
-    render: () =>
-      createSuggestionPopupManager<
-        SlashCommandItem,
-        SlashCommandListRef,
-        SlashCommandListProps
-      >({
-        rendererComponent: SlashCommandList,
-        popupClassName:
-          "fixed z-50 w-72 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md",
-        popupDataAttribute: "slashSuggestionOpen",
-        popupFallbackWidth: 288,
-        popupFallbackHeight: 240,
-      }),
-  }
-}
-
-function createSlashCommandExtension(
-  suggestion: Omit<
-    SuggestionOptions<SlashCommandItem, SlashCommandItem>,
-    "editor"
-  >,
-  name = "slashCommand"
-) {
-  return Extension.create({
-    name,
-    addProseMirrorPlugins() {
-      return [
-        Suggestion({
-          editor: this.editor,
-          ...suggestion,
-        }),
-      ]
-    },
+// Whether the draft has anything to send: `getText().trim() !== ""` without
+// serializing the document. Mentions, chips and Linear cards count through
+// their text serializers; the walk stops at the first visible character.
+function docHasText(doc: PMNode) {
+  const serializers = textSerializers(doc.type.schema)
+  const range = { from: 0, to: doc.content.size }
+  let found = false
+  doc.descendants((node, pos, parent, index) => {
+    if (found) return false
+    const serializer = serializers[node.type.name]
+    const text = serializer
+      ? parent && serializer({ node, pos, parent, index, range })
+      : node.text
+    if (text?.trim()) found = true
+    return !serializer && !found
   })
+  return found
 }
 
-function getCodeBlockLanguageValue(language: unknown) {
-  if (typeof language !== "string") {
-    return DEFAULT_CODE_BLOCK_LANGUAGE
-  }
-
-  const normalized = language.trim().toLowerCase()
-  if (!normalized) {
-    return DEFAULT_CODE_BLOCK_LANGUAGE
-  }
-
-  const supported = CODE_BLOCK_LANGUAGE_OPTIONS.some(
-    (option) => option.value === normalized
-  )
-
-  if (supported) {
-    return normalized
-  }
-
-  return DEFAULT_CODE_BLOCK_LANGUAGE
+type DraftFacts = {
+  isEmpty: boolean
+  hasText: boolean
+  startsWithParagraph: boolean
+}
+const draftFactsByDoc = new WeakMap<PMNode, DraftFacts>()
+const NO_EDITOR_DRAFT = {
+  isEmpty: true,
+  hasText: false,
+  startsWithParagraph: true,
+  isFocused: false,
 }
 
-function _getActiveCodeBlockRect(editor: {
-  state: {
-    doc: {
-      nodeAt: (pos: number) => { attrs?: { language?: unknown } } | null
+// Booleans only, so typing re-renders MessageInput when one flips (the first
+// character, clearing the draft), not on every keystroke. Cached per
+// document: a caret move keeps the same doc and skips the work.
+function selectDraftState({ editor }: EditorStateSnapshot<Editor | null>) {
+  if (!editor) return NO_EDITOR_DRAFT
+  const { doc } = editor.state
+  let facts = draftFactsByDoc.get(doc)
+  if (!facts) {
+    facts = {
+      isEmpty: isNodeEmpty(doc),
+      hasText: docHasText(doc),
+      // TipTap counts an empty list as empty, but its marker sits where the
+      // placeholder would.
+      startsWithParagraph:
+        (doc.firstChild?.type.name ?? "paragraph") === "paragraph",
     }
-    selection: {
-      $from: {
-        depth: number
-        node: (depth: number) => { type: { name: string } }
-        before: (depth: number) => number
-      }
-    }
+    draftFactsByDoc.set(doc, facts)
   }
-  view: {
-    nodeDOM: (pos: number) => Node | null
-  }
-}) {
-  const { $from } = editor.state.selection
-
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name !== "codeBlock") continue
-
-    const domNode = editor.view.nodeDOM($from.before(depth))
-    if (!(domNode instanceof HTMLElement)) continue
-
-    const rect = domNode.getBoundingClientRect()
-    return new DOMRect(rect.left + 8, rect.top + 8, 1, 1)
-  }
-
-  return null
+  return { ...facts, isFocused: editor.isFocused }
 }
 
-function getActiveCodeBlockPos(editor: {
-  state: {
-    selection: {
-      $from: {
-        depth: number
-        node: (depth: number) => { type: { name: string } }
-        before: (depth: number) => number
-      }
-    }
-  }
-}) {
-  const { $from } = editor.state.selection
+const mentionIdsByDoc = new WeakMap<PMNode, string>()
 
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    if ($from.node(depth).type.name === "codeBlock") {
-      return $from.before(depth)
-    }
+// The draft's mention ids, space-joined so routing compares a string. Walked
+// only when the document changed, not on selection-only transactions.
+function selectMentionIds({ editor }: EditorStateSnapshot<Editor | null>) {
+  if (!editor) return ""
+  const { doc } = editor.state
+  let ids = mentionIdsByDoc.get(doc)
+  if (ids === undefined) {
+    const found: string[] = []
+    doc.descendants((node) => {
+      if (node.type.name === "mention") found.push(String(node.attrs.id))
+    })
+    ids = found.join(" ")
+    mentionIdsByDoc.set(doc, ids)
   }
-
-  return null
+  return ids
 }
 
 // Mirrors the server's session routing rule (realtime routeLor): in a session
@@ -665,7 +322,9 @@ function resolveRouting({
   }
 }
 
-export function MessageInput({
+// Memoized: hosts re-render on every Lor stream frame and keep their props
+// stable (useStableCallback, memoized tools), so those renders stop here.
+export const MessageInput = memo(function MessageInput({
   draftKey,
   composerDraft,
   onComposerDraftConsumed,
@@ -692,7 +351,7 @@ export function MessageInput({
   sendBlocked: blockedAlways = false,
   lorSendBlocked = false,
   currentUserId,
-  mentionCandidates = [],
+  mentionCandidates = NO_MENTION_CANDIDATES,
   replyingTo,
   onCancelReply,
   pendingAttachments,
@@ -717,15 +376,9 @@ export function MessageInput({
   // Opened from /linear, or an issue was picked: closing goes back to typing,
   // not to the + button.
   const returnFocusToEditorRef = useRef(false)
-  const mentionCandidatesRef = useRef<MentionCandidate[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const handleSubmitRef = useRef<(stay: boolean) => void>(() => undefined)
   const addFilesRef = useRef(addFiles)
   addFilesRef.current = addFiles
-  const onShiftTabRef = useRef(onShiftTab)
-  onShiftTabRef.current = onShiftTab
-  const onTypingRef = useRef(onTyping)
-  onTypingRef.current = onTyping
 
   // DMs are user-scoped and have no workspace slug — no connectors to attach.
   // Fetched on mount (not on menu open) so the + menu is instant.
@@ -782,174 +435,98 @@ export function MessageInput({
     return Array.from(uniqueCandidates.values())
   }, [currentUserId, mentionCandidates])
 
-  useEffect(() => {
-    mentionCandidatesRef.current = normalizedMentionCandidates
-  }, [normalizedMentionCandidates])
+  const harnessSlashCommands = useMemo(
+    () => harnessCommandItems(harnessCommands?.slash ?? [], "/"),
+    [harnessCommands]
+  )
+  const harnessSkills = useMemo(
+    () => harnessCommandItems(harnessCommands?.mentions ?? [], "$"),
+    [harnessCommands]
+  )
+  const isInline = variant === "inline"
+  // The + menu needs its button, which the inline bar renders only once its
+  // target exists.
+  const canOpenLinearPicker =
+    attachableConnectors.some((connector) => connector.id === "linear") &&
+    (!isInline || Boolean(toolbarTarget))
 
-  const mentionSuggestion = useMemo(
-    () => createMentionSuggestion(() => mentionCandidatesRef.current),
-    []
+  const host: ComposerHost = {
+    mentionCandidates: normalizedMentionCandidates,
+    harnessCommands: harnessSlashCommands,
+    harnessSkills,
+    openLinearPicker: canOpenLinearPicker
+      ? () => {
+          returnFocusToEditorRef.current = true
+          setAttachPanel("linear")
+          setIsAttachmentMenuOpen(true)
+        }
+      : undefined,
+    // Cmd+Enter starts a session without opening it, to fire off several.
+    onSubmit: (stay) => handleSubmit(stay),
+    onEscape: () => {
+      if (!replyingTo || !onCancelReply) return false
+      onCancelReply()
+      return true
+    },
+    onShiftTab: onShiftTab
+      ? () => {
+          onShiftTab()
+          return true
+        }
+      : undefined,
+  }
+  const hostRef = useRef(host)
+  hostRef.current = host
+  // Built once: new extensions or editorProps would make useEditor call
+  // setOptions (two ProseMirror view updates) on every render.
+  const [extensions] = useState(() =>
+    composerExtensions({ variant: "composer", host: hostRef })
   )
-  const slashCommandsRef = useRef(SLASH_COMMANDS)
-  const harnessSlashRef = useRef<SlashCommandItem[]>([])
-  const harnessSkillsRef = useRef<SlashCommandItem[]>([])
-  useEffect(() => {
-    harnessSlashRef.current = harnessCommandItems(
-      harnessCommands?.slash ?? [],
-      "/"
-    )
-    harnessSkillsRef.current = harnessCommandItems(
-      harnessCommands?.mentions ?? [],
-      "$"
-    )
-  }, [harnessCommands])
-  const openLinearPickerRef = useRef<() => void>(() => undefined)
-  const slashCommandSuggestion = useMemo(
-    () =>
-      createSlashCommandSuggestion(
-        () => slashCommandsRef.current,
-        () => harnessSlashRef.current,
-        () => openLinearPickerRef.current()
-      ),
-    []
-  )
-  const slashCommandExtension = useMemo(
-    () => createSlashCommandExtension(slashCommandSuggestion),
-    [slashCommandSuggestion]
-  )
-  const skillMentionExtension = useMemo(
-    () =>
-      createSlashCommandExtension(
-        createSkillMentionSuggestion(() => harnessSkillsRef.current),
-        "skillMention"
-      ),
-    []
+  const [editorProps] = useState(
+    (): EditorProps => ({
+      attributes: {
+        class:
+          "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_ul]:my-0.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
+      },
+      handlePaste: (_view, event) => {
+        // File pastes are handled by the wrapper's onPaste via addFiles.
+        if (event.clipboardData?.files.length) return false
+
+        const text = event.clipboardData?.getData("text/plain")
+        if (!text || text.length <= LARGE_PASTE_CHAR_THRESHOLD) return false
+        // A long Linear issue still becomes its card (LinearIssue).
+        if (text.length <= MESSAGE_CONTENT_MAX_LENGTH && hasLinearIssue(text)) {
+          return false
+        }
+
+        event.preventDefault()
+        void addFilesRef.current([
+          new File([text], LARGE_PASTE_FILENAME, { type: "text/plain" }),
+        ])
+        return true
+      },
+    })
   )
 
   const editor = useEditor(
     {
-      extensions: [
-        StarterKit.configure({
-          heading: false,
-          blockquote: false,
-          horizontalRule: false,
-          codeBlock: false,
-          // Registered separately below with app-specific options.
-          link: false,
-        }),
-        CodeBlockShiki.configure({
-          defaultLanguage: "plaintext",
-        }),
-        Markdown,
-        Link.configure({
-          openOnClick: false,
-          autolink: true,
-          linkOnPaste: true,
-          HTMLAttributes: {
-            class:
-              "text-primary underline-offset-2 hover:underline cursor-pointer",
-            rel: "noreferrer noopener",
-            target: "_blank",
-          },
-        }),
-        Mention.configure({
-          HTMLAttributes: {
-            class:
-              "rounded-[3px] bg-mention px-0.5 font-medium text-primary box-decoration-clone",
-          },
-          renderText: ({ options, node }) =>
-            `${options.suggestion.char}${node.attrs.label ?? node.attrs.id}`,
-          suggestion: mentionSuggestion,
-        }),
-        ConnectorChip,
-        LinearIssue,
-        RepoFileChip,
-        slashCommandExtension,
-        ListShiftEnter,
-        skillMentionExtension,
-      ],
-      editorProps: {
-        attributes: {
-          class:
-            "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_ul]:my-0.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
-        },
-        handleKeyDown: (view, event) => {
-          // Shift+Tab in a list item outdents it instead of cycling the mode.
-          if (
-            event.key === "Tab" &&
-            event.shiftKey &&
-            onShiftTabRef.current &&
-            !isNodeActive(view.state, "listItem")
-          ) {
-            event.preventDefault()
-            onShiftTabRef.current()
-            return true
-          }
-          if (event.key !== "Enter" || event.shiftKey) return false
-          if (event.isComposing) return false
-          if (document.querySelector(SUGGESTION_MENU_SELECTOR)) return false
-
-          event.preventDefault()
-          event.stopPropagation()
-          // Cmd+Enter starts a session without opening it, to fire off several.
-          handleSubmitRef.current(event.metaKey || event.ctrlKey)
-          return true
-        },
-        handlePaste: (_view, event) => {
-          // File pastes are handled by the wrapper's onPaste via addFiles.
-          if (event.clipboardData?.files.length) return false
-
-          const text = event.clipboardData?.getData("text/plain")
-          if (!text || text.length <= LARGE_PASTE_CHAR_THRESHOLD) return false
-          // A long Linear issue still becomes its card (LinearIssue).
-          if (
-            text.length <= MESSAGE_CONTENT_MAX_LENGTH &&
-            hasLinearIssue(text)
-          ) {
-            return false
-          }
-
-          event.preventDefault()
-          void addFilesRef.current([
-            new File([text], LARGE_PASTE_FILENAME, { type: "text/plain" }),
-          ])
-          return true
-        },
-      },
-      onUpdate: () => {
-        onTypingRef.current?.()
-      },
+      extensions,
+      editorProps,
+      // Callbacks are not compared; useEditor always calls the latest one.
+      onUpdate: () => onTyping?.(),
     },
     []
   )
 
-  const draftState = useEditorState({
+  const { isEmpty, hasText, isFocused, startsWithParagraph } = useEditorState({
     editor,
-    selector: ({ editor: tiptapEditor }) => ({
-      text: tiptapEditor?.getText({ blockSeparator: "\n" }) ?? "",
-      isEmpty: tiptapEditor?.isEmpty ?? true,
-      isFocused: tiptapEditor?.isFocused ?? false,
-      // TipTap counts an empty list as empty, but its marker sits where the
-      // placeholder would.
-      startsWithParagraph:
-        (tiptapEditor?.state.doc.firstChild?.type.name ?? "paragraph") ===
-        "paragraph",
-    }),
+    selector: selectDraftState,
   })
-  const plainText = draftState?.text ?? ""
-  const isEmpty = draftState?.isEmpty ?? true
-  const isFocused = draftState?.isFocused ?? false
-  const showPlaceholder = isEmpty && (draftState?.startsWithParagraph ?? true)
+  const showPlaceholder = isEmpty && startsWithParagraph
 
   const mentionedIdsKey = useEditorState({
     editor,
-    selector: ({ editor: tiptapEditor }) => {
-      const ids: string[] = []
-      tiptapEditor?.state.doc.descendants((node) => {
-        if (node.type.name === "mention") ids.push(String(node.attrs.id))
-      })
-      return ids.join(" ")
-    },
+    selector: selectMentionIds,
   })
   const [manualToPeople, setManualToPeople] = useState(false)
   const routing = useMemo(
@@ -975,7 +552,6 @@ export function MessageInput({
   )
   const showLorState = Boolean(destination) && routing.toLor
   const sendBlocked = blockedAlways || (routing.toLor && lorSendBlocked)
-  const isInline = variant === "inline"
   const lorPillRef = useRef<HTMLSpanElement>(null)
   // Taught once the person types in a session, when the pill decides who
   // gets the message.
@@ -984,27 +560,39 @@ export function MessageInput({
     routing.canSwitch && routing.toLor && !isEmpty && !disabled
   )
 
+  // This conversation's draft saver; a send clears it.
+  const draftRef = useRef<ComposerDraftWriter | null>(null)
   // Before the composerDraft effect: a suggestion appends to the restored
   // draft instead of being overwritten by it.
   useEffect(() => {
     if (!editor || !draftKey || !currentUserId) return
+    const draft = composerDraftWriter(currentUserId, draftKey, () =>
+      editor.isEmpty ? null : editor.getJSON()
+    )
+    draftRef.current = draft
     const restore = () => {
       const stored = readComposerDraft(currentUserId, draftKey)
       if (stored) editor.commands.setContent(stored, { emitUpdate: false })
       else if (!editor.isEmpty) editor.commands.clearContent(false)
     }
-    const save = () =>
-      writeComposerDraft(
-        currentUserId,
-        draftKey,
-        editor.isEmpty ? null : editor.getJSON()
-      )
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") draft.flush()
+    }
     if (editor.isInitialized) restore()
     else editor.on("create", restore)
-    editor.on("update", save)
+    editor.on("update", draft.schedule)
+    editor.on("blur", draft.flush)
+    window.addEventListener("pagehide", draft.flush)
+    document.addEventListener("visibilitychange", flushWhenHidden)
     return () => {
+      // Still this conversation's text: the next draftKey restores after.
+      draft.flush()
+      if (draftRef.current === draft) draftRef.current = null
       editor.off("create", restore)
-      editor.off("update", save)
+      editor.off("update", draft.schedule)
+      editor.off("blur", draft.flush)
+      window.removeEventListener("pagehide", draft.flush)
+      document.removeEventListener("visibilitychange", flushWhenHidden)
     }
   }, [editor, draftKey, currentUserId])
 
@@ -1117,6 +705,8 @@ export function MessageInput({
         ]
       })
 
+      // Taken first: onSend can navigate away and unmount this composer.
+      const draft = draftRef.current
       onSend(trimmed, {
         mentions,
         referencedMessage: replyingTo
@@ -1132,7 +722,9 @@ export function MessageInput({
         toPeople: destination === "session" && !routing.toLor,
         stay,
       })
-      editor.commands.clearContent(true)
+      // No update event: a send must not emit "typing" or save a draft.
+      editor.commands.clearContent(false)
+      draft?.clear()
       editor.commands.focus("end")
       clearAttachments()
       onCancelReply?.()
@@ -1157,7 +749,7 @@ export function MessageInput({
   const handleSubmit = useCallback(
     (stay: boolean) => {
       const hasDraft =
-        plainText.trim().length > 0 || pendingAttachments.length > 0
+        docHasText(editor.state.doc) || pendingAttachments.length > 0
       if (hasDraft) {
         handleSend(stay)
         return
@@ -1166,14 +758,13 @@ export function MessageInput({
     },
     [
       canSteerQueued,
+      editor,
       handleSend,
       isSteeringQueued,
       onSteerQueued,
       pendingAttachments.length,
-      plainText,
     ]
   )
-  handleSubmitRef.current = handleSubmit
 
   // Session document: a printable key pressed anywhere outside another field
   // or open dialog starts writing here, like typing into a doc.
@@ -1206,103 +797,13 @@ export function MessageInput({
     }
   }, [replyingTo, editor])
 
-  useEffect(() => {
-    if (!editor) {
-      return
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
-        event.preventDefault()
-        event.stopPropagation()
-        editor.chain().focus().toggleBold().run()
-        return
-      }
-    }
-
-    return whenEditorMounted(editor, () => {
-      const domNode = editor.view.dom
-      domNode.addEventListener("keydown", handleKeyDown, { capture: true })
-      return () => {
-        domNode.removeEventListener("keydown", handleKeyDown, {
-          capture: true,
-        })
-      }
-    })
-  }, [editor])
-
-  const trimmedValue = plainText.trim()
   const canSend =
-    (trimmedValue.length > 0 || pendingAttachments.length > 0) &&
+    (hasText || pendingAttachments.length > 0) &&
     !isSending &&
     !sendBlocked &&
     !isUploading
   const isStopMode =
-    Boolean(onStop) &&
-    trimmedValue.length === 0 &&
-    pendingAttachments.length === 0
-  const markState = useEditorState({
-    editor,
-    selector: ({ editor: tiptapEditor }) => {
-      if (!tiptapEditor) {
-        return {
-          isBoldActive: false,
-          isCodeBlockActive: false,
-          codeBlockPos: null,
-          isCodeActive: false,
-          codeBlockLanguage: DEFAULT_CODE_BLOCK_LANGUAGE,
-          isItalicActive: false,
-          isStrikeActive: false,
-        }
-      }
-
-      return {
-        isBoldActive: tiptapEditor.isActive("bold"),
-        isCodeBlockActive: tiptapEditor.isActive("codeBlock"),
-        codeBlockPos: getActiveCodeBlockPos(tiptapEditor),
-        isCodeActive: tiptapEditor.isActive("code"),
-        codeBlockLanguage: getCodeBlockLanguageValue(
-          tiptapEditor.getAttributes("codeBlock").language
-        ),
-        isItalicActive: tiptapEditor.isActive("italic"),
-        isStrikeActive: tiptapEditor.isActive("strike"),
-      }
-    },
-  })
-  const isBoldActive = markState?.isBoldActive ?? false
-  const _isCodeBlockActive = markState?.isCodeBlockActive ?? false
-  const codeBlockPos = markState?.codeBlockPos ?? null
-  const isCodeActive = markState?.isCodeActive ?? false
-  const _codeBlockLanguage =
-    markState?.codeBlockLanguage ?? DEFAULT_CODE_BLOCK_LANGUAGE
-  const isItalicActive = markState?.isItalicActive ?? false
-  const isStrikeActive = markState?.isStrikeActive ?? false
-
-  const getMarkButtonClassName = (isActive: boolean) =>
-    cn(
-      "size-7 border border-transparent text-muted-foreground",
-      "hover:text-foreground",
-      isActive &&
-        "border-primary/30 bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary"
-    )
-
-  const _handleCodeBlockLanguageChange = useCallback(
-    (language: string) => {
-      if (!editor || codeBlockPos === null) return
-
-      const codeBlockNode = editor.state.doc.nodeAt(codeBlockPos)
-      if (!codeBlockNode || codeBlockNode.type.name !== "codeBlock") return
-
-      editor.view.dispatch(
-        editor.state.tr.setNodeMarkup(codeBlockPos, undefined, {
-          ...codeBlockNode.attrs,
-          language,
-        })
-      )
-      editor.commands.focus()
-    },
-    [codeBlockPos, editor]
-  )
+    Boolean(onStop) && !hasText && pendingAttachments.length === 0
 
   const handleAttachRecord = useCallback(
     (connector: ConnectorKey, record: ConnectorRecord) => {
@@ -1341,22 +842,6 @@ export function MessageInput({
     },
     [editor]
   )
-
-  // The + menu needs its button, which the inline bar renders only once its
-  // target exists.
-  const canOpenLinearPicker =
-    attachableConnectors.some((connector) => connector.id === "linear") &&
-    (!isInline || Boolean(toolbarTarget))
-  useEffect(() => {
-    slashCommandsRef.current = canOpenLinearPicker
-      ? [...SLASH_COMMANDS, LINEAR_SLASH_COMMAND]
-      : SLASH_COMMANDS
-  }, [canOpenLinearPicker])
-  openLinearPickerRef.current = () => {
-    returnFocusToEditorRef.current = true
-    setAttachPanel("linear")
-    setIsAttachmentMenuOpen(true)
-  }
 
   const handleFileInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1499,129 +984,7 @@ export function MessageInput({
                 {placeholder}
               </span>
             )}
-            {editor && (
-              <BubbleMenu
-                editor={editor}
-                appendTo={() => document.body}
-                shouldShow={({ editor: tiptapEditor, state, from, to }) => {
-                  if (!tiptapEditor.isEditable) return false
-                  if (state.selection.empty || from === to) return false
-                  if (tiptapEditor.isActive("codeBlock")) return false
-                  return state.doc.textBetween(from, to).trim().length > 0
-                }}
-                getReferencedVirtualElement={() => {
-                  const { selection } = editor.state
-                  if (selection.empty) return null
-
-                  const { left, right, top, bottom } = editor.view.coordsAtPos(
-                    selection.head
-                  )
-
-                  return {
-                    getBoundingClientRect: () =>
-                      new DOMRect(
-                        left,
-                        top,
-                        Math.max(1, right - left),
-                        Math.max(1, bottom - top)
-                      ),
-                  }
-                }}
-                options={{
-                  strategy: "fixed",
-                  placement: "top",
-                  offset: 8,
-                  flip: true,
-                  shift: true,
-                }}
-                className="z-50 flex items-center gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
-              >
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  className={getMarkButtonClassName(isBoldActive)}
-                  aria-label="Bold"
-                  aria-pressed={isBoldActive}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                  }}
-                  onClick={() => {
-                    editor.chain().focus().toggleBold().run()
-                  }}
-                  disabled={!editor.can().chain().focus().toggleBold().run()}
-                >
-                  <HugeiconsIcon
-                    icon={TextBoldIcon}
-                    className="size-3.5"
-                    strokeWidth={isBoldActive ? 2.5 : 2}
-                  />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  className={getMarkButtonClassName(isItalicActive)}
-                  aria-label="Italic"
-                  aria-pressed={isItalicActive}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                  }}
-                  onClick={() => {
-                    editor.chain().focus().toggleItalic().run()
-                  }}
-                  disabled={!editor.can().chain().focus().toggleItalic().run()}
-                >
-                  <HugeiconsIcon
-                    icon={TextItalicIcon}
-                    className="size-3.5"
-                    strokeWidth={isItalicActive ? 2.5 : 2}
-                  />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  className={getMarkButtonClassName(isCodeActive)}
-                  aria-label="Inline code"
-                  aria-pressed={isCodeActive}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                  }}
-                  onClick={() => {
-                    editor.chain().focus().toggleCode().run()
-                  }}
-                  disabled={!editor.can().chain().focus().toggleCode().run()}
-                >
-                  <HugeiconsIcon
-                    icon={SourceCodeIcon}
-                    className="size-3.5"
-                    strokeWidth={isCodeActive ? 2.5 : 2}
-                  />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  className={getMarkButtonClassName(isStrikeActive)}
-                  aria-label="Strikethrough"
-                  aria-pressed={isStrikeActive}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                  }}
-                  onClick={() => {
-                    editor.chain().focus().toggleStrike().run()
-                  }}
-                  disabled={!editor.can().chain().focus().toggleStrike().run()}
-                >
-                  <HugeiconsIcon
-                    icon={TextStrikethroughIcon}
-                    className="size-3.5"
-                    strokeWidth={isStrikeActive ? 2.5 : 2}
-                  />
-                </Button>
-              </BubbleMenu>
-            )}
+            {editor && <ComposerBubbleMenu editor={editor} />}
             <EditorContent
               editor={editor}
               className="relative max-h-[200px] overflow-y-auto overscroll-contain"
@@ -1783,7 +1146,7 @@ export function MessageInput({
       </div>
     </div>
   )
-}
+})
 
 // The composer's tools render in place, or (inline variant) in a bar the
 // page owns at the bottom of the pane. Inline renders nothing until that bar

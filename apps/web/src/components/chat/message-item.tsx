@@ -811,6 +811,7 @@ export const MessageItem = memo(function MessageItem({
           {isEditing ? (
             <MessageEditInput
               initialContent={message.content ?? ""}
+              mentions={message.mentions}
               onSave={handleEditSave}
               onCancel={handleEditCancel}
               mentionCandidates={mentionCandidates}

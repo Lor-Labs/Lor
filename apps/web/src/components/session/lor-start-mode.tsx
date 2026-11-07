@@ -1,5 +1,5 @@
 import { Button } from "@repo/ui/components/button"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import {
   CodeTargetPicker,
   type SessionMode,
@@ -50,29 +50,36 @@ export function useLorStartMode({
         }
       : null
 
-  return {
-    tools: (
+  // The composer is memoized: in Chat mode this element stays the same across
+  // channel re-renders. Code mode's picker state is rebuilt every render.
+  const codeTools = mode === "code" ? { code, environment } : null
+  const tools = useMemo(
+    () => (
       <>
         <SessionModeSwitch mode={mode} onChange={setMode} />
-        {mode === "code" && (
+        {codeTools && (
           <CodeTargetPicker
             workspaceSlug={workspaceSlug}
             channelId={channelId}
-            code={code}
+            code={codeTools.code}
           />
         )}
-        {mode === "code" && code.repo && environmentFailed && (
+        {codeTools?.code.repo && environmentFailed && (
           <span className="flex min-w-0 items-center gap-1.5 text-xs">
             <span className="min-w-0 truncate text-muted-foreground">
               Couldn't load environments
             </span>
-            <Button size="xs" variant="outline" onClick={environment.retry}>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={codeTools.environment.retry}
+            >
               Retry
             </Button>
             <Button
               size="xs"
               variant="ghost"
-              onClick={() => setWithoutEnvironmentFor(code.repo)}
+              onClick={() => setWithoutEnvironmentFor(codeTools.code.repo)}
             >
               Start without
             </Button>
@@ -80,6 +87,11 @@ export function useLorStartMode({
         )}
       </>
     ),
+    [mode, codeTools, environmentFailed, workspaceSlug, channelId]
+  )
+
+  return {
+    tools,
     sendBlocked:
       mode === "code" &&
       (!code.target || environment.loading || environmentFailed),

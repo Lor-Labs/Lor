@@ -74,6 +74,7 @@ import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useSessionStart } from "@/hooks/use-session-start"
+import { useStableCallback } from "@/hooks/use-stable-callback"
 import {
   type FetchPageParams,
   fetchThreadPage,
@@ -476,6 +477,25 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
   })
   const { scrollRef } = scroll
 
+  // Stable for the memoized composer, which then skips the panel's
+  // re-renders (each reply, Lor stream frames).
+  const onComposerSend = useStableCallback(
+    (content: string, options?: Parameters<typeof handleSend>[1]) => {
+      const nonce = handleSend(content, options)
+      if (nonce) showSendEffects(options)
+      scroll.scrollAfterSend()
+    }
+  )
+  const composerNotice = useMemo(
+    () => (
+      <SessionStartedNote
+        session={sessionStart.started}
+        workspaceSlug={view.workspaceSlug}
+      />
+    ),
+    [sessionStart.started, view.workspaceSlug]
+  )
+
   const channelContext = useMemo(
     () => ({
       type: "channel" as const,
@@ -577,17 +597,8 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
         contextScopeKey={view.threadRootId}
         placeholder={composerPlaceholder}
         destination={channel?.type === "text" ? "thread" : undefined}
-        notice={
-          <SessionStartedNote
-            session={sessionStart.started}
-            workspaceSlug={view.workspaceSlug}
-          />
-        }
-        onSend={(content, options) => {
-          const nonce = handleSend(content, options)
-          if (nonce) showSendEffects(options)
-          scroll.scrollAfterSend()
-        }}
+        notice={composerNotice}
+        onSend={onComposerSend}
         currentUserId={currentUserId}
         replyingTo={replyingTo}
         onCancelReply={clearReply}

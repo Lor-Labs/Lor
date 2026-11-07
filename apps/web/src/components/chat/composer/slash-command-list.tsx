@@ -5,14 +5,11 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "@repo/ui/lib/utils"
-import type { SuggestionKeyDownProps } from "@tiptap/suggestion"
+import { forwardRef } from "react"
 import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useState,
-} from "react"
+  type SuggestionListRef,
+  useSuggestionList,
+} from "@/components/chat/composer/use-suggestion-list"
 import { connectorLogo } from "@/lib/connector-ui"
 
 const LinearLogo = connectorLogo("linear")
@@ -25,10 +22,6 @@ export interface SlashCommandItem {
   search?: string
   // A session harness's own command or skill: inserted as this text.
   insert?: string
-}
-
-export interface SlashCommandListRef {
-  onKeyDown: (props: SuggestionKeyDownProps) => boolean
 }
 
 export interface SlashCommandListProps {
@@ -61,63 +54,12 @@ function CommandIcon({ id }: { id: SlashCommandItem["id"] }) {
 }
 
 export const SlashCommandList = forwardRef<
-  SlashCommandListRef,
+  SuggestionListRef,
   SlashCommandListProps
 >(function SlashCommandList({ items, command }, ref) {
-  const [selectedIndex, setSelectedIndex] = useState(0)
+  const { selectedIndex, getRowProps } = useSuggestionList(items, command, ref)
 
-  const selectItem = useCallback(
-    (index: number) => {
-      const item = items[index]
-      if (!item) return false
-      command(item)
-      return true
-    },
-    [items, command]
-  )
-
-  useEffect(() => {
-    setSelectedIndex(0)
-  }, [items])
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      onKeyDown: ({ event }) => {
-        if (items.length === 0) return false
-
-        if (event.key === "ArrowDown") {
-          event.preventDefault()
-          setSelectedIndex((currentIndex) => (currentIndex + 1) % items.length)
-          return true
-        }
-
-        if (event.key === "ArrowUp") {
-          event.preventDefault()
-          setSelectedIndex(
-            (currentIndex) => (currentIndex + items.length - 1) % items.length
-          )
-          return true
-        }
-
-        if (event.key === "Enter") {
-          event.preventDefault()
-          return selectItem(selectedIndex)
-        }
-
-        return false
-      },
-    }),
-    [items.length, selectedIndex, selectItem]
-  )
-
-  if (items.length === 0) {
-    return (
-      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-        No commands
-      </div>
-    )
-  }
+  if (items.length === 0) return null
 
   return (
     <div className="max-h-60 overflow-y-auto p-1">
@@ -125,16 +67,15 @@ export const SlashCommandList = forwardRef<
         <button
           key={item.id}
           type="button"
+          {...getRowProps(index)}
           className={cn(
             "flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left",
-            index === selectedIndex
-              ? "bg-accent text-accent-foreground"
-              : "hover:bg-accent/70"
+            index === selectedIndex && "bg-accent text-accent-foreground"
           )}
           // Select on click, not mousedown: a command that opens a popover
           // (Linear Issue) would be closed again by this same click.
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => selectItem(index)}
+          onClick={() => command(item)}
         >
           <span className="mt-0.5 text-muted-foreground">
             <CommandIcon id={item.id} />

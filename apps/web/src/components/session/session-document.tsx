@@ -58,6 +58,7 @@ import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useProvideSessionSend } from "@/hooks/use-session-send"
+import { useStableCallback } from "@/hooks/use-stable-callback"
 import {
   dropOptimisticLorTurns,
   type FetchPageParams,
@@ -521,6 +522,56 @@ export function SessionDocument({
     }
     return nonce
   }
+
+  // This page re-renders on every Lor stream frame; with these props stable
+  // the memoized composer skips those renders.
+  const onComposerSend = useStableCallback(send)
+  const onComposerStop = useStableCallback(lorRun.onStop)
+  const onComposerSteer = useStableCallback(
+    lorRun.steering.steerLatestOwnMessage
+  )
+  const onComposerDraftConsumed = useCallback(
+    (id: string) =>
+      setComposerDraft((current) => (current?.id === id ? undefined : current)),
+    []
+  )
+  const onComposerFileReferenceConsumed = useCallback(
+    (id: string) =>
+      setFileReference((current) => (current?.id === id ? undefined : current)),
+    []
+  )
+  const myAvatarColor = participants.find(
+    (person) => person.id === currentUserId
+  )?.avatarColor
+  const composerGutter = useMemo(
+    () => (
+      <UserAvatar
+        name={session?.user.name}
+        src={session?.user.image}
+        avatarColor={myAvatarColor}
+        size="sm"
+        className="size-7"
+      />
+    ),
+    [session?.user.name, session?.user.image, myAvatarColor]
+  )
+  const composerTools = useMemo(
+    () =>
+      agentAnswers ? (
+        <>
+          <ModelPicker choice={modelChoice} />
+          <EffortPicker choice={modelChoice} />
+          {claudeCode && (
+            <ClaudeCodeModePicker
+              value={claudeMode.mode}
+              onChange={claudeMode.setMode}
+            />
+          )}
+        </>
+      ) : undefined,
+    [agentAnswers, modelChoice, claudeCode, claudeMode.mode, claudeMode.setMode]
+  )
+
   useProvideSessionSend(threadRootId, (content, onFailed) =>
     Boolean(
       send(content, {
@@ -575,17 +626,9 @@ export function SessionDocument({
             ? fileReference
             : undefined
         }
-        onComposerFileReferenceConsumed={(id) =>
-          setFileReference((current) =>
-            current?.id === id ? undefined : current
-          )
-        }
+        onComposerFileReferenceConsumed={onComposerFileReferenceConsumed}
         composerDraft={cover ? undefined : composerDraft}
-        onComposerDraftConsumed={(id) =>
-          setComposerDraft((current) =>
-            current?.id === id ? undefined : current
-          )
-        }
+        onComposerDraftConsumed={onComposerDraftConsumed}
         placeholder="Reply…"
         destination="session"
         peopleOnly={!agentAnswers}
@@ -593,35 +636,11 @@ export function SessionDocument({
         variant="inline"
         toolbarTarget={toolbarTarget}
         typeToFocus={!cover}
-        gutter={
-          <UserAvatar
-            name={session?.user.name}
-            src={session?.user.image}
-            avatarColor={
-              participants.find((person) => person.id === currentUserId)
-                ?.avatarColor
-            }
-            size="sm"
-            className="size-7"
-          />
-        }
-        tools={
-          agentAnswers ? (
-            <>
-              <ModelPicker choice={modelChoice} />
-              <EffortPicker choice={modelChoice} />
-              {claudeCode && (
-                <ClaudeCodeModePicker
-                  value={claudeMode.mode}
-                  onChange={claudeMode.setMode}
-                />
-              )}
-            </>
-          ) : undefined
-        }
+        gutter={composerGutter}
+        tools={composerTools}
         onShiftTab={claudeCode ? claudeMode.cycle : undefined}
         harnessCommands={agentAnswers ? harnessCommands : null}
-        onSend={send}
+        onSend={onComposerSend}
         currentUserId={currentUserId}
         replyingTo={replyingTo}
         onCancelReply={clearReply}
@@ -633,10 +652,10 @@ export function SessionDocument({
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
         onTyping={emitTyping}
-        onStop={lorRun.onStop}
+        onStop={onComposerStop}
         isStopping={lorRun.isStopping}
         canSteerQueued={lorRun.steering.canSteerLatestOwnMessage}
-        onSteerQueued={lorRun.steering.steerLatestOwnMessage}
+        onSteerQueued={onComposerSteer}
         isSteeringQueued={lorRun.steering.isSteering}
       />
     </>

@@ -213,22 +213,11 @@ function DMConversation() {
     [dm?.members]
   )
 
-  if (isPending) {
-    return <ChatSkeleton />
-  }
-
-  if (!dm) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <span className="text-sm text-muted-foreground">
-          Conversation not found
-        </span>
-      </div>
-    )
-  }
-
-  const context =
-    dm.type === "group_dm"
+  // Stable for the memoized composer, so typing indicators and new messages
+  // don't re-render it.
+  const context = useMemo(() => {
+    if (!dm) return null
+    return dm.type === "group_dm"
       ? {
           type: "group_dm" as const,
           name:
@@ -245,6 +234,21 @@ function DMConversation() {
           name: dm.members[0]?.name ?? "Unknown",
           avatarUrl: dm.members[0]?.image ?? undefined,
         }
+  }, [dm])
+
+  if (isPending) {
+    return <ChatSkeleton />
+  }
+
+  if (!context) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <span className="text-sm text-muted-foreground">
+          Conversation not found
+        </span>
+      </div>
+    )
+  }
 
   return (
     <div
