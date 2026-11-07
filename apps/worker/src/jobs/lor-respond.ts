@@ -85,6 +85,7 @@ import {
 } from "@/lib/loop-session"
 import { loadConversation } from "@/lib/lor-conversation"
 import { createLoopCard } from "@/lib/lor-loop"
+import { overlapNoticeClaim } from "@/lib/overlap"
 import { loadPausedDecisions } from "@/lib/paused-turn"
 import { buildTurnDelta } from "@/lib/run-continuation"
 import { noopRunEventWriter } from "@/lib/run-events"
@@ -1118,6 +1119,7 @@ export function createLorRespondProcessor(
                 onPlanUpdated: emitPlanUpdated,
                 notifyWorkspaceActivity,
                 onUncommittedLines: notifyUncommittedLines,
+                claimOverlapNotice: overlapNoticeClaim(redis),
                 onHarnessCommands: (list) =>
                   void saveSessionCommands({
                     emitter,

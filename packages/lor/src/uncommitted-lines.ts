@@ -66,6 +66,33 @@ export async function recordUncommittedLines(
   }
 }
 
+// Saved with the count on every read, so a commit clears them at once. True
+// when they changed.
+export async function recordUncommittedPaths(
+  sessionId: string,
+  files: Pick<ChangedFile, "path" | "oldPath">[]
+): Promise<boolean> {
+  const paths = [
+    ...new Set(
+      files.flatMap((file) =>
+        file.oldPath ? [file.path, file.oldPath] : [file.path]
+      )
+    ),
+  ].sort()
+  const column = schema.agentSession.uncommittedPaths
+  const [row] = await db
+    .update(schema.agentSession)
+    .set({ uncommittedPaths: paths })
+    .where(
+      and(
+        eq(schema.agentSession.id, sessionId),
+        sql`${column} is distinct from ${sql.param(paths, column)}`
+      )
+    )
+    .returning({ id: schema.agentSession.id })
+  return Boolean(row)
+}
+
 // One read after each burst of tool calls, at a fixed deadline so a long run
 // of edits can't postpone it.
 const TURN_READ_DELAY_MS = 1_500
@@ -79,6 +106,8 @@ export function trackUncommittedLines(input: {
   sessionId: string
   baseBranch: string
   onUpdate?: (update: UncommittedLinesUpdate) => void
+  // The session's uncommitted paths changed (overlap checks).
+  onPathsChanged?: () => void
 }) {
   let timer: ReturnType<typeof setTimeout> | null = null
   let reading: Promise<void> = Promise.resolve()
@@ -88,11 +117,12 @@ export function trackUncommittedLines(input: {
     reading = reading.then(async () => {
       try {
         const changes = await readChanges(input.sandbox, input.baseBranch)
-        const update = await recordUncommittedLines(
-          input.sessionId,
-          changes.files
-        )
+        const [update, pathsChanged] = await Promise.all([
+          recordUncommittedLines(input.sessionId, changes.files),
+          recordUncommittedPaths(input.sessionId, changes.files),
+        ])
         if (update) input.onUpdate?.(update)
+        if (pathsChanged) input.onPathsChanged?.()
       } catch (err) {
         logger.warn(
           { err, sessionId: input.sessionId },

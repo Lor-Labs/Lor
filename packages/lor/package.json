@@ -39,6 +39,7 @@
     "./pr-reviews": "./src/pr-reviews.ts",
     "./session-core": "./src/session-core/index.ts",
     "./session-branches": "./src/session-branches.ts",
+    "./session-overlap": "./src/session-overlap.ts",
     "./model-catalog": "./src/model-catalog.ts",
     "./sources": "./src/sources.ts",
     "./touches": "./src/touches.ts",
