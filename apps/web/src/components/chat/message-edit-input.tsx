@@ -11,6 +11,7 @@ import {
   LinearIssue,
   withLinearIssueNodes,
 } from "@/components/chat/composer/linear-issue-node"
+import { ListShiftEnter } from "@/components/chat/composer/list-shift-enter"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import {
   createMentionSuggestion,
@@ -73,6 +74,7 @@ export function MessageEditInput({
           suggestion: mentionSuggestion,
         }),
         LinearIssue,
+        ListShiftEnter,
       ],
       content: withLinearIssueNodes(initialContent),
       editorProps: {
@@ -136,10 +138,6 @@ export function MessageEditInput({
       if (event.key === "Enter" && !event.shiftKey) {
         if (event.isComposing) return
         if (isSuggestionMenuOpen()) return
-        // In a list, Enter adds the next item; Cmd+Enter still saves.
-        if (!event.metaKey && !event.ctrlKey && editor.isActive("listItem")) {
-          return
-        }
         event.preventDefault()
         event.stopPropagation()
         handleSave()

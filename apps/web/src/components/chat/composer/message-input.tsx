@@ -68,6 +68,7 @@ import {
 } from "@/components/chat/composer/destination-bar"
 import { LinearIssue } from "@/components/chat/composer/linear-issue-node"
 import { LinearIssuePicker } from "@/components/chat/composer/linear-issue-picker"
+import { ListShiftEnter } from "@/components/chat/composer/list-shift-enter"
 import {
   MentionSuggestionList,
   type MentionSuggestionListProps,
@@ -864,6 +865,7 @@ export function MessageInput({
         LinearIssue,
         RepoFileChip,
         slashCommandExtension,
+        ListShiftEnter,
         skillMentionExtension,
       ],
       editorProps: {
@@ -886,15 +888,6 @@ export function MessageInput({
           if (event.key !== "Enter" || event.shiftKey) return false
           if (event.isComposing) return false
           if (document.querySelector(SUGGESTION_MENU_SELECTOR)) return false
-          // In a list, Enter adds the next item (an empty item exits the
-          // list); Cmd+Enter still sends.
-          if (
-            !event.metaKey &&
-            !event.ctrlKey &&
-            isNodeActive(view.state, "listItem")
-          ) {
-            return false
-          }
 
           event.preventDefault()
           event.stopPropagation()
@@ -936,11 +929,17 @@ export function MessageInput({
       text: tiptapEditor?.getText({ blockSeparator: "\n" }) ?? "",
       isEmpty: tiptapEditor?.isEmpty ?? true,
       isFocused: tiptapEditor?.isFocused ?? false,
+      // TipTap counts an empty list as empty, but its marker sits where the
+      // placeholder would.
+      startsWithParagraph:
+        (tiptapEditor?.state.doc.firstChild?.type.name ?? "paragraph") ===
+        "paragraph",
     }),
   })
   const plainText = draftState?.text ?? ""
   const isEmpty = draftState?.isEmpty ?? true
   const isFocused = draftState?.isFocused ?? false
+  const showPlaceholder = isEmpty && (draftState?.startsWithParagraph ?? true)
 
   const mentionedIdsKey = useEditorState({
     editor,
@@ -1488,7 +1487,7 @@ export function MessageInput({
             {isInline && (
               <div className="absolute top-0.5 left-0">{gutter}</div>
             )}
-            {isEmpty && placeholder && (
+            {showPlaceholder && placeholder && (
               <span
                 className={cn(
                   "pointer-events-none absolute right-0 top-1 truncate text-sm leading-5",
