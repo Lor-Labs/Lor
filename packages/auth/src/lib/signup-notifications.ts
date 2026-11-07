@@ -1,7 +1,7 @@
 import { env } from "@repo/env/server"
 import { logger } from "./logger"
 
-function signupUser(response: unknown) {
+export function signupUser(response: unknown) {
   if (!response || typeof response !== "object" || !("user" in response))
     return null
   const user = response.user

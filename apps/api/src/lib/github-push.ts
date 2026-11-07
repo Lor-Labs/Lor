@@ -4,6 +4,7 @@ import {
   readBlobs,
 } from "@repo/lor/code-changes"
 import { GITHUB_API, GITHUB_HEADERS } from "@/lib/github-account"
+import { logger } from "@/lib/logger"
 
 // Push without a token in the sandbox (reference/planned/code-sessions-runbook.md,
 // chunk 4c): the server replays the sandbox's commits through GitHub's Git
@@ -26,6 +27,17 @@ class GithubError extends Error {
 }
 
 const BLOB_UPLOADS_AT_ONCE = 6
+
+// GitHub refuses a push that adds or changes a GitHub Actions workflow unless
+// the token has the Workflows permission, which Contents write doesn't give.
+// Only GitHub's own message says so: a push touching .github/workflows/ can
+// also be refused for plain access.
+function refusedDetail(err: GithubError, repoFullName: string): string {
+  if (/workflow/i.test(err.message)) {
+    return `GitHub refused the push to ${repoFullName} because it changes a workflow file (${err.message}). GitHub only takes workflow files from the Lor GitHub App with its Workflows permission: an owner or manager of the app must request Workflows "Read and write" in the app's registration, then the owner of the organization or personal account it's installed on must approve the update`
+  }
+  return `GitHub refused the push to ${repoFullName} (${err.message}). Your account needs write access, and the Lor GitHub App needs the Contents write permission`
+}
 
 async function github<T>(
   token: string,
@@ -157,9 +169,18 @@ export async function pushCommits(input: {
   } catch (err) {
     if (!(err instanceof GithubError)) throw err
     if (err.status === 403 || err.status === 404) {
+      logger.warn(
+        {
+          repoFullName: input.repoFullName,
+          branch,
+          status: err.status,
+          githubMessage: err.message,
+        },
+        "GitHub refused a session push"
+      )
       return {
         ok: false,
-        detail: `Your GitHub account can't push to ${input.repoFullName}. You need write access, and the Lor GitHub App needs the Contents write permission`,
+        detail: refusedDetail(err, input.repoFullName),
       }
     }
     if (err.status === 422 && /fast.forward/i.test(err.message)) {

@@ -1,4 +1,5 @@
 import { rerank } from "ai"
+import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
 import { logger } from "./logger"
 import {
   LOR_RERANK_ENABLED,
@@ -37,6 +38,8 @@ export async function rerankTexts({
       documents: documents.map((d) => d.slice(0, DOCUMENT_MAX_CHARS)),
       maxRetries: 0,
       abortSignal: AbortSignal.timeout(TIMEOUT_MS),
+      runtimeContext: aiRuntimeContext(),
+      telemetry: aiTelemetry("lor.rerank"),
     })
     const cost = Number(result.providerMetadata?.gateway?.cost)
     emitUsage(onUsage, {

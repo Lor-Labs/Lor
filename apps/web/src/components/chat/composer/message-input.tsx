@@ -145,7 +145,9 @@ interface MessageInputProps {
   // What's typed is kept under this key (with currentUserId) on this device
   // until sent, e.g. `channel:<id>`. Changing it swaps in that draft.
   draftKey?: string
-  composerDraft?: { id: string; text: string }
+  // lines: insert each line of `text` as its own plain paragraph after @Lor,
+  // parsing no Markdown (Fix with Lor's untrusted review comments).
+  composerDraft?: { id: string; text: string; lines?: boolean }
   onComposerDraftConsumed?: (id: string) => void
   composerFileReference?: ComposerFileReference
   onComposerFileReferenceConsumed?: (id: string) => void
@@ -1020,26 +1022,35 @@ export function MessageInput({
       appliedDraftRef.current = composerDraft.id
       // Append to an existing draft; selecting a suggestion must not erase
       // writing. A New session prompt already goes to Lor, so no @Lor.
-      editor
-        .chain()
-        .focus("end")
-        .insertContent({
+      const { text, lines } = composerDraft
+      const chain = editor.chain().focus("end")
+      if (destination !== "new") {
+        chain.insertContent({
           type: "paragraph",
-          content:
-            destination === "new"
-              ? [{ type: "text", text: composerDraft.text }]
-              : [
-                  {
-                    type: "mention",
-                    attrs: {
-                      id: LOR_USER_ID,
-                      label: "Lor",
-                    },
-                  },
-                  { type: "text", text: ` ${composerDraft.text}` },
-                ],
+          content: [
+            { type: "mention", attrs: { id: LOR_USER_ID, label: "Lor" } },
+            { type: "text", text: lines ? " " : ` ${text}` },
+          ],
         })
-        .run()
+      } else if (!lines) {
+        chain.insertContent({
+          type: "paragraph",
+          content: [{ type: "text", text }],
+        })
+      }
+      // Sent as escaped text, so the review's lines arrive as written.
+      if (lines) {
+        chain.insertContent(
+          text
+            .split("\n")
+            .map((line) =>
+              line
+                ? { type: "paragraph", content: [{ type: "text", text: line }] }
+                : { type: "paragraph" }
+            )
+        )
+      }
+      chain.run()
       onComposerDraftConsumed?.(composerDraft.id)
     }
     if (editor.isInitialized) applyDraft()

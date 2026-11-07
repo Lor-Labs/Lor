@@ -12,6 +12,7 @@ import {
 import type { LorToolCallUpdate } from "@repo/db/schema"
 import { env } from "@repo/env/server"
 import { isStepCount, streamText } from "ai"
+import { aiRuntimeContext, aiTelemetry } from "./ai-observability"
 import { loadApprovalGates } from "./approval-policy"
 import { attioTools, resolveWorkspaceAttio } from "./attio"
 import { type BrainWriteEvent, brainReadTools, brainWriteTools } from "./brain"
@@ -364,6 +365,8 @@ export async function synthesizeProjectArchive(
       stopWhen: isStepCount(SYNTHESIS_MAX_STEPS),
       timeout: { totalMs: SYNTHESIS_TIMEOUT_MS },
       providerOptions: { gateway: mainGatewayOptions },
+      runtimeContext: aiRuntimeContext(),
+      telemetry: aiTelemetry("project.archive"),
     })
 
     // No deltas streamed anywhere — but tool calls fan out live so the

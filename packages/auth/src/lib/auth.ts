@@ -5,6 +5,7 @@ import { getBetaAvailability, hostedBetaConfig } from "@repo/billing/beta"
 import { and, db, eq, LOR_USER_ID, ne, schema } from "@repo/db"
 import { assertWorkspaceActive } from "@repo/db/queries/beta-access"
 import { env } from "@repo/env/server"
+import { captureServerEvent } from "@repo/logger"
 import { pickWorkspaceAvatarColor } from "@repo/utils/avatar-colors"
 import { features } from "@repo/utils/features"
 import { escapeHtml } from "@repo/utils/html"
@@ -29,7 +30,7 @@ import {
   owner as ownerRole,
   parseRolePermission,
 } from "./permissions"
-import { notifySignup } from "./signup-notifications"
+import { notifySignup, signupUser } from "./signup-notifications"
 import { seedWorkspaceTemplate } from "./workspace-template"
 
 const redis = new Redis(env.REDIS_URL)
@@ -145,6 +146,18 @@ export async function isFirstAccount() {
     .where(eq(schema.user.isBot, false))
     .limit(1)
   return human.length === 0
+}
+
+// A sign-up's invitation id when its signature checks out; an unsigned or
+// forged one is no invitation.
+function signedInvitationId(body: unknown): string | null {
+  const { invitationId, invitationSig } =
+    (body as { invitationId?: unknown; invitationSig?: unknown } | null) ?? {}
+  return typeof invitationId === "string" &&
+    typeof invitationSig === "string" &&
+    verifyInvitationSignature(invitationId, invitationSig)
+    ? invitationId
+    : null
 }
 
 export const auth = betterAuth({
@@ -328,8 +341,32 @@ export const auth = betterAuth({
       }
     }),
     after: createAuthMiddleware(async (ctx) => {
-      if (ctx.path !== "/sign-up/email") return
       if (ctx.context.returned instanceof APIError) return
+      if (ctx.path === "/sign-in/email") {
+        // A 2FA challenge returns no user, so it doesn't count as a sign-in.
+        const user = signupUser(ctx.context.returned)
+        if (user) {
+          captureServerEvent({ distinctId: user.id, event: "user_signed_in" })
+        }
+        return
+      }
+      if (ctx.path === "/organization/accept-invitation") {
+        const accepted = ctx.context.returned as {
+          member?: { userId: string; organizationId: string }
+        } | null
+        if (accepted?.member) {
+          captureServerEvent({
+            distinctId: accepted.member.userId,
+            event: "workspace_joined",
+            properties: {
+              workspace_id: accepted.member.organizationId,
+              source: "email_invite",
+            },
+          })
+        }
+        return
+      }
+      if (ctx.path !== "/sign-up/email") return
       // The endpoint has finished; notification failures cannot fail signup.
       void notifySignup(ctx.context.returned)
     }),
@@ -353,12 +390,8 @@ export const auth = betterAuth({
               })
             }
           }
-          const { invitationId, invitationSig } = ctx.body ?? {}
-          if (
-            typeof invitationId !== "string" ||
-            typeof invitationSig !== "string" ||
-            !verifyInvitationSignature(invitationId, invitationSig)
-          ) {
+          const invitationId = signedInvitationId(ctx.body)
+          if (!invitationId) {
             await refuseSelfSignup()
             return
           }
@@ -381,6 +414,16 @@ export const auth = betterAuth({
             return
           }
           return { data: { ...user, emailVerified: true } }
+        },
+        after: async (user, ctx) => {
+          if (ctx?.path !== "/sign-up/email") return
+          captureServerEvent({
+            distinctId: user.id,
+            event: "user_signed_up",
+            properties: {
+              from_invitation: signedInvitationId(ctx.body) !== null,
+            },
+          })
         },
       },
     },

@@ -13,9 +13,30 @@ import {
 } from "@/lib/connector-triggers"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
 import {
+  announceReview,
+  broadcastReviewUpdated,
+  type PullRequestRef,
+  sessionForPullRequest,
+} from "@/lib/session-reviews"
+import {
   enqueueSourceIngest,
   ingestConnection,
 } from "@/lib/source-ingest-queue"
+
+function pullRequestRef(payload: {
+  installation?: { id: number }
+  repository: { full_name: string }
+  pull_request: {
+    head: { ref: string; repo: { full_name: string } | null }
+  }
+}): PullRequestRef {
+  return {
+    installationId: payload.installation?.id,
+    repoFullName: payload.repository.full_name,
+    headRef: payload.pull_request.head.ref,
+    headRepoFullName: payload.pull_request.head.repo?.full_name ?? null,
+  }
+}
 
 function ingestConnectionFor(installationId: number | undefined) {
   return installationId === undefined
@@ -278,6 +299,54 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
       )
     }
   })
+
+  // Code session reviews (reference/planned/pr-reviews.md): a submitted
+  // review posts a card in the session of the pull request's branch; any
+  // change to its reviews or threads refreshes open cards.
+  webhooks.on("pull_request_review.submitted", async ({ payload }) => {
+    const session = await sessionForPullRequest(pullRequestRef(payload))
+    if (!session || payload.installation?.id === undefined) return
+    // Open cards refetch even when the card can't be posted; the error still
+    // reaches the webhook handler.
+    try {
+      await announceReview({
+        session,
+        installationId: payload.installation.id,
+        pullRequest: {
+          number: payload.pull_request.number,
+          url: payload.pull_request.html_url,
+        },
+        review: {
+          id: payload.review.id,
+          state: payload.review.state,
+          body: payload.review.body,
+          login: payload.review.user?.login ?? "ghost",
+          bot: payload.review.user?.type === "Bot",
+        },
+      })
+    } finally {
+      broadcastReviewUpdated(session)
+    }
+  })
+
+  webhooks.on(
+    [
+      "pull_request_review.edited",
+      "pull_request_review.dismissed",
+      "pull_request_review_comment.created",
+      "pull_request_review_comment.edited",
+      "pull_request_review_comment.deleted",
+      "pull_request_review_thread.resolved",
+      "pull_request_review_thread.unresolved",
+      "pull_request.synchronize",
+      "pull_request.closed",
+      "pull_request.reopened",
+    ],
+    async ({ payload }) => {
+      const session = await sessionForPullRequest(pullRequestRef(payload))
+      if (session) broadcastReviewUpdated(session)
+    }
+  )
 
   // App lifecycle: uninstall drops the connection (sources cascade-purge);
   // Suspension revokes access; reconnect must prove ownership again.

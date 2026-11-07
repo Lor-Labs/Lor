@@ -321,6 +321,66 @@ export const sessionTouchesResponseSchema = z.object({
   ),
 })
 
+const reviewAuthorSchema = z.object({
+  login: z.string(),
+  avatarUrl: z.string().nullable(),
+  bot: z.boolean(),
+})
+
+// A code session's pull request and its reviews, read live from GitHub
+// (reference/planned/pr-reviews.md). Null: no pull request for its branch.
+export const sessionReviewResponseSchema = z.object({
+  review: z
+    .object({
+      pullRequest: z.object({
+        number: z.number().int(),
+        url: z.string(),
+        title: z.string(),
+        state: z.enum(["open", "closed", "merged"]),
+        draft: z.boolean(),
+      }),
+      reviews: z.array(
+        z.object({
+          id: z.number().int(),
+          author: reviewAuthorSchema,
+          state: z.enum([
+            "approved",
+            "changes_requested",
+            "commented",
+            "dismissed",
+            "pending",
+          ]),
+          body: z.string(),
+          agentPrompt: z.string().nullable(),
+          url: z.string(),
+          submittedAt: z.string().nullable(),
+        })
+      ),
+      threads: z.array(
+        z.object({
+          id: z.string(),
+          path: z.string(),
+          line: z.number().int().nullable(),
+          resolved: z.boolean(),
+          outdated: z.boolean(),
+          reviewId: z.number().int().nullable(),
+          url: z.string(),
+          comments: z.array(
+            z.object({
+              id: z.number().int(),
+              author: reviewAuthorSchema,
+              body: z.string(),
+              agentPrompt: z.string().nullable(),
+              url: z.string(),
+              createdAt: z.string(),
+            })
+          ),
+        })
+      ),
+    })
+    .nullable(),
+})
+
 export const forkAgentSessionRequestSchema = z.object({
   // The Lor reply whose turn the fork starts from.
   messageId: z.string().uuid(),

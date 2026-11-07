@@ -1,3 +1,4 @@
+import { usePostHog } from "@posthog/react"
 import { LOR_USER_ID } from "@repo/db/constants"
 import {
   type RealtimeMessageEmbedsUpdated,
@@ -60,6 +61,7 @@ export function useMessageSending({
   onSendFailed,
   sessionStart,
 }: UseMessageSendingOptions) {
+  const posthog = usePostHog()
   const pendingNonces = useRef(new Set<string>())
   const sessionStartRef = useRef(sessionStart)
   sessionStartRef.current = sessionStart
@@ -329,12 +331,24 @@ export function useMessageSending({
             result.message.threadRootId !== (threadRootId ?? null)
           if (start) {
             if (movedToSession && result.session) {
+              posthog.capture("session_started", {
+                origin: start.origin,
+                session_mode: result.session.mode,
+                harness: result.session.harness,
+                continued_session: Boolean(start.source),
+              })
               sessionStartRef.current?.started(start, result.session)
             } else {
               // The server posted it here instead; the list refetches.
               sessionStartRef.current?.failed(start)
               refetchOwed.current = true
             }
+          } else {
+            posthog.capture("message_sent", {
+              message_context: threadRootId ? "thread" : "channel",
+              has_attachments: Boolean(attachments?.length),
+              sent_to_people: Boolean(options?.toPeople),
+            })
           }
           updateMessagesInCache((messages) =>
             movedToSession
@@ -395,6 +409,7 @@ export function useMessageSending({
       prependToFirstPage,
       updateMessagesInCache,
       onSendFailed,
+      posthog,
     ]
   )
 

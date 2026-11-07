@@ -19,6 +19,7 @@ import type {
   ToolSet,
   UserModelMessage,
 } from "ai"
+import { aiRuntimeContext, aiTelemetry } from "../ai-observability"
 import { claudeHeadOf, pendingRewind } from "./claude-branch"
 import {
   checkCompatibility,
@@ -222,6 +223,8 @@ export async function runClaudeCodeTurn(
     // The session's own work folder, shared with clone, checkpoints and the
     // Changes panel.
     sandboxConfig: { workDir: sessionWorkFolder(input.sessionId) },
+    telemetry: aiTelemetry("lor.turn.claude_code"),
+    runtimeContext: aiRuntimeContext(),
   })
 
   const abort = input.abortSignal ? { abortSignal: input.abortSignal } : {}

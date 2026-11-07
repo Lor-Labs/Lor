@@ -10,9 +10,13 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
+    "@opentelemetry/exporter-logs-otlp-http": "^0.301.0",
+    "@opentelemetry/resources": "^3.1.0",
+    "@opentelemetry/sdk-logs": "^3.1.0",
     "@sentry/node-core": "^10.75.2",
     "pino": "^9.6.0",
-    "pino-pretty": "^13.0.0"
+    "pino-pretty": "^13.0.0",
+    "posthog-node": "^5.63.1"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",

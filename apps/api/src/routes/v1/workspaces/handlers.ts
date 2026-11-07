@@ -23,6 +23,7 @@ import {
 import { listAccessibleChannelIds } from "@repo/db/queries/channel-access"
 import { visibleToSessionChatFilter } from "@repo/db/queries/session-chat-access"
 import { env } from "@repo/env/server"
+import { captureServerEvent } from "@repo/logger"
 import {
   PRESENCE_ONLINE_USERS_SET_KEY,
   workspaceRoom,
@@ -467,6 +468,16 @@ export const createWorkspace: AppRouteHandler<CreateWorkspaceRoute> = async (
       .where(eq(schema.workspace.id, created.id))
   }
 
+  captureServerEvent({
+    distinctId: user.id,
+    event: "workspace_created",
+    properties: {
+      workspace_id: workspace.id,
+      has_website: Boolean(website),
+      has_description: Boolean(body.description),
+    },
+  })
+
   return c.json(
     {
       workspace: { ...workspace, logo: logo ?? workspace.logo },
@@ -546,6 +557,11 @@ export const joinWorkspace: AppRouteHandler<JoinWorkspaceRoute> = async (c) => {
   )
   if (joined) {
     afterWorkspaceJoin(workspace.id)
+    captureServerEvent({
+      distinctId: user.id,
+      event: "workspace_joined",
+      properties: { workspace_id: workspace.id, source: "email_domain" },
+    })
     await publishRealtime((io) =>
       io.to(workspaceRoom(workspace.id)).emit("workspace:member:joined", {
         workspaceId: workspace.id,

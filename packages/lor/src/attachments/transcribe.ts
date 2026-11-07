@@ -1,4 +1,5 @@
 import { generateText } from "ai"
+import { aiRuntimeContext, aiTelemetry } from "../ai-observability"
 import { lorSmallModel, smallGatewayOptions } from "../models"
 import { sanitizeInlineLabel } from "../transcript"
 import { emitUsage, type OnUsage } from "../usage"
@@ -43,6 +44,8 @@ export async function transcribeImage(
     providerOptions: {
       gateway: smallGatewayOptions,
     },
+    runtimeContext: aiRuntimeContext(),
+    telemetry: aiTelemetry("attachment.transcribe"),
   })
   emitUsage(onUsage, {
     workspaceId,

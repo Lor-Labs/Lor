@@ -1,3 +1,4 @@
+import { usePostHog } from "@posthog/react"
 import { toast } from "@repo/ui/components/toast"
 import { features } from "@repo/utils/features"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -10,6 +11,7 @@ import type { GetDMResponse, ListDMsResponse } from "@/lib/api-types"
 export function useCreateDM() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const posthog = usePostHog()
 
   return useMutation({
     mutationFn: async (userIds: string[]) => {
@@ -27,6 +29,9 @@ export function useCreateDM() {
       return res.json()
     },
     onSuccess: (data) => {
+      posthog.capture("direct_message_created", {
+        conversation_type: data.dm.type,
+      })
       queryClient.setQueryData<GetDMResponse>(["dms", data.dm.id], data.dm)
       void queryClient.invalidateQueries({ queryKey: ["dms"], exact: true })
       void navigate({ to: "/dms/$dmId", params: { dmId: data.dm.id } })

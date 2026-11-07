@@ -87,6 +87,7 @@ import {
   hasRepoFileDrag,
   readRepoFileDrag,
 } from "@/lib/repo-file-reference"
+import { useSessionComposerInbox } from "@/lib/session-composer-inbox"
 
 const CHANNEL_CONTEXT = { type: "channel" as const, name: "thread" }
 // A panel's "Ask Lor" has no draft to resend from: an unanswered send fails.
@@ -436,6 +437,22 @@ export function SessionDocument({
   const { scrollRef } = scroll
   const [isRepoDragActive, setIsRepoDragActive] = useState(false)
   const [fileReference, setFileReference] = useState<ComposerFileReference>()
+  // The input line, absent while archived or before the first page loads.
+  const showInputLine = !archivedBar && !isAwaitingReplies
+  // Fix with Lor from a review card or the Details panel's Review list.
+  const [composerDraft, setComposerDraft] = useState<{
+    id: string
+    text: string
+    lines: true
+  }>()
+  useSessionComposerInbox(
+    threadRootId,
+    (text) => {
+      setComposerDraft({ id: crypto.randomUUID(), text, lines: true })
+      if (cover) onShowChat?.()
+    },
+    showInputLine
+  )
   const canReferenceFiles = Boolean(
     repoSessionId && !archivedBar && !isAwaitingReplies
   )
@@ -563,6 +580,12 @@ export function SessionDocument({
             current?.id === id ? undefined : current
           )
         }
+        composerDraft={cover ? undefined : composerDraft}
+        onComposerDraftConsumed={(id) =>
+          setComposerDraft((current) =>
+            current?.id === id ? undefined : current
+          )
+        }
         placeholder="Reply…"
         destination="session"
         peopleOnly={!agentAnswers}
@@ -617,6 +640,15 @@ export function SessionDocument({
         isSteeringQueued={lorRun.steering.isSteering}
       />
     </>
+  )
+
+  const jumpToLatest = (className?: string) => (
+    <MessageScrollerJumpToLatest
+      newestMessageId={orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null}
+      viewportRef={scrollRef}
+      isLorResponding={Boolean(pendingLorMessage)}
+      className={className}
+    />
   )
 
   return (
@@ -714,15 +746,18 @@ export function SessionDocument({
                       rewindRestoresFiles,
                     }}
                   />
+                  {/* Inline input line: the document's last line, right under
+                  the last turn. Sticky, so while you scroll back it stays at
+                  the bottom edge (LOR-129), with Jump to latest above it. */}
+                  {showInputLine && (
+                    <div className="sticky bottom-0 z-30 bg-background pt-3">
+                      {jumpToLatest("bottom-full mb-2")}
+                      {composer}
+                    </div>
+                  )}
                 </MessageScrollerContent>
               </MessageScrollerViewport>
-              <MessageScrollerJumpToLatest
-                newestMessageId={
-                  orderedReplies.at(-1)?.id ?? rootMessage?.id ?? null
-                }
-                viewportRef={scrollRef}
-                isLorResponding={Boolean(pendingLorMessage)}
-              />
+              {!showInputLine && jumpToLatest()}
               <SessionTurnRail messages={orderedReplies} />
             </MessageScroller>
 
@@ -731,19 +766,10 @@ export function SessionDocument({
                 {archivedBar}
               </div>
             ) : (
-              <>
-                {/* Inline input line, pinned under the transcript so it stays
-                in reach while you scroll back. */}
-                {!isAwaitingReplies && (
-                  <div className="mx-auto w-full max-w-3xl shrink-0 pt-2">
-                    {composer}
-                  </div>
-                )}
-                <div
-                  ref={setToolbarTarget}
-                  className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
-                />
-              </>
+              <div
+                ref={setToolbarTarget}
+                className="mx-auto w-full max-w-3xl shrink-0 px-4 py-2"
+              />
             )}
           </div>
           {cover && <div className="absolute inset-0">{cover}</div>}

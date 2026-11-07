@@ -60,6 +60,11 @@ export const sharedServerFields = {
     .default("production"),
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
+  POSTHOG_PROJECT_TOKEN: z.preprocess(
+    blankToUndefined,
+    z.string().min(1).optional()
+  ),
+  POSTHOG_HOST: z.preprocess(blankToUndefined, z.string().min(1).optional()),
   // Vercel AI Gateway is Lor's explicit transport. Model-role selection
   // remains provider-neutral through the LOR_* model ids.
   AI_GATEWAY_API_KEY: z.string().min(1),

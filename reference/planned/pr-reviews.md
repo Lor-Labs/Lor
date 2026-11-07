@@ -1,7 +1,8 @@
 # PR reviews in code sessions (LOR-127 follow-up)
 
-Status: planned 2026-11-06, not built. Verify file references against code
-before building.
+Status: planned 2026-11-06; steps 1–4 built 2026-11-06 (uncommitted at the
+time of writing). Owed: `pnpm db:push` (new `session_reviewed` enum value),
+the GitHub App's webhook subscriptions (below) and live QA. See Deviations.
 
 A code session's pull request gets reviewed on GitHub by bots (CodeRabbit,
 Greptile, Copilot) and people. Today someone copies each finding's "Prompt for
@@ -91,24 +92,52 @@ sidebar, and "Fix with Lor" on each comment.
 
 ## Steps
 
-- [ ] **1. PR link.** `pull_request_number` on `agent_session`; webhook
-  handler that matches PR → session; fill the number on push too
-  (`pullRequestLink` already finds the open PR).
-- [ ] **2. Review read.** `GET /v1/sessions/{id}/review` (GraphQL
-  `reviewThreads`, bot detection, body cleanup), cache and
-  `session:review:updated`.
-- [ ] **3. Card and sidebar.** `session_reviewed` event type (DB enum,
-  realtime types, `channelEventContent`), the card, the Review section, live
-  refresh.
-- [ ] **4. Fix with Lor.** Per comment and Fix all open, prefilled in the
-  composer.
+- [x] **1. PR link.** Webhook handler that matches PR → session
+  (`apps/api/src/lib/session-reviews.ts`, wired in
+  `apps/api/src/routes/v1/integrations/github/events.ts`). No column: see
+  Deviations.
+- [x] **2. Review read.** `GET /v1/sessions/{id}/review`
+  (`packages/lor/src/pr-reviews.ts`, GraphQL in `fetchBranchPullRequest`,
+  `packages/lor/src/providers/github.ts`), `session:review:updated`.
+- [x] **3. Card and sidebar.** `session_reviewed` event type (DB enum,
+  realtime types, `channelEventContent`), the card
+  (`apps/web/src/components/session/review-card.tsx`), the Details tab's
+  Review section (`session-work-panel.tsx`), live refresh
+  (`use-session-review.ts`). `postSessionEvent` moved to
+  `apps/api/src/lib/session-events.ts`.
+- [x] **4. Fix with Lor.** Per comment and Fix all open, put in the session
+  composer after @Lor as plain lines, no Markdown parsing, each comment
+  between start and end lines with a random tag (`lib/session-composer-inbox.ts`,
+  `composerDraft.lines` in `message-input.tsx`; the composer has no
+  blockquotes, so `>` quoting did not survive sending). Bots' prompts only; a
+  bot review's own prompt adds "Fix the whole review with Lor" on its card.
 - [ ] **Later:** resolve a thread or reply "Fixed in abc123" on GitHub as the
   person's linked GitHub account (like push); opt-in automatic fixes; mobile
   card.
 
+## Deviations (2026-11-06 build)
+
+- **No `pull_request_number` column.** One GraphQL query finds the newest
+  pull request whose head is the session's `new_branch` (same repo only) and
+  reads its reviews and threads, so nothing is stored; the card's PR number
+  comes from its event payload. A column would have touched every session
+  type for little gain.
+- **Reply reviews post no card.** On GitHub a reply in a thread is a
+  bodyless "commented" review of its own; such a review gets a card only if
+  it opens a new thread (`reviewStartsThreads`). Webhook redeliveries post
+  once per review id.
+- **The event row is posted as Lor**, like `loop_run`, so Lor's conversation
+  leaves it out (run-continuation skips Lor's own rows). Review text reaches
+  Lor only through Fix with Lor, which a person sends.
+- **A comment's file and line link to the comment on GitHub**, not to the
+  Changes panel diff (the panel has no open-at-line yet).
+- **Sidebar placement:** the Details tab, after Touched, for code sessions
+  with their own branch.
+- **Not shown:** issue comments (CodeRabbit's walkthrough summary); the card
+  shows each review's own body and its line comments.
+
 ## Open questions
 
-- Sidebar placement: Details tab or the Changes panel (step 3).
 - Does the GitHub App's webhook subscription include `issue_comment` on PRs
   and `pull_request_review_thread` (resolve/unresolve)? Resolving on GitHub
   should refresh the card; without that event, refetch on open.

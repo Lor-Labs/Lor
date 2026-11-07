@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { db, schema } from "@repo/db"
 import { experimental_decide as decide } from "ai"
+import { aiRuntimeContext, aiTelemetry } from "../ai-observability"
 import { logger } from "../logger"
 import {
   LOR_SANDBOX_CLASSIFIER_MODEL,
@@ -86,6 +87,8 @@ export async function decideWithJev(
       abortSignal: signal
         ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)])
         : AbortSignal.timeout(TIMEOUT_MS),
+      runtimeContext: aiRuntimeContext(),
+      telemetry: aiTelemetry("sandbox.classify"),
     })
     if (
       result.response.modelId.split("/").at(-1) !==

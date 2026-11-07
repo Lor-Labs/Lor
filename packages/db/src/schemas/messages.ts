@@ -83,6 +83,9 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   // In a session: someone rewound it to one of Lor's replies. The messages
   // between that reply and this row are the rewound turns.
   "session_rewound",
+  // In a code session: someone reviewed the pull request of its branch on
+  // GitHub (reference/planned/pr-reviews.md). The card reads the comments live.
+  "session_reviewed",
 ])
 
 // Claude Code's own permission modes, picked per message in a Claude Code
@@ -363,6 +366,18 @@ export type SessionRewoundPayload = {
   toMessageId: string
 }
 
+export type SessionReviewedPayload = {
+  sessionId: string
+  repoFullName: string
+  pullRequestNumber: number
+  pullRequestUrl: string
+  reviewId: number
+  // GitHub login; a bot's without the "[bot]" suffix.
+  reviewer: string
+  reviewerBot: boolean
+  state: "approved" | "changes_requested" | "commented"
+}
+
 export type ChannelEventPayload =
   | ChannelCreatedPayload
   | ChannelRenamedPayload
@@ -375,6 +390,7 @@ export type ChannelEventPayload =
   | SessionPushedPayload
   | SessionForkedPayload
   | SessionRewoundPayload
+  | SessionReviewedPayload
   | null
 
 // Type definitions for the JSONB fields
