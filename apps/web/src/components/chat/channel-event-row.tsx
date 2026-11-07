@@ -24,6 +24,7 @@ import { formatDateTime, formatTime, timeAgo } from "@repo/utils/date"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
+import { isReviewedEvent, ReviewCard } from "@/components/session/review-card"
 import { PrivateHashIcon } from "@/components/ui/private-hash-icon"
 import { UserHoverCard } from "@/components/ui/user-profile-card"
 import { agentSessionQueryOptions } from "@/hooks/use-agent-session"
@@ -734,6 +735,9 @@ export function ChannelEventRow({
   const first = events[0]
   if (!first) return null
 
+  if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
+    return <ReviewCard message={first} />
+  }
   const sessionIcon = first.eventType
     ? SESSION_EVENT_ICONS[first.eventType]
     : undefined

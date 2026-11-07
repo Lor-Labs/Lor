@@ -142,7 +142,8 @@ interface MessageInputProps {
   // What's typed is kept under this key (with currentUserId) on this device
   // until sent, e.g. `channel:<id>`. Changing it swaps in that draft.
   draftKey?: string
-  composerDraft?: { id: string; text: string }
+  // markdown: insert `text` as Markdown (lists, quotes, code) after @Lor.
+  composerDraft?: { id: string; text: string; markdown?: boolean }
   onComposerDraftConsumed?: (id: string) => void
   composerFileReference?: ComposerFileReference
   onComposerFileReferenceConsumed?: (id: string) => void
@@ -905,26 +906,26 @@ export function MessageInput({
       appliedDraftRef.current = composerDraft.id
       // Append to an existing draft; selecting a suggestion must not erase
       // writing. A New session prompt already goes to Lor, so no @Lor.
-      editor
-        .chain()
-        .focus("end")
-        .insertContent({
+      const { text, markdown } = composerDraft
+      const chain = editor.chain().focus("end")
+      if (destination !== "new") {
+        chain.insertContent({
           type: "paragraph",
-          content:
-            destination === "new"
-              ? [{ type: "text", text: composerDraft.text }]
-              : [
-                  {
-                    type: "mention",
-                    attrs: {
-                      id: LOR_USER_ID,
-                      label: "Lor",
-                    },
-                  },
-                  { type: "text", text: ` ${composerDraft.text}` },
-                ],
+          content: [
+            { type: "mention", attrs: { id: LOR_USER_ID, label: "Lor" } },
+            { type: "text", text: markdown ? " " : ` ${text}` },
+          ],
         })
-        .run()
+      } else if (!markdown) {
+        chain.insertContent({
+          type: "paragraph",
+          content: [{ type: "text", text }],
+        })
+      }
+      // Multi-line text (Fix with Lor's review comments) keeps its lists,
+      // quotes and code as Markdown.
+      if (markdown) chain.insertContent(text, { contentType: "markdown" })
+      chain.run()
       onComposerDraftConsumed?.(composerDraft.id)
     }
     if (editor.isInitialized) applyDraft()

@@ -88,6 +88,7 @@ import {
   hasRepoFileDrag,
   readRepoFileDrag,
 } from "@/lib/repo-file-reference"
+import { useSessionComposerInbox } from "@/lib/session-composer-inbox"
 
 const CHANNEL_CONTEXT = { type: "channel" as const, name: "thread" }
 // A panel's "Ask Lor" has no draft to resend from: an unanswered send fails.
@@ -434,6 +435,16 @@ export function SessionDocument({
   const { scrollRef, scrollToEndRef } = scroll
   const [isRepoDragActive, setIsRepoDragActive] = useState(false)
   const [fileReference, setFileReference] = useState<ComposerFileReference>()
+  // Fix with Lor from a review card or the Details panel's Review list.
+  const [composerDraft, setComposerDraft] = useState<{
+    id: string
+    text: string
+    markdown: true
+  }>()
+  useSessionComposerInbox(threadRootId, (text) => {
+    setComposerDraft({ id: crypto.randomUUID(), text, markdown: true })
+    if (cover) onShowChat?.()
+  })
   const canReferenceFiles = Boolean(
     repoSessionId && !archivedBar && !isAwaitingReplies
   )
@@ -562,6 +573,12 @@ export function SessionDocument({
         }
         onComposerFileReferenceConsumed={(id) =>
           setFileReference((current) =>
+            current?.id === id ? undefined : current
+          )
+        }
+        composerDraft={cover ? undefined : composerDraft}
+        onComposerDraftConsumed={(id) =>
+          setComposerDraft((current) =>
             current?.id === id ? undefined : current
           )
         }

@@ -756,3 +756,151 @@ export const githubProvider: SourceProvider = {
     }
   },
 }
+
+export type GithubReviewAuthor = {
+  login: string
+  avatarUrl: string
+  __typename: string
+} | null
+
+export type GithubBranchPullRequest = {
+  number: number
+  url: string
+  title: string
+  state: "OPEN" | "CLOSED" | "MERGED"
+  isDraft: boolean
+  reviews: {
+    databaseId: number
+    state: string
+    body: string
+    url: string
+    submittedAt: string | null
+    author: GithubReviewAuthor
+  }[]
+  threads: {
+    id: string
+    isResolved: boolean
+    isOutdated: boolean
+    path: string
+    line: number | null
+    originalLine: number | null
+    comments: {
+      databaseId: number
+      body: string
+      url: string
+      createdAt: string
+      author: GithubReviewAuthor
+      pullRequestReview: { databaseId: number } | null
+    }[]
+  }[]
+}
+
+// The newest pull request whose head is `branch` in the repo itself (a
+// fork's same-named branch is someone else's), with its reviews and review
+// threads. reference/planned/pr-reviews.md.
+export async function fetchBranchPullRequest(
+  installationId: string,
+  repoFullName: string,
+  branch: string
+): Promise<GithubBranchPullRequest | null> {
+  const app = getApp()
+  if (!app) return null
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return null
+  const [owner, name] = repoFullName.split("/")
+  if (!(owner && name)) return null
+  const author = "author { login avatarUrl __typename }"
+  const octokit = await app.getInstallationOctokit(id)
+  const { repository } = await octokit.graphql<{
+    repository: {
+      pullRequests: {
+        nodes: (Omit<GithubBranchPullRequest, "reviews" | "threads"> & {
+          headRepository: { nameWithOwner: string } | null
+          reviews: { nodes: GithubBranchPullRequest["reviews"] }
+          reviewThreads: {
+            nodes: (Omit<
+              GithubBranchPullRequest["threads"][number],
+              "comments"
+            > & {
+              comments: {
+                nodes: GithubBranchPullRequest["threads"][number]["comments"]
+              }
+            })[]
+          }
+        })[]
+      }
+    } | null
+  }>(
+    `query ($owner: String!, $name: String!, $branch: String!) {
+      repository(owner: $owner, name: $name) {
+        pullRequests(headRefName: $branch, first: 5, orderBy: { field: CREATED_AT, direction: DESC }) {
+          nodes {
+            number url title state isDraft
+            headRepository { nameWithOwner }
+            reviews(last: 50) {
+              nodes { databaseId state body url submittedAt ${author} }
+            }
+            reviewThreads(first: 100) {
+              nodes {
+                id isResolved isOutdated path line originalLine
+                comments(first: 30) {
+                  nodes { databaseId body url createdAt ${author} pullRequestReview { databaseId } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }`,
+    {
+      owner,
+      name,
+      branch,
+      request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+    }
+  )
+  const pr = repository?.pullRequests.nodes.find(
+    (node) =>
+      node.headRepository?.nameWithOwner.toLowerCase() ===
+      repoFullName.toLowerCase()
+  )
+  if (!pr) return null
+  return {
+    number: pr.number,
+    url: pr.url,
+    title: pr.title,
+    state: pr.state,
+    isDraft: pr.isDraft,
+    reviews: pr.reviews.nodes,
+    threads: pr.reviewThreads.nodes.map((thread) => ({
+      ...thread,
+      comments: thread.comments.nodes,
+    })),
+  }
+}
+
+// Whether a review opened a thread of its own: a reply on GitHub is a review
+// too, with no body and only comments in reply to earlier ones.
+export async function reviewStartsThreads(
+  installationId: string,
+  repoFullName: string,
+  pullNumber: number,
+  reviewId: number
+): Promise<boolean> {
+  const app = getApp()
+  if (!app) return false
+  const id = parseGithubInstallationId(installationId)
+  if (id === null) return false
+  const [owner, repo] = repoFullName.split("/")
+  if (!(owner && repo)) return false
+  const octokit = await app.getInstallationOctokit(id)
+  const { data } = await octokit.rest.pulls.listCommentsForReview({
+    owner,
+    repo,
+    pull_number: pullNumber,
+    review_id: reviewId,
+    per_page: 100,
+    request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+  })
+  return data.some((comment) => !comment.in_reply_to_id)
+}

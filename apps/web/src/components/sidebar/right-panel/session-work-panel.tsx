@@ -1,9 +1,11 @@
 import {
+  AiMagicIcon,
   BubbleChatIcon,
   GitForkIcon,
   HashtagIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { Button } from "@repo/ui/components/button"
 import { toast } from "@repo/ui/components/toast"
 import {
   useInfiniteQuery,
@@ -11,12 +13,16 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { type ReactNode, useEffect, useMemo } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import {
   ArtifactFileCard,
   UploadFileCard,
 } from "@/components/chat/artifact-file-card"
 import { PlanStepList } from "@/components/chat/plan-step-list"
+import {
+  ReviewThreadRow,
+  sendFixWithLor,
+} from "@/components/session/review-threads"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { SessionPanelTabs } from "@/components/sidebar/right-panel/session-changes-panel"
@@ -34,6 +40,7 @@ import {
   useMessageIdNavigation,
   useMessageLocation,
 } from "@/hooks/use-message-search-navigation"
+import { useSessionReview } from "@/hooks/use-session-review"
 import {
   fetchThreadPage,
   type ThreadPage,
@@ -235,6 +242,12 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
             )}
           </PanelSection>
         )}
+        {code && detail?.session.newBranch && (
+          <SessionReviewSection
+            sessionId={view.sessionId}
+            threadRootId={view.threadRootId}
+          />
+        )}
         {showPlan && (
           <PanelSection
             title="Plan"
@@ -331,6 +344,99 @@ function ContextLink({
 
 function PanelEmpty({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground/70">{children}</p>
+}
+
+// The open comments on the pull request of the session's own branch, across
+// its reviews: the to-do list beside the review cards in the thread
+// (reference/planned/pr-reviews.md).
+function SessionReviewSection({
+  sessionId,
+  threadRootId,
+}: {
+  sessionId: string
+  threadRootId: string
+}) {
+  const [showResolved, setShowResolved] = useState(false)
+  const {
+    data: review,
+    isPending,
+    isError,
+  } = useSessionReview(sessionId, threadRootId)
+  const threads = review?.threads ?? []
+  const open = threads.filter((thread) => !thread.resolved)
+  const resolvedCount = threads.length - open.length
+  const shown = showResolved ? threads : open
+  return (
+    <PanelSection
+      title={
+        review ? (
+          <a
+            href={review.pullRequest.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 hover:text-foreground"
+          >
+            Review
+            <span className="text-muted-foreground/70">
+              #{review.pullRequest.number}
+            </span>
+          </a>
+        ) : (
+          "Review"
+        )
+      }
+      meta={open.length > 0 ? `${open.length} open` : undefined}
+    >
+      {isPending ? (
+        <PanelEmpty>Loading…</PanelEmpty>
+      ) : isError ? (
+        <PanelEmpty>Couldn't load from GitHub</PanelEmpty>
+      ) : !review ? (
+        <PanelEmpty>No pull request yet</PanelEmpty>
+      ) : (
+        <div className="-mx-2 flex flex-col gap-1">
+          {open.length > 1 && (
+            <Button
+              size="xs"
+              variant="outline"
+              className="mx-2 self-start"
+              onClick={() =>
+                sendFixWithLor(threadRootId, open, review.pullRequest)
+              }
+            >
+              <HugeiconsIcon icon={AiMagicIcon} className="size-3.5" />
+              Fix all open
+            </Button>
+          )}
+          {shown.map((thread) => (
+            <ReviewThreadRow
+              key={thread.id}
+              thread={thread}
+              onFix={() =>
+                sendFixWithLor(threadRootId, [thread], review.pullRequest)
+              }
+            />
+          ))}
+          {shown.length === 0 && (
+            <p className="px-2 text-sm text-muted-foreground/70">
+              {threads.length === 0 ? "No review comments yet" : "All resolved"}
+            </p>
+          )}
+          {resolvedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowResolved(!showResolved)}
+              className="cursor-pointer self-start px-2 text-muted-foreground text-xs hover:text-foreground"
+            >
+              {showResolved
+                ? "Hide resolved"
+                : `Show ${resolvedCount} resolved`}
+            </button>
+          )}
+        </div>
+      )}
+    </PanelSection>
+  )
 }
 
 function SessionFileList({

@@ -304,6 +304,7 @@ export type RealtimeChannelEventType =
   | "session_pushed"
   | "session_forked"
   | "session_rewound"
+  | "session_reviewed"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -334,6 +335,16 @@ export type RealtimeChannelEventPayload =
     }
   | { sessionId: string; fromMessageId: string }
   | { sessionId: string; toMessageId: string }
+  | {
+      sessionId: string
+      repoFullName: string
+      pullRequestNumber: number
+      pullRequestUrl: string
+      reviewId: number
+      reviewer: string
+      reviewerBot: boolean
+      state: "approved" | "changes_requested" | "commented"
+    }
   | null
 
 export type RealtimeAuthor = {
@@ -878,6 +889,10 @@ export interface ServerToClientEvents {
   // A run's touches (what it read, cited, wrote) were saved; the session's
   // Details panel refetches them. Thread room; sent after the write.
   "session:touches:updated": (payload: { threadRootId: string }) => void
+  // The pull request of a code session's branch got a review, a review
+  // comment, or a thread resolved on GitHub. Thread room; the review card and
+  // the Details panel's Review list refetch (reference/planned/pr-reviews.md).
+  "session:review:updated": (payload: { threadRootId: string }) => void
   // Someone staged, committed, pushed or pulled in a code session. Thread
   // room; ids only. filesChanged: a pull changed the files too.
   "session:changes:updated": (payload: {

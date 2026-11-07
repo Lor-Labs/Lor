@@ -68,6 +68,14 @@ export type ChannelEventContentInput =
       toMessageId: string
       code: boolean
     }
+  | {
+      eventType: "session_reviewed"
+      reviewer: string
+      reviewerBot: boolean
+      state: "approved" | "changes_requested" | "commented"
+      pullRequestNumber: number
+      repoFullName: string
+    }
 
 export function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ""
@@ -112,6 +120,10 @@ export function channelEventContent(input: ChannelEventContentInput): string {
       return `${input.actorName} pushed ${input.commitCount} ${input.commitCount === 1 ? "commit" : "commits"} to ${input.branch} on ${input.repoFullName} (${input.headSha.slice(0, 7)})`
     case "session_forked":
       return `${input.actorName} forked this session at Lor's reply ${input.fromMessageId} into a new session (message ${input.threadRootId})`
+    // Posted as Lor, so Lor's own conversation leaves it out; review text is
+    // untrusted and reaches Lor only through a person's Fix with Lor.
+    case "session_reviewed":
+      return `${input.reviewer}${input.reviewerBot ? " (bot)" : ""} ${input.state === "approved" ? "approved" : input.state === "changes_requested" ? "requested changes on" : "reviewed"} pull request #${input.pullRequestNumber} on ${input.repoFullName}`
     // Lor reads this as the next turn's first line: it says what happened,
     // never what the rewound turns said.
     case "session_rewound":

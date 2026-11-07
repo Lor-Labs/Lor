@@ -49,6 +49,7 @@ import {
   sessionFilesResponseSchema,
   sessionParamsSchema,
   sessionPortsResponseSchema,
+  sessionReviewResponseSchema,
   sessionSetupResponseSchema,
   sessionTouchesResponseSchema,
   stageSessionChangesRequestSchema,
@@ -156,6 +157,31 @@ export const listSessionTouches = createRoute({
 })
 
 export type ListSessionTouchesRoute = typeof listSessionTouches
+
+export const getSessionReview = createRoute({
+  path: "/sessions/{sessionId}/review",
+  method: "get",
+  summary: "Read a code session's pull request review",
+  description:
+    "The pull request of the session's own branch with its reviews and review threads, read live from GitHub through the workspace's GitHub App. Null when the branch has no pull request.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionReviewResponseSchema,
+      description: "The pull request review",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type GetSessionReviewRoute = typeof getSessionReview
 
 export const getSessionChanges = createRoute({
   path: "/sessions/{sessionId}/changes",

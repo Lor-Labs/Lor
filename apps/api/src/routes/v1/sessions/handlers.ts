@@ -13,13 +13,7 @@ import {
   sql,
 } from "@repo/db"
 import { resolveChannelAccess } from "@repo/db/queries/channel-access"
-import type {
-  AgentSession,
-  SessionCommittedPayload,
-  SessionForkedPayload,
-  SessionPushedPayload,
-  SessionRewoundPayload,
-} from "@repo/db/schema"
+import type { AgentSession } from "@repo/db/schema"
 import {
   countActWaiting,
   dropActWaiting as dropWaiting,
@@ -59,6 +53,7 @@ import { applySessionEnvironment as applyEnvironment } from "@repo/lor/dev-env/e
 import { listOpenPorts, openPort } from "@repo/lor/dev-env/previews"
 import { repoSetupStatus, startService } from "@repo/lor/dev-env/repo-setup"
 import { openTerminal } from "@repo/lor/dev-env/terminal"
+import { sessionPullRequestReview } from "@repo/lor/pr-reviews"
 import {
   BranchRefusedError,
   forkSession,
@@ -66,7 +61,6 @@ import {
 } from "@repo/lor/session-branches"
 import { recordUncommittedLines } from "@repo/lor/uncommitted-lines"
 import { channelEventContent } from "@repo/messaging"
-import type { RealtimeMessage } from "@repo/realtime-types"
 import { channelRoom, threadRoom } from "@repo/realtime-types/rooms"
 import { isHarnessEnabled } from "@repo/utils/features"
 import { getEmitter } from "@/lib/bot-messages"
@@ -76,6 +70,7 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { fetchSessionContext } from "@/lib/queries/session-context"
 import { fetchSessionTouches } from "@/lib/queries/session-touches"
+import { eventAuthor, postSessionEvent } from "@/lib/session-events"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import {
@@ -97,6 +92,7 @@ import type {
   GetSessionChangeDiffRoute,
   GetSessionChangesRoute,
   GetSessionContextRoute,
+  GetSessionReviewRoute,
   GetSessionSetupRoute,
   ListChannelSessionsRoute,
   ListSessionFilesRoute,
@@ -290,6 +286,32 @@ export const listSessionTouches: AppRouteHandler<
     userId: c.var.user.id,
   })
   return c.json({ items }, HttpStatusCodes.OK)
+}
+
+export const getSessionReview: AppRouteHandler<GetSessionReviewRoute> = async (
+  c
+) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  try {
+    const review = await sessionPullRequestReview(row.session)
+    return c.json({ review }, HttpStatusCodes.OK)
+  } catch (err) {
+    logger.warn({ err, sessionId }, "Pull request review read failed")
+    return c.json(
+      {
+        success: false as const,
+        message: "Couldn't read the review from GitHub",
+      },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR
+    )
+  }
 }
 
 // Bounded for now; older sessions stay reachable from search.
@@ -1238,62 +1260,6 @@ export const pullSessionChanges: AppRouteHandler<
     { pulled: result.pulled, changes: result.changes },
     HttpStatusCodes.OK
   )
-}
-
-type EventAuthor = { id: string; name: string; image: string | null }
-
-const eventAuthor = (user: {
-  id: string
-  name: string
-  image?: string | null
-}): EventAuthor => ({ id: user.id, name: user.name, image: user.image ?? null })
-
-// A commit, push or fork as a line in the session, for its people and for
-// Lor there.
-async function postSessionEvent(
-  session: Pick<AgentSession, "channelId" | "threadRootId" | "workspaceId">,
-  author: EventAuthor,
-  event:
-    | { eventType: "session_committed"; eventPayload: SessionCommittedPayload }
-    | { eventType: "session_pushed"; eventPayload: SessionPushedPayload }
-    | { eventType: "session_forked"; eventPayload: SessionForkedPayload }
-    | { eventType: "session_rewound"; eventPayload: SessionRewoundPayload },
-  content: string
-) {
-  const [row] = await db
-    .insert(schema.message)
-    .values({
-      channelId: session.channelId,
-      authorId: author.id,
-      type: "event",
-      ...event,
-      content,
-      threadRootId: session.threadRootId,
-      excludedFromMemory: true,
-    })
-    .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
-  if (!row) return
-  const message: RealtimeMessage = {
-    id: row.id,
-    channelId: session.channelId,
-    content,
-    type: "event",
-    ...event,
-    pinned: false,
-    createdAt: row.createdAt.toISOString(),
-    author,
-    overrideName: null,
-    overrideAvatarUrl: null,
-    mentions: [],
-    reactions: [],
-    attachments: [],
-    embeds: [],
-    referencedMessage: null,
-    threadRootId: session.threadRootId,
-  }
-  const io = await getEmitter()
-  io.to(threadRoom(session.threadRootId)).emit("message:created", message)
-  notifyWorkspaceActivity(session.workspaceId)
 }
 
 export const getRepoTree: AppRouteHandler<GetRepoTreeRoute> = async (c) => {
