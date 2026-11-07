@@ -132,6 +132,31 @@ export async function hasCheckpoint(sessionId: string): Promise<boolean> {
   )
 }
 
+// A session's uncommitted changes as of its newest checkpoint, read from Code
+// Storage without its sandbox: the checkpoint's tree against the HEAD it was
+// taken on. Null when storage is off or the session has none.
+export async function readCheckpointChanges(
+  sessionId: string,
+  paths?: string[]
+) {
+  const store = codeStorage()
+  if (!store) return null
+  const checkpoint = await newestCheckpoint(db, sessionId)
+  if (!checkpoint) return null
+  const diff = await store.repo({ id: checkpoint.storageRepo }).getCommitDiff({
+    sha: checkpoint.sha,
+    baseSha: checkpoint.headSha,
+    ...(paths ? { paths } : {}),
+  })
+  return {
+    at: checkpoint.createdAt,
+    branch: checkpoint.branch,
+    files: diff.files,
+    // Over 500 KB or binary: no diff text.
+    filteredFiles: diff.filteredFiles,
+  }
+}
+
 const RESTORE_FAILED = 30
 
 export type RestoreResult = "restored" | "present" | "none"
