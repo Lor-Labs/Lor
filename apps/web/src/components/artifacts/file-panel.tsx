@@ -20,6 +20,7 @@ import { useNavigate, useParams } from "@tanstack/react-router"
 import { type ReactNode, useMemo, useState } from "react"
 import { ArtifactBody } from "@/components/artifacts/artifact-body"
 import { CsvGrid } from "@/components/artifacts/csv-grid"
+import { PdfPreview, servesAsPdf } from "@/components/artifacts/pdf-preview"
 import type { OpenFile } from "@/components/sidebar/right-panel/right-sidebar-context"
 import { useArtifact, useArtifactContent } from "@/hooks/use-artifact"
 import { useCloseFile } from "@/hooks/use-file-panel"
@@ -199,6 +200,10 @@ function FileView({
         : null,
     [csv, mime, content.data]
   )
+  const pdf =
+    file?.url && servesAsPdf(file.mime)
+      ? { url: file.url, name: file.name }
+      : null
   // Hidden on the file's own session page: that is its conversation.
   const sessionId = fileSessionId !== routeSessionId ? fileSessionId : null
 
@@ -271,6 +276,8 @@ function FileView({
       <div className="min-h-0 min-w-0 flex-1">
         {parsed ? (
           <CsvGrid columns={parsed.columns} rows={parsed.rows} />
+        ) : pdf ? (
+          <PdfPreview key={pdf.url} url={pdf.url} name={pdf.name} />
         ) : (
           <div className="h-full overflow-auto p-4">
             {(isPending || (csvPreviewable && content.isPending)) && (
