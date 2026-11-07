@@ -24,6 +24,7 @@ import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 import type { SessionHarness } from "@/lib/harness"
 import { lorMention, mentionsLor } from "@/lib/mentions"
+import { posthog } from "@/lib/posthog"
 import {
   createOptimisticMessage,
   realtimeMessageToMessage,
@@ -182,6 +183,12 @@ export function useSessionStart(
     session: RealtimeAgentSession,
     message: Message
   ) => {
+    posthog?.capture("session_started", {
+      has_attachments: start.message.attachments.length > 0,
+      mode: start.code ? "code" : "chat",
+      origin: start.origin,
+      ...(start.code ? { harness: start.code.harness } : {}),
+    })
     if (!optimistic.current.delete(start.id)) {
       openSession(session.id, replace)
       return

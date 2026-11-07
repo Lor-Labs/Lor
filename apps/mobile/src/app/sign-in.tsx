@@ -15,6 +15,7 @@ import { useBetaAvailability } from "@/hooks/use-beta"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 import { consumePendingInviteCode } from "@/lib/invites"
+import { posthog } from "@/lib/posthog"
 import lorMark from "../../assets/images/splash-icon.png"
 
 export default function SignInScreen() {
@@ -67,7 +68,9 @@ export default function SignInScreen() {
           return
         }
         setError(result.error.message ?? "Sign in failed")
+        return
       }
+      posthog?.capture("signed_in")
     } catch {
       setError("Sign in failed. Check your connection and try again.")
     } finally {

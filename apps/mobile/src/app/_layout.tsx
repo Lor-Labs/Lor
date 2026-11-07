@@ -20,6 +20,7 @@ import { SocketProvider } from "@/context/socket-context"
 import { UnreadProvider } from "@/context/unread-context"
 import { VoiceCallProvider } from "@/context/voice-call-context"
 import { WorkspaceProvider } from "@/context/workspace-context"
+import { PostHogProvider } from "@/lib/posthog"
 import { queryClient, subscribeQueryFocus } from "@/lib/query-client"
 import { restoreThemePreference } from "@/lib/theme-preference"
 
@@ -49,25 +50,27 @@ export default function RootLayout() {
             >
               <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
               <AnimatedSplashOverlay />
-              <SocketProvider>
-                <UnreadProvider>
-                  <WorkspaceProvider>
-                    <VoiceCallProvider>
-                      <PushNotifications />
-                      <View style={{ flex: 1 }}>
-                        <Stack screenOptions={{ headerShown: false }}>
-                          <Stack.Screen
-                            name="file"
-                            options={{ presentation: "modal" }}
-                          />
-                        </Stack>
-                        {features.voiceChannels && <CallTile />}
-                        <AppUpdates />
-                      </View>
-                    </VoiceCallProvider>
-                  </WorkspaceProvider>
-                </UnreadProvider>
-              </SocketProvider>
+              <PostHogProvider>
+                <SocketProvider>
+                  <UnreadProvider>
+                    <WorkspaceProvider>
+                      <VoiceCallProvider>
+                        <PushNotifications />
+                        <View style={{ flex: 1 }}>
+                          <Stack screenOptions={{ headerShown: false }}>
+                            <Stack.Screen
+                              name="file"
+                              options={{ presentation: "modal" }}
+                            />
+                          </Stack>
+                          {features.voiceChannels && <CallTile />}
+                          <AppUpdates />
+                        </View>
+                      </VoiceCallProvider>
+                    </WorkspaceProvider>
+                  </UnreadProvider>
+                </SocketProvider>
+              </PostHogProvider>
             </ThemeProvider>
           </KeyboardProvider>
         </HeroUINativeProvider>

@@ -34,6 +34,7 @@ import { api, responseMessage } from "@/lib/api"
 import { authClient } from "@/lib/auth-client"
 import { parseInviteCode } from "@/lib/invites"
 import { unregisterPushToken } from "@/lib/push-notifications"
+import { posthog } from "@/lib/posthog"
 import lorMark from "../../assets/images/splash-icon.png"
 
 type Step = "welcome" | "create" | "join"
@@ -173,6 +174,7 @@ export default function OnboardingScreen() {
         return
       }
       const { workspace } = await response.json()
+      posthog?.capture("workspace_created")
       triggerHaptic("success")
       await reloadWorkspaces(workspace.id)
       router.replace("/")
@@ -195,6 +197,7 @@ export default function OnboardingScreen() {
         setError(result.error.message ?? "Could not accept the invite")
         return
       }
+      posthog?.capture("workspace_joined", { join_method: "invitation" })
       triggerHaptic("success")
       await reloadWorkspaces(result.data.member.organizationId)
       router.replace("/")
@@ -220,6 +223,7 @@ export default function OnboardingScreen() {
         return
       }
       const { workspace } = await response.json()
+      posthog?.capture("workspace_joined", { join_method: "domain" })
       triggerHaptic("success")
       await reloadWorkspaces(workspace.id)
       router.replace("/")

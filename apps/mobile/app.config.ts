@@ -26,5 +26,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ...config.extra,
     appScheme,
     appVariant: isDevelopment ? "development" : "production",
+    posthogProjectToken: process.env.EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN,
+    posthogHost: process.env.EXPO_PUBLIC_POSTHOG_HOST,
   },
 })

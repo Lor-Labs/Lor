@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { createContext, useContext, useEffect, useState } from "react"
 import { AppState } from "react-native"
 import { authClient } from "@/lib/auth-client"
+import { posthogLogger } from "@/lib/posthog"
 import { type AppSocket, getSocket } from "@/lib/socket"
 
 const RECONNECT_BASE_DELAY_MS = 1_000
@@ -70,14 +71,24 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       retryTimer = null
       // Single owner for reconnect refetches, including an initially late socket.
       void queryClient.invalidateQueries()
+      posthogLogger?.info("realtime_socket_connected", {
+        transport: "socket_io",
+      })
       if (__DEV__) console.log("[socket] connected:", s.id)
     }
     const onDisconnect = (reason: string) => {
       if (__DEV__) console.log("[socket] disconnected:", reason)
+      posthogLogger?.warn("realtime_socket_disconnected", {
+        reconnect_scheduled: !s.active,
+      })
       if (!s.active) scheduleRetry()
     }
     const onConnectError = (err: Error) => {
       if (__DEV__) console.error("[socket] connection error:", err.message)
+      posthogLogger?.error("realtime_socket_connection_failed", {
+        reconnect_scheduled: !s.active,
+        retry_delay_ms: retryDelay,
+      })
       if (!s.active) scheduleRetry()
     }
 

@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { SectionLabel } from "@/components/ui/section-label"
 import { api, responseMessage } from "@/lib/api"
 import type { Channel, ChannelCategory } from "@/lib/api-types"
+import { posthog } from "@/lib/posthog"
 
 export function normalizeChannelName(name: string) {
   return name
@@ -74,6 +75,7 @@ export function CreateChannelSheet({
         )
       }
       const channel = await response.json()
+      posthog?.capture("channel_created", { is_categorized: Boolean(parentId) })
       onOpenChange(false)
       onCreated(channel)
     } catch (cause) {
