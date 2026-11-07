@@ -563,7 +563,9 @@ function AnnotateBar({
   // The idle hand-back is held while annotating, so say Lor is waiting.
   const asking = live.youControl && live.lorWants
   const status = asking
-    ? "Lor wants the browser. Send or discard your notes to hand it back."
+    ? count > 0
+      ? "Lor wants the browser. Send or discard your notes to hand it back."
+      : "Lor wants the browser. Select Done to hand it back."
     : phase === "starting"
       ? "Taking control…"
       : phase === "picking"
