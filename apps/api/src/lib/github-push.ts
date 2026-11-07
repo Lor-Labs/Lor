@@ -4,6 +4,7 @@ import {
   readBlobs,
 } from "@repo/lor/code-changes"
 import { GITHUB_API, GITHUB_HEADERS } from "@/lib/github-account"
+import { logger } from "@/lib/logger"
 
 // Push without a token in the sandbox (reference/planned/code-sessions-runbook.md,
 // chunk 4c): the server replays the sandbox's commits through GitHub's Git
@@ -26,6 +27,38 @@ class GithubError extends Error {
 }
 
 const BLOB_UPLOADS_AT_ONCE = 6
+
+// GitHub refuses a push that adds or changes a GitHub Actions workflow unless
+// the token has the Workflows permission, which Contents write doesn't give.
+const WORKFLOW_DIR = ".github/workflows/"
+
+function workflowPaths(commits: LocalCommit[]): string[] {
+  return [
+    ...new Set(
+      commits.flatMap((commit) =>
+        commit.changes
+          .filter((change) => change.path.startsWith(WORKFLOW_DIR))
+          .map((change) => change.path)
+      )
+    ),
+  ]
+}
+
+function refusedDetail(
+  err: GithubError,
+  repoFullName: string,
+  commits: LocalCommit[]
+): string {
+  const workflows = workflowPaths(commits)
+  if (workflows.length > 0 || /workflow/i.test(err.message)) {
+    const [first] = workflows
+    const what = first
+      ? `${first}${workflows.length > 1 ? ` and ${workflows.length - 1} more workflow files` : ""}`
+      : "a workflow file"
+    return `This push changes ${what}. GitHub only takes workflow files from the Lor GitHub App with its Workflows permission: a GitHub org owner can set Workflows to "Read and write" in the app's permissions and approve it on the installation`
+  }
+  return `GitHub refused the push to ${repoFullName} (${err.message}). Your account needs write access, and the Lor GitHub App needs the Contents write permission`
+}
 
 async function github<T>(
   token: string,
@@ -157,9 +190,18 @@ export async function pushCommits(input: {
   } catch (err) {
     if (!(err instanceof GithubError)) throw err
     if (err.status === 403 || err.status === 404) {
+      logger.warn(
+        {
+          repoFullName: input.repoFullName,
+          branch,
+          status: err.status,
+          githubMessage: err.message,
+        },
+        "GitHub refused a session push"
+      )
       return {
         ok: false,
-        detail: `Your GitHub account can't push to ${input.repoFullName}. You need write access, and the Lor GitHub App needs the Contents write permission`,
+        detail: refusedDetail(err, input.repoFullName, commits),
       }
     }
     if (err.status === 422 && /fast.forward/i.test(err.message)) {
