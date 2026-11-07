@@ -189,7 +189,7 @@ export const sendMessagePayloadSchema = z
         branch: z.string().min(1).max(255),
         newBranch: z.string().min(1).max(200).optional(),
         // Without newBranch: a new lor/ branch from `branch`, named from the
-        // session's title and id (lorBranchName).
+        // session's id (lorBranchName).
         autoBranch: z.boolean().optional(),
         // The environment whose env files the session writes.
         environmentId: z.string().uuid().optional(),

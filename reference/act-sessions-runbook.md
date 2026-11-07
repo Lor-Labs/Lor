@@ -52,7 +52,8 @@ nobody's subscription pays for an unattended run.
   busy (release deliveries, delete the run, re-arm the flush). Per-subject
   flush claims one subject. Dropped deliveries never batch.
 - [x] **3. Code mode.** Fire-time repo check (`channelCodeRepo`), a new branch
-  per session (`lor/<label slug>-<session id prefix>`). Built 2026-10-28.
+  per session (`lor/<place>-<session id prefix>`, the place from a list of
+  made-up far-off names). Built 2026-10-28.
   When the repo is no longer available, the event starts a chat session and
   its first line says why. The code prompt tells Lor that in an automation's
   session nobody asked, so it mentions only people the instructions name.

@@ -14,10 +14,10 @@ import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   actWaitingResponseSchema,
   applyEnvironmentResponseSchema,
+  browserAnnotateRequestSchema,
+  browserAnnotateResponseSchema,
   browserControlRequestSchema,
   browserControlResponseSchema,
-  browserPickRequestSchema,
-  browserPickResponseSchema,
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
   commitMessageResponseSchema,
@@ -820,32 +820,32 @@ export const openSessionBrowserPage = createRoute({
 
 export type OpenSessionBrowserPageRoute = typeof openSessionBrowserPage
 
-export const pickSessionBrowserElement = createRoute({
-  path: "/sessions/{sessionId}/browser/pick",
+export const annotateSessionBrowser = createRoute({
+  path: "/sessions/{sessionId}/browser/annotate",
   method: "post",
-  summary: "Pick an element in a code session's browser for a comment",
+  summary: "Annotate the page in a code session's browser",
   description:
-    "Turns on the browser's element picker and waits up to about 50 seconds for a click, then returns the element and a cropped screenshot and marks it on the page. Also stops picking or clears the markers. Picking needs control of the browser.",
+    "Turns on the browser's element picker and waits up to about 50 seconds for a click, then draws a numbered pin and a note box on the page and returns the element and a cropped screenshot. Also waits for a note to be saved, stops picking, or clears this person's annotations. Picking needs control of the browser.",
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: {
     params: sessionParamsSchema,
     body: jsonContent({
-      schema: browserPickRequestSchema,
-      description: "Pick, cancel or clear",
+      schema: browserAnnotateRequestSchema,
+      description: "Pick, wait, stop or clear",
     }),
   },
   hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: browserPickResponseSchema,
-      description: "The picked element, or what happened",
+      schema: browserAnnotateResponseSchema,
+      description: "The picked element, the note, or what happened",
     }),
     ...browserErrors,
   },
 })
 
-export type PickSessionBrowserElementRoute = typeof pickSessionBrowserElement
+export type AnnotateSessionBrowserRoute = typeof annotateSessionBrowser
 
 export const applySessionEnvironment = createRoute({
   path: "/sessions/{sessionId}/environment/apply",

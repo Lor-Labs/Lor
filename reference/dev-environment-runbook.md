@@ -241,10 +241,11 @@ first load). The client behavior is the same.
     buttons open them.
   - `previews.ts` now: `listOpenPorts` (Node script over `/proc/net/tcp*`:
     listening ports, loopback-only flag, owning process; hides 8080, 8790,
-    7681 and relays) and `openPort` (direct preview, or a `relay-<port>`
-    Node TCP relay on 40000 + port % 10000 for loopback-only servers;
-    tries 127.0.0.1 then ::1). The start form, package.json guessing and
-    stop route are gone.
+    7681 and relays) and `openPort` (a preview of a `proxy-<port>` Node
+    HTTP proxy on 50000 + port % 10000 for every server; tries 127.0.0.1
+    then ::1, and rewrites a same-origin `Origin` from the preview host to
+    `http://localhost:<port>` so Next 16's dev guard allows HMR, LOR-133).
+    The start form, package.json guessing and stop route are gone.
   - API: `GET /sessions/{id}/ports`, `POST /sessions/{id}/ports/{port}/open`
     (write access).
   - `SANDBOX_PROCESS_ENV` sets `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`
@@ -355,4 +356,7 @@ first load). The client behavior is the same.
 
 ## Deviations log
 
-(none yet)
+- 2026-11-07 (LOR-133): the loopback-only TCP relay became an HTTP proxy in
+  front of every previewed port. Next 16 answered the HMR socket from the
+  preview origin with a bare "Unauthorized" (a 502 at Blaxel), so pages
+  opened outside Lor never hydrated.
