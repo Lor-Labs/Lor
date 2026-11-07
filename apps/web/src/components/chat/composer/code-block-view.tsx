@@ -87,7 +87,7 @@ export function CodeBlockView({
   }
 
   return (
-    <NodeViewWrapper className="mt-1 mb-0 overflow-hidden rounded-md border border-border/70 bg-muted/50">
+    <NodeViewWrapper className="my-1.5 overflow-hidden rounded-md border border-border/70 bg-muted/50">
       <div
         className="flex items-center border-b border-border/70 bg-muted/80 px-2 py-1"
         contentEditable={false}
@@ -121,8 +121,10 @@ export function CodeBlockView({
           </SelectContent>
         </Select>
       </div>
-      <pre className="!mt-0 !mb-0 !rounded-none !border-0 px-3 py-2 font-mono text-[0.92em] leading-6">
-        <NodeViewContent spellCheck={false} />
+      {/* Long lines scroll sideways as in the sent message; the pre's
+          white-space comes from globals.css .composer-prose. */}
+      <pre className="overflow-x-auto px-3 py-2 font-mono text-sm leading-6">
+        <NodeViewContent spellCheck={false} style={{ whiteSpace: "inherit" }} />
       </pre>
     </NodeViewWrapper>
   )

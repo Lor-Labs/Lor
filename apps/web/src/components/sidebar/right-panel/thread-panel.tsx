@@ -393,7 +393,7 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
     channelId: view.channelId,
     threadRootId: view.threadRootId,
   })
-  const { handleEdit } = useMessageEditing({
+  const { handleEdit, editLastOwnMessage } = useMessageEditing({
     socket,
     queryClient,
     channelId: view.channelId,
@@ -610,6 +610,7 @@ function EnabledThreadPanel({ view }: { view: ThreadSidebarView }) {
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
         onTyping={emitTyping}
+        onEditLast={editLastOwnMessage}
       />
     </>
   )

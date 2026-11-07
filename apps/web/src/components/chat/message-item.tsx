@@ -45,6 +45,7 @@ import { ProposalCard } from "@/components/chat/proposal-card"
 import { RewindDivider } from "@/components/chat/rewind-divider"
 import { ThinkingIndicator } from "@/components/chat/thinking-indicator"
 import { UserProfilePopover } from "@/components/ui/user-profile-card"
+import { useEditableRow } from "@/hooks/use-message-editing"
 import type { Message } from "@/lib/api-types"
 import { connectorMessageEmbed } from "@/lib/connector-message-embed"
 import {
@@ -458,21 +459,52 @@ export const MessageItem = memo(function MessageItem({
     onTogglePin?.(message.id, message.pinned)
   }, [message.id, message.pinned, onTogglePin])
 
+  // Set when the edit was opened with Up from a composer: saving or
+  // cancelling goes back to typing there, as in Slack.
+  const editReturnFocusRef = useRef<HTMLElement | null>(null)
+  const endEdit = useCallback(() => {
+    setIsEditing(false)
+    const returnTo = editReturnFocusRef.current
+    editReturnFocusRef.current = null
+    if (returnTo?.isConnected) returnTo.focus({ preventScroll: true })
+  }, [])
+
   const handleEditRequest = useCallback(() => {
+    editReturnFocusRef.current = null
     setIsEditing(true)
   }, [])
+
+  const handleEditFromComposer = useCallback(() => {
+    const active = document.activeElement
+    editReturnFocusRef.current = active instanceof HTMLElement ? active : null
+    setIsEditing(true)
+  }, [])
+
+  // The rows whose action bar offers Edit.
+  const canEditFromComposer =
+    isOwnMessage &&
+    !readOnly &&
+    !lorReplyRow &&
+    !isBlocked &&
+    message.type !== "agent_session" &&
+    message.type !== "plan_card" &&
+    message.type !== "loop_card" &&
+    message.type !== "loop_fire" &&
+    message.type !== "proposal_card"
+  useEditableRow(
+    onEdit,
+    message.id,
+    message.createdAt,
+    canEditFromComposer ? handleEditFromComposer : undefined
+  )
 
   const handleEditSave = useCallback(
     (content: string) => {
       onEdit?.(message.id, content)
-      setIsEditing(false)
+      endEdit()
     },
-    [message.id, onEdit]
+    [message.id, onEdit, endEdit]
   )
-
-  const handleEditCancel = useCallback(() => {
-    setIsEditing(false)
-  }, [])
 
   if (message.type === "agent_session") return null
 
@@ -760,10 +792,11 @@ export const MessageItem = memo(function MessageItem({
           className={cn(
             "min-w-0",
             !canWrapUnderAvatar && "flex-1",
-            // Every turn reads as document prose. The inner `.prose` sets its
-            // own size and leading, so pin both.
+            // Every turn reads as document prose, 15/24, edit box included.
+            // The inner `.prose` sets its own size, so pin it; line height
+            // goes through --chat-leading (globals.css chat prose).
             isDocument &&
-              "[&_.message-markdown]:text-[15px] [&_.message-markdown_.prose]:text-[15px] [&_.message-markdown_.prose]:leading-6",
+              "[--chat-leading:24px] [&_.composer-prose]:text-[15px] [&_.message-markdown]:text-[15px] [&_.message-markdown_.prose]:text-[15px]",
             // A message for the session's subscribers only (Lor didn't get it) reads
             // as an aside: muted, never labelled.
             isDocument &&
@@ -813,7 +846,7 @@ export const MessageItem = memo(function MessageItem({
               initialContent={message.content ?? ""}
               mentions={message.mentions}
               onSave={handleEditSave}
-              onCancel={handleEditCancel}
+              onCancel={endEdit}
               mentionCandidates={mentionCandidates}
             />
           ) : (message.streaming || message.status === "pending") &&

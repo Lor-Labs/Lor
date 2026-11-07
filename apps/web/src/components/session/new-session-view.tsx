@@ -419,6 +419,7 @@ function NewSessionComposer({
           )}
         </div>
         <MessageInput
+          key={workspaceSlug}
           draftKey={`new-session:${workspaceSlug}`}
           composerDraft={composerDraft}
           onComposerDraftConsumed={onComposerDraftConsumed}

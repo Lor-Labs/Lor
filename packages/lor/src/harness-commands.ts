@@ -282,9 +282,12 @@ export type HarnessCommandTurn =
   | { kind: "pi_template"; file: RepoCommandFile; args: string }
 
 // Messages are stored as the composer's markdown, which backslash-escapes
-// \ ` * _ [ ] ~ and encodes & < > outside code: "/pr_comments" is stored as
-// "/pr\_comments". A command and its arguments are plain text.
-const STORED_MARKDOWN_ESCAPE = /(`+)[\s\S]*?\1|\\([\\`*_[\]~])|&(amp|lt|gt);/g
+// \ ` * _ [ ] ~, literal line-start markers ("\- ", "1\. ", "\# ") and
+// encodes & < > outside code: "/pr_comments" is stored as "/pr\_comments". A
+// command and its arguments are plain text. A literal backslash is stored
+// escaped, so any backslash before ASCII punctuation is an escape.
+const STORED_MARKDOWN_ESCAPE =
+  /(`+)[\s\S]*?\1|\\([!-/:-@[-`{-~])|&(amp|lt|gt);/g
 const STORED_MARKDOWN_ENTITIES = { amp: "&", lt: "<", gt: ">" }
 
 function unescapeStoredMarkdown(text: string): string {

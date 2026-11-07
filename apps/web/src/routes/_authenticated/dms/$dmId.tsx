@@ -163,7 +163,7 @@ function DMConversation() {
     channelId: dmId,
   })
 
-  const { handleEdit } = useMessageEditing({
+  const { handleEdit, editLastOwnMessage } = useMessageEditing({
     socket,
     queryClient,
     channelId: dmId,
@@ -282,6 +282,8 @@ function DMConversation() {
       />
       <TypingIndicator users={typingUsers} />
       <MessageInput
+        // One editor, draft and undo history per DM.
+        key={dmId}
         draftKey={`dm:${dmId}`}
         context={context}
         onSend={sendAndPreview}
@@ -296,6 +298,7 @@ function DMConversation() {
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
         onTyping={emitTyping}
+        onEditLast={editLastOwnMessage}
       />
     </div>
   )

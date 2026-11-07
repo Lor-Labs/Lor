@@ -26,10 +26,14 @@ export interface ComposerKeymapOptions {
   suggestionKeys: readonly PluginKey[]
   // Enter sends; Cmd/Ctrl+Enter sends with `stay`.
   onSubmit: (stay: boolean) => void
-  // Escape with no menu open. Returns whether it did anything.
+  // Escape with no menu open. Returns whether it consumed the key.
   onEscape: () => boolean
   // Shift+Tab outside lists and code blocks (Claude Code's mode cycle).
   onShiftTab: () => boolean
+  // Opens the link popover. Returns whether it opened.
+  onLink: () => boolean
+  // Up arrow in an empty editor. Returns whether it opened an edit.
+  onEditLast: () => boolean
 }
 
 function isMenuOpen(state: EditorState, keys: readonly PluginKey[]) {
@@ -43,8 +47,8 @@ function closeMenus(view: EditorView, keys: readonly PluginKey[]) {
 }
 
 // Enter or Shift+Enter on a line that is only a fence makes a code block in
-// that language. The CodeBlock input rule only sees a fence at the start of a
-// paragraph, so it misses lines after a Shift+Enter break.
+// that language; the CodeBlock input rule needs a space after the fence. A
+// line is a paragraph, or part of one split by hard breaks (pasted HTML).
 const fenceToCodeBlock: Command = ({ tr, dispatch }) => {
   const codeBlock = tr.doc.type.schema.nodes.codeBlock
   const { $from, empty } = tr.selection
@@ -100,6 +104,29 @@ const fenceToCodeBlock: Command = ({ tr, dispatch }) => {
   return true
 }
 
+// A third Shift+Enter at the end of a code block (two empty lines) leaves it
+// for a paragraph below, as CodeBlock's exitOnTripleEnter does for Enter.
+// With no trailing node, this and Arrow Down are how to get under a last block.
+const exitCodeOnTripleEnter: Command = ({ tr, dispatch }) => {
+  const { $from, empty } = tr.selection
+  const block = $from.parent
+  if (!empty || !block.type.spec.code) return false
+  if ($from.parentOffset !== block.content.size) return false
+  if (!block.textContent.endsWith("\n\n")) return false
+  const paragraph = tr.doc.type.schema.nodes.paragraph
+  if (!paragraph) return false
+
+  if (dispatch) {
+    const after = $from.after()
+    tr.delete($from.pos - 2, $from.pos)
+    const insertAt = tr.mapping.map(after)
+    tr.insert(insertAt, paragraph.create())
+    tr.setSelection(TextSelection.create(tr.doc, insertAt + 1))
+    tr.scrollIntoView()
+  }
+  return true
+}
+
 // The chat composers' keys: Enter sends (in code blocks too) unless a
 // suggestion menu with results is open, Shift+Enter is the editor's
 // structural Enter, Cmd+Enter always sends.
@@ -113,6 +140,8 @@ export const ComposerKeymap = Extension.create<ComposerKeymapOptions>({
       onSubmit: () => undefined,
       onEscape: () => false,
       onShiftTab: () => false,
+      onLink: () => false,
+      onEditLast: () => false,
     }
   },
 
@@ -141,14 +170,20 @@ export const ComposerKeymap = Extension.create<ComposerKeymapOptions>({
       // Mac: Ctrl+Enter stays too, as Cmd+Enter does.
       "Ctrl-Enter": submitAndStay,
       // A new line in code (inside a list item too), the next list item, an
-      // empty item ends the list, otherwise a line break.
+      // empty item ends the list. Otherwise the editor's own Enter: a new
+      // paragraph, so each line is its own and line-start shortcuts work on
+      // every line (composer-markdown.ts stores them as lines); an empty line
+      // in a quote leaves it.
       "Shift-Enter": () =>
         this.editor.commands.first(({ commands }) => [
+          () => commands.command(exitCodeOnTripleEnter),
           () => commands.newlineInCode(),
           () => commands.command(fenceToCodeBlock),
           () => commands.splitListItem("listItem"),
           () => commands.liftListItem("listItem"),
-          () => commands.setHardBreak(),
+          () => commands.createParagraphNear(),
+          () => commands.liftEmptyBlock(),
+          () => commands.splitBlock(),
         ]),
       // Code blocks indent themselves (enableTabIndentation). In a list Tab
       // stays in the editor even when the item can't indent (a first item).
@@ -167,6 +202,28 @@ export const ComposerKeymap = Extension.create<ComposerKeymapOptions>({
         return this.options.onShiftTab()
       },
       Escape: () => !menuOpen() && this.options.onEscape(),
+      // Cmd+K links a selection or edits the link at the caret; otherwise it
+      // stays the workspace palette's, which skips handled (defaultPrevented)
+      // keys. Cmd+Shift+U is Slack's link shortcut and works anywhere.
+      "Mod-k": () => {
+        const { empty } = this.editor.state.selection
+        if (empty && !this.editor.isActive("link")) return false
+        return this.options.onLink()
+      },
+      "Mod-Shift-u": () => this.options.onLink(),
+      // Slack's and Discord's Up arrow: edit your last message, only from a
+      // single empty line (an empty list item is still a draft).
+      ArrowUp: () => {
+        const { doc, selection } = this.editor.state
+        const line = doc.firstChild
+        if (menuOpen() || !selection.empty || doc.childCount !== 1) {
+          return false
+        }
+        if (line?.type.name !== "paragraph" || line.content.size > 0) {
+          return false
+        }
+        return this.options.onEditLast()
+      },
     }
   },
 

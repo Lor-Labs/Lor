@@ -1,8 +1,11 @@
-import Link from "@tiptap/extension-link"
+import Link, { isAllowedUri } from "@tiptap/extension-link"
 import Mention, { type MentionOptions } from "@tiptap/extension-mention"
+import { Plugin, PluginKey } from "@tiptap/pm/state"
+import type { EditorView } from "@tiptap/pm/view"
 import { SUGGESTION_PRIORITY } from "@/components/chat/composer/composer-keymap"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { STORED_MENTION_REGEX } from "@/lib/editor-utils"
+import { openInNewTab } from "@/lib/open-external"
 
 // Stored message markdown for mentions and links, written and read back by
 // the nodes themselves. The server, renderer and mention extraction read
@@ -75,14 +78,85 @@ export const ComposerMention = Mention.extend<ComposerMentionOptions>({
 const BARE_URL =
   /^https?:\/\/[^\s\\`*_[\]~&<>()'"]*[^\s\\`*_[\]~&<>()'".,:;!?]$/i
 
+const URL_SCHEME = /^([a-z][a-z\d+.-]*):/i
+const EMAIL = /^[^\s@/:]+@[^\s@/:]+\.[^\s@/:]+$/
+// "example.com/x" with no scheme, as `[text](example.com)` can store it.
+const SCHEMELESS_DOMAIN = /^[\w-]+(?:\.[\w-]+)+(?:[/:?#]|$)/
+
+// What the link popover and Cmd+click accept: a scheme is added when missing
+// ("example.com", "localhost:3000", "me@example.com"), and anything Link
+// itself would refuse (javascript:, data:) or that can't parse is null.
+export function toLinkHref(input: string): string | null {
+  const text = input.trim()
+  if (!text || /\s/.test(text)) return null
+  const scheme = URL_SCHEME.exec(text)
+  // "localhost:3000" matches as a scheme but is a port.
+  const hasScheme = scheme && !/^\d/.test(text.slice(scheme[0].length))
+  const href = hasScheme
+    ? text
+    : EMAIL.test(text)
+      ? `mailto:${text}`
+      : `https://${text.replace(/^\/\//, "")}`
+  if (!isAllowedUri(href)) return null
+  try {
+    const url = new URL(href)
+    if (/^https?:$/.test(url.protocol) && !url.hostname) return null
+  } catch {
+    return null
+  }
+  return href
+}
+
+function linkAt(view: EditorView, event: MouseEvent) {
+  const anchor =
+    event.target instanceof Element ? event.target.closest("a[href]") : null
+  return anchor && view.dom.contains(anchor) ? anchor : null
+}
+
 // A link whose text is its URL (typed, pasted or autolinked) is stored as the
 // bare URL. Marks render only their delimiters; markText is the whole run.
 export const ComposerLink = Link.extend({
+  // Typing at either edge of a link continues plain text.
+  inclusive: () => false,
+
   renderMarkdown(node, helpers, context) {
-    const href = String(node.attrs?.href ?? "")
+    const stored = String(node.attrs?.href ?? "")
+    const href = SCHEMELESS_DOMAIN.test(stored) ? `https://${stored}` : stored
     if (context.meta?.markText === href && BARE_URL.test(href)) {
       return helpers.renderChildren(node)
     }
-    return this.parent?.(node, helpers, context) ?? ""
+    const linked = { ...node, attrs: { ...node.attrs, href } }
+    return this.parent?.(linked, helpers, context) ?? ""
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      ...(this.parent?.() ?? []),
+      new Plugin({
+        key: new PluginKey("composerLinkClick"),
+        props: {
+          // A click places the caret (openOnClick is off); Cmd/Ctrl+click
+          // opens the link, in the system browser on desktop. Handled here,
+          // ProseMirror's Cmd+click node selection never runs.
+          handleClick: (view, _pos, event) => {
+            if (event.button !== 0 || !(event.metaKey || event.ctrlKey)) {
+              return false
+            }
+            const anchor = linkAt(view, event)
+            if (!anchor) return false
+            const href = toLinkHref(anchor.getAttribute("href") ?? "")
+            if (href) openInNewTab(href)
+            return true
+          },
+          handleDOMEvents: {
+            // The desktop app opens any clicked external anchor (main.tsx).
+            click: (view, event) => {
+              if (linkAt(view, event)) event.preventDefault()
+              return false
+            },
+          },
+        },
+      }),
+    ]
   },
 })

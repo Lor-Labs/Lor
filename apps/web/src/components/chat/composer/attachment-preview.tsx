@@ -7,6 +7,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { useState } from "react"
 import { createPortal } from "react-dom"
+import { ComposerCollapse } from "@/components/chat/composer/composer-collapse"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
 import { toAttachmentMeta } from "@/lib/attachments"
 
@@ -26,69 +27,72 @@ export function AttachmentPreview({
   onRemove,
 }: AttachmentPreviewProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
-
-  if (attachments.length === 0) return null
+  // The row keeps its last tiles while it eases shut.
+  const [shown, setShown] = useState(attachments)
+  if (attachments.length > 0 && attachments !== shown) setShown(attachments)
 
   return (
     <>
-      <AttachmentList className="justify-start px-4 pt-3 pb-2">
-        {attachments.map((attachment, index) => {
-          const isImage = attachment.contentType.startsWith("image/")
-          const previewable = isImage ? attachment.previewUrl : undefined
-          const meta = toAttachmentMeta({
-            filename: attachment.filename,
-            contentType: attachment.contentType,
-            size: attachment.size,
-            // Blob preview while uploading, then the stored URL once it lands.
-            url: attachment.previewUrl ?? attachment.url,
-            width: attachment.width,
-            height: attachment.height,
-          })
+      <ComposerCollapse open={attachments.length > 0}>
+        <AttachmentList className="justify-start px-4 pt-3 pb-2">
+          {shown.map((attachment, index) => {
+            const isImage = attachment.contentType.startsWith("image/")
+            const previewable = isImage ? attachment.previewUrl : undefined
+            const meta = toAttachmentMeta({
+              filename: attachment.filename,
+              contentType: attachment.contentType,
+              size: attachment.size,
+              // Blob preview while uploading, then the stored URL once it lands.
+              url: attachment.previewUrl ?? attachment.url,
+              width: attachment.width,
+              height: attachment.height,
+            })
 
-          return (
-            <Attachment
-              key={attachment.id}
-              // Images speak for themselves as a square thumbnail; everything
-              // else needs its name and size. Both variants are 60px tall, so
-              // a mixed row still lines up.
-              variant={isImage ? "compact" : "detailed"}
-              attachment={meta}
-              progress={attachment.progress}
-              onRemove={() => onRemove(attachment.id)}
-              // Tiles fade and scale in as they're added; a multi-file drop
-              // staggers them 30ms apart.
-              style={{ animationDelay: `${index * 30}ms` }}
-              className={cn(
-                "motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:animate-in motion-safe:fill-mode-backwards motion-safe:duration-200 motion-safe:ease-out",
-                attachment.status === "error" &&
-                  "border-destructive/50 opacity-60",
-                // Dim the thumbnail while bytes are still going out, so an
-                // image tile reads as in-flight even at a glance.
-                attachment.status === "uploading" && "[&_img]:opacity-65",
-                previewable &&
-                  "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              )}
-              // Inside AttachmentList (role="list"), so tiles carry listitem —
-              // except previewable images, where an actionable button is the
-              // more useful semantic for the lightbox.
-              role={previewable ? "button" : "listitem"}
-              tabIndex={previewable ? 0 : undefined}
-              onClick={
-                previewable ? () => setLightboxUrl(previewable) : undefined
-              }
-              onKeyDown={
-                previewable
-                  ? (event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return
-                      event.preventDefault()
-                      setLightboxUrl(previewable)
-                    }
-                  : undefined
-              }
-            />
-          )
-        })}
-      </AttachmentList>
+            return (
+              <Attachment
+                key={attachment.id}
+                // Images speak for themselves as a square thumbnail; everything
+                // else needs its name and size. Both variants are 60px tall, so
+                // a mixed row still lines up.
+                variant={isImage ? "compact" : "detailed"}
+                attachment={meta}
+                progress={attachment.progress}
+                onRemove={() => onRemove(attachment.id)}
+                // Tiles fade and scale in as they're added; a multi-file drop
+                // staggers them 30ms apart.
+                style={{ animationDelay: `${index * 30}ms` }}
+                className={cn(
+                  "motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:animate-in motion-safe:fill-mode-backwards motion-safe:duration-200 motion-safe:ease-out",
+                  attachment.status === "error" &&
+                    "border-destructive/50 opacity-60",
+                  // Dim the thumbnail while bytes are still going out, so an
+                  // image tile reads as in-flight even at a glance.
+                  attachment.status === "uploading" && "[&_img]:opacity-65",
+                  previewable &&
+                    "cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                )}
+                // Inside AttachmentList (role="list"), so tiles carry listitem —
+                // except previewable images, where an actionable button is the
+                // more useful semantic for the lightbox.
+                role={previewable ? "button" : "listitem"}
+                tabIndex={previewable ? 0 : undefined}
+                onClick={
+                  previewable ? () => setLightboxUrl(previewable) : undefined
+                }
+                onKeyDown={
+                  previewable
+                    ? (event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return
+                        event.preventDefault()
+                        setLightboxUrl(previewable)
+                      }
+                    : undefined
+                }
+              />
+            )
+          })}
+        </AttachmentList>
+      </ComposerCollapse>
 
       {lightboxUrl &&
         createPortal(

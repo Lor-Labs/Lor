@@ -1,8 +1,8 @@
 import type { RealtimeHarnessCommandList } from "@repo/realtime-types/events"
 import type { MentionOptions } from "@tiptap/extension-mention"
-import { Markdown } from "@tiptap/markdown"
+import { Selection } from "@tiptap/extensions"
 import type { Node as PMNode } from "@tiptap/pm/model"
-import { type EditorState, PluginKey } from "@tiptap/pm/state"
+import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state"
 import {
   Extension,
   type Extensions,
@@ -22,6 +22,11 @@ import {
   ComposerKeymap,
   SUGGESTION_PRIORITY,
 } from "@/components/chat/composer/composer-keymap"
+import { ComposerMarkdown } from "@/components/chat/composer/composer-markdown"
+import {
+  ComposerPaste,
+  isParsingPastedMarkdown,
+} from "@/components/chat/composer/composer-paste"
 import { ConnectorChip } from "@/components/chat/composer/connector-chip"
 import { LinearIssue } from "@/components/chat/composer/linear-issue-node"
 import {
@@ -92,22 +97,41 @@ export interface ComposerHost {
   harnessSkills?: SlashCommandItem[]
   // Set where Linear is attachable; adds Linear Issue to the "/" menu.
   openLinearPicker?: () => void
+  // Composer only: pasted files, and long pastes as a .txt, become
+  // attachments (composer-paste.ts).
+  attachFiles?: (files: File[]) => void
+  // Removes a pasted file still waiting to be sent; false once it is gone.
+  detachFile?: (file: File) => boolean
+  // Cmd+K / Cmd+Shift+U: opens the link popover; false if it can't open.
+  openLinkEditor?: () => boolean
+  // Composer only: Up arrow in an empty composer edits the person's last
+  // message. False when there is none to edit.
+  onEditLast?: () => boolean
 }
 
 // Stored messages can hold block markdown these editors have no node for. A
 // heading would load as an unknown node, which empties the whole document,
 // and a rule or table would be dropped, so each loads as plain text: "# "
-// before the heading, "---", the table's lines. A quote keeps its content
-// without the marker.
+// before the heading, "---", the table's lines. Like any literal text, it is
+// escaped on save (composer-markdown.ts), so it stays text. A pasted heading
+// becomes a bold line instead (composer-paste.ts).
 const BLOCK_MARKDOWN_AS_TEXT = [
   Extension.create({
     name: "headingAsText",
     markdownTokenName: "heading",
-    parseMarkdown: (token, helpers) =>
-      helpers.createNode("paragraph", undefined, [
-        helpers.createTextNode(`${"#".repeat(token.depth ?? 1)} `),
-        ...helpers.parseInline(token.tokens ?? []),
-      ]),
+    parseMarkdown: (token, helpers) => {
+      const content = helpers.parseInline(token.tokens ?? [])
+      return helpers.createNode(
+        "paragraph",
+        undefined,
+        isParsingPastedMarkdown()
+          ? content.map(boldText)
+          : [
+              helpers.createTextNode(`${"#".repeat(token.depth ?? 1)} `),
+              ...content,
+            ]
+      )
+    },
   }),
   Extension.create({
     name: "ruleAsText",
@@ -135,15 +159,53 @@ const BLOCK_MARKDOWN_AS_TEXT = [
   }),
 ]
 
+// Inline code excludes other marks, so it stays as it is.
+function boldText(node: JSONContent): JSONContent {
+  const marks = node.marks ?? []
+  if (
+    node.type !== "text" ||
+    marks.some((mark) => mark.type === "bold" || mark.type === "code")
+  ) {
+    return node
+  }
+  return { ...node, marks: [...marks, { type: "bold" }] }
+}
+
 const CHAT_STARTER_KIT = StarterKit.configure({
   heading: false,
-  blockquote: false,
   horizontalRule: false,
   codeBlock: false,
   // Registered separately with app-specific options.
   link: false,
   // Messages don't render underline.
   underline: false,
+  // A list, code block or Linear card at the end would add an empty line
+  // under it. Arrow Down leaves a code block, the gap cursor a card.
+  trailingNode: false,
+  // No spellcheck in inline code, as in code blocks (code-block-view.tsx).
+  code: { HTMLAttributes: { spellcheck: "false" } },
+})
+
+// Spellcheck stays on for prose. Autocorrect and smart substitutions would
+// rewrite commands, paths and code, and inline writing suggestions (Safari
+// 18+) fight the editor. Autocapitalize acts on touch keyboards only, where
+// a chat message starts a sentence.
+const CHAT_INPUT_ATTRIBUTES = Extension.create({
+  name: "chatInputAttributes",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          attributes: {
+            spellcheck: "true",
+            autocorrect: "off",
+            autocapitalize: "sentences",
+            writingsuggestions: "false",
+          },
+        },
+      }),
+    ]
+  },
 })
 
 const CHAT_CODE_BLOCK = CodeBlockShiki.configure({
@@ -157,12 +219,21 @@ const CHAT_LINK = ComposerLink.configure({
   openOnClick: false,
   autolink: true,
   linkOnPaste: true,
+  // Typed or pasted `[text](url)` becomes a link.
+  markdownLinks: true,
+  defaultProtocol: "https",
   HTMLAttributes: {
-    class: "text-primary underline-offset-2 hover:underline cursor-pointer",
+    // As sent links look: message-markdown.tsx `a` plus Typography's underline.
+    class:
+      "cursor-pointer font-medium text-primary underline underline-offset-2",
     rel: "noreferrer noopener",
     target: "_blank",
   },
 })
+
+// Paints a selection while the editor is blurred, so the text being linked
+// stays marked while the link popover's input has focus.
+const CHAT_SELECTION = Selection.configure({ className: "composer-selection" })
 
 // The chat editors' extensions: the message composer, and the message edit
 // box, which has no "/" or "$" menus. Build once per editor.
@@ -176,9 +247,11 @@ export function composerExtensions({
   return [
     CHAT_STARTER_KIT,
     CHAT_CODE_BLOCK,
-    Markdown,
+    ComposerMarkdown,
     ...BLOCK_MARKDOWN_AS_TEXT,
     CHAT_LINK,
+    CHAT_SELECTION,
+    CHAT_INPUT_ATTRIBUTES,
     ComposerMention.configure({
       HTMLAttributes: {
         class:
@@ -194,12 +267,23 @@ export function composerExtensions({
     ConnectorChip,
     LinearIssue,
     RepoFileChip,
+    ComposerPaste.configure({
+      attachFiles: (files) => {
+        const attachFiles = host.current.attachFiles
+        if (!attachFiles) return false
+        attachFiles(files)
+        return true
+      },
+      detachFile: (file) => host.current.detachFile?.(file) ?? false,
+    }),
     ...(variant === "composer" ? commandMenus(host) : []),
     ComposerKeymap.configure({
       suggestionKeys: COMPOSER_SUGGESTION_KEYS,
       onSubmit: (stay) => host.current.onSubmit(stay),
       onEscape: () => host.current.onEscape(),
       onShiftTab: () => host.current.onShiftTab?.() ?? false,
+      onLink: () => host.current.openLinkEditor?.() ?? false,
+      onEditLast: () => host.current.onEditLast?.() ?? false,
     }),
   ]
 }
@@ -420,13 +504,15 @@ function createSlashCommandSuggestion(
   const results = (doc: PMNode, slashAt: number, query: string) => {
     // The harness takes its commands only as the message's first word. A
     // leaf placeholder so a mention or chip before the slash counts. A list
-    // item sends a marker ("- ") before it, so it never counts.
+    // item or quote sends a marker ("- ", "> ") before it, so it never counts.
     const $slash = doc.resolve(slashAt)
-    const inListItem = Array.from({ length: $slash.depth + 1 }, (_, depth) =>
+    const afterMarker = Array.from({ length: $slash.depth + 1 }, (_, depth) =>
       $slash.node(depth)
-    ).some((node) => node.type.name === "listItem")
+    ).some(
+      (node) => node.type.name === "listItem" || node.type.name === "blockquote"
+    )
     const atStart =
-      !inListItem && !doc.textBetween(0, slashAt, "\n", "￼").trim()
+      !afterMarker && !doc.textBetween(0, slashAt, "\n", "￼").trim()
     return [...(atStart ? getHarnessCommands() : []), ...getCommands()]
       .filter((command) => matchesQuery(command, query))
       .slice(0, MAX_SLASH_RESULTS)

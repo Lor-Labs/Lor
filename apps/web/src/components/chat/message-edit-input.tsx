@@ -9,14 +9,19 @@ import {
 } from "@/components/chat/composer/composer-extensions"
 import { DesktopCaret } from "@/components/chat/composer/desktop-caret"
 import { withLinearIssueNodes } from "@/components/chat/composer/linear-issue-node"
+import {
+  LinkPopover,
+  type LinkPopoverHandle,
+} from "@/components/chat/composer/link-popover"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import type { Message } from "@/lib/api-types"
-import { toStoredMarkdown } from "@/lib/editor-utils"
+import { toStoredMarkdown, warnIfTooLong } from "@/lib/editor-utils"
 
 const EDITOR_PROPS: EditorProps = {
   attributes: {
+    // Prose rules shared with sent messages: globals.css .composer-prose.
     class:
-      "min-h-[24px] max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90 outline-none [&_ul]:my-0.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
+      "composer-prose max-h-[200px] overflow-y-auto text-sm text-foreground/90 outline-none",
   },
 }
 
@@ -40,6 +45,7 @@ export function MessageEditInput({
   onCancel,
   mentionCandidates = [],
 }: MessageEditInputProps) {
+  const linkPopoverRef = useRef<LinkPopoverHandle>(null)
   const host: ComposerHost = {
     mentionCandidates,
     mentionLabel: (id) =>
@@ -52,6 +58,7 @@ export function MessageEditInput({
       onCancel()
       return true
     },
+    openLinkEditor: () => linkPopoverRef.current?.open() ?? false,
   }
   const hostRef = useRef(host)
   hostRef.current = host
@@ -102,15 +109,17 @@ export function MessageEditInput({
       onCancel()
       return
     }
+    if (warnIfTooLong(content)) return
 
     onSave(content)
   }, [editor, initialContent, loadedContent, onSave, onCancel])
 
   return (
     <div className="rounded-xl border border-input bg-background px-3 py-2.5 shadow-sm transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/15">
-      <div className="relative [&_.ProseMirror_p]:m-0 [&_.ProseMirror_p]:leading-6">
+      <div className="relative">
         <EditorContent editor={editor} />
         <DesktopCaret editor={editor} />
+        {editor && <LinkPopover editor={editor} ref={linkPopoverRef} />}
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">

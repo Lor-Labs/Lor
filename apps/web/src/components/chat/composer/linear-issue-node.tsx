@@ -48,15 +48,18 @@ export function withLinearIssueNodes(text: string): string {
     .join("\n\n")
 }
 
-// Lines of pasted text, one paragraph each, as a plain-text paste gives them.
+// Lines of pasted text, one paragraph each; a blank line between them stays
+// an empty paragraph (composer-markdown.ts), the ones around the card don't.
 function paragraphs(text: string): JSONContent[] {
-  return text
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => ({
-      type: "paragraph",
-      content: [{ type: "text", text: line }],
-    }))
+  const lines = text.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd()
+  if (!lines) return []
+  return lines
+    .split(/\r?\n/)
+    .map((line) =>
+      line.trim()
+        ? { type: "paragraph", content: [{ type: "text", text: line }] }
+        : { type: "paragraph" }
+    )
 }
 
 // A Linear issue pasted with Copy as prompt: a card in the composer, sent as

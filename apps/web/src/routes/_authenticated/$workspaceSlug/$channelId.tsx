@@ -390,7 +390,7 @@ function ChannelView() {
     channelId,
   })
 
-  const { handleEdit } = useMessageEditing({
+  const { handleEdit, editLastOwnMessage } = useMessageEditing({
     socket,
     queryClient,
     channelId,
@@ -658,6 +658,8 @@ function ChannelView() {
         </div>
       ) : (
         <MessageInput
+          // One editor, draft and undo history per channel.
+          key={channelId}
           draftKey={`channel:${channelId}`}
           composerDraft={composerDraft}
           onComposerDraftConsumed={consumeComposerDraft}
@@ -680,6 +682,7 @@ function ChannelView() {
           getUploadedAttachments={fileUpload.getUploadedAttachments}
           isUploading={fileUpload.isUploading}
           onTyping={emitTyping}
+          onEditLast={editLastOwnMessage}
         />
       )}
     </div>

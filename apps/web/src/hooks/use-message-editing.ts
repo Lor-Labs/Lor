@@ -18,6 +18,36 @@ interface MessagePage {
   root?: EditableMessage | null
 }
 
+type EditHandler = (messageId: string, content: string) => void
+type EditableRow = { createdAt: number; open: () => void }
+
+// Up arrow in an empty composer edits the person's last message there. Rows
+// register under the `onEdit` of the surface that lists them, so the channel
+// and the thread panel each open only their own copy of a message.
+const editableRows = new WeakMap<EditHandler, Map<string, EditableRow>>()
+
+// A message row the person can edit now. `open` is undefined when they can't.
+export function useEditableRow(
+  onEdit: EditHandler | undefined,
+  messageId: string,
+  createdAt: string,
+  open: (() => void) | undefined
+) {
+  useEffect(() => {
+    if (!onEdit || !open) return
+    let rows = editableRows.get(onEdit)
+    if (!rows) {
+      rows = new Map()
+      editableRows.set(onEdit, rows)
+    }
+    const row = { createdAt: Date.parse(createdAt), open }
+    rows.set(messageId, row)
+    return () => {
+      if (rows.get(messageId) === row) rows.delete(messageId)
+    }
+  }, [onEdit, messageId, createdAt, open])
+}
+
 interface UseMessageEditingOptions {
   socket: AppSocket | null
   queryClient: QueryClient
@@ -123,5 +153,16 @@ export function useMessageEditing({
     [socket, channelId, threadRootId, updateMessageInCache, queryClient]
   )
 
-  return { handleEdit }
+  // Only rendered rows count, so an own message on an unloaded older page is
+  // never opened.
+  const editLastOwnMessage = useCallback(() => {
+    let last: EditableRow | undefined
+    for (const row of editableRows.get(handleEdit)?.values() ?? []) {
+      if (!last || row.createdAt > last.createdAt) last = row
+    }
+    last?.open()
+    return Boolean(last)
+  }, [handleEdit])
+
+  return { handleEdit, editLastOwnMessage }
 }

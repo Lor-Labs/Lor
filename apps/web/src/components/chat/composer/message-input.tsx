@@ -7,7 +7,6 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import { isTauri } from "@repo/auth/tauri-fetch"
 import { LOR_USER_ID } from "@repo/db/constants"
-import { MESSAGE_CONTENT_MAX_LENGTH } from "@repo/realtime-types"
 import type { RealtimeHarnessCommandList } from "@repo/realtime-types/events"
 import { Button } from "@repo/ui/components/button"
 import {
@@ -15,10 +14,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@repo/ui/components/popover"
+import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import type { Node as PMNode, Schema } from "@tiptap/pm/model"
+import { Selection } from "@tiptap/pm/state"
 import type { EditorProps } from "@tiptap/pm/view"
 import {
   type Editor,
@@ -26,6 +27,7 @@ import {
   type EditorStateSnapshot,
   getTextSerializersFromSchema,
   isNodeEmpty,
+  type JSONContent,
   type TextSerializer,
   useEditor,
   useEditorState,
@@ -42,6 +44,7 @@ import {
 import { createPortal } from "react-dom"
 import { AttachmentPreview } from "@/components/chat/composer/attachment-preview"
 import { ComposerBubbleMenu } from "@/components/chat/composer/composer-bubble-menu"
+import { ComposerCollapse } from "@/components/chat/composer/composer-collapse"
 import {
   type ComposerHost,
   composerExtensions,
@@ -60,13 +63,16 @@ import {
   type SubscriberFace,
 } from "@/components/chat/composer/destination-bar"
 import { LinearIssuePicker } from "@/components/chat/composer/linear-issue-picker"
+import {
+  LinkPopover,
+  type LinkPopoverHandle,
+} from "@/components/chat/composer/link-popover"
 import type { MentionCandidate } from "@/components/chat/composer/mention-types"
 import { insertRepoFileReference } from "@/components/chat/composer/repo-file-chip"
 import { ContextMeter } from "@/components/chat/context-meter"
 import type { ChatContext } from "@/components/chat/header"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
-import { ARRIVE_IN } from "@/hooks/use-appended-ids"
 import type { PendingAttachment } from "@/hooks/use-file-upload"
 import { apiClient } from "@/lib/api-client"
 import type { ConnectorKey, Message } from "@/lib/api-types"
@@ -75,17 +81,18 @@ import {
   composerDraftWriter,
   readComposerDraft,
 } from "@/lib/composer-drafts"
-import { extractMentionIds, toStoredMarkdown } from "@/lib/editor-utils"
-import { hasLinearIssue } from "@/lib/linear-issue-block"
+import {
+  extractMentionIds,
+  toStoredMarkdown,
+  warnIfTooLong,
+  whenEditorMounted,
+} from "@/lib/editor-utils"
 import type { ComposerFileReference } from "@/lib/repo-file-reference"
 
 const CONNECTORS_STALE_MS = 5 * 60 * 1000
-// Pastes longer than this become a .txt attachment instead of inline text,
-// matching ChatGPT/Claude/Discord. Keeps the editor responsive and stays well
-// under MESSAGE_CONTENT_MAX_LENGTH.
-const LARGE_PASTE_CHAR_THRESHOLD = 4000
-const LARGE_PASTE_FILENAME = "pasted-text.txt"
 const NO_MENTION_CANDIDATES: MentionCandidate[] = []
+// Matches the scroller's edge fade (globals.css .composer-scroller).
+const CARET_SCROLL_MARGIN = { top: 8, bottom: 8, left: 0, right: 0 }
 
 interface MessageInputProps {
   // What's typed is kept under this key (with currentUserId) on this device
@@ -173,6 +180,9 @@ interface MessageInputProps {
   tools?: ReactNode
   // Shift+Tab in the editor, like Claude Code's mode cycle.
   onShiftTab?: () => void
+  // Up arrow in an empty composer: edit the person's last message here
+  // (useMessageEditing). Returns false when there is none.
+  onEditLast?: () => boolean
   // Session only: its harness's own commands ("/" at the start of the
   // message) and Codex's skills ("$" anywhere), sent as typed
   // (reference/skills-and-commands.md).
@@ -214,13 +224,13 @@ function docHasText(doc: PMNode) {
 type DraftFacts = {
   isEmpty: boolean
   hasText: boolean
-  startsWithParagraph: boolean
+  isOneLine: boolean
 }
 const draftFactsByDoc = new WeakMap<PMNode, DraftFacts>()
 const NO_EDITOR_DRAFT = {
   isEmpty: true,
   hasText: false,
-  startsWithParagraph: true,
+  isOneLine: true,
   isFocused: false,
 }
 
@@ -235,9 +245,11 @@ function selectDraftState({ editor }: EditorStateSnapshot<Editor | null>) {
     facts = {
       isEmpty: isNodeEmpty(doc),
       hasText: docHasText(doc),
-      // TipTap counts an empty list as empty, but its marker sits where the
-      // placeholder would.
-      startsWithParagraph:
+      // The placeholder shows only on a single empty line: TipTap counts an
+      // empty list or quote as empty, but its marker sits where the
+      // placeholder would, and after Shift+Enter the caret is on line two.
+      isOneLine:
+        doc.childCount <= 1 &&
         (doc.firstChild?.type.name ?? "paragraph") === "paragraph",
     }
     draftFactsByDoc.set(doc, facts)
@@ -322,6 +334,29 @@ function resolveRouting({
   }
 }
 
+// Programmatic content swaps (send clear, draft restore) are not undo steps:
+// Cmd+Z must not bring back a sent message or another conversation's draft.
+// No update event either, so no "typing" and no draft save.
+function replaceContentWithoutHistory(
+  editor: Editor,
+  content: JSONContent | null
+) {
+  return editor
+    .chain()
+    .setMeta("addToHistory", false)
+    .setContent(content ?? "", { emitUpdate: false })
+}
+
+// Another field, menu or dialog has the keyboard, so the composer must not
+// take focus.
+const KEYBOARD_OWNERS =
+  "input, textarea, select, [contenteditable='true'], [role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']"
+
+function keyboardIsTaken() {
+  const active = document.activeElement
+  return active instanceof Element && active.closest(KEYBOARD_OWNERS) !== null
+}
+
 // Memoized: hosts re-render on every Lor stream frame and keep their props
 // stable (useStableCallback, memoized tools), so those renders stop here.
 export const MessageInput = memo(function MessageInput({
@@ -368,6 +403,7 @@ export const MessageInput = memo(function MessageInput({
   isSteeringQueued = false,
   tools,
   onShiftTab,
+  onEditLast,
   harnessCommands,
 }: MessageInputProps) {
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false)
@@ -377,8 +413,11 @@ export const MessageInput = memo(function MessageInput({
   // not to the + button.
   const returnFocusToEditorRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const addFilesRef = useRef(addFiles)
-  addFilesRef.current = addFiles
+  const linkPopoverRef = useRef<LinkPopoverHandle>(null)
+  // Stable, so the memoized bubble menu never re-renders for it.
+  const [openLinkEditor] = useState(
+    () => () => linkPopoverRef.current?.open() ?? false
+  )
 
   // DMs are user-scoped and have no workspace slug — no connectors to attach.
   // Fetched on mount (not on menu open) so the + menu is instant.
@@ -444,6 +483,9 @@ export const MessageInput = memo(function MessageInput({
     [harnessCommands]
   )
   const isInline = variant === "inline"
+  // The reply bar keeps its last message while it eases shut.
+  const [shownReply, setShownReply] = useState(replyingTo)
+  if (replyingTo && replyingTo !== shownReply) setShownReply(replyingTo)
   // The + menu needs its button, which the inline bar renders only once its
   // target exists.
   const canOpenLinearPicker =
@@ -452,6 +494,19 @@ export const MessageInput = memo(function MessageInput({
 
   const host: ComposerHost = {
     mentionCandidates: normalizedMentionCandidates,
+    // A pasted `<@id>` shows the person's name.
+    mentionLabel: (id) =>
+      normalizedMentionCandidates.find((candidate) => candidate.id === id)
+        ?.label ?? null,
+    attachFiles: (files) => void addFiles(files),
+    detachFile: (file) => {
+      const attachment = pendingAttachments.find(
+        (pending) => pending.file === file
+      )
+      if (!attachment) return false
+      removeAttachment(attachment.id)
+      return true
+    },
     harnessCommands: harnessSlashCommands,
     harnessSkills,
     openLinearPicker: canOpenLinearPicker
@@ -463,10 +518,16 @@ export const MessageInput = memo(function MessageInput({
       : undefined,
     // Cmd+Enter starts a session without opening it, to fire off several.
     onSubmit: (stay) => handleSubmit(stay),
+    // Escape ladder (an open menu closes first, in ComposerKeymap): cancel
+    // the reply, then leave the composer. The blur leaves the key unhandled
+    // so page-level Escape listeners still see it.
     onEscape: () => {
-      if (!replyingTo || !onCancelReply) return false
-      onCancelReply()
-      return true
+      if (replyingTo && onCancelReply) {
+        onCancelReply()
+        return true
+      }
+      editor.commands.blur()
+      return false
     },
     onShiftTab: onShiftTab
       ? () => {
@@ -474,6 +535,10 @@ export const MessageInput = memo(function MessageInput({
           return true
         }
       : undefined,
+    openLinkEditor,
+    // A reply or a pending file is a draft, so Up leaves it alone.
+    onEditLast: () =>
+      !replyingTo && pendingAttachments.length === 0 && Boolean(onEditLast?.()),
   }
   const hostRef = useRef(host)
   hostRef.current = host
@@ -485,44 +550,45 @@ export const MessageInput = memo(function MessageInput({
   const [editorProps] = useState(
     (): EditorProps => ({
       attributes: {
+        // Prose rules shared with sent messages: globals.css .composer-prose.
         class:
-          "min-h-5 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90 caret-foreground/80 outline-none [&_p]:m-0 [&_p]:leading-5 [&_ul]:my-0.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:rounded-[4px] [&_code]:border [&_code]:border-border/70 [&_code]:bg-primary/10 [&_code]:px-0.75 [&_code]:py-0.25 [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground [&_pre]:mt-1 [&_pre]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-muted/50 [&_pre]:px-2 [&_pre]:py-1.5 [&_pre]:font-mono [&_pre]:text-[0.92em] [&_pre]:leading-6 [&_pre_code]:rounded-none [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-foreground",
+          "composer-prose text-sm text-foreground/90 caret-foreground/80 outline-none",
       },
-      handlePaste: (_view, event) => {
-        // File pastes are handled by the wrapper's onPaste via addFiles.
-        if (event.clipboardData?.files.length) return false
-
-        const text = event.clipboardData?.getData("text/plain")
-        if (!text || text.length <= LARGE_PASTE_CHAR_THRESHOLD) return false
-        // A long Linear issue still becomes its card (LinearIssue).
-        if (text.length <= MESSAGE_CONTENT_MAX_LENGTH && hasLinearIssue(text)) {
-          return false
-        }
-
-        event.preventDefault()
-        void addFilesRef.current([
-          new File([text], LARGE_PASTE_FILENAME, { type: "text/plain" }),
-        ])
-        return true
-      },
+      // The caret line stays clear of the scroller's edge and its fade.
+      scrollThreshold: CARET_SCROLL_MARGIN,
+      scrollMargin: CARET_SCROLL_MARGIN,
     })
   )
+
+  // Hosts key the composer by conversation, so the stored draft is the
+  // editor's first document: no undo step and no placeholder flash.
+  const [initialDraft] = useState(() => ({
+    id: draftKey && currentUserId ? `${currentUserId}:${draftKey}` : null,
+    doc:
+      draftKey && currentUserId
+        ? readComposerDraft(currentUserId, draftKey)
+        : null,
+  }))
+  const shownDraftIdRef = useRef(initialDraft.id)
 
   const editor = useEditor(
     {
       extensions,
       editorProps,
+      content: initialDraft.doc ?? "",
       // Callbacks are not compared; useEditor always calls the latest one.
       onUpdate: () => onTyping?.(),
     },
     []
   )
+  useEditorEdgeFade(editor)
 
-  const { isEmpty, hasText, isFocused, startsWithParagraph } = useEditorState({
+  const { isEmpty, hasText, isFocused, isOneLine } = useEditorState({
     editor,
     selector: selectDraftState,
   })
-  const showPlaceholder = isEmpty && startsWithParagraph
+  const isComposing = useComposition(editor)
+  const showPlaceholder = isEmpty && isOneLine && !isComposing
 
   const mentionedIdsKey = useEditorState({
     editor,
@@ -562,7 +628,7 @@ export const MessageInput = memo(function MessageInput({
 
   // This conversation's draft saver; a send clears it.
   const draftRef = useRef<ComposerDraftWriter | null>(null)
-  // Before the composerDraft effect: a suggestion appends to the restored
+  // Before the composerDraft effect: a suggestion appends to a swapped-in
   // draft instead of being overwritten by it.
   useEffect(() => {
     if (!editor || !draftKey || !currentUserId) return
@@ -570,16 +636,19 @@ export const MessageInput = memo(function MessageInput({
       editor.isEmpty ? null : editor.getJSON()
     )
     draftRef.current = draft
-    const restore = () => {
+    // A draftKey change without a remount swaps drafts. A user id known
+    // only after mount keeps anything typed meanwhile.
+    const draftId = `${currentUserId}:${draftKey}`
+    if (shownDraftIdRef.current !== draftId) {
       const stored = readComposerDraft(currentUserId, draftKey)
-      if (stored) editor.commands.setContent(stored, { emitUpdate: false })
-      else if (!editor.isEmpty) editor.commands.clearContent(false)
+      if (shownDraftIdRef.current !== null || (stored && editor.isEmpty)) {
+        replaceContentWithoutHistory(editor, stored).run()
+      }
+      shownDraftIdRef.current = draftId
     }
     const flushWhenHidden = () => {
       if (document.visibilityState === "hidden") draft.flush()
     }
-    if (editor.isInitialized) restore()
-    else editor.on("create", restore)
     editor.on("update", draft.schedule)
     editor.on("blur", draft.flush)
     window.addEventListener("pagehide", draft.flush)
@@ -588,7 +657,6 @@ export const MessageInput = memo(function MessageInput({
       // Still this conversation's text: the next draftKey restores after.
       draft.flush()
       if (draftRef.current === draft) draftRef.current = null
-      editor.off("create", restore)
       editor.off("update", draft.schedule)
       editor.off("blur", draft.flush)
       window.removeEventListener("pagehide", draft.flush)
@@ -670,7 +738,12 @@ export const MessageInput = memo(function MessageInput({
 
   const handleSend = useCallback(
     (stay = false) => {
-      if (!editor || isUploading) return
+      if (!editor) return
+      // Enter otherwise does nothing here, which reads as a broken key.
+      if (isUploading) {
+        toast.info("Wait for the upload to finish, then send")
+        return
+      }
 
       const rawMarkdown = editor.getMarkdown()
       const markdown = toStoredMarkdown(rawMarkdown)
@@ -680,6 +753,8 @@ export const MessageInput = memo(function MessageInput({
       const hasContent = trimmed.length > 0
 
       if ((!hasContent && !hasAttachments) || isSending || sendBlocked) return
+      // The server would reject it; keep the draft so it can be shortened.
+      if (warnIfTooLong(trimmed)) return
 
       const mentionCandidatesById = new Map(
         normalizedMentionCandidates.map((candidate) => [
@@ -722,10 +797,8 @@ export const MessageInput = memo(function MessageInput({
         toPeople: destination === "session" && !routing.toLor,
         stay,
       })
-      // No update event: a send must not emit "typing" or save a draft.
-      editor.commands.clearContent(false)
+      replaceContentWithoutHistory(editor, null).focus("end").run()
       draft?.clear()
-      editor.commands.focus("end")
       clearAttachments()
       onCancelReply?.()
       setManualToPeople(false)
@@ -767,14 +840,23 @@ export const MessageInput = memo(function MessageInput({
   )
 
   // Session document: a printable key pressed anywhere outside another field
-  // or open dialog starts writing here, like typing into a doc.
+  // or open dialog starts writing here, like typing into a doc. Focus moves
+  // during keydown and the browser delivers the key itself, so dead keys,
+  // Option characters, IME and input rules work as in the editor.
   useEffect(() => {
     if (!editor || !typeToFocus) return
+    let wasFocused = editor.isFocused
+    const markFocused = () => {
+      wasFocused = true
+    }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return
-      if (event.metaKey || event.ctrlKey || event.altKey) return
+      // Option composes characters on macOS; Ctrl+Alt is AltGr on Windows.
+      if (event.metaKey || event.ctrlKey) return
+      const composes =
+        event.key === "Dead" || event.key === "Process" || event.keyCode === 229
       // Space keeps scrolling the page.
-      if (event.key.length !== 1 || event.key === " ") return
+      if (!composes && (event.key.length !== 1 || event.key === " ")) return
       const target = event.target instanceof Element ? event.target : null
       if (
         target?.closest(
@@ -784,12 +866,38 @@ export const MessageInput = memo(function MessageInput({
       ) {
         return
       }
-      event.preventDefault()
-      editor.chain().focus("end").insertContent(event.key).run()
+      // Back where the caret was; a never-focused draft continues at its end.
+      if (!wasFocused) {
+        const { state } = editor
+        editor.view.dispatch(
+          state.tr.setSelection(Selection.atEnd(state.doc)).scrollIntoView()
+        )
+      }
+      // Synchronous: commands.focus waits a frame, after the key has landed.
+      editor.view.focus()
     }
+    editor.on("focus", markFocused)
     document.addEventListener("keydown", handleKeyDown)
-    return () => document.removeEventListener("keydown", handleKeyDown)
+    return () => {
+      editor.off("focus", markFocused)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
   }, [editor, typeToFocus])
+
+  // A conversation, thread or session opened: the keyboard goes to its
+  // composer, on pointer devices only (a touch keyboard would cover the page).
+  useEffect(() => {
+    if (!editor || editor.isInitialized) return
+    const autofocus = () => {
+      if (!window.matchMedia("(pointer: fine)").matches) return
+      if (keyboardIsTaken()) return
+      editor.commands.focus("end")
+    }
+    editor.on("create", autofocus)
+    return () => {
+      editor.off("create", autofocus)
+    }
+  }, [editor])
 
   useEffect(() => {
     if (replyingTo && editor) {
@@ -820,6 +928,7 @@ export const MessageInput = memo(function MessageInput({
           { type: "text", text: " " },
         ])
         .run()
+      returnFocusToEditorRef.current = true
       setIsAttachmentMenuOpen(false)
     },
     [editor]
@@ -854,8 +963,12 @@ export const MessageInput = memo(function MessageInput({
     [addFiles]
   )
 
+  // Files pasted outside the editor, e.g. with focus on a toolbar button.
+  // ProseMirror prevents the default of every paste it takes, and
+  // ComposerPaste attaches files pasted into the editor.
   const handlePaste = useCallback(
     (event: React.ClipboardEvent) => {
+      if (event.defaultPrevented) return
       const files = Array.from(event.clipboardData.files)
       if (files.length > 0) {
         event.preventDefault()
@@ -863,6 +976,23 @@ export const MessageInput = memo(function MessageInput({
       }
     },
     [addFiles]
+  )
+
+  // A press on the box's padding or empty space types at the end, as a
+  // press under the last line does. Controls, the editor itself and
+  // portaled popups (React events bubble through portals) keep theirs.
+  const handleBoxMouseDown = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || !editor) return
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (!event.currentTarget.contains(target)) return
+      if (editor.view.dom.parentElement?.contains(target)) return
+      if (target.closest("button, a, input, textarea, select, [role]")) return
+      event.preventDefault()
+      editor.commands.focus("end")
+    },
+    [editor]
   )
 
   if (disabled) {
@@ -888,36 +1018,37 @@ export const MessageInput = memo(function MessageInput({
         className="hidden"
         onChange={handleFileInputChange}
       />
-      {replyingTo && (
-        <div
-          className={cn(
-            ARRIVE_IN,
-            "flex items-center gap-2 bg-muted/60 px-3 py-1.5 text-sm",
-            isInline
-              ? "mb-1 rounded-md"
-              : "rounded-t-lg border border-b-0 border-input"
-          )}
-        >
-          <span className="truncate text-muted-foreground">
-            Replying to{" "}
-            <span className="font-semibold text-foreground">
-              {replyingTo.author.name}
-            </span>
-          </span>
-          <button
-            type="button"
-            onClick={onCancelReply}
-            className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
-            aria-label="Cancel reply"
+      <ComposerCollapse open={Boolean(replyingTo)}>
+        {shownReply && (
+          <div
+            className={cn(
+              "flex items-center gap-2 bg-muted/60 px-3 py-1.5 text-sm",
+              isInline
+                ? "mb-1 rounded-md"
+                : "rounded-t-lg border border-b-0 border-input"
+            )}
           >
-            <HugeiconsIcon
-              icon={Cancel01Icon}
-              className="size-4"
-              strokeWidth={2}
-            />
-          </button>
-        </div>
-      )}
+            <span className="truncate text-muted-foreground">
+              Replying to{" "}
+              <span className="font-semibold text-foreground">
+                {shownReply.author.name}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={onCancelReply}
+              className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label="Cancel reply"
+            >
+              <HugeiconsIcon
+                icon={Cancel01Icon}
+                className="size-4"
+                strokeWidth={2}
+              />
+            </button>
+          </div>
+        )}
+      </ComposerCollapse>
       <HintPopover
         open={lorHint.show}
         anchor={composerRef}
@@ -939,6 +1070,7 @@ export const MessageInput = memo(function MessageInput({
           ]
         )}
         onPaste={handlePaste}
+        onMouseDown={handleBoxMouseDown}
       >
         <AttachmentPreview
           attachments={pendingAttachments}
@@ -955,18 +1087,21 @@ export const MessageInput = memo(function MessageInput({
         >
           <div
             className={cn(
-              "relative min-w-0 flex-1 py-1 text-sm leading-5",
+              "relative min-w-0 flex-1 text-sm leading-5",
+              !isInline && "[--chat-leading:21px]",
               destination && "order-first basis-full",
-              destination === "new" && "min-h-16",
+              // The editable fills the tall box, so a press anywhere in it
+              // places the caret.
+              destination === "new" && "[&_.composer-prose]:min-h-14",
               // Same column and prose size as the transcript above it.
               isInline &&
-                "pl-10 [&_.tiptap]:text-[15px] [&_.tiptap]:leading-6 [&_.tiptap]:transition-colors [&_.tiptap_p]:leading-6",
+                "pl-10 [--chat-leading:24px] [&_.composer-prose]:text-[15px] [&_.composer-prose]:transition-colors",
               // Headed to the session's subscribers only: the text dims as in
               // the transcript, so the route shows without a label.
               isInline &&
                 destination === "session" &&
                 !routing.toLor &&
-                "[&_.tiptap]:text-muted-foreground"
+                "[&_.composer-prose]:text-muted-foreground"
             )}
           >
             {isInline && (
@@ -975,7 +1110,7 @@ export const MessageInput = memo(function MessageInput({
             {showPlaceholder && placeholder && (
               <span
                 className={cn(
-                  "pointer-events-none absolute right-0 top-1 truncate text-sm leading-5",
+                  "pointer-events-none absolute right-0 top-1 truncate text-sm leading-normal",
                   isInline
                     ? "left-10 text-[15px] text-muted-foreground/50 leading-6"
                     : "left-0 text-muted-foreground"
@@ -984,10 +1119,17 @@ export const MessageInput = memo(function MessageInput({
                 {placeholder}
               </span>
             )}
-            {editor && <ComposerBubbleMenu editor={editor} />}
+            {editor && (
+              <>
+                <ComposerBubbleMenu editor={editor} onLink={openLinkEditor} />
+                <LinkPopover editor={editor} ref={linkPopoverRef} />
+              </>
+            )}
+            {/* Nine whole lines plus the 4px padding at each edge, so the
+                box never stops mid-line. */}
             <EditorContent
               editor={editor}
-              className="relative max-h-[200px] overflow-y-auto overscroll-contain"
+              className="composer-scroller relative max-h-[calc(var(--chat-leading)*9+8px)] overflow-y-auto overscroll-contain py-1"
             />
             <DesktopCaret editor={editor} />
           </div>
@@ -1198,4 +1340,68 @@ function ToolsSlot({
     </div>,
     target
   )
+}
+
+// IME composition in progress. The first composed character can sit in the
+// DOM before it reaches the document, under the placeholder. Cleared a task
+// after compositionend, once ProseMirror has read the committed text, so a
+// cancelled composition shows the placeholder again.
+function useComposition(editor: Editor | null) {
+  const [composing, setComposing] = useState(false)
+  useEffect(() => {
+    if (!editor) return
+    return whenEditorMounted(editor, () => {
+      const editable = editor.view.dom
+      let timer = 0
+      const start = () => {
+        window.clearTimeout(timer)
+        setComposing(true)
+      }
+      const end = () => {
+        window.clearTimeout(timer)
+        timer = window.setTimeout(() => setComposing(false))
+      }
+      editable.addEventListener("compositionstart", start)
+      editable.addEventListener("compositionend", end)
+      return () => {
+        window.clearTimeout(timer)
+        editable.removeEventListener("compositionstart", start)
+        editable.removeEventListener("compositionend", end)
+        setComposing(false)
+      }
+    })
+  }, [editor])
+  return composing
+}
+
+// Fades the editor scroller's edge toward hidden lines only (globals.css
+// .composer-scroller). Set on the DOM, so scrolling never re-renders.
+function useEditorEdgeFade(editor: Editor | null) {
+  useEffect(() => {
+    if (!editor) return
+    return whenEditorMounted(editor, () => {
+      const editable = editor.view.dom
+      const scroller = editable.parentElement
+      if (!scroller) return () => {}
+      const update = () => {
+        const { scrollTop, scrollHeight, clientHeight } = scroller
+        scroller.toggleAttribute("data-fade-top", scrollTop > 0.5)
+        scroller.toggleAttribute(
+          "data-fade-bottom",
+          scrollHeight - clientHeight - scrollTop > 0.5
+        )
+      }
+      const observer = new ResizeObserver(update)
+      observer.observe(scroller)
+      observer.observe(editable)
+      scroller.addEventListener("scroll", update, { passive: true })
+      update()
+      return () => {
+        observer.disconnect()
+        scroller.removeEventListener("scroll", update)
+        scroller.removeAttribute("data-fade-top")
+        scroller.removeAttribute("data-fade-bottom")
+      }
+    })
+  }, [editor])
 }
