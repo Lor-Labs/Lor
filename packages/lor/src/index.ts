@@ -39,6 +39,7 @@ import type {
 import { env } from "@repo/env/server"
 import { assertHarnessEnabled } from "@repo/utils/features"
 import { fundedModelId } from "@repo/utils/inference"
+import { linearIssueBlockIdentifiers } from "@repo/utils/linear-issue-block"
 import {
   asSchema,
   generateText,
@@ -136,7 +137,13 @@ import {
   instructionsTools,
   loadWorkspaceInstructions,
 } from "./instructions"
-import { linearTools, linearWriteTools, resolveWorkspaceLinear } from "./linear"
+import {
+  linearTools,
+  linearWriteTools,
+  resolveWorkspaceLinear,
+  type StartedLinearIssue,
+  startLinearIssues,
+} from "./linear"
 import { logger } from "./logger"
 import { type ProposeLoopExecutor, proposeLoopTool } from "./loops"
 import { channelMcpServers, mcpServersPromptLine } from "./mcp-servers"
@@ -497,6 +504,31 @@ function droppedTurnNote(drop: PausedTurnDrop): string {
     : drop.reason === "lost"
       ? "Your last turn waited for approval, but its process ended before it could continue, so the actions it waited on did not run. If they are still needed, call them again; they ask for approval again."
       : "Lor was updated while your last turn waited for approval, so that turn ended. The actions waiting for approval did not run. If they are still needed, say so and ask again."
+}
+
+// How long a code turn waits for its Linear issues to move to In Progress
+// before it starts without them (LOR-140).
+const LINEAR_START_WAIT_MS = 5000
+
+// The promise's value, or null when it hasn't settled in time or the turn
+// was stopped. The promise itself keeps running.
+function settledWithin<T>(
+  promise: Promise<T>,
+  ms: number,
+  signal?: AbortSignal
+): Promise<T | null> {
+  return new Promise((resolve) => {
+    const finish = (value: T | null) => {
+      clearTimeout(timer)
+      signal?.removeEventListener("abort", expire)
+      resolve(value)
+    }
+    const expire = () => finish(null)
+    const timer = setTimeout(expire, ms)
+    signal?.addEventListener("abort", expire, { once: true })
+    if (signal?.aborted) expire()
+    promise.then(finish, expire)
+  })
 }
 
 const SYSTEM_PROMPT_TAIL = `Where you work: a channel's chat is for teammates talking to each other, and you work in sessions beside it. A session is one conversation, started by a teammate's request and sometimes seeded with chat messages as its starting context. Teammates can join a session and talk to each other there too; a message in it that's addressed to someone else is context, not a request to you. Your replies and reactions stay in the session.
@@ -3085,9 +3117,12 @@ async function respondImpl(
       : ctx.codex
         ? "codex"
         : null
+    const codeLinear = Object.hasOwn(tools, "update_linear_issue")
+      ? { comment: Object.hasOwn(tools, "comment_linear") }
+      : null
     const instructions = agentHarness
-      ? `${[agentHarness === "claude_code" ? CLAUDE_CODE_PROMPT_HEAD : CODEX_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, agentHarness)}` : ""}`
-      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code)}` : ""}`
+      ? `${[agentHarness === "claude_code" ? CLAUDE_CODE_PROMPT_HEAD : CODEX_PROMPT_HEAD, ...connectorPromptLines].join("\n")}\n\n${ANSWER_WRITE_GUIDANCE}\n\n${MENTION_GUIDANCE}${workspaceSection}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, agentHarness, codeLinear)}` : ""}`
+      : `${buildSystemPrompt(connectorPromptLines)}\n\n${ANSWER_WRITE_GUIDANCE}${ctx.voice ? "" : `\n\n${MENTION_GUIDANCE}`}${workspaceSection}${ctx.plan || ctx.threadRootId ? `\n\n${planRulesSection(!!ctx.plan)}` : ""}${ctx.trigger ? `\n\n${triggerSessionPromptSection(ctx.trigger)}` : ""}${ctx.loop ? `\n\n${loopSessionPromptSection(ctx.loop)}` : ""}${ctx.voice ? `\n\n${voicePromptSection()}` : ""}${ctx.code ? `\n\n${codeSessionPromptSection(ctx.code, "pi", codeLinear)}` : ""}`
 
     // The turn's request. A retried attempt sends the saved one again. A run
     // that only finishes a paused turn sends none; its empty request still
@@ -3135,6 +3170,24 @@ async function respondImpl(
       await run.saveContext({ context: request, instructions })
     }
     const counters = run.resume?.counters ?? ZERO_RUN_COUNTERS
+
+    // A code turn moves the Linear issues picked or pasted into its new
+    // messages to In Progress (LOR-140), unless that update needs a person's
+    // approval. Starts once the work folder is ready; a retry finds them
+    // started.
+    const linearUpdateTarget = toolTargets.targetFor("update_linear_issue")
+    const linearStartIdentifiers =
+      ctx.code &&
+      !harness.continueOnly &&
+      Object.hasOwn(tools, "update_linear_issue") &&
+      !(linearUpdateTarget !== null && approvalGates.has(linearUpdateTarget))
+        ? linearIssueBlockIdentifiers(
+            request.continuationDelta ??
+              request.conversation.map((turn) => turn.content).join("\n")
+          )
+        : []
+    // Tool events for a late Linear result stop once the turn has ended.
+    let linearReportOpen = true
 
     // A gated call pauses the turn for a person's decision; request_approval
     // always does. In a call where nobody can approve, it is refused instead.
@@ -3271,6 +3324,20 @@ async function respondImpl(
             ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
           })
         : null
+      // A turn whose sandbox or clone failed, or that was stopped, leaves its
+      // issues as they were.
+      const linearStarted: Promise<StartedLinearIssue[]> =
+        linear &&
+        linearStartIdentifiers.length > 0 &&
+        workFolder?.status === "ready" &&
+        !run.abortSignal?.aborted
+          ? startLinearIssues(linear.externalId, linearStartIdentifiers).catch(
+              (err: unknown) => {
+                logger.warn({ err }, "Linear issue start failed")
+                return []
+              }
+            )
+          : Promise.resolve([])
       if (ctx.code && workFolder?.status === "ready") {
         if (ctx.code.environmentId) {
           await writeEnvironmentFiles({
@@ -3365,6 +3432,48 @@ async function respondImpl(
       }
       if (pausedDropped) {
         notes.push(droppedTurnNote(pausedDropped))
+      }
+      const reportStarted = (issues: StartedLinearIssue[]) => {
+        for (const issue of issues) {
+          onToolEvent?.({
+            toolCallId: `linear-start-${run.runId}-${issue.identifier}`,
+            toolName: "update_linear_issue",
+            label: `Moved ${issue.identifier} to ${issue.state}`,
+            at: 0,
+            status: "ok",
+            detail: {
+              summary: `Updated ${issue.identifier} · moved to ${issue.state}`,
+              items: [
+                { title: `${issue.identifier} ${issue.title}`, url: issue.url },
+              ],
+            },
+          })
+        }
+      }
+      const startedIssues = await settledWithin(
+        linearStarted,
+        LINEAR_START_WAIT_MS,
+        run.abortSignal
+      )
+      if (startedIssues) {
+        reportStarted(startedIssues)
+      } else {
+        // Too slow to note: the prompt has Lor move unstarted issues itself,
+        // and a later result still shows while the turn runs.
+        void linearStarted.then((issues) => {
+          if (linearReportOpen) reportStarted(issues)
+          else if (issues.length > 0) {
+            logger.info(
+              { issues: issues.map((issue) => issue.identifier) },
+              "Linear issues moved to In Progress after the turn ended"
+            )
+          }
+        })
+      }
+      if (startedIssues && startedIssues.length > 0) {
+        notes.push(
+          `Linear: ${startedIssues.map((issue) => `${issue.identifier} was moved to ${issue.state}`).join(", ")} as this turn started, so don't move ${startedIssues.length === 1 ? "it" : "them"} again now.`
+        )
       }
       // Whether the prompt below carries the notes: a command sent as typed,
       // Pi's /compact and a continued Claude Code or Codex turn drop them, and
@@ -4237,6 +4346,7 @@ async function respondImpl(
         ...(stoppedFor ? { stoppedFor } : {}),
       }
     } finally {
+      linearReportOpen = false
       await uncommitted?.stop()
       sandbox.close()
     }
