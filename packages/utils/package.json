@@ -19,7 +19,8 @@
     "./html": "./src/html.ts",
     "./short-code": "./src/short-code.ts",
     "./inference": "./src/inference.ts",
-    "./diff-hunks": "./src/diff-hunks.ts"
+    "./diff-hunks": "./src/diff-hunks.ts",
+    "./linear-issue-block": "./src/linear-issue-block.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

@@ -285,14 +285,14 @@ so existing files stay valid, and gains one optional field per service.
 - **Phone:** a Browser row in the session sheet opens the view full screen.
   noVNC supports touch. Typing on iOS is unverified.
 
-### 5. Element comments
+### 5. Element annotations
 
 People point at elements on the page and send notes to Lor ("make this
 button match the header"). Prior art: Cursor's browser element picker sends
 the element to its agent; React Grab (MIT) copies an element's HTML and its
 component file for coding agents.
 
-- **Pick.** "Comment" in the toolbar takes control and turns on Chromium's
+- **Pick.** "Annotate" in the toolbar takes control and turns on Chromium's
   own element picker over CDP (`Overlay.setInspectMode` with
   `searchForNode`). Chromium draws the DevTools hover highlight inside the
   page, so it shows in the live view for every viewer, whatever the
@@ -618,32 +618,48 @@ Each step is a review chunk of about 300–400 lines.
       command), a live card in chat (an extra stream per viewer), and our
       own address bar over CDP with Chromium in app mode. Probably
   two chunks: view and navigation, then control.
-- [x] **5. Element comments** (2026-11-03, not run live yet; no image
+- [x] **5. Element annotations** (2026-11-03, not run live yet; no image
   push). Simpler than §5 first said:
   - The picker runs as a script the API sends through process exec
-    (`PICK_SCRIPT` in `dev-env/browser.ts`, named `browser-pick`, through
-    the new seam helper `runNamed`), not inside the gateway. It finds the
-    open tab over CDP, turns on `Overlay.setInspectMode`, waits up to 50 s
-    for the click, and reads the element in an isolated world: selector,
-    role, name, text, a 300-character HTML snippet and the page URL. Then
-    it takes a JPEG crop (`Page.captureScreenshot` with a clip in document
-    coordinates; unverified across scrolled pages) and adds a numbered
-    marker (a shadow-root badge, no pointer events).
-  - API: `POST /sessions/{id}/browser/pick`: `{ mode: "pick", index }`
-    (person in control only; `timeout` asks again), `cancel`, `clear`.
-  - Panel (`session-browser-comments.tsx`): Comment in the footer takes
-    control if needed and picks one element per click. The picked elements
-    sit in a card above the footer, each with its note field, not next to
-    the element. Send to Lor uploads the crops (`uploadAttachment`), sends
-    one message (each element's label, note, selector, page and snippet,
-    with "A screenshot of each element is attached, in order."), clears the
-    markers and hands control back so Lor can make and check the fix.
+    (`ANNOTATE_SCRIPT` in `dev-env/browser.ts`, named `browser-annotate`,
+    through the seam helper `runNamed`; each run replaces the last), not
+    inside the gateway. It finds the open tab over CDP, turns on
+    `Overlay.setInspectMode`, waits up to 50 s for the click, and reads the
+    element in an isolated world: selector, role, name, text, a
+    300-character HTML snippet and the page URL. Then it takes a JPEG crop
+    (`Page.captureScreenshot` with a clip in document coordinates;
+    unverified across scrolled pages).
+  - Renamed to **annotations** (LOR-148, 2026-11-07). Each pick draws a
+    numbered pin, an outline and a Linear-style note box (author, `#n`,
+    auto-growing textarea, Enter saves, Esc cancels, Remove) on the page
+    itself, in a closed shadow root from an isolated world, so everyone
+    watching and Lor's screenshots see it. It follows its element every
+    frame (found again by selector after a re-render). A saved note
+    collapses to a one-line bubble by its pin; clicking your own pin while
+    picking opens it again. State lives in attributes on the host
+    (`data-lor-annotation`, `data-state`, `data-note`, `data-saved`,
+    `data-lor-by`) so later runs read it.
+  - API: `POST /sessions/{id}/browser/annotate`: `{ mode: "pick", id,
+    number }` (person in control only; `timeout` asks again, `reopened`
+    for a click on your pin), `{ mode: "wait", id }` (until that note is
+    saved or removed), `stop` (keeps an open note as written, returns your
+    notes) and `clear` (removes your annotations).
+  - Panel (`session-browser-annotations.tsx`): Annotate in the footer takes
+    control if needed, then picks, waits for the note and picks again until
+    Done. While annotating, a bar replaces the footer (status, Done or
+    Annotate, Discard, Send to Lor) and Lor's idle hand-back waits. Drafts
+    survive switching sessions. Send to Lor uploads the crops
+    (`uploadAttachment`), sends one message (each element's label, note,
+    selector, page and snippet, with "A screenshot of each element is
+    attached, in order."), clears your pins and hands control back so Lor
+    can make and check the fix. Discard hands control back if Annotate took
+    it.
   - No element chips in the transcript and no prompt line: the message is
     plain markdown that Lor reads as it is.
 - [ ] **6. Remove the iframe and run live QA.** Delete the iframe path and
   its `scheme-light` fix. Keep "Open in your browser". Live QA on a Next.js
   16 monorepo with better-auth: profile start, sign in, Lor checks a UI
-  change, two viewers, take control, element comments, idle and return.
+  change, two viewers, take control, annotations, idle and return.
   Then move this doc to the root as the as-built reference (link sweep).
 
 ## Later
@@ -654,7 +670,7 @@ Each step is a review chunk of about 300–400 lines.
 - **Resize a live session.** Replace the sandbox at the new size and restore
   from the newest checkpoint.
 - **Larger sizes** (32 GB) once there's real demand and a price.
-- **Comments that stay on the page** across reloads, anchored by selector
+- **Annotations that stay on the page** across reloads, anchored by selector
   and text, and component source paths for picked elements.
 - **Recording** of browser sessions.
 
@@ -696,7 +712,7 @@ Each step is a review chunk of about 300–400 lines.
   [agent-browser](https://github.com/vercel-labs/agent-browser),
   [playwright-cli](https://github.com/microsoft/playwright-cli),
   [Playwright connectOverCDP](https://playwright.dev/docs/api/class-browsertype#browser-type-connect-over-cdp)
-- Element comments: [CDP Overlay domain](https://chromedevtools.github.io/devtools-protocol/tot/Overlay/),
+- Element annotations: [CDP Overlay domain](https://chromedevtools.github.io/devtools-protocol/tot/Overlay/),
   [React Grab](https://github.com/aidenybai/react-grab),
   [Cursor 2.0 browser](https://cursor.com/changelog/2-0)
 - Run setup: [Cursor environment.json schema](https://www.cursor.com/schemas/environment.schema.json),
@@ -733,3 +749,6 @@ Each step is a review chunk of about 300–400 lines.
   shows Chromium's own tabs and address bar, which the person in control
   uses; the panel keeps Start/Open buttons (`/browser/open`) and "Open in
   your browser".
+- 2026-11-07 (LOR-148, Jacob): element comments became annotations drawn on
+  the page next to their element (pin, outline, note box), replacing the note
+  card under the live view; picking continues after each note until Done.

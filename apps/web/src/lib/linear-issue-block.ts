@@ -1,14 +1,9 @@
-// Linear's "Copy as prompt" puts the issue after its prompt line as:
-//   <issue identifier="LOR-119">
-//   <title>…</title>
-//   <description>…</description>
-//   <team name="Lor"/>
-//   <project name="MVP">…</project>
-//   </issue>
-// Messages store the block as pasted (Lor reads all of it); the composer and
-// message views show it as a Linear issue card.
-const ISSUE_BLOCK_SOURCE =
-  /<issue identifier="([A-Za-z0-9]+-\d+)">[\s\S]*?<\/issue>/.source
+import { LINEAR_ISSUE_BLOCK_SOURCE as ISSUE_BLOCK_SOURCE } from "@repo/utils/linear-issue-block"
+
+// Linear's "Copy as prompt" block (@repo/utils/linear-issue-block). Messages
+// store the block as pasted (Lor reads all of it); the composer and message
+// views show it as a Linear issue card. In a code session, Lor's turn moves
+// the block's issue to In Progress (startLinearIssues in @repo/lor).
 
 export type LinearIssueBlock = {
   identifier: string
