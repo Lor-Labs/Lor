@@ -16,6 +16,7 @@ import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { Fragment, type ReactNode, useMemo, useState } from "react"
 import { ActivityIndicator, Pressable, Text, View } from "react-native"
+import { ActiveSessions } from "@/components/active-sessions"
 import {
   ChannelSessionRows,
   SessionStateIndicator,
@@ -64,6 +65,7 @@ export function ChannelRow({
   // among them while collapsed.
   sessionToggle?: {
     collapsed: boolean
+    count: number
     onToggle: () => void
     rollup: SidebarSessionState | undefined
   }
@@ -154,6 +156,11 @@ export function ChannelRow({
       {mentionCount > 0 ? <MentionBadge count={mentionCount} /> : null}
       {sessionToggle?.collapsed && sessionToggle.rollup ? (
         <SessionStateIndicator state={sessionToggle.rollup} />
+      ) : null}
+      {sessionToggle?.collapsed ? (
+        <Text className="text-[12px] tabular-nums text-muted">
+          {sessionToggle.count}
+        </Text>
       ) : null}
       {sessionToggle ? (
         <Pressable
@@ -389,7 +396,7 @@ export function ChannelList({
   const { data: auth } = authClient.useSession()
   const activity = useWorkspaceActivity(workspace?.id)
   useWorkspaceSessionUpdates(workspace?.id)
-  const sessionCollapse = useSessionCollapse(activity)
+  const sessionCollapse = useSessionCollapse()
   const sessionsHint = useHint("sessions_intro")
   const sessionsByChannel = useMemo(
     () =>
@@ -490,13 +497,13 @@ export function ChannelList({
       ].find(
         (channel) =>
           channel.type !== "voice" &&
-          !sessionCollapse.collapsed.has(channel.id) &&
+          !sessionCollapse.isCollapsed(channel.id) &&
           (sessionsByChannel.get(channel.id)?.length ?? 0) > 0
       )?.id
 
   const renderRow = (channel: Channel) => {
     const sessions = sessionsByChannel.get(channel.id) ?? []
-    const collapsed = sessionCollapse.collapsed.has(channel.id)
+    const collapsed = sessionCollapse.isCollapsed(channel.id)
     return (
       <Fragment key={channel.id}>
         <ChannelRow
@@ -508,6 +515,7 @@ export function ChannelList({
             sessions.length > 0
               ? {
                   collapsed,
+                  count: sessions.length,
                   onToggle: () => sessionCollapse.toggle(channel.id),
                   rollup: collapsed
                     ? strongestSessionState(sessions)
@@ -546,10 +554,22 @@ export function ChannelList({
     )
   }
 
+  const channelNames = new Map<string, string | null>(
+    [
+      ...data.uncategorized,
+      ...data.categories.flatMap((category) => category.channels),
+    ].map((channel) => [channel.id, channel.name])
+  )
+
   return (
     <View className="gap-four pb-seven">
       {data.uncategorized.length > 0 ? (
-        <View>{data.uncategorized.map(renderRow)}</View>
+        <View>
+          <View className="min-h-8 justify-center px-two">
+            <SectionLabel>Channels</SectionLabel>
+          </View>
+          {data.uncategorized.map(renderRow)}
+        </View>
       ) : null}
       {activeCategories.map((category) => (
         <ChannelSection
@@ -571,6 +591,10 @@ export function ChannelList({
           renderRow={renderRow}
         />
       ) : null}
+      <ActiveSessions
+        channelNames={channelNames}
+        sessionsByChannel={sessionsByChannel}
+      />
     </View>
   )
 }
