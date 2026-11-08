@@ -96,6 +96,23 @@ export function sessionTouchesQueryOptions(sessionId: string) {
   }
 }
 
+export function sessionCoordinationQueryOptions(sessionId: string) {
+  return {
+    queryKey: ["agent-session-coordination", sessionId] as const,
+    queryFn: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].coordination.$get({
+        param: { sessionId },
+      })
+      if (!res.ok) throw new Error("Couldn't load the coordination log")
+      return res.json()
+    },
+  }
+}
+
+export type SessionCoordinationEntry = Awaited<
+  ReturnType<ReturnType<typeof sessionCoordinationQueryOptions>["queryFn"]>
+>["entries"][number]
+
 export type SessionTouch = Awaited<
   ReturnType<ReturnType<typeof sessionTouchesQueryOptions>["queryFn"]>
 >["items"][number]

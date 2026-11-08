@@ -13,6 +13,7 @@ import {
 } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
+import { recordCoordination } from "./agent-coordination"
 import { attachCodeSandbox, readChanges, readFileDiff } from "./code-changes"
 import { readCheckpointChanges } from "./code-checkpoints"
 import { logger } from "./logger"
@@ -109,11 +110,13 @@ export async function findSessionOverlaps(
 }
 
 // One note per other session, naming only the paths this session's agent
-// hasn't been told about yet.
+// hasn't been told about yet. With a scope, each note also goes into the
+// shared coordination log.
 export async function overlapNotes(
   sessionId: string,
   overlaps: SessionOverlap[],
-  claim?: ClaimOverlapNotice
+  claim?: ClaimOverlapNotice,
+  scope?: OverlapScope | null
 ): Promise<string[]> {
   const notes: string[] = []
   for (const overlap of overlaps) {
@@ -130,7 +133,16 @@ export async function overlapNotes(
       )
     )
     const paths = overlap.paths.filter((_, i) => claimed[i])
-    if (paths.length > 0) notes.push(overlapNote({ ...overlap, paths }))
+    if (paths.length === 0) continue
+    notes.push(overlapNote({ ...overlap, paths }))
+    if (scope) {
+      void recordCoordination(scope, {
+        kind: "overlap",
+        paths,
+        summary: `Told about "${sanitizeInlineLabel(overlap.title)}", which also has uncommitted edits to these files.`,
+        otherSessionId: overlap.sessionId,
+      })
+    }
   }
   return notes
 }
