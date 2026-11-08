@@ -38,12 +38,12 @@ import {
   useSidebar,
 } from "@repo/ui/components/sidebar"
 import { Skeleton } from "@repo/ui/components/skeleton"
-import { cn } from "@repo/ui/lib/utils"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@repo/ui/components/tooltip"
+import { cn } from "@repo/ui/lib/utils"
 import { features } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
