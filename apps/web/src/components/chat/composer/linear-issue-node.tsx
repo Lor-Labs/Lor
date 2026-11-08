@@ -28,31 +28,38 @@ function LinearIssueView({ node, deleteNode }: NodeViewProps) {
   )
 }
 
-// Stored text with its issue blocks as this node's HTML, for an editor that
-// loads stored text as HTML (where the block's tags would be dropped).
+// Stored markdown with each issue block as this node's HTML, for a markdown
+// load (the block's own tags would load as text). The div sits on one line
+// between blank lines so it parses as a single HTML block.
 export function withLinearIssueNodes(text: string): string {
   return splitLinearIssues(text)
     .map((part) => {
-      if (part.kind === "text") return part.text
+      if (part.kind === "text") return part.text.replace(/^\n+|\n+$/g, "")
       const raw = part.issue.raw
         .replaceAll("&", "&amp;")
         .replaceAll('"', "&quot;")
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
+        .replaceAll("\r", "&#13;")
+        .replaceAll("\n", "&#10;")
       return `<div data-linear-issue="${raw}"></div>`
     })
-    .join("")
+    .filter(Boolean)
+    .join("\n\n")
 }
 
-// Lines of pasted text, one paragraph each, as a plain-text paste gives them.
+// Lines of pasted text, one paragraph each; a blank line between them stays
+// an empty paragraph (composer-markdown.ts), the ones around the card don't.
 function paragraphs(text: string): JSONContent[] {
-  return text
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => ({
-      type: "paragraph",
-      content: [{ type: "text", text: line }],
-    }))
+  const lines = text.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd()
+  if (!lines) return []
+  return lines
+    .split(/\r?\n/)
+    .map((line) =>
+      line.trim()
+        ? { type: "paragraph", content: [{ type: "text", text: line }] }
+        : { type: "paragraph" }
+    )
 }
 
 // A Linear issue pasted with Copy as prompt: a card in the composer, sent as

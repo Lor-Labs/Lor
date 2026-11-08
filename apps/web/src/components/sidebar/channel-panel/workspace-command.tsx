@@ -96,6 +96,8 @@ export function WorkspaceCommand() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A composer with a selection takes Cmd+K for links (composer-keymap.ts).
+      if (e.defaultPrevented) return
       if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
         setOpen((prev) => !prev)

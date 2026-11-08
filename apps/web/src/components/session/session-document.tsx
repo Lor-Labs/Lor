@@ -58,6 +58,7 @@ import { useMessageReactions } from "@/hooks/use-message-reactions"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useProvideSessionSend } from "@/hooks/use-session-send"
+import { useStableCallback } from "@/hooks/use-stable-callback"
 import {
   dropOptimisticLorTurns,
   type FetchPageParams,
@@ -236,7 +237,7 @@ export function SessionDocument({
     channelId,
     threadRootId,
   })
-  const { handleEdit } = useMessageEditing({
+  const { handleEdit, editLastOwnMessage } = useMessageEditing({
     socket,
     queryClient,
     channelId,
@@ -521,6 +522,56 @@ export function SessionDocument({
     }
     return nonce
   }
+
+  // This page re-renders on every Lor stream frame; with these props stable
+  // the memoized composer skips those renders.
+  const onComposerSend = useStableCallback(send)
+  const onComposerStop = useStableCallback(lorRun.onStop)
+  const onComposerSteer = useStableCallback(
+    lorRun.steering.steerLatestOwnMessage
+  )
+  const onComposerDraftConsumed = useCallback(
+    (id: string) =>
+      setComposerDraft((current) => (current?.id === id ? undefined : current)),
+    []
+  )
+  const onComposerFileReferenceConsumed = useCallback(
+    (id: string) =>
+      setFileReference((current) => (current?.id === id ? undefined : current)),
+    []
+  )
+  const myAvatarColor = participants.find(
+    (person) => person.id === currentUserId
+  )?.avatarColor
+  const composerGutter = useMemo(
+    () => (
+      <UserAvatar
+        name={session?.user.name}
+        src={session?.user.image}
+        avatarColor={myAvatarColor}
+        size="sm"
+        className="size-7"
+      />
+    ),
+    [session?.user.name, session?.user.image, myAvatarColor]
+  )
+  const composerTools = useMemo(
+    () =>
+      agentAnswers ? (
+        <>
+          <ModelPicker choice={modelChoice} />
+          <EffortPicker choice={modelChoice} />
+          {claudeCode && (
+            <ClaudeCodeModePicker
+              value={claudeMode.mode}
+              onChange={claudeMode.setMode}
+            />
+          )}
+        </>
+      ) : undefined,
+    [agentAnswers, modelChoice, claudeCode, claudeMode.mode, claudeMode.setMode]
+  )
+
   useProvideSessionSend(threadRootId, (content, onFailed) =>
     Boolean(
       send(content, {
@@ -551,6 +602,45 @@ export function SessionDocument({
     return () => observer.disconnect()
   }, [headingElement, hasOlder, scrollRef])
 
+  // The input line is sticky inside the transcript scroller. When it grows (a
+  // new line, the reply bar) with the reader at the bottom, scroll by as much
+  // in the observer callback, before paint: the scroller's own follow runs a
+  // frame later, so the line would cover the last message for a frame. Not
+  // while a turn is anchored to the top over the scroller's spacer.
+  // Pointing at the input line also keeps the transcript's scrollbar hidden
+  // (globals.css data-scrollbar-quiet); only the editor's own shows.
+  const [inputLineElement, setInputLineElement] =
+    useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const line = inputLineElement
+    const viewport = scrollRef.current
+    if (!line || !viewport) return
+    let height = line.offsetHeight
+    const observer = new ResizeObserver(() => {
+      const grew = line.offsetHeight - height
+      height += grew
+      if (grew <= 0) return
+      const spacer = viewport.querySelector<HTMLElement>(
+        "[data-message-scroller-spacer]"
+      )
+      if (spacer && !spacer.hidden) return
+      const fromBottom =
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+      if (fromBottom - grew <= 1) viewport.scrollTop += grew
+    })
+    observer.observe(line)
+    const quiet = () => viewport.setAttribute("data-scrollbar-quiet", "")
+    const loud = () => viewport.removeAttribute("data-scrollbar-quiet")
+    line.addEventListener("pointerenter", quiet)
+    line.addEventListener("pointerleave", loud)
+    return () => {
+      observer.disconnect()
+      line.removeEventListener("pointerenter", quiet)
+      line.removeEventListener("pointerleave", loud)
+      loud()
+    }
+  }, [inputLineElement, scrollRef])
+
   const composer = (
     <>
       <RunQueuePill
@@ -562,7 +652,10 @@ export function SessionDocument({
         variant="document"
       />
       {/* Right above the reply line, like other people's draft lines. */}
-      <DocumentTypingIndicator people={typingPeople} />
+      <DocumentTypingIndicator
+        people={typingPeople}
+        reserve={Boolean(otherSubscribers?.length)}
+      />
       {composerNote}
       <MessageInput
         key={threadRootId}
@@ -575,17 +668,9 @@ export function SessionDocument({
             ? fileReference
             : undefined
         }
-        onComposerFileReferenceConsumed={(id) =>
-          setFileReference((current) =>
-            current?.id === id ? undefined : current
-          )
-        }
+        onComposerFileReferenceConsumed={onComposerFileReferenceConsumed}
         composerDraft={cover ? undefined : composerDraft}
-        onComposerDraftConsumed={(id) =>
-          setComposerDraft((current) =>
-            current?.id === id ? undefined : current
-          )
-        }
+        onComposerDraftConsumed={onComposerDraftConsumed}
         placeholder="Reply…"
         destination="session"
         peopleOnly={!agentAnswers}
@@ -593,35 +678,11 @@ export function SessionDocument({
         variant="inline"
         toolbarTarget={toolbarTarget}
         typeToFocus={!cover}
-        gutter={
-          <UserAvatar
-            name={session?.user.name}
-            src={session?.user.image}
-            avatarColor={
-              participants.find((person) => person.id === currentUserId)
-                ?.avatarColor
-            }
-            size="sm"
-            className="size-7"
-          />
-        }
-        tools={
-          agentAnswers ? (
-            <>
-              <ModelPicker choice={modelChoice} />
-              <EffortPicker choice={modelChoice} />
-              {claudeCode && (
-                <ClaudeCodeModePicker
-                  value={claudeMode.mode}
-                  onChange={claudeMode.setMode}
-                />
-              )}
-            </>
-          ) : undefined
-        }
+        gutter={composerGutter}
+        tools={composerTools}
         onShiftTab={claudeCode ? claudeMode.cycle : undefined}
         harnessCommands={agentAnswers ? harnessCommands : null}
-        onSend={send}
+        onSend={onComposerSend}
         currentUserId={currentUserId}
         replyingTo={replyingTo}
         onCancelReply={clearReply}
@@ -633,10 +694,11 @@ export function SessionDocument({
         getUploadedAttachments={fileUpload.getUploadedAttachments}
         isUploading={fileUpload.isUploading}
         onTyping={emitTyping}
-        onStop={lorRun.onStop}
+        onEditLast={editLastOwnMessage}
+        onStop={onComposerStop}
         isStopping={lorRun.isStopping}
         canSteerQueued={lorRun.steering.canSteerLatestOwnMessage}
-        onSteerQueued={lorRun.steering.steerLatestOwnMessage}
+        onSteerQueued={onComposerSteer}
         isSteeringQueued={lorRun.steering.isSteering}
       />
     </>
@@ -750,7 +812,10 @@ export function SessionDocument({
                   the last turn. Sticky, so while you scroll back it stays at
                   the bottom edge (LOR-129), with Jump to latest above it. */}
                   {showInputLine && (
-                    <div className="sticky bottom-0 z-30 bg-background pt-3">
+                    <div
+                      ref={setInputLineElement}
+                      className="sticky bottom-0 z-30 bg-background pt-3"
+                    >
                       {jumpToLatest("bottom-full mb-2")}
                       {composer}
                     </div>

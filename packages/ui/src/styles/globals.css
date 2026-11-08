@@ -278,6 +278,13 @@
     transparent;
 }
 
+/* Hover reaches every ancestor, so a scroller holding a hovered inner one
+   (the session transcript around its sticky composer) sets this from JS to
+   keep its own thumb hidden. A :has(:hover) rule would cost WebKit clicks. */
+[data-scrollbar-quiet]:hover {
+  scrollbar-color: transparent transparent;
+}
+
 /* Nexus UI's MessageMarkdown is built for stock shadcn tokens (where `primary`
    is near-neutral ink) plus Tailwind Typography's light-mode prose palette.
    Here --primary is a violet brand hue and the app themes dark, so both have to
@@ -330,26 +337,37 @@
   content: none;
 }
 
-/* Chat-density rhythm over Nexus's prose scale. Nexus is tuned for a docs page
-   (prose-p:mt-4, prose-headings:mt-6, table my-6, cells px-5 py-3), which reads
-   loose at message width — while the previous `p { my-0 }` collapsed every
-   paragraph gap to zero against a 26px line-height, so prose ran together as a
-   single block. These sit between the two. All rules clear the utilities they
-   override on specificity, since Typography wraps its selectors in :where(). */
-.message-markdown .prose {
-  @apply leading-normal;
+/* Chat prose: sent messages (.message-markdown) and the chat editors
+   (.composer-prose: the composer and the message edit box) share the rules
+   below, so a draft looks like the message it sends (WYSIWYG parity).
+   They stay unlayered on purpose: they override Typography, Nexus and
+   Streamdown classes, which all sit in the utilities layer, so moving them to
+   @layer components would make them lose. A surface sets line height through
+   --chat-leading instead of a leading utility (the session document sets 24px
+   for its 15px prose); a utility would lose to these rules.
+   The rhythm is chat density: Nexus is tuned for a docs page (prose-p:mt-4,
+   prose-headings:mt-6, table my-6, cells px-5 py-3), which reads loose at
+   message width. */
+.message-markdown .prose,
+.composer-prose {
+  line-height: var(--chat-leading, 1.5);
 }
 
+/* Paragraph gap. Composer lines are paragraphs with no margin (preflight's p
+   reset), joined into one paragraph when sent; an empty composer line is the
+   gap and keeps one line of height. */
 .message-markdown p {
   @apply my-1.5;
 }
 
 /* Never let the rhythm push the bubble's first/last line off-baseline. */
-.message-markdown .prose > :first-child {
+.message-markdown .prose > :first-child,
+.composer-prose > :first-child {
   @apply mt-0;
 }
 
-.message-markdown .prose > :last-child {
+.message-markdown .prose > :last-child,
+.composer-prose > :last-child {
   @apply mb-0;
 }
 
@@ -425,8 +443,9 @@
    box-decoration-break keeps the padding, radius and border intact on both
    halves when a long token wraps mid-chip. */
 .message-markdown [data-slot="message-markdown-inline-code"],
-.message-markdown [data-streamdown="inline-code"] {
-  @apply rounded-[4px] border bg-accent px-1 py-[0.1em] font-mono text-[0.92em] text-foreground;
+.message-markdown [data-streamdown="inline-code"],
+.composer-prose :not(pre) > code {
+  @apply rounded-[4px] border bg-accent px-1 py-[0.1em] font-mono text-[0.92em] font-[450] text-foreground;
   border-color: color-mix(in oklab, var(--foreground) 12%, var(--accent));
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
@@ -443,12 +462,103 @@
   @apply text-foreground;
 }
 
-.message-markdown [data-streamdown="unordered-list"] {
-  @apply my-0.5 list-disc pl-5;
+/* Lists: markers sit outside (Streamdown sets list-inside), so wrapped item
+   lines align with the text in both places. A top-level list keeps the
+   paragraph gap from the lines around it. */
+.message-markdown [data-streamdown="unordered-list"],
+.composer-prose ul {
+  @apply my-1.5 list-outside list-disc pl-5;
 }
 
-.message-markdown [data-streamdown="ordered-list"] {
-  @apply my-0.5 list-decimal pl-5;
+.message-markdown [data-streamdown="ordered-list"],
+.composer-prose ol {
+  @apply my-1.5 list-outside list-decimal pl-5;
+}
+
+.message-markdown
+  li
+  > :is([data-streamdown="unordered-list"], [data-streamdown="ordered-list"]),
+.composer-prose li > :is(ul, ol) {
+  @apply my-0.5;
+}
+
+/* Item spacing is Streamdown's li py-1 with Nexus's -0.5px margin. */
+.message-markdown [data-streamdown="list-item"],
+.composer-prose li {
+  @apply my-[-0.5px] py-1 ps-[0.375em];
+}
+
+.message-markdown [data-streamdown="list-item"]::marker,
+.composer-prose li::marker {
+  @apply text-muted-foreground/50;
+}
+
+.message-markdown [data-streamdown="strong"],
+.composer-prose strong {
+  @apply font-[550] text-foreground;
+}
+
+/* Quotes drop Typography's curly quote marks and medium weight, which the
+   composer can't show. */
+.message-markdown [data-streamdown="blockquote"],
+.composer-prose blockquote {
+  @apply my-1.5 border-l-4 border-muted-foreground/30 pl-4 font-normal text-muted-foreground italic;
+}
+
+.message-markdown [data-streamdown="blockquote"] p::before,
+.message-markdown [data-streamdown="blockquote"] p::after {
+  content: none;
+}
+
+/* TipTap's injected editor CSS, appended after this sheet, turns ligatures
+   off and wraps code blocks. Messages keep ligatures and scroll code
+   sideways, so these outrank it with the extra class. */
+.composer-prose.ProseMirror {
+  font-variant-ligatures: normal;
+  font-feature-settings: normal;
+}
+
+.composer-prose.ProseMirror pre {
+  white-space: pre;
+}
+
+/* The composer's editor scroller fades only the edge with hidden lines past
+   it (message-input.tsx useEditorEdgeFade). 8px matches its 4px padding plus
+   the caret scroll margin, so the caret line never sits in the fade. */
+.composer-scroller {
+  --fade-top: 0px;
+  --fade-bottom: 0px;
+}
+
+.composer-scroller[data-fade-top] {
+  --fade-top: 8px;
+}
+
+.composer-scroller[data-fade-bottom] {
+  --fade-bottom: 8px;
+}
+
+.composer-scroller:is([data-fade-top], [data-fade-bottom]) {
+  --_fade: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent
+  );
+  -webkit-mask-image: var(--_fade);
+  mask-image: var(--_fade);
+}
+
+/* The selection kept visible while the editor is blurred, as when the link
+   popover has focus (composer-extensions.ts CHAT_SELECTION). */
+.composer-prose .composer-selection {
+  @apply bg-primary/20;
+}
+
+/* TipTap paints the gap cursor black, invisible in dark mode. */
+.composer-prose .ProseMirror-gapcursor::after {
+  border-top-color: var(--foreground);
 }
 
 @keyframes shimmer {

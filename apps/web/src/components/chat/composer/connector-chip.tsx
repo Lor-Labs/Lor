@@ -135,6 +135,7 @@ export const ConnectorChip = Node.create({
           // Only a bare connector url on its own becomes a chip; mixed content
           // keeps the editor's normal paste behaviour.
           handlePaste: (view, event) => {
+            if (view.state.selection.$from.parent.type.spec.code) return false
             const text = event.clipboardData?.getData("text/plain")?.trim()
             if (!text || /\s/.test(text)) return false
 

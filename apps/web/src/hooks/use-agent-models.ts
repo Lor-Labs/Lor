@@ -1,6 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { useSyncExternalStore } from "react"
+import { useMemo, useSyncExternalStore } from "react"
 import type { SessionHarness } from "@/components/session/harness-picker"
 import { apiClient } from "@/lib/api-client"
 
@@ -125,18 +125,21 @@ export function useModelChoice(harness: SessionHarness): ModelChoice {
           typeof level === "string" && option.efforts.includes(level)
       ) ?? null)
   const fast = Boolean(option?.fast && savedFast)
-  const model = option?.id
-  return {
-    harness,
-    workspaceSlug,
-    catalog,
-    option,
-    effort,
-    fast,
-    turn: {
-      ...(model ? { model } : {}),
-      ...(effort ? { effort } : {}),
-      ...(fast ? { fast } : {}),
-    },
-  }
+  // Stable between changes: the session composer's pickers are memoized on it.
+  return useMemo(() => {
+    const model = option?.id
+    return {
+      harness,
+      workspaceSlug,
+      catalog,
+      option,
+      effort,
+      fast,
+      turn: {
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        ...(fast ? { fast } : {}),
+      },
+    }
+  }, [harness, workspaceSlug, catalog, option, effort, fast])
 }

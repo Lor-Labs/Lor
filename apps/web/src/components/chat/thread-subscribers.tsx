@@ -133,6 +133,15 @@ export function ThreadSubscribers({
   openRef.current = handleOpenChange
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // In a composer ⌘⇧S is strikethrough, not this picker.
+      const target = event.target
+      if (
+        event.defaultPrevented ||
+        (target instanceof HTMLElement &&
+          (target.isContentEditable || target.matches("input, textarea")))
+      ) {
+        return
+      }
       if (
         (event.metaKey || event.ctrlKey) &&
         event.shiftKey &&
