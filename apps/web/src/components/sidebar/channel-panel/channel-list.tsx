@@ -1082,7 +1082,7 @@ function SortableChannelItem({
   const hasUnread = unreadCount > 0
   const activity = useChannelActivity(ch.id)
   const sessions = activity?.sessions ?? []
-  const sessionCollapse = useSessionCollapse(ch.id, activity?.sessions)
+  const sessionCollapse = useSessionCollapse(ch.id)
   // A collapsed channel shows the strongest state of its hidden sessions.
   const rollup = sessionCollapse.collapsed
     ? strongestSessionState(sessions)
@@ -1146,6 +1146,14 @@ function SortableChannelItem({
             <div className="ml-auto flex shrink-0 items-center gap-1.5">
               <MentionBadge count={mentionCount} />
               {rollup && <SessionStateIndicator state={rollup} />}
+              {sessionCollapse.collapsed && sessions.length > 0 && (
+                <span
+                  title={`${sessions.length} ${sessions.length === 1 ? "session" : "sessions"}`}
+                  className="text-[11px] font-normal tabular-nums text-muted-foreground"
+                >
+                  {sessions.length}
+                </span>
+              )}
               {sessions.length > 0 && (
                 <SessionCollapseToggle
                   collapsed={sessionCollapse.collapsed}

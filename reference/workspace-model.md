@@ -87,7 +87,9 @@ places.
     - Hovering the channel's # (not the row) turns it into a chevron that
       collapses the channel's sessions. A collapsed channel row shows the
       strongest state of its sessions: alert, then spinner, then dot.
-    - Starting a session in a collapsed channel expands that channel.
+    - Channels start collapsed and show their session count (2026-11-08);
+      new sessions appear in the Sessions list below instead of expanding
+      the channel.
     - "Needs you" always notifies. "Done" notifies the session's subscribers.
       Running never notifies.
     - Who is needed: a question from Lor goes to the starter (anyone in the
@@ -95,7 +97,8 @@ places.
       policies allow to approve. A mention goes to the person mentioned.
     - A cross-channel "Sessions" list sits below the channels (2026-11-08):
       sessions that need you, are running or are unread, each with its
-      channel. Channels keep their own session rows. Web only for now.
+      channel. Expanding a channel still lists its sessions. Web only for
+      now.
 13. **The sidebar shows only the sessions you are subscribed to.** See
     "Subscriptions" in the pass below. The channel's full session list shows
     everyone's sessions, so teammates can browse and join each other's work.
