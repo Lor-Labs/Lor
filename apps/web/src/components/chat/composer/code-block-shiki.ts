@@ -80,33 +80,36 @@ function loadHighlighter(): Promise<Highlighter> {
   return highlighterPromise
 }
 
-function preloadHighlighter() {
-  if (!highlighter) loadHighlighter().catch(() => undefined)
+function refreshEditors() {
+  for (const refresh of refreshers) refresh()
 }
 
-function ensureLanguage(lang: string) {
+// A focus after an offline failure also tokenizes blocks left waiting on
+// Shiki. A failure refreshes nothing, so it can't loop.
+function preloadHighlighter() {
+  if (!highlighter) loadHighlighter().then(refreshEditors, () => undefined)
+}
+
+// Load failures from the network (offline chunk loads) retry on the next edit
+// or focus, without a refresh that would retry in a tight loop. Only a name
+// Shiki doesn't bundle is marked failed, so its blocks stay plain.
+async function ensureLanguage(lang: string) {
   if (loadingLanguages.has(lang)) return
   loadingLanguages.add(lang)
-  loadHighlighter().then(
-    (instance) =>
-      instance
-        .loadLanguage(lang as BundledLanguage)
-        .then(() => {
-          loadedLanguages.add(lang)
-        })
-        .catch(() => {
-          failedLanguages.add(lang)
-        })
-        .finally(() => {
-          loadingLanguages.delete(lang)
-          for (const refresh of refreshers) refresh()
-        }),
-    // Shiki itself failed (offline): the language isn't at fault, so the next
-    // edit or focus retries. No refresh, which would retry in a tight loop.
-    () => {
+  try {
+    const instance = await loadHighlighter()
+    await instance.loadLanguage(lang as BundledLanguage)
+    loadedLanguages.add(lang)
+  } catch {
+    const shiki = await import("shiki").catch(() => null)
+    if (!shiki || Object.hasOwn(shiki.bundledLanguages, lang)) {
       loadingLanguages.delete(lang)
+      return
     }
-  )
+    failedLanguages.add(lang)
+  }
+  loadingLanguages.delete(lang)
+  refreshEditors()
 }
 
 function highlightLanguage(node: PMNode): string | null {
@@ -128,7 +131,7 @@ function blockTokens(node: PMNode, lang: string): TokenSpec[] | null {
   const cached = tokenCache.get(node)
   if (cached) return cached
   if (!highlighter || !loadedLanguages.has(lang)) {
-    ensureLanguage(lang)
+    void ensureLanguage(lang)
     return null
   }
   const { tokens } = highlighter.codeToTokens(node.textContent, {
