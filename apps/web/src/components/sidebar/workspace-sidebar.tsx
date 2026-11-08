@@ -38,6 +38,7 @@ import {
   useSidebar,
 } from "@repo/ui/components/sidebar"
 import { Skeleton } from "@repo/ui/components/skeleton"
+import { cn } from "@repo/ui/lib/utils"
 import {
   Tooltip,
   TooltipContent,
@@ -50,6 +51,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
 import { CreateInviteDialog } from "@/components/invite/create-invite-dialog"
+import { ActiveSessions } from "@/components/sidebar/channel-panel/active-sessions"
 import { ChannelActivityProvider } from "@/components/sidebar/channel-panel/channel-activity"
 import { ChannelList } from "@/components/sidebar/channel-panel/channel-list"
 import {
@@ -66,6 +68,7 @@ import {
   sidebarMenuSeparator,
   sidebarMenuSubTrigger,
   sidebarMenuSurface,
+  sidebarSectionLabel,
 } from "@/components/sidebar/sidebar-menu-styles"
 import { InstructionsApprovalAlert } from "@/components/workspace/instructions-approval-alert"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
@@ -492,7 +495,11 @@ function WorkspaceSidebarInner() {
                 workspaceSlug={activeWorkspace?.slug}
                 workspaceId={activeWorkspace?.id}
               >
+                <div className={cn(sidebarSectionLabel, "px-3 pb-1")}>
+                  Channels
+                </div>
                 <ChannelList />
+                <ActiveSessions />
               </VoicePresenceProvider>
             </ChannelActivityProvider>
           </div>
