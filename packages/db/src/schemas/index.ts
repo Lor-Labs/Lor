@@ -1,4 +1,5 @@
 export * from "./accounts"
+export * from "./agent-coordination"
 export * from "./agent-profiles"
 export * from "./agent-runs"
 export * from "./agent-sessions"

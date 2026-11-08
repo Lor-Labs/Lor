@@ -19,6 +19,7 @@ needs a link sweep over `CLAUDE.md`, `reference/` and code comments.
 
 | Doc | Covers |
 |---|---|
+| `agent-coordination.md` | Shared coordination log for code sessions (2026-11-08): `announce_changes`, append-only `agent_coordination_entry`, Details panel section |
 | `agent-harness.md` | Durable runs on the Pi path (rewritten 2026-10-22): Postgres-owned run and Pi state, per-turn saves, leases, spend-only limits, steer/stop, context meter |
 | `artifacts.md` | Artifact + version model (Postgres/R2), the session sandbox and `share_file` (rewritten 2026-10-22) |
 | `automation-primitives.md` | Triggers, effects, Act, custom tools, MCP servers |

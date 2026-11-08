@@ -335,6 +335,28 @@ export const sessionTouchesResponseSchema = z.object({
   ),
 })
 
+// A code session's view of the shared coordination log, newest first.
+export const sessionCoordinationResponseSchema = z.object({
+  entries: z.array(
+    z.object({
+      id: z.string().uuid(),
+      kind: z.enum(["intent", "overlap"]),
+      at: z.string(),
+      paths: z.array(z.string()),
+      summary: z.string(),
+      own: z.boolean(),
+      session: z.object({
+        id: z.string().uuid(),
+        title: z.string(),
+        ownerName: z.string().nullable(),
+      }),
+      otherSession: z
+        .object({ id: z.string().uuid(), title: z.string() })
+        .nullable(),
+    })
+  ),
+})
+
 const reviewAuthorSchema = z.object({
   login: z.string(),
   avatarUrl: z.string().nullable(),

@@ -73,6 +73,7 @@ import { pullRequestLink, pushCommits } from "@/lib/github-push"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import { fetchSessionContext } from "@/lib/queries/session-context"
+import { fetchSessionCoordination } from "@/lib/queries/session-coordination"
 import { fetchSessionTouches } from "@/lib/queries/session-touches"
 import { eventAuthor, postSessionEvent } from "@/lib/session-events"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
@@ -100,6 +101,7 @@ import type {
   GetSessionReviewRoute,
   GetSessionSetupRoute,
   ListChannelSessionsRoute,
+  ListSessionCoordinationRoute,
   ListSessionFilesRoute,
   ListSessionPortsRoute,
   ListSessionTouchesRoute,
@@ -290,6 +292,24 @@ export const listSessionTouches: AppRouteHandler<
     userId: c.var.user.id,
   })
   return c.json({ items }, HttpStatusCodes.OK)
+}
+
+export const listSessionCoordination: AppRouteHandler<
+  ListSessionCoordinationRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const row = await findAccessibleSession(sessionId, c.var.user.id)
+  if (!row) {
+    return c.json(
+      { success: false as const, message: "Session not found" },
+      HttpStatusCodes.NOT_FOUND
+    )
+  }
+  const entries = await fetchSessionCoordination({
+    session: row.session,
+    userId: c.var.user.id,
+  })
+  return c.json({ entries }, HttpStatusCodes.OK)
 }
 
 export const getSessionReview: AppRouteHandler<GetSessionReviewRoute> = async (

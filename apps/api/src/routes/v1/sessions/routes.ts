@@ -46,6 +46,7 @@ import {
   sessionChangeDiffResponseSchema,
   sessionChangesResponseSchema,
   sessionContextResponseSchema,
+  sessionCoordinationResponseSchema,
   sessionFilesResponseSchema,
   sessionParamsSchema,
   sessionPortsResponseSchema,
@@ -157,6 +158,31 @@ export const listSessionTouches = createRoute({
 })
 
 export type ListSessionTouchesRoute = typeof listSessionTouches
+
+export const listSessionCoordination = createRoute({
+  path: "/sessions/{sessionId}/coordination",
+  method: "get",
+  summary: "List a code session's coordination log",
+  description:
+    "Returns the shared coordination log entries for a code session: what its agent announced, overlap notes it got, and other sessions' entries on the same files, newest first.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionCoordinationResponseSchema,
+      description: "Coordination log entries",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListSessionCoordinationRoute = typeof listSessionCoordination
 
 export const getSessionReview = createRoute({
   path: "/sessions/{sessionId}/review",

@@ -27,11 +27,13 @@ import {
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import type { SessionWorkSidebarView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { SessionPanelTabs } from "@/components/sidebar/right-panel/session-changes-panel"
+import { SessionCoordinationList } from "@/components/sidebar/right-panel/session-coordination-list"
 import { SessionTouchedList } from "@/components/sidebar/right-panel/session-touched-list"
 import { MorphText } from "@/components/ui/morph-text"
 import { useSocket } from "@/context/socket-context"
 import {
   type AgentSessionDetail,
+  sessionCoordinationQueryOptions,
   sessionFilesQueryOptions,
   sessionTouchesQueryOptions,
   useAgentSession,
@@ -155,6 +157,12 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
   const { data: touched, isError: touchedFailed } = useQuery(
     sessionTouchesQueryOptions(view.sessionId)
   )
+  // Entries land mid-turn, so the log refreshes while the panel is open.
+  const { data: coordination, isError: coordinationFailed } = useQuery({
+    ...sessionCoordinationQueryOptions(view.sessionId),
+    enabled: code,
+    refetchInterval: 15_000,
+  })
   // Touches are recorded just after a run finishes; the worker announces
   // when they're saved.
   const socket = useSocket()
@@ -237,6 +245,31 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
                 {touched
                   ? "Nothing yet"
                   : touchedFailed
+                    ? "Couldn't load"
+                    : "Loading…"}
+              </PanelEmpty>
+            )}
+          </PanelSection>
+        )}
+        {code && (
+          <PanelSection
+            title="Coordination"
+            meta={
+              coordination && coordination.entries.length > 0
+                ? String(coordination.entries.length)
+                : undefined
+            }
+          >
+            {coordination && coordination.entries.length > 0 ? (
+              <SessionCoordinationList
+                entries={coordination.entries}
+                workspaceSlug={view.workspaceSlug}
+              />
+            ) : (
+              <PanelEmpty>
+                {coordination
+                  ? "No other sessions on these files"
+                  : coordinationFailed
                     ? "Couldn't load"
                     : "Loading…"}
               </PanelEmpty>

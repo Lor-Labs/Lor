@@ -55,6 +55,7 @@ import {
   type UserModelMessage,
 } from "ai"
 import { z } from "zod"
+import { coordinationTool } from "./agent-coordination"
 import {
   aiRuntimeContext,
   aiTelemetry,
@@ -1790,6 +1791,8 @@ export function toolLabel(toolName: string, input: unknown): string {
       return query ? `Searching for “${query}”` : "Searching"
     case "read_thread":
       return "Reading a thread"
+    case "announce_changes":
+      return "Announcing the files it's about to change"
     case "read_session_changes":
       return path
         ? `Reading another session's changes to ${path}`
@@ -2795,6 +2798,7 @@ async function respondImpl(
         : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.code ? sessionChangesTool : {}),
+      ...(ctx.code && ctx.threadRootId ? coordinationTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
@@ -2909,6 +2913,17 @@ async function respondImpl(
               workspaceId: ctx.workspaceId,
               privateContainerChannelId: runScope.privateContainerChannelId,
             },
+            ...(ctx.threadRootId
+              ? {
+                  announce_changes: {
+                    workspaceId: ctx.workspaceId,
+                    threadRootId: ctx.threadRootId,
+                    repoFullName: ctx.code.repoFullName,
+                    privateContainerChannelId:
+                      runScope.privateContainerChannelId,
+                  },
+                }
+              : {}),
           }
         : {}),
       ...(github
@@ -3494,7 +3509,8 @@ async function respondImpl(
           ...(await overlapNotes(
             conversationId,
             await findSessionOverlaps(overlapScope),
-            claimOverlapNotice
+            claimOverlapNotice,
+            overlapScope
           ))
         )
       }
@@ -3794,7 +3810,8 @@ async function respondImpl(
             ...(await overlapNotes(
               conversationId,
               overlaps,
-              claimOverlapNotice
+              claimOverlapNotice,
+              overlapScope
             )),
           ].map((note) => `[${note}]`),
           conversationUpdateText({ steered: update.steered, ambient }),
