@@ -93,13 +93,9 @@ places.
     - Who is needed: a question from Lor goes to the starter (anyone in the
       session can answer). An approval goes to the people the approval
       policies allow to approve. A mention goes to the person mentioned.
-    - Added 2026-11-08 (Roy): a cross-channel **Sessions** section sits
-      below the channels, labeled "Channels" and "Sessions" so the two read
-      as different things. It lists your subscribed sessions that need you,
-      are running or have unread replies, ordered the same way, each with
-      its state and channel. The header shows "N needs you". Channels keep
-      their own session rows. Mobile does not mirror this yet.
-      (`apps/web/src/components/sidebar/channel-panel/active-sessions.tsx`)
+    - A cross-channel "Sessions" list sits below the channels (2026-11-08):
+      sessions that need you, are running or are unread, each with its
+      channel. Channels keep their own session rows. Web only for now.
 13. **The sidebar shows only the sessions you are subscribed to.** See
     "Subscriptions" in the pass below. The channel's full session list shows
     everyone's sessions, so teammates can browse and join each other's work.
