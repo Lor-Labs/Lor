@@ -87,18 +87,26 @@ function preloadHighlighter() {
 function ensureLanguage(lang: string) {
   if (loadingLanguages.has(lang)) return
   loadingLanguages.add(lang)
-  loadHighlighter()
-    .then((instance) => instance.loadLanguage(lang as BundledLanguage))
-    .then(() => {
-      loadedLanguages.add(lang)
-    })
-    .catch(() => {
-      failedLanguages.add(lang)
-    })
-    .finally(() => {
+  loadHighlighter().then(
+    (instance) =>
+      instance
+        .loadLanguage(lang as BundledLanguage)
+        .then(() => {
+          loadedLanguages.add(lang)
+        })
+        .catch(() => {
+          failedLanguages.add(lang)
+        })
+        .finally(() => {
+          loadingLanguages.delete(lang)
+          for (const refresh of refreshers) refresh()
+        }),
+    // Shiki itself failed (offline): the language isn't at fault, so the next
+    // edit or focus retries. No refresh, which would retry in a tight loop.
+    () => {
       loadingLanguages.delete(lang)
-      for (const refresh of refreshers) refresh()
-    })
+    }
+  )
 }
 
 function highlightLanguage(node: PMNode): string | null {

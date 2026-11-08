@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react"
+import { useCallback, useInsertionEffect, useRef } from "react"
 
 // Same identity on every render, always calling the latest `fn`, so a
 // memoized child (MessageInput) skips the host's re-renders, e.g. Lor stream
@@ -13,7 +13,10 @@ export function useStableCallback<Args extends unknown[], Result>(
   fn: ((...args: Args) => Result) | undefined
 ) {
   const ref = useRef(fn)
-  ref.current = fn
+  // Committed renders only: a discarded concurrent render can't swap it.
+  useInsertionEffect(() => {
+    ref.current = fn
+  })
   const stable = useCallback(
     (...args: Args) => ref.current?.(...args) as Result,
     []
