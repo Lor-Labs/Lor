@@ -12,6 +12,7 @@ import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { browserStep, needsBrowserControl } from "@repo/utils/browser-step"
 import { useMutation } from "@tanstack/react-query"
+import { AnimatePresence, motion } from "motion/react"
 import { useEffect, useRef, useState } from "react"
 import type { SessionBrowserAnnotations } from "@/components/sidebar/right-panel/session-browser-annotations"
 import { useSocket } from "@/context/socket-context"
@@ -35,7 +36,11 @@ type BridgeMessage =
       role: "control" | "watch"
       controller: BrowserController
     }
-  | { source: "lor-browser"; type: "input" | "disconnected" | "expired" }
+  | { source: "lor-browser"; type: "freeze"; image: string | null }
+  | {
+      source: "lor-browser"
+      type: "input" | "disconnected" | "expired" | "picture"
+    }
 
 const RETRY_MS = [300, 1000, 2000, 5000, 10_000]
 const HIDDEN_PAUSE_MS = 2 * 60_000
@@ -45,6 +50,10 @@ const LOAD_TIMEOUT_MS = 30_000
 const STEP_FRESH_MS = 8_000
 // Give up on showing "Switching control…" if the reload never lands.
 const SWITCH_TIMEOUT_MS = 10_000
+// A switch that lands sooner shows no "Switching control…" at all.
+const SWITCH_NOTICE_MS = 700
+// The last picture covers the page's reload until its first frame, at most this.
+const FREEZE_MAX_MS = 8_000
 // Lor asked for the browser: the controller's idle time before it goes back.
 const IDLE_HAND_BACK_MS = 15_000
 // lor-browser gives up waiting for control after CONTROL_WAIT_SECONDS (45 s):
@@ -84,6 +93,9 @@ export function useSessionBrowserLive(
   const [role, setRole] = useState<"control" | "watch">("watch")
   const [controller, setController] = useState<BrowserController>(null)
   const [switching, setSwitching] = useState(false)
+  const [slowSwitch, setSlowSwitch] = useState(false)
+  // The picture from before a role-change reload, shown over the page.
+  const [frozen, setFrozen] = useState<string | null>(null)
   const [lorStep, setLorStep] = useState<{
     text: string
     running: boolean
@@ -150,6 +162,10 @@ export function useSessionBrowserLive(
         setConnected(true)
         setEverConnected(true)
         setSwitching(false)
+      } else if (msg.type === "freeze") {
+        if (msg.image) setFrozen(msg.image)
+      } else if (msg.type === "picture") {
+        setFrozen(null)
       } else if (msg.type === "input") {
         lastInputAt.current = Date.now()
       } else if (msg.type === "disconnected") {
@@ -166,6 +182,7 @@ export function useSessionBrowserLive(
       window.removeEventListener("message", onMessage)
       setUrl(null)
       setConnected(false)
+      setFrozen(null)
     }
   }, [enabled, paused, unavailable, failed, attempt, sessionId])
 
@@ -245,6 +262,12 @@ export function useSessionBrowserLive(
     return () => clearTimeout(timer)
   }, [switching])
 
+  useEffect(() => {
+    if (!frozen) return
+    const timer = setTimeout(() => setFrozen(null), FREEZE_MAX_MS)
+    return () => clearTimeout(timer)
+  }, [frozen])
+
   const control = useMutation({
     mutationFn: async (take: boolean) => {
       const res = await apiClient.v1.sessions[
@@ -255,17 +278,39 @@ export function useSessionBrowserLive(
       }
       return res.json()
     },
-    onMutate: () => setSwitching(true),
+    // Optimistic: the panel shows the new controller at once; the view
+    // follows when the page reloads in its new role.
+    onMutate: (take) => {
+      setSwitching(true)
+      const previous = controller
+      setController(
+        take && myId ? { userId: myId, name: auth?.user.name ?? "You" } : null
+      )
+      return { previous }
+    },
     onSuccess: (result) => setController(result.controller),
-    onError: (err) => {
+    onError: (err, _take, context) => {
       setSwitching(false)
+      if (context) setController(context.previous)
       toast.error(err.message)
     },
   })
 
-  // Right after taking control the view is still reconnecting as a viewer.
+  const switchingNow = switching || control.isPending
+  useEffect(() => {
+    if (!switchingNow) {
+      setSlowSwitch(false)
+      return
+    }
+    const timer = setTimeout(() => setSlowSwitch(true), SWITCH_NOTICE_MS)
+    return () => clearTimeout(timer)
+  }, [switchingNow])
+
+  // Right after taking control the view is still reconnecting as a viewer;
+  // right after handing back it is still a controller until it reloads.
   const youControl =
-    role === "control" || (myId !== null && controller?.userId === myId)
+    (myId !== null && controller?.userId === myId) ||
+    (role === "control" && !switchingNow)
   const lorWants =
     lorWaiting !== null && controller !== null && kept !== lorWaiting
 
@@ -306,7 +351,10 @@ export function useSessionBrowserLive(
     controller,
     youControl,
     otherControls: controller !== null && !youControl,
-    switching: switching || control.isPending,
+    switching: switchingNow,
+    // Only a switch that takes a while says so.
+    slowSwitch,
+    frozen,
     lorStep,
     expanded,
     setExpanded,
@@ -368,7 +416,7 @@ export function SessionBrowserLiveView({
       spinner
     />
   ) : null
-  const corner = live.switching
+  const corner = live.slowSwitch
     ? "Switching control…"
     : live.everConnected && !live.connected && !live.paused && !live.failed
       ? "Reconnecting…"
@@ -408,6 +456,18 @@ export function SessionBrowserLiveView({
               className="absolute inset-0 size-full border-0"
             />
           )}
+          <AnimatePresence>
+            {live.frozen && (
+              <motion.img
+                key="frozen"
+                src={live.frozen}
+                alt=""
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="pointer-events-none absolute inset-0 size-full"
+              />
+            )}
+          </AnimatePresence>
           {center}
           {corner && (
             <FramePill className="absolute top-2 left-2">
@@ -485,7 +545,7 @@ function BrowserFooter({
   annotations?: SessionBrowserAnnotations
 }) {
   const asking = live.youControl && live.lorWants
-  const status = live.switching
+  const status = live.slowSwitch
     ? "Switching control…"
     : asking
       ? `Lor wants the browser. It goes back in ${live.handBackIn ?? 15} s unless you keep using it.`

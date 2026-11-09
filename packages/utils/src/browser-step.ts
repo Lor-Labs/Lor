@@ -4,7 +4,9 @@
 // stored label keeps the command. Null for any other command, and for
 // chained ones, which stay as the command Lor ran.
 
-export type BrowserStep = { verb: string; target: string | null }
+// `show`: Lor showing people the browser (`lor-browser show [url]`); the app
+// opens the session's Browser tab and the chat shows a card.
+export type BrowserStep = { verb: string; target: string | null; show?: true }
 
 const CHAINED = /&&|\|\||[;|`\n]|\$\(/
 const TOKENS = /"[^"]*"|'[^']*'|\S+/g
@@ -70,7 +72,10 @@ export function needsBrowserControl(command: string): boolean {
   const name = (text.match(TOKENS) ?? [])
     .slice(1)
     .find((token) => !token.startsWith("-"))
-  return name !== undefined && !OBSERVE_ONLY.has(unquote(name))
+  if (name === undefined) return false
+  // `show` without a page only points people at the browser.
+  if (unquote(name) === "show") return browserStep(text)?.target != null
+  return !OBSERVE_ONLY.has(unquote(name))
 }
 
 export function browserStep(command: string): BrowserStep | null {
@@ -84,6 +89,11 @@ export function browserStep(command: string): BrowserStep | null {
   if (!name) return { verb: "Used the browser", target: null }
   if (name === "open" && first)
     return { verb: "Opened", target: shortUrl(first) }
+  if (name === "show") {
+    return first
+      ? { verb: "Showed", target: shortUrl(first), show: true }
+      : { verb: "Showed the browser", target: null, show: true }
+  }
   if (name === "tab") {
     if (first === "new" && second) {
       return { verb: "Opened a tab at", target: shortUrl(second) }
