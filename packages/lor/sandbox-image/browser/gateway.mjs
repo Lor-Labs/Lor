@@ -411,6 +411,8 @@ function relay(client, upstream, grant, role) {
   upstream.on("error", close)
   client.on("close", close)
   client.on("error", close)
+  // Control changed while Selkies was answering: that sync missed this stream.
+  if (roleFor(stream.userId) !== role) close(ROLE_CHANGED)
 }
 
 server.on("upgrade", async (req, socket, head) => {
