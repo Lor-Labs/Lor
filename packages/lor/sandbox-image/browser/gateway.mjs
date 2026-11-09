@@ -103,7 +103,11 @@ async function syncControl() {
     for (const l of listeners) l.ws.send(controlMessage(l.userId))
     if (stale.length > 0) {
       setTimeout(() => {
-        for (const c of stale) c.ws.close(ROLE_CHANGED, "role changed")
+        for (const c of stale) {
+          if (streams.has(c) && roleFor(c.userId) !== c.role) {
+            c.ws.close(ROLE_CHANGED, "role changed")
+          }
+        }
       }, ROLE_CLOSE_DELAY_MS)
     }
   }

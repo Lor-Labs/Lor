@@ -92,6 +92,13 @@ export function useSessionBrowserLive(
   const [failed, setFailed] = useState<string | null>(null)
   const [role, setRole] = useState<"control" | "watch">("watch")
   const [controller, setController] = useState<BrowserController>(null)
+  // Counts controller updates from the API, the page and the socket, so a
+  // failed switch rolls back only if none came in meanwhile.
+  const controllerUpdates = useRef(0)
+  const learnController = (next: BrowserController) => {
+    controllerUpdates.current += 1
+    setController(next)
+  }
   const [switching, setSwitching] = useState(false)
   const [slowSwitch, setSlowSwitch] = useState(false)
   // The picture from before a role-change reload, shown over the page.
@@ -139,7 +146,7 @@ export function useSessionBrowserLive(
         return
       }
       setRole(view.role)
-      setController(view.controller)
+      learnController(view.controller)
       setUrl(view.url)
       retry = setTimeout(
         () => retryLater("The live view didn't load"),
@@ -158,7 +165,7 @@ export function useSessionBrowserLive(
         if (retry) clearTimeout(retry)
         failures.current = 0
         setRole(msg.role)
-        setController(msg.controller)
+        learnController(msg.controller)
         setConnected(true)
         setEverConnected(true)
         setSwitching(false)
@@ -207,7 +214,7 @@ export function useSessionBrowserLive(
       sessionId: string
       controller: BrowserController
     }) => {
-      if (payload.sessionId === sessionId) setController(payload.controller)
+      if (payload.sessionId === sessionId) learnController(payload.controller)
     }
     socket.on("session:browser:control", onControl)
     return () => {
@@ -286,12 +293,14 @@ export function useSessionBrowserLive(
       setController(
         take && myId ? { userId: myId, name: auth?.user.name ?? "You" } : null
       )
-      return { previous }
+      return { previous, updates: controllerUpdates.current }
     },
     onSuccess: (result) => setController(result.controller),
     onError: (err, _take, context) => {
       setSwitching(false)
-      if (context) setController(context.previous)
+      if (context && context.updates === controllerUpdates.current) {
+        setController(context.previous)
+      }
       toast.error(err.message)
     },
   })
