@@ -241,8 +241,9 @@ first load). The client behavior is the same.
     buttons open them.
   - `previews.ts` now: `listOpenPorts` (Node script over `/proc/net/tcp*`:
     listening ports, loopback-only flag, owning process; hides 8080, 8790,
-    7681 and relays) and `openPort` (a preview of a `proxy2-<port>` Node
-    HTTP proxy on 20000 + port % 10000 for every server; tries 127.0.0.1
+    7681 and relays) and `openPort` (a preview of a `proxy-<port>-<proxy>`
+    Node HTTP proxy on the first free port in 10000-29999 from
+    20000 + port % 10000, reused while it runs; tries 127.0.0.1
     then ::1, and rewrites a same-origin `Origin` from the preview host to
     `http://localhost:<port>` so Next 16's dev guard allows HMR, LOR-133;
     hop-by-hop headers stay on their own side, LOR-157).
@@ -368,8 +369,10 @@ first load). The client behavior is the same.
   drops them both ways and uses its own agent (not the env-proxied global
   one). Its readiness check asks the proxy itself (an `x-lor-proxy-check`
   header it answers without the app), instead of waiting up to 1 s for the
-  app's `GET /`. The proxy moved to 20000 + port % 10000 as
-  `proxy2-<port>` / `port-<port>-proxy2`, below the ephemeral range, so
-  running sandboxes start the new proxy instead of reusing the old one; an
-  app on 20000-29999 gets 10000 + port % 10000 instead of its own port.
+  app's `GET /`. The proxy moved below the ephemeral range: the first port
+  in 10000-29999 from 20000 + port % 10000 that no listener holds (an app on
+  23000 beside one on 3000), named in its process (`proxy-<port>-<proxy>`)
+  and preview (`port-<port>-via-<proxy>`). A running proxy carries
+  `lor-proxy-for=<port>` on its command line, so the port scan finds and
+  reuses it; older proxies only take up their ports.
   Not verified against a live Blaxel preview.
