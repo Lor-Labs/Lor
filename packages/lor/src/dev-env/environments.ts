@@ -6,7 +6,10 @@ import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { logger } from "../logger"
-import { attachSessionSandbox } from "../sandbox/session-sandbox"
+import {
+  attachSessionSandbox,
+  deleteSessionSandbox,
+} from "../sandbox/session-sandbox"
 import { sessionWorkDir } from "./work-dir"
 
 // A code session's environment, written into its work folder each turn
@@ -31,20 +34,48 @@ export async function environmentSandboxMemoryMb(
   return row?.memoryMb ?? null
 }
 
-// The same through the session (a restore that creates the sandbox).
+// The same through the session (a restore that creates the sandbox): the
+// session's own size first, then its environment's.
 export async function sessionSandboxMemoryMb(
   sessionId: string
 ): Promise<number | null> {
   const [row] = await db
-    .select({ memoryMb: schema.environment.sandboxMemoryMb })
+    .select({
+      sessionMb: schema.agentSession.sandboxMemoryMb,
+      environmentMb: schema.environment.sandboxMemoryMb,
+    })
     .from(schema.agentSession)
-    .innerJoin(
+    .leftJoin(
       schema.environment,
       eq(schema.agentSession.environmentId, schema.environment.id)
     )
     .where(eq(schema.agentSession.id, sessionId))
     .limit(1)
-  return row?.memoryMb ?? null
+  return row?.sessionMb ?? row?.environmentMb ?? null
+}
+
+// The size a code session's next sandbox gets: its own pick, then its
+// environment's, then the default.
+export async function effectiveSandboxMemoryMb(input: {
+  sandboxMemoryMb: number | null
+  environmentId: string | null
+}): Promise<number> {
+  return (
+    input.sandboxMemoryMb ??
+    (await environmentSandboxMemoryMb(input.environmentId)) ??
+    env.LOR_CODE_SANDBOX_MEMORY_MB
+  )
+}
+
+// A new size needs a new sandbox: Blaxel can't resize one in place. The next
+// open creates it at the session's size and restores the newest checkpoint.
+// False when the session had none.
+export async function dropSessionSandbox(sessionId: string): Promise<boolean> {
+  const existing = await attachSessionSandbox({ sessionId })
+  if (!existing) return false
+  existing.close()
+  await deleteSessionSandbox({ sessionId })
+  return true
 }
 
 const HEADER =

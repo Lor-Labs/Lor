@@ -565,6 +565,7 @@ export function createLorRespondProcessor(
                     baseBranch: schema.agentSession.baseBranch,
                     newBranch: schema.agentSession.newBranch,
                     environmentId: schema.agentSession.environmentId,
+                    sandboxMemoryMb: schema.agentSession.sandboxMemoryMb,
                     sourceSessionId: schema.agentSession.sourceSessionId,
                     forkedFromMessageId:
                       schema.agentSession.forkedFromMessageId,
@@ -1072,6 +1073,7 @@ export function createLorRespondProcessor(
                         baseBranch: session.baseBranch,
                         newBranch: session.newBranch,
                         environmentId: session.environmentId,
+                        sandboxMemoryMb: session.sandboxMemoryMb,
                       },
                     }
                   : {}),

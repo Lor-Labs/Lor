@@ -113,6 +113,7 @@ export function useSessionStart({
         start.code?.newBranch ??
         (start.code?.autoBranch ? lorBranchName(start.id) : null),
       environmentId: start.code?.environmentId ?? null,
+      sandboxMemoryMb: null,
       uncommittedAdditions: null,
       uncommittedDeletions: null,
       sourceSessionId: start.source?.id ?? null,

@@ -107,6 +107,15 @@ export const lorToolCallSchema = z.object({
       })
     )
     .optional(),
+  setup: z
+    .object({
+      sessionId: z.string(),
+      environmentId: z.string().optional(),
+      environmentName: z.string().optional(),
+      sandboxMemoryMb: z.number().int().optional(),
+      reason: z.string(),
+    })
+    .optional(),
   status: z.enum(["ok", "error"]).optional(),
 })
 
