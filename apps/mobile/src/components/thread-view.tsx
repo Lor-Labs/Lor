@@ -309,26 +309,33 @@ export function ThreadView({
   const lineTotals = changeTotals(
     changes?.state === "ready" ? changes.files : []
   )
-  // Claude Code answers only messages from people with their own Claude
-  // subscription; the server sends the rest to the session's people. Hosted
-  // beta answers only its harnesses (Lor and Claude Code), so Codex and
-  // anything else stay people-only while it is on.
+  // Claude Code and Codex answer only messages from people with their own
+  // Claude subscription or ChatGPT plan; the server sends the rest to the
+  // session's people. Hosted beta answers only its harnesses, so anything
+  // else stays people-only while it is on.
   const { data: betaAvailability } = useBetaAvailability()
   const harnessEnabled =
     !lorSession ||
     (isHarnessEnabled(lorSession.harness) &&
       (betaAvailability?.enabled !== true ||
         isHarnessAllowedInBeta(lorSession.harness)))
-  const claudeCode = harnessEnabled && lorSession?.harness === "claude_code"
-  const { data: accounts } = usePersonalAccounts(claudeCode)
-  const withoutClaude =
-    claudeCode &&
+  const subscriptionHarness =
+    harnessEnabled &&
+    (lorSession?.harness === "claude_code" || lorSession?.harness === "codex")
+      ? lorSession.harness
+      : null
+  const { data: accounts } = usePersonalAccounts(subscriptionHarness !== null)
+  const subscription =
+    subscriptionHarness === "codex" ? accounts?.chatgpt : accounts?.claude
+  const withoutSubscription =
+    subscriptionHarness !== null &&
     !lorSession?.archivedAt &&
-    accounts !== undefined &&
-    accounts.claude.account == null
+    subscription !== undefined &&
+    subscription.account == null
   // The session's agent answers this person's messages, which carry the
   // model, effort and fast mode picked in the composer.
-  const agentAnswers = Boolean(lorSession) && harnessEnabled && !withoutClaude
+  const agentAnswers =
+    Boolean(lorSession) && harnessEnabled && !withoutSubscription
   const modelChoice = useModelChoice(
     lorSession?.harness ?? "pi",
     agentAnswers,
@@ -675,7 +682,7 @@ export function ThreadView({
                 lorSession ? "session" : startsSessions ? "thread" : undefined
               }
               initialDraft={composerDraft}
-              peopleOnly={!harnessEnabled || withoutClaude}
+              peopleOnly={!harnessEnabled || withoutSubscription}
               subscribers={otherSubscribers}
               channelId={channelId}
               channelName={channelName}
@@ -746,12 +753,14 @@ export function ThreadView({
                         Lor to keep working.
                       </Text>
                     </View>
-                  ) : withoutClaude ? (
+                  ) : withoutSubscription ? (
                     <View className="mb-two rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
                       <Text className="text-[13px] text-muted">
-                        Claude Code answers people on their own Claude
-                        subscription. Your messages here go to the people in the
-                        session. Connect yours in Lor on the web or desktop.
+                        {subscriptionHarness === "codex"
+                          ? "Codex answers people on their own ChatGPT plan."
+                          : "Claude Code answers people on their own Claude subscription."}{" "}
+                        Your messages here go to the people in the session.
+                        Connect yours in Lor on the web or desktop.
                       </Text>
                     </View>
                   ) : (

@@ -3,11 +3,11 @@ import { useMemo, useState } from "react"
 import { useBetaAvailability } from "@/hooks/use-beta-availability"
 
 // Which agent runs a code session, fixed at its start
-// (reference/planned/code-sessions-runbook.md chunks 7 and 8): Lor's own,
-// Claude Code on the starter's own Claude subscription, or Codex on Lor
-// credits. Picked with its model in the New session view's ModelPicker.
-// Hosted beta allows Lor and Claude Code (the person's own subscription) and
-// hides the rest; the server enforces the same set in `assertHostedHarness`.
+// (reference/planned/code-sessions-runbook.md chunks 7 and 8f): Lor's own,
+// Claude Code on each sender's own Claude subscription, or Codex on their own
+// ChatGPT plan. Picked with its model in the New session view's ModelPicker.
+// Hosted beta hides any harness outside `HOSTED_BETA_HARNESSES`; the server
+// enforces the same set in `assertHostedHarness`.
 
 export type SessionHarness = "pi" | "claude_code" | "codex"
 
@@ -25,14 +25,13 @@ export const HARNESS_TOOLTIPS: Record<SessionHarness, string> = {
   pi: "Lor's own agent, using workspace credits or its API key.",
   claude_code:
     "Runs on your own Claude Pro or Max plan. Each person's messages use their own plan.",
-  codex: "OpenAI's coding agent, on Lor credits.",
+  codex:
+    "Runs on your own ChatGPT plan. Each person's messages use their own plan.",
 }
 
 const HARNESS_KEY = "lor:new-session-harness"
 
-// Hosted beta offers only its harnesses, whatever the feature flags say
-// (Codex is enabled by its flag alone, but the beta doesn't run credit-funded
-// agents).
+// Hosted beta offers only its harnesses, whatever the feature flags say.
 function availableHarnesses(betaEnabled: boolean): readonly SessionHarness[] {
   return betaEnabled ? HARNESSES.filter(isHarnessAllowedInBeta) : HARNESSES
 }
@@ -69,7 +68,7 @@ export function useSessionHarness(
       localStorage.setItem(HARNESS_KEY, next)
     } catch {}
   }
-  // A saved Codex pick (or a `?harness=` link) falls back to Lor once the
-  // beta is known to be on; the state itself is left alone.
+  // A saved pick (or a `?harness=` link) the beta doesn't offer falls back to
+  // Lor once the beta is known to be on; the state itself is left alone.
   return [allowed(harness) ? harness : "pi", change]
 }

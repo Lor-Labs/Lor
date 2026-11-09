@@ -33,6 +33,9 @@ export const personalAccountProviderEnum = pgEnum("personal_account_provider", [
   // A Claude subscription for the person's own Claude Code turns: the token
   // `claude setup-token` prints (code-sessions-runbook.md chunk 7).
   "claude",
+  // A ChatGPT plan for the person's own Codex turns: the tokens `codex login`
+  // saves in auth.json (code-sessions-runbook.md chunk 8f).
+  "chatgpt",
 ])
 
 export const personalAccount = pgTable(
@@ -49,10 +52,13 @@ export const personalAccount = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     provider: personalAccountProviderEnum("provider").notNull(),
     // The provider's user id (GitHub's numeric id). Claude: a fingerprint of
-    // the token, which carries no account identity.
+    // the token, which carries no account identity. ChatGPT: the account id
+    // Codex sends as ChatGPT-Account-ID.
     externalId: text("external_id").notNull(),
     // Claude: the token's last four characters, to tell tokens apart.
+    // ChatGPT: the sign-in's email.
     login: text("login").notNull(),
+    // ChatGPT: the plan ("plus", "pro"), as the token names it.
     name: text("name"),
     // The primary verified email, for commit authorship; null when the
     // provider didn't share it.
@@ -60,7 +66,8 @@ export const personalAccount = pgTable(
     avatarUrl: text("avatar_url"),
     // Encrypted at rest (AES-256-GCM, INTEGRATION_ENCRYPTION_KEY). GitHub App
     // user tokens expire after 8 hours; the refresh token rotates on use.
-    // Claude setup tokens last a year and have no refresh token.
+    // Claude setup tokens last a year and have no refresh token. ChatGPT
+    // access tokens last about an hour; the refresh token rotates on use.
     accessToken: text("access_token").notNull(),
     accessTokenExpiresAt: timestamp("access_token_expires_at"),
     refreshToken: text("refresh_token"),

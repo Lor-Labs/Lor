@@ -189,18 +189,27 @@ so existing files stay valid, and gains one optional field per service.
   (`LOR_CODE_SANDBOX_MEMORY_MB`). The API accepts only 8192 and 16384 for
   now. Code sessions only; chat sessions keep their size.
 - `createSessionSandbox` reads it through the session's
-  `agent_session.environment_id`. A sandbox keeps its size until it is
-  replaced, as today. Applying a new size to a live session (replace the
-  sandbox, restore from the newest checkpoint) is a later action, not v1.
+  `agent_session.environment_id`, after the session's own
+  `agent_session.sandbox_memory_mb` (LOR-156). A sandbox keeps its size until
+  it is replaced.
+- **Live sessions** (LOR-156, built 2026-11-09). The session menu's
+  Environment & sandbox (`PATCH /sessions/{id}/setup`, anyone who can write
+  in the channel) picks the session's environment and size, also for a
+  session started without an environment. A new size replaces the sandbox:
+  it is deleted, recreated at the new size and restored from the newest
+  checkpoint (installed packages, running servers and edits since Lor's last
+  turn are lost), then gets the environment's files. Refused while Lor is
+  working. A `session_setup_changed` event tells the people and Lor.
 - The environment editor shows the cost: 1.25 credits per GB-hour, so 16 GB
   costs 20 credits an hour while it runs. In the beta that also doubles
   Lor's subsidy per sandbox-hour (`beta-pricing-runbook.md`, Cost basis).
   Hosted beta caps the size at 16 GB.
 - **Lor asks.** When builds, servers or the browser die from lack of memory
   (exit 137, `Killed`, all processes restarted after an out-of-memory
-  crash), Lor says so and names the larger size. When change proposals
-  (`change-proposals.md`) can carry it, Lor files an operation that sets
-  `sandbox_memory_mb` and that a manager approves.
+  crash), Lor says so and calls `suggest_session_setup`
+  (`packages/lor/src/dev-env/session-setup.ts`): its result is a card in
+  the session that opens Environment & sandbox with the suggestion picked. It
+  suggests an environment the same way when the work lacks env vars.
 
 ### 3. Browser process
 
@@ -692,8 +701,6 @@ Each step is a review chunk of about 300–400 lines.
 - **Multi-repo.** One environment with several repos and one sandbox. Each
   repo is cloned into its own folder, and its file's services are named
   `repo/service`. Profiles that span repos live on the environment.
-- **Resize a live session.** Replace the sandbox at the new size and restore
-  from the newest checkpoint.
 - **Larger sizes** (32 GB) once there's real demand and a price.
 - **Annotations that stay on the page** across reloads, anchored by selector
   and text, and component source paths for picked elements.

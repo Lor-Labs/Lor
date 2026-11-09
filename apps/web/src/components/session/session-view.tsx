@@ -39,15 +39,16 @@ import { ThreadSubscribers } from "@/components/chat/thread-subscribers"
 import { HeaderNavControls } from "@/components/desktop-titlebar"
 import { ActWaitingNote } from "@/components/session/act-waiting-note"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
-import { EnvironmentDialog } from "@/components/session/environment-dialog"
 import { HarnessLogo } from "@/components/session/harness-logo"
 import { HARNESS_LABELS } from "@/components/session/harness-picker"
 import { SessionContextFold } from "@/components/session/session-context-fold"
 import { SessionDocument } from "@/components/session/session-document"
+import { SessionSetupDialog } from "@/components/session/session-setup-dialog"
 import {
   SessionTabBar,
   SessionTabView,
 } from "@/components/session/session-tabs"
+import { ChatgptConnectDialog } from "@/components/settings/chatgpt-connect-dialog"
 import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionPanelView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -63,7 +64,6 @@ import {
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
-import { environmentsQueryOptions } from "@/hooks/use-environments"
 import { useLorBrowserShow } from "@/hooks/use-lor-browser-show"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
@@ -83,7 +83,6 @@ import {
   findSidebarSession,
   patchSidebarSession,
 } from "@/hooks/use-workspace-activity"
-import { apiClient } from "@/lib/api-client"
 import { clearLastSessionId, writeLastSession } from "@/lib/last-location"
 import { readSessionPanel, writeSessionPanel } from "@/lib/session-panel-memory"
 
@@ -333,26 +332,34 @@ function SessionConversation({
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null
   const [renaming, setRenaming] = useState(false)
-  // Claude Code answers only messages from people with their own Claude
-  // subscription; the server sends the rest to the session's people
-  // (code-sessions-runbook.md chunk 7).
+  // Claude Code and Codex answer only messages from people with their own
+  // Claude subscription or ChatGPT plan; the server sends the rest to the
+  // session's people (code-sessions-runbook.md chunks 7 and 8f).
   const { data: accounts } = usePersonalAccounts()
-  const [connectingClaude, setConnectingClaude] = useState(false)
+  const [connecting, setConnecting] = useState(false)
   const harnessEnabled = isHarnessEnabled(session.harness)
-  const withoutClaude =
+  const subscription =
+    session.harness === "claude_code"
+      ? accounts?.claude
+      : session.harness === "codex"
+        ? accounts?.chatgpt
+        : undefined
+  const withoutSubscription =
     harnessEnabled &&
-    session.harness === "claude_code" &&
     !session.archivedAt &&
-    accounts !== undefined &&
-    accounts.claude.account == null
+    subscription !== undefined &&
+    subscription.account == null
 
   return (
     <SessionDocument
       harness={session.harness}
       harnessCommands={session.harnessCommands}
       claudeCode={
-        harnessEnabled && session.harness === "claude_code" && !withoutClaude
+        harnessEnabled &&
+        session.harness === "claude_code" &&
+        !withoutSubscription
       }
+      withoutSubscription={withoutSubscription}
       composerNote={
         !harnessEnabled ? (
           <p className="text-sm text-muted-foreground">
@@ -360,10 +367,11 @@ function SessionConversation({
             people in this session. Start a new session with Lor to keep
             working.
           </p>
-        ) : withoutClaude ? (
+        ) : withoutSubscription ? (
           <>
-            <ClaudeCodeNote
-              onConnect={() => setConnectingClaude(true)}
+            <SubscriptionNote
+              harness={session.harness === "codex" ? "codex" : "claude_code"}
+              onConnect={() => setConnecting(true)}
               onContinueWithLor={() =>
                 void navigate({
                   to: "/$workspaceSlug/session/new",
@@ -376,10 +384,17 @@ function SessionConversation({
                 })
               }
             />
-            <ClaudeConnectDialog
-              open={connectingClaude}
-              onOpenChange={setConnectingClaude}
-            />
+            {session.harness === "codex" ? (
+              <ChatgptConnectDialog
+                open={connecting}
+                onOpenChange={setConnecting}
+              />
+            ) : (
+              <ClaudeConnectDialog
+                open={connecting}
+                onOpenChange={setConnecting}
+              />
+            )}
           </>
         ) : session.origin === "trigger" ? (
           <ActWaitingNote
@@ -506,28 +521,8 @@ function SessionStrip({
   const archived = session.archivedAt !== null
   const [tooltipHandle] = useState(() => TooltipCreateHandle<string>())
   const [confirmArchive, setConfirmArchive] = useState(false)
-  const [editEnvironment, setEditEnvironment] = useState(false)
-  const environments = useQuery(
-    environmentsQueryOptions(
-      workspaceSlug,
-      session.environmentId && !archived ? session.repoFullName : null
-    )
-  )
-  const environment =
-    environments.data?.environments.find(
-      (env) => env.id === session.environmentId
-    ) ?? null
-  const applyEnvironment = async () => {
-    const res = await apiClient.v1.sessions[":sessionId"].environment.apply
-      .$post({ param: { sessionId: session.id } })
-      .catch(() => null)
-    const applied = res?.ok ? (await res.json()).applied : false
-    toast.success(
-      applied
-        ? "Environment saved and written to this session"
-        : "Environment saved. Lor writes it on its next turn"
-    )
-  }
+  const [editSetup, setEditSetup] = useState(false)
+  const codeSession = session.mode === "code" && Boolean(session.repoFullName)
   // The session itself, without an open tab or highlighted message.
   const copyLink = () =>
     void navigator.clipboard
@@ -598,10 +593,10 @@ function SessionStrip({
               <HugeiconsIcon icon={SourceCodeIcon} strokeWidth={2} />
               Continue in Code
             </DropdownMenuItem>
-            {environment && environments.data?.canManage && (
-              <DropdownMenuItem onClick={() => setEditEnvironment(true)}>
+            {codeSession && !archived && (
+              <DropdownMenuItem onClick={() => setEditSetup(true)}>
                 <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
-                Environment
+                Environment & sandbox
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={copyLink}>
@@ -635,39 +630,40 @@ function SessionStrip({
         onOpenChange={setConfirmArchive}
         onConfirm={onArchive}
       />
-      {environment && session.repoFullName && (
-        <EnvironmentDialog
-          open={editEnvironment}
-          onOpenChange={setEditEnvironment}
+      {codeSession && (
+        <SessionSetupDialog
+          open={editSetup}
+          onOpenChange={setEditSetup}
           workspaceSlug={workspaceSlug}
-          repo={session.repoFullName}
-          environment={environment}
-          onSaved={() => void applyEnvironment()}
-          note="Saving writes the files into this session. A running dev server loads them when it restarts."
+          session={session}
+          lorRunning={lorRunning}
         />
       )}
     </div>
   )
 }
 
-function ClaudeCodeNote({
+function SubscriptionNote({
+  harness,
   onConnect,
   onContinueWithLor,
 }: {
+  harness: "claude_code" | "codex"
   onConnect: () => void
   onContinueWithLor: () => void
 }) {
+  const plan = harness === "codex" ? "ChatGPT plan" : "Claude subscription"
   return (
     <div className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
       <span className="min-w-0 flex-1">
-        Claude Code answers people on their own Claude subscription. Your
-        messages here go to the people in the session.
+        {harness === "codex" ? "Codex" : "Claude Code"} answers people on their
+        own {plan}. Your messages here go to the people in the session.
       </span>
       <Button size="xs" variant="ghost" onClick={onContinueWithLor}>
         Continue with Lor
       </Button>
       <Button size="xs" onClick={onConnect}>
-        Connect your Claude subscription
+        Connect your {plan}
       </Button>
     </div>
   )

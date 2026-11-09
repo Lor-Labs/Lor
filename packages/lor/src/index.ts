@@ -95,6 +95,11 @@ import {
   resolveWorkspaceCapabilities,
 } from "./capabilities"
 import {
+  type ChatgptCredential,
+  chatgptCredential,
+  saveChatgptModels,
+} from "./chatgpt-account"
+import {
   classifyToken,
   extractCitationTokens,
   prefixedTokenId,
@@ -106,7 +111,7 @@ import { claudeStoredTokenCheck, saveClaudeModels } from "./claude-account"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { cloneRepoTool } from "./code"
 import { codeSandboxIn } from "./code-changes"
-import { writeCheckpoint } from "./code-checkpoints"
+import { waitForCheckpoints, writeCheckpoint } from "./code-checkpoints"
 import {
   type CodeWorkFolder,
   codeSessionPromptSection,
@@ -116,9 +121,10 @@ import {
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import {
-  environmentSandboxMemoryMb,
+  sessionSandboxMemoryMb,
   writeEnvironmentFiles,
 } from "./dev-env/environments"
+import { sessionSetupTool } from "./dev-env/session-setup"
 import { embedBrainQueryWithUsage } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import {
@@ -217,8 +223,8 @@ import {
   sandboxToolApproval,
 } from "./sandbox/sandbox-approval"
 import {
+  CHATGPT_TOKEN_PLACEHOLDER,
   CLAUDE_TOKEN_PLACEHOLDER,
-  GATEWAY_KEY_PLACEHOLDER,
   grantHarnessAccess,
   HARNESS_BRIDGE_PORT,
   harnessBridgeEndpoint,
@@ -239,7 +245,6 @@ import {
 import {
   CODEX_BINDING,
   CODEX_DEFAULT_MODEL,
-  codexGatewayModel,
   runCodexTurn,
 } from "./session-core/codex-runtime"
 import {
@@ -294,6 +299,10 @@ for (const name of Object.keys(webTools)) {
   if (!builtinApprovalTool(name))
     throw new Error(`Tool ${name} needs a STANDALONE_TOOLS entry`)
 }
+
+// How often a running Codex turn checks its ChatGPT token, which is refreshed
+// with 20 minutes left (chatgpt-account.ts).
+const CHATGPT_TOKEN_CHECK_MS = 10 * 60_000
 
 // Step cap for the background write-back pass only; the answer turn's limits
 // are spend and wall clock (reference/agent-harness.md, Limits).
@@ -683,9 +692,14 @@ export type RespondContext = {
     userId: string
     mode: ClaudeCodeMode
   }
-  // A Codex session's turn (chunk 8d). Codex runs the turn instead of Pi, on
-  // Lor credits.
-  codex?: true
+  // A Codex session's turn (chunks 8d and 8f): the turn starter's own
+  // ChatGPT sign-in and who that is (saved with the request, so a paused turn
+  // continues on the same person's plan). Codex runs the turn instead of Pi,
+  // and Lor credits are not charged.
+  codex?: {
+    userId: string
+    credential: ChatgptCredential
+  }
   // The model, effort and fast mode the turn's sender picked, as the
   // session's harness names them. Saved with the request so a paused turn
   // continues on them. Unset parts take the harness's default; a model Pi's
@@ -1688,6 +1702,8 @@ export function toolLabel(toolName: string, input: unknown): string {
       return "Updating the plan"
     case "propose_loop":
       return "Proposing a loop"
+    case "suggest_session_setup":
+      return "Suggesting a session setup"
     case "complete_plan":
       return "Completing the plan"
     case "request_approval":
@@ -1857,7 +1873,7 @@ function asString(v: unknown): string | undefined {
 export function toolDetail(
   toolName: string,
   output: unknown
-): Pick<LorToolCall, "detail" | "status" | "files"> {
+): Pick<LorToolCall, "detail" | "status" | "files" | "setup"> {
   const rec = asRecord(output)
   if (rec && "error" in rec) {
     return {
@@ -2076,6 +2092,27 @@ export function toolDetail(
           summary: description
             ? `Drafted a loop — ${description}`
             : "Drafted a loop",
+        },
+      }
+    }
+    case "suggest_session_setup": {
+      const r = asRecord(rec?.suggestion)
+      const sessionId = asString(r?.sessionId)
+      const reason = asString(r?.reason)
+      if (!sessionId || !reason) return { status: "ok" }
+      const environmentId = asString(r?.environmentId)
+      const environmentName = asString(r?.environmentName)
+      const sandboxMemoryMb =
+        typeof r?.sandboxMemoryMb === "number" ? r.sandboxMemoryMb : undefined
+      return {
+        status: "ok",
+        setup: {
+          sessionId,
+          ...(environmentId && environmentName
+            ? { environmentId, environmentName }
+            : {}),
+          ...(sandboxMemoryMb !== undefined ? { sandboxMemoryMb } : {}),
+          reason,
         },
       }
     }
@@ -2795,6 +2832,7 @@ async function respondImpl(
         : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.code ? sessionChangesTool : {}),
+      ...(ctx.code && ctx.threadRootId ? sessionSetupTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
@@ -2900,6 +2938,14 @@ async function respondImpl(
               threadRootId: ctx.threadRootId,
               triggerMessageId: ctx.triggerMessageId,
               onMessageReaction,
+            },
+          }
+        : {}),
+      ...(ctx.code && ctx.threadRootId
+        ? {
+            suggest_session_setup: {
+              workspaceId: ctx.workspaceId,
+              threadRootId: ctx.threadRootId,
             },
           }
         : {}),
@@ -3144,6 +3190,7 @@ async function respondImpl(
               claudeCodeMode: ctx.claudeCode.mode,
             }
           : {}),
+        ...(ctx.codex ? { codexUserId: ctx.codex.userId } : {}),
         ...(ctx.turn?.model ? { turnModel: ctx.turn.model } : {}),
         ...(ctx.turn?.effort ? { turnEffort: ctx.turn.effort } : {}),
         ...(ctx.turn?.fast ? { turnFast: true } : {}),
@@ -3283,12 +3330,15 @@ async function respondImpl(
     const bridgePaused = Boolean(
       agentHarness && harness.saved?.continuation && !harness.pausedDropped
     )
+    // A size change replacing the sandbox holds the checkpoint lock; the
+    // size is read after it, so a new sandbox gets the saved one.
+    if (ctx.code) await waitForCheckpoints(conversationIdOf(harness.owner))
     const sandbox = await openSessionSandbox(harness.owner, {
       keepBridges: bridgePaused,
       code: Boolean(ctx.code),
       proxy: Boolean(agentHarness),
       memoryMb: ctx.code
-        ? await environmentSandboxMemoryMb(ctx.code.environmentId)
+        ? await sessionSandboxMemoryMb(conversationIdOf(harness.owner))
         : null,
     })
     let uncommitted: UncommittedLinesTracker | null = null
@@ -3686,21 +3736,17 @@ async function respondImpl(
         addTo(total, usage, reasoningTokens)
         byModel.set(usage.model, total)
       }
-      const codexModel =
-        ctx.turn?.model && inGatewayCatalog(codexGatewayModel(ctx.turn.model))
-          ? ctx.turn.model
-          : CODEX_DEFAULT_MODEL
+      const codexModel = ctx.turn?.model ?? CODEX_DEFAULT_MODEL
       const piModel = native?.model ?? ctx.turn?.model ?? LOR_MODEL
       let stepModel = native ? `${native.provider}/${native.model}` : piModel
       let stepGatewayCost: number | undefined
       // Set by the first finish-step of an assistant message, cleared when
       // the next message ends.
       let stepBilled = false
-      // A Claude Code turn runs on its starter's own subscription: no Lor
-      // credits, no spend limit. A Codex turn's usage comes whole at its end
-      // (extraTurnUsage), at its own model's rate.
-      const billed = !ctx.claudeCode
-      const answeringModel = ctx.codex ? codexGatewayModel(codexModel) : piModel
+      // Claude Code and Codex turns run on their starter's own plan: no Lor
+      // credits, no spend limit.
+      const billed = !ctx.claudeCode && !ctx.codex
+      const answeringModel = piModel
       // Each model's summed USD, as the spend counter priced it; null once a
       // price is missing, so the ledger prices that model's tokens itself.
       const costByModel = new Map<string, number | null>()
@@ -4038,12 +4084,34 @@ async function respondImpl(
           )
         }
       }
-      // Codex reaches the AI Gateway on Lor's key, which the proxy adds for
-      // this turn only (code-sessions-runbook.md chunk 8).
-      const codexTurn = async () => {
+      // The proxy adds the turn starter's ChatGPT access token to ChatGPT
+      // requests for this turn only (code-sessions-runbook.md chunk 8f). It
+      // lasts about an hour, so a long turn is granted each refreshed token;
+      // grants run one at a time and finish before the revoke.
+      const codexTurn = async (codex: {
+        userId: string
+        credential: ChatgptCredential
+      }) => {
+        let token = codex.credential.accessToken
         const access = grantHarnessAccess(harness.owner, {
-          gatewayKey: piGatewayAuth().AI_GATEWAY_API_KEY ?? "",
+          chatgptToken: token,
         })
+        let regrant: Promise<void> = access.catch(() => {})
+        const refresher = setInterval(() => {
+          regrant = regrant
+            .then(async () => {
+              const fresh = await chatgptCredential(codex.userId)
+              if (!fresh || fresh.accessToken === token) return
+              token = fresh.accessToken
+              await grantHarnessAccess(harness.owner, { chatgptToken: token })
+            })
+            .catch((err) =>
+              logger.warn(
+                { err, sessionId: conversationId },
+                "Refreshing the ChatGPT token mid-turn failed"
+              )
+            )
+        }, CHATGPT_TOKEN_CHECK_MS)
         try {
           const [, endpoint] = await Promise.all([
             access,
@@ -4054,10 +4122,10 @@ async function respondImpl(
             saved: harness.saved,
             sandbox: sandbox.session,
             bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
-            keyPlaceholder:
-              sandbox.provider === "boat"
-                ? (piGatewayAuth().AI_GATEWAY_API_KEY ?? "")
-                : GATEWAY_KEY_PLACEHOLDER,
+            // Boat has no proxy to fill it in, so the token itself goes.
+            tokenPlaceholder:
+              sandbox.provider === "boat" ? token : CHATGPT_TOKEN_PLACEHOLDER,
+            accountId: codex.credential.accountId,
             model: codexModel,
             ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
             ...(command?.kind === "compact"
@@ -4081,19 +4149,27 @@ async function respondImpl(
             toolApproval: limitedToolApproval,
             abortSignal,
             onPart,
-            onModels: (models) =>
-              void saveHarnessModels("codex", models).catch((err) =>
+            // The composer offers the models the person's plan has; the
+            // shared list is the start for people with no Codex turn yet.
+            onModels: (models) => {
+              void Promise.all([
+                saveChatgptModels(codex.userId, models),
+                saveHarnessModels("codex", models),
+              ]).catch((err) =>
                 logger.warn(
                   { err, sessionId: conversationId },
                   "Saving the Codex model list failed"
                 )
-              ),
+              )
+            },
           })
         } finally {
+          clearInterval(refresher)
+          await regrant
           await revokeHarnessAccess(harness.owner).catch((err) =>
             logger.error(
               { err, sessionId: conversationId },
-              "Removing the Gateway key from the sandbox proxy failed"
+              "Removing the ChatGPT token from the sandbox proxy failed"
             )
           )
         }
@@ -4101,7 +4177,7 @@ async function respondImpl(
       const turn = await (ctx.claudeCode
         ? claudeCodeTurn(ctx.claudeCode)
         : ctx.codex
-          ? codexTurn()
+          ? codexTurn(ctx.codex)
           : runPiTurn({
               sessionId: conversationId,
               sessionKey: conversationId,
@@ -4371,7 +4447,7 @@ export async function respond(
     {
       sessionId:
         ctx.aiSessionId ?? ctx.threadRootId ?? ctx.channelId ?? ctx.runId,
-      distinctId: ctx.userId ?? ctx.claudeCode?.userId,
+      distinctId: ctx.userId ?? ctx.claudeCode?.userId ?? ctx.codex?.userId,
       traceName: "lor.respond",
     },
     () => respondImpl(ctx, callbacks, run)

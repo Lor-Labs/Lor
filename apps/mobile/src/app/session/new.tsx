@@ -165,16 +165,18 @@ function NewSessionComposer({
     channelId: channel.id,
     enabled: mode === "code",
   })
-  // Claude Code runs on the starter's own Claude subscription; connecting
-  // it is on web for now.
+  // Claude Code and Codex run on the starter's own Claude subscription or
+  // ChatGPT plan; connecting them is on web for now.
   const [harness, setHarness] = useSessionHarness()
   const harnessOptions = useHarnessOptions()
   const claudeCode = mode === "code" && harness === "claude_code"
   // A chat session always runs on Lor's own agent.
   const modelChoice = useModelChoice(mode === "code" ? harness : "pi")
-  const { data: accounts } = usePersonalAccounts(claudeCode)
+  const codex = mode === "code" && harness === "codex"
+  const { data: accounts } = usePersonalAccounts(claudeCode || codex)
   // Unknown while the accounts load.
   const needsClaude = claudeCode && accounts?.claude.account === null
+  const needsChatgpt = codex && accounts?.chatgpt.account === null
   const [branchQuery, setBranchQuery] = useState("")
   const [debouncedBranchQuery, setDebouncedBranchQuery] = useState("")
   useEffect(() => {
@@ -246,6 +248,13 @@ function NewSessionComposer({
           <Text className="text-[13px] text-muted">
             Claude Code runs on your own Claude subscription. Connect it in Lor
             on the web or desktop, or pick another agent.
+          </Text>
+        </View>
+      ) : needsChatgpt ? (
+        <View className="rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
+          <Text className="text-[13px] text-muted">
+            Codex runs on your own ChatGPT plan. Connect it in Lor on the web or
+            desktop, or pick another agent.
           </Text>
         </View>
       ) : null}
@@ -395,7 +404,9 @@ function NewSessionComposer({
             placeholder={
               mode === "code" ? "Ask Lor to work on the code…" : "Ask Lor…"
             }
-            sendBlocked={(mode === "code" && !code.target) || needsClaude}
+            sendBlocked={
+              (mode === "code" && !code.target) || needsClaude || needsChatgpt
+            }
             topAccessory={accessory}
           />
         )}

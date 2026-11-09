@@ -56,6 +56,8 @@ import {
   startServiceResponseSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
+  updateSessionSetupRequestSchema,
+  updateSessionSetupResponseSchema,
 } from "@/routes/v1/sessions/schema"
 
 export const getAgentSession = createRoute({
@@ -871,3 +873,35 @@ export const applySessionEnvironment = createRoute({
 })
 
 export type ApplySessionEnvironmentRoute = typeof applySessionEnvironment
+
+export const updateSessionSetup = createRoute({
+  path: "/sessions/{sessionId}/setup",
+  method: "patch",
+  summary: "Change a code session's environment or sandbox size",
+  description:
+    "Anyone who can write in the channel can do this. A new environment's files are written into the sandbox now. A new size replaces the sandbox: its work folder comes back from the newest checkpoint, and installed packages, running servers and other files are lost. Refused while Lor is working in the session.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: updateSessionSetupRequestSchema,
+      description: "The environment and size to use",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: updateSessionSetupResponseSchema,
+      description: "The updated session",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type UpdateSessionSetupRoute = typeof updateSessionSetup

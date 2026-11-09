@@ -199,7 +199,8 @@ export const sendMessagePayloadSchema = z
     // whose recent messages become the new session's context.
     continueFrom: z.string().uuid().optional(),
     // With startSession and code: the harness that runs the session. Claude
-    // Code needs the sender's own Claude subscription.
+    // Code needs the sender's own Claude subscription, Codex their ChatGPT
+    // plan.
     harness: z.enum(["pi", "claude_code", "codex"]).optional(),
     // In a Claude Code session: the Claude Code mode for the turn this
     // message starts (the composer's picker). Default: auto.
@@ -305,6 +306,7 @@ export type RealtimeChannelEventType =
   | "session_forked"
   | "session_rewound"
   | "session_reviewed"
+  | "session_setup_changed"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -344,6 +346,11 @@ export type RealtimeChannelEventPayload =
       reviewer: string
       reviewerBot: boolean
       state: "approved" | "changes_requested" | "commented"
+    }
+  | {
+      sessionId: string
+      environmentName?: string | null
+      sandboxMemoryMb?: number
     }
   | null
 
@@ -665,6 +672,13 @@ export type RealtimeLorToolCall = {
     size: number
     url: string
   }[]
+  setup?: {
+    sessionId: string
+    environmentId?: string
+    environmentName?: string
+    sandboxMemoryMb?: number
+    reason: string
+  }
   status?: "ok" | "error"
 }
 
@@ -1040,6 +1054,7 @@ export type RealtimeAgentSession = {
   baseBranch: string | null
   newBranch: string | null
   environmentId: string | null
+  sandboxMemoryMb: number | null
   uncommittedAdditions: number | null
   uncommittedDeletions: number | null
   sourceSessionId: string | null

@@ -356,6 +356,12 @@ first load). The client behavior is the same.
 
 ## Deviations log
 
+- 2026-11-09 (LOR-156): a session's environment is no longer fixed at its
+  start. The session menu's Environment & sandbox switches it (or sets one on
+  a session started without) and writes its files at once; the size there is
+  the session's own (`agent_session.sandbox_memory_mb`, over the
+  environment's). See `planned/sandbox-browser-runbook.md` §2.
+
 - 2026-11-07 (LOR-133): the loopback-only TCP relay became an HTTP proxy in
   front of every previewed port. Next 16 answered the HMR socket from the
   preview origin with a bare "Unauthorized" (a 502 at Blaxel), so pages

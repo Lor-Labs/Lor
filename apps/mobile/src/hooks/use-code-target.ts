@@ -32,12 +32,13 @@ export const HARNESS_DETAILS: Record<SessionHarness, string> = {
   pi: "Lor's own agent, on Lor credits.",
   claude_code:
     "Runs on your own Claude Pro or Max plan. Each person's messages use their own plan.",
-  codex: "OpenAI's coding agent, on Lor credits.",
+  codex:
+    "Runs on your own ChatGPT plan. Each person's messages use their own plan.",
 }
 
-// Hosted beta offers only its harnesses (Lor and Claude Code on the person's
-// own Claude subscription), whatever the feature flags say; the server
-// enforces the same set in `assertHostedHarness`.
+// Hosted beta offers only its harnesses (`HOSTED_BETA_HARNESSES`), whatever
+// the feature flags say; the server enforces the same set in
+// `assertHostedHarness`.
 export function useHarnessOptions() {
   const { data: beta } = useBetaAvailability()
   const harnesses =

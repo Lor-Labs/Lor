@@ -1,5 +1,10 @@
 import { and, db, eq, schema } from "@repo/db"
 import { env } from "@repo/env/server"
+import {
+  chatgptTokenDetails,
+  parseCodexAuthJson,
+  refreshChatgptTokens,
+} from "@repo/lor/chatgpt-account"
 import { decryptSecret, encryptSecret } from "@repo/utils/crypto"
 import { features } from "@repo/utils/features"
 import {
@@ -20,8 +25,10 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
+  ConnectChatgptAccountRoute,
   ConnectClaudeAccountRoute,
   ConnectGithubAccountRoute,
+  DisconnectChatgptAccountRoute,
   DisconnectClaudeAccountRoute,
   DisconnectGithubAccountRoute,
   GetPersonalAccountsRoute,
@@ -64,10 +71,34 @@ const toClaudeAccount = (row: {
   expiresAt: row.accessTokenExpiresAt?.toISOString() ?? null,
 })
 
+const isChatgptAccount = (userId: string) =>
+  and(
+    eq(schema.personalAccount.userId, userId),
+    eq(schema.personalAccount.provider, "chatgpt")
+  )
+
+// A refresh updates the tokens, not the connection: "connected" is when the
+// row was made.
+const chatgptAccountColumns = {
+  email: schema.personalAccount.email,
+  name: schema.personalAccount.name,
+  createdAt: schema.personalAccount.createdAt,
+}
+
+const toChatgptAccount = (row: {
+  email: string | null
+  name: string | null
+  createdAt: Date
+}) => ({
+  email: row.email,
+  plan: row.name,
+  connectedAt: row.createdAt.toISOString(),
+})
+
 export const getPersonalAccounts: AppRouteHandler<
   GetPersonalAccountsRoute
 > = async (c) => {
-  const [account, claude] = await Promise.all([
+  const [account, claude, chatgpt] = await Promise.all([
     db
       .select(accountColumns)
       .from(schema.personalAccount)
@@ -80,6 +111,12 @@ export const getPersonalAccounts: AppRouteHandler<
       .where(isClaudeAccount(c.var.user.id))
       .limit(1)
       .then((rows) => rows[0] ?? null),
+    db
+      .select(chatgptAccountColumns)
+      .from(schema.personalAccount)
+      .where(isChatgptAccount(c.var.user.id))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
   ])
   await fillMissingGithubAvatar(c.var.user, account?.avatarUrl)
   return c.json(
@@ -89,6 +126,11 @@ export const getPersonalAccounts: AppRouteHandler<
         available:
           features.claudeCodeHarness && Boolean(env.INTEGRATION_ENCRYPTION_KEY),
         account: claude ? toClaudeAccount(claude) : null,
+      },
+      chatgpt: {
+        available:
+          features.codexHarness && Boolean(env.INTEGRATION_ENCRYPTION_KEY),
+        account: chatgpt ? toChatgptAccount(chatgpt) : null,
       },
     },
     HttpStatusCodes.OK
@@ -150,6 +192,65 @@ export const disconnectClaudeAccount: AppRouteHandler<
   DisconnectClaudeAccountRoute
 > = async (c) => {
   await db.delete(schema.personalAccount).where(isClaudeAccount(c.var.user.id))
+  return c.json({ success: true as const }, HttpStatusCodes.OK)
+}
+
+// Refreshed once before it is stored: that checks the sign-in with OpenAI and
+// starts Lor's own token chain (each refresh replaces the refresh token).
+export const connectChatgptAccount: AppRouteHandler<
+  ConnectChatgptAccountRoute
+> = async (c) => {
+  const refuse = (message: string) =>
+    c.json({ success: false as const, message }, HttpStatusCodes.BAD_REQUEST)
+  if (!features.codexHarness) return refuse("Codex is temporarily unavailable")
+  const key = env.INTEGRATION_ENCRYPTION_KEY
+  if (!key) return refuse("ChatGPT plans aren't available yet")
+  const pasted = parseCodexAuthJson(c.req.valid("json").authJson)
+  if (!pasted) {
+    return refuse(
+      "That isn't a ChatGPT sign-in. Paste the whole auth.json that codex login saved"
+    )
+  }
+  const tokens = await refreshChatgptTokens(pasted.refreshToken)
+  if (tokens === "rejected") {
+    return refuse(
+      "OpenAI didn't accept that sign-in. Run the login command again and paste the new auth.json"
+    )
+  }
+  if (tokens === "unreachable") {
+    return refuse("Couldn't reach OpenAI to check the sign-in. Try again")
+  }
+  const details = chatgptTokenDetails(tokens)
+  if (!details) {
+    return refuse(
+      "That sign-in has no ChatGPT account. Sign in with ChatGPT, not an API key"
+    )
+  }
+  const values = {
+    ...details,
+    accessToken: encryptSecret(tokens.accessToken, key),
+    refreshToken: encryptSecret(tokens.refreshToken, key),
+    avatarUrl: null,
+    refreshTokenExpiresAt: null,
+    // Another plan can offer other models: Codex reports them again.
+    models: null,
+  }
+  const [row] = await db
+    .insert(schema.personalAccount)
+    .values({ userId: c.var.user.id, provider: "chatgpt", ...values })
+    .onConflictDoUpdate({
+      target: [schema.personalAccount.userId, schema.personalAccount.provider],
+      set: { ...values, createdAt: new Date() },
+    })
+    .returning(chatgptAccountColumns)
+  if (!row) throw new Error("ChatGPT account upsert returned no row")
+  return c.json({ account: toChatgptAccount(row) }, HttpStatusCodes.OK)
+}
+
+export const disconnectChatgptAccount: AppRouteHandler<
+  DisconnectChatgptAccountRoute
+> = async (c) => {
+  await db.delete(schema.personalAccount).where(isChatgptAccount(c.var.user.id))
   return c.json({ success: true as const }, HttpStatusCodes.OK)
 }
 
