@@ -1,7 +1,12 @@
-import { PaginationNulls, PaginationSortOrder } from "@linear/sdk"
+import {
+  InvalidInputLinearError,
+  PaginationNulls,
+  PaginationSortOrder,
+} from "@linear/sdk"
 import { and, db, eq, schema } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
+import { logger } from "./logger"
 import { linearClientFor } from "./providers/linear"
 import { rerankItems } from "./rerank"
 import type { OnUsage } from "./usage"
@@ -216,7 +221,16 @@ async function issuesByIdentifier(
     ...new Set(identifiers.map((identifier) => identifier.toUpperCase())),
   ].filter((identifier) => IDENTIFIER.test(identifier))
   const issues = await Promise.all(
-    wanted.map((identifier) => client.issue(identifier).catch(() => null))
+    wanted.map((identifier) =>
+      client.issue(identifier).catch((error: unknown) => {
+        // Linear answers an unknown identifier with an invalid-input error;
+        // auth, rate-limit and outage failures are logged.
+        if (!(error instanceof InvalidInputLinearError)) {
+          logger.warn({ err: error, identifier }, "Linear issue lookup failed")
+        }
+        return null
+      })
+    )
   )
   const seen = new Set<string>()
   return issues.filter((issue): issue is LinearIssue => {
