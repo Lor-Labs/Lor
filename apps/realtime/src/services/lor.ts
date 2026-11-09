@@ -153,9 +153,9 @@ async function codeStartFor(
         session
       )
     : undefined
-  // Claude Code and Codex: code sessions only for now; Claude Code on the
-  // starter's own Claude subscription (code-sessions-runbook.md chunks 7
-  // and 8).
+  // Claude Code and Codex: code sessions only for now, on the starter's own
+  // Claude subscription or ChatGPT plan (code-sessions-runbook.md chunks 7
+  // and 8f).
   const claudeCode = payload.harness === "claude_code"
   const codex = payload.harness === "codex"
   if ((claudeCode || codex) && !code) {
@@ -166,6 +166,11 @@ async function codeStartFor(
   if (claudeCode && !(await hasPersonalAccount(senderId, "claude"))) {
     throw new Error(
       "Connect your Claude subscription in Settings → Linked accounts to start a Claude Code session"
+    )
+  }
+  if (codex && !(await hasPersonalAccount(senderId, "chatgpt"))) {
+    throw new Error(
+      "Connect your ChatGPT plan in Settings → Linked accounts to start a Codex session"
     )
   }
   return {

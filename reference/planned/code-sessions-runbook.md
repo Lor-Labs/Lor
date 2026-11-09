@@ -853,7 +853,8 @@ may lag web), a Lor-offered "Continue in Code" card.
   Decided with Jacob 2026-10-26 (adapter `@ai-sdk/harness-codex@1.0.160`,
   read the same day; it matches our harness 1.0.158 and bundles Codex CLI
   0.160.1):
-  - **Billing: Lor credits for now.** Codex turns go through the AI Gateway
+  - **Billing: Lor credits for now** (superseded 2026-11-09 by 8f: each
+    person's own ChatGPT plan). Codex turns went through the AI Gateway
     on Lor's key, which the sandbox proxy injects (the key never enters the
     sandbox), so everyone in the session can send Codex turns, like Pi.
     ChatGPT plans come later: OpenAI offers plan usage ("Sign in with
@@ -1002,6 +1003,42 @@ may lag web), a Lor-offered "Continue in Code" card.
       word; a fork from a turn the rewind dropped knew both earlier words;
       a fork from the turn after the rewind knew only the first. Both forks
       ran in their own work folder.
+  - [ ] **8f** Codex on the person's own ChatGPT plan (LOR-155), built
+    2026-11-09 (live QA with a real ChatGPT sign-in and `db:push` owed).
+    Decided with Jacob 2026-11-09: the same model as the Claude
+    subscription, without waiting for OpenAI's partner approval (OpenAI
+    supports Codex OAuth in outside tools, but hosted commercial apps are
+    asked to use its interest form; move to the official "Sign in with
+    ChatGPT" OAuth when Lor gets a client id). Supersedes "Billing: Lor
+    credits for now" above.
+    - Additive `db:push`: `chatgpt` in `personal_account_provider`.
+    - Linked accounts → "ChatGPT plan": the person runs
+      `codex login` into a separate `CODEX_HOME` (`~/.codex-lor`) and pastes
+      its auth.json. The API refreshes it once with the Codex CLI's OAuth
+      client (checks it and starts Lor's own token chain: every refresh
+      replaces the refresh token, so sharing it with the person's own Codex
+      would sign one of them out) and stores both tokens encrypted, with the
+      account id, email and plan from the token's claims.
+    - `chatgpt-account.ts`: `chatgptCredential` refreshes the access token
+      (about an hour) when under 20 minutes are left, under a row lock so
+      two turns don't spend one refresh token; a rejected refresh asks the
+      person to connect again.
+    - Turn: only the sender's own messages, never Act or Loop runs; a
+      continued paused turn keeps its sender (`codexUserId` in the run
+      context). Codex talks to `chatgpt.com/backend-api/codex` with the
+      `{{SECRET:chatgpt}}` placeholder, which the proxy fills for the turn,
+      and the account id as `ChatGPT-Account-ID` (adapter `headers`). A
+      running turn checks the token every 10 minutes and grants the
+      refreshed one. No Lor credits, no credit gate, no spend limit; sandbox
+      time still draws on the workspace's pool, like Claude Code.
+    - Without a connected plan: the start is refused, a message in a Codex
+      session goes to people only, and the composer offers "Connect your
+      ChatGPT plan" and "Continue with Lor" (web; mobile says to connect on
+      web or desktop).
+    - Models: the person's own Codex model list from their last turn
+      (`personal_account.models`), else anyone's last list
+      (`harness_model_list`), else the built-in three.
+    - `codexHarness` is on, and hosted beta allows `codex`.
 - [ ] Then OpenCode and other ACP agents, through Vercel's adapters
   ([harness-sessions.md](harness-sessions.md) §3 "Adding a harness").
 

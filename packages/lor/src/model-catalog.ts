@@ -4,15 +4,14 @@ import { assertHostedHarness } from "@repo/db/queries/beta-access"
 import { workspaceInferenceKeys } from "@repo/db/queries/inference"
 import { assertHarnessEnabled } from "@repo/utils/features"
 import { type KeyProvider, keyModelId } from "@repo/utils/inference"
+import { chatgptModels } from "./chatgpt-account"
 import { claudeModels, startingClaudeModels } from "./claude-account"
 import { harnessModels } from "./harness-models"
 import { LOR_FALLBACK_MODELS, LOR_MODEL } from "./models"
 import {
   CODEX_DEFAULT_MODEL,
-  codexGatewayModel,
   isCodexEffort,
 } from "./session-core/codex-runtime"
-import { inGatewayCatalog } from "./session-core/pi-runtime"
 
 // What a session's composer offers for its harness: each model the harness
 // can run, the effort levels that model takes and whether it has fast mode.
@@ -111,7 +110,7 @@ const CLAUDE_CODE_ALIASES = [
   ["fable", "Fable"],
 ] as const
 
-// Until a Codex turn reports its own model/list, the models Codex sessions
+// Until any Codex turn reports its own model/list, the models Codex sessions
 // offered.
 const CODEX_MODELS = [
   ["gpt-6.1-sol", "GPT-6.1 Sol"],
@@ -173,14 +172,12 @@ async function claudeCodeCatalog(userId: string): Promise<AgentModelCatalog> {
   }
 }
 
-// Codex: the list its own model/list gave on its last turn, kept to models
-// the Gateway serves (Codex runs on Lor's Gateway key) and the efforts the
+// Codex: the list the person's own Codex gave on their last turn (their
+// ChatGPT plan decides it), or anyone's before that, with the efforts the
 // adapter can pass. "Default" effort leaves it to Codex's own per model.
-async function codexCatalog(): Promise<AgentModelCatalog> {
-  const reported = (await harnessModels("codex")) ?? []
-  const served = reported.filter((model) =>
-    inGatewayCatalog(codexGatewayModel(model.value))
-  )
+async function codexCatalog(userId: string): Promise<AgentModelCatalog> {
+  const served =
+    (await chatgptModels(userId)) ?? (await harnessModels("codex")) ?? []
   const models =
     served.length > 0
       ? served.map((model) => ({
@@ -213,7 +210,7 @@ export async function agentModelCatalog(
   assertHarnessEnabled(harness)
   assertHostedHarness(harness)
   if (harness === "claude_code") return claudeCodeCatalog(userId)
-  if (harness === "codex") return codexCatalog()
+  if (harness === "codex") return codexCatalog(userId)
   const keys = await workspaceInferenceKeys(workspaceId)
   return lorCatalog(keys.map((key) => key.provider))
 }

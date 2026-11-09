@@ -395,7 +395,7 @@ export async function claimAgentRun(
   // A trial workspace under the hosted beta; exempt ones bill normally.
   const betaRun = await isBetaWorkspace(claimed.workspaceId)
   // Set when a Lor turn picks its model (pinInferenceFunding); null until
-  // then and for subscription/Codex runs.
+  // then and for subscription runs (Claude Code, Codex).
   let funding = claimed.inferenceFunding
   const assertCanInfer = async () => {
     await assertWorkspaceActive(claimed.workspaceId)

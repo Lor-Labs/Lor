@@ -116,6 +116,7 @@ export function SessionDocument({
   harness,
   harnessCommands,
   claudeCode = false,
+  withoutSubscription = false,
 }: {
   workspaceSlug: string
   channelId: string
@@ -125,11 +126,14 @@ export function SessionDocument({
   // Its harness's own commands and skills, for the composer's menus.
   harnessCommands?: RealtimeAgentSession["harnessCommands"]
   // Above the reply line: why the agent won't answer this person (a Claude
-  // Code session without their Claude subscription).
+  // Code or Codex session without their own plan).
   composerNote?: ReactNode
   // A Claude Code session this person can run turns in: each message carries
   // the Claude Code mode picked in the composer.
   claudeCode?: boolean
+  // A Claude Code or Codex session this person has no plan for: their
+  // messages go to the session's people.
+  withoutSubscription?: boolean
   // "Fork from here" on Lor's finished replies; settles when the fork opens
   // or fails.
   onFork?: (message: Message) => Promise<unknown>
@@ -272,9 +276,8 @@ export function SessionDocument({
   // Local Lor turns by the nonce of the send that showed them.
   const lorTurnsRef = useRef(new Map<string, string>())
   // The server sends a message to the agent only while its harness is on
-  // and, in Claude Code, from someone with their own Claude subscription.
-  const agentAnswers =
-    isHarnessEnabled(harness) && (harness !== "claude_code" || claudeCode)
+  // and, in Claude Code and Codex, from someone with their own plan.
+  const agentAnswers = isHarnessEnabled(harness) && !withoutSubscription
   // What a send changes before the server answers. The writer and the people
   // they mention join the subscribers (and the writer's sidebar gets the
   // session). A follow-up to an idle Lor shows Lor working: its turn, Stop

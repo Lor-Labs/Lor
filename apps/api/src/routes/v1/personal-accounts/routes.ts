@@ -8,6 +8,8 @@ import {
 } from "@/lib/helpers/openapi/schemas"
 import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
+  connectChatgptAccountBodySchema,
+  connectChatgptAccountResponseSchema,
   connectClaudeAccountBodySchema,
   connectClaudeAccountResponseSchema,
   connectGithubAccountBodySchema,
@@ -22,7 +24,7 @@ export const getPersonalAccounts = createRoute({
   method: "get",
   summary: "List your accounts",
   description:
-    "The current user's own accounts (GitHub, a Claude subscription), used only for turns they start and actions they take. Never shared with the workspace.",
+    "The current user's own accounts (GitHub, a Claude subscription, a ChatGPT plan), used only for turns they start and actions they take. Never shared with the workspace.",
   tags: ["Personal Accounts"],
   middleware: [sessionAuthMiddleware] as const,
   responses: {
@@ -147,3 +149,47 @@ export const disconnectClaudeAccount = createRoute({
 })
 
 export type DisconnectClaudeAccountRoute = typeof disconnectClaudeAccount
+
+export const connectChatgptAccount = createRoute({
+  path: "/personal-accounts/chatgpt",
+  method: "post",
+  summary: "Connect your ChatGPT plan",
+  description:
+    "Stores the ChatGPT sign-in from the auth.json `codex login` saved, encrypted, after refreshing it with OpenAI. Used only for Codex turns started by the caller's own messages.",
+  tags: ["Personal Accounts"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    body: jsonContent({
+      schema: connectChatgptAccountBodySchema,
+      description: "The pasted auth.json",
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: connectChatgptAccountResponseSchema,
+      description: "Connected",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+  },
+})
+
+export type ConnectChatgptAccountRoute = typeof connectChatgptAccount
+
+export const disconnectChatgptAccount = createRoute({
+  path: "/personal-accounts/chatgpt",
+  method: "delete",
+  summary: "Disconnect your ChatGPT plan",
+  description: "Deletes the stored sign-in and its tokens.",
+  tags: ["Personal Accounts"],
+  middleware: [sessionAuthMiddleware] as const,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: disconnectGithubAccountResponseSchema,
+      description: "Disconnected",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+  },
+})
+
+export type DisconnectChatgptAccountRoute = typeof disconnectChatgptAccount

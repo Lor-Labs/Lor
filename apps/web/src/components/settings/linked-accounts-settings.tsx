@@ -6,9 +6,11 @@ import { formatDate } from "@repo/utils/date"
 import { features } from "@repo/utils/features"
 import { useState } from "react"
 import { HarnessLogo } from "@/components/session/harness-logo"
+import { ChatgptConnectDialog } from "@/components/settings/chatgpt-connect-dialog"
 import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import {
   useConnectGithubAccount,
+  useDisconnectChatgptAccount,
   useDisconnectClaudeAccount,
   useDisconnectGithubAccount,
   usePersonalAccounts,
@@ -22,6 +24,8 @@ export function LinkedAccountsSettings() {
   const disconnect = useDisconnectGithubAccount()
   const disconnectClaude = useDisconnectClaudeAccount()
   const [connectingClaude, setConnectingClaude] = useState(false)
+  const disconnectChatgpt = useDisconnectChatgptAccount()
+  const [connectingChatgpt, setConnectingChatgpt] = useState(false)
 
   if (isPending) {
     return (
@@ -44,7 +48,7 @@ export function LinkedAccountsSettings() {
   }
 
   const { available, account } = data.github
-  const { claude } = data
+  const { claude, chatgpt } = data
   return (
     <div className="space-y-6">
       <div>
@@ -132,6 +136,59 @@ export function LinkedAccountsSettings() {
           onOpenChange={setConnectingClaude}
         />
       )}
+
+      {(features.codexHarness || chatgpt.account) && (
+        <div className="flex items-center gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
+            <HarnessLogo harness="codex" className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-sm">ChatGPT plan</p>
+            <p className="truncate text-muted-foreground text-xs">
+              {chatgpt.account
+                ? [
+                    chatgpt.account.email ?? "Connected",
+                    chatgpt.account.plan && planName(chatgpt.account.plan),
+                    `connected ${formatDate(chatgpt.account.connectedAt)}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : chatgpt.available
+                  ? "Run Codex sessions on your own ChatGPT plan."
+                  : "Not available on this server yet."}
+            </p>
+          </div>
+          {chatgpt.account ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={disconnectChatgpt.isPending}
+              onClick={() => disconnectChatgpt.mutate()}
+            >
+              Disconnect
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={!chatgpt.available}
+              onClick={() => setConnectingChatgpt(true)}
+            >
+              Connect
+            </Button>
+          )}
+        </div>
+      )}
+      {features.codexHarness && (
+        <ChatgptConnectDialog
+          open={connectingChatgpt}
+          onOpenChange={setConnectingChatgpt}
+        />
+      )}
     </div>
   )
+}
+
+// The token's plan claim ("plus", "pro") as ChatGPT names it.
+function planName(plan: string) {
+  return `ChatGPT ${plan.charAt(0).toUpperCase()}${plan.slice(1)}`
 }

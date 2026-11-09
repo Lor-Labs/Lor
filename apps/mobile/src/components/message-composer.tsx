@@ -128,7 +128,7 @@ export function MessageComposer({
   inputNativeID?: string
   onCustomInputViewChange?: (isOpen: boolean) => void
   // The message can't go yet (a new code session without its repo, or
-  // Claude Code without the person's Claude subscription).
+  // Claude Code or Codex without the person's own plan).
   sendBlocked?: boolean
   // Rendered flush above the input card so accessories (run queue) can tuck
   // behind its top edge.

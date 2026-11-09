@@ -94,6 +94,11 @@ import {
   resolveWorkspaceCapabilities,
 } from "./capabilities"
 import {
+  type ChatgptCredential,
+  chatgptCredential,
+  saveChatgptModels,
+} from "./chatgpt-account"
+import {
   classifyToken,
   extractCitationTokens,
   prefixedTokenId,
@@ -210,8 +215,8 @@ import {
   sandboxToolApproval,
 } from "./sandbox/sandbox-approval"
 import {
+  CHATGPT_TOKEN_PLACEHOLDER,
   CLAUDE_TOKEN_PLACEHOLDER,
-  GATEWAY_KEY_PLACEHOLDER,
   grantHarnessAccess,
   HARNESS_BRIDGE_PORT,
   harnessBridgeEndpoint,
@@ -232,7 +237,6 @@ import {
 import {
   CODEX_BINDING,
   CODEX_DEFAULT_MODEL,
-  codexGatewayModel,
   runCodexTurn,
 } from "./session-core/codex-runtime"
 import {
@@ -287,6 +291,10 @@ for (const name of Object.keys(webTools)) {
   if (!builtinApprovalTool(name))
     throw new Error(`Tool ${name} needs a STANDALONE_TOOLS entry`)
 }
+
+// How often a running Codex turn checks its ChatGPT token, which is refreshed
+// with 20 minutes left (chatgpt-account.ts).
+const CHATGPT_TOKEN_CHECK_MS = 10 * 60_000
 
 // Step cap for the background write-back pass only; the answer turn's limits
 // are spend and wall clock (reference/agent-harness.md, Limits).
@@ -651,9 +659,14 @@ export type RespondContext = {
     userId: string
     mode: ClaudeCodeMode
   }
-  // A Codex session's turn (chunk 8d). Codex runs the turn instead of Pi, on
-  // Lor credits.
-  codex?: true
+  // A Codex session's turn (chunks 8d and 8f): the turn starter's own
+  // ChatGPT sign-in and who that is (saved with the request, so a paused turn
+  // continues on the same person's plan). Codex runs the turn instead of Pi,
+  // and Lor credits are not charged.
+  codex?: {
+    userId: string
+    credential: ChatgptCredential
+  }
   // The model, effort and fast mode the turn's sender picked, as the
   // session's harness names them. Saved with the request so a paused turn
   // continues on them. Unset parts take the harness's default; a model Pi's
@@ -3109,6 +3122,7 @@ async function respondImpl(
               claudeCodeMode: ctx.claudeCode.mode,
             }
           : {}),
+        ...(ctx.codex ? { codexUserId: ctx.codex.userId } : {}),
         ...(ctx.turn?.model ? { turnModel: ctx.turn.model } : {}),
         ...(ctx.turn?.effort ? { turnEffort: ctx.turn.effort } : {}),
         ...(ctx.turn?.fast ? { turnFast: true } : {}),
@@ -3577,21 +3591,17 @@ async function respondImpl(
         addTo(total, usage, reasoningTokens)
         byModel.set(usage.model, total)
       }
-      const codexModel =
-        ctx.turn?.model && inGatewayCatalog(codexGatewayModel(ctx.turn.model))
-          ? ctx.turn.model
-          : CODEX_DEFAULT_MODEL
+      const codexModel = ctx.turn?.model ?? CODEX_DEFAULT_MODEL
       const piModel = native?.model ?? ctx.turn?.model ?? LOR_MODEL
       let stepModel = native ? `${native.provider}/${native.model}` : piModel
       let stepGatewayCost: number | undefined
       // Set by the first finish-step of an assistant message, cleared when
       // the next message ends.
       let stepBilled = false
-      // A Claude Code turn runs on its starter's own subscription: no Lor
-      // credits, no spend limit. A Codex turn's usage comes whole at its end
-      // (extraTurnUsage), at its own model's rate.
-      const billed = !ctx.claudeCode
-      const answeringModel = ctx.codex ? codexGatewayModel(codexModel) : piModel
+      // Claude Code and Codex turns run on their starter's own plan: no Lor
+      // credits, no spend limit.
+      const billed = !ctx.claudeCode && !ctx.codex
+      const answeringModel = piModel
       // Each model's summed USD, as the spend counter priced it; null once a
       // price is missing, so the ledger prices that model's tokens itself.
       const costByModel = new Map<string, number | null>()
@@ -3929,12 +3939,34 @@ async function respondImpl(
           )
         }
       }
-      // Codex reaches the AI Gateway on Lor's key, which the proxy adds for
-      // this turn only (code-sessions-runbook.md chunk 8).
-      const codexTurn = async () => {
+      // The proxy adds the turn starter's ChatGPT access token to ChatGPT
+      // requests for this turn only (code-sessions-runbook.md chunk 8f). It
+      // lasts about an hour, so a long turn is granted each refreshed token;
+      // grants run one at a time and finish before the revoke.
+      const codexTurn = async (codex: {
+        userId: string
+        credential: ChatgptCredential
+      }) => {
+        let token = codex.credential.accessToken
         const access = grantHarnessAccess(harness.owner, {
-          gatewayKey: piGatewayAuth().AI_GATEWAY_API_KEY ?? "",
+          chatgptToken: token,
         })
+        let regrant: Promise<void> = access.catch(() => {})
+        const refresher = setInterval(() => {
+          regrant = regrant
+            .then(async () => {
+              const fresh = await chatgptCredential(codex.userId)
+              if (!fresh || fresh.accessToken === token) return
+              token = fresh.accessToken
+              await grantHarnessAccess(harness.owner, { chatgptToken: token })
+            })
+            .catch((err) =>
+              logger.warn(
+                { err, sessionId: conversationId },
+                "Refreshing the ChatGPT token mid-turn failed"
+              )
+            )
+        }, CHATGPT_TOKEN_CHECK_MS)
         try {
           const [, endpoint] = await Promise.all([
             access,
@@ -3945,10 +3977,10 @@ async function respondImpl(
             saved: harness.saved,
             sandbox: sandbox.session,
             bridge: { port: HARNESS_BRIDGE_PORT, endpoint },
-            keyPlaceholder:
-              sandbox.provider === "boat"
-                ? (piGatewayAuth().AI_GATEWAY_API_KEY ?? "")
-                : GATEWAY_KEY_PLACEHOLDER,
+            // Boat has no proxy to fill it in, so the token itself goes.
+            tokenPlaceholder:
+              sandbox.provider === "boat" ? token : CHATGPT_TOKEN_PLACEHOLDER,
+            accountId: codex.credential.accountId,
             model: codexModel,
             ...(ctx.turn?.effort ? { effort: ctx.turn.effort } : {}),
             ...(command?.kind === "compact"
@@ -3972,19 +4004,27 @@ async function respondImpl(
             toolApproval: limitedToolApproval,
             abortSignal,
             onPart,
-            onModels: (models) =>
-              void saveHarnessModels("codex", models).catch((err) =>
+            // The composer offers the models the person's plan has; the
+            // shared list is the start for people with no Codex turn yet.
+            onModels: (models) => {
+              void Promise.all([
+                saveChatgptModels(codex.userId, models),
+                saveHarnessModels("codex", models),
+              ]).catch((err) =>
                 logger.warn(
                   { err, sessionId: conversationId },
                   "Saving the Codex model list failed"
                 )
-              ),
+              )
+            },
           })
         } finally {
+          clearInterval(refresher)
+          await regrant
           await revokeHarnessAccess(harness.owner).catch((err) =>
             logger.error(
               { err, sessionId: conversationId },
-              "Removing the Gateway key from the sandbox proxy failed"
+              "Removing the ChatGPT token from the sandbox proxy failed"
             )
           )
         }
@@ -3992,7 +4032,7 @@ async function respondImpl(
       const turn = await (ctx.claudeCode
         ? claudeCodeTurn(ctx.claudeCode)
         : ctx.codex
-          ? codexTurn()
+          ? codexTurn(ctx.codex)
           : runPiTurn({
               sessionId: conversationId,
               sessionKey: conversationId,
@@ -4261,7 +4301,7 @@ export async function respond(
     {
       sessionId:
         ctx.aiSessionId ?? ctx.threadRootId ?? ctx.channelId ?? ctx.runId,
-      distinctId: ctx.userId ?? ctx.claudeCode?.userId,
+      distinctId: ctx.userId ?? ctx.claudeCode?.userId ?? ctx.codex?.userId,
       traceName: "lor.respond",
     },
     () => respondImpl(ctx, callbacks, run)
