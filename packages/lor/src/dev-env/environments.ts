@@ -67,13 +67,19 @@ export async function effectiveSandboxMemoryMb(input: {
   )
 }
 
+export async function sessionSandboxExists(
+  sessionId: string
+): Promise<boolean> {
+  const existing = await attachSessionSandbox({ sessionId })
+  existing?.close()
+  return Boolean(existing)
+}
+
 // A new size needs a new sandbox: Blaxel can't resize one in place. The next
 // open creates it at the session's size and restores the newest checkpoint.
 // False when the session had none.
 export async function dropSessionSandbox(sessionId: string): Promise<boolean> {
-  const existing = await attachSessionSandbox({ sessionId })
-  if (!existing) return false
-  existing.close()
+  if (!(await sessionSandboxExists(sessionId))) return false
   await deleteSessionSandbox({ sessionId })
   return true
 }

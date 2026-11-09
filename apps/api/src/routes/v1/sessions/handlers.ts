@@ -55,6 +55,7 @@ import {
   dropSessionSandbox,
   effectiveSandboxMemoryMb,
   environmentForRepo,
+  sessionSandboxExists,
 } from "@repo/lor/dev-env/environments"
 import { listOpenPorts, openPort } from "@repo/lor/dev-env/previews"
 import { repoSetupStatus, startService } from "@repo/lor/dev-env/repo-setup"
@@ -1945,6 +1946,15 @@ export const updateSessionSetup: AppRouteHandler<
         "Lor is working in this session. Change the size when its turn ends"
       )
     }
+    // Without a checkpoint a replaced sandbox would lose the work folder.
+    if (
+      !(await hasCheckpoint(session.id)) &&
+      (await sessionSandboxExists(session.id))
+    ) {
+      return busy(
+        "This session has no checkpoint to restore its files from yet. Change the size after Lor's next turn"
+      )
+    }
   }
 
   // Saved before the sandbox goes, so whatever opens it next uses the new size.
@@ -1955,7 +1965,22 @@ export const updateSessionSetup: AppRouteHandler<
     .returning()
     .then((rows) => rows[0] ?? found)
 
-  const replaced = resized && (await dropSessionSandbox(session.id))
+  let replaced = false
+  if (resized) {
+    try {
+      replaced = await dropSessionSandbox(session.id)
+    } catch (err) {
+      // The sandbox is still there at its old size: keep the old setup.
+      await db
+        .update(schema.agentSession)
+        .set({
+          environmentId: session.environmentId,
+          sandboxMemoryMb: session.sandboxMemoryMb,
+        })
+        .where(eq(schema.agentSession.id, sessionId))
+      throw err
+    }
+  }
   if (replaced) await startRestore(session)
   if (environmentId && (resized || environmentChanged)) {
     const apply = () =>
