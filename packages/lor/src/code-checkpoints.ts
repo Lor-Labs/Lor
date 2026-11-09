@@ -305,6 +305,18 @@ export async function rewindWorkFolder(input: {
   }
 }
 
+// Holds the session's checkpoint lock around `fn`: a turn starting meanwhile
+// waits before it opens the sandbox (a sandbox replaced for a new size).
+export function withCheckpointLock<T>(
+  sessionId: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await lockSession(tx, sessionId)
+    return fn()
+  })
+}
+
 // Returns once no restore, rewind or checkpoint holds the session's lock.
 export function waitForCheckpoints(sessionId: string): Promise<void> {
   return db.transaction(async (tx) => {

@@ -1,3 +1,5 @@
+import { lorBranchPlaceName } from "./lor-branch-names.js"
+
 // A name for a branch a code session creates: git check-ref-format's rules,
 // within the characters code sessions allow in branch names.
 export function isValidNewBranchName(name: string): boolean {
@@ -15,23 +17,15 @@ export function isValidNewBranchName(name: string): boolean {
   )
 }
 
-// The branch Lor names for a session's work: lor/<label slug>-<session id
-// prefix>, so Lor's branches stand out and each traces back to its session.
-// Server and web both name a new session's branch, so they must agree.
-export function lorBranchName(
-  label: string,
-  sessionId: string,
-  fallback: string
-): string {
-  const slug = label
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
-    .replace(/-+$/, "")
+// The branch Lor names for a session's work: lor/<place name>-<session id
+// prefix>, so Lor's branches stand out, read as a place rather than a slice of
+// the prompt, and each traces back to its session. Server and web both name a
+// new session's branch, so they must agree: the place name comes from the
+// session id alone (see ./lor-branch-names).
+export function lorBranchName(sessionId: string): string {
   const suffix = sessionId.slice(0, 6)
-  const named = `lor/${slug || fallback}-${suffix}`
-  return isValidNewBranchName(named) ? named : `lor/${fallback}-${suffix}`
+  const named = `lor/${lorBranchPlaceName(sessionId).toLowerCase()}-${suffix}`
+  return isValidNewBranchName(named) ? named : `lor/session-${suffix}`
 }
 
 // Installation IDs are also database keys: reject numeric aliases and rounding.

@@ -14,10 +14,10 @@ import { sessionAuthMiddleware } from "@/middleware/session-auth"
 import {
   actWaitingResponseSchema,
   applyEnvironmentResponseSchema,
+  browserAnnotateRequestSchema,
+  browserAnnotateResponseSchema,
   browserControlRequestSchema,
   browserControlResponseSchema,
-  browserPickRequestSchema,
-  browserPickResponseSchema,
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
   commitMessageResponseSchema,
@@ -56,6 +56,8 @@ import {
   startServiceResponseSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
+  updateSessionSetupRequestSchema,
+  updateSessionSetupResponseSchema,
 } from "@/routes/v1/sessions/schema"
 
 export const getAgentSession = createRoute({
@@ -820,32 +822,32 @@ export const openSessionBrowserPage = createRoute({
 
 export type OpenSessionBrowserPageRoute = typeof openSessionBrowserPage
 
-export const pickSessionBrowserElement = createRoute({
-  path: "/sessions/{sessionId}/browser/pick",
+export const annotateSessionBrowser = createRoute({
+  path: "/sessions/{sessionId}/browser/annotate",
   method: "post",
-  summary: "Pick an element in a code session's browser for a comment",
+  summary: "Annotate the page in a code session's browser",
   description:
-    "Turns on the browser's element picker and waits up to about 50 seconds for a click, then returns the element and a cropped screenshot and marks it on the page. Also stops picking or clears the markers. Picking needs control of the browser.",
+    "Turns on the browser's element picker and waits up to about 50 seconds for a click, then draws a numbered pin and a note box on the page and returns the element and a cropped screenshot. Also waits for a note to be saved, stops picking, or clears this person's annotations. Picking needs control of the browser.",
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
   request: {
     params: sessionParamsSchema,
     body: jsonContent({
-      schema: browserPickRequestSchema,
-      description: "Pick, cancel or clear",
+      schema: browserAnnotateRequestSchema,
+      description: "Pick, wait, stop or clear",
     }),
   },
   hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
-      schema: browserPickResponseSchema,
-      description: "The picked element, or what happened",
+      schema: browserAnnotateResponseSchema,
+      description: "The picked element, the note, or what happened",
     }),
     ...browserErrors,
   },
 })
 
-export type PickSessionBrowserElementRoute = typeof pickSessionBrowserElement
+export type AnnotateSessionBrowserRoute = typeof annotateSessionBrowser
 
 export const applySessionEnvironment = createRoute({
   path: "/sessions/{sessionId}/environment/apply",
@@ -871,3 +873,35 @@ export const applySessionEnvironment = createRoute({
 })
 
 export type ApplySessionEnvironmentRoute = typeof applySessionEnvironment
+
+export const updateSessionSetup = createRoute({
+  path: "/sessions/{sessionId}/setup",
+  method: "patch",
+  summary: "Change a code session's environment or sandbox size",
+  description:
+    "Anyone who can write in the channel can do this. A new environment's files are written into the sandbox now. A new size replaces the sandbox: its work folder comes back from the newest checkpoint, and installed packages, running servers and other files are lost. Refused while Lor is working in the session.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: updateSessionSetupRequestSchema,
+      description: "The environment and size to use",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: updateSessionSetupResponseSchema,
+      description: "The updated session",
+    }),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.CONFLICT]: conflictSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type UpdateSessionSetupRoute = typeof updateSessionSetup

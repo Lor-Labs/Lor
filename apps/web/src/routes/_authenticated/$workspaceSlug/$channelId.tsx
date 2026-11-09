@@ -43,6 +43,7 @@ import { useOpenNewSession } from "@/hooks/use-open-new-session"
 import { useRealtimeRoom } from "@/hooks/use-realtime-room"
 import { useReplyState } from "@/hooks/use-reply-state"
 import { useSessionStart } from "@/hooks/use-session-start"
+import { useStableCallback } from "@/hooks/use-stable-callback"
 import { useThreadActivity } from "@/hooks/use-thread-activity"
 import { useThreadPanelUrlSync } from "@/hooks/use-thread-panel-url-sync"
 import { useTypingIndicator } from "@/hooks/use-typing-indicator"
@@ -389,7 +390,7 @@ function ChannelView() {
     channelId,
   })
 
-  const { handleEdit } = useMessageEditing({
+  const { handleEdit, editLastOwnMessage } = useMessageEditing({
     socket,
     queryClient,
     channelId,
@@ -534,6 +535,41 @@ function ChannelView() {
 
   const mentionCandidates = useMentionCandidates(workspaceSlug, channelId)
 
+  const channelName = data?.name ?? channelId
+  const channelTopic = data?.topic ?? undefined
+  // Standalone private channels wear the hash+lock glyph in the header;
+  // project channels don't (the project boundary communicates the audience).
+  const isPrivateChannel =
+    data?.audience === "members" && data?.parentId === null
+  const context = useMemo(
+    () => ({
+      type: "channel" as const,
+      name: channelName,
+      topic: channelTopic,
+      isPrivate: isPrivateChannel,
+    }),
+    [channelName, channelTopic, isPrivateChannel]
+  )
+  // Stable props for the memoized composer, so the channel's re-renders (new
+  // messages, typing, thread activity) don't reach it.
+  const onComposerSend = useStableCallback(
+    (content: string, options?: Parameters<typeof handleSend>[1]) =>
+      handleSend(content, {
+        mentions: [],
+        ...options,
+        ...lorStart.sendOptions,
+      })
+  )
+  const composerNotice = useMemo(
+    () => (
+      <SessionStartedNote
+        session={sessionStart.started}
+        workspaceSlug={workspaceSlug}
+      />
+    ),
+    [sessionStart.started, workspaceSlug]
+  )
+
   if (isPending) {
     return <ChatSkeleton />
   }
@@ -554,15 +590,6 @@ function ChannelView() {
         <span className="text-sm text-muted-foreground">Channel not found</span>
       </div>
     )
-  }
-
-  const context = {
-    type: "channel" as const,
-    name: data.name ?? channelId,
-    topic: data.topic ?? undefined,
-    // Standalone private channels wear the hash+lock glyph in the header;
-    // project channels don't (the project boundary communicates the audience).
-    isPrivate: data.audience === "members" && data.parentId === null,
   }
 
   return (
@@ -631,28 +658,19 @@ function ChannelView() {
         </div>
       ) : (
         <MessageInput
+          // One editor, draft and undo history per channel.
+          key={channelId}
           draftKey={`channel:${channelId}`}
           composerDraft={composerDraft}
           onComposerDraftConsumed={consumeComposerDraft}
           lorIntro
           destination="channel"
-          notice={
-            <SessionStartedNote
-              session={sessionStart.started}
-              workspaceSlug={workspaceSlug}
-            />
-          }
+          notice={composerNotice}
           context={context}
           channelId={channelId}
           leadingTools={lorStart.tools}
           lorSendBlocked={lorStart.sendBlocked}
-          onSend={(content, options) =>
-            handleSend(content, {
-              mentions: [],
-              ...options,
-              ...lorStart.sendOptions,
-            })
-          }
+          onSend={onComposerSend}
           currentUserId={currentUserId}
           mentionCandidates={mentionCandidates}
           replyingTo={replyingTo}
@@ -664,6 +682,7 @@ function ChannelView() {
           getUploadedAttachments={fileUpload.getUploadedAttachments}
           isUploading={fileUpload.isUploading}
           onTyping={emitTyping}
+          onEditLast={editLastOwnMessage}
         />
       )}
     </div>

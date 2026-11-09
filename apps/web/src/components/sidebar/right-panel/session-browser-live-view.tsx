@@ -1,7 +1,7 @@
 import {
   ArrowExpand01Icon,
   ArrowShrink02Icon,
-  Comment01Icon,
+  CursorEdit02Icon,
   Loading03Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -13,10 +13,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { browserStep, needsBrowserControl } from "@repo/utils/browser-step"
 import { useMutation } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
-import {
-  type SessionBrowserComments,
-  SessionBrowserCommentsCard,
-} from "@/components/sidebar/right-panel/session-browser-comments"
+import type { SessionBrowserAnnotations } from "@/components/sidebar/right-panel/session-browser-annotations"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
 
@@ -98,6 +95,8 @@ export function useSessionBrowserLive(
   const [lorWaiting, setLorWaiting] = useState<string | null>(null)
   const [kept, setKept] = useState<string | null>(null)
   const [handBackIn, setHandBackIn] = useState<number | null>(null)
+  // Annotating: the idle hand-back waits until the notes are sent or discarded.
+  const [held, setHeld] = useState(false)
   const lastInputAt = useRef(Date.now())
 
   // Each load asks the API for a new grant; the page then reconnects on its
@@ -273,7 +272,7 @@ export function useSessionBrowserLive(
   // Lor asked: hand back after the controller has been idle 15 s, counting
   // from at least 5 s after the request so the notice is seen.
   useEffect(() => {
-    if (!youControl || !lorWants) {
+    if (!youControl || !lorWants || held) {
       setHandBackIn(null)
       return
     }
@@ -294,7 +293,7 @@ export function useSessionBrowserLive(
     tick()
     const timer = setInterval(tick, 500)
     return () => clearInterval(timer)
-  }, [youControl, lorWants])
+  }, [youControl, lorWants, held])
 
   return {
     frame,
@@ -320,6 +319,7 @@ export function useSessionBrowserLive(
     lorWants,
     handBackIn,
     keep: () => setKept(lorWaiting),
+    hold: setHeld,
     resume: () => {
       failures.current = 0
       setPaused(false)
@@ -333,10 +333,10 @@ export type SessionBrowserLive = ReturnType<typeof useSessionBrowserLive>
 
 export function SessionBrowserLiveView({
   live,
-  comments,
+  annotations,
 }: {
   live: SessionBrowserLive
-  comments?: SessionBrowserComments
+  annotations?: SessionBrowserAnnotations
 }) {
   const { expanded, setExpanded, youControl } = live
 
@@ -436,8 +436,12 @@ export function SessionBrowserLiveView({
           <DriverPill live={live} />
         </div>
       </div>
-      {comments && <SessionBrowserCommentsCard comments={comments} />}
-      <BrowserFooter live={live} comments={comments} />
+      {annotations &&
+      (annotations.phase !== "off" || annotations.annotations.length > 0) ? (
+        <AnnotateBar live={live} annotations={annotations} />
+      ) : (
+        <BrowserFooter live={live} annotations={annotations} />
+      )}
     </div>
   )
 }
@@ -465,16 +469,21 @@ function DriverPill({ live }: { live: SessionBrowserLive }) {
   )
 }
 
-// The status line, Comment and the one control toggle under the frame.
+const footerClass = (expanded: boolean) =>
+  cn(
+    "flex shrink-0 items-center gap-2",
+    expanded &&
+      "mx-auto w-full max-w-3xl rounded-lg bg-popover px-3 py-2 text-popover-foreground shadow-lg"
+  )
+
+// The status line, Annotate and the one control toggle under the frame.
 function BrowserFooter({
   live,
-  comments,
+  annotations,
 }: {
   live: SessionBrowserLive
-  comments?: SessionBrowserComments
+  annotations?: SessionBrowserAnnotations
 }) {
-  const commenting =
-    comments !== undefined && (comments.picking || comments.comments.length > 0)
   const asking = live.youControl && live.lorWants
   const status = live.switching
     ? "Switching control…"
@@ -490,13 +499,7 @@ function BrowserFooter({
               ? `Lor is using the browser · ${live.lorStep.text}`
               : "Watching"
   return (
-    <div
-      className={cn(
-        "flex shrink-0 items-center gap-2",
-        live.expanded &&
-          "mx-auto w-full max-w-3xl rounded-lg bg-popover px-3 py-2 text-popover-foreground shadow-lg"
-      )}
-    >
+    <div className={footerClass(live.expanded)}>
       {((live.lorStep && !live.controller && !live.youControl) ||
         live.lorWants) && <LiveDot />}
       <p
@@ -513,20 +516,20 @@ function BrowserFooter({
           Keep
         </Button>
       )}
-      {comments && !commenting && !asking && (
+      {annotations && !asking && (
         <Button
           size="sm"
           variant="outline"
-          title="Pick elements on the page and tell Lor what to change"
+          title="Pin notes to elements on the page, for Lor and everyone watching"
           disabled={live.switching || live.unavailable || !live.everConnected}
-          onClick={comments.pick}
+          onClick={annotations.start}
         >
           <HugeiconsIcon
-            icon={Comment01Icon}
+            icon={CursorEdit02Icon}
             className="size-3.5"
             strokeWidth={2}
           />
-          Comment
+          Annotate
         </Button>
       )}
       <Button
@@ -541,6 +544,87 @@ function BrowserFooter({
             ? "Take over"
             : "Take control"}
       </Button>
+    </div>
+  )
+}
+
+// Replaces the footer while annotating: what to do on the page, the count,
+// Done (or Annotate to add more), Discard and Send to Lor. The notes
+// themselves are on the page.
+function AnnotateBar({
+  live,
+  annotations,
+}: {
+  live: SessionBrowserLive
+  annotations: SessionBrowserAnnotations
+}) {
+  const { phase, sending } = annotations
+  const count = annotations.annotations.length
+  // The idle hand-back is held while annotating, so say Lor is waiting.
+  const asking = live.youControl && live.lorWants
+  const status = asking
+    ? count > 0
+      ? "Lor wants the browser. Send or discard your notes to hand it back."
+      : "Lor wants the browser. Select Done to hand it back."
+    : phase === "starting"
+      ? "Taking control…"
+      : phase === "picking"
+        ? "Click an element on the page to annotate it"
+        : phase === "writing"
+          ? "Type your note on the page. Enter saves it"
+          : `${count} ${count === 1 ? "annotation" : "annotations"} on the page`
+  return (
+    <div className={footerClass(live.expanded)}>
+      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+        {phase === "starting" ? (
+          <HugeiconsIcon
+            icon={Loading03Icon}
+            className="size-3 animate-spin motion-reduce:animate-none"
+            strokeWidth={2}
+          />
+        ) : (
+          <HugeiconsIcon
+            icon={CursorEdit02Icon}
+            className="size-3"
+            strokeWidth={2}
+          />
+        )}
+      </span>
+      <p
+        className="min-w-0 flex-1 truncate font-medium text-foreground text-xs"
+        title={status}
+      >
+        {status}
+      </p>
+      {phase === "off" ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={sending || live.switching || !live.everConnected}
+          onClick={annotations.start}
+        >
+          Annotate
+        </Button>
+      ) : (
+        <Button size="sm" variant="ghost" onClick={annotations.done}>
+          Done
+        </Button>
+      )}
+      {count > 0 && (
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={sending}
+            onClick={annotations.discard}
+          >
+            Discard
+          </Button>
+          <Button size="sm" disabled={sending} onClick={annotations.send}>
+            {sending ? "Sending…" : "Send to Lor"}
+          </Button>
+        </>
+      )}
     </div>
   )
 }

@@ -1,7 +1,12 @@
-import { PaginationNulls, PaginationSortOrder } from "@linear/sdk"
+import {
+  InvalidInputLinearError,
+  PaginationNulls,
+  PaginationSortOrder,
+} from "@linear/sdk"
 import { and, db, eq, schema } from "@repo/db"
 import { tool } from "ai"
 import { z } from "zod"
+import { logger } from "./logger"
 import { linearClientFor } from "./providers/linear"
 import { rerankItems } from "./rerank"
 import type { OnUsage } from "./usage"
@@ -203,31 +208,147 @@ export type LinearIssueCard = Awaited<
   ReturnType<typeof compactLinearIssues>
 >[number]
 
-// Issues by identifier ("ENG-412") in one query, for cards in Lor's window.
-// Identifiers that don't resolve are simply missing from the result.
+const IDENTIFIER = /^[A-Z][A-Z0-9]*-\d+$/
+
+// Issues by exact identifier ("ENG-412"), one lookup each. A team key + number
+// `or` filter matched other issues of the team, so Lor moved the wrong issue
+// to In Progress (LOR-158). Identifiers that don't resolve are missing.
+function lookupIssue(
+  client: LinearClient,
+  identifier: string
+): Promise<LinearIssue | null> {
+  return client.issue(identifier).catch((error: unknown) => {
+    // Linear answers an unknown identifier with an invalid-input error;
+    // auth, rate-limit and outage failures are logged.
+    if (!(error instanceof InvalidInputLinearError)) {
+      logger.warn({ err: error, identifier }, "Linear issue lookup failed")
+    }
+    return null
+  })
+}
+
+async function issuesByIdentifier(
+  identifiers: string[],
+  lookup: (identifier: string) => Promise<LinearIssue | null>
+): Promise<LinearIssue[]> {
+  const wanted = [
+    ...new Set(identifiers.map((identifier) => identifier.toUpperCase())),
+  ].filter((identifier) => IDENTIFIER.test(identifier))
+  const issues = await Promise.all(wanted.map(lookup))
+  const seen = new Set<string>()
+  return issues.filter((issue): issue is LinearIssue => {
+    if (!issue || seen.has(issue.id)) return false
+    seen.add(issue.id)
+    return true
+  })
+}
+
+// Everyone in a call refreshes the same issue cards each minute, so one
+// lookup per issue serves the whole call. A failed lookup isn't kept. Starting
+// an issue reads it uncached, to see its current state.
+const CARD_ISSUE_CACHE_MS = 60_000
+const cardIssues = new Map<
+  string,
+  { at: number; issue: Promise<LinearIssue | null> }
+>()
+
+function cachedCardIssue(
+  client: LinearClient,
+  externalId: string,
+  identifier: string
+) {
+  const key = `${externalId}:${identifier}`
+  const now = Date.now()
+  const hit = cardIssues.get(key)
+  if (hit && now - hit.at < CARD_ISSUE_CACHE_MS) return hit.issue
+  const issue = lookupIssue(client, identifier).then((result) => {
+    if (result === null && cardIssues.get(key)?.issue === issue) {
+      cardIssues.delete(key)
+    }
+    return result
+  })
+  cardIssues.set(key, { at: now, issue })
+  for (const [other, entry] of cardIssues) {
+    if (now - entry.at >= CARD_ISSUE_CACHE_MS) cardIssues.delete(other)
+  }
+  return issue
+}
+
+// Issues by identifier for cards in Lor's window.
 export async function loadLinearIssueCards(
   externalId: string,
   identifiers: string[]
 ): Promise<LinearIssueCard[]> {
-  const refs = identifiers.flatMap((identifier) => {
-    const match = /^([A-Z][A-Z0-9]*)-(\d+)$/.exec(identifier)
-    return match?.[1] && match[2]
-      ? [{ key: match[1], number: Number(match[2]) }]
-      : []
-  })
-  if (refs.length === 0) return []
+  if (identifiers.length === 0) return []
   const client = await linearClientFor(externalId)
   if (!client) return []
-  const result = await client.issues({
-    first: refs.length,
-    filter: {
-      or: refs.map((ref) => ({
-        team: { key: { eq: ref.key } },
-        number: { eq: ref.number },
-      })),
-    },
-  })
-  return await compactLinearIssues(client, result.nodes, { visuals: true })
+  const issues = await issuesByIdentifier(identifiers, (identifier) =>
+    cachedCardIssue(client, externalId, identifier)
+  )
+  return await compactLinearIssues(client, issues, { visuals: true })
+}
+
+const START_ISSUES_MAX = 5
+const NOT_STARTED_STATE_TYPES = new Set(["triage", "backlog", "unstarted"])
+
+export type StartedLinearIssue = {
+  identifier: string
+  title: string
+  url: string
+  state: string
+}
+
+// A code session's picked or pasted issue moves to its team's first started
+// state (In Progress) when Lor starts on it (LOR-140). Only issues not yet
+// started move, so a person's own move to In Review, Done or Canceled stands.
+export async function startLinearIssues(
+  externalId: string,
+  identifiers: string[]
+): Promise<StartedLinearIssue[]> {
+  if (identifiers.length === 0) return []
+  const client = await linearClientFor(externalId)
+  if (!client) return []
+  const issues = await issuesByIdentifier(
+    identifiers.slice(0, START_ISSUES_MAX),
+    (identifier) => lookupIssue(client, identifier)
+  )
+  const teamIds = [...new Set(issues.flatMap((issue) => issue.teamId ?? []))]
+  if (teamIds.length === 0) return []
+  const states = await client
+    .workflowStates({
+      first: LINEAR_PAGE_SIZE,
+      filter: { team: { id: { in: teamIds } } },
+    })
+    .then((result) => result.nodes)
+  const stateById = new Map(states.map((state) => [state.id, state]))
+  const firstStarted = new Map<string, (typeof states)[number]>()
+  for (const state of states) {
+    if (state.type !== "started" || !state.teamId) continue
+    const current = firstStarted.get(state.teamId)
+    if (!current || state.position < current.position) {
+      firstStarted.set(state.teamId, state)
+    }
+  }
+  const started = await Promise.all(
+    issues.map(async (issue): Promise<StartedLinearIssue | null> => {
+      const current = issue.stateId ? stateById.get(issue.stateId) : undefined
+      if (!current || !NOT_STARTED_STATE_TYPES.has(current.type)) return null
+      const state = issue.teamId ? firstStarted.get(issue.teamId) : undefined
+      if (!state) return null
+      const payload = await client
+        .updateIssue(issue.id, { stateId: state.id })
+        .catch(() => null)
+      return payload?.success
+        ? {
+            identifier: issue.identifier,
+            title: issue.title,
+            url: issue.url,
+            state: state.name,
+          }
+        : null
+    })
+  )
+  return started.filter((issue) => issue !== null)
 }
 
 export const linearTools = {

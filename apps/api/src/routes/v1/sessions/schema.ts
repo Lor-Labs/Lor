@@ -6,6 +6,7 @@ import {
   TOUCH_ACTIONS,
   TOUCH_KINDS,
 } from "@repo/db/schema"
+import { CODE_SANDBOX_MEMORY_OPTIONS_MB } from "@repo/lor/dev-env/environments"
 import { messageWithAuthorSchema } from "@/lib/helpers/openapi/message-schemas"
 
 export const sessionParamsSchema = z.object({
@@ -37,6 +38,8 @@ export const agentSessionSchema = z
     baseBranch: z.string().nullable(),
     newBranch: z.string().nullable(),
     environmentId: z.string().uuid().nullable(),
+    // The size picked for this session; null: its environment's or the default.
+    sandboxMemoryMb: z.number().int().nullable(),
     uncommittedAdditions: z.number().int().nullable(),
     uncommittedDeletions: z.number().int().nullable(),
     sourceSessionId: z.string().uuid().nullable(),
@@ -193,16 +196,24 @@ export const openBrowserPageRequestSchema = z.object({
     .default("/"),
 })
 
-// Element comments: pick one element (the person in control), stop picking,
-// or clear the page's numbered markers.
-export const browserPickRequestSchema = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("pick"), index: z.number().int().min(1).max(99) }),
-  z.object({ mode: z.enum(["cancel", "clear"]) }),
+// Page annotations: pick an element and open its note (the person in
+// control), wait for that note to be saved or removed, stop picking (an open
+// note is kept as written) or clear this person's annotations off the page.
+export const browserAnnotateRequestSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("pick"),
+    id: z.string().uuid(),
+    number: z.number().int().min(1).max(99),
+  }),
+  z.object({ mode: z.literal("wait"), id: z.string().uuid() }),
+  z.object({ mode: z.enum(["stop", "clear"]) }),
 ])
 
-// `image`: a JPEG crop around the element, base64. `timeout`: nobody clicked
-// within about 50 s, so the panel asks again.
-export const browserPickResponseSchema = z.discriminatedUnion("status", [
+// `image`: a JPEG crop around the element, base64. `reopened`: a click on one
+// of your pins opened its note again. `stopped`: each of your notes, null for
+// a removed one. `timeout`: nothing happened within about 50 s, so the panel
+// asks again.
+export const browserAnnotateResponseSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("picked"),
     element: z.object({
@@ -216,7 +227,13 @@ export const browserPickResponseSchema = z.discriminatedUnion("status", [
     }),
     image: z.string().nullable(),
   }),
-  z.object({ status: z.enum(["timeout", "no_page", "ok"]) }),
+  z.object({ status: z.literal("reopened"), id: z.string() }),
+  z.object({ status: z.literal("saved"), note: z.string() }),
+  z.object({
+    status: z.literal("stopped"),
+    notes: z.array(z.object({ id: z.string(), note: z.string().nullable() })),
+  }),
+  z.object({ status: z.enum(["timeout", "no_page", "removed", "ok"]) }),
 ])
 
 export const openBrowserPageResponseSchema = z.object({
@@ -258,6 +275,37 @@ export const serviceParamsSchema = sessionParamsSchema.extend({
 
 export const applyEnvironmentResponseSchema = z.object({
   applied: z.boolean(),
+})
+
+// A code session's environment and sandbox size, changed while it runs
+// (LOR-156). Omitted fields stay as they are.
+export const updateSessionSetupRequestSchema = z
+  .object({
+    // Null: no environment.
+    environmentId: z.string().uuid().nullable().optional(),
+    // Null: the environment's size, or the default.
+    sandboxMemoryMb: z
+      .number()
+      .int()
+      .refine(
+        (mb) =>
+          (CODE_SANDBOX_MEMORY_OPTIONS_MB as readonly number[]).includes(mb),
+        "Pick one of the listed sandbox sizes"
+      )
+      .nullable()
+      .optional(),
+  })
+  .refine(
+    (body) =>
+      body.environmentId !== undefined || body.sandboxMemoryMb !== undefined,
+    { message: "Nothing to update" }
+  )
+
+// `replaced`: the session's sandbox was replaced and is coming back at the new
+// size. A session without one gets the size when its sandbox is made.
+export const updateSessionSetupResponseSchema = z.object({
+  session: agentSessionSchema,
+  replaced: z.boolean(),
 })
 
 export const portParamsSchema = sessionParamsSchema.extend({

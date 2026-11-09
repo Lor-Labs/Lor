@@ -142,7 +142,7 @@ async function actCodeStart(
     code: {
       repoFullName: allowed.repo.fullName,
       baseBranch: input.code.baseBranch,
-      newBranch: lorBranchName(input.label, sessionId, "event"),
+      newBranch: lorBranchName(sessionId),
     },
     note: null,
   }

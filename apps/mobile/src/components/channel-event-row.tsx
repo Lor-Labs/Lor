@@ -2,6 +2,7 @@ import ArrowUp02Icon from "@hugeicons/core-free-icons/ArrowUp02Icon"
 import GitCommitIcon from "@hugeicons/core-free-icons/GitCommitIcon"
 import GitForkIcon from "@hugeicons/core-free-icons/GitForkIcon"
 import Infinity01Icon from "@hugeicons/core-free-icons/Infinity01Icon"
+import Settings02Icon from "@hugeicons/core-free-icons/Settings02Icon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import Undo02Icon from "@hugeicons/core-free-icons/Undo02Icon"
 import ZapIcon from "@hugeicons/core-free-icons/ZapIcon"
@@ -46,6 +47,10 @@ type SessionPushedPayload = {
   headSha: string
 }
 type SessionForkedPayload = { sessionId: string; fromMessageId: string }
+type SessionSetupChangedPayload = {
+  environmentName?: string | null
+  sandboxMemoryMb?: number
+}
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -253,6 +258,32 @@ function eventText(
         </>
       )
     }
+    case "session_setup_changed": {
+      if (!payload) break
+      const p = payload as SessionSetupChangedPayload
+      const environment =
+        p.environmentName === undefined ? null : p.environmentName ? (
+          <>
+            set the environment to <Name>{p.environmentName}</Name>
+          </>
+        ) : (
+          "removed the environment"
+        )
+      const size =
+        p.sandboxMemoryMb === undefined ? null : (
+          <>
+            replaced the sandbox with a{" "}
+            <Name>{p.sandboxMemoryMb / 1024} GB</Name> one
+          </>
+        )
+      return (
+        <>
+          {actor} {environment}
+          {environment && size ? " and " : null}
+          {size}
+        </>
+      )
+    }
     // A session folds the turns after it under the "Previous history" row
     // (thread-message-list.tsx); this line shows only outside one.
     case "session_rewound":
@@ -330,6 +361,7 @@ const SESSION_EVENT_ICONS: Partial<
   session_pushed: ArrowUp02Icon,
   session_forked: GitForkIcon,
   session_rewound: Undo02Icon,
+  session_setup_changed: Settings02Icon,
   loop_run: Infinity01Icon,
   trigger_run: ZapIcon,
 }

@@ -165,16 +165,22 @@ export async function setBrowserControl(
   return { status: "ok", controller }
 }
 
-// Element comments (reference/planned/sandbox-browser-runbook.md §5): turns
-// on Chromium's own element picker over CDP (its highlight shows in the live
-// view), waits for the click, reads the element in an isolated world (the
-// page's scripts never see it), crops a screenshot, then puts a numbered
-// marker on the page. `clear` removes the markers; `cancel` ends picking.
-const PICK_SCRIPT = `
-const mode = process.argv[1]
-const index = Number(process.argv[2] || 0)
+// Page annotations (reference/planned/sandbox-browser-runbook.md §5): turns on
+// Chromium's own element picker over CDP (its highlight shows in the live
+// view), waits for the click, reads the element and crops a screenshot, then
+// draws a numbered pin, an outline and a note box on the page itself, so
+// everyone watching and Lor's screenshots see them. The overlay is a closed
+// shadow root made from an isolated world (the page's scripts never see
+// inside) and follows its element. Each annotation's state lives in
+// attributes on its host, so later runs read and change it: `data-state`
+// (open | saved | removed), `data-note` (the text being typed), `data-saved`
+// and `data-lor-by` (the author's user id).
+const ANNOTATE_SCRIPT = `
+const args = process.argv.slice(1)
+const mode = args[0]
 const WAIT_MS = 50000
 const print = (value) => console.log(JSON.stringify(value))
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function describe() {
   const el = this
@@ -211,14 +217,220 @@ function describe() {
   }
 }
 
-function mark(n) {
-  const r = this.getBoundingClientRect()
+// One annotation on the picked element: pin at its top-left corner, outline,
+// the note box beside it while open, a one-line bubble once saved.
+function annotate(id, number, by, author, selector) {
+  let target = this
   const host = document.createElement("div")
-  host.setAttribute("data-lor-comment", String(n))
-  host.style.cssText = "position:absolute;pointer-events:none;z-index:2147483647;left:" + (r.left + scrollX) + "px;top:" + (r.top + scrollY) + "px;width:" + r.width + "px;height:" + r.height + "px"
+  host.setAttribute("data-lor-annotation", id)
+  host.setAttribute("data-lor-by", by)
+  host.setAttribute("data-state", "open")
+  host.setAttribute("data-note", "")
+  host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647"
   const root = host.attachShadow({ mode: "closed" })
-  root.innerHTML = '<div style="position:absolute;inset:0;outline:2px solid #7c5cff;outline-offset:1px;border-radius:3px"></div><div style="position:absolute;top:-11px;left:-11px;min-width:22px;height:22px;padding:0 6px;box-sizing:border-box;border-radius:11px;background:#7c5cff;color:#fff;font:600 12px/22px system-ui,sans-serif;text-align:center">' + n + "</div>"
+  const css = [
+    ":host{all:initial}",
+    "*{box-sizing:border-box;margin:0;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}",
+    ":host([data-hidden]) .layer,:host([data-state='removed']) .layer{display:none}",
+    ".ring,.pin,.bubble,.card{position:fixed;left:0;top:0}",
+    ".ring{border:1.5px solid rgba(124,92,255,.55);border-radius:4px}",
+    ":host([data-state='open']) .ring{border:2px solid #7c5cff;background:rgba(124,92,255,.08)}",
+    ".pin{width:24px;height:24px;border:2px solid #fff;border-radius:12px 12px 12px 3px;background:#7c5cff;color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.3);font-size:11px;font-weight:600;line-height:20px;text-align:center}",
+    ".bubble{max-width:240px;padding:4px 8px;border:1px solid rgba(28,25,23,.1);border-radius:8px;background:#fff;color:#1c1917;box-shadow:0 2px 8px rgba(0,0,0,.14);font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    ".bubble b{margin-right:4px;font-weight:600}",
+    ":host([data-armed]) .pin,:host([data-armed]) .bubble{pointer-events:auto;cursor:pointer}",
+    ".card{display:none;width:300px;padding:10px 12px;border:1px solid rgba(28,25,23,.1);border-radius:12px;background:#fff;color:#1c1917;box-shadow:0 12px 32px -4px rgba(0,0,0,.2),0 2px 6px rgba(0,0,0,.08);pointer-events:auto}",
+    ":host([data-state='open']) .card{display:block}",
+    ".head{display:flex;align-items:center;gap:7px;font-size:12px;line-height:16px}",
+    ".avatar{flex:none;width:20px;height:20px;border-radius:10px;background:#7c5cff;color:#fff;font-size:10px;font-weight:600;line-height:20px;text-align:center}",
+    ".who{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    ".num{color:#a8a29e}",
+    "textarea{display:block;width:100%;max-height:152px;margin-top:8px;padding:0;border:0;outline:0;resize:none;overflow-y:auto;background:transparent;color:#1c1917;font-size:13px;line-height:19px}",
+    "textarea::placeholder{color:#a8a29e}",
+    ".foot{display:flex;align-items:center;gap:4px;margin-top:10px}",
+    ".hint{flex:1;font-size:11px;color:#a8a29e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    "button{all:unset;cursor:pointer;padding:4px 9px;border-radius:6px;font-size:12px;font-weight:500;line-height:16px}",
+    ".remove{color:#78716c}.remove:hover{background:#f5f5f4;color:#1c1917}",
+    ".save{background:#7c5cff;color:#fff}.save:hover{background:#6a4bf0}",
+  ].join("")
+  root.innerHTML =
+    "<style>" + css + "</style><div class='layer'><div class='ring'></div><div class='pin'></div><div class='bubble'><b></b><span></span></div>" +
+    "<div class='card'><div class='head'><span class='avatar'></span><span class='who'></span><span class='num'></span></div>" +
+    "<textarea rows='1' placeholder='Add a note for Lor…'></textarea>" +
+    "<div class='foot'><span class='hint'>Enter to save · Esc to cancel</span><button type='button' class='remove'></button><button type='button' class='save'>Save</button></div></div></div>"
+  const $ = (query) => root.querySelector(query)
+  const ring = $(".ring")
+  const pin = $(".pin")
+  const bubble = $(".bubble")
+  const card = $(".card")
+  const note = $("textarea")
+  const name = String(author || "").trim() || "Someone"
+  pin.textContent = String(number)
+  $(".avatar").textContent = name.charAt(0).toUpperCase()
+  $(".who").textContent = name
+  $(".num").textContent = "#" + number
+  $(".bubble b").textContent = name.split(" ")[0]
+
+  const grow = () => {
+    note.style.height = "auto"
+    note.style.height = Math.min(note.scrollHeight, 152) + "px"
+  }
+  const save = () => {
+    const text = note.value.trim()
+    host.setAttribute("data-note", text)
+    host.setAttribute("data-saved", text)
+    host.setAttribute("data-state", "saved")
+  }
+  // Esc: an edited note goes back to its saved text; a new one goes.
+  const cancel = () => {
+    if (!host.hasAttribute("data-saved")) return host.setAttribute("data-state", "removed")
+    host.setAttribute("data-note", host.getAttribute("data-saved"))
+    host.setAttribute("data-state", "saved")
+  }
+  note.addEventListener("input", () => {
+    host.setAttribute("data-note", note.value)
+    grow()
+  })
+  note.addEventListener("keydown", (event) => {
+    if (event.isComposing) return
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault()
+      save()
+    } else if (event.key === "Escape") {
+      event.preventDefault()
+      cancel()
+    }
+  })
+  $(".save").addEventListener("click", save)
+  $(".remove").addEventListener("click", () => host.setAttribute("data-state", "removed"))
+  // Typing and clicks in the note stay away from the page's own shortcuts and
+  // outside-click handlers.
+  for (const type of ["keydown", "keyup", "keypress", "beforeinput", "input", "paste", "copy", "cut", "pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick", "contextmenu", "focusin", "focusout"]) {
+    root.addEventListener(type, (event) => event.stopPropagation())
+  }
+
+  const clamp = (value, min, max) => Math.max(min, Math.min(value, max))
+  const move = (node, x, y) => {
+    node.style.transform = "translate(" + Math.round(x) + "px," + Math.round(y) + "px)"
+  }
+  let rect = null
+  // Every frame, so the pin follows scrolling and layout changes; a
+  // re-rendered element is found again by its selector.
+  const place = () => {
+    if (!host.isConnected) return
+    requestAnimationFrame(place)
+    if (!target.isConnected) {
+      try {
+        target = document.querySelector(selector) || target
+      } catch {}
+    }
+    if (target.isConnected) rect = target.getBoundingClientRect()
+    if (!rect) return
+    const r = rect
+    const vw = document.documentElement.clientWidth
+    const vh = document.documentElement.clientHeight
+    const state = host.getAttribute("data-state")
+    const shown = target.isConnected && (r.width > 0 || r.height > 0) && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw
+    ring.style.display = shown ? "" : "none"
+    pin.style.display = shown ? "" : "none"
+    bubble.style.display = shown && state === "saved" && host.getAttribute("data-saved") ? "" : "none"
+    ring.style.width = r.width + 4 + "px"
+    ring.style.height = r.height + 4 + "px"
+    move(ring, r.left - 2, r.top - 2)
+    const px = clamp(r.left - 2, 4, vw - 28)
+    const py = clamp(r.top - 26, 4, vh - 28)
+    move(pin, px, py)
+    const bw = bubble.offsetWidth
+    move(bubble, px + 28 + bw > vw - 4 ? px - 4 - bw : px + 28, py - 1)
+    if (state !== "open") return
+    const w = card.offsetWidth
+    const h = card.offsetHeight
+    const gap = 10
+    const m = 8
+    let x = r.left
+    let y = r.top + gap
+    if (r.right + gap + w <= vw - m) {
+      x = r.right + gap
+      y = r.top
+    } else if (r.left - gap - w >= m) {
+      x = r.left - gap - w
+      y = r.top
+    } else if (r.bottom + gap + h <= vh - m) {
+      y = r.bottom + gap
+    } else if (r.top - gap - h >= m) {
+      y = r.top - gap - h
+    }
+    move(card, clamp(x, m, vw - w - m), clamp(y, m, vh - h - m))
+  }
+  let last = ""
+  const render = () => {
+    const state = host.getAttribute("data-state")
+    $(".bubble span").textContent = host.getAttribute("data-saved") || ""
+    $(".remove").textContent = host.hasAttribute("data-saved") ? "Remove" : "Cancel"
+    if (state === "open" && last !== "open") {
+      note.value = host.getAttribute("data-note") || ""
+      grow()
+      note.focus({ preventScroll: true })
+      note.setSelectionRange(note.value.length, note.value.length)
+    }
+    last = state
+  }
+  new MutationObserver(render).observe(host, { attributes: true, attributeFilter: ["data-state", "data-saved"] })
   document.documentElement.appendChild(host)
+  place()
+  render()
+}
+
+// A click on an annotation's own pin or bubble while picking.
+function annotationOf() {
+  const host = this.getRootNode().host
+  if (!host || !host.hasAttribute("data-lor-annotation")) return null
+  return { id: host.getAttribute("data-lor-annotation"), by: host.getAttribute("data-lor-by") }
+}
+
+function toggleAll(name, on) {
+  document.querySelectorAll("[data-lor-annotation]").forEach((host) => host.toggleAttribute(name, on))
+}
+
+function readOne(id) {
+  const host = Array.from(document.querySelectorAll("[data-lor-annotation]")).find((h) => h.getAttribute("data-lor-annotation") === id)
+  if (!host) return null
+  return { state: host.getAttribute("data-state"), note: host.getAttribute("data-saved") || "" }
+}
+
+function setState(id, state) {
+  const host = Array.from(document.querySelectorAll("[data-lor-annotation]")).find((h) => h.getAttribute("data-lor-annotation") === id)
+  if (host && state === "gone") host.remove()
+  else if (host) host.setAttribute("data-state", state)
+}
+
+// Done or Send: a note still open is kept as written (a new empty one goes).
+// Returns each of the author's notes; null for a removed one.
+function finish(by) {
+  const hosts = Array.from(document.querySelectorAll("[data-lor-annotation]")).filter((h) => h.getAttribute("data-lor-by") === by)
+  return hosts.map((host) => {
+    if (host.getAttribute("data-state") === "open") {
+      const text = (host.getAttribute("data-note") || "").trim()
+      if (text || host.hasAttribute("data-saved")) {
+        host.setAttribute("data-saved", text)
+        host.setAttribute("data-state", "saved")
+      } else {
+        host.setAttribute("data-state", "removed")
+      }
+    }
+    const id = host.getAttribute("data-lor-annotation")
+    if (host.getAttribute("data-state") === "removed") {
+      host.remove()
+      return { id, note: null }
+    }
+    return { id, note: host.getAttribute("data-saved") || "" }
+  })
+}
+
+function clearAll(by) {
+  document.querySelectorAll("[data-lor-annotation]").forEach((host) => {
+    if (host.getAttribute("data-lor-by") === by) host.remove()
+  })
 }
 
 async function main() {
@@ -248,16 +460,60 @@ async function main() {
       calls.set(next, { resolve, reject })
       ws.send(JSON.stringify({ id: next, method, params: params || {} }))
     })
+  let context = 0
+  // Made again after a pick: the page may have navigated meanwhile.
+  const newWorld = async () => {
+    const { frameTree } = await send("Page.getFrameTree")
+    const world = await send("Page.createIsolatedWorld", { frameId: frameTree.frame.id, worldName: "lor-annotations" })
+    context = world.executionContextId
+  }
+  const run = async (fn, ...values) => {
+    const { result, exceptionDetails } = await send("Runtime.evaluate", {
+      expression: "(" + fn.toString() + ")(" + values.map((value) => JSON.stringify(value)).join(",") + ")",
+      contextId: context,
+      returnByValue: true,
+    })
+    if (exceptionDetails) throw new Error(exceptionDetails.text)
+    return result.value
+  }
+  await send("Page.enable")
   await send("DOM.enable")
   await send("Overlay.enable")
-  const stopPicking = () => send("Overlay.setInspectMode", { mode: "none", highlightConfig: {} })
-  if (mode === "cancel" || mode === "clear") {
-    await stopPicking()
-    if (mode === "clear") {
-      await send("Runtime.evaluate", { expression: "document.querySelectorAll('[data-lor-comment]').forEach((n) => n.remove())" })
-    }
+  await newWorld()
+  const stopPicking = async () => {
+    await send("Overlay.setInspectMode", { mode: "none", highlightConfig: {} })
+    await run(toggleAll, "data-armed", false)
+  }
+  // Only the person in control turns picking off; someone else's stop or
+  // clear leaves the controller's picker alone.
+  const controls = args[2] === "1"
+  if (mode === "clear") {
+    if (controls) await stopPicking()
+    await run(clearAll, args[1])
     return print({ status: "ok" })
   }
+  if (mode === "stop") {
+    if (controls) await stopPicking()
+    return print({ status: "stopped", notes: await run(finish, args[1]) })
+  }
+  if (mode === "wait") {
+    const id = args[1]
+    const deadline = Date.now() + WAIT_MS
+    while (Date.now() < deadline) {
+      const found = await run(readOne, id).catch(() => null)
+      if (!found || found.state === "removed") {
+        await run(setState, id, "gone").catch(() => {})
+        return print({ status: "removed" })
+      }
+      if (found.state === "saved") return print({ status: "saved", note: found.note })
+      await sleep(250)
+    }
+    return print({ status: "timeout" })
+  }
+
+  const [, id, number, by, author] = args
+  // Pins take clicks while picking, so a click on one opens its note.
+  await run(toggleAll, "data-armed", true)
   const picked = new Promise((resolve) => {
     onEvent = (msg) => {
       if (msg.method === "Overlay.inspectNodeRequested") resolve(msg.params.backendNodeId)
@@ -270,13 +526,19 @@ async function main() {
     highlightConfig: { showInfo: true, contentColor: { ...violet, a: 0.2 }, borderColor: { ...violet, a: 0.9 } },
   })
   const backendNodeId = await picked
+  await newWorld()
   await stopPicking()
   if (!backendNodeId) return print({ status: "timeout" })
-  const { frameTree } = await send("Page.getFrameTree")
-  const world = await send("Page.createIsolatedWorld", { frameId: frameTree.frame.id, worldName: "lor-comments" })
-  const { object } = await send("DOM.resolveNode", { backendNodeId, executionContextId: world.executionContextId })
-  const call = (fn, args) =>
-    send("Runtime.callFunctionOn", { objectId: object.objectId, functionDeclaration: fn.toString(), arguments: args || [], returnByValue: true })
+  const { object } = await send("DOM.resolveNode", { backendNodeId, executionContextId: context })
+  const call = (fn, values) =>
+    send("Runtime.callFunctionOn", { objectId: object.objectId, functionDeclaration: fn.toString(), arguments: (values || []).map((value) => ({ value })), returnByValue: true })
+  const existing = (await call(annotationOf)).result.value
+  if (existing) {
+    // Someone else's pin: nothing picked, so the panel asks again.
+    if (existing.by !== by) return print({ status: "timeout" })
+    await run(setState, existing.id, "open")
+    return print({ status: "reopened", id: existing.id })
+  }
   const element = (await call(describe)).result.value
   const pad = 12
   const rect = element.rect
@@ -287,10 +549,13 @@ async function main() {
     height: Math.min(1000, rect.height + pad * 2),
     scale: 1,
   }
+  // Other pins stay out of the crop.
+  await run(toggleAll, "data-hidden", true)
   const shot = clip.width >= 4 && clip.height >= 4
     ? await send("Page.captureScreenshot", { format: "jpeg", quality: 75, clip }).catch(() => null)
     : null
-  await call(mark, [{ value: index }])
+  await run(toggleAll, "data-hidden", false)
+  await call(annotate, [id, Number(number), by, author, element.selector])
   print({ status: "picked", element, image: shot ? shot.data : null })
 }
 
@@ -303,7 +568,7 @@ main().then(
 )
 `
 
-export type PickedElement = {
+export type AnnotatedElement = {
   selector: string
   tag: string
   role: string | null
@@ -313,46 +578,89 @@ export type PickedElement = {
   url: string
 }
 
-export type BrowserPickResult =
-  | { status: "picked"; element: PickedElement; image: string | null }
-  | { status: "timeout" | "no_page" | "ok" }
+export type BrowserAnnotateAction =
+  | { mode: "pick"; id: string; number: number }
+  | { mode: "wait"; id: string }
+  | { mode: "stop" | "clear" }
+
+export type BrowserAnnotateResult =
+  | { status: "picked"; element: AnnotatedElement; image: string | null }
+  | { status: "reopened"; id: string }
+  | { status: "saved"; note: string }
+  | { status: "stopped"; notes: { id: string; note: string | null }[] }
+  | { status: "timeout" | "no_page" | "removed" | "ok" }
   | { status: "no_sandbox" | "unavailable" | "error" }
   | { status: "busy"; controller: BrowserController | null }
 
-const PICK_PROCESS = "browser-pick"
+const ANNOTATE_PROCESS = "browser-annotate"
 
 // Picking moves the shared browser into Chromium's inspect mode, so only the
-// person in control may do it.
-export async function pickBrowserElement(
+// person in control may pick; their name signs the note. Stop and clear act
+// on this person's annotations only. Each run replaces the one before it.
+export async function annotateBrowser(
   sessionId: string,
   userId: string,
-  action: { mode: "pick"; index: number } | { mode: "cancel" | "clear" }
-): Promise<BrowserPickResult> {
+  action: BrowserAnnotateAction
+): Promise<BrowserAnnotateResult> {
   const control = await runInBrowserDir(sessionId, readControl)
   if (!control) return { status: "no_sandbox" }
   if (control.exitCode === MISSING) return { status: "unavailable" }
   const controller = parseControl(control.stdout)
-  if (action.mode === "pick" && controller?.userId !== userId) {
+  const controls = controller?.userId === userId
+  if (action.mode === "pick" && !controls) {
     return { status: "busy", controller }
   }
   const args =
-    action.mode === "pick" ? `pick ${Math.max(1, action.index)}` : action.mode
+    action.mode === "pick"
+      ? [
+          "pick",
+          action.id,
+          String(action.number),
+          userId,
+          controller?.name ?? "",
+        ]
+      : action.mode === "wait"
+        ? ["wait", action.id]
+        : [action.mode, userId, controls ? "1" : "0"]
   const result = await runNamed(owner(sessionId), {
-    name: PICK_PROCESS,
-    command: `node -e ${q(PICK_SCRIPT)} ${args}`,
+    // A non-controller's stop or clear runs under its own name, so it never
+    // replaces the controller's pick or wait.
+    name: controls
+      ? ANNOTATE_PROCESS
+      : `${ANNOTATE_PROCESS}-${userId.replace(/[^\w-]/g, "")}`,
+    command: `node -e ${q(ANNOTATE_SCRIPT)} ${args.map((arg) => q(arg)).join(" ")}`,
     timeoutSec: 58,
   })
   if (!result) return { status: "no_sandbox" }
   try {
     const parsed = JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "")
-    if (parsed.status === "picked") {
-      const { rect: _rect, ...element } = parsed.element
-      return { status: "picked", element, image: parsed.image ?? null }
+    switch (parsed.status) {
+      case "picked": {
+        const { rect: _rect, ...element } = parsed.element
+        return { status: "picked", element, image: parsed.image ?? null }
+      }
+      case "reopened":
+        return { status: "reopened", id: String(parsed.id) }
+      case "saved":
+        return { status: "saved", note: String(parsed.note ?? "") }
+      case "stopped":
+        return {
+          status: "stopped",
+          notes: (Array.isArray(parsed.notes) ? parsed.notes : []).map(
+            (entry: { id: unknown; note: unknown }) => ({
+              id: String(entry.id),
+              note: typeof entry.note === "string" ? entry.note : null,
+            })
+          ),
+        }
+      case "timeout":
+      case "no_page":
+      case "removed":
+      case "ok":
+        return { status: parsed.status }
+      default:
+        return { status: "error" }
     }
-    if (["timeout", "no_page", "ok"].includes(parsed.status)) {
-      return { status: parsed.status }
-    }
-    return { status: "error" }
   } catch {
     return { status: "error" }
   }

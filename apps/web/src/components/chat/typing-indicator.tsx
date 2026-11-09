@@ -13,7 +13,7 @@ export type TypingPerson = TypingUser & {
   avatarColor: string | null
 }
 
-const MAX_TYPING_LINES = 3
+const MAX_TYPING_FACES = 3
 
 const DOT_DELAYS = [0, 200, 400]
 
@@ -69,58 +69,92 @@ export function TypingIndicator({
   )
 }
 
-// Session typing lines: each typer gets a line shaped like the reply line
-// under it, their avatar in the gutter and dots where their text will go. The
-// lines grow in above the reply line; at the end of a long session the
-// scroller holds the bottom, so the reply line and caret stay put.
+const SLOT_MOTION = { duration: 0.18, ease: EASE_OUT }
+
+// Session typing line, shaped like the reply line under it: the first typer's
+// avatar in the gutter, dots where their text will go, then the other typers'
+// faces. With `reserve` (someone else can type here) its one-line slot is
+// always there, so the sticky composer keeps its height as people start and
+// stop typing; only opacity and transform animate.
 export function DocumentTypingIndicator({
   people,
+  reserve,
 }: {
   people: TypingPerson[]
+  reserve: boolean
 }) {
+  const [first, ...others] = people
+  if (!reserve && !first) return null
   return (
-    <div>
-      {people.length > 0 && (
-        <span className="sr-only">{formatTypingText(people)}</span>
-      )}
+    <div className="h-10 px-4 pb-2">
+      {first && <span className="sr-only">{formatTypingText(people)}</span>}
       <AnimatePresence initial={false}>
-        {people.slice(0, MAX_TYPING_LINES).map((person) => (
+        {first && (
           <motion.div
-            key={person.userId}
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: EASE_OUT }}
-            className="overflow-hidden"
+            key="typing"
+            aria-hidden
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={SLOT_MOTION}
+            className="relative flex h-8 items-center gap-2 py-1 pl-10"
           >
-            <div className="px-4 pb-2">
-              <div className="relative py-1 pl-10">
+            <AnimatePresence initial={false}>
+              <motion.div
+                key={first.userId}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={SLOT_MOTION}
+                className="absolute top-0.5 left-0"
+              >
                 <UserAvatar
-                  name={person.name}
-                  src={person.image}
-                  avatarColor={person.avatarColor}
+                  name={first.name}
+                  src={first.image}
+                  avatarColor={first.avatarColor}
                   size="sm"
-                  className="absolute top-0.5 left-0 size-7"
+                  className="size-7"
                 />
-                <span className="flex h-6 items-center gap-1">
-                  {DOT_DELAYS.map((delay) => (
-                    <motion.span
-                      key={delay}
-                      animate={{ opacity: [0.35, 1, 0.35], y: [0, -2, 0] }}
-                      transition={{
-                        duration: 1,
-                        delay: delay / 1000,
-                        repeat: Number.POSITIVE_INFINITY,
-                        ease: "easeInOut",
-                      }}
-                      className="size-1.5 rounded-full bg-muted-foreground"
+              </motion.div>
+            </AnimatePresence>
+            <span className="flex h-6 items-center gap-1">
+              {DOT_DELAYS.map((delay) => (
+                <motion.span
+                  key={delay}
+                  animate={{ opacity: [0.35, 1, 0.35], y: [0, -2, 0] }}
+                  transition={{
+                    duration: 1,
+                    delay: delay / 1000,
+                    repeat: Number.POSITIVE_INFINITY,
+                    ease: "easeInOut",
+                  }}
+                  className="size-1.5 rounded-full bg-muted-foreground"
+                />
+              ))}
+            </span>
+            <span className="flex -space-x-1.5">
+              <AnimatePresence initial={false}>
+                {others.slice(0, MAX_TYPING_FACES - 1).map((person) => (
+                  <motion.span
+                    key={person.userId}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={SLOT_MOTION}
+                  >
+                    <UserAvatar
+                      name={person.name}
+                      src={person.image}
+                      avatarColor={person.avatarColor}
+                      size="sm"
+                      className="size-5 ring-2 ring-background"
                     />
-                  ))}
-                </span>
-              </div>
-            </div>
+                  </motion.span>
+                ))}
+              </AnimatePresence>
+            </span>
           </motion.div>
-        ))}
+        )}
       </AnimatePresence>
     </div>
   )

@@ -111,10 +111,9 @@ export function useSessionStart({
       baseBranch: start.code?.branch ?? null,
       newBranch:
         start.code?.newBranch ??
-        (start.code?.autoBranch
-          ? lorBranchName(start.title, start.id, "session")
-          : null),
+        (start.code?.autoBranch ? lorBranchName(start.id) : null),
       environmentId: start.code?.environmentId ?? null,
+      sandboxMemoryMb: null,
       uncommittedAdditions: null,
       uncommittedDeletions: null,
       sourceSessionId: start.source?.id ?? null,

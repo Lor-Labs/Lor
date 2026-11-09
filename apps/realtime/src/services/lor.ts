@@ -95,7 +95,7 @@ async function codeSessionStart(
   workspaceId: string,
   channelId: string,
   code: NonNullable<SendMessagePayload["code"]>,
-  session: { id: string; title: string }
+  session: { id: string }
 ) {
   if (!isSafeBranch(code.branch)) {
     throw new Error(`"${code.branch}" can't be used as a base branch`)
@@ -103,7 +103,7 @@ async function codeSessionStart(
   const named = code.newBranch
     ? code.newBranch
     : code.autoBranch
-      ? lorBranchName(session.title, session.id, "session")
+      ? lorBranchName(session.id)
       : null
   const newBranch = named && named !== code.branch ? named : null
   if (newBranch && !isValidNewBranchName(newBranch)) {

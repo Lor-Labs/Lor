@@ -6,6 +6,7 @@ import type {
   SessionPushedPayload,
   SessionReviewedPayload,
   SessionRewoundPayload,
+  SessionSetupChangedPayload,
 } from "@repo/db/schema"
 import type { RealtimeMessage } from "@repo/realtime-types"
 import { threadRoom } from "@repo/realtime-types/rooms"
@@ -20,8 +21,8 @@ export const eventAuthor = (user: {
   image?: string | null
 }): EventAuthor => ({ id: user.id, name: user.name, image: user.image ?? null })
 
-// A commit, push, fork or review as a line in the session, for its people and
-// for Lor there.
+// A commit, push, fork, review or setup change as a line in the session, for
+// its people and for Lor there.
 export async function postSessionEvent(
   session: Pick<AgentSession, "channelId" | "threadRootId" | "workspaceId">,
   author: EventAuthor,
@@ -30,7 +31,11 @@ export async function postSessionEvent(
     | { eventType: "session_pushed"; eventPayload: SessionPushedPayload }
     | { eventType: "session_forked"; eventPayload: SessionForkedPayload }
     | { eventType: "session_rewound"; eventPayload: SessionRewoundPayload }
-    | { eventType: "session_reviewed"; eventPayload: SessionReviewedPayload },
+    | { eventType: "session_reviewed"; eventPayload: SessionReviewedPayload }
+    | {
+        eventType: "session_setup_changed"
+        eventPayload: SessionSetupChangedPayload
+      },
   content: string
 ) {
   const [row] = await db

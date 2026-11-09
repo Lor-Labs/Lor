@@ -16,7 +16,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useCallback, useState } from "react"
+import { type ReactNode, useCallback, useMemo, useState } from "react"
 import { useDropzone } from "react-dropzone"
 import { MessageInput } from "@/components/chat/composer/message-input"
 import { DropZoneOverlay } from "@/components/chat/drop-zone-overlay"
@@ -51,6 +51,7 @@ import { useMentionCandidates } from "@/hooks/use-mention-candidates"
 import { useMessageSending } from "@/hooks/use-message-sending"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useSessionStart } from "@/hooks/use-session-start"
+import { useStableCallback } from "@/hooks/use-stable-callback"
 import type { Message } from "@/lib/api-types"
 import { readLastChannelId } from "@/lib/last-location"
 import { toSearchPreviewText } from "@/lib/search-preview"
@@ -267,6 +268,81 @@ function NewSessionComposer({
     noKeyboard: true,
   })
 
+  // Stable props for the memoized composer, so the page's re-renders (mode,
+  // repo and environment queries) reach it only when they change its input.
+  const onComposerSend = useStableCallback(
+    (content: string, options?: Parameters<typeof handleSend>[1]) =>
+      handleSend(content, {
+        mentions: [],
+        ...options,
+        startSession: true,
+        contextMessageId: aboutMessageId,
+        ...(mode === "code" && code.target
+          ? {
+              code: {
+                ...code.target,
+                ...(environment.selected
+                  ? { environmentId: environment.selected.id }
+                  : {}),
+              },
+              harness,
+            }
+          : {}),
+        ...modelChoice.turn,
+        ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
+        ...(continueFromSessionId
+          ? {
+              continueFrom: {
+                id: continueFromSessionId,
+                title: sourceTitle,
+              },
+            }
+          : {}),
+      })
+  )
+  const onComposerDraftConsumed = useCallback(
+    () => setComposerDraft(undefined),
+    []
+  )
+  const composerContext = useMemo(
+    () => ({ type: "channel" as const, name: channelName }),
+    [channelName]
+  )
+  const composerNotice = useMemo(
+    () => (
+      <SessionStartedNote
+        session={sessionStart.started}
+        workspaceSlug={workspaceSlug}
+      />
+    ),
+    [sessionStart.started, workspaceSlug]
+  )
+  const composerLeadingTools = useMemo(
+    () =>
+      claudeCode ? (
+        <ClaudeCodeModePicker
+          value={claudeMode.mode}
+          onChange={claudeMode.setMode}
+        />
+      ) : undefined,
+    [claudeCode, claudeMode.mode, claudeMode.setMode]
+  )
+  const onHarness = useStableCallback(setHarness)
+  const pickerHarnesses = mode === "code" ? harnesses : undefined
+  const composerTools = useMemo(
+    () => (
+      <>
+        <ModelPicker
+          choice={modelChoice}
+          harnesses={pickerHarnesses}
+          onHarness={onHarness}
+        />
+        <EffortPicker choice={modelChoice} />
+      </>
+    ),
+    [modelChoice, pickerHarnesses, onHarness]
+  )
+
   return (
     <div
       {...getRootProps()}
@@ -362,26 +438,15 @@ function NewSessionComposer({
           )}
         </div>
         <MessageInput
+          key={workspaceSlug}
           draftKey={`new-session:${workspaceSlug}`}
           composerDraft={composerDraft}
-          onComposerDraftConsumed={() => setComposerDraft(undefined)}
-          context={{ type: "channel", name: channelName }}
+          onComposerDraftConsumed={onComposerDraftConsumed}
+          context={composerContext}
           channelId={channel.id}
           destination="new"
-          notice={
-            <SessionStartedNote
-              session={sessionStart.started}
-              workspaceSlug={workspaceSlug}
-            />
-          }
-          leadingTools={
-            claudeCode ? (
-              <ClaudeCodeModePicker
-                value={claudeMode.mode}
-                onChange={claudeMode.setMode}
-              />
-            ) : undefined
-          }
+          notice={composerNotice}
+          leadingTools={composerLeadingTools}
           placeholder={
             mode === "code"
               ? `Ask ${HARNESS_LABELS[harness]} for changes, or attach screenshots`
@@ -390,46 +455,9 @@ function NewSessionComposer({
           sendBlocked={
             (mode === "code" && !code.target) || needsClaude || needsChatgpt
           }
-          tools={
-            <>
-              <ModelPicker
-                choice={modelChoice}
-                harnesses={mode === "code" ? harnesses : undefined}
-                onHarness={setHarness}
-              />
-              <EffortPicker choice={modelChoice} />
-            </>
-          }
+          tools={composerTools}
           onShiftTab={claudeCode ? claudeMode.cycle : undefined}
-          onSend={(content, options) =>
-            handleSend(content, {
-              mentions: [],
-              ...options,
-              startSession: true,
-              contextMessageId: aboutMessageId,
-              ...(mode === "code" && code.target
-                ? {
-                    code: {
-                      ...code.target,
-                      ...(environment.selected
-                        ? { environmentId: environment.selected.id }
-                        : {}),
-                    },
-                    harness,
-                  }
-                : {}),
-              ...modelChoice.turn,
-              ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
-              ...(continueFromSessionId
-                ? {
-                    continueFrom: {
-                      id: continueFromSessionId,
-                      title: sourceTitle,
-                    },
-                  }
-                : {}),
-            })
-          }
+          onSend={onComposerSend}
           currentUserId={authSession?.user.id}
           mentionCandidates={mentionCandidates}
           pendingAttachments={fileUpload.attachments}

@@ -189,7 +189,7 @@ export const sendMessagePayloadSchema = z
         branch: z.string().min(1).max(255),
         newBranch: z.string().min(1).max(200).optional(),
         // Without newBranch: a new lor/ branch from `branch`, named from the
-        // session's title and id (lorBranchName).
+        // session's id (lorBranchName).
         autoBranch: z.boolean().optional(),
         // The environment whose env files the session writes.
         environmentId: z.string().uuid().optional(),
@@ -306,6 +306,7 @@ export type RealtimeChannelEventType =
   | "session_forked"
   | "session_rewound"
   | "session_reviewed"
+  | "session_setup_changed"
 
 export type RealtimeChannelEventPayload =
   | { via?: "proposal"; originChannelId?: string; originChannelName?: string }
@@ -345,6 +346,11 @@ export type RealtimeChannelEventPayload =
       reviewer: string
       reviewerBot: boolean
       state: "approved" | "changes_requested" | "commented"
+    }
+  | {
+      sessionId: string
+      environmentName?: string | null
+      sandboxMemoryMb?: number
     }
   | null
 
@@ -666,6 +672,13 @@ export type RealtimeLorToolCall = {
     size: number
     url: string
   }[]
+  setup?: {
+    sessionId: string
+    environmentId?: string
+    environmentName?: string
+    sandboxMemoryMb?: number
+    reason: string
+  }
   status?: "ok" | "error"
 }
 
@@ -1041,6 +1054,7 @@ export type RealtimeAgentSession = {
   baseBranch: string | null
   newBranch: string | null
   environmentId: string | null
+  sandboxMemoryMb: number | null
   uncommittedAdditions: number | null
   uncommittedDeletions: number | null
   sourceSessionId: string | null
