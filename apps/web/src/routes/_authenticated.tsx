@@ -17,6 +17,7 @@ import { VoiceCallProvider } from "@/context/voice-call-context"
 import { useBrowserNotifications } from "@/hooks/use-browser-notifications"
 import { useConnectivity } from "@/hooks/use-connectivity"
 import { useUpdateCheck } from "@/hooks/use-update-check"
+import { sanitizeRedirect } from "@/lib/auth-redirect"
 
 // v0.1.2
 function BrowserNotifications() {
@@ -120,7 +121,10 @@ function AuthenticatedLayout() {
     navigate({
       to: "/login",
       search: {
-        redirect: location.href === "/" ? undefined : location.href,
+        // Runs again while the navigation is pending, with the login page as
+        // the location: sanitizing keeps the original page instead of nesting.
+        redirect:
+          location.href === "/" ? undefined : sanitizeRedirect(location.href),
       },
     })
   }, [
