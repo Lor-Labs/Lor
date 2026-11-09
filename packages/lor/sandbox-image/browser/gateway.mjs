@@ -5,10 +5,11 @@
 // cross-site iframe without cookies. The gateway proxies that prefix to
 // Selkies with the controller token for the person in control and the viewer
 // token for everyone else, so watching is enforced by Selkies, not by the
-// client. When control changes, Selkies connections whose role changed are
-// closed and the page's bridge script reloads it in its new role. Control
+// client. When control changes, the page's bridge script reloads it in its
+// new role, and Selkies connections still in the old role are closed. Control
 // goes back to Lor after the controller has had no connection for a while.
 import { execFile } from "node:child_process"
+import { watch } from "node:fs"
 import { readFile, stat, unlink, utimes } from "node:fs/promises"
 import { createServer, request } from "node:http"
 import { promisify } from "node:util"
@@ -29,7 +30,12 @@ const GRANT_MAX_MS = 12 * 60 * 60_000
 const RELEASE_AFTER_MS = 2 * 60_000
 const MAX_CONNECTIONS = 40
 const MAX_BUFFERED = 8 * 1024 * 1024
-const ROLE_CHANGED = 4001
+// Selkies' own "permissions changed" close: its page reloads in the new role.
+const ROLE_CHANGED = 4002
+// A role change reaches the pages first, so their bridges keep the last
+// picture and reload; streams still open after this are closed.
+const ROLE_CLOSE_DELAY_MS = 500
+const LISTENER_PING_MS = 25_000
 // Selkies sizes the display from these; only the person in control may.
 const CONTROLLER_ONLY = ["r,", "s,"]
 // Each CDP step in the window fit; a hung Chromium must not stall the ticks.
@@ -93,10 +99,17 @@ async function syncControl() {
     controllerId = next
     controllerName = name
     if (changed) controllerSeenAt = Date.now()
-    for (const c of streams) {
-      if (roleFor(c.userId) !== c.role) c.ws.close(ROLE_CHANGED, "role changed")
-    }
+    const stale = [...streams].filter((c) => roleFor(c.userId) !== c.role)
     for (const l of listeners) l.ws.send(controlMessage(l.userId))
+    if (stale.length > 0) {
+      setTimeout(() => {
+        for (const c of stale) {
+          if (streams.has(c) && roleFor(c.userId) !== c.role) {
+            c.ws.close(ROLE_CHANGED, "role changed")
+          }
+        }
+      }, ROLE_CLOSE_DELAY_MS)
+    }
   }
   const now = new Date()
   for (const id of new Set([...streams, ...listeners].map((c) => c.grant))) {
@@ -113,6 +126,13 @@ async function syncControl() {
     await unlink(`${DIR}/controller-id`).catch(() => {})
     await unlink(`${DIR}/controller`).catch(() => {})
   }
+}
+
+// One sync at a time: the tick, the file watch and new connections all ask.
+let syncQueue = Promise.resolve()
+const queueSync = () => {
+  syncQueue = syncQueue.then(syncControl).catch(() => {})
+  return syncQueue
 }
 
 // Keeps Chromium's windows the display's size: Selkies resizes the display
@@ -185,22 +205,85 @@ async function fitWindows() {
   }
 }
 
+// A fit still running skips the tick instead of stacking another.
+let fitting = false
+function fitTick() {
+  if (fitting) return
+  fitting = true
+  fitWindows()
+    .catch(() => {})
+    .finally(() => {
+      fitting = false
+    })
+}
+
+// The controller's page sent its size: Selkies resizes the display shortly
+// after, so fit right away instead of on the next tick.
+let fitBurst = []
+function fitSoon() {
+  for (const timer of fitBurst) clearTimeout(timer)
+  fitBurst = [100, 300, 700, 1500].map((ms) => setTimeout(fitTick, ms))
+}
+
 // Injected into Selkies' page: tells the Lor panel who has control and when
 // the person in it uses the view (Lor's idle hand-back), and reloads the page
-// when this viewer's role changes.
+// when this viewer's role changes. Before that reload it hands the panel the
+// picture on screen ("freeze"), which the panel shows until the reloaded page
+// draws its first frame ("picture"), so switching control never goes dark.
 const BRIDGE = `(() => {
   const base = location.pathname.slice(0, location.pathname.lastIndexOf("/") + 1)
   const post = (msg) => parent !== window && parent.postMessage({ source: "lor-browser", ...msg }, "*")
   let role = null
+  let leaving = false
+  addEventListener("pagehide", () => { leaving = true })
+  // Selkies draws into a <video> or one of its canvases, whichever shows.
+  const shown = () => ["videoStream", "videoWorkerCanvas", "videoCanvas"]
+    .map((id) => document.getElementById(id))
+    .find((el) => el && el.style.display !== "none" && el.getBoundingClientRect().width > 0
+      && (el.tagName !== "VIDEO" || (el.readyState >= 2 && el.videoWidth > 0)))
+  const snapshot = () => {
+    try {
+      const el = shown()
+      if (!el) return null
+      const scale = Math.min(devicePixelRatio || 1, 2)
+      const canvas = document.createElement("canvas")
+      canvas.width = Math.round(innerWidth * scale)
+      canvas.height = Math.round(innerHeight * scale)
+      const ctx = canvas.getContext("2d")
+      ctx.fillStyle = "#000"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      const r = el.getBoundingClientRect()
+      ctx.drawImage(el, r.left * scale, r.top * scale, r.width * scale, r.height * scale)
+      return canvas.toDataURL("image/jpeg", 0.85)
+    } catch {
+      return null
+    }
+  }
+  const reload = () => {
+    leaving = true
+    post({ type: "freeze", image: snapshot() })
+    location.reload()
+  }
+  // Selkies hides its status bar once the stream draws.
+  const waitForPicture = () => {
+    const status = document.getElementById("status-display")
+    if (status && status.classList.contains("hidden") && shown()) {
+      requestAnimationFrame(() => post({ type: "picture" }))
+      return
+    }
+    setTimeout(waitForPicture, 50)
+  }
+  waitForPicture()
   const listen = () => {
     const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + base + "__lor/events")
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data)
-      if (role && msg.role !== role) return location.reload()
+      if (role && msg.role !== role) return reload()
       role = msg.role
       post({ type: "control", role: msg.role, controller: msg.controller })
     }
     ws.onclose = (event) => {
+      if (leaving) return
       if (event.code === 4004) return post({ type: "expired" })
       post({ type: "disconnected" })
       setTimeout(listen, 2000)
@@ -308,9 +391,15 @@ function relay(client, upstream, grant, role) {
   })
   client.on("message", (data, isBinary) => {
     if (upstream.readyState !== upstream.OPEN) return
-    if (role === "watch" && !isBinary) {
+    // Lost control: nothing more reaches Selkies while the page reloads
+    // before the delayed close.
+    if (role === "control" && roleFor(stream.userId) !== "control") return
+    if (!isBinary) {
       const text = data.toString()
-      if (CONTROLLER_ONLY.some((prefix) => text.startsWith(prefix))) return
+      if (CONTROLLER_ONLY.some((prefix) => text.startsWith(prefix))) {
+        if (role === "watch") return
+        if (text.startsWith("r,")) fitSoon()
+      }
     }
     upstream.send(data, { binary: isBinary })
   })
@@ -325,6 +414,8 @@ function relay(client, upstream, grant, role) {
   upstream.on("error", close)
   client.on("close", close)
   client.on("error", close)
+  // Control changed while Selkies was answering: that sync missed this stream.
+  if (roleFor(stream.userId) !== role) close(ROLE_CHANGED)
 }
 
 server.on("upgrade", async (req, socket, head) => {
@@ -340,7 +431,7 @@ server.on("upgrade", async (req, socket, head) => {
     socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n")
     return
   }
-  await syncControl()
+  await queueSync()
   if (match[2] === "/__lor/events") {
     wss.handleUpgrade(req, socket, head, (ws) => {
       const listener = { ws, grant: grant.id, userId: grant.userId }
@@ -386,18 +477,22 @@ setInterval(async () => {
     if (!(await readGrant(c.grant))) c.ws.close(4004, "expired")
   }
 }, 60_000)
-setInterval(() => void syncControl().catch(() => {}), 1000)
-// A fit still running skips the tick instead of stacking another.
-let fitting = false
+setInterval(queueSync, 1000)
+// The API writes the control files; react at once rather than on the tick.
+let syncSoon = null
+try {
+  watch(DIR, (_event, file) => {
+    if (file !== "controller-id" && file !== "controller") return
+    clearTimeout(syncSoon)
+    syncSoon = setTimeout(queueSync, 30)
+  })
+} catch {}
+setInterval(fitTick, 1000)
+// Proxies drop a quiet WebSocket; the events socket carries nothing between
+// control changes.
 setInterval(() => {
-  if (fitting) return
-  fitting = true
-  fitWindows()
-    .catch(() => {})
-    .finally(() => {
-      fitting = false
-    })
-}, 1000)
+  for (const l of listeners) l.ws.ping()
+}, LISTENER_PING_MS)
 server.listen(VIEW_PORT, "0.0.0.0", () => {
   console.log(`gateway on ${VIEW_PORT}`)
 })

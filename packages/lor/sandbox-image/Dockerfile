@@ -107,7 +107,10 @@ ARG SELKIES_VERSION=2.2.1
 ARG SELKIES_SHA256=c59c3e5a528778d80f09daa552faae9b0c0cfae853c3ebbb380d8e6a850eb43d
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium xvfb xauth x11-xserver-utils openbox libnss3-tools \
-    fonts-liberation fonts-noto-color-emoji \
+    fonts-liberation fonts-noto-color-emoji bibata-cursor-theme \
+    && mkdir -p /opt/lor-browser/icons \
+    && mv /usr/share/icons/Bibata-Modern-Ice /opt/lor-browser/icons/ \
+    && rm -rf /usr/share/icons/Bibata-* \
     && cd /tmp \
     && curl -fsSLO "https://github.com/selkies-project/selkies/releases/download/${SELKIES_VERSION}/selkies-${SELKIES_VERSION}-debiantrixie-amd64.deb" \
     && echo "${SELKIES_SHA256}  selkies-${SELKIES_VERSION}-debiantrixie-amd64.deb" | sha256sum -c - \
@@ -119,6 +122,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && npm install --prefix /opt/lor-browser --no-audit --no-fund ws@${WS_VERSION}
 COPY browser/lor-browser-start browser/lor-browser /usr/local/bin/
 COPY browser/gateway.mjs /opt/lor-browser/gateway.mjs
+# The live view's cursor theme, Bibata Modern Ice (Selkies shows the X
+# cursor in the viewer's page; without a theme Chromium falls back to X's
+# bitmap cursors). It lives in /opt because the deployed sandbox comes up
+# with /usr/share/icons empty; lor-browser-start points XCURSOR_PATH at it.
+# Chromium takes the theme name from GTK's settings, not XCURSOR_THEME.
+COPY browser/gtk-settings.ini /etc/gtk-3.0/settings.ini
 
 RUN mkdir -p /workspace/in /workspace/out /workspace/.pi-sessions /root/.pi/agent
 

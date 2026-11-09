@@ -583,6 +583,31 @@ Each step is a review chunk of about 300–400 lines.
       `tauri://localhost`; the gateway drops that header from the page.
       Firefox couldn't decode the H.264 stream; `--encoder=h264enc,jpeg`
       lets it fall back to JPEG. Both checked by Jacob, image pushed.
+    - LOR-136 (2026-11-09, image not pushed): the cursor was X's bitmap
+      fallback (the image had no cursor theme). Bibata Modern Ice (Jacob's
+      pick) now lives in `/opt/lor-browser/icons` (the deployed sandbox's
+      `/usr/share/icons` is empty) with `XCURSOR_PATH`, and
+      `/etc/gtk-3.0/settings.ini` names it, since Chromium takes the theme
+      from GTK. Pages drew half size for a Retina controller: Selkies'
+      HiDPI default doubled the display and set `Xft.dpi` 192, which a
+      running Chromium ignores. `--use-css-scaling='true|locked'` keeps the
+      display in CSS pixels at 96 DPI (slightly softer text on Retina).
+    - LOR-131 (2026-11-09, image not pushed): switching control no longer
+      goes dark. The gateway tells pages first and closes old-role streams
+      500 ms later with Selkies' 4002 (4001 showed its "Invalid token"
+      screen). The bridge posts `freeze` (a JPEG of the picture) before it
+      reloads and `picture` once the new page draws; the panel shows the
+      freeze in between. The gateway watches the control files (the API's
+      writes land at once, the 1 s tick stays as fallback), fits Chromium
+      right after the controller's `r,` and pings the events socket. The
+      panel switches optimistically and says "Switching control…" only
+      after 700 ms. Measured locally: file write to live picture 0.2-0.4 s.
+    - LOR-134 (2026-11-09, image not pushed): `lor-browser show [url]`
+      opens the page (when given) and prints a confirmation; without a URL
+      it needs no control. The web opens the session's Browser tab for
+      people whose panel is collapsed (`useLorBrowserShow`) and the tool
+      trail shows a card with View (`BrowserShowCard`). Mobile shows the
+      step text only.
     - QA owed: two viewers in the app, Safari, the phone (Selkies' touch
       input; typing on iOS unverified with the sidebar off), CPU under
       scrolling, Lor screenshots after a resize.

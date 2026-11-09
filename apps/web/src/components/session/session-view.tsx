@@ -64,6 +64,7 @@ import {
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import { useChannelApprovals } from "@/hooks/use-approvals"
+import { useLorBrowserShow } from "@/hooks/use-lor-browser-show"
 import { useChannelPeople } from "@/hooks/use-mention-candidates"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useChannelProposals } from "@/hooks/use-proposals"
@@ -258,6 +259,12 @@ function SessionConversation({
     lastCollapsed.current = isCollapsed
     writeSessionPanel(userId, session.id, { collapsed: isCollapsed })
   }, [isCollapsed, isMobile, session.id, userId])
+
+  // Lor showed people the browser: open its tab when the panel is closed.
+  // An open panel on another tab stays put; the chat's card has View.
+  useLorBrowserShow(session.threadRootId, code && isMobile === false, () => {
+    if (isCollapsed) openView({ ...workView, type: "session-browser" })
+  })
 
   // Code sessions: files and diffs open in tabs beside the chat.
   useLiveSessionChanges(session.id, session.threadRootId, code)
