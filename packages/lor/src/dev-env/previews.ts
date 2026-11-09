@@ -149,14 +149,37 @@ const rewrite = (headers) => {
   return out
 }
 
+// Hop-by-hop headers stay on their own connection (LOR-157): the dev server's
+// keep-alive and chunked framing, passed to an HTTP/1.0 or Connection: close
+// client, leaves a page that never finishes loading. Node frames each side.
+const HOP = ["connection", "keep-alive", "proxy-connection", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authenticate", "proxy-authorization"]
+const hopHeaders = (connection) =>
+  new Set([...HOP, ...String(connection || "").toLowerCase().split(",").map((name) => name.trim())])
+const requestHeaders = (headers) => {
+  const out = rewrite(headers)
+  for (const name of hopHeaders(headers.connection)) delete out[name]
+  return out
+}
+const replyHeaders = (reply) => {
+  const drop = hopHeaders(reply.headers.connection)
+  const out = []
+  for (let i = 0; i < reply.rawHeaders.length; i += 2) {
+    if (!drop.has(reply.rawHeaders[i].toLowerCase())) out.push(reply.rawHeaders[i], reply.rawHeaders[i + 1])
+  }
+  return out
+}
+// Not the global agent: NODE_USE_ENV_PROXY sends that through the sandbox's
+// egress proxy unless NO_PROXY lists loopback.
+const agent = new http.Agent({ keepAlive: true })
+
 const server = http.createServer((req, res) => {
   upstreamHost((host) => {
     if (!host) {
       res.writeHead(502)
       return res.end()
     }
-    const upstream = http.request({ host, port: target, method: req.method, path: req.url, headers: rewrite(req.headers) }, (reply) => {
-      res.writeHead(reply.statusCode || 502, reply.statusMessage, reply.rawHeaders)
+    const upstream = http.request({ host, port: target, method: req.method, path: req.url, headers: requestHeaders(req.headers), agent }, (reply) => {
+      res.writeHead(reply.statusCode || 502, reply.statusMessage, replyHeaders(reply))
       reply.pipe(res)
       // A cut-off reply must not look complete to the browser.
       reply.on("error", () => res.destroy())
@@ -204,7 +227,10 @@ server.on("upgrade", (req, socket, head) => {
 server.listen(listen, "0.0.0.0")
 `
 
-const proxyPort = (port: number) => 50000 + (port % 10000)
+// Below Linux's ephemeral range (32768+) and Blaxel's own services (49152+).
+// The new range and names (LOR-157) keep running sandboxes from reusing the
+// first proxy's process.
+const proxyPort = (port: number) => 20000 + (port % 10000)
 
 export async function readListeningPorts(
   session: SandboxSession
@@ -253,18 +279,19 @@ export async function openPort(
 
   const proxy = proxyPort(port)
   const exposed = await exposePort(owner(sessionId), {
-    name: `port-${port}-proxy`,
+    name: `port-${port}-proxy2`,
     port: proxy,
     access: ACCESS,
   })
   if (!exposed) return { status: "no_sandbox" }
   const previewHost = new URL(exposed.url).host
   const started = await ensureProcess(owner(sessionId), {
-    name: `proxy-${port}`,
+    name: `proxy2-${port}`,
     command: `node -e ${shellQuote(PROXY)} ${proxy} ${port} ${shellQuote(previewHost)} ${RELAY_MARKER}`,
   })
   if (!started) return { status: "no_sandbox" }
-  if (!(await portReady(owner(sessionId), proxy, 10_000))) {
+  // The proxy's own listener: an HTTP check would wait on the app's reply.
+  if (!(await portReady(owner(sessionId), proxy, 10_000, "connect"))) {
     return { status: "not_listening" }
   }
   return {

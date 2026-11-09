@@ -249,16 +249,24 @@ export async function runNamed(
 // shorter checks.
 const PORT_CHECK_ROUND_SEC = 20
 
-function portCheck(port: number, seconds: number) {
-  return `for i in $(seq ${seconds}); do curl -s -o /dev/null --max-time 1 http://127.0.0.1:${port}/ && exit 0; sleep 1; done; exit 1`
+function portCheck(port: number, seconds: number, probe: PortProbe) {
+  const check =
+    probe === "http"
+      ? `curl -s -o /dev/null --max-time 1 http://127.0.0.1:${port}/`
+      : `bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}" 2>/dev/null`
+  return `for i in $(seq ${seconds}); do ${check} && exit 0; sleep 1; done; exit 1`
 }
 
+type PortProbe = "http" | "connect"
+
 // Whether something answers on the port inside the sandbox, polling until
-// the timeout. Any HTTP status counts.
+// the timeout. "http": any HTTP status counts; "connect": accepting a
+// connection is enough.
 export async function portReady(
   owner: HarnessOwner,
   port: number,
-  timeoutMs: number
+  timeoutMs: number,
+  probe: PortProbe = "http"
 ): Promise<boolean> {
   const located = await existingSandbox(owner)
   if (!located) return false
@@ -266,7 +274,7 @@ export async function portReady(
   if (located.provider === "boat") {
     const result = await boatExec(located.sandbox, {
       label: "port-check",
-      command: portCheck(port, seconds),
+      command: portCheck(port, seconds, probe),
       timeoutSec: seconds + 10,
     })
     return result.exitCode === 0
@@ -284,7 +292,7 @@ export async function portReady(
       )
       const result = await sandbox.process.exec({
         name: `port-${randomUUID().slice(0, 8)}`,
-        command: portCheck(port, round),
+        command: portCheck(port, round, probe),
         waitForCompletion: true,
         timeout: round + 5,
       })

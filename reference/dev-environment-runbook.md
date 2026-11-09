@@ -241,10 +241,11 @@ first load). The client behavior is the same.
     buttons open them.
   - `previews.ts` now: `listOpenPorts` (Node script over `/proc/net/tcp*`:
     listening ports, loopback-only flag, owning process; hides 8080, 8790,
-    7681 and relays) and `openPort` (a preview of a `proxy-<port>` Node
-    HTTP proxy on 50000 + port % 10000 for every server; tries 127.0.0.1
+    7681 and relays) and `openPort` (a preview of a `proxy2-<port>` Node
+    HTTP proxy on 20000 + port % 10000 for every server; tries 127.0.0.1
     then ::1, and rewrites a same-origin `Origin` from the preview host to
-    `http://localhost:<port>` so Next 16's dev guard allows HMR, LOR-133).
+    `http://localhost:<port>` so Next 16's dev guard allows HMR, LOR-133;
+    hop-by-hop headers stay on their own side, LOR-157).
     The start form, package.json guessing and stop route are gone.
   - API: `GET /sessions/{id}/ports`, `POST /sessions/{id}/ports/{port}/open`
     (write access).
@@ -360,3 +361,13 @@ first load). The client behavior is the same.
   front of every previewed port. Next 16 answered the HMR socket from the
   preview origin with a bare "Unauthorized" (a 502 at Blaxel), so pages
   opened outside Lor never hydrated.
+- 2026-11-09 (LOR-157): pages opened outside Lor through that proxy never
+  finished loading. The proxy forwarded the dev server's hop-by-hop headers
+  (`Connection: keep-alive`, `Transfer-Encoding: chunked`) as-is, so an
+  HTTP/1.0 or `Connection: close` client got framing it can't end on; it now
+  drops them both ways and uses its own agent (not the env-proxied global
+  one). Its readiness check only connects, instead of waiting up to 1 s for
+  the app's `GET /`. The proxy moved to 20000 + port % 10000 as
+  `proxy2-<port>` / `port-<port>-proxy2`, below the ephemeral range, so
+  running sandboxes start the new proxy instead of reusing the old one.
+  Not verified against a live Blaxel preview.
