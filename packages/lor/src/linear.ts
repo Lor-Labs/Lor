@@ -213,31 +213,65 @@ const IDENTIFIER = /^[A-Z][A-Z0-9]*-\d+$/
 // Issues by exact identifier ("ENG-412"), one lookup each. A team key + number
 // `or` filter matched other issues of the team, so Lor moved the wrong issue
 // to In Progress (LOR-158). Identifiers that don't resolve are missing.
-async function issuesByIdentifier(
+function lookupIssue(
   client: LinearClient,
-  identifiers: string[]
+  identifier: string
+): Promise<LinearIssue | null> {
+  return client.issue(identifier).catch((error: unknown) => {
+    // Linear answers an unknown identifier with an invalid-input error;
+    // auth, rate-limit and outage failures are logged.
+    if (!(error instanceof InvalidInputLinearError)) {
+      logger.warn({ err: error, identifier }, "Linear issue lookup failed")
+    }
+    return null
+  })
+}
+
+async function issuesByIdentifier(
+  identifiers: string[],
+  lookup: (identifier: string) => Promise<LinearIssue | null>
 ): Promise<LinearIssue[]> {
   const wanted = [
     ...new Set(identifiers.map((identifier) => identifier.toUpperCase())),
   ].filter((identifier) => IDENTIFIER.test(identifier))
-  const issues = await Promise.all(
-    wanted.map((identifier) =>
-      client.issue(identifier).catch((error: unknown) => {
-        // Linear answers an unknown identifier with an invalid-input error;
-        // auth, rate-limit and outage failures are logged.
-        if (!(error instanceof InvalidInputLinearError)) {
-          logger.warn({ err: error, identifier }, "Linear issue lookup failed")
-        }
-        return null
-      })
-    )
-  )
+  const issues = await Promise.all(wanted.map(lookup))
   const seen = new Set<string>()
   return issues.filter((issue): issue is LinearIssue => {
     if (!issue || seen.has(issue.id)) return false
     seen.add(issue.id)
     return true
   })
+}
+
+// Everyone in a call refreshes the same issue cards each minute, so one
+// lookup per issue serves the whole call. A failed lookup isn't kept. Starting
+// an issue reads it uncached, to see its current state.
+const CARD_ISSUE_CACHE_MS = 60_000
+const cardIssues = new Map<
+  string,
+  { at: number; issue: Promise<LinearIssue | null> }
+>()
+
+function cachedCardIssue(
+  client: LinearClient,
+  externalId: string,
+  identifier: string
+) {
+  const key = `${externalId}:${identifier}`
+  const now = Date.now()
+  const hit = cardIssues.get(key)
+  if (hit && now - hit.at < CARD_ISSUE_CACHE_MS) return hit.issue
+  const issue = lookupIssue(client, identifier).then((result) => {
+    if (result === null && cardIssues.get(key)?.issue === issue) {
+      cardIssues.delete(key)
+    }
+    return result
+  })
+  cardIssues.set(key, { at: now, issue })
+  for (const [other, entry] of cardIssues) {
+    if (now - entry.at >= CARD_ISSUE_CACHE_MS) cardIssues.delete(other)
+  }
+  return issue
 }
 
 // Issues by identifier for cards in Lor's window.
@@ -248,7 +282,9 @@ export async function loadLinearIssueCards(
   if (identifiers.length === 0) return []
   const client = await linearClientFor(externalId)
   if (!client) return []
-  const issues = await issuesByIdentifier(client, identifiers)
+  const issues = await issuesByIdentifier(identifiers, (identifier) =>
+    cachedCardIssue(client, externalId, identifier)
+  )
   return await compactLinearIssues(client, issues, { visuals: true })
 }
 
@@ -273,8 +309,8 @@ export async function startLinearIssues(
   const client = await linearClientFor(externalId)
   if (!client) return []
   const issues = await issuesByIdentifier(
-    client,
-    identifiers.slice(0, START_ISSUES_MAX)
+    identifiers.slice(0, START_ISSUES_MAX),
+    (identifier) => lookupIssue(client, identifier)
   )
   const teamIds = [...new Set(issues.flatMap((issue) => issue.teamId ?? []))]
   if (teamIds.length === 0) return []
