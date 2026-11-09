@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 
-// The person's own accounts (GitHub, a Claude subscription), never shared
-// with the workspace. Connecting them is on web for now. Same key as web.
+// The person's own accounts (GitHub, a Claude subscription, a ChatGPT plan),
+// never shared with the workspace. Connecting them is on web for now. Same key as web.
 
 export const personalAccountsKey = ["personal-accounts"] as const
 

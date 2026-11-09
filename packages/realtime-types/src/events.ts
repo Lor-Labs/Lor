@@ -199,7 +199,8 @@ export const sendMessagePayloadSchema = z
     // whose recent messages become the new session's context.
     continueFrom: z.string().uuid().optional(),
     // With startSession and code: the harness that runs the session. Claude
-    // Code needs the sender's own Claude subscription.
+    // Code needs the sender's own Claude subscription, Codex their ChatGPT
+    // plan.
     harness: z.enum(["pi", "claude_code", "codex"]).optional(),
     // In a Claude Code session: the Claude Code mode for the turn this
     // message starts (the composer's picker). Default: auto.

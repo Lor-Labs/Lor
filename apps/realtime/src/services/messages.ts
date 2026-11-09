@@ -451,13 +451,19 @@ export async function createMessage(
   if (existingSession?.archivedAt) throw new Error("This session is archived")
   const isPersonInSession =
     Boolean(input.newSession || existingSession) && input.userId !== LOR_USER_ID
-  // A Claude Code turn runs only on the sender's own Claude subscription
-  // (code-sessions-runbook.md chunk 7): without one, the message is for the
-  // session's people only.
-  const withoutClaude =
+  // A Claude Code or Codex turn runs only on the sender's own Claude
+  // subscription or ChatGPT plan (code-sessions-runbook.md chunks 7 and 8f):
+  // without one, the message is for the session's people only.
+  const subscriptionProvider =
+    existingSession?.harness === "claude_code"
+      ? "claude"
+      : existingSession?.harness === "codex"
+        ? "chatgpt"
+        : null
+  const withoutSubscription =
     isPersonInSession &&
-    existingSession?.harness === "claude_code" &&
-    !(await hasPersonalAccount(input.userId, "claude"))
+    subscriptionProvider !== null &&
+    !(await hasPersonalAccount(input.userId, subscriptionProvider))
 
   const runInsertTransaction = () =>
     db.transaction(async (tx) => {
@@ -551,7 +557,7 @@ export async function createMessage(
             content: input.payload.content,
             toPeople:
               input.payload.toPeople ||
-              withoutClaude ||
+              withoutSubscription ||
               (existingSession != null &&
                 !isHarnessEnabled(existingSession.harness)),
             replyAuthorId,

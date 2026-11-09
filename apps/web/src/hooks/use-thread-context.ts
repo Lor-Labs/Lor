@@ -16,7 +16,7 @@ export type ThreadContextUsage = {
   categories: { name: string; tokens: number }[] | null
   compacted: boolean
   rawHistoryTokens: number
-  // Null for a Claude Code session, which spends no Lor credits.
+  // Null for a Claude Code or Codex session, which spends no Lor credits.
   creditsSpent: number | null
   runCount: number
   state: string | null

@@ -212,7 +212,10 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
     // The whole saved Pi log: what a request would weigh with no compaction.
     // The scope is a session's thread or a call.
     db
-      .select({ byteLength: schema.harnessState.byteLength })
+      .select({
+        byteLength: schema.harnessState.byteLength,
+        harness: schema.agentSession.harness,
+      })
       .from(schema.harnessState)
       .leftJoin(
         schema.agentSession,
@@ -255,7 +258,11 @@ export const getThreadContext: AppRouteHandler<GetThreadContextRoute> = async (
       categories: usage.categories ?? null,
       compacted: usage.compacted,
       rawHistoryTokens: toTokens(history?.byteLength ?? 0) + system + tools,
-      creditsSpent: claudeCode ? null : Number(scope?.creditsSpent ?? 0),
+      // Claude Code and Codex run on the person's own plan.
+      creditsSpent:
+        claudeCode || history?.harness === "codex"
+          ? null
+          : Number(scope?.creditsSpent ?? 0),
       runCount: Number(scope?.runCount ?? 0),
       state: scope?.state ?? run.state,
     },

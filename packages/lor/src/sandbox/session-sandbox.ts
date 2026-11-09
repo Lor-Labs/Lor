@@ -102,16 +102,17 @@ const CLAUDE_CODE_ENV = {
 
 // A harness turn's model credential (code-sessions-runbook.md chunks 7 and
 // 8): the proxy fills in the credential wherever the CLI sends its
-// placeholder to the model API, so it never enters the sandbox. Claude Code uses the turn owner's subscription token; Codex uses
-// Lor's AI Gateway key. Sandbox code can use the placeholder too while the
-// rule exists: grant it for the turn and revoke it when the turn ends.
-// Network changes apply to a running sandbox.
+// placeholder to the model API, so it never enters the sandbox. Claude Code
+// uses the turn owner's subscription token, Codex their ChatGPT access token.
+// Sandbox code can use the placeholder too while the rule exists: grant it for
+// the turn and revoke it when the turn ends. Network changes apply to a
+// running sandbox, so a long Codex turn is granted its refreshed token.
 export const CLAUDE_TOKEN_PLACEHOLDER = "{{SECRET:claude}}"
-export const GATEWAY_KEY_PLACEHOLDER = "{{SECRET:gateway}}"
+export const CHATGPT_TOKEN_PLACEHOLDER = "{{SECRET:chatgpt}}"
 const CLAUDE_API_HOST = "api.anthropic.com"
-const GATEWAY_HOST = "ai-gateway.vercel.sh"
+const CHATGPT_HOST = "chatgpt.com"
 
-export type HarnessAccess = { claudeToken: string } | { gatewayKey: string }
+export type HarnessAccess = { claudeToken: string } | { chatgptToken: string }
 
 // Boat has no proxy: a turn on a Boat sandbox passes the credential itself in
 // place of the placeholder (SessionSandbox.provider), so these do nothing.
@@ -122,7 +123,7 @@ export async function grantHarnessAccess(
   const [host, secrets] =
     "claudeToken" in access
       ? [CLAUDE_API_HOST, { claude: access.claudeToken }]
-      : [GATEWAY_HOST, { gateway: access.gatewayKey }]
+      : [CHATGPT_HOST, { chatgpt: access.chatgptToken }]
   if (await onBoat(owner)) return
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: {

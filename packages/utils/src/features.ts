@@ -9,16 +9,20 @@ export const features: Readonly<{
 }> = {
   selfSignups: false,
   claudeCodeHarness: true,
-  codexHarness: false,
+  codexHarness: true,
   directMessages: false,
   voiceChannels: false,
 }
 
-// Harnesses hosted beta allows: Lor's own agent and Claude Code on the
-// person's own Claude subscription. Codex runs on Lor credits, so it stays
-// out until the beta ends. The server enforces the same set in
-// `assertHostedHarness`; clients use this to hide and refuse the rest.
-export const HOSTED_BETA_HARNESSES: readonly string[] = ["pi", "claude_code"]
+// Harnesses hosted beta allows: Lor's own agent, Claude Code on the person's
+// own Claude subscription and Codex on their own ChatGPT plan (neither draws
+// on the shared credit pool for inference). The server enforces the same set
+// in `assertHostedHarness`; clients use this to hide and refuse the rest.
+export const HOSTED_BETA_HARNESSES: readonly string[] = [
+  "pi",
+  "claude_code",
+  "codex",
+]
 
 export function isHarnessAllowedInBeta(harness: string): boolean {
   return HOSTED_BETA_HARNESSES.includes(harness)

@@ -48,6 +48,7 @@ import {
   SessionTabBar,
   SessionTabView,
 } from "@/components/session/session-tabs"
+import { ChatgptConnectDialog } from "@/components/settings/chatgpt-connect-dialog"
 import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
 import type { SessionPanelView } from "@/components/sidebar/right-panel/right-sidebar-types"
@@ -324,26 +325,34 @@ function SessionConversation({
   const starter =
     people.find((person) => person.userId === session.creatorId) ?? null
   const [renaming, setRenaming] = useState(false)
-  // Claude Code answers only messages from people with their own Claude
-  // subscription; the server sends the rest to the session's people
-  // (code-sessions-runbook.md chunk 7).
+  // Claude Code and Codex answer only messages from people with their own
+  // Claude subscription or ChatGPT plan; the server sends the rest to the
+  // session's people (code-sessions-runbook.md chunks 7 and 8f).
   const { data: accounts } = usePersonalAccounts()
-  const [connectingClaude, setConnectingClaude] = useState(false)
+  const [connecting, setConnecting] = useState(false)
   const harnessEnabled = isHarnessEnabled(session.harness)
-  const withoutClaude =
+  const subscription =
+    session.harness === "claude_code"
+      ? accounts?.claude
+      : session.harness === "codex"
+        ? accounts?.chatgpt
+        : undefined
+  const withoutSubscription =
     harnessEnabled &&
-    session.harness === "claude_code" &&
     !session.archivedAt &&
-    accounts !== undefined &&
-    accounts.claude.account == null
+    subscription !== undefined &&
+    subscription.account == null
 
   return (
     <SessionDocument
       harness={session.harness}
       harnessCommands={session.harnessCommands}
       claudeCode={
-        harnessEnabled && session.harness === "claude_code" && !withoutClaude
+        harnessEnabled &&
+        session.harness === "claude_code" &&
+        !withoutSubscription
       }
+      withoutSubscription={withoutSubscription}
       composerNote={
         !harnessEnabled ? (
           <p className="text-sm text-muted-foreground">
@@ -351,10 +360,11 @@ function SessionConversation({
             people in this session. Start a new session with Lor to keep
             working.
           </p>
-        ) : withoutClaude ? (
+        ) : withoutSubscription ? (
           <>
-            <ClaudeCodeNote
-              onConnect={() => setConnectingClaude(true)}
+            <SubscriptionNote
+              harness={session.harness === "codex" ? "codex" : "claude_code"}
+              onConnect={() => setConnecting(true)}
               onContinueWithLor={() =>
                 void navigate({
                   to: "/$workspaceSlug/session/new",
@@ -367,10 +377,17 @@ function SessionConversation({
                 })
               }
             />
-            <ClaudeConnectDialog
-              open={connectingClaude}
-              onOpenChange={setConnectingClaude}
-            />
+            {session.harness === "codex" ? (
+              <ChatgptConnectDialog
+                open={connecting}
+                onOpenChange={setConnecting}
+              />
+            ) : (
+              <ClaudeConnectDialog
+                open={connecting}
+                onOpenChange={setConnecting}
+              />
+            )}
           </>
         ) : session.origin === "trigger" ? (
           <ActWaitingNote
@@ -619,24 +636,27 @@ function SessionStrip({
   )
 }
 
-function ClaudeCodeNote({
+function SubscriptionNote({
+  harness,
   onConnect,
   onContinueWithLor,
 }: {
+  harness: "claude_code" | "codex"
   onConnect: () => void
   onContinueWithLor: () => void
 }) {
+  const plan = harness === "codex" ? "ChatGPT plan" : "Claude subscription"
   return (
     <div className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] py-1.5 ps-3 pe-1.5 text-[13px] text-muted-foreground">
       <span className="min-w-0 flex-1">
-        Claude Code answers people on their own Claude subscription. Your
-        messages here go to the people in the session.
+        {harness === "codex" ? "Codex" : "Claude Code"} answers people on their
+        own {plan}. Your messages here go to the people in the session.
       </span>
       <Button size="xs" variant="ghost" onClick={onContinueWithLor}>
         Continue with Lor
       </Button>
       <Button size="xs" onClick={onConnect}>
-        Connect your Claude subscription
+        Connect your {plan}
       </Button>
     </div>
   )
