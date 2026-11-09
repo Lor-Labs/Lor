@@ -574,6 +574,15 @@ Each step is a review chunk of about 300–400 lines.
       `tauri://localhost`; the gateway drops that header from the page.
       Firefox couldn't decode the H.264 stream; `--encoder=h264enc,jpeg`
       lets it fall back to JPEG. Both checked by Jacob, image pushed.
+    - LOR-136 (2026-11-09, image not pushed): the cursor was X's bitmap
+      fallback (the image had no cursor theme). Bibata Modern Ice (Jacob's
+      pick) now lives in `/opt/lor-browser/icons` (the deployed sandbox's
+      `/usr/share/icons` is empty) with `XCURSOR_PATH`, and
+      `/etc/gtk-3.0/settings.ini` names it, since Chromium takes the theme
+      from GTK. Pages drew half size for a Retina controller: Selkies'
+      HiDPI default doubled the display and set `Xft.dpi` 192, which a
+      running Chromium ignores. `--use-css-scaling='true|locked'` keeps the
+      display in CSS pixels at 96 DPI (slightly softer text on Retina).
     - QA owed: two viewers in the app, Safari, the phone (Selkies' touch
       input; typing on iOS unverified with the sidebar off), CPU under
       scrolling, Lor screenshots after a resize.
