@@ -173,6 +173,11 @@ const replyHeaders = (reply) => {
 const agent = new http.Agent({ keepAlive: true })
 
 const server = http.createServer((req, res) => {
+  // openPort's readiness check: this proxy, for this target, is listening.
+  if (req.headers["x-lor-proxy-check"] !== undefined) {
+    res.writeHead(204, { "x-lor-proxy": String(target) })
+    return res.end()
+  }
   upstreamHost((host) => {
     if (!host) {
       res.writeHead(502)
@@ -229,8 +234,16 @@ server.listen(listen, "0.0.0.0")
 
 // Below Linux's ephemeral range (32768+) and Blaxel's own services (49152+).
 // The new range and names (LOR-157) keep running sandboxes from reusing the
-// first proxy's process.
-const proxyPort = (port: number) => 20000 + (port % 10000)
+// first proxy's process. Never the app's own port: one in 20000-29999 gets
+// 10000 + port % 10000.
+const proxyPort = (port: number) => {
+  const proxy = 20000 + (port % 10000)
+  return proxy === port ? proxy - 10000 : proxy
+}
+
+// Only this port's proxy answers, not whatever else holds the proxy port.
+const proxyCheck = (proxy: number, port: number) =>
+  `curl -s -o /dev/null -D - --max-time 1 -H "x-lor-proxy-check: 1" http://127.0.0.1:${proxy}/ | tr -d "\\r" | grep -qix "x-lor-proxy: ${port}"`
 
 export async function readListeningPorts(
   session: SandboxSession
@@ -290,8 +303,10 @@ export async function openPort(
     command: `node -e ${shellQuote(PROXY)} ${proxy} ${port} ${shellQuote(previewHost)} ${RELAY_MARKER}`,
   })
   if (!started) return { status: "no_sandbox" }
-  // The proxy's own listener: an HTTP check would wait on the app's reply.
-  if (!(await portReady(owner(sessionId), proxy, 10_000, "connect"))) {
+  // The proxy answers itself: a plain HTTP check would wait on the app.
+  if (
+    !(await portReady(owner(sessionId), proxy, 10_000, proxyCheck(proxy, port)))
+  ) {
     return { status: "not_listening" }
   }
   return {

@@ -366,8 +366,10 @@ first load). The client behavior is the same.
   (`Connection: keep-alive`, `Transfer-Encoding: chunked`) as-is, so an
   HTTP/1.0 or `Connection: close` client got framing it can't end on; it now
   drops them both ways and uses its own agent (not the env-proxied global
-  one). Its readiness check only connects, instead of waiting up to 1 s for
-  the app's `GET /`. The proxy moved to 20000 + port % 10000 as
+  one). Its readiness check asks the proxy itself (an `x-lor-proxy-check`
+  header it answers without the app), instead of waiting up to 1 s for the
+  app's `GET /`. The proxy moved to 20000 + port % 10000 as
   `proxy2-<port>` / `port-<port>-proxy2`, below the ephemeral range, so
-  running sandboxes start the new proxy instead of reusing the old one.
+  running sandboxes start the new proxy instead of reusing the old one; an
+  app on 20000-29999 gets 10000 + port % 10000 instead of its own port.
   Not verified against a live Blaxel preview.
