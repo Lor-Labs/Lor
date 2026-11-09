@@ -106,7 +106,7 @@ import { claudeStoredTokenCheck, saveClaudeModels } from "./claude-account"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { cloneRepoTool } from "./code"
 import { codeSandboxIn } from "./code-changes"
-import { writeCheckpoint } from "./code-checkpoints"
+import { waitForCheckpoints, writeCheckpoint } from "./code-checkpoints"
 import {
   type CodeWorkFolder,
   codeSessionPromptSection,
@@ -116,7 +116,7 @@ import {
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import {
-  environmentSandboxMemoryMb,
+  sessionSandboxMemoryMb,
   writeEnvironmentFiles,
 } from "./dev-env/environments"
 import { sessionSetupTool } from "./dev-env/session-setup"
@@ -3316,13 +3316,15 @@ async function respondImpl(
     const bridgePaused = Boolean(
       agentHarness && harness.saved?.continuation && !harness.pausedDropped
     )
+    // A size change replacing the sandbox holds the checkpoint lock; the
+    // size is read after it, so a new sandbox gets the saved one.
+    if (ctx.code) await waitForCheckpoints(conversationIdOf(harness.owner))
     const sandbox = await openSessionSandbox(harness.owner, {
       keepBridges: bridgePaused,
       code: Boolean(ctx.code),
       proxy: Boolean(agentHarness),
       memoryMb: ctx.code
-        ? (ctx.code.sandboxMemoryMb ??
-          (await environmentSandboxMemoryMb(ctx.code.environmentId)))
+        ? await sessionSandboxMemoryMb(conversationIdOf(harness.owner))
         : null,
     })
     let uncommitted: UncommittedLinesTracker | null = null

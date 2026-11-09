@@ -18,8 +18,6 @@ export type RunCodeContext = {
   newBranch?: string | null
   // The environment whose env files each turn writes.
   environmentId?: string | null
-  // The session's own sandbox size, over the environment's (MB).
-  sandboxMemoryMb?: number | null
 }
 
 // Pi's own candidates and order (pi-coding-agent loadContextFileFromDir),

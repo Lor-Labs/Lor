@@ -42,6 +42,7 @@ import {
   restoreSessionFiles,
   rewindWorkFolder,
   type SessionCheckpointRow,
+  withCheckpointLock,
   writeCheckpoint,
 } from "@repo/lor/code-checkpoints"
 import {
@@ -1937,52 +1938,69 @@ export const updateSessionSetup: AppRouteHandler<
     effectiveSandboxMemoryMb({ sandboxMemoryMb, environmentId }),
   ])
   const resized = before !== after
-  if (resized) {
-    const busy = (message: string) =>
-      c.json({ success: false as const, message }, HttpStatusCodes.CONFLICT)
-    if (restoring.has(session.id)) return busy(gapMessage.restoring)
-    if (await lorWorkingIn(session.threadRootId)) {
-      return busy(
-        "Lor is working in this session. Change the size when its turn ends"
-      )
-    }
-    // Without a checkpoint a replaced sandbox would lose the work folder.
-    if (
-      !(await hasCheckpoint(session.id)) &&
-      (await sessionSandboxExists(session.id))
-    ) {
-      return busy(
-        "This session has no checkpoint to restore its files from yet. Change the size after Lor's next turn"
-      )
-    }
+  const busy = (message: string) =>
+    c.json({ success: false as const, message }, HttpStatusCodes.CONFLICT)
+  if (resized && restoring.has(session.id)) {
+    return busy(gapMessage.restoring)
   }
 
-  // Saved before the sandbox goes, so whatever opens it next uses the new size.
-  const updated = await db
-    .update(schema.agentSession)
-    .set({ environmentId, sandboxMemoryMb })
-    .where(eq(schema.agentSession.id, sessionId))
-    .returning()
-    .then((rows) => rows[0] ?? found)
-
-  let replaced = false
-  if (resized) {
-    try {
-      replaced = await dropSessionSandbox(session.id)
-    } catch (err) {
-      // The sandbox is still there at its old size: keep the old setup.
-      await db
-        .update(schema.agentSession)
-        .set({
-          environmentId: session.environmentId,
-          sandboxMemoryMb: session.sandboxMemoryMb,
-        })
-        .where(eq(schema.agentSession.id, sessionId))
-      throw err
+  // Under the checkpoint lock a turn starting meanwhile waits before it opens
+  // the sandbox, so none can start between the checks and the delete.
+  const outcome = await withCheckpointLock(session.id, async () => {
+    if (resized) {
+      if (await lorWorkingIn(session.threadRootId)) {
+        return {
+          busy: true as const,
+          message:
+            "Lor is working in this session. Change the size when its turn ends",
+        }
+      }
+      // Without a checkpoint a replaced sandbox would lose the work folder.
+      if (
+        !(await hasCheckpoint(session.id)) &&
+        (await sessionSandboxExists(session.id))
+      ) {
+        return {
+          busy: true as const,
+          message:
+            "This session has no checkpoint to restore its files from yet. Change the size after Lor's next turn",
+        }
+      }
     }
-  }
+
+    // Saved before the sandbox goes, so whatever opens it next uses the new
+    // size.
+    const updated = await db
+      .update(schema.agentSession)
+      .set({ environmentId, sandboxMemoryMb })
+      .where(eq(schema.agentSession.id, sessionId))
+      .returning()
+      .then((rows) => rows[0] ?? found)
+
+    let replaced = false
+    if (resized) {
+      try {
+        replaced = await dropSessionSandbox(session.id)
+      } catch (err) {
+        // The sandbox may still be there at its old size: keep the old setup.
+        await db
+          .update(schema.agentSession)
+          .set({
+            environmentId: session.environmentId,
+            sandboxMemoryMb: session.sandboxMemoryMb,
+          })
+          .where(eq(schema.agentSession.id, sessionId))
+        throw err
+      }
+    }
+    return { busy: false as const, updated, replaced }
+  })
+  if (outcome.busy) return busy(outcome.message)
+  const { updated, replaced } = outcome
+
   if (replaced) await startRestore(session)
-  if (environmentId && (resized || environmentChanged)) {
+  // Null: the manifest cleanup deletes the old environment's files.
+  if (environmentChanged || (resized && environmentId)) {
     const apply = () =>
       applyEnvironment({
         sessionId,
