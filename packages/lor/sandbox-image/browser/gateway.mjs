@@ -391,6 +391,9 @@ function relay(client, upstream, grant, role) {
   })
   client.on("message", (data, isBinary) => {
     if (upstream.readyState !== upstream.OPEN) return
+    // Lost control: nothing more reaches Selkies while the page reloads
+    // before the delayed close.
+    if (role === "control" && roleFor(stream.userId) !== "control") return
     if (!isBinary) {
       const text = data.toString()
       if (CONTROLLER_ONLY.some((prefix) => text.startsWith(prefix))) {
