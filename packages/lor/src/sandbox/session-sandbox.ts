@@ -24,6 +24,7 @@ import {
   type BoatSandbox,
   boatConfigured,
   boatExec,
+  boatSandboxExists,
   boatSandboxSession,
   boatStatus,
   createBoatSandbox,
@@ -667,20 +668,48 @@ export async function stopParkedBridges(owner: HarnessOwner): Promise<number> {
   }
 }
 
+// Unlike attachSessionSandbox, a failed lookup throws instead of reading as
+// none, so callers about to replace the sandbox never act on a guess.
+export async function sessionSandboxExists(
+  owner: HarnessOwner
+): Promise<boolean> {
+  const name = sessionSandboxName(owner)
+  if (blaxelConfigured()) {
+    const sandbox = await SandboxInstance.get(name).catch((err: unknown) => {
+      if (isNotFound(err)) return null
+      throw err
+    })
+    if (sandbox) {
+      closeConnection(sandbox)
+      return true
+    }
+  }
+  return boatSandboxExists(name)
+}
+
 // The conversation's files go with it; Pi's saved state and shared files
 // live in Postgres and R2. A sandbox that is already gone counts as deleted.
-export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
+// `strict`: a Boat delete failure throws after the Blaxel delete (a resize
+// must not report a replaced sandbox that is still there).
+export async function deleteSessionSandbox(
+  owner: HarnessOwner,
+  { strict = false }: { strict?: boolean } = {}
+): Promise<void> {
   const name = sessionSandboxName(owner)
   boatNames.delete(name)
   // A Boat error never blocks deleting the Blaxel sandbox.
-  await deleteBoatSandbox(name).catch((err: unknown) =>
+  let boatError: unknown = null
+  await deleteBoatSandbox(name).catch((err: unknown) => {
     logger.error({ err, sandbox: name }, "Sandbox: Boat delete failed")
-  )
-  if (!blaxelConfigured()) return
-  await SandboxInstance.delete(name).catch((err: unknown) => {
-    if (!isNotFound(err)) throw err
+    boatError = err
   })
-  logger.info({ sandbox: name }, "Sandbox: session sandbox deleted")
+  if (blaxelConfigured()) {
+    await SandboxInstance.delete(name).catch((err: unknown) => {
+      if (!isNotFound(err)) throw err
+    })
+    logger.info({ sandbox: name }, "Sandbox: session sandbox deleted")
+  }
+  if (strict && boatError) throw boatError
 }
 
 // SANDBOX_PROCESS_ENV points TMPDIR at the workspace disk, which starts

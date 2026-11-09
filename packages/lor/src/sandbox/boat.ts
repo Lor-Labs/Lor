@@ -91,6 +91,13 @@ async function lookup(name: string): Promise<Sandbox | null> {
   return match ?? null
 }
 
+// Whether the session has a Boat sandbox, without waking it. Lookup errors
+// propagate.
+export async function boatSandboxExists(name: string): Promise<boolean> {
+  if (!boatConfigured()) return false
+  return Boolean(await lookup(name))
+}
+
 // The session's Boat sandbox, running and with its stop deadline pushed
 // back; resumed when Boat stopped it. Null when there is none.
 export async function findBoatSandbox(

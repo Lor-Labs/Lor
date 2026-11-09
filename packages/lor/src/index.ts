@@ -106,7 +106,7 @@ import { claudeStoredTokenCheck, saveClaudeModels } from "./claude-account"
 import { cloudwatchTools, resolveWorkspaceCloudwatch } from "./cloudwatch"
 import { cloneRepoTool } from "./code"
 import { codeSandboxIn } from "./code-changes"
-import { writeCheckpoint } from "./code-checkpoints"
+import { waitForCheckpoints, writeCheckpoint } from "./code-checkpoints"
 import {
   type CodeWorkFolder,
   codeSessionPromptSection,
@@ -116,9 +116,10 @@ import {
 import { CUSTOM_TOOLS_PROMPT_LINE, workspaceCustomTools } from "./custom-tools"
 import { datadogMcpTools, resolveWorkspaceDatadog } from "./datadog"
 import {
-  environmentSandboxMemoryMb,
+  sessionSandboxMemoryMb,
   writeEnvironmentFiles,
 } from "./dev-env/environments"
+import { sessionSetupTool } from "./dev-env/session-setup"
 import { embedBrainQueryWithUsage } from "./embeddings"
 import { githubTools, resolveWorkspaceGithub } from "./github"
 import {
@@ -1688,6 +1689,8 @@ export function toolLabel(toolName: string, input: unknown): string {
       return "Updating the plan"
     case "propose_loop":
       return "Proposing a loop"
+    case "suggest_session_setup":
+      return "Suggesting a session setup"
     case "complete_plan":
       return "Completing the plan"
     case "request_approval":
@@ -1857,7 +1860,7 @@ function asString(v: unknown): string | undefined {
 export function toolDetail(
   toolName: string,
   output: unknown
-): Pick<LorToolCall, "detail" | "status" | "files"> {
+): Pick<LorToolCall, "detail" | "status" | "files" | "setup"> {
   const rec = asRecord(output)
   if (rec && "error" in rec) {
     return {
@@ -2076,6 +2079,27 @@ export function toolDetail(
           summary: description
             ? `Drafted a loop — ${description}`
             : "Drafted a loop",
+        },
+      }
+    }
+    case "suggest_session_setup": {
+      const r = asRecord(rec?.suggestion)
+      const sessionId = asString(r?.sessionId)
+      const reason = asString(r?.reason)
+      if (!sessionId || !reason) return { status: "ok" }
+      const environmentId = asString(r?.environmentId)
+      const environmentName = asString(r?.environmentName)
+      const sandboxMemoryMb =
+        typeof r?.sandboxMemoryMb === "number" ? r.sandboxMemoryMb : undefined
+      return {
+        status: "ok",
+        setup: {
+          sessionId,
+          ...(environmentId && environmentName
+            ? { environmentId, environmentName }
+            : {}),
+          ...(sandboxMemoryMb !== undefined ? { sandboxMemoryMb } : {}),
+          reason,
         },
       }
     }
@@ -2795,6 +2819,7 @@ async function respondImpl(
         : {}),
       ...(ctx.loop?.completeLoop ? completeLoopTool : {}),
       ...(ctx.code ? sessionChangesTool : {}),
+      ...(ctx.code && ctx.threadRootId ? sessionSetupTool : {}),
       ...(ctx.voice ? voiceTools : {}),
       ...(ctx.proposeLoop && ctx.channelId ? proposeLoopTool : {}),
       ...(ctx.proposeChange && ctx.channelId ? proposeChangeTool : {}),
@@ -2900,6 +2925,14 @@ async function respondImpl(
               threadRootId: ctx.threadRootId,
               triggerMessageId: ctx.triggerMessageId,
               onMessageReaction,
+            },
+          }
+        : {}),
+      ...(ctx.code && ctx.threadRootId
+        ? {
+            suggest_session_setup: {
+              workspaceId: ctx.workspaceId,
+              threadRootId: ctx.threadRootId,
             },
           }
         : {}),
@@ -3283,12 +3316,15 @@ async function respondImpl(
     const bridgePaused = Boolean(
       agentHarness && harness.saved?.continuation && !harness.pausedDropped
     )
+    // A size change replacing the sandbox holds the checkpoint lock; the
+    // size is read after it, so a new sandbox gets the saved one.
+    if (ctx.code) await waitForCheckpoints(conversationIdOf(harness.owner))
     const sandbox = await openSessionSandbox(harness.owner, {
       keepBridges: bridgePaused,
       code: Boolean(ctx.code),
       proxy: Boolean(agentHarness),
       memoryMb: ctx.code
-        ? await environmentSandboxMemoryMb(ctx.code.environmentId)
+        ? await sessionSandboxMemoryMb(conversationIdOf(harness.owner))
         : null,
     })
     let uncommitted: UncommittedLinesTracker | null = null

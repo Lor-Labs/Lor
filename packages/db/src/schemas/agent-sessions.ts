@@ -101,6 +101,9 @@ export const agentSession = pgTable(
     environmentId: uuid("environment_id").references(() => environment.id, {
       onDelete: "set null",
     }),
+    // Code sessions: the sandbox memory in MB picked for this session, over
+    // its environment's size (LOR-156). Null: the environment's or the default.
+    sandboxMemoryMb: integer("sandbox_memory_mb"),
     // The sidebar's +/− for a code session: uncommitted lines against HEAD,
     // the Changes panel's total. Saved when a sandbox is already open; null
     // until first counted.

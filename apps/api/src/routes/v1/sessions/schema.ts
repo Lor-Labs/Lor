@@ -6,6 +6,7 @@ import {
   TOUCH_ACTIONS,
   TOUCH_KINDS,
 } from "@repo/db/schema"
+import { CODE_SANDBOX_MEMORY_OPTIONS_MB } from "@repo/lor/dev-env/environments"
 import { messageWithAuthorSchema } from "@/lib/helpers/openapi/message-schemas"
 
 export const sessionParamsSchema = z.object({
@@ -37,6 +38,8 @@ export const agentSessionSchema = z
     baseBranch: z.string().nullable(),
     newBranch: z.string().nullable(),
     environmentId: z.string().uuid().nullable(),
+    // The size picked for this session; null: its environment's or the default.
+    sandboxMemoryMb: z.number().int().nullable(),
     uncommittedAdditions: z.number().int().nullable(),
     uncommittedDeletions: z.number().int().nullable(),
     sourceSessionId: z.string().uuid().nullable(),
@@ -272,6 +275,37 @@ export const serviceParamsSchema = sessionParamsSchema.extend({
 
 export const applyEnvironmentResponseSchema = z.object({
   applied: z.boolean(),
+})
+
+// A code session's environment and sandbox size, changed while it runs
+// (LOR-156). Omitted fields stay as they are.
+export const updateSessionSetupRequestSchema = z
+  .object({
+    // Null: no environment.
+    environmentId: z.string().uuid().nullable().optional(),
+    // Null: the environment's size, or the default.
+    sandboxMemoryMb: z
+      .number()
+      .int()
+      .refine(
+        (mb) =>
+          (CODE_SANDBOX_MEMORY_OPTIONS_MB as readonly number[]).includes(mb),
+        "Pick one of the listed sandbox sizes"
+      )
+      .nullable()
+      .optional(),
+  })
+  .refine(
+    (body) =>
+      body.environmentId !== undefined || body.sandboxMemoryMb !== undefined,
+    { message: "Nothing to update" }
+  )
+
+// `replaced`: the session's sandbox was replaced and is coming back at the new
+// size. A session without one gets the size when its sandbox is made.
+export const updateSessionSetupResponseSchema = z.object({
+  session: agentSessionSchema,
+  replaced: z.boolean(),
 })
 
 export const portParamsSchema = sessionParamsSchema.extend({
