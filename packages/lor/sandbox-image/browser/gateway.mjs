@@ -481,11 +481,13 @@ setInterval(queueSync, 1000)
 // The API writes the control files; react at once rather than on the tick.
 let syncSoon = null
 try {
-  watch(DIR, (_event, file) => {
+  const watcher = watch(DIR, (_event, file) => {
     if (file !== "controller-id" && file !== "controller") return
     clearTimeout(syncSoon)
     syncSoon = setTimeout(queueSync, 30)
   })
+  // An unhandled watcher error would crash the gateway; the tick still syncs.
+  watcher.on("error", () => watcher.close())
 } catch {}
 setInterval(fitTick, 1000)
 // Proxies drop a quiet WebSocket; the events socket carries nothing between

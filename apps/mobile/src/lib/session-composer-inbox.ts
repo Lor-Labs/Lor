@@ -25,7 +25,9 @@ export function useSessionComposerInbox(
   enabled = true
 ) {
   const latest = useRef(onText)
-  latest.current = onText
+  useEffect(() => {
+    latest.current = onText
+  }, [onText])
   useEffect(() => {
     if (!enabled) return
     const listener: Listener = (text) => latest.current(text)

@@ -234,6 +234,9 @@ function lookupIssue(
   })
 }
 
+// Lookups share the workspace's Linear rate limit, so only a few run at once.
+const LOOKUP_CONCURRENCY = 4
+
 async function issuesByIdentifier(
   identifiers: string[],
   lookup: (identifier: string) => Promise<LinearIssue | null>
@@ -241,7 +244,18 @@ async function issuesByIdentifier(
   const wanted = [
     ...new Set(identifiers.map((identifier) => identifier.toUpperCase())),
   ].filter((identifier) => IDENTIFIER.test(identifier))
-  const issues = await Promise.all(wanted.map(lookup))
+  const issues: Array<LinearIssue | null> = []
+  let next = 0
+  await Promise.all(
+    Array.from(
+      { length: Math.min(LOOKUP_CONCURRENCY, wanted.length) },
+      async () => {
+        for (let i = next++; i < wanted.length; i = next++) {
+          issues[i] = await lookup(wanted[i] as string)
+        }
+      }
+    )
+  )
   const seen = new Set<string>()
   return issues.filter((issue): issue is LinearIssue => {
     if (!issue || seen.has(issue.id)) return false

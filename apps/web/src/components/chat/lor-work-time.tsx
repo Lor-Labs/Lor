@@ -13,7 +13,8 @@ export function lorWorkStart(message: Message): string {
 export function lorWorkedMs(message: Message): number | null {
   const finishedAt = message.lorRun?.finishedAt
   if (!finishedAt) return null
-  return Date.parse(finishedAt) - Date.parse(lorWorkStart(message))
+  const ms = Date.parse(finishedAt) - Date.parse(lorWorkStart(message))
+  return Number.isFinite(ms) ? ms : null
 }
 
 // "Working for 1m 12s" under an in-flight Lor reply, ticking each second.

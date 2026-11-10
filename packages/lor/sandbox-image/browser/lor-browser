@@ -71,8 +71,26 @@ esac
 show_url=""
 if [ "$command" = show ]; then
   past_command=""
+  skip_value=""
   for arg in "$@"; do
-    case "$arg" in -*) continue ;; esac
+    if [ -n "$skip_value" ]; then
+      skip_value=""
+      continue
+    fi
+    case "$arg" in
+      --*=*) continue ;;
+      # Options that take a separate value, like `--state <file>`.
+      --state | --headers | --session-name | --restore-save | --restore-check-url | \
+        --restore-check-text | --restore-check-fn | --init-script | --enable | \
+        --user-agent | --proxy-bypass | --ca-cert | --device | --screenshot-dir | \
+        --screenshot-quality | --screenshot-format | --input-mode | --color-scheme | \
+        --download-path | --max-output | --allowed-domains | --action-policy | \
+        --confirm-actions | --idle-timeout | -d | --depth | -s | --selector)
+        skip_value=1
+        continue
+        ;;
+      -*) continue ;;
+    esac
     if [ -z "$past_command" ]; then
       past_command=1
     else
