@@ -4021,7 +4021,10 @@ async function respondImpl(
             access,
             bridgeEndpoint ?? harnessBridgeEndpoint(harness.owner),
           ])
-          credentialProbe = probeClaudeCredential(sandbox.session, abortSignal)
+          credentialProbe =
+            sandbox.provider === "boat"
+              ? Promise.resolve("not applicable: Boat uses the token directly")
+              : probeClaudeCredential(sandbox.session, abortSignal)
           return await runClaudeCodeTurn({
             sessionId: conversationId,
             saved: harness.saved,

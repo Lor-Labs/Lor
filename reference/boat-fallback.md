@@ -56,8 +56,11 @@ once on its $20 plan, so it takes the overflow (Jacob, 2026-11-05).
   - Named processes (previews, terminal, browser): a process group per name
     with a pid file in `/tmp/lor-procs`.
   - Ports: `https://<box>-<port>.on.boat.dev`. Private ones take `?_token=`,
-    which also works on a WebSocket upgrade (terminal, harness bridge); over
-    HTTP it answers 302 and sets a `_port_auth` cookie.
+    which answers with a redirect and sets a `_port_auth` cookie.
+    The worker's harness bridge sends `Cookie: _port_auth=<token>` directly
+    instead of the query token, avoiding the authentication redirect in its
+    WebSocket client (which does not follow redirects). Boat's direct-token
+    harness turns skip the Blaxel placeholder credential probe.
   - Usage per sandbox-hour for billing, `stopBoatSandbox` for blocked
     workspaces, `deleteIdleBoatSandboxes` for VMs stopped longer than
     `LOR_SESSION_SANDBOX_TTL` (Blaxel deletes its own).
