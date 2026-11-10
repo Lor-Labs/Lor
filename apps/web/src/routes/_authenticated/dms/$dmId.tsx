@@ -282,8 +282,10 @@ function DMConversation() {
       />
       <TypingIndicator users={typingUsers} />
       <MessageInput
-        // One editor, draft and undo history per DM.
-        key={dmId}
+        // One editor, draft and undo history per DM. Prefixed: the
+        // sibling MessageList is keyed by the same id, and duplicate keys
+        // leave every visited DM's message list mounted.
+        key={`composer:${dmId}`}
         draftKey={`dm:${dmId}`}
         context={context}
         onSend={sendAndPreview}
