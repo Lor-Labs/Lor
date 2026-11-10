@@ -321,6 +321,18 @@ first load). The client behavior is the same.
     to fix it" when one exits, "Ask Lor to set up the app" without the file.
   - Not built: install in turn prep, Stop, a sandbox for a session that has
     had no turn yet.
+- [x] **4c. Screenshots and videos on Linear** (Jacob, 2026-11-10). Built
+  2026-11-10, not run live yet.
+  - `comment_linear` and `create_linear_issue` take `attachments`: image or
+    video files under `/workspace` or `/tmp`, uploaded with Linear's
+    `fileUpload` before the write. The code-session prompt has Lor attach
+    screenshots when it closes an issue for a change people see.
+  - No login guidance in the product prompt: a team that wants Lor to log in
+    names a test account in its repo's AGENTS.md/CLAUDE.md or the workspace
+    LOR.md, with credentials in the session's environment files. A Lor-only
+    repo file (`.lor/instructions.md`) was dropped for now.
+  - Demo videos: `lor-browser record start|stop` (agent-browser) needs
+    `ffmpeg`, now in the sandbox image and Boat setup.
 - [ ] **5. Live QA.** A Next app with a `.env.local`: preview, edit through
   Lor with hot reload, terminal, idle and return, archive revokes.
 

@@ -98,6 +98,7 @@ COPY terminal/zshrc /root/.zshrc
 # headful Chromium on Xvfb, Selkies streaming it as H.264 for the live view,
 # and agent-browser for Lor over CDP on 127.0.0.1. About 1.3 GB of image;
 # measured 2026-11-03 at about 0.75 GB of memory with three real tabs.
+# ffmpeg is for agent-browser's `record` (demo videos for Linear issues).
 # agent-browser lives off PATH: Lor drives it only through lor-browser.
 # gateway.mjs relays viewers to Selkies (ws is its only dependency). Selkies'
 # .deb is built for Debian trixie, this image's base.
@@ -106,7 +107,7 @@ ARG WS_VERSION=8.22.1
 ARG SELKIES_VERSION=2.2.1
 ARG SELKIES_SHA256=c59c3e5a528778d80f09daa552faae9b0c0cfae853c3ebbb380d8e6a850eb43d
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium xvfb xauth x11-xserver-utils openbox libnss3-tools \
+    chromium xvfb xauth x11-xserver-utils openbox libnss3-tools ffmpeg \
     fonts-liberation fonts-noto-color-emoji bibata-cursor-theme \
     && mkdir -p /opt/lor-browser/icons \
     && mv /usr/share/icons/Bibata-Modern-Ice /opt/lor-browser/icons/ \

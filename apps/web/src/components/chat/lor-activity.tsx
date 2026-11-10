@@ -1,7 +1,6 @@
 import {
   ArrowRight01Icon,
   BrainIcon,
-  Loading03Icon,
   Wrench01Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -11,6 +10,7 @@ import {
   CollapsibleTrigger,
 } from "@repo/ui/components/collapsible"
 import { cn } from "@repo/ui/lib/utils"
+import { formatWorkTime } from "@repo/utils/date"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { HintPopover } from "@/components/hints/hint-popover"
 import { useHint } from "@/components/hints/hints-provider"
@@ -21,12 +21,15 @@ export function LorActivity({
   failed,
   toolCount,
   errorCount,
+  workedMs = null,
   children,
 }: {
   active: boolean
   failed: boolean
   toolCount: number
   errorCount: number
+  // The run's wall-clock time once it settled; null for older replies.
+  workedMs?: number | null
   children: ReactNode
 }) {
   const [wasActive, setWasActive] = useState(active)
@@ -45,13 +48,22 @@ export function LorActivity({
   const workHint = useHint("lor_reply", live && !active && toolCount > 0)
   const dismissWorkHint = workHint.dismiss
 
+  // While the run is live, "Working for …" sits at the bottom of the reply
+  // (LorWorkingFor); once it settles, the time moves up here.
+  const took = workedMs !== null ? formatWorkTime(workedMs) : null
   const label = active
-    ? "Working…"
+    ? "Activity"
     : failed
-      ? "Work interrupted"
+      ? took
+        ? `Work interrupted after ${took}`
+        : "Work interrupted"
       : toolCount > 0
-        ? "Worked"
-        : "Thought process"
+        ? took
+          ? `Worked for ${took}`
+          : "Worked"
+        : took
+          ? `Thought for ${took}`
+          : "Thought process"
 
   return (
     <Collapsible
@@ -79,13 +91,6 @@ export function LorActivity({
           className="size-3 shrink-0 text-muted-foreground/70 transition-transform duration-150 ease-out group-data-panel-open/activity:rotate-90 motion-reduce:transition-none"
           strokeWidth={1.75}
         />
-        {active && (
-          <HugeiconsIcon
-            icon={Loading03Icon}
-            className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
-            strokeWidth={2}
-          />
-        )}
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
           <MorphText live={live}>{label}</MorphText>
           {toolCount > 0 && (

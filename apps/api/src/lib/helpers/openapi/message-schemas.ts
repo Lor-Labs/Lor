@@ -191,6 +191,13 @@ export const messageWithAuthorSchema = selectMessageSchema
     lorReasoningSegments: z.array(lorReasoningSegmentSchema).optional(),
     remembered: z.array(lorMemorySchema).optional(),
     lorTriggerMessageId: z.string().uuid().nullable().optional(),
+    lorRun: z
+      .object({
+        startedAt: z.string().nullable(),
+        finishedAt: z.string().nullable(),
+      })
+      .nullable()
+      .optional(),
   })
 
 // Cursor-based query: `around`, `before`, `after` are mutually exclusive
