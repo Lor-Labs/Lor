@@ -107,6 +107,15 @@ export const lorToolCallSchema = z.object({
       })
     )
     .optional(),
+  setup: z
+    .object({
+      sessionId: z.string(),
+      environmentId: z.string().optional(),
+      environmentName: z.string().optional(),
+      sandboxMemoryMb: z.number().int().optional(),
+      reason: z.string(),
+    })
+    .optional(),
   status: z.enum(["ok", "error"]).optional(),
 })
 
@@ -182,6 +191,13 @@ export const messageWithAuthorSchema = selectMessageSchema
     lorReasoningSegments: z.array(lorReasoningSegmentSchema).optional(),
     remembered: z.array(lorMemorySchema).optional(),
     lorTriggerMessageId: z.string().uuid().nullable().optional(),
+    lorRun: z
+      .object({
+        startedAt: z.string().nullable(),
+        finishedAt: z.string().nullable(),
+      })
+      .nullable()
+      .optional(),
   })
 
 // Cursor-based query: `around`, `before`, `after` are mutually exclusive

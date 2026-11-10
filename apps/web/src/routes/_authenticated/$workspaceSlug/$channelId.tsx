@@ -658,8 +658,10 @@ function ChannelView() {
         </div>
       ) : (
         <MessageInput
-          // One editor, draft and undo history per channel.
-          key={channelId}
+          // One editor, draft and undo history per channel. Prefixed: the
+          // sibling MessageList is keyed by the same id, and duplicate keys
+          // leave every visited channel's message list mounted.
+          key={`composer:${channelId}`}
           draftKey={`channel:${channelId}`}
           composerDraft={composerDraft}
           onComposerDraftConsumed={consumeComposerDraft}

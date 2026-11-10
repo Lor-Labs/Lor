@@ -2,6 +2,7 @@ import ArrowUp02Icon from "@hugeicons/core-free-icons/ArrowUp02Icon"
 import GitCommitIcon from "@hugeicons/core-free-icons/GitCommitIcon"
 import GitForkIcon from "@hugeicons/core-free-icons/GitForkIcon"
 import Infinity01Icon from "@hugeicons/core-free-icons/Infinity01Icon"
+import Settings02Icon from "@hugeicons/core-free-icons/Settings02Icon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import Undo02Icon from "@hugeicons/core-free-icons/Undo02Icon"
 import ZapIcon from "@hugeicons/core-free-icons/ZapIcon"
@@ -10,6 +11,7 @@ import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useState } from "react"
 import { Linking, Text, View } from "react-native"
+import { isReviewedEvent, ReviewCard } from "@/components/review-card"
 import { useAgentSession } from "@/hooks/use-agent-session"
 import type { Message } from "@/lib/api-types"
 
@@ -46,6 +48,10 @@ type SessionPushedPayload = {
   headSha: string
 }
 type SessionForkedPayload = { sessionId: string; fromMessageId: string }
+type SessionSetupChangedPayload = {
+  environmentName?: string | null
+  sandboxMemoryMb?: number
+}
 
 export type ResolveUserName = (userId: string) => string | undefined
 
@@ -253,6 +259,32 @@ function eventText(
         </>
       )
     }
+    case "session_setup_changed": {
+      if (!payload) break
+      const p = payload as SessionSetupChangedPayload
+      const environment =
+        p.environmentName === undefined ? null : p.environmentName ? (
+          <>
+            set the environment to <Name>{p.environmentName}</Name>
+          </>
+        ) : (
+          "removed the environment"
+        )
+      const size =
+        p.sandboxMemoryMb === undefined ? null : (
+          <>
+            replaced the sandbox with a{" "}
+            <Name>{p.sandboxMemoryMb / 1024} GB</Name> one
+          </>
+        )
+      return (
+        <>
+          {actor} {environment}
+          {environment && size ? " and " : null}
+          {size}
+        </>
+      )
+    }
     // A session folds the turns after it under the "Previous history" row
     // (thread-message-list.tsx); this line shows only outside one.
     case "session_rewound":
@@ -330,6 +362,7 @@ const SESSION_EVENT_ICONS: Partial<
   session_pushed: ArrowUp02Icon,
   session_forked: GitForkIcon,
   session_rewound: Undo02Icon,
+  session_setup_changed: Settings02Icon,
   loop_run: Infinity01Icon,
   trigger_run: ZapIcon,
 }
@@ -374,6 +407,9 @@ export function ChannelEventRow({
   const first = events[0]
   if (!first) return null
 
+  if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
+    return <ReviewCard message={first} />
+  }
   const sessionIcon = first.eventType
     ? SESSION_EVENT_ICONS[first.eventType]
     : undefined

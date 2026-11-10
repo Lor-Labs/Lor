@@ -6,6 +6,7 @@ import { LorFailureNotice } from "@/components/chat/lor-failure-notice"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
 import { LorToolTrail } from "@/components/chat/lor-tool-trail"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
+import { SessionSetupCard } from "@/components/session/session-setup-card"
 import type {
   LorReasoningSegmentView,
   LorToolCallView,
@@ -162,6 +163,7 @@ export const LorMessageBody = memo(function LorMessageBody({
   reasoningSegments,
   streaming,
   failed = false,
+  workedMs = null,
   legacyReasoning,
   mentions,
   onCitationJump,
@@ -171,13 +173,14 @@ export const LorMessageBody = memo(function LorMessageBody({
   reasoningSegments: LorReasoningSegmentView[]
   streaming?: boolean
   failed?: boolean
+  workedMs?: number | null
   legacyReasoning?: string | null
   mentions: Message["mentions"]
   onCitationJump?: (messageId: string) => void
 }) {
   const wasStreaming = useRef(false)
   if (streaming) wasStreaming.current = true
-  const { segments, deliverables } = useMemo(() => {
+  const { segments, deliverables, setups } = useMemo(() => {
     // Files this answer produced, presented as cards at the end of the
     // message — deduped by artifact so a re-run keeps the latest version.
     const files = new Map<
@@ -192,6 +195,11 @@ export const LorMessageBody = memo(function LorMessageBody({
     return {
       segments: buildSegments(content ?? "", toolCalls, reasoningSegments),
       deliverables: [...files.values()],
+      setups: toolCalls.flatMap((toolCall) =>
+        toolCall.setup
+          ? [{ id: toolCall.toolCallId, setup: toolCall.setup }]
+          : []
+      ),
     }
   }, [content, toolCalls, reasoningSegments])
 
@@ -228,6 +236,7 @@ export const LorMessageBody = memo(function LorMessageBody({
         <LorActivity
           active={Boolean(streaming)}
           failed={failed}
+          workedMs={workedMs}
           toolCount={visibleTools.length}
           errorCount={
             visibleTools.filter((tool) => tool.status === "error").length
@@ -326,6 +335,9 @@ export const LorMessageBody = memo(function LorMessageBody({
           ))}
         </div>
       )}
+      {setups.map(({ id, setup }) => (
+        <SessionSetupCard key={id} setup={setup} />
+      ))}
     </>
   )
 })

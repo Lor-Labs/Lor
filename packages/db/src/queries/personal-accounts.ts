@@ -5,8 +5,8 @@ import {
   personalAccount,
 } from "../schemas/personal-accounts"
 
-// Whether a person linked their own account at a provider: a Claude Code
-// turn runs only on the sender's own Claude subscription.
+// Whether a person linked their own account at a provider: a Claude Code or
+// Codex turn runs only on the sender's own Claude subscription or ChatGPT plan.
 export async function hasPersonalAccount(
   userId: string,
   provider: PersonalAccountProvider

@@ -69,6 +69,14 @@ export type ChannelEventContentInput =
       code: boolean
     }
   | {
+      eventType: "session_setup_changed"
+      actorName: string
+      // Undefined: unchanged. Null: no environment.
+      environmentName?: string | null
+      // Set when the sandbox was replaced at this size.
+      sandboxMemoryMb?: number
+    }
+  | {
       eventType: "session_reviewed"
       reviewer: string
       reviewerBot: boolean
@@ -124,6 +132,23 @@ export function channelEventContent(input: ChannelEventContentInput): string {
     // untrusted and reaches Lor only through a person's Fix with Lor.
     case "session_reviewed":
       return `${input.reviewer}${input.reviewerBot ? " (bot)" : ""} ${input.state === "approved" ? "approved" : input.state === "changes_requested" ? "requested changes on" : "reviewed"} pull request #${input.pullRequestNumber} on ${input.repoFullName}`
+    // Lor reads it: a replaced sandbox lost everything outside the restore.
+    case "session_setup_changed": {
+      const parts: string[] = []
+      if (input.environmentName !== undefined) {
+        parts.push(
+          input.environmentName
+            ? `set this session's environment to "${input.environmentName}"`
+            : "removed this session's environment"
+        )
+      }
+      if (input.sandboxMemoryMb !== undefined) {
+        parts.push(
+          `replaced this session's sandbox with a ${input.sandboxMemoryMb / 1024} GB one: the work folder comes back from Lor's last turn, and installed packages, running servers and files outside the repo are gone`
+        )
+      }
+      return `${input.actorName} ${parts.join(", and ")}`
+    }
     // Lor reads this as the next turn's first line: it says what happened,
     // never what the rewound turns said.
     case "session_rewound":

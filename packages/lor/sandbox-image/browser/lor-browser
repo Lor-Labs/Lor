@@ -26,7 +26,7 @@ fail() {
 # Observing only; allowed while a person has control.
 OBSERVE=" snapshot screenshot get is console errors session skills "
 # Reads or navigates; allowed on any site.
-READ=" open read pdf wait scroll scrollintoview hover focus highlight back forward reload tab diff trace profiler record react vitals a11y pushstate network set "
+READ=" open show read pdf wait scroll scrollintoview hover focus highlight back forward reload tab diff trace profiler record react vitals a11y pushstate network set "
 # Changes the page; allowed on localhost pages only.
 ACT=" click dblclick type fill press keyboard check uncheck select drag upload download eval find mouse cookies storage clipboard webmcp "
 
@@ -48,7 +48,7 @@ done
 
 # A javascript: URL would run script on the open page from a read command.
 case "$command" in
-  open | tab | read | pushstate | diff | vitals | a11y | record)
+  open | show | tab | read | pushstate | diff | vitals | a11y | record)
     for arg in "$@"; do
       if printf '%s' "$arg" | grep -qiE '^[[:space:]]*(javascript|data|file|vbscript|chrome|view-source):'; then
         fail "only http(s) pages open in this browser"
@@ -65,9 +65,48 @@ case " $OBSERVE $READ $ACT " in
   *) fail "'$command' isn't available in Lor's browser" ;;
 esac
 
+# `show [url]`: opens the page when given, then the app opens the session's
+# Browser tab for the people viewing it, with a card in the chat. Without a
+# page it only points them at the browser, so it needs no control.
+show_url=""
+if [ "$command" = show ]; then
+  past_command=""
+  skip_value=""
+  for arg in "$@"; do
+    if [ -n "$skip_value" ]; then
+      skip_value=""
+      continue
+    fi
+    case "$arg" in
+      --*=*) continue ;;
+      # Options that take a separate value, like `--state <file>`.
+      --state | --headers | --session-name | --restore-save | --restore-check-url | \
+        --restore-check-text | --restore-check-fn | --init-script | --enable | \
+        --user-agent | --proxy-bypass | --ca-cert | --device | --screenshot-dir | \
+        --screenshot-quality | --screenshot-format | --input-mode | --color-scheme | \
+        --download-path | --max-output | --allowed-domains | --action-policy | \
+        --confirm-actions | --idle-timeout | -d | --depth | -s | --selector)
+        skip_value=1
+        continue
+        ;;
+      -*) continue ;;
+    esac
+    if [ -z "$past_command" ]; then
+      past_command=1
+    else
+      show_url="$arg"
+      break
+    fi
+  done
+fi
+observes=""
+if [[ "$OBSERVE" == *" $command "* ]] || { [ "$command" = show ] && [ -z "$show_url" ]; }; then
+  observes=1
+fi
+
 # A person has control: their panel sees this command start, asks them for
 # the browser and hands it back once they are idle. Wait for that.
-if [ -s "$CONTROLLER_FILE" ] && [[ "$OBSERVE" != *" $command "* ]]; then
+if [ -s "$CONTROLLER_FILE" ] && [ -z "$observes" ]; then
   who="$(head -c 200 "$CONTROLLER_FILE")"
   echo "lor-browser: $who has the browser; asking for it back (up to ${CONTROL_WAIT_SECONDS}s)." >&2
   for _ in $(seq 1 $((CONTROL_WAIT_SECONDS * 2))); do
@@ -104,6 +143,15 @@ if [[ "$ACT" == *" $command "* ]]; then
       ;;
     *) fail "'$command' works only on localhost pages; this tab is on ${url:-an unknown page}" ;;
   esac
+fi
+
+if [ "$command" = show ]; then
+  if [ -n "$show_url" ]; then
+    "$AGENT_BROWSER" --cdp "$CDP_PORT" open "$show_url" || exit $?
+  fi
+  url="$("$AGENT_BROWSER" --cdp "$CDP_PORT" get url 2>/dev/null | grep -oE '(https?://[^[:space:]]+|about:blank)' | head -1)"
+  echo "Showing ${url:-the browser} to the people in this session: the app opens their Browser tab and adds a card to the chat."
+  exit 0
 fi
 
 exec "$AGENT_BROWSER" --cdp "$CDP_PORT" "$@"

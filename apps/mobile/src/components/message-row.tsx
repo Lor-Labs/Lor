@@ -16,6 +16,7 @@ import { LoopCard } from "@/components/loop-card"
 import { LorFailureNotice } from "@/components/lor-failure-notice"
 import { LorMessageBody } from "@/components/lor-message-body"
 import { LorReasoning } from "@/components/lor-reasoning"
+import { LorWorkingFor, lorWorkStart } from "@/components/lor-work-time"
 import {
   isAttioRecording,
   MeetingRecordingCard,
@@ -207,6 +208,8 @@ function MessageRowBody({
           ) : null}
           {isStreaming && !message.content && !hasTimeline ? (
             <ThinkingIndicator />
+          ) : isStreaming ? (
+            <LorWorkingFor since={lorWorkStart(message)} />
           ) : null}
           {isLor && message.lorTriggerMessageId ? (
             <MessageApprovalCard

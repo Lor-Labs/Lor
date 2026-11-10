@@ -38,8 +38,8 @@ https://github.com/user-attachments/assets/664312a5-610a-4497-aeae-2c9ac2f6769f
 Lor is under active development. The hosted service takes waitlist signups,
 and beta invitations start November 6, 2026. Direct messages and voice
 channels are hidden by launch flags in
-[`packages/utils/src/features.ts`](packages/utils/src/features.ts). Codex
-sessions are off.
+[`packages/utils/src/features.ts`](packages/utils/src/features.ts). Claude
+Code and Codex sessions run on each person's own Claude or ChatGPT plan.
 
 ## Self-hosting
 

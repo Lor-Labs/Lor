@@ -133,3 +133,34 @@ export async function announceReview(input: {
     channelEventContent({ eventType: "session_reviewed", ...eventPayload })
   )
 }
+
+// A pull request opened from a session's branch is something the session
+// wrote: it joins the session's touched items (Details panel) and its
+// earlierSessions hints. reference/planned/session-memory.md Step 5.
+export async function recordSessionPullRequest(
+  session: Pick<AgentSession, "id" | "workspaceId" | "threadRootId">,
+  // githubItemKey(repo, number)
+  pullRequestKey: string
+): Promise<void> {
+  const inserted = await db
+    .insert(schema.touch)
+    .values({
+      workspaceId: session.workspaceId,
+      sessionId: session.id,
+      kind: "github_pr",
+      value: pullRequestKey,
+      action: "wrote",
+    })
+    .onConflictDoNothing()
+    .returning({ id: schema.touch.id })
+  if (inserted.length === 0) return
+  void getEmitter()
+    .then((io) =>
+      io
+        .to(threadRoom(session.threadRootId))
+        .emit("session:touches:updated", { threadRootId: session.threadRootId })
+    )
+    .catch((err) =>
+      logger.warn({ err, sessionId: session.id }, "Touches broadcast failed")
+    )
+}

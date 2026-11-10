@@ -40,6 +40,7 @@ import {
 } from "@/components/session/harness-picker"
 import { EffortPicker, ModelPicker } from "@/components/session/model-picker"
 import { SessionStartedNote } from "@/components/session/session-started-note"
+import { ChatgptConnectDialog } from "@/components/settings/chatgpt-connect-dialog"
 import { ClaudeConnectDialog } from "@/components/settings/claude-connect-dialog"
 import { useSocket } from "@/context/socket-context"
 import { useModelChoice } from "@/hooks/use-agent-models"
@@ -201,8 +202,9 @@ function NewSessionComposer({
     workspaceSlug,
     mode === "code" ? code.repo : null
   )
-  // Claude Code runs on the starter's own Claude subscription, so without
-  // one the start waits for a connect (code-sessions-runbook.md chunk 7).
+  // Claude Code and Codex run on the starter's own Claude subscription or
+  // ChatGPT plan, so without one the start waits for a connect
+  // (code-sessions-runbook.md chunks 7 and 8f).
   const [harness, setHarness] = useSessionHarness(startHarness)
   const harnesses = useAvailableHarnesses()
   const claudeCode = mode === "code" && harness === "claude_code"
@@ -213,6 +215,9 @@ function NewSessionComposer({
   // Unknown while the accounts load.
   const needsClaude = claudeCode && accounts?.claude.account === null
   const [connectingClaude, setConnectingClaude] = useState(false)
+  const needsChatgpt =
+    mode === "code" && harness === "codex" && accounts?.chatgpt.account === null
+  const [connectingChatgpt, setConnectingChatgpt] = useState(false)
   const sessionStart = useSessionStart({ workspaceSlug, channel })
   const { handleSend } = useMessageSending({
     socket,
@@ -396,6 +401,20 @@ function NewSessionComposer({
           open={connectingClaude}
           onOpenChange={setConnectingClaude}
         />
+        {needsChatgpt && (
+          <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border border-border/70 bg-foreground/[0.02] px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              Codex runs on your own ChatGPT plan.
+            </span>
+            <Button size="xs" onClick={() => setConnectingChatgpt(true)}>
+              Connect
+            </Button>
+          </div>
+        )}
+        <ChatgptConnectDialog
+          open={connectingChatgpt}
+          onOpenChange={setConnectingChatgpt}
+        />
         {/* What kind of session and where its code is, on the prompt's top
           edge; the prompt keeps only how it runs. */}
         <div className="mx-6 flex min-h-9 min-w-0 items-center gap-1 rounded-t-lg border border-input border-b-0 bg-muted/30 px-1.5 py-1 text-xs">
@@ -433,7 +452,9 @@ function NewSessionComposer({
               ? `Ask ${HARNESS_LABELS[harness]} for changes, or attach screenshots`
               : "Describe the work, or @mention a teammate"
           }
-          sendBlocked={(mode === "code" && !code.target) || needsClaude}
+          sendBlocked={
+            (mode === "code" && !code.target) || needsClaude || needsChatgpt
+          }
           tools={composerTools}
           onShiftTab={claudeCode ? claudeMode.cycle : undefined}
           onSend={onComposerSend}

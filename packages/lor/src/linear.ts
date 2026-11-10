@@ -1,9 +1,17 @@
-import { PaginationNulls, PaginationSortOrder } from "@linear/sdk"
+import { posix } from "node:path"
+import { shellQuote } from "@ai-sdk/harness/utils"
+import {
+  InvalidInputLinearError,
+  PaginationNulls,
+  PaginationSortOrder,
+} from "@linear/sdk"
 import { and, db, eq, schema } from "@repo/db"
-import { tool } from "ai"
+import { type Experimental_SandboxSession as SandboxSession, tool } from "ai"
 import { z } from "zod"
+import { logger } from "./logger"
 import { linearClientFor } from "./providers/linear"
 import { rerankItems } from "./rerank"
+import { WORKSPACE_MOUNT } from "./sandbox/blaxel"
 import type { OnUsage } from "./usage"
 
 const SEARCH_DEFAULT = 8
@@ -40,6 +48,10 @@ export async function resolveWorkspaceLinear(
 }
 
 const linearContext = z.object({ externalId: z.string() })
+// Write tools also attach sandbox files; relative paths start in workDir.
+const linearWriteContext = linearContext.extend({
+  workDir: z.string().nullable(),
+})
 const linearStateType = z.enum([
   "triage",
   "backlog",
@@ -203,46 +215,102 @@ export type LinearIssueCard = Awaited<
   ReturnType<typeof compactLinearIssues>
 >[number]
 
-// Matches issues by identifier ("ENG-412"); null when none parse.
-function identifiersFilter(
-  identifiers: string[]
-): { count: number; filter: IssueFilter } | null {
-  const refs = identifiers.flatMap((identifier) => {
-    const match = /^([A-Z][A-Z0-9]*)-(\d+)$/.exec(identifier)
-    return match?.[1] && match[2]
-      ? [{ key: match[1], number: Number(match[2]) }]
-      : []
+const IDENTIFIER = /^[A-Z][A-Z0-9]*-\d+$/
+
+// Issues by exact identifier ("ENG-412"), one lookup each. A team key + number
+// `or` filter matched other issues of the team, so Lor moved the wrong issue
+// to In Progress (LOR-158). Identifiers that don't resolve are missing.
+function lookupIssue(
+  client: LinearClient,
+  identifier: string
+): Promise<LinearIssue | null> {
+  return client.issue(identifier).catch((error: unknown) => {
+    // Linear answers an unknown identifier with an invalid-input error;
+    // auth, rate-limit and outage failures are logged.
+    if (!(error instanceof InvalidInputLinearError)) {
+      logger.warn({ err: error, identifier }, "Linear issue lookup failed")
+    }
+    return null
   })
-  if (refs.length === 0) return null
-  return {
-    count: refs.length,
-    filter: {
-      or: refs.map((ref) => ({
-        team: { key: { eq: ref.key } },
-        number: { eq: ref.number },
-      })),
-    },
-  }
 }
 
-// Issues by identifier ("ENG-412") in one query, for cards in Lor's window.
-// Identifiers that don't resolve are simply missing from the result.
+// Lookups share the workspace's Linear rate limit, so only a few run at once.
+const LOOKUP_CONCURRENCY = 4
+
+async function issuesByIdentifier(
+  identifiers: string[],
+  lookup: (identifier: string) => Promise<LinearIssue | null>
+): Promise<LinearIssue[]> {
+  const wanted = [
+    ...new Set(identifiers.map((identifier) => identifier.toUpperCase())),
+  ].filter((identifier) => IDENTIFIER.test(identifier))
+  const issues: Array<LinearIssue | null> = []
+  let next = 0
+  await Promise.all(
+    Array.from(
+      { length: Math.min(LOOKUP_CONCURRENCY, wanted.length) },
+      async () => {
+        for (let i = next++; i < wanted.length; i = next++) {
+          issues[i] = await lookup(wanted[i] as string)
+        }
+      }
+    )
+  )
+  const seen = new Set<string>()
+  return issues.filter((issue): issue is LinearIssue => {
+    if (!issue || seen.has(issue.id)) return false
+    seen.add(issue.id)
+    return true
+  })
+}
+
+// Everyone in a call refreshes the same issue cards each minute, so one
+// lookup per issue serves the whole call. A failed lookup isn't kept. Starting
+// an issue reads it uncached, to see its current state.
+const CARD_ISSUE_CACHE_MS = 60_000
+const cardIssues = new Map<
+  string,
+  { at: number; issue: Promise<LinearIssue | null> }
+>()
+
+function cachedCardIssue(
+  client: LinearClient,
+  externalId: string,
+  identifier: string
+) {
+  const key = `${externalId}:${identifier}`
+  const now = Date.now()
+  const hit = cardIssues.get(key)
+  if (hit && now - hit.at < CARD_ISSUE_CACHE_MS) return hit.issue
+  const issue = lookupIssue(client, identifier).then((result) => {
+    if (result === null && cardIssues.get(key)?.issue === issue) {
+      cardIssues.delete(key)
+    }
+    return result
+  })
+  cardIssues.set(key, { at: now, issue })
+  for (const [other, entry] of cardIssues) {
+    if (now - entry.at >= CARD_ISSUE_CACHE_MS) cardIssues.delete(other)
+  }
+  return issue
+}
+
+// Issues by identifier for cards in Lor's window.
 export async function loadLinearIssueCards(
   externalId: string,
   identifiers: string[]
 ): Promise<LinearIssueCard[]> {
-  const byIdentifier = identifiersFilter(identifiers)
-  if (!byIdentifier) return []
+  if (identifiers.length === 0) return []
   const client = await linearClientFor(externalId)
   if (!client) return []
-  const result = await client.issues({
-    first: byIdentifier.count,
-    filter: byIdentifier.filter,
-  })
-  return await compactLinearIssues(client, result.nodes, { visuals: true })
+  const issues = await issuesByIdentifier(identifiers, (identifier) =>
+    cachedCardIssue(client, externalId, identifier)
+  )
+  return await compactLinearIssues(client, issues, { visuals: true })
 }
 
 const START_ISSUES_MAX = 5
+const NOT_STARTED_STATE_TYPES = new Set(["triage", "backlog", "unstarted"])
 
 export type StartedLinearIssue = {
   identifier: string
@@ -258,38 +326,34 @@ export async function startLinearIssues(
   externalId: string,
   identifiers: string[]
 ): Promise<StartedLinearIssue[]> {
-  const byIdentifier = identifiersFilter(identifiers.slice(0, START_ISSUES_MAX))
-  if (!byIdentifier) return []
+  if (identifiers.length === 0) return []
   const client = await linearClientFor(externalId)
   if (!client) return []
-  const issues = await client
-    .issues({
-      first: byIdentifier.count,
-      filter: {
-        and: [
-          byIdentifier.filter,
-          { state: { type: { in: ["triage", "backlog", "unstarted"] } } },
-        ],
-      },
-    })
-    .then((result) => result.nodes)
+  const issues = await issuesByIdentifier(
+    identifiers.slice(0, START_ISSUES_MAX),
+    (identifier) => lookupIssue(client, identifier)
+  )
   const teamIds = [...new Set(issues.flatMap((issue) => issue.teamId ?? []))]
   if (teamIds.length === 0) return []
-  const startedStates = await client
+  const states = await client
     .workflowStates({
       first: LINEAR_PAGE_SIZE,
-      filter: { team: { id: { in: teamIds } }, type: { eq: "started" } },
+      filter: { team: { id: { in: teamIds } } },
     })
     .then((result) => result.nodes)
-  const firstStarted = new Map<string, (typeof startedStates)[number]>()
-  for (const state of startedStates) {
-    const current = state.teamId ? firstStarted.get(state.teamId) : undefined
-    if (state.teamId && (!current || state.position < current.position)) {
+  const stateById = new Map(states.map((state) => [state.id, state]))
+  const firstStarted = new Map<string, (typeof states)[number]>()
+  for (const state of states) {
+    if (state.type !== "started" || !state.teamId) continue
+    const current = firstStarted.get(state.teamId)
+    if (!current || state.position < current.position) {
       firstStarted.set(state.teamId, state)
     }
   }
   const started = await Promise.all(
     issues.map(async (issue): Promise<StartedLinearIssue | null> => {
+      const current = issue.stateId ? stateById.get(issue.stateId) : undefined
+      if (!current || !NOT_STARTED_STATE_TYPES.has(current.type)) return null
       const state = issue.teamId ? firstStarted.get(issue.teamId) : undefined
       if (!state) return null
       const payload = await client
@@ -718,10 +782,139 @@ async function resolveLabels(
   return { addedLabelIds, removedLabelIds, changes }
 }
 
+// Screenshots and demo videos from the session sandbox, uploaded to Linear's
+// storage so an issue or comment shows them inline. Uploads finish before
+// the issue or comment is written, so a failed one writes nothing.
+const LINEAR_MEDIA_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+}
+const MAX_ATTACHMENTS = 10
+const ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024
+const ATTACHMENT_UPLOAD_TIMEOUT_MS = 120_000
+
+// The file's leading bytes must match its extension's format, so a renamed
+// text file (an env file saved as .png) is not uploaded as media.
+const ascii = (bytes: Uint8Array, at: number, text: string) =>
+  [...text].every((char, i) => bytes[at + i] === char.charCodeAt(0))
+const MEDIA_SIGNATURES: Record<string, (bytes: Uint8Array) => boolean> = {
+  "image/png": (b) =>
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every(
+      (v, i) => b[i] === v
+    ),
+  "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  "image/gif": (b) => ascii(b, 0, "GIF87a") || ascii(b, 0, "GIF89a"),
+  "image/webp": (b) => ascii(b, 0, "RIFF") && ascii(b, 8, "WEBP"),
+  "video/mp4": (b) => ascii(b, 4, "ftyp"),
+  "video/webm": (b) =>
+    b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3,
+  // Older QuickTime files can start with an atom other than ftyp.
+  "video/quicktime": (b) =>
+    ["ftyp", "moov", "mdat", "wide", "free", "skip"].some((atom) =>
+      ascii(b, 4, atom)
+    ),
+}
+// /tmp too: the code-session prompt saves screenshots there, outside the repo.
+const ATTACHMENT_ROOTS = [WORKSPACE_MOUNT, "/tmp"]
+
+const attachmentsInput = z
+  .array(z.string())
+  .optional()
+  .describe(
+    "image or video files in your sandbox (png, jpg, gif, webp, mp4, webm, mov), absolute or relative to your working folder, e.g. screenshots or a demo video of the change; uploaded to Linear and shown after the text"
+  )
+
+async function uploadAttachments(
+  client: LinearClient,
+  sandbox: SandboxSession | undefined,
+  workDir: string | null,
+  paths: string[]
+): Promise<{ markdown: string; names: string[] } | { error: string }> {
+  if (paths.length === 0) return { markdown: "", names: [] }
+  if (!sandbox) return { error: "this run has no sandbox to attach files from" }
+  if (paths.length > MAX_ATTACHMENTS) {
+    return { error: `attach at most ${MAX_ATTACHMENTS} files` }
+  }
+  const lines: string[] = []
+  const names: string[] = []
+  for (const path of paths) {
+    const name = posix.basename(path)
+    const contentType =
+      LINEAR_MEDIA_TYPES[posix.extname(name).slice(1).toLowerCase()]
+    if (!contentType) {
+      return {
+        error: `${path} isn't an image or video (png, jpg, gif, webp, mp4, webm, mov)`,
+      }
+    }
+    const target = posix.isAbsolute(path)
+      ? path
+      : workDir
+        ? posix.join(workDir, path)
+        : null
+    if (!target) return { error: `pass an absolute path for ${path}` }
+    const probe = await sandbox.run({
+      command: `f=$(realpath -e -- ${shellQuote(target)}) && [ -f "$f" ] && printf '%s\\n%s' "$f" "$(stat -c %s -- "$f")"`,
+    })
+    const [real, sizeText] = probe.stdout.trim().split("\n")
+    if (probe.exitCode !== 0 || !real || !sizeText) {
+      return { error: `no file at ${path}` }
+    }
+    if (!ATTACHMENT_ROOTS.some((root) => real.startsWith(`${root}/`))) {
+      return { error: `only files under ${ATTACHMENT_ROOTS.join(" or ")}` }
+    }
+    if (Number(sizeText) > ATTACHMENT_MAX_BYTES) {
+      return {
+        error: `${path} is ${sizeText} bytes, over the ${ATTACHMENT_MAX_BYTES}-byte limit for an attachment`,
+      }
+    }
+    const bytes = await sandbox.readBinaryFile({ path: real })
+    if (!bytes) return { error: `no file at ${path}` }
+    if (!MEDIA_SIGNATURES[contentType]?.(bytes)) {
+      return { error: `${path} isn't a valid ${contentType} file` }
+    }
+
+    const upload = await client
+      .fileUpload(contentType, name, bytes.byteLength)
+      .then((payload) => payload.uploadFile ?? null)
+      .catch(() => null)
+    if (!upload) return { error: `couldn't upload ${path} to Linear` }
+    const headers = new Headers({
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=31536000",
+    })
+    for (const header of upload.headers) headers.set(header.key, header.value)
+    const put = await fetch(upload.uploadUrl, {
+      method: "PUT",
+      headers,
+      body: new Uint8Array(bytes),
+      signal: AbortSignal.timeout(ATTACHMENT_UPLOAD_TIMEOUT_MS),
+    }).catch(() => null)
+    if (!put?.ok) return { error: `couldn't upload ${path} to Linear` }
+
+    const label = name.replace(/[[\]]/g, "")
+    lines.push(
+      contentType.startsWith("image/")
+        ? `![${label}](${upload.assetUrl})`
+        : `[${label}](${upload.assetUrl})`
+    )
+    names.push(name)
+  }
+  return { markdown: lines.join("\n\n"), names }
+}
+
+const withAttachments = (text: string | undefined, markdown: string) =>
+  markdown ? (text?.trim() ? `${text}\n\n${markdown}` : markdown) : text
+
 export const linearWriteTools = {
   create_linear_issue: tool({
     description:
-      "Create a new issue in the team's Linear. A Linear team is required: if the workspace has a single team it's used automatically, otherwise you MUST pass its key or name (e.g. \"ENG\") — if you omit it or it's ambiguous, the tool returns the list of teams so you can pick one and retry. Also takes a title, an optional Markdown description, and an optional assignee (a member's name, display name, or email; matched to a Linear member, so use their real name, not a Lor handle) — if the assignee doesn't match anyone, the tool returns the workspace's member list so you can pick the right person and retry. Returns the created issue's identifier, url, team, and assignee.",
+      "Create a new issue in the team's Linear. A Linear team is required: if the workspace has a single team it's used automatically, otherwise you MUST pass its key or name (e.g. \"ENG\") — if you omit it or it's ambiguous, the tool returns the list of teams so you can pick one and retry. Also takes a title, an optional Markdown description, and an optional assignee (a member's name, display name, or email; matched to a Linear member, so use their real name, not a Lor handle) — if the assignee doesn't match anyone, the tool returns the workspace's member list so you can pick the right person and retry. Attach screenshots or a video from your sandbox with attachments; they are uploaded to Linear and shown after the description. Returns the created issue's identifier, url, team, and assignee.",
     inputSchema: z.object({
       title: z.string().describe("the issue title"),
       description: z.string().optional().describe("the issue body (Markdown)"),
@@ -735,9 +928,13 @@ export const linearWriteTools = {
         .string()
         .optional()
         .describe("who to assign it to — a Linear member's name or email"),
+      attachments: attachmentsInput,
     }),
-    contextSchema: linearContext,
-    execute: async ({ title, description, team, assignee }, { context }) => {
+    contextSchema: linearWriteContext,
+    execute: async (
+      { title, description, team, assignee, attachments },
+      { context, experimental_sandbox: sandbox }
+    ) => {
       const client = await linearClientFor(context.externalId)
       if (!client) return { error: "couldn't authenticate with Linear" }
       const teams = await client
@@ -760,11 +957,19 @@ export const linearWriteTools = {
         assigneeName = resolved.name
       }
 
+      const attached = await uploadAttachments(
+        client,
+        sandbox,
+        context.workDir,
+        attachments ?? []
+      )
+      if ("error" in attached) return attached
+
       const payload = await client
         .createIssue({
           teamId: resolvedTeam.teamId,
           title,
-          description,
+          description: withAttachments(description, attached.markdown),
           assigneeId,
         })
         .catch(() => null)
@@ -780,28 +985,48 @@ export const linearWriteTools = {
         description: description ?? null,
         team: resolvedTeam.team,
         assignee: assigneeName,
+        ...(attached.names.length > 0 ? { attached: attached.names } : {}),
       }
     },
     strict: true,
   }),
   comment_linear: tool({
     description:
-      "Add a comment to a Linear issue. Pass the issue id (from search_linear / fetch_linear) and the comment body (Markdown).",
+      "Add a comment to a Linear issue. Pass the issue id (from search_linear / fetch_linear) and the comment body (Markdown). Attach screenshots or a demo video from your sandbox with attachments; they are uploaded to Linear and shown after the text.",
     inputSchema: z.object({
       issueId: z.string().describe("the issue id"),
       body: z.string().describe("the comment text (Markdown)"),
+      attachments: attachmentsInput,
     }),
-    contextSchema: linearContext,
-    execute: async ({ issueId, body }, { context }) => {
+    contextSchema: linearWriteContext,
+    execute: async (
+      { issueId, body, attachments },
+      { context, experimental_sandbox: sandbox }
+    ) => {
       const client = await linearClientFor(context.externalId)
       if (!client) return { error: "couldn't authenticate with Linear" }
+      const attached = await uploadAttachments(
+        client,
+        sandbox,
+        context.workDir,
+        attachments ?? []
+      )
+      if ("error" in attached) return attached
       const payload = await client
-        .createComment({ issueId, body })
+        .createComment({
+          issueId,
+          body: withAttachments(body, attached.markdown) ?? body,
+        })
         .catch(() => null)
       if (!payload?.success) return { error: "couldn't add the comment" }
       // The write succeeded; reading the comment back is best-effort.
       const comment = await Promise.resolve(payload.comment).catch(() => null)
-      return { ok: true, body, url: comment?.url ?? null }
+      return {
+        ok: true,
+        body,
+        url: comment?.url ?? null,
+        ...(attached.names.length > 0 ? { attached: attached.names } : {}),
+      }
     },
     strict: true,
   }),

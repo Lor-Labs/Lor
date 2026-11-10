@@ -1,4 +1,5 @@
 import { recordUsage } from "@repo/billing"
+import { itemFromUrl } from "@repo/connectors"
 import {
   and,
   asc,
@@ -42,6 +43,7 @@ import {
   restoreSessionFiles,
   rewindWorkFolder,
   type SessionCheckpointRow,
+  withCheckpointLock,
   writeCheckpoint,
 } from "@repo/lor/code-checkpoints"
 import {
@@ -50,7 +52,13 @@ import {
   openBrowserView,
   setBrowserControl,
 } from "@repo/lor/dev-env/browser"
-import { applySessionEnvironment as applyEnvironment } from "@repo/lor/dev-env/environments"
+import {
+  applySessionEnvironment as applyEnvironment,
+  dropSessionSandbox,
+  effectiveSandboxMemoryMb,
+  environmentForRepo,
+  sessionSandboxExists,
+} from "@repo/lor/dev-env/environments"
 import { listOpenPorts, openPort } from "@repo/lor/dev-env/previews"
 import { repoSetupStatus, startService } from "@repo/lor/dev-env/repo-setup"
 import { openTerminal } from "@repo/lor/dev-env/terminal"
@@ -75,6 +83,7 @@ import { logger } from "@/lib/logger"
 import { fetchSessionContext } from "@/lib/queries/session-context"
 import { fetchSessionTouches } from "@/lib/queries/session-touches"
 import { eventAuthor, postSessionEvent } from "@/lib/session-events"
+import { recordSessionPullRequest } from "@/lib/session-reviews"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import {
@@ -114,6 +123,7 @@ import type {
   StageSessionChangesRoute,
   StartSessionServiceRoute,
   UpdateAgentSessionRoute,
+  UpdateSessionSetupRoute,
 } from "@/routes/v1/sessions/routes"
 
 // Null for "doesn't exist" and "not allowed" alike, so session ids can't
@@ -1182,7 +1192,18 @@ export const pushSessionChanges: AppRouteHandler<
     token: account.token,
     repoFullName: session.repoFullName,
     branch: result.pushed.branch,
+    baseBranch: session.baseBranch,
   })
+  // A pull request opened before this push is the session's work too; new
+  // ones are recorded by the pull_request.opened webhook.
+  const openPullRequest = pullRequest?.open
+    ? itemFromUrl(pullRequest.url)
+    : null
+  if (openPullRequest?.kind === "github_pr") {
+    void recordSessionPullRequest(session, openPullRequest.value).catch((err) =>
+      logger.warn({ err, sessionId }, "Pull request touch failed")
+    )
+  }
   broadcastChangesUpdated(session, user.id)
   checkpointAfter(session)
   const author = eventAuthor(user)
@@ -1882,4 +1903,254 @@ export const applySessionEnvironment: AppRouteHandler<
     repoFullName: session.repoFullName,
   })
   return c.json({ applied }, HttpStatusCodes.OK)
+}
+
+// A fresh checkpoint under the caller's checkpoint lock; false when the work
+// folder can't be saved (no storage, no folder, or the write failed).
+async function checkpointNow(
+  session: CodeSession,
+  lockTx: Parameters<Parameters<typeof withCheckpointLock>[1]>[0]
+): Promise<boolean> {
+  try {
+    const sandbox = await attachCodeSandbox(session.id)
+    if (!sandbox) return false
+    try {
+      const result = await writeCheckpoint(
+        sandbox,
+        {
+          sessionId: session.id,
+          workspaceId: session.workspaceId,
+          repoFullName: session.repoFullName,
+          runId: null,
+        },
+        lockTx
+      )
+      return result !== "disabled"
+    } finally {
+      sandbox.close()
+    }
+  } catch (err) {
+    logger.warn({ err, sessionId: session.id }, "Pre-resize checkpoint failed")
+    return false
+  }
+}
+
+// One environment write per session at a time, in request order, so an
+// earlier write can't land after a later one (or its null cleanup). Each
+// also waits for a restore of the work folder.
+const environmentWrites = new Map<string, Promise<void>>()
+
+function queueEnvironmentWrite(
+  session: CodeSession,
+  environmentId: string | null
+) {
+  const previous = environmentWrites.get(session.id) ?? Promise.resolve()
+  const write = previous
+    .then(() => restoring.get(session.id))
+    .then(() =>
+      applyEnvironment({
+        sessionId: session.id,
+        environmentId,
+        repoFullName: session.repoFullName,
+      })
+    )
+    .then(
+      () => {},
+      (err) =>
+        logger.warn(
+          { err, sessionId: session.id },
+          "Session environment write failed"
+        )
+    )
+  environmentWrites.set(session.id, write)
+  void write.finally(() => {
+    if (environmentWrites.get(session.id) === write) {
+      environmentWrites.delete(session.id)
+    }
+  })
+}
+
+// The session menu's Environment & sandbox, and Lor's suggestion card
+// (LOR-156). A new size replaces the sandbox, so it waits for Lor's turn to
+// end; the work folder comes back from the newest checkpoint in the
+// background, then gets the environment's files.
+export const updateSessionSetup: AppRouteHandler<
+  UpdateSessionSetupRoute
+> = async (c) => {
+  const user = c.var.user
+  const { sessionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+  const found = await writableSession(sessionId, user.id)
+  if (found === "not_found") {
+    return c.json(sessionNotFound, HttpStatusCodes.NOT_FOUND)
+  }
+  if (found === "forbidden") {
+    return c.json(forbidden, HttpStatusCodes.FORBIDDEN)
+  }
+  const session = toCodeSession(found)
+  const refuse = (message: string) =>
+    c.json({ success: false as const, message }, HttpStatusCodes.BAD_REQUEST)
+  if (!session || session.archivedAt) {
+    return refuse("Only open code sessions have an environment and size")
+  }
+
+  const requestedEnvironmentId =
+    body.environmentId &&
+    (await environmentForRepo(
+      session.workspaceId,
+      body.environmentId,
+      session.repoFullName
+    ))
+  if (body.environmentId && !requestedEnvironmentId) {
+    return refuse(`That environment isn't set up for ${session.repoFullName}`)
+  }
+  const busy = (message: string) =>
+    c.json({ success: false as const, message }, HttpStatusCodes.CONFLICT)
+
+  // Under the checkpoint lock a turn starting meanwhile waits before it opens
+  // the sandbox, so none can start between the checks and the delete. The
+  // row is read again here: a PATCH queued behind another one decides from
+  // what that one saved.
+  const outcome = await withCheckpointLock(session.id, async (lockTx) => {
+    const current = await db
+      .select()
+      .from(schema.agentSession)
+      .where(eq(schema.agentSession.id, sessionId))
+      .limit(1)
+      .then((rows) => rows[0])
+    if (!current || current.archivedAt) {
+      return {
+        busy: true as const,
+        message: "Only open code sessions have an environment and size",
+      }
+    }
+    const environmentId =
+      body.environmentId === undefined
+        ? current.environmentId
+        : (requestedEnvironmentId ?? null)
+    const sandboxMemoryMb =
+      body.sandboxMemoryMb === undefined
+        ? current.sandboxMemoryMb
+        : body.sandboxMemoryMb
+    const [before, after] = await Promise.all([
+      effectiveSandboxMemoryMb(current),
+      effectiveSandboxMemoryMb({ sandboxMemoryMb, environmentId }),
+    ])
+    const resized = before !== after
+    if (resized && restoring.has(session.id)) {
+      return { busy: true as const, message: gapMessage.restoring }
+    }
+    if (resized) {
+      if (await lorWorkingIn(session.threadRootId)) {
+        return {
+          busy: true as const,
+          message:
+            "Lor is working in this session. Change the size when its turn ends",
+        }
+      }
+      // The replaced sandbox comes back from the newest checkpoint, so it
+      // must hold the work folder as it is now, not as of an older turn.
+      if (
+        (await sessionSandboxExists(session.id)) &&
+        !(await checkpointNow(session, lockTx))
+      ) {
+        return {
+          busy: true as const,
+          message:
+            "Couldn't save this session's files before replacing its sandbox. Try again shortly",
+        }
+      }
+    }
+
+    // Saved before the sandbox goes, so whatever opens it next uses the new
+    // size.
+    const updated = await db
+      .update(schema.agentSession)
+      .set({ environmentId, sandboxMemoryMb })
+      .where(eq(schema.agentSession.id, sessionId))
+      .returning()
+      .then((rows) => rows[0] ?? found)
+
+    let replaced = false
+    if (resized) {
+      try {
+        replaced = await dropSessionSandbox(session.id)
+      } catch (err) {
+        // The sandbox may still be there at its old size: keep the old setup.
+        await db
+          .update(schema.agentSession)
+          .set({
+            environmentId: current.environmentId,
+            sandboxMemoryMb: current.sandboxMemoryMb,
+          })
+          .where(eq(schema.agentSession.id, sessionId))
+        throw err
+      }
+    }
+    return {
+      busy: false as const,
+      updated,
+      replaced,
+      environmentId,
+      environmentChanged: environmentId !== current.environmentId,
+      resized,
+      after,
+    }
+  })
+  if (outcome.busy) return busy(outcome.message)
+  const {
+    updated,
+    replaced,
+    environmentId,
+    environmentChanged,
+    resized,
+    after,
+  } = outcome
+
+  if (replaced) await startRestore(session)
+  // Null: the manifest cleanup deletes the old environment's files.
+  if (environmentChanged || (resized && environmentId)) {
+    queueEnvironmentWrite(session, environmentId)
+  }
+
+  const realtimeSession = toRealtimeAgentSession(updated)
+  void getEmitter()
+    .then((io) =>
+      io
+        .to(channelRoom(session.channelId))
+        .emit("session:updated", { session: realtimeSession })
+    )
+    .catch((err) =>
+      logger.warn({ err, sessionId }, "Session update broadcast failed")
+    )
+  if (environmentChanged || replaced) {
+    const environmentName = environmentChanged
+      ? environmentId
+        ? await db
+            .select({ name: schema.environment.name })
+            .from(schema.environment)
+            .where(eq(schema.environment.id, environmentId))
+            .then((rows) => rows[0]?.name ?? null)
+        : null
+      : undefined
+    const author = eventAuthor(user)
+    const eventPayload = {
+      sessionId,
+      ...(environmentName !== undefined ? { environmentName } : {}),
+      ...(replaced ? { sandboxMemoryMb: after } : {}),
+    }
+    void postSessionEvent(
+      session,
+      author,
+      { eventType: "session_setup_changed", eventPayload },
+      channelEventContent({
+        eventType: "session_setup_changed",
+        actorName: author.name,
+        ...eventPayload,
+      })
+    ).catch((err) =>
+      logger.error({ err, sessionId }, "Session setup event failed")
+    )
+  }
+  return c.json({ session: realtimeSession, replaced }, HttpStatusCodes.OK)
 }

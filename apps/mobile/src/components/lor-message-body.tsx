@@ -5,6 +5,7 @@ import { LorActivity } from "@/components/lor-activity"
 import { LorFailureNotice } from "@/components/lor-failure-notice"
 import { LorReasoning } from "@/components/lor-reasoning"
 import { LorToolTrail } from "@/components/lor-tool-trail"
+import { lorWorkedMs } from "@/components/lor-work-time"
 import { MessageContent } from "@/components/message-content"
 import type { Message } from "@/lib/api-types"
 import { buildLorSegments, type LorToolCall } from "@/lib/lor"
@@ -111,6 +112,7 @@ export function LorMessageBody({
           }
           failed={failed}
           toolCount={toolCalls.length}
+          workedMs={lorWorkedMs(message)}
         >
           {activitySegments.map(renderSegment)}
         </LorActivity>

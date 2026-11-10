@@ -21,6 +21,8 @@ VIEW_PORT="${LOR_BROWSER_VIEW_PORT:-6080}"
 DIR="${LOR_BROWSER_DIR:-/workspace/.cache/lor-browser}"
 
 export DISPLAY=":${DISPLAY_NUM}"
+# The image's cursor theme (Dockerfile); Chromium also needs GTK's setting.
+export XCURSOR_PATH=/opt/lor-browser/icons XCURSOR_THEME=Bibata-Modern-Ice
 mkdir -p "$DIR/profile" "$DIR/logs"
 
 # One browser per sandbox: Lor's lor-browser and the Browser panel both start
@@ -74,12 +76,16 @@ rm -f "$socket"
 # not 4:4:4: watchers share the controller's stream and can't fall back,
 # and Firefox can't decode 4:4:4 H.264. JPEG is the controller's fallback
 # for browsers without H.264. Everything but video and input is off.
+# CSS scaling, locked: the display is sized in the viewer's CSS pixels at
+# 96 DPI. Selkies' HiDPI default doubles it on a Retina screen and raises the
+# DPI over xrdb, which a running Chromium ignores, so pages drew half size.
 XDG_RUNTIME_DIR=/tmp selkies --unix-socket="$socket" --mode=websockets \
   --master-token="$(token)" --tokens-file="$DIR/selkies-tokens.json" \
   --enable-basic-auth=false --enable-sharing=false --frame-ancestors='*' \
   --encoder=h264enc,jpeg --use-cpu=true --framerate=60 --rate-control-mode=crf \
   --video-crf=23 --video-fullcolor=false --video-paintover-crf=8 \
-  --enable-resize=true --mac-cmd-as-ctrl=true --ui-show-sidebar=false \
+  --enable-resize=true --use-css-scaling='true|locked' \
+  --mac-cmd-as-ctrl=true --ui-show-sidebar=false \
   --audio-enabled=false --microphone-enabled=false --webcam-enabled=false \
   --gamepad-enabled=false --file-transfers=none --printing-enabled=false \
   --command-enabled=false >"$DIR/logs/selkies.log" 2>&1 &

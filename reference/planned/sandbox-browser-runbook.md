@@ -189,18 +189,27 @@ so existing files stay valid, and gains one optional field per service.
   (`LOR_CODE_SANDBOX_MEMORY_MB`). The API accepts only 8192 and 16384 for
   now. Code sessions only; chat sessions keep their size.
 - `createSessionSandbox` reads it through the session's
-  `agent_session.environment_id`. A sandbox keeps its size until it is
-  replaced, as today. Applying a new size to a live session (replace the
-  sandbox, restore from the newest checkpoint) is a later action, not v1.
+  `agent_session.environment_id`, after the session's own
+  `agent_session.sandbox_memory_mb` (LOR-156). A sandbox keeps its size until
+  it is replaced.
+- **Live sessions** (LOR-156, built 2026-11-09). The session menu's
+  Environment & sandbox (`PATCH /sessions/{id}/setup`, anyone who can write
+  in the channel) picks the session's environment and size, also for a
+  session started without an environment. A new size replaces the sandbox:
+  it is deleted, recreated at the new size and restored from the newest
+  checkpoint (installed packages, running servers and edits since Lor's last
+  turn are lost), then gets the environment's files. Refused while Lor is
+  working. A `session_setup_changed` event tells the people and Lor.
 - The environment editor shows the cost: 1.25 credits per GB-hour, so 16 GB
   costs 20 credits an hour while it runs. In the beta that also doubles
   Lor's subsidy per sandbox-hour (`beta-pricing-runbook.md`, Cost basis).
   Hosted beta caps the size at 16 GB.
 - **Lor asks.** When builds, servers or the browser die from lack of memory
   (exit 137, `Killed`, all processes restarted after an out-of-memory
-  crash), Lor says so and names the larger size. When change proposals
-  (`change-proposals.md`) can carry it, Lor files an operation that sets
-  `sandbox_memory_mb` and that a manager approves.
+  crash), Lor says so and calls `suggest_session_setup`
+  (`packages/lor/src/dev-env/session-setup.ts`): its result is a card in
+  the session that opens Environment & sandbox with the suggestion picked. It
+  suggests an environment the same way when the work lacks env vars.
 
 ### 3. Browser process
 
@@ -574,6 +583,31 @@ Each step is a review chunk of about 300–400 lines.
       `tauri://localhost`; the gateway drops that header from the page.
       Firefox couldn't decode the H.264 stream; `--encoder=h264enc,jpeg`
       lets it fall back to JPEG. Both checked by Jacob, image pushed.
+    - LOR-136 (2026-11-09, image not pushed): the cursor was X's bitmap
+      fallback (the image had no cursor theme). Bibata Modern Ice (Jacob's
+      pick) now lives in `/opt/lor-browser/icons` (the deployed sandbox's
+      `/usr/share/icons` is empty) with `XCURSOR_PATH`, and
+      `/etc/gtk-3.0/settings.ini` names it, since Chromium takes the theme
+      from GTK. Pages drew half size for a Retina controller: Selkies'
+      HiDPI default doubled the display and set `Xft.dpi` 192, which a
+      running Chromium ignores. `--use-css-scaling='true|locked'` keeps the
+      display in CSS pixels at 96 DPI (slightly softer text on Retina).
+    - LOR-131 (2026-11-09, image not pushed): switching control no longer
+      goes dark. The gateway tells pages first and closes old-role streams
+      500 ms later with Selkies' 4002 (4001 showed its "Invalid token"
+      screen). The bridge posts `freeze` (a JPEG of the picture) before it
+      reloads and `picture` once the new page draws; the panel shows the
+      freeze in between. The gateway watches the control files (the API's
+      writes land at once, the 1 s tick stays as fallback), fits Chromium
+      right after the controller's `r,` and pings the events socket. The
+      panel switches optimistically and says "Switching control…" only
+      after 700 ms. Measured locally: file write to live picture 0.2-0.4 s.
+    - LOR-134 (2026-11-09, image not pushed): `lor-browser show [url]`
+      opens the page (when given) and prints a confirmation; without a URL
+      it needs no control. The web opens the session's Browser tab for
+      people whose panel is collapsed (`useLorBrowserShow`) and the tool
+      trail shows a card with View (`BrowserShowCard`). Mobile shows the
+      step text only.
     - QA owed: two viewers in the app, Safari, the phone (Selkies' touch
       input; typing on iOS unverified with the sidebar off), CPU under
       scrolling, Lor screenshots after a resize.
@@ -667,8 +701,6 @@ Each step is a review chunk of about 300–400 lines.
 - **Multi-repo.** One environment with several repos and one sandbox. Each
   repo is cloned into its own folder, and its file's services are named
   `repo/service`. Profiles that span repos live on the environment.
-- **Resize a live session.** Replace the sandbox at the new size and restore
-  from the newest checkpoint.
 - **Larger sizes** (32 GB) once there's real demand and a price.
 - **Annotations that stay on the page** across reloads, anchored by selector
   and text, and component source paths for picked elements.

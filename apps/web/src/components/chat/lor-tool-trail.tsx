@@ -11,6 +11,7 @@ import {
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react"
 import { env } from "@repo/env/client"
+import { Button } from "@repo/ui/components/button"
 import {
   Collapsible,
   CollapsibleContent,
@@ -31,6 +32,7 @@ import { browserStep } from "@repo/utils/browser-step"
 import { type ComponentType, useState } from "react"
 import { MessageMarkdown } from "@/components/chat/message-markdown"
 import { useOptionalRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
+import type { SessionPanelView } from "@/components/sidebar/right-panel/right-sidebar-types"
 import { useOpenFile } from "@/hooks/use-file-panel"
 import type { LorToolCallView } from "@/lib/api-types"
 import {
@@ -191,12 +193,17 @@ const SANDBOX_TOOLS = new Set([
 function splitLabel(toolCall: LorToolCallView) {
   const space = toolCall.label.indexOf(" ")
   if (!TARGET_TOOLS.has(toolCall.toolName) || space < 0) {
-    return { verb: toolCall.label, target: null, browser: false }
+    return { verb: toolCall.label, target: null, browser: false, show: false }
   }
   const target = toolCall.label.slice(space + 1)
   const step = toolCall.toolName === "bash" ? browserStep(target) : null
-  if (step) return { ...step, browser: true }
-  return { verb: toolCall.label.slice(0, space), target, browser: false }
+  if (step) return { ...step, browser: true, show: step.show === true }
+  return {
+    verb: toolCall.label.slice(0, space),
+    target,
+    browser: false,
+    show: false,
+  }
 }
 
 function displayLabel(toolCall: LorToolCallView) {
@@ -226,7 +233,7 @@ function SandboxRow({
   const openFile = useOpenFile()
   const sidebar = useOptionalRightSidebar()
   const [open, setOpen] = useState(false)
-  const { verb, target, browser } = splitLabel(toolCall)
+  const { verb, target, browser, show } = splitLabel(toolCall)
   // A browser step opens the session's Browser panel, when a session panel
   // (whose ids it needs) is open.
   const sessionView =
@@ -265,24 +272,27 @@ function SandboxRow({
             {target}
           </span>
         ) : null}
-        {sessionView && sidebar && sessionView.type !== "session-browser" && (
-          <button
-            type="button"
-            title="Open the session's browser"
-            onClick={() =>
-              sidebar.setView({
-                type: "session-browser",
-                workspaceSlug: sessionView.workspaceSlug,
-                channelId: sessionView.channelId,
-                sessionId: sessionView.sessionId,
-                threadRootId: sessionView.threadRootId,
-              })
-            }
-            className="relative z-10 shrink-0 cursor-pointer rounded bg-muted px-1 py-px text-[11px] text-foreground transition-colors hover:bg-accent"
-          >
-            Open browser
-          </button>
-        )}
+        {sessionView &&
+          sidebar &&
+          !show &&
+          sessionView.type !== "session-browser" && (
+            <button
+              type="button"
+              title="Open the session's browser"
+              onClick={() =>
+                sidebar.setView({
+                  type: "session-browser",
+                  workspaceSlug: sessionView.workspaceSlug,
+                  channelId: sessionView.channelId,
+                  sessionId: sessionView.sessionId,
+                  threadRootId: sessionView.threadRootId,
+                })
+              }
+              className="relative z-10 shrink-0 cursor-pointer rounded bg-muted px-1 py-px text-[11px] text-foreground transition-colors hover:bg-accent"
+            >
+              Open browser
+            </button>
+          )}
         {diff && <DiffCounts diff={diff} />}
         {toolCall.status === "error" && (
           <span className="shrink-0 rounded bg-destructive/10 px-1 text-destructive">
@@ -300,6 +310,9 @@ function SandboxRow({
           />
         )}
       </div>
+      {show && toolCall.status === "ok" && (
+        <BrowserShowCard target={target} sessionView={sessionView} />
+      )}
       {expandable && (
         <CollapsibleContent>
           <div className="mt-1 mb-1 ml-4.5 max-h-64 overflow-auto rounded-md border border-border/50 bg-muted/30 font-mono text-[11px] leading-4">
@@ -335,6 +348,56 @@ function SandboxRow({
         </CollapsibleContent>
       )}
     </Collapsible>
+  )
+}
+
+// Lor's `lor-browser show` (LOR-134): what it showed, with View for the
+// session's Browser tab. The session page opens that tab on its own for people
+// whose panel was closed or already on it (useLorBrowserShow).
+function BrowserShowCard({
+  target,
+  sessionView,
+}: {
+  target: string | null
+  sessionView: SessionPanelView | null
+}) {
+  const sidebar = useOptionalRightSidebar()
+  const showing =
+    sidebar !== null &&
+    !sidebar.isCollapsed &&
+    sessionView?.type === "session-browser"
+  return (
+    <div className="my-1.5 flex min-w-0 items-center gap-2.5 rounded-lg border border-border/70 bg-muted/30 py-2 pr-2 pl-3">
+      <BrowserGlyph className="size-4 shrink-0 text-muted-foreground" />
+      <p className="min-w-0 flex-1 truncate text-foreground text-xs">
+        {target ? (
+          <>
+            Lor opened <span className="font-mono text-[11px]">{target}</span>{" "}
+            in the browser
+          </>
+        ) : (
+          "Lor is showing you the browser"
+        )}
+      </p>
+      {sessionView && sidebar && !showing && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 shrink-0"
+          onClick={() =>
+            sidebar.openView({
+              type: "session-browser",
+              workspaceSlug: sessionView.workspaceSlug,
+              channelId: sessionView.channelId,
+              sessionId: sessionView.sessionId,
+              threadRootId: sessionView.threadRootId,
+            })
+          }
+        >
+          View
+        </Button>
+      )}
+    </div>
   )
 }
 

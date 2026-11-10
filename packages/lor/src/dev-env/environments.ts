@@ -6,7 +6,11 @@ import { env } from "@repo/env/server"
 import { decryptSecret } from "@repo/utils/crypto"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import { logger } from "../logger"
-import { attachSessionSandbox } from "../sandbox/session-sandbox"
+import {
+  attachSessionSandbox,
+  deleteSessionSandbox,
+  sessionSandboxExists as sandboxExists,
+} from "../sandbox/session-sandbox"
 import { sessionWorkDir } from "./work-dir"
 
 // A code session's environment, written into its work folder each turn
@@ -31,20 +35,51 @@ export async function environmentSandboxMemoryMb(
   return row?.memoryMb ?? null
 }
 
-// The same through the session (a restore that creates the sandbox).
+// The same through the session (a restore that creates the sandbox): the
+// session's own size first, then its environment's.
 export async function sessionSandboxMemoryMb(
   sessionId: string
 ): Promise<number | null> {
   const [row] = await db
-    .select({ memoryMb: schema.environment.sandboxMemoryMb })
+    .select({
+      sessionMb: schema.agentSession.sandboxMemoryMb,
+      environmentMb: schema.environment.sandboxMemoryMb,
+    })
     .from(schema.agentSession)
-    .innerJoin(
+    .leftJoin(
       schema.environment,
       eq(schema.agentSession.environmentId, schema.environment.id)
     )
     .where(eq(schema.agentSession.id, sessionId))
     .limit(1)
-  return row?.memoryMb ?? null
+  return row?.sessionMb ?? row?.environmentMb ?? null
+}
+
+// The size a code session's next sandbox gets: its own pick, then its
+// environment's, then the default.
+export async function effectiveSandboxMemoryMb(input: {
+  sandboxMemoryMb: number | null
+  environmentId: string | null
+}): Promise<number> {
+  return (
+    input.sandboxMemoryMb ??
+    (await environmentSandboxMemoryMb(input.environmentId)) ??
+    env.LOR_CODE_SANDBOX_MEMORY_MB
+  )
+}
+
+// Throws when Blaxel or Boat can't be asked, rather than reading as none.
+export function sessionSandboxExists(sessionId: string): Promise<boolean> {
+  return sandboxExists({ sessionId })
+}
+
+// A new size needs a new sandbox: Blaxel can't resize one in place. The next
+// open creates it at the session's size and restores the newest checkpoint.
+// False when the session had none; throws when the lookup or a delete fails.
+export async function dropSessionSandbox(sessionId: string): Promise<boolean> {
+  if (!(await sessionSandboxExists(sessionId))) return false
+  await deleteSessionSandbox({ sessionId }, { strict: true })
+  return true
 }
 
 const HEADER =
@@ -178,18 +213,20 @@ const MANIFEST = ".git/info/lor-env-files"
 // after, so none is ever committed even when the repo does not ignore it. A path git
 // already tracks is skipped: excludes don't cover tracked files. Files from
 // the last write that are gone from the environment are deleted when they
-// still start with Lor's header.
+// still start with Lor's header. A null environment only deletes them.
 export async function writeEnvironmentFiles(input: {
   sandbox: SandboxSession
   workDir: string
-  environmentId: string
+  environmentId: string | null
   repoFullName: string
 }): Promise<number> {
   const q = shellQuote
   const cd = `cd ${q(input.workDir)}`
-  let files = (await repoFiles(input.environmentId, input.repoFullName)).filter(
-    (file) => isSafeEnvFilePath(file.path)
-  )
+  let files = (
+    input.environmentId
+      ? await repoFiles(input.environmentId, input.repoFullName)
+      : []
+  ).filter((file) => isSafeEnvFilePath(file.path))
   if (files.length > 0) {
     const listed = await input.sandbox.run({
       command: `${cd} && git ls-files -- ${files.map((f) => q(f.path)).join(" ")}`,
@@ -253,10 +290,10 @@ export async function writeEnvironmentFiles(input: {
 
 // A saved edit written into an open session's sandbox at once, instead of on
 // Lor's next turn. Never creates a sandbox; false when there is none or the
-// repo is not cloned yet.
+// repo is not cloned yet. Null: the session's environment was removed.
 export async function applySessionEnvironment(input: {
   sessionId: string
-  environmentId: string
+  environmentId: string | null
   repoFullName: string
 }): Promise<boolean> {
   const sandbox = await attachSessionSandbox({ sessionId: input.sessionId })

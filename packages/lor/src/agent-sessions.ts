@@ -46,6 +46,7 @@ export function toRealtimeAgentSession(
     baseBranch: row.baseBranch,
     newBranch: row.newBranch,
     environmentId: row.environmentId,
+    sandboxMemoryMb: row.sandboxMemoryMb,
     uncommittedAdditions: row.uncommittedAdditions,
     uncommittedDeletions: row.uncommittedDeletions,
     sourceSessionId: row.sourceSessionId,

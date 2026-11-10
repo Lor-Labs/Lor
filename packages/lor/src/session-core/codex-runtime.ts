@@ -18,6 +18,7 @@ import type {
   UserModelMessage,
 } from "ai"
 import { aiRuntimeContext, aiTelemetry } from "../ai-observability"
+import { CHATGPT_CODEX_BASE_URL } from "../chatgpt-account"
 import { codexHeadOf } from "./codex-branch"
 import {
   checkCompatibility,
@@ -36,8 +37,8 @@ import {
 import { reportedModels } from "./reported-models"
 import { sessionWorkFolder } from "./work-dir"
 
-// One Codex turn through Vercel's adapter, on Lor credits through the AI
-// Gateway (reference/planned/code-sessions-runbook.md chunk 8d). Codex keeps a
+// One Codex turn through Vercel's adapter, on the turn starter's own ChatGPT
+// plan (reference/planned/code-sessions-runbook.md chunks 8d and 8f). Codex keeps a
 // thread in one append-only rollout file under ~/.codex/sessions; like Claude
 // Code's file it is saved to Postgres per turn and written back before the
 // next, and Codex resumes the thread from that file alone (8d-1 spike).
@@ -52,11 +53,6 @@ export const CODEX_BINDING: HarnessBinding = {
 
 // A Codex session's model when the sender picked none.
 export const CODEX_DEFAULT_MODEL = "gpt-6.1-sol"
-
-// The Gateway's id for a Codex model: Codex names it bare ("gpt-6.1-sol"),
-// the Gateway under its creator ("openai/gpt-6.1-sol").
-export const codexGatewayModel = (model: string) =>
-  model.includes("/") ? model : `openai/${model}`
 
 type CodexEffort = NonNullable<CodexHarnessSettings["reasoningEffort"]>
 // The adapter's effort names; which ones a model takes comes from Codex's
@@ -76,9 +72,11 @@ export type CodexTurnInput = {
     port: number
     endpoint: { url: string; headers: Record<string, string> }
   }
-  // Lor's Gateway key reaches the Gateway through the sandbox proxy; Codex
-  // only ever sees this placeholder.
-  keyPlaceholder: string
+  // The turn starter's ChatGPT access token reaches ChatGPT through the
+  // sandbox proxy; Codex only ever sees this placeholder. Codex sends the
+  // account id beside it.
+  tokenPlaceholder: string
+  accountId: string
   // The model the sender picked, as Codex names it ("gpt-6.1-sol"); unset:
   // GPT-6.1 Sol.
   model?: string
@@ -156,13 +154,17 @@ export async function runCodexTurn(
 
   const agent = new HarnessAgent({
     harness: createCodex({
-      auth: { AI_GATEWAY_API_KEY: input.keyPlaceholder },
+      auth: {
+        CODEX_API_KEY: input.tokenPlaceholder,
+        OPENAI_BASE_URL: CHATGPT_CODEX_BASE_URL,
+      },
       port: input.bridge.port,
       portEndpoint: input.bridge.endpoint,
       ...(isCodexEffort(input.effort) ? { reasoningEffort: input.effort } : {}),
       ...(input.command ? { command: input.command } : {}),
     }),
     model: input.model ?? CODEX_DEFAULT_MODEL,
+    headers: { "ChatGPT-Account-ID": input.accountId },
     instructions: input.instructions,
     tools: prepareTools(
       { ...missingToolStubs(paused, input.tools), ...input.tools },
@@ -257,7 +259,7 @@ export async function runCodexTurn(
       )
     )
     // Codex reports usage at the turn's end only (a paused turn's early
-    // finish carries none), so Lor charges the whole turn then.
+    // finish carries none).
     const usage = totals.every(([turnUsage]) => turnUsage)
       ? totals.reduce(
           (total, [turnUsage]) => ({

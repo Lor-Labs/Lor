@@ -14,6 +14,14 @@ export const claudeAccountSchema = z.object({
   expiresAt: z.string().nullable(),
 })
 
+export const chatgptAccountSchema = z.object({
+  // The sign-in's email; null when the token didn't carry one.
+  email: z.string().nullable(),
+  // The ChatGPT plan ("plus", "pro"), as the token names it.
+  plan: z.string().nullable(),
+  connectedAt: z.string(),
+})
+
 export const personalAccountsResponseSchema = z.object({
   github: z.object({
     // False when the server has no GitHub App OAuth client configured.
@@ -25,6 +33,11 @@ export const personalAccountsResponseSchema = z.object({
     available: z.boolean(),
     account: claudeAccountSchema.nullable(),
   }),
+  chatgpt: z.object({
+    // False when Codex is off or the server can't encrypt tokens.
+    available: z.boolean(),
+    account: chatgptAccountSchema.nullable(),
+  }),
 })
 
 export const connectClaudeAccountBodySchema = z.object({
@@ -33,6 +46,15 @@ export const connectClaudeAccountBodySchema = z.object({
 
 export const connectClaudeAccountResponseSchema = z.object({
   account: claudeAccountSchema,
+})
+
+export const connectChatgptAccountBodySchema = z.object({
+  // The whole auth.json `codex login` saved.
+  authJson: z.string().min(1).max(20_000),
+})
+
+export const connectChatgptAccountResponseSchema = z.object({
+  account: chatgptAccountSchema,
 })
 
 export const githubConnectUrlResponseSchema = z.object({ url: z.string() })

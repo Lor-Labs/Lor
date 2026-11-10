@@ -79,6 +79,17 @@ export function applyLorFrame(message: Message, frame: LorFrame): Message {
         : `${message.content ?? ""}${payload.delta}`,
       mentions: payload.mentions ?? message.mentions,
       status: payload.done ? (payload.status ?? "complete") : "pending",
+      // The live reply gets no refetch at the end, so its finish time
+      // ("Worked for 3m") is stamped here; a later load reads the run's.
+      ...(payload.done
+        ? {
+            lorRun: {
+              startedAt: message.lorRun?.startedAt ?? null,
+              finishedAt:
+                message.lorRun?.finishedAt ?? new Date().toISOString(),
+            },
+          }
+        : {}),
     }
   }
   if (frame.type === "reasoning") {

@@ -86,6 +86,8 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   // In a code session: someone reviewed the pull request of its branch on
   // GitHub (reference/planned/pr-reviews.md). The card reads the comments live.
   "session_reviewed",
+  // In a code session: someone changed its environment or sandbox size.
+  "session_setup_changed",
 ])
 
 // Claude Code's own permission modes, picked per message in a Claude Code
@@ -366,6 +368,14 @@ export type SessionRewoundPayload = {
   toMessageId: string
 }
 
+// Set fields are what changed: `environmentName` (null: none) or
+// `sandboxMemoryMb` (the sandbox was replaced at that size).
+export type SessionSetupChangedPayload = {
+  sessionId: string
+  environmentName?: string | null
+  sandboxMemoryMb?: number
+}
+
 export type SessionReviewedPayload = {
   sessionId: string
   repoFullName: string
@@ -391,6 +401,7 @@ export type ChannelEventPayload =
   | SessionForkedPayload
   | SessionRewoundPayload
   | SessionReviewedPayload
+  | SessionSetupChangedPayload
   | null
 
 // Type definitions for the JSONB fields
@@ -476,6 +487,15 @@ export type LorToolCall = {
     size: number
     url: string
   }[]
+  // A suggested environment or sandbox size for the code session
+  // (suggest_session_setup), shown as a card a person applies.
+  setup?: {
+    sessionId: string
+    environmentId?: string
+    environmentName?: string
+    sandboxMemoryMb?: number
+    reason: string
+  }
   status?: "ok" | "error"
 }
 

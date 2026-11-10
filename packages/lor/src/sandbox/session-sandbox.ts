@@ -24,6 +24,7 @@ import {
   type BoatSandbox,
   boatConfigured,
   boatExec,
+  boatSandboxExists,
   boatSandboxSession,
   boatStatus,
   createBoatSandbox,
@@ -101,16 +102,17 @@ const CLAUDE_CODE_ENV = {
 
 // A harness turn's model credential (code-sessions-runbook.md chunks 7 and
 // 8): the proxy fills in the credential wherever the CLI sends its
-// placeholder to the model API, so it never enters the sandbox. Claude Code uses the turn owner's subscription token; Codex uses
-// Lor's AI Gateway key. Sandbox code can use the placeholder too while the
-// rule exists: grant it for the turn and revoke it when the turn ends.
-// Network changes apply to a running sandbox.
+// placeholder to the model API, so it never enters the sandbox. Claude Code
+// uses the turn owner's subscription token, Codex their ChatGPT access token.
+// Sandbox code can use the placeholder too while the rule exists: grant it for
+// the turn and revoke it when the turn ends. Network changes apply to a
+// running sandbox, so a long Codex turn is granted its refreshed token.
 export const CLAUDE_TOKEN_PLACEHOLDER = "{{SECRET:claude}}"
-export const GATEWAY_KEY_PLACEHOLDER = "{{SECRET:gateway}}"
+export const CHATGPT_TOKEN_PLACEHOLDER = "{{SECRET:chatgpt}}"
 const CLAUDE_API_HOST = "api.anthropic.com"
-const GATEWAY_HOST = "ai-gateway.vercel.sh"
+const CHATGPT_HOST = "chatgpt.com"
 
-export type HarnessAccess = { claudeToken: string } | { gatewayKey: string }
+export type HarnessAccess = { claudeToken: string } | { chatgptToken: string }
 
 // Boat has no proxy: a turn on a Boat sandbox passes the credential itself in
 // place of the placeholder (SessionSandbox.provider), so these do nothing.
@@ -121,7 +123,7 @@ export async function grantHarnessAccess(
   const [host, secrets] =
     "claudeToken" in access
       ? [CLAUDE_API_HOST, { claude: access.claudeToken }]
-      : [GATEWAY_HOST, { gateway: access.gatewayKey }]
+      : [CHATGPT_HOST, { chatgpt: access.chatgptToken }]
   if (await onBoat(owner)) return
   await SandboxInstance.updateNetwork(sessionSandboxName(owner), {
     network: {
@@ -667,20 +669,48 @@ export async function stopParkedBridges(owner: HarnessOwner): Promise<number> {
   }
 }
 
+// Unlike attachSessionSandbox, a failed lookup throws instead of reading as
+// none, so callers about to replace the sandbox never act on a guess.
+export async function sessionSandboxExists(
+  owner: HarnessOwner
+): Promise<boolean> {
+  const name = sessionSandboxName(owner)
+  if (blaxelConfigured()) {
+    const sandbox = await SandboxInstance.get(name).catch((err: unknown) => {
+      if (isNotFound(err)) return null
+      throw err
+    })
+    if (sandbox) {
+      closeConnection(sandbox)
+      return true
+    }
+  }
+  return boatSandboxExists(name)
+}
+
 // The conversation's files go with it; Pi's saved state and shared files
 // live in Postgres and R2. A sandbox that is already gone counts as deleted.
-export async function deleteSessionSandbox(owner: HarnessOwner): Promise<void> {
+// `strict`: a Boat delete failure throws after the Blaxel delete (a resize
+// must not report a replaced sandbox that is still there).
+export async function deleteSessionSandbox(
+  owner: HarnessOwner,
+  { strict = false }: { strict?: boolean } = {}
+): Promise<void> {
   const name = sessionSandboxName(owner)
   boatNames.delete(name)
   // A Boat error never blocks deleting the Blaxel sandbox.
-  await deleteBoatSandbox(name).catch((err: unknown) =>
+  let boatError: unknown = null
+  await deleteBoatSandbox(name).catch((err: unknown) => {
     logger.error({ err, sandbox: name }, "Sandbox: Boat delete failed")
-  )
-  if (!blaxelConfigured()) return
-  await SandboxInstance.delete(name).catch((err: unknown) => {
-    if (!isNotFound(err)) throw err
+    boatError = err
   })
-  logger.info({ sandbox: name }, "Sandbox: session sandbox deleted")
+  if (blaxelConfigured()) {
+    await SandboxInstance.delete(name).catch((err: unknown) => {
+      if (!isNotFound(err)) throw err
+    })
+    logger.info({ sandbox: name }, "Sandbox: session sandbox deleted")
+  }
+  if (strict && boatError) throw boatError
 }
 
 // SANDBOX_PROCESS_ENV points TMPDIR at the workspace disk, which starts

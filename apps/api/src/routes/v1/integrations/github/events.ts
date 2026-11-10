@@ -12,10 +12,12 @@ import {
   type EventItem,
 } from "@/lib/connector-triggers"
 import { invalidateGithubRepoCache } from "@/lib/github-repo-cache"
+import { logger } from "@/lib/logger"
 import {
   announceReview,
   broadcastReviewUpdated,
   type PullRequestRef,
+  recordSessionPullRequest,
   sessionForPullRequest,
 } from "@/lib/session-reviews"
 import {
@@ -298,6 +300,28 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
         `${githubRepoKey(repo.full_name)}#`
       )
     }
+  })
+
+  // A pull request from a code session's branch joins its touched items.
+  webhooks.on("pull_request.opened", async ({ payload }) => {
+    const session = await sessionForPullRequest(pullRequestRef(payload))
+    if (!session) return
+    const key = githubItemKey(
+      payload.repository.full_name,
+      payload.pull_request.number
+    )
+    // Best-effort: a failed touch must not fail the webhook delivery.
+    await recordSessionPullRequest(session, key).catch((err) =>
+      logger.warn(
+        {
+          err,
+          sessionId: session.id,
+          threadRootId: session.threadRootId,
+          key,
+        },
+        "Recording a code session's pull request failed"
+      )
+    )
   })
 
   // Code session reviews (reference/planned/pr-reviews.md): a submitted

@@ -1,9 +1,9 @@
 import { db, eq, schema } from "@repo/db"
 import type { ReportedHarnessModel } from "@repo/db/schema"
 
-// A harness's own model list from its last turn, where the list is Lor's
-// rather than the person's (Codex; Claude Code's is in claude-account.ts).
-// Null until a turn reports it.
+// Codex's model list from anyone's last turn: the starting list for people
+// whose own Codex hasn't reported theirs (chatgpt-account.ts). Null until a
+// turn reports it.
 export async function harnessModels(
   harness: "codex"
 ): Promise<ReportedHarnessModel[] | null> {
