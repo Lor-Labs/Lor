@@ -150,7 +150,9 @@ export type ClaimHooks = {
   onSteered?: (e: {
     messageId: string
     authorName: string
-    content: string
+    // The message as written, without attachment lines (their storage URLs
+    // aren't links anyone mentioned).
+    text: string
     seq?: number
   }) => void
 }
@@ -724,6 +726,7 @@ export async function claimAgentRun(
           messageId: r.id,
           authorName: userDisplayName(r),
           content: withAttachmentLines(r.content, r.attachments),
+          text: r.content ?? "",
         }))
     })
     for (const m of steered) {
@@ -735,7 +738,7 @@ export async function claimAgentRun(
       hooks.onSteered?.({
         messageId: m.messageId,
         authorName: m.authorName,
-        content: m.content,
+        text: m.text,
         seq,
       })
     }
@@ -783,7 +786,7 @@ export async function claimAgentRun(
     const newest = ambientRows.at(-1)
     if (newest) conversationSeenAt = newest.createdAt
     return {
-      steered,
+      steered: steered.map(({ text: _text, ...m }) => m),
       ambient: ambientRows.map((r) => ({
         messageId: r.id,
         authorName: userDisplayName(r),

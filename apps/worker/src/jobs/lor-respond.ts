@@ -336,7 +336,7 @@ export function createLorRespondProcessor(
             }
             emitter.to(room).emit("lor:steer", steerPayload)
             if (touchTarget) {
-              saveTouches(recordPromptTouches(touchTarget, [e.content]))
+              saveTouches(recordPromptTouches(touchTarget, [e.text]))
             }
           },
         })

@@ -310,7 +310,7 @@ function SandboxRow({
           />
         )}
       </div>
-      {show && toolCall.status !== "error" && (
+      {show && toolCall.status === "ok" && (
         <BrowserShowCard target={target} sessionView={sessionView} />
       )}
       {expandable && (

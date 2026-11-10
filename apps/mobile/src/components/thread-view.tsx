@@ -125,7 +125,8 @@ export function ThreadView({
   useSessionComposerInbox(
     threadRootId,
     (text) => composerMentionRef.current?.replaceDraft(text),
-    Boolean(lorSession && !lorSession.archivedAt)
+    // While editing, the review card's own toast says the composer is busy.
+    Boolean(lorSession && !lorSession.archivedAt && !editingMessage)
   )
   const { requestStop, stoppingMessageId } = useStopLorRun()
   const [foreground, muted] = useThemeColor(["foreground", "muted"])

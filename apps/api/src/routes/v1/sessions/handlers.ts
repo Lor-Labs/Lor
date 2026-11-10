@@ -1929,37 +1929,52 @@ export const updateSessionSetup: AppRouteHandler<
     return refuse("Only open code sessions have an environment and size")
   }
 
-  const environmentId =
-    body.environmentId === undefined
-      ? session.environmentId
-      : body.environmentId &&
-        (await environmentForRepo(
-          session.workspaceId,
-          body.environmentId,
-          session.repoFullName
-        ))
-  if (body.environmentId && !environmentId) {
+  const requestedEnvironmentId =
+    body.environmentId &&
+    (await environmentForRepo(
+      session.workspaceId,
+      body.environmentId,
+      session.repoFullName
+    ))
+  if (body.environmentId && !requestedEnvironmentId) {
     return refuse(`That environment isn't set up for ${session.repoFullName}`)
   }
-  const sandboxMemoryMb =
-    body.sandboxMemoryMb === undefined
-      ? session.sandboxMemoryMb
-      : body.sandboxMemoryMb
-  const environmentChanged = environmentId !== session.environmentId
-  const [before, after] = await Promise.all([
-    effectiveSandboxMemoryMb(session),
-    effectiveSandboxMemoryMb({ sandboxMemoryMb, environmentId }),
-  ])
-  const resized = before !== after
   const busy = (message: string) =>
     c.json({ success: false as const, message }, HttpStatusCodes.CONFLICT)
-  if (resized && restoring.has(session.id)) {
-    return busy(gapMessage.restoring)
-  }
 
   // Under the checkpoint lock a turn starting meanwhile waits before it opens
-  // the sandbox, so none can start between the checks and the delete.
+  // the sandbox, so none can start between the checks and the delete. The
+  // row is read again here: a PATCH queued behind another one decides from
+  // what that one saved.
   const outcome = await withCheckpointLock(session.id, async () => {
+    const current = await db
+      .select()
+      .from(schema.agentSession)
+      .where(eq(schema.agentSession.id, sessionId))
+      .limit(1)
+      .then((rows) => rows[0])
+    if (!current || current.archivedAt) {
+      return {
+        busy: true as const,
+        message: "Only open code sessions have an environment and size",
+      }
+    }
+    const environmentId =
+      body.environmentId === undefined
+        ? current.environmentId
+        : (requestedEnvironmentId ?? null)
+    const sandboxMemoryMb =
+      body.sandboxMemoryMb === undefined
+        ? current.sandboxMemoryMb
+        : body.sandboxMemoryMb
+    const [before, after] = await Promise.all([
+      effectiveSandboxMemoryMb(current),
+      effectiveSandboxMemoryMb({ sandboxMemoryMb, environmentId }),
+    ])
+    const resized = before !== after
+    if (resized && restoring.has(session.id)) {
+      return { busy: true as const, message: gapMessage.restoring }
+    }
     if (resized) {
       if (await lorWorkingIn(session.threadRootId)) {
         return {
@@ -1999,17 +2014,32 @@ export const updateSessionSetup: AppRouteHandler<
         await db
           .update(schema.agentSession)
           .set({
-            environmentId: session.environmentId,
-            sandboxMemoryMb: session.sandboxMemoryMb,
+            environmentId: current.environmentId,
+            sandboxMemoryMb: current.sandboxMemoryMb,
           })
           .where(eq(schema.agentSession.id, sessionId))
         throw err
       }
     }
-    return { busy: false as const, updated, replaced }
+    return {
+      busy: false as const,
+      updated,
+      replaced,
+      environmentId,
+      environmentChanged: environmentId !== current.environmentId,
+      resized,
+      after,
+    }
   })
   if (outcome.busy) return busy(outcome.message)
-  const { updated, replaced } = outcome
+  const {
+    updated,
+    replaced,
+    environmentId,
+    environmentChanged,
+    resized,
+    after,
+  } = outcome
 
   if (replaced) await startRestore(session)
   // Null: the manifest cleanup deletes the old environment's files.
@@ -2036,7 +2066,7 @@ export const updateSessionSetup: AppRouteHandler<
     .catch((err) =>
       logger.warn({ err, sessionId }, "Session update broadcast failed")
     )
-  if (environmentChanged || resized) {
+  if (environmentChanged || replaced) {
     const environmentName = environmentChanged
       ? environmentId
         ? await db
@@ -2050,7 +2080,7 @@ export const updateSessionSetup: AppRouteHandler<
     const eventPayload = {
       sessionId,
       ...(environmentName !== undefined ? { environmentName } : {}),
-      ...(resized ? { sandboxMemoryMb: after } : {}),
+      ...(replaced ? { sandboxMemoryMb: after } : {}),
     }
     void postSessionEvent(
       session,
