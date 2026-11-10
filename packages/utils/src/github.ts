@@ -1,4 +1,4 @@
-import { lorBranchPlaceName } from "./lor-branch-names.js"
+import { lorBranchPlaceName } from "./lor-branch-names"
 
 // A name for a branch a code session creates: git check-ref-format's rules,
 // within the characters code sessions allow in branch names.
