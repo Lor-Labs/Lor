@@ -18,6 +18,9 @@ export type OpenPort = { port: number; process: string | null }
 
 const owner = (sessionId: string) => ({ sessionId })
 const RELAY_MARKER = "lor-relay"
+// On a preview proxy's command line with its app's port, so a later open
+// finds and reuses it.
+const PROXY_FOR = "lor-proxy-for"
 // Blaxel's sandbox API, the harness bridge, the terminal and the session
 // browser.
 export const HIDDEN_PORTS = [8080, 8790, TERMINAL_PORT, ...BROWSER_PORTS]
@@ -49,8 +52,9 @@ if (ACCESS === "public" && env.BL_API_KEY) {
 }
 
 // Listening TCP ports from /proc/net/tcp*, each with whether it binds only to
-// loopback and the name of the process that owns it. The image has no ss,
-// netstat or lsof.
+// loopback, the name of the process that owns it, whether it is Lor's or the
+// provider's own (hidden) and, for a preview proxy, its app's port. The image
+// has no ss, netstat or lsof.
 const LIST_PORTS = `
 const fs = require("fs")
 const hidden = new Set(process.argv.slice(1).map(Number))
@@ -91,11 +95,11 @@ for (const entry of ports.values()) {
     try { name = fs.readFileSync("/proc/" + pid + "/comm", "utf8").trim() } catch {}
     try { cmdline = fs.readFileSync("/proc/" + pid + "/cmdline", "utf8") } catch {}
   }
-  if (cmdline.includes("${RELAY_MARKER}")) continue
   let exe = ""
   if (pid) { try { exe = fs.readlinkSync("/proc/" + pid + "/exe") } catch {} }
-  if (${JSON.stringify(HIDDEN_PROCESSES)}.includes(name) || ${JSON.stringify(HIDDEN_PROCESS_PREFIXES)}.some((p) => (name ?? "").startsWith(p)) || ${HIDDEN_EXE}.test(exe)) continue
-  out.push({ port: entry.port, loopbackOnly: entry.loopbackOnly, process: name })
+  const internal = cmdline.includes("${RELAY_MARKER}") || ${JSON.stringify(HIDDEN_PROCESSES)}.includes(name) || ${JSON.stringify(HIDDEN_PROCESS_PREFIXES)}.some((p) => (name ?? "").startsWith(p)) || ${HIDDEN_EXE}.test(exe)
+  const proxyFor = cmdline.match(/${PROXY_FOR}=(\\d+)/)
+  out.push({ port: entry.port, loopbackOnly: entry.loopbackOnly, process: name, hidden: internal, ...(proxyFor ? { proxyFor: Number(proxyFor[1]) } : {}) })
 }
 out.sort((a, b) => a.port - b.port)
 console.log(JSON.stringify(out))
@@ -149,14 +153,42 @@ const rewrite = (headers) => {
   return out
 }
 
+// Hop-by-hop headers stay on their own connection (LOR-157): the dev server's
+// keep-alive and chunked framing, passed to an HTTP/1.0 or Connection: close
+// client, leaves a page that never finishes loading. Node frames each side.
+const HOP = ["connection", "keep-alive", "proxy-connection", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authenticate", "proxy-authorization"]
+const hopHeaders = (connection) =>
+  new Set([...HOP, ...String(connection || "").toLowerCase().split(",").map((name) => name.trim())])
+const requestHeaders = (headers) => {
+  const out = rewrite(headers)
+  for (const name of hopHeaders(headers.connection)) delete out[name]
+  return out
+}
+const replyHeaders = (reply) => {
+  const drop = hopHeaders(reply.headers.connection)
+  const out = []
+  for (let i = 0; i < reply.rawHeaders.length; i += 2) {
+    if (!drop.has(reply.rawHeaders[i].toLowerCase())) out.push(reply.rawHeaders[i], reply.rawHeaders[i + 1])
+  }
+  return out
+}
+// Not the global agent: NODE_USE_ENV_PROXY sends that through the sandbox's
+// egress proxy unless NO_PROXY lists loopback.
+const agent = new http.Agent({ keepAlive: true })
+
 const server = http.createServer((req, res) => {
+  // openPort's readiness check: this proxy, for this target, is listening.
+  if (req.headers["x-lor-proxy-check"] !== undefined) {
+    res.writeHead(204, { "x-lor-proxy": String(target) })
+    return res.end()
+  }
   upstreamHost((host) => {
     if (!host) {
       res.writeHead(502)
       return res.end()
     }
-    const upstream = http.request({ host, port: target, method: req.method, path: req.url, headers: rewrite(req.headers) }, (reply) => {
-      res.writeHead(reply.statusCode || 502, reply.statusMessage, reply.rawHeaders)
+    const upstream = http.request({ host, port: target, method: req.method, path: req.url, headers: requestHeaders(req.headers), agent }, (reply) => {
+      res.writeHead(reply.statusCode || 502, reply.statusMessage, replyHeaders(reply))
       reply.pipe(res)
       // A cut-off reply must not look complete to the browser.
       reply.on("error", () => res.destroy())
@@ -204,11 +236,28 @@ server.on("upgrade", (req, socket, head) => {
 server.listen(listen, "0.0.0.0")
 `
 
-const proxyPort = (port: number) => 50000 + (port % 10000)
+// A free port in 10000-29999, from 20000 + port % 10000 on: below Linux's
+// ephemeral range (32768+) and Blaxel's own services (49152+), never another
+// listener's (an app on 23000 beside one on 3000).
+function freeProxyPort(port: number, taken: Set<number>): number | null {
+  for (let i = 0; i < 20000; i++) {
+    const candidate = 10000 + ((10000 + (port % 10000) + i) % 20000)
+    if (!taken.has(candidate)) return candidate
+  }
+  return null
+}
 
-export async function readListeningPorts(
-  session: SandboxSession
-): Promise<(OpenPort & { loopbackOnly: boolean })[]> {
+// Only this port's proxy answers, not whatever else holds the proxy port.
+const proxyCheck = (proxy: number, port: number) =>
+  `curl -s -o /dev/null -D - --max-time 1 -H "x-lor-proxy-check: 1" http://127.0.0.1:${proxy}/ | tr -d "\\r" | grep -qix "x-lor-proxy: ${port}"`
+
+type Listener = OpenPort & {
+  loopbackOnly: boolean
+  hidden: boolean
+  proxyFor?: number
+}
+
+async function readListeners(session: SandboxSession): Promise<Listener[]> {
   const result = await session.run({
     command: `node -e ${shellQuote(LIST_PORTS)} ${HIDDEN_PORTS.join(" ")}`,
   })
@@ -216,13 +265,20 @@ export async function readListeningPorts(
   return JSON.parse(result.stdout.trim() || "[]")
 }
 
-async function scanPorts(
-  sessionId: string
-): Promise<(OpenPort & { loopbackOnly: boolean })[] | null> {
+// The ports people's own servers listen on.
+export async function readListeningPorts(
+  session: SandboxSession
+): Promise<(OpenPort & { loopbackOnly: boolean })[]> {
+  return (await readListeners(session))
+    .filter((p) => !p.hidden)
+    .map(({ port, process, loopbackOnly }) => ({ port, process, loopbackOnly }))
+}
+
+async function scanPorts(sessionId: string): Promise<Listener[] | null> {
   const sandbox = await attachSessionSandbox(owner(sessionId))
   if (!sandbox) return null
   try {
-    return await readListeningPorts(sandbox.session)
+    return await readListeners(sandbox.session)
   } finally {
     sandbox.close()
   }
@@ -233,7 +289,11 @@ export async function listOpenPorts(
   sessionId: string
 ): Promise<OpenPort[] | null> {
   const ports = await scanPorts(sessionId)
-  return ports?.map(({ port, process }) => ({ port, process })) ?? null
+  return (
+    ports
+      ?.filter((p) => !p.hidden)
+      .map(({ port, process }) => ({ port, process })) ?? null
+  )
 }
 
 // `query`: a private preview's token, appended after the page's own path.
@@ -248,23 +308,32 @@ export async function openPort(
 ): Promise<OpenPortResult> {
   const ports = await scanPorts(sessionId)
   if (!ports) return { status: "no_sandbox" }
-  const found = ports.find((p) => p.port === port)
-  if (!found) return { status: "not_listening" }
+  if (!ports.some((p) => p.port === port && !p.hidden)) {
+    return { status: "not_listening" }
+  }
 
-  const proxy = proxyPort(port)
+  // The proxy port names its preview and process, so each preview keeps
+  // pointing at its own proxy.
+  const proxy =
+    ports.find((p) => p.proxyFor === port)?.port ??
+    freeProxyPort(port, new Set([...HIDDEN_PORTS, ...ports.map((p) => p.port)]))
+  if (proxy === null) return { status: "not_listening" }
   const exposed = await exposePort(owner(sessionId), {
-    name: `port-${port}-proxy`,
+    name: `port-${port}-via-${proxy}`,
     port: proxy,
     access: ACCESS,
   })
   if (!exposed) return { status: "no_sandbox" }
   const previewHost = new URL(exposed.url).host
   const started = await ensureProcess(owner(sessionId), {
-    name: `proxy-${port}`,
-    command: `node -e ${shellQuote(PROXY)} ${proxy} ${port} ${shellQuote(previewHost)} ${RELAY_MARKER}`,
+    name: `proxy-${port}-${proxy}`,
+    command: `node -e ${shellQuote(PROXY)} ${proxy} ${port} ${shellQuote(previewHost)} ${RELAY_MARKER} ${PROXY_FOR}=${port}`,
   })
   if (!started) return { status: "no_sandbox" }
-  if (!(await portReady(owner(sessionId), proxy, 10_000))) {
+  // The proxy answers itself: a plain HTTP check would wait on the app.
+  if (
+    !(await portReady(owner(sessionId), proxy, 10_000, proxyCheck(proxy, port)))
+  ) {
     return { status: "not_listening" }
   }
   return {
