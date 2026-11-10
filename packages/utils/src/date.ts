@@ -109,6 +109,17 @@ export function formatDuration(minutes: number): string {
   return rest > 0 ? `${hours} hr ${rest} min` : `${hours} hr`
 }
 
+// How long Lor worked on a reply: "12s", "3m 12s", "1h 4m".
+export function formatWorkTime(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  if (total < 60) return `${total}s`
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+  const seconds = total % 60
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
+}
+
 // A moment into a call: "12:40", or "1:04:05" past an hour.
 export function formatCallOffset(ms: number): string {
   const total = Math.floor(ms / 1000)

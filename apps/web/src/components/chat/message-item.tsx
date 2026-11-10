@@ -35,6 +35,11 @@ import { LorFailureNotice } from "@/components/chat/lor-failure-notice"
 import { LorMessageBody } from "@/components/chat/lor-message-body"
 import { LorReasoning } from "@/components/chat/lor-reasoning"
 import { LorReplyActions } from "@/components/chat/lor-reply-actions"
+import {
+  LorWorkingFor,
+  lorWorkedMs,
+  lorWorkStart,
+} from "@/components/chat/lor-work-time"
 import { MessageActionBar } from "@/components/chat/message-action-bar"
 import { AttachmentGrid } from "@/components/chat/message-attachment"
 import { MessageEditInput } from "@/components/chat/message-edit-input"
@@ -873,6 +878,7 @@ export const MessageItem = memo(function MessageItem({
               reasoningSegments={message.lorReasoningSegments ?? []}
               streaming={message.streaming || message.status === "pending"}
               failed={message.status === "failed"}
+              workedMs={lorWorkedMs(message)}
               legacyReasoning={
                 !hasReasoningSegments ? message.lorReasoning : null
               }
@@ -896,6 +902,14 @@ export const MessageItem = memo(function MessageItem({
               onCitationJump={onJumpToMessage}
             />
           )}
+          {/* The empty in-flight reply already shows ThinkingIndicator. */}
+          {message.authorId === LOR_USER_ID &&
+            (message.streaming || message.status === "pending") &&
+            !isEditing &&
+            (message.content ||
+              message.lorReasoning ||
+              hasReasoningSegments ||
+              hasToolCalls) && <LorWorkingFor since={lorWorkStart(message)} />}
           {message.type === "forward" && message.forwarded && (
             <ForwardedMessageCard forwarded={message.forwarded} />
           )}

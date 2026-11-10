@@ -40,6 +40,7 @@ type StreamMessage = {
   mentions?: RealtimeMessageMention[]
   steeringBy?: string
   routedOutcome?: "steered" | "queued"
+  lorRun?: { startedAt: string | null; finishedAt: string | null } | null
 }
 interface MessagePage {
   data: StreamMessage[]
@@ -251,6 +252,17 @@ function applyStreamFrame(queryClient: QueryClient, payload: StreamPayload) {
               ? payload.delta
               : (m.content ?? "") + payload.delta,
             streaming: !payload.done,
+            // The live reply gets no refetch at the end, so its finish time
+            // ("Worked for 3m") is stamped here; a later load reads the run's.
+            ...(payload.done
+              ? {
+                  lorRun: {
+                    startedAt: m.lorRun?.startedAt ?? null,
+                    finishedAt:
+                      m.lorRun?.finishedAt ?? new Date().toISOString(),
+                  },
+                }
+              : {}),
             ...(payload.status ? { status: payload.status } : {}),
             ...(payload.mentions ? { mentions: payload.mentions } : {}),
           }

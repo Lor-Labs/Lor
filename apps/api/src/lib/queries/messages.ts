@@ -457,6 +457,8 @@ export async function hydrateMessages(
           .select({
             messageId: agentRun.messageId,
             triggerMessageId: agentRun.triggerMessageId,
+            startedAt: agentRun.startedAt,
+            finishedAt: agentRun.finishedAt,
           })
           .from(agentRun)
           .where(inArray(agentRun.messageId, messageIds))
@@ -550,6 +552,16 @@ export async function hydrateMessages(
   const lorTriggerByMessageId = new Map(
     lorRunRows.map((row) => [row.messageId, row.triggerMessageId])
   )
+  // "Worked for 3m" under a Lor reply: its run's wall-clock time.
+  const lorRunByMessageId = new Map(
+    lorRunRows.map((row) => [
+      row.messageId,
+      {
+        startedAt: row.startedAt?.toISOString() ?? null,
+        finishedAt: row.finishedAt?.toISOString() ?? null,
+      },
+    ])
+  )
 
   const mentionsByMessageId = new Map<
     string,
@@ -639,6 +651,7 @@ export async function hydrateMessages(
     // Serialized as `remembered` (the brain pages saved during this answer).
     remembered: lorMemories ?? [],
     lorTriggerMessageId: lorTriggerByMessageId.get(msg.id) ?? null,
+    lorRun: lorRunByMessageId.get(msg.id) ?? null,
     mentions: mentionsByMessageId.get(msg.id) ?? [],
     reactions: Array.from(reactionsByMessageId.get(msg.id)?.values() ?? []),
     // A forward renders from its snapshot, not the original.

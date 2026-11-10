@@ -163,6 +163,7 @@ export const LorMessageBody = memo(function LorMessageBody({
   reasoningSegments,
   streaming,
   failed = false,
+  workedMs = null,
   legacyReasoning,
   mentions,
   onCitationJump,
@@ -172,6 +173,7 @@ export const LorMessageBody = memo(function LorMessageBody({
   reasoningSegments: LorReasoningSegmentView[]
   streaming?: boolean
   failed?: boolean
+  workedMs?: number | null
   legacyReasoning?: string | null
   mentions: Message["mentions"]
   onCitationJump?: (messageId: string) => void
@@ -234,6 +236,7 @@ export const LorMessageBody = memo(function LorMessageBody({
         <LorActivity
           active={Boolean(streaming)}
           failed={failed}
+          workedMs={workedMs}
           toolCount={visibleTools.length}
           errorCount={
             visibleTools.filter((tool) => tool.status === "error").length
