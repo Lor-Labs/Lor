@@ -1,4 +1,5 @@
 import { recordUsage } from "@repo/billing"
+import { itemFromUrl } from "@repo/connectors"
 import {
   and,
   asc,
@@ -82,6 +83,7 @@ import { logger } from "@/lib/logger"
 import { fetchSessionContext } from "@/lib/queries/session-context"
 import { fetchSessionTouches } from "@/lib/queries/session-touches"
 import { eventAuthor, postSessionEvent } from "@/lib/session-events"
+import { recordSessionPullRequest } from "@/lib/session-reviews"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import {
@@ -1191,6 +1193,16 @@ export const pushSessionChanges: AppRouteHandler<
     repoFullName: session.repoFullName,
     branch: result.pushed.branch,
   })
+  // A pull request opened before this push is the session's work too; new
+  // ones are recorded by the pull_request.opened webhook.
+  const openPullRequest = pullRequest?.open
+    ? itemFromUrl(pullRequest.url)
+    : null
+  if (openPullRequest?.kind === "github_pr") {
+    void recordSessionPullRequest(session, openPullRequest.value).catch((err) =>
+      logger.warn({ err, sessionId }, "Pull request touch failed")
+    )
+  }
   broadcastChangesUpdated(session, user.id)
   checkpointAfter(session)
   const author = eventAuthor(user)
