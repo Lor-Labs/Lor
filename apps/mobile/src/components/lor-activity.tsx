@@ -1,9 +1,9 @@
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { formatWorkTime } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useState } from "react"
 import { Pressable, Text, View } from "react-native"
-import { Shimmer } from "@/components/shimmer"
 
 // Work log ahead of a Lor message's answer (web lor-activity.tsx port).
 // Auto-opens while the run streams, collapses at the run boundary, manual
@@ -14,12 +14,15 @@ export function LorActivity({
   failed,
   toolCount,
   errorCount,
+  workedMs = null,
   children,
 }: {
   active: boolean
   failed: boolean
   toolCount: number
   errorCount: number
+  // The run's wall-clock time once it settled; null for older replies.
+  workedMs?: number | null
   children: ReactNode
 }) {
   const muted = useThemeColor("muted")
@@ -30,13 +33,22 @@ export function LorActivity({
     setOpen(active)
   }
 
+  // While the run is live, "Working for …" sits at the bottom of the reply
+  // (LorWorkingFor); once it settles, the time moves up here.
+  const took = workedMs !== null ? formatWorkTime(workedMs) : null
   const label = active
-    ? "Working…"
+    ? "Activity"
     : failed
-      ? "Work interrupted"
+      ? took
+        ? `Work interrupted after ${took}`
+        : "Work interrupted"
       : toolCount > 0
-        ? "Worked"
-        : "Thought process"
+        ? took
+          ? `Worked for ${took}`
+          : "Worked"
+        : took
+          ? `Thought for ${took}`
+          : "Thought process"
 
   const accessibilityLabel = [
     label,
@@ -63,13 +75,7 @@ export function LorActivity({
           size={13}
           style={{ transform: [{ rotate: open ? "90deg" : "0deg" }] }}
         />
-        {active ? (
-          <Shimmer>
-            <Text className="text-xs text-muted">{label}</Text>
-          </Shimmer>
-        ) : (
-          <Text className="text-xs text-muted">{label}</Text>
-        )}
+        <Text className="text-xs text-muted">{label}</Text>
         {toolCount > 0 ? (
           <Text className="text-xs text-muted">
             · {toolCount} tool {toolCount === 1 ? "call" : "calls"}

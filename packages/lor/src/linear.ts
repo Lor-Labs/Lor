@@ -783,6 +783,29 @@ const LINEAR_MEDIA_TYPES: Record<string, string> = {
 }
 const MAX_ATTACHMENTS = 10
 const ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024
+const ATTACHMENT_UPLOAD_TIMEOUT_MS = 120_000
+
+// The file's leading bytes must match its extension's format, so a renamed
+// text file (an env file saved as .png) is not uploaded as media.
+const ascii = (bytes: Uint8Array, at: number, text: string) =>
+  [...text].every((char, i) => bytes[at + i] === char.charCodeAt(0))
+const MEDIA_SIGNATURES: Record<string, (bytes: Uint8Array) => boolean> = {
+  "image/png": (b) =>
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every(
+      (v, i) => b[i] === v
+    ),
+  "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  "image/gif": (b) => ascii(b, 0, "GIF87a") || ascii(b, 0, "GIF89a"),
+  "image/webp": (b) => ascii(b, 0, "RIFF") && ascii(b, 8, "WEBP"),
+  "video/mp4": (b) => ascii(b, 4, "ftyp"),
+  "video/webm": (b) =>
+    b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3,
+  // Older QuickTime files can start with an atom other than ftyp.
+  "video/quicktime": (b) =>
+    ["ftyp", "moov", "mdat", "wide", "free", "skip"].some((atom) =>
+      ascii(b, 4, atom)
+    ),
+}
 // /tmp too: the code-session prompt saves screenshots there, outside the repo.
 const ATTACHMENT_ROOTS = [WORKSPACE_MOUNT, "/tmp"]
 
@@ -838,6 +861,9 @@ async function uploadAttachments(
     }
     const bytes = await sandbox.readBinaryFile({ path: real })
     if (!bytes) return { error: `no file at ${path}` }
+    if (!MEDIA_SIGNATURES[contentType]?.(bytes)) {
+      return { error: `${path} isn't a valid ${contentType} file` }
+    }
 
     const upload = await client
       .fileUpload(contentType, name, bytes.byteLength)
@@ -853,6 +879,7 @@ async function uploadAttachments(
       method: "PUT",
       headers,
       body: new Uint8Array(bytes),
+      signal: AbortSignal.timeout(ATTACHMENT_UPLOAD_TIMEOUT_MS),
     }).catch(() => null)
     if (!put?.ok) return { error: `couldn't upload ${path} to Linear` }
 
