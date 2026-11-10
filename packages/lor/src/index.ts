@@ -741,6 +741,12 @@ export type RespondCallbacks = {
   onReasoning?: (delta: string, at: number) => void | Promise<void>
   onMemoryWritten?: (e: BrainWriteEvent) => void
   onToolEvent?: (e: ToolEvent) => void
+  // A tool call that returned without an error or refusal (session touches).
+  onToolResult?: (call: {
+    toolName: string
+    input: unknown
+    output: unknown
+  }) => void
   onUsage?: OnUsage
   onInstructionsProposal?: (
     e: InstructionsProposalEvent
@@ -2631,6 +2637,7 @@ async function respondImpl(
     onReasoning,
     onMemoryWritten,
     onToolEvent,
+    onToolResult,
     onUsage,
     onInstructionsProposal,
     onMessageReaction,
@@ -3955,6 +3962,12 @@ async function respondImpl(
               { tool: part.toolName, error: resolved.detail?.summary },
               "Lor tool returned an error"
             )
+          } else {
+            onToolResult?.({
+              toolName: part.toolName,
+              input: part.input,
+              output: part.output,
+            })
           }
           onToolEvent?.({
             toolCallId: part.toolCallId,

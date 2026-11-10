@@ -150,6 +150,7 @@ export type ClaimHooks = {
   onSteered?: (e: {
     messageId: string
     authorName: string
+    content: string
     seq?: number
   }) => void
 }
@@ -734,6 +735,7 @@ export async function claimAgentRun(
       hooks.onSteered?.({
         messageId: m.messageId,
         authorName: m.authorName,
+        content: m.content,
         seq,
       })
     }
