@@ -155,8 +155,8 @@ export function SessionWorkPanel({ view }: { view: SessionWorkSidebarView }) {
   const { data: touched, isError: touchedFailed } = useQuery(
     sessionTouchesQueryOptions(view.sessionId)
   )
-  // Touches are recorded just after a run finishes; the worker announces
-  // when they're saved.
+  // Touches are recorded as the run works (tool results, pasted links) and
+  // after it finishes (citations); the worker announces each new save.
   const socket = useSocket()
   useEffect(() => {
     if (!socket) return
