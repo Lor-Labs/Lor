@@ -15,7 +15,7 @@ import {
   ne,
   schema,
 } from "@repo/db"
-import { recordRunTouches } from "../touches"
+import { recordPromptTouches, recordRunTouches } from "../touches"
 
 const dryRun = process.argv.includes("--dry-run")
 const { agentRun, agentSession, message } = schema
@@ -23,6 +23,7 @@ const { agentRun, agentSession, message } = schema
 async function main() {
   const sessions = await db
     .select({
+      id: agentSession.id,
       workspaceId: agentSession.workspaceId,
       channelId: agentSession.channelId,
       threadRootId: agentSession.threadRootId,
@@ -47,10 +48,11 @@ async function main() {
 
     for (const run of runs) {
       await recordRunTouches({
-        ...session,
+        workspaceId: session.workspaceId,
+        channelId: session.channelId,
+        threadRootId: session.threadRootId,
         runId: run.id,
         replyText: run.reply ?? "",
-        promptTexts: [],
       })
     }
     // Pasted links and the starting context, once per session.
@@ -64,12 +66,15 @@ async function main() {
           isNotNull(message.content)
         )
       )
-    await recordRunTouches({
-      ...session,
-      runId: null,
-      replyText: "",
-      promptTexts: prompts.map((p) => p.content ?? ""),
-    })
+    await recordPromptTouches(
+      {
+        workspaceId: session.workspaceId,
+        channelId: session.channelId,
+        sessionId: session.id,
+        runId: null,
+      },
+      prompts.map((p) => p.content ?? "")
+    )
   }
 
   console.log(

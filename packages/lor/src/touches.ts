@@ -35,13 +35,15 @@ import { deniedReason } from "./sandbox/pi-events"
 import { claudeToolCalls } from "./session-core/claude-history"
 import { codexToolCalls } from "./session-core/codex-history"
 import {
+  jsonRecord,
   type PiLogChunk,
   type PiToolCallRecord,
   piToolCalls,
 } from "./session-core/pi-history"
 
-// What a session's run touched, recorded after the run persists: tool calls,
-// citations in the reply, and the chat it started from. No model call.
+// What a session's run touched: tool calls and pasted links as the run works,
+// citations in the reply once it persists, and the chat it started from. No
+// model call.
 // reference/planned/session-memory.md Step 5.
 
 type Rec = Record<string, unknown>
@@ -340,56 +342,27 @@ function citationTouches(text: string): (Touch | BrainPathTouch | null)[] {
   })
 }
 
-export async function recordRunTouches(args: {
+// Where a run's touches are saved.
+export type TouchTarget = {
   workspaceId: string
   channelId: string
-  threadRootId: string
+  sessionId: string
   runId: string | null
-  // The persisted (grounded) reply, so only verified citations count.
-  replyText: string
-  // The turn's prompts, for links people pasted.
-  promptTexts: string[]
-}): Promise<void> {
-  const session = await db
-    .select({ id: schema.agentSession.id })
-    .from(schema.agentSession)
-    .where(eq(schema.agentSession.threadRootId, args.threadRootId))
-    .limit(1)
-    .then((r) => r[0])
-  if (!session) return
+}
 
-  const [calls, context] = await Promise.all([
-    args.runId ? runToolCalls(session.id, args.runId) : [],
-    db
-      .select({ messageId: schema.agentSessionContext.messageId })
-      .from(schema.agentSessionContext)
-      .where(eq(schema.agentSessionContext.sessionId, session.id)),
-  ])
-
-  // Everything the run's tools returned: a link in the reply counts only if
-  // it came from here, so a made-up link records nothing.
-  const seen = calls.map((call) => call.outputText).join("\n")
-  const found = [
-    ...calls.flatMap((call) =>
-      touchesForCall({
-        toolName: call.toolName,
-        input: call.input,
-        output: call.output ?? {},
-      })
-    ),
-    ...citationTouches(args.replyText),
-    ...linkTouches(args.replyText, seen),
-    ...mentionTouches(args.promptTexts),
-    ...context.map((c) => touchOf("message", c.messageId, "started_from")),
-  ]
+// Saves touches, resolving brain paths to node ids. True when any was new.
+async function saveTouches(
+  target: TouchTarget,
+  found: (Touch | BrainPathTouch | null)[]
+): Promise<boolean> {
   const scope = found.some((t) => t && "brainPath" in t)
-    ? await resolveLorRunScope(args.channelId)
+    ? await resolveLorRunScope(target.channelId)
     : EMPTY_LOR_RUN_SCOPE
   const resolved = await Promise.all(
     found.map(async (t): Promise<Touch | null> => {
       if (!t || !("brainPath" in t)) return t
       const id = await pageNodeId(
-        args.workspaceId,
+        target.workspaceId,
         t.brainPath,
         scope.memoryScopeChannelId
       )
@@ -401,18 +374,99 @@ export async function recordRunTouches(args: {
   for (const t of resolved) {
     if (t) unique.set(`${t.kind}|${t.value}|${t.action}`, t)
   }
-  if (unique.size === 0) return
-  await db
+  if (unique.size === 0) return false
+  const inserted = await db
     .insert(schema.touch)
     .values(
       [...unique.values()].map((t) => ({
-        workspaceId: args.workspaceId,
-        sessionId: session.id,
-        runId: args.runId,
+        workspaceId: target.workspaceId,
+        sessionId: target.sessionId,
+        runId: target.runId,
         ...t,
       }))
     )
     .onConflictDoNothing()
+    .returning({ id: schema.touch.id })
+  return inserted.length > 0
+}
+
+const asRec = (v: unknown): Rec =>
+  isRec(v) ? v : typeof v === "string" ? (jsonRecord(v) ?? {}) : {}
+
+// Recorded as each tool result arrives, so the session panel fills in while
+// the run works and a stopped or failed run keeps what it already touched.
+export function recordToolTouches(
+  target: TouchTarget,
+  call: { toolName: string; input: unknown; output: unknown }
+): Promise<boolean> {
+  return saveTouches(
+    target,
+    touchesForCall({
+      toolName: call.toolName,
+      input: asRec(call.input),
+      output: asRec(call.output),
+    })
+  )
+}
+
+// Links people pasted into the run's prompts (and steered messages, as they
+// land) plus the chat the session started from.
+export async function recordPromptTouches(
+  target: TouchTarget,
+  promptTexts: string[]
+): Promise<boolean> {
+  const context = await db
+    .select({ messageId: schema.agentSessionContext.messageId })
+    .from(schema.agentSessionContext)
+    .where(eq(schema.agentSessionContext.sessionId, target.sessionId))
+  return saveTouches(target, [
+    ...mentionTouches(promptTexts),
+    ...context.map((c) => touchOf("message", c.messageId, "started_from")),
+  ])
+}
+
+// After the reply persists: citations and links in it. The run's tool calls
+// are read back from the saved log to check links against, and saved again
+// in case a live record was missed.
+export async function recordRunTouches(args: {
+  workspaceId: string
+  channelId: string
+  threadRootId: string
+  runId: string | null
+  // The persisted (grounded) reply, so only verified citations count.
+  replyText: string
+}): Promise<boolean> {
+  const session = await db
+    .select({ id: schema.agentSession.id })
+    .from(schema.agentSession)
+    .where(eq(schema.agentSession.threadRootId, args.threadRootId))
+    .limit(1)
+    .then((r) => r[0])
+  if (!session) return false
+
+  const calls = args.runId ? await runToolCalls(session.id, args.runId) : []
+  // Everything the run's tools returned: a link in the reply counts only if
+  // it came from here, so a made-up link records nothing.
+  const seen = calls.map((call) => call.outputText).join("\n")
+  return saveTouches(
+    {
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      sessionId: session.id,
+      runId: args.runId,
+    },
+    [
+      ...calls.flatMap((call) =>
+        touchesForCall({
+          toolName: call.toolName,
+          input: call.input,
+          output: call.output ?? {},
+        })
+      ),
+      ...citationTouches(args.replyText),
+      ...linkTouches(args.replyText, seen),
+    ]
+  )
 }
 
 // Strongest first when ranking sessions that touched the same item.

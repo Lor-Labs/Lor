@@ -45,7 +45,12 @@ import type { ProposeLoopExecutor } from "@repo/lor/loops"
 import type { StartPlanInput } from "@repo/lor/plans"
 import { toRealtimePlan } from "@repo/lor/plans"
 import type { ProposeChangeExecutor } from "@repo/lor/proposals"
-import { recordRunTouches } from "@repo/lor/touches"
+import {
+  recordPromptTouches,
+  recordRunTouches,
+  recordToolTouches,
+  type TouchTarget,
+} from "@repo/lor/touches"
 import {
   buildMessageFanout,
   loadThreadSummary,
@@ -296,6 +301,23 @@ export function createLorRespondProcessor(
           }
         }
 
+        // Session touches are recorded as the run works (tool results,
+        // pasted links); set once the run may spend.
+        let touchTarget: TouchTarget | null = null
+        const saveTouches = (saved: Promise<boolean>) => {
+          void saved
+            .then((changed) => {
+              if (changed && threadRootId) {
+                emitter
+                  .to(threadRoom(threadRootId))
+                  .emit("session:touches:updated", { threadRootId })
+              }
+            })
+            .catch((err) =>
+              logger.warn({ err, threadRootId }, "Recording touches failed")
+            )
+        }
+
         // Claim the durable run: lease + attempt accounting + event writer.
         // Legacy jobs (no run row) proceed with a no-op writer, exactly as
         // before durable runs existed.
@@ -313,6 +335,9 @@ export function createLorRespondProcessor(
               seq: e.seq,
             }
             emitter.to(room).emit("lor:steer", steerPayload)
+            if (touchTarget) {
+              saveTouches(recordPromptTouches(touchTarget, [e.content]))
+            }
           },
         })
         if (claim.kind === "busy") {
@@ -503,8 +528,6 @@ export function createLorRespondProcessor(
           let answer: Awaited<ReturnType<typeof respond>>
           let workspaceId: string
           let gateText: string
-          // This turn's prompts, for links people pasted (touches).
-          let promptTexts: string[] = []
           // A retried attempt that ran the turn again replaced the lost
           // attempt's text; the trail reseeded from it has offsets into that
           // discarded text.
@@ -785,6 +808,19 @@ export function createLorRespondProcessor(
               })
               return
             }
+
+            touchTarget = {
+              workspaceId,
+              channelId,
+              sessionId: session.id,
+              runId: execution.runId,
+            }
+            saveTouches(
+              recordPromptTouches(
+                touchTarget,
+                conversation.map((t) => t.content)
+              )
+            )
 
             // Named only once the run may spend: titling is metered too.
             if (threadRootId && job.data.runId) {
@@ -1223,6 +1259,11 @@ export function createLorRespondProcessor(
                 // Explicit "remember this" writes happen during the answer; surface
                 // their chip immediately like the background write-back does.
                 onMemoryWritten: remember,
+                onToolResult: (call) => {
+                  if (touchTarget) {
+                    saveTouches(recordToolTouches(touchTarget, call))
+                  }
+                },
                 // Live tool status ("Searching sources…") streamed so slow tools
                 // don't read as a dead spinner; also accumulated for the durable
                 // trail persisted below (survives the answer and a reload). Upsert
@@ -1298,7 +1339,6 @@ export function createLorRespondProcessor(
             flushPendingText()
             closeReasoningSegment()
 
-            promptTexts = conversation.map((t) => t.content)
             const turnIds = new Set(
               conversation.flatMap((t) => (t.messageId ? [t.messageId] : []))
             )
@@ -1602,22 +1642,15 @@ export function createLorRespondProcessor(
           await emitThreadSummary()
           drainQueue()
           if (threadRootId) {
-            void recordRunTouches({
-              workspaceId,
-              channelId,
-              threadRootId,
-              runId: execution?.runId ?? null,
-              replyText: finalText,
-              promptTexts,
-            })
-              .then(() =>
-                emitter
-                  .to(threadRoom(threadRootId))
-                  .emit("session:touches:updated", { threadRootId })
-              )
-              .catch((err) =>
-                logger.warn({ err, threadRootId }, "Recording touches failed")
-              )
+            saveTouches(
+              recordRunTouches({
+                workspaceId,
+                channelId,
+                threadRootId,
+                runId: execution?.runId ?? null,
+                replyText: finalText,
+              })
+            )
           }
           // Announce the set once the run is terminal: a decision made sooner
           // queues its resume behind this run. Ids only; cards refetch the
