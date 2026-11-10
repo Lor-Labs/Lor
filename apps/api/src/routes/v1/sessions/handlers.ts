@@ -1192,6 +1192,7 @@ export const pushSessionChanges: AppRouteHandler<
     token: account.token,
     repoFullName: session.repoFullName,
     branch: result.pushed.branch,
+    baseBranch: session.baseBranch,
   })
   // A pull request opened before this push is the session's work too; new
   // ones are recorded by the pull_request.opened webhook.
