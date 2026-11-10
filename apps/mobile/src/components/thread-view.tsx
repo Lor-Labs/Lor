@@ -74,6 +74,7 @@ import type { AgentSession, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 import { HARNESS_LABELS } from "@/lib/harness"
 import { confirmRemoveEmbed } from "@/lib/remove-embed"
+import { useSessionComposerInbox } from "@/lib/session-composer-inbox"
 
 // A call's chat: Summary (ended calls only), Chat, Transcript.
 export type CallTab = "summary" | "chat" | "transcript"
@@ -121,6 +122,11 @@ export function ThreadView({
   const [forwarding, setForwarding] = useState<Message | null>(null)
   const updateSession = useUpdateAgentSession()
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
+  useSessionComposerInbox(
+    threadRootId,
+    (text) => composerMentionRef.current?.replaceDraft(text),
+    Boolean(lorSession && !lorSession.archivedAt)
+  )
   const { requestStop, stoppingMessageId } = useStopLorRun()
   const [foreground, muted] = useThemeColor(["foreground", "muted"])
   const socket = useSocket()

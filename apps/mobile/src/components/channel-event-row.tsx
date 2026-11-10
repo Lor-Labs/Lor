@@ -11,6 +11,7 @@ import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useState } from "react"
 import { Linking, Text, View } from "react-native"
+import { isReviewedEvent, ReviewCard } from "@/components/review-card"
 import { useAgentSession } from "@/hooks/use-agent-session"
 import type { Message } from "@/lib/api-types"
 
@@ -406,6 +407,9 @@ export function ChannelEventRow({
   const first = events[0]
   if (!first) return null
 
+  if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
+    return <ReviewCard message={first} />
+  }
   const sessionIcon = first.eventType
     ? SESSION_EVENT_ICONS[first.eventType]
     : undefined

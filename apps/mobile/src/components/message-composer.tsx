@@ -67,6 +67,8 @@ const toolbarSwapOut = FadeOut.duration(120)
 
 export type MessageComposerMentionHandle = {
   insertMention: (mention: { id: string; label: string }) => void
+  // Replaces the draft, e.g. a review card's Fix with Lor.
+  replaceDraft: (markdown: string) => void
 }
 
 export function MessageComposer({
@@ -443,6 +445,13 @@ export function MessageComposer({
         inputRef.current?.focus()
         inputRef.current?.startMention("@")
         inputRef.current?.insertMention(`@${label}`, `${MENTION_SCHEME}${id}`)
+      },
+      replaceDraft: (markdown) => {
+        setContent(markdown)
+        setPlainText(markdown)
+        setSubmitError(null)
+        inputRef.current?.setValue(markdown)
+        inputRef.current?.focus()
       },
     }),
     []
