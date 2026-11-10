@@ -16,6 +16,7 @@ import {
   announceReview,
   broadcastReviewUpdated,
   type PullRequestRef,
+  recordSessionPullRequest,
   sessionForPullRequest,
 } from "@/lib/session-reviews"
 import {
@@ -298,6 +299,16 @@ export function registerGithubHandlers(webhooks: Webhooks): void {
         `${githubRepoKey(repo.full_name)}#`
       )
     }
+  })
+
+  // A pull request from a code session's branch joins its touched items.
+  webhooks.on("pull_request.opened", async ({ payload }) => {
+    const session = await sessionForPullRequest(pullRequestRef(payload))
+    if (!session) return
+    await recordSessionPullRequest(
+      session,
+      githubItemKey(payload.repository.full_name, payload.pull_request.number)
+    )
   })
 
   // Code session reviews (reference/planned/pr-reviews.md): a submitted

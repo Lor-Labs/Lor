@@ -195,12 +195,15 @@ export async function pushCommits(input: {
 }
 
 // After a push, like Zed's "Create Pull Request": the branch's open pull
-// request, or GitHub's page for a new one. Null on the default branch, which
-// has nothing to merge into. Best-effort.
+// request, or GitHub's page for a new one into the branch it was made from
+// (e.g. staging), falling back to the default branch. Null on the default
+// branch, which has nothing to merge into. Best-effort.
 export async function pullRequestLink(input: {
   token: string
   repoFullName: string
   branch: string
+  // The branch this one was made from; null or the branch itself: default.
+  baseBranch: string | null
 }): Promise<{ url: string; open: boolean } | null> {
   const repo = `/repos/${input.repoFullName}`
   const owner = input.repoFullName.split("/")[0]
@@ -218,9 +221,14 @@ export async function pullRequestLink(input: {
       `${repo}/pulls?state=open&head=${head}&per_page=1`
     )
     if (existing) return { url: existing.html_url, open: true }
-    const branchPath = input.branch.split("/").map(encodeURIComponent).join("/")
+    const base =
+      input.baseBranch && input.baseBranch !== input.branch
+        ? input.baseBranch
+        : info.default_branch
+    const path = (branch: string) =>
+      branch.split("/").map(encodeURIComponent).join("/")
     return {
-      url: `https://github.com/${input.repoFullName}/pull/new/${branchPath}`,
+      url: `https://github.com/${input.repoFullName}/compare/${path(base)}...${path(input.branch)}?expand=1`,
       open: false,
     }
   } catch {
