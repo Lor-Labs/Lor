@@ -266,9 +266,14 @@ export async function harnessBridgeEndpoint(
     if (!boat) throw new Error("The session's sandbox is gone")
     const hosted = await hostBoatPort(boat, HARNESS_BRIDGE_PORT, "private")
     const url = new URL(hosted.url.replace(/^http/, "ws"))
-    if (hosted.token)
-      url.searchParams.set(hosted.token.param, hosted.token.value)
-    return { url: url.toString(), headers: {} }
+    // Boat's query token sets a cookie via redirect; the bridge WebSocket
+    // client does not follow redirects. Authenticate the upgrade directly.
+    return {
+      url: url.toString(),
+      headers: hosted.token
+        ? { Cookie: `_port_auth=${hosted.token.value}` }
+        : {},
+    }
   }
   try {
     // Named in chunk 7; existing sandboxes already have it on this port.
