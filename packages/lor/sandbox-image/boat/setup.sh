@@ -13,7 +13,7 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
   git curl ca-certificates python3 python3-pip \
   tmux zsh zsh-autosuggestions zsh-syntax-highlighting iproute2 lsof procps \
-  xvfb xauth x11-xserver-utils openbox libnss3-tools \
+  xvfb xauth x11-xserver-utils openbox libnss3-tools ffmpeg \
   fonts-liberation fonts-noto-color-emoji unzip >/dev/null
 
 # Node 26 (NodeSource), as in the image.

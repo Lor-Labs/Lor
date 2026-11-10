@@ -1,14 +1,17 @@
+import { posix } from "node:path"
+import { shellQuote } from "@ai-sdk/harness/utils"
 import {
   InvalidInputLinearError,
   PaginationNulls,
   PaginationSortOrder,
 } from "@linear/sdk"
 import { and, db, eq, schema } from "@repo/db"
-import { tool } from "ai"
+import { type Experimental_SandboxSession as SandboxSession, tool } from "ai"
 import { z } from "zod"
 import { logger } from "./logger"
 import { linearClientFor } from "./providers/linear"
 import { rerankItems } from "./rerank"
+import { WORKSPACE_MOUNT } from "./sandbox/blaxel"
 import type { OnUsage } from "./usage"
 
 const SEARCH_DEFAULT = 8
@@ -45,6 +48,10 @@ export async function resolveWorkspaceLinear(
 }
 
 const linearContext = z.object({ externalId: z.string() })
+// Write tools also attach sandbox files; relative paths start in workDir.
+const linearWriteContext = linearContext.extend({
+  workDir: z.string().nullable(),
+})
 const linearStateType = z.enum([
   "triage",
   "backlog",
@@ -761,10 +768,112 @@ async function resolveLabels(
   return { addedLabelIds, removedLabelIds, changes }
 }
 
+// Screenshots and demo videos from the session sandbox, uploaded to Linear's
+// storage so an issue or comment shows them inline. Uploads finish before
+// the issue or comment is written, so a failed one writes nothing.
+const LINEAR_MEDIA_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+}
+const MAX_ATTACHMENTS = 10
+const ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024
+// /tmp too: the code-session prompt saves screenshots there, outside the repo.
+const ATTACHMENT_ROOTS = [WORKSPACE_MOUNT, "/tmp"]
+
+const attachmentsInput = z
+  .array(z.string())
+  .optional()
+  .describe(
+    "image or video files in your sandbox (png, jpg, gif, webp, mp4, webm, mov), absolute or relative to your working folder, e.g. screenshots or a demo video of the change; uploaded to Linear and shown after the text"
+  )
+
+async function uploadAttachments(
+  client: LinearClient,
+  sandbox: SandboxSession | undefined,
+  workDir: string | null,
+  paths: string[]
+): Promise<{ markdown: string; names: string[] } | { error: string }> {
+  if (paths.length === 0) return { markdown: "", names: [] }
+  if (!sandbox) return { error: "this run has no sandbox to attach files from" }
+  if (paths.length > MAX_ATTACHMENTS) {
+    return { error: `attach at most ${MAX_ATTACHMENTS} files` }
+  }
+  const lines: string[] = []
+  const names: string[] = []
+  for (const path of paths) {
+    const name = posix.basename(path)
+    const contentType =
+      LINEAR_MEDIA_TYPES[posix.extname(name).slice(1).toLowerCase()]
+    if (!contentType) {
+      return {
+        error: `${path} isn't an image or video (png, jpg, gif, webp, mp4, webm, mov)`,
+      }
+    }
+    const target = posix.isAbsolute(path)
+      ? path
+      : workDir
+        ? posix.join(workDir, path)
+        : null
+    if (!target) return { error: `pass an absolute path for ${path}` }
+    const probe = await sandbox.run({
+      command: `f=$(realpath -e -- ${shellQuote(target)}) && [ -f "$f" ] && printf '%s\\n%s' "$f" "$(stat -c %s -- "$f")"`,
+    })
+    const [real, sizeText] = probe.stdout.trim().split("\n")
+    if (probe.exitCode !== 0 || !real || !sizeText) {
+      return { error: `no file at ${path}` }
+    }
+    if (!ATTACHMENT_ROOTS.some((root) => real.startsWith(`${root}/`))) {
+      return { error: `only files under ${ATTACHMENT_ROOTS.join(" or ")}` }
+    }
+    if (Number(sizeText) > ATTACHMENT_MAX_BYTES) {
+      return {
+        error: `${path} is ${sizeText} bytes, over the ${ATTACHMENT_MAX_BYTES}-byte limit for an attachment`,
+      }
+    }
+    const bytes = await sandbox.readBinaryFile({ path: real })
+    if (!bytes) return { error: `no file at ${path}` }
+
+    const upload = await client
+      .fileUpload(contentType, name, bytes.byteLength)
+      .then((payload) => payload.uploadFile ?? null)
+      .catch(() => null)
+    if (!upload) return { error: `couldn't upload ${path} to Linear` }
+    const headers = new Headers({
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=31536000",
+    })
+    for (const header of upload.headers) headers.set(header.key, header.value)
+    const put = await fetch(upload.uploadUrl, {
+      method: "PUT",
+      headers,
+      body: new Uint8Array(bytes),
+    }).catch(() => null)
+    if (!put?.ok) return { error: `couldn't upload ${path} to Linear` }
+
+    const label = name.replace(/[[\]]/g, "")
+    lines.push(
+      contentType.startsWith("image/")
+        ? `![${label}](${upload.assetUrl})`
+        : `[${label}](${upload.assetUrl})`
+    )
+    names.push(name)
+  }
+  return { markdown: lines.join("\n\n"), names }
+}
+
+const withAttachments = (text: string | undefined, markdown: string) =>
+  markdown ? (text?.trim() ? `${text}\n\n${markdown}` : markdown) : text
+
 export const linearWriteTools = {
   create_linear_issue: tool({
     description:
-      "Create a new issue in the team's Linear. A Linear team is required: if the workspace has a single team it's used automatically, otherwise you MUST pass its key or name (e.g. \"ENG\") — if you omit it or it's ambiguous, the tool returns the list of teams so you can pick one and retry. Also takes a title, an optional Markdown description, and an optional assignee (a member's name, display name, or email; matched to a Linear member, so use their real name, not a Lor handle) — if the assignee doesn't match anyone, the tool returns the workspace's member list so you can pick the right person and retry. Returns the created issue's identifier, url, team, and assignee.",
+      "Create a new issue in the team's Linear. A Linear team is required: if the workspace has a single team it's used automatically, otherwise you MUST pass its key or name (e.g. \"ENG\") — if you omit it or it's ambiguous, the tool returns the list of teams so you can pick one and retry. Also takes a title, an optional Markdown description, and an optional assignee (a member's name, display name, or email; matched to a Linear member, so use their real name, not a Lor handle) — if the assignee doesn't match anyone, the tool returns the workspace's member list so you can pick the right person and retry. Attach screenshots or a video from your sandbox with attachments; they are uploaded to Linear and shown after the description. Returns the created issue's identifier, url, team, and assignee.",
     inputSchema: z.object({
       title: z.string().describe("the issue title"),
       description: z.string().optional().describe("the issue body (Markdown)"),
@@ -778,9 +887,13 @@ export const linearWriteTools = {
         .string()
         .optional()
         .describe("who to assign it to — a Linear member's name or email"),
+      attachments: attachmentsInput,
     }),
-    contextSchema: linearContext,
-    execute: async ({ title, description, team, assignee }, { context }) => {
+    contextSchema: linearWriteContext,
+    execute: async (
+      { title, description, team, assignee, attachments },
+      { context, experimental_sandbox: sandbox }
+    ) => {
       const client = await linearClientFor(context.externalId)
       if (!client) return { error: "couldn't authenticate with Linear" }
       const teams = await client
@@ -803,11 +916,19 @@ export const linearWriteTools = {
         assigneeName = resolved.name
       }
 
+      const attached = await uploadAttachments(
+        client,
+        sandbox,
+        context.workDir,
+        attachments ?? []
+      )
+      if ("error" in attached) return attached
+
       const payload = await client
         .createIssue({
           teamId: resolvedTeam.teamId,
           title,
-          description,
+          description: withAttachments(description, attached.markdown),
           assigneeId,
         })
         .catch(() => null)
@@ -823,28 +944,48 @@ export const linearWriteTools = {
         description: description ?? null,
         team: resolvedTeam.team,
         assignee: assigneeName,
+        ...(attached.names.length > 0 ? { attached: attached.names } : {}),
       }
     },
     strict: true,
   }),
   comment_linear: tool({
     description:
-      "Add a comment to a Linear issue. Pass the issue id (from search_linear / fetch_linear) and the comment body (Markdown).",
+      "Add a comment to a Linear issue. Pass the issue id (from search_linear / fetch_linear) and the comment body (Markdown). Attach screenshots or a demo video from your sandbox with attachments; they are uploaded to Linear and shown after the text.",
     inputSchema: z.object({
       issueId: z.string().describe("the issue id"),
       body: z.string().describe("the comment text (Markdown)"),
+      attachments: attachmentsInput,
     }),
-    contextSchema: linearContext,
-    execute: async ({ issueId, body }, { context }) => {
+    contextSchema: linearWriteContext,
+    execute: async (
+      { issueId, body, attachments },
+      { context, experimental_sandbox: sandbox }
+    ) => {
       const client = await linearClientFor(context.externalId)
       if (!client) return { error: "couldn't authenticate with Linear" }
+      const attached = await uploadAttachments(
+        client,
+        sandbox,
+        context.workDir,
+        attachments ?? []
+      )
+      if ("error" in attached) return attached
       const payload = await client
-        .createComment({ issueId, body })
+        .createComment({
+          issueId,
+          body: withAttachments(body, attached.markdown) ?? body,
+        })
         .catch(() => null)
       if (!payload?.success) return { error: "couldn't add the comment" }
       // The write succeeded; reading the comment back is best-effort.
       const comment = await Promise.resolve(payload.comment).catch(() => null)
-      return { ok: true, body, url: comment?.url ?? null }
+      return {
+        ok: true,
+        body,
+        url: comment?.url ?? null,
+        ...(attached.names.length > 0 ? { attached: attached.names } : {}),
+      }
     },
     strict: true,
   }),

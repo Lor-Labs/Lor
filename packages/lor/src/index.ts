@@ -350,7 +350,7 @@ const GITHUB_PROMPT_LINE = `- The team's GitHub: search_github finds pull reques
 
 const LINEAR_PROMPT_LINE = `- The team's Linear: search_linear finds issues by keyword relevance; list_linear_issues lists structured recent work by Linear lifecycle state (triage, backlog, unstarted, started, completed, canceled, duplicate), assignee, team, project, or label, and can order by updatedAt, createdAt, or completedAt; fetch_linear pulls one issue's full description and comments. Use list_linear_issues—not keyword search—for questions like what the team is working on or what shipped recently. Reference a Linear issue with a normal Markdown link to its url (live results, not [[src:]] citations).`
 
-const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: create_linear_issue opens an issue. A Linear team is required — it's picked automatically when the workspace has one team, but if there are several you must say which (by key or name); the tool lists them if you don't. You can also assign the issue by passing a person's name or email (matched to a Linear member). update_linear_issue changes an existing issue — assignee (or "none" to unassign), workflow state (Todo, In Progress, Done, …), title, description, priority, labels, due date — pass only the fields to change. comment_linear adds a comment to an existing issue.`
+const LINEAR_WRITE_PROMPT_LINE = `- When asked to file or follow up in Linear: create_linear_issue opens an issue. A Linear team is required — it's picked automatically when the workspace has one team, but if there are several you must say which (by key or name); the tool lists them if you don't. You can also assign the issue by passing a person's name or email (matched to a Linear member). update_linear_issue changes an existing issue — assignee (or "none" to unassign), workflow state (Todo, In Progress, Done, …), title, description, priority, labels, due date — pass only the fields to change. comment_linear adds a comment to an existing issue. Both comment_linear and create_linear_issue take attachments: image or video files from your sandbox (screenshots, a demo video), uploaded to Linear and shown inline.`
 
 const DATADOG_PROMPT_LINE = `- The team's Datadog: search_datadog_logs searches indexed logs (query syntax like service:checkout status:error) and analyze_datadog_logs runs counts/aggregations over them. Default to the last hour unless the question implies a range, keep result limits small, and reference Datadog links with normal Markdown links (live results, not [[src:]] citations).`
 
@@ -3044,8 +3044,8 @@ async function respondImpl(
             search_linear: { ...linear, workspaceId: ctx.workspaceId, onUsage },
             list_linear_issues: linear,
             fetch_linear: linear,
-            create_linear_issue: linear,
-            comment_linear: linear,
+            create_linear_issue: { ...linear, workDir: sandboxWorkDir },
+            comment_linear: { ...linear, workDir: sandboxWorkDir },
             update_linear_issue: linear,
           }
         : {}),
