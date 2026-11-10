@@ -1905,6 +1905,71 @@ export const applySessionEnvironment: AppRouteHandler<
   return c.json({ applied }, HttpStatusCodes.OK)
 }
 
+// A fresh checkpoint under the caller's checkpoint lock; false when the work
+// folder can't be saved (no storage, no folder, or the write failed).
+async function checkpointNow(
+  session: CodeSession,
+  lockTx: Parameters<Parameters<typeof withCheckpointLock>[1]>[0]
+): Promise<boolean> {
+  try {
+    const sandbox = await attachCodeSandbox(session.id)
+    if (!sandbox) return false
+    try {
+      const result = await writeCheckpoint(
+        sandbox,
+        {
+          sessionId: session.id,
+          workspaceId: session.workspaceId,
+          repoFullName: session.repoFullName,
+          runId: null,
+        },
+        lockTx
+      )
+      return result !== "disabled"
+    } finally {
+      sandbox.close()
+    }
+  } catch (err) {
+    logger.warn({ err, sessionId: session.id }, "Pre-resize checkpoint failed")
+    return false
+  }
+}
+
+// One environment write per session at a time, in request order, so an
+// earlier write can't land after a later one (or its null cleanup). Each
+// also waits for a restore of the work folder.
+const environmentWrites = new Map<string, Promise<void>>()
+
+function queueEnvironmentWrite(
+  session: CodeSession,
+  environmentId: string | null
+) {
+  const previous = environmentWrites.get(session.id) ?? Promise.resolve()
+  const write = previous
+    .then(() => restoring.get(session.id))
+    .then(() =>
+      applyEnvironment({
+        sessionId: session.id,
+        environmentId,
+        repoFullName: session.repoFullName,
+      })
+    )
+    .then(
+      () => {},
+      (err) =>
+        logger.warn(
+          { err, sessionId: session.id },
+          "Session environment write failed"
+        )
+    )
+  environmentWrites.set(session.id, write)
+  void write.finally(() => {
+    if (environmentWrites.get(session.id) === write) {
+      environmentWrites.delete(session.id)
+    }
+  })
+}
+
 // The session menu's Environment & sandbox, and Lor's suggestion card
 // (LOR-156). A new size replaces the sandbox, so it waits for Lor's turn to
 // end; the work folder comes back from the newest checkpoint in the
@@ -1946,7 +2011,7 @@ export const updateSessionSetup: AppRouteHandler<
   // the sandbox, so none can start between the checks and the delete. The
   // row is read again here: a PATCH queued behind another one decides from
   // what that one saved.
-  const outcome = await withCheckpointLock(session.id, async () => {
+  const outcome = await withCheckpointLock(session.id, async (lockTx) => {
     const current = await db
       .select()
       .from(schema.agentSession)
@@ -1983,15 +2048,16 @@ export const updateSessionSetup: AppRouteHandler<
             "Lor is working in this session. Change the size when its turn ends",
         }
       }
-      // Without a checkpoint a replaced sandbox would lose the work folder.
+      // The replaced sandbox comes back from the newest checkpoint, so it
+      // must hold the work folder as it is now, not as of an older turn.
       if (
-        !(await hasCheckpoint(session.id)) &&
-        (await sessionSandboxExists(session.id))
+        (await sessionSandboxExists(session.id)) &&
+        !(await checkpointNow(session, lockTx))
       ) {
         return {
           busy: true as const,
           message:
-            "This session has no checkpoint to restore its files from yet. Change the size after Lor's next turn",
+            "Couldn't save this session's files before replacing its sandbox. Try again shortly",
         }
       }
     }
@@ -2044,16 +2110,7 @@ export const updateSessionSetup: AppRouteHandler<
   if (replaced) await startRestore(session)
   // Null: the manifest cleanup deletes the old environment's files.
   if (environmentChanged || (resized && environmentId)) {
-    const apply = () =>
-      applyEnvironment({
-        sessionId,
-        environmentId,
-        repoFullName: session.repoFullName,
-      })
-    const write = restoring.get(session.id)?.then(apply) ?? apply()
-    void write.catch((err) =>
-      logger.warn({ err, sessionId }, "Session environment write failed")
-    )
+    queueEnvironmentWrite(session, environmentId)
   }
 
   const realtimeSession = toRealtimeAgentSession(updated)

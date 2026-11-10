@@ -111,6 +111,8 @@ async function readWorkFolder(
   }
 }
 
+type CheckpointTx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 const lockSession = (tx: Pick<typeof db, "execute">, sessionId: string) =>
   tx.execute(
     sql`select pg_advisory_xact_lock(hashtext(${`checkpoint:${sessionId}`}))`
@@ -307,13 +309,14 @@ export async function rewindWorkFolder(input: {
 
 // Holds the session's checkpoint lock around `fn`: a turn starting meanwhile
 // waits before it opens the sandbox (a sandbox replaced for a new size).
+// Checkpoints written under it pass `tx`, since the lock is per connection.
 export function withCheckpointLock<T>(
   sessionId: string,
-  fn: () => Promise<T>
+  fn: (tx: CheckpointTx) => Promise<T>
 ): Promise<T> {
   return db.transaction(async (tx) => {
     await lockSession(tx, sessionId)
-    return fn()
+    return fn(tx)
   })
 }
 
@@ -350,6 +353,7 @@ export type CheckpointResult = "written" | "unchanged" | "disabled"
 // Saves the work folder after a completed turn, or a person's Commit, Push or
 // Pull. Unchanged files, HEAD and upstream add nothing. One writer per
 // session at a time: a Postgres advisory lock covers the read, push and row.
+// `lockTx`: a caller already holding the lock (withCheckpointLock).
 export async function writeCheckpoint(
   sandbox: CodeSandbox,
   input: {
@@ -357,7 +361,8 @@ export async function writeCheckpoint(
     workspaceId: string
     repoFullName: string
     runId: string | null
-  }
+  },
+  lockTx?: CheckpointTx
 ): Promise<CheckpointResult> {
   const store = codeStorage()
   if (!store) return "disabled"
@@ -365,7 +370,7 @@ export async function writeCheckpoint(
   const branch = sessionBranch(input.sessionId)
   const abortSignal = AbortSignal.timeout(CHECKPOINT_TIMEOUT_MS)
 
-  return db.transaction(async (tx) => {
+  const write = async (tx: CheckpointTx): Promise<CheckpointResult> => {
     await lockSession(tx, input.sessionId)
     const previous = await newestCheckpoint(tx, input.sessionId)
     const state = await readWorkFolder(sandbox, abortSignal)
@@ -443,7 +448,8 @@ export async function writeCheckpoint(
       upstreamSha: state.upstream,
     })
     return "written"
-  })
+  }
+  return lockTx ? lockTx.transaction(write) : db.transaction(write)
 }
 
 // The files a run's completed turn left: its own checkpoint row.
