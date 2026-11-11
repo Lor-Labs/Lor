@@ -220,6 +220,10 @@ async function runRestore(
   const result = await session.run({
     command: [
       `dir=${q(input.workDir)}`,
+      // A rewind killed between its two renames (its timeout, fencing, or a
+      // launch stopped once the sandbox answers) left the live folder only
+      // as .old-<pid>: put it back before anything here can delete it.
+      `if [ ! -e "$dir" ]; then for old in "$dir".old-*; do [ -d "$old" ] && mv "$old" "$dir" && break; done; fi`,
       ...(input.replace
         ? []
         : [
