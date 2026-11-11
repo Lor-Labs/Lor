@@ -208,7 +208,8 @@ function boatType(memoryMb: number): "small" | "default" | "large" {
 // idempotency_in_progress.
 export async function createBoatSandbox(
   name: string,
-  memoryMb: number
+  memoryMb: number,
+  abortSignal?: AbortSignal
 ): Promise<BoatSandbox> {
   const createSandboxRequest = {
     name,
@@ -232,10 +233,13 @@ export async function createBoatSandbox(
       retry: (err) =>
         err instanceof BoatRequestError &&
         err.code === "idempotency_in_progress",
+      ...(abortSignal ? { abortSignal } : {}),
     }
   )
   ids.set(name, sandbox.id)
   extendedAt.set(sandbox.id, Date.now())
+  // The SDK's wait takes no signal; the VM stays and the next open finds it.
+  abortSignal?.throwIfAborted()
   const ready = await waitUntilReady(boat(), sandbox.id)
   logger.info(
     { sandbox: name, boatId: sandbox.id, type: ready.type },
@@ -470,6 +474,8 @@ export async function boatExec(
   })
   const onAbort = () => void stopCommand(sandbox, processId)
   input.abortSignal?.addEventListener("abort", onAbort, { once: true })
+  // An abort while the command was starting fired before this listener.
+  if (input.abortSignal?.aborted) onAbort()
   try {
     const offsets = { stdout: 0, stderr: 0 }
     let stdout = ""

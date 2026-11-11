@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { Spinner } from "@repo/ui/components/spinner"
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
+import { useSocket } from "@/context/socket-context"
 import { sessionChangesQueryOptions } from "@/hooks/use-session-changes"
 
 // Above the composer while a code session's sandbox is replaced (a new size)
@@ -17,12 +18,31 @@ export function SandboxStatusNote({ sessionId }: { sessionId: string }) {
   // Reads what the Changes panel or the setup dialog put in the cache, and
   // fetches only while a restore is under way: opening a session never
   // starts one. Polls too, in case the restore's broadcast is missed.
-  const { data } = useQuery({
+  const { data, refetch } = useQuery({
     ...sessionChangesQueryOptions(sessionId),
     enabled: (query) => query.state.data?.state === "restoring",
     refetchInterval: (query) =>
       query.state.data?.state === "restoring" ? POLL_MS : false,
   })
+  // A replacement or restore someone else started: invalidation skips this
+  // query while it is disabled (panel closed, cache ready or empty), so the
+  // server's broadcast fetches it once here.
+  const socket = useSocket()
+  useEffect(() => {
+    if (!socket) return
+    const onChanged = (payload: {
+      sessionId: string
+      filesChanged?: boolean
+    }) => {
+      if (payload.sessionId === sessionId && payload.filesChanged) {
+        void refetch({ cancelRefetch: false })
+      }
+    }
+    socket.on("session:changes:updated", onChanged)
+    return () => {
+      socket.off("session:changes:updated", onChanged)
+    }
+  }, [socket, sessionId, refetch])
   const state = data?.state
   const [phase, setPhase] = useState<"idle" | "restoring" | "ready">("idle")
   useEffect(() => {

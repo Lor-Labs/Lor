@@ -20,6 +20,7 @@ import {
   persistentLifecycle,
   probeSandbox,
   SANDBOX_PROCESS_ENV,
+  SandboxStartingError,
   WORKSPACE_MOUNT,
   whileSandboxStarts,
 } from "./blaxel"
@@ -449,12 +450,14 @@ async function createSessionSandbox(
     ? (memoryMb ?? env.LOR_CODE_SANDBOX_MEMORY_MB)
     : env.LOR_WORKBENCH_MEMORY_MB
   const onBoatInstead = async (cause: unknown) => {
-    const boat = await createBoatSandbox(name, size).catch((err: unknown) => {
-      // Boat's own plan limits (active sandboxes, starts per day).
-      if ([402, 429].includes(boatStatus(err) ?? 0))
-        throw new SandboxCapacityError(cause)
-      throw err
-    })
+    const boat = await createBoatSandbox(name, size, abortSignal).catch(
+      (err: unknown) => {
+        // Boat's own plan limits (active sandboxes, starts per day).
+        if ([402, 429].includes(boatStatus(err) ?? 0))
+          throw new SandboxCapacityError(cause)
+        throw err
+      }
+    )
     return boatSessionSandbox(boat, true)
   }
   if (
@@ -854,10 +857,25 @@ export function blaxelSandboxSession(
           await sandbox.process.exec(request)
         } catch (err) {
           if (!isSandboxGatewayError(err)) throw err
-          const started = await sandbox.process.get(request.name).then(
+          // The lookup waits for a sandbox still starting: its 404
+          // WORKLOAD_UNAVAILABLE (or a gateway error) does not say the
+          // process is absent. Only the sandbox's own 404 does.
+          const started = await whileSandboxStarts(
+            () => sandbox.process.get(request.name),
+            {
+              retry: (lookup) =>
+                isWorkloadUnavailable(lookup) || isSandboxGatewayError(lookup),
+              ...(abortSignal ? { abortSignal } : {}),
+            }
+          ).then(
             () => true,
             (lookup: unknown) => {
               if (isNotFound(lookup)) return false
+              if (
+                lookup instanceof SandboxStartingError ||
+                abortSignal?.aborted
+              )
+                throw lookup
               throw new Error("Sandbox command state is unknown", {
                 cause: err,
               })
