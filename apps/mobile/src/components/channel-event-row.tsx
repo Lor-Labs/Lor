@@ -1,3 +1,4 @@
+import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import ArrowUp02Icon from "@hugeicons/core-free-icons/ArrowUp02Icon"
 import GitCommitIcon from "@hugeicons/core-free-icons/GitCommitIcon"
 import GitForkIcon from "@hugeicons/core-free-icons/GitForkIcon"
@@ -7,10 +8,17 @@ import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import Undo02Icon from "@hugeicons/core-free-icons/Undo02Icon"
 import ZapIcon from "@hugeicons/core-free-icons/ZapIcon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
+import { APP_USER_ID } from "@repo/db/constants"
+import type { TriggerRunPayload } from "@repo/db/schema"
+import {
+  restoreTriggerMessage,
+  triggerMessageContent,
+} from "@repo/utils/trigger-message"
 import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useState } from "react"
-import { Linking, Text, View } from "react-native"
+import { Linking, Pressable, Text, View } from "react-native"
+import { MessageRow } from "@/components/message-row"
 import { isReviewedEvent, ReviewCard } from "@/components/review-card"
 import { useAgentSession } from "@/hooks/use-agent-session"
 import type { Message } from "@/lib/api-types"
@@ -30,7 +38,6 @@ type LoopPayload = {
   loopName: string
   reason?: "failures" | "out_of_credits"
 }
-type TriggerRunPayload = { triggerId: string; label: string }
 type SessionContinuedPayload = {
   sessionId: string
   repoFullName: string | null
@@ -289,7 +296,7 @@ function eventText(
     // (thread-message-list.tsx); this line shows only outside one.
     case "session_rewound":
       return <>{actor} rewound to here</>
-    // Content is the event payload Lor reads, never shown as the line.
+    // The triggering message is rendered below this attribution line.
     case "trigger_run": {
       const p = payload as TriggerRunPayload | null
       return (
@@ -407,6 +414,10 @@ export function ChannelEventRow({
   const first = events[0]
   if (!first) return null
 
+  if (first.eventType === "trigger_run" && events.length === 1) {
+    return <TriggerMessage message={first} />
+  }
+
   if (layout === "document" && events.length === 1 && isReviewedEvent(first)) {
     return <ReviewCard message={first} />
   }
@@ -457,6 +468,80 @@ export function ChannelEventRow({
           </View>
         )
       })}
+    </View>
+  )
+}
+
+function TriggerMessage({ message }: { message: Message }) {
+  const [expanded, setExpanded] = useState(true)
+  const muted = useThemeColor("muted")
+  const payload = message.eventPayload as TriggerRunPayload | null
+  const label = payload?.label ?? "An automation"
+  const sources = payload?.sourceMessages ?? []
+  const originals = sources.length
+    ? sources.map((source) => restoreTriggerMessage(message, source))
+    : [
+        restoreTriggerMessage(message, {
+          content: triggerMessageContent(message.content),
+          author: { id: APP_USER_ID, name: label, image: null },
+          overrideName: label,
+        }),
+      ]
+  if (
+    !originals.some((original) =>
+      Boolean(
+        original.content?.trim() ||
+          original.embeds.length ||
+          original.attachments?.length
+      )
+    )
+  ) {
+    return <SessionEventRow icon={ZapIcon} message={message} />
+  }
+  return (
+    <View className="my-four rounded-xl border border-border bg-surface-secondary">
+      <Pressable
+        onPress={() => setExpanded(!expanded)}
+        accessibilityRole="button"
+        accessibilityLabel={
+          expanded ? "Hide automation messages" : "View automation messages"
+        }
+        accessibilityState={{ expanded }}
+        className="min-h-11 flex-row items-center gap-two py-two pr-four"
+      >
+        <View className="min-w-0 flex-1">
+          <SessionEventRow icon={ZapIcon} message={message} />
+        </View>
+        <View className="flex-row items-center gap-one">
+          <Text className="text-xs text-muted">
+            {expanded ? "Hide" : "View"}
+          </Text>
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            color={muted}
+            size={14}
+            strokeWidth={2}
+            style={{ transform: [{ rotate: expanded ? "90deg" : "0deg" }] }}
+          />
+        </View>
+      </Pressable>
+      {expanded ? (
+        <View className="border-t border-border pt-one pb-three">
+          {originals.map((original) => (
+            <MessageRow
+              key={original.id}
+              message={original}
+              showHeader
+              layout="chat"
+            />
+          ))}
+          {(payload?.omittedMessages ?? 0) > 0 ? (
+            <Text className="px-four pt-two text-xs text-muted">
+              {payload?.omittedMessages} additional messages not shown
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   )
 }

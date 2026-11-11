@@ -1,8 +1,13 @@
+import { randomUUID } from "node:crypto"
 import { recordUsage } from "@repo/billing"
 import type { ConnectorEventKey } from "@repo/connectors"
 import { APP_USER_ID, and, db, eq, schema } from "@repo/db"
 import { workspaceBetaAccess } from "@repo/db/queries/beta-access"
-import type { Embed, IntegrationProvider } from "@repo/db/schema"
+import type {
+  Embed,
+  IntegrationProvider,
+  TriggerSourceMessage,
+} from "@repo/db/schema"
 import { ACT_DELIVERY_PAYLOAD_MAX } from "@repo/lor/act-runs"
 import { enrichMeetingEmbed } from "@repo/lor/meeting-insights"
 import { channelRoom, threadRoom } from "@repo/realtime-types"
@@ -130,6 +135,17 @@ export async function dispatchConnectorEvent(input: {
     return null
 
   let postedMessageId: string | null = null
+  let sourceMessage: TriggerSourceMessage = {
+    id: randomUUID(),
+    content: input.text,
+    createdAt: new Date().toISOString(),
+    author: { id: APP_USER_ID, name: input.label, image: null },
+    overrideName: input.label,
+    overrideAvatarUrl: input.avatarUrl ?? null,
+    mentions: [],
+    attachments: [],
+    embeds: input.embeds ?? [],
+  }
   if (target.trigger.post) {
     // A POST failure must not take the delivery log or Act with it.
     try {
@@ -143,6 +159,17 @@ export async function dispatchConnectorEvent(input: {
         excludedFromMemory: input.ingested ?? false,
       })
       postedMessageId = message.id
+      sourceMessage = {
+        id: message.id,
+        content: message.content,
+        createdAt: message.createdAt,
+        author: message.author,
+        overrideName: message.overrideName ?? null,
+        overrideAvatarUrl: message.overrideAvatarUrl ?? null,
+        mentions: message.mentions,
+        attachments: message.attachments,
+        embeds: message.embeds,
+      }
       // Meeting insights are a model call — too slow to hold the webhook ack
       // open. Post the base card first, then patch the embeds in place.
       if (
@@ -182,6 +209,7 @@ export async function dispatchConnectorEvent(input: {
         : null,
       actPayload: actText ? actText.slice(0, ACT_DELIVERY_PAYLOAD_MAX) : null,
       actLabel: actOn ? input.label : null,
+      sourceMessage: actOn ? sourceMessage : null,
       subject: input.subject ?? input.item?.url ?? null,
       posted: postedMessageId !== null,
     })
