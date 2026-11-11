@@ -51,58 +51,68 @@ if (ACCESS === "public" && env.BL_API_KEY) {
   )
 }
 
-// Listening TCP ports from /proc/net/tcp*, each with whether it binds only to
-// loopback, the name of the process that owns it, whether it is Lor's or the
-// provider's own (hidden) and, for a preview proxy, its app's port. The image
-// has no ss, netstat or lsof.
-const LIST_PORTS = `
+// Defines `listeners(hidden)` for a `node -e` script: listening TCP ports from
+// /proc/net/tcp*, each with whether it binds only to loopback, the pid and
+// name of the process that owns it, whether it is Lor's or the provider's own
+// (hidden) and, for a preview proxy, its app's port. The image has no ss,
+// netstat or lsof.
+// `orphan`: no process owns it. Blaxel adds its own IPv6 listener beside a
+// server bound to 0.0.0.0 and keeps it after the server stops (measured
+// 2026-11-11), so the port reads as listening with nothing behind it, and a
+// later server binding `::` gets EADDRINUSE. Never count those as running.
+export const LISTENERS_JS = `
 const fs = require("fs")
-const hidden = new Set(process.argv.slice(1).map(Number))
-const ports = new Map()
-for (const file of ["/proc/net/tcp", "/proc/net/tcp6"]) {
-  let text = ""
-  try { text = fs.readFileSync(file, "utf8") } catch { continue }
-  for (const line of text.trim().split("\\n").slice(1)) {
-    const cols = line.trim().split(/\\s+/)
-    if (cols[3] !== "0A") continue
-    const [addr, hex] = cols[1].split(":")
-    const port = parseInt(hex, 16)
-    if (hidden.has(port)) continue
-    const loopback = /0100007F$/i.test(addr) || /^0{24}01000000$/i.test(addr)
-    const entry = ports.get(port) ?? { port, loopbackOnly: true, inodes: [] }
-    if (!loopback) entry.loopbackOnly = false
-    entry.inodes.push(cols[9])
-    ports.set(port, entry)
+function listeners(hidden) {
+  const ports = new Map()
+  for (const file of ["/proc/net/tcp", "/proc/net/tcp6"]) {
+    let text = ""
+    try { text = fs.readFileSync(file, "utf8") } catch { continue }
+    for (const line of text.trim().split("\\n").slice(1)) {
+      const cols = line.trim().split(/\\s+/)
+      if (cols[3] !== "0A") continue
+      const [addr, hex] = cols[1].split(":")
+      const port = parseInt(hex, 16)
+      if (hidden.has(port)) continue
+      const loopback = /0100007F$/i.test(addr) || /^0{24}01000000$/i.test(addr)
+      const entry = ports.get(port) ?? { port, loopbackOnly: true, inodes: [] }
+      if (!loopback) entry.loopbackOnly = false
+      entry.inodes.push(cols[9])
+      ports.set(port, entry)
+    }
   }
-}
-const owners = new Map()
-for (const pid of fs.readdirSync("/proc").filter((d) => /^\\d+$/.test(d))) {
-  let fds = []
-  try { fds = fs.readdirSync("/proc/" + pid + "/fd") } catch { continue }
-  for (const fd of fds) {
-    let link = ""
-    try { link = fs.readlinkSync("/proc/" + pid + "/fd/" + fd) } catch { continue }
-    const m = link.match(/^socket:\\[(\\d+)\\]$/)
-    if (m) owners.set(m[1], pid)
+  const owners = new Map()
+  for (const pid of fs.readdirSync("/proc").filter((d) => /^\\d+$/.test(d))) {
+    let fds = []
+    try { fds = fs.readdirSync("/proc/" + pid + "/fd") } catch { continue }
+    for (const fd of fds) {
+      let link = ""
+      try { link = fs.readlinkSync("/proc/" + pid + "/fd/" + fd) } catch { continue }
+      const m = link.match(/^socket:\\[(\\d+)\\]$/)
+      if (m) owners.set(m[1], pid)
+    }
   }
-}
-const out = []
-for (const entry of ports.values()) {
-  const pid = entry.inodes.map((i) => owners.get(i)).find(Boolean)
-  let name = null
-  let cmdline = ""
-  if (pid) {
-    try { name = fs.readFileSync("/proc/" + pid + "/comm", "utf8").trim() } catch {}
-    try { cmdline = fs.readFileSync("/proc/" + pid + "/cmdline", "utf8") } catch {}
+  const out = []
+  for (const entry of ports.values()) {
+    const pid = entry.inodes.map((i) => owners.get(i)).find(Boolean)
+    let name = null
+    let cmdline = ""
+    if (pid) {
+      try { name = fs.readFileSync("/proc/" + pid + "/comm", "utf8").trim() } catch {}
+      try { cmdline = fs.readFileSync("/proc/" + pid + "/cmdline", "utf8") } catch {}
+    }
+    let exe = ""
+    if (pid) { try { exe = fs.readlinkSync("/proc/" + pid + "/exe") } catch {} }
+    const internal = cmdline.includes("${RELAY_MARKER}") || ${JSON.stringify(HIDDEN_PROCESSES)}.includes(name) || ${JSON.stringify(HIDDEN_PROCESS_PREFIXES)}.some((p) => (name ?? "").startsWith(p)) || ${HIDDEN_EXE}.test(exe)
+    const proxyFor = cmdline.match(/${PROXY_FOR}=(\\d+)/)
+    out.push({ port: entry.port, loopbackOnly: entry.loopbackOnly, process: name, pid: pid ? Number(pid) : null, orphan: !pid, hidden: internal, ...(proxyFor ? { proxyFor: Number(proxyFor[1]) } : {}) })
   }
-  let exe = ""
-  if (pid) { try { exe = fs.readlinkSync("/proc/" + pid + "/exe") } catch {} }
-  const internal = cmdline.includes("${RELAY_MARKER}") || ${JSON.stringify(HIDDEN_PROCESSES)}.includes(name) || ${JSON.stringify(HIDDEN_PROCESS_PREFIXES)}.some((p) => (name ?? "").startsWith(p)) || ${HIDDEN_EXE}.test(exe)
-  const proxyFor = cmdline.match(/${PROXY_FOR}=(\\d+)/)
-  out.push({ port: entry.port, loopbackOnly: entry.loopbackOnly, process: name, hidden: internal, ...(proxyFor ? { proxyFor: Number(proxyFor[1]) } : {}) })
+  out.sort((a, b) => a.port - b.port)
+  return out
 }
-out.sort((a, b) => a.port - b.port)
-console.log(JSON.stringify(out))
+`
+
+const LIST_PORTS = `${LISTENERS_JS}
+console.log(JSON.stringify(listeners(new Set(process.argv.slice(1).map(Number)))))
 `
 
 // Serves a port on all addresses, connecting to the server over IPv4 then IPv6
@@ -254,6 +264,7 @@ const proxyCheck = (proxy: number, port: number) =>
 type Listener = OpenPort & {
   loopbackOnly: boolean
   hidden: boolean
+  orphan: boolean
   proxyFor?: number
 }
 
@@ -263,15 +274,6 @@ async function readListeners(session: SandboxSession): Promise<Listener[]> {
   })
   if (result.exitCode !== 0) return []
   return JSON.parse(result.stdout.trim() || "[]")
-}
-
-// The ports people's own servers listen on.
-export async function readListeningPorts(
-  session: SandboxSession
-): Promise<(OpenPort & { loopbackOnly: boolean })[]> {
-  return (await readListeners(session))
-    .filter((p) => !p.hidden)
-    .map(({ port, process, loopbackOnly }) => ({ port, process, loopbackOnly }))
 }
 
 async function scanPorts(sessionId: string): Promise<Listener[] | null> {
@@ -291,7 +293,7 @@ export async function listOpenPorts(
   const ports = await scanPorts(sessionId)
   return (
     ports
-      ?.filter((p) => !p.hidden)
+      ?.filter((p) => !p.hidden && !p.orphan)
       .map(({ port, process }) => ({ port, process })) ?? null
   )
 }
@@ -308,7 +310,7 @@ export async function openPort(
 ): Promise<OpenPortResult> {
   const ports = await scanPorts(sessionId)
   if (!ports) return { status: "no_sandbox" }
-  if (!ports.some((p) => p.port === port && !p.hidden)) {
+  if (!ports.some((p) => p.port === port && !p.hidden && !p.orphan)) {
     return { status: "not_listening" }
   }
 

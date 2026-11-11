@@ -11,6 +11,7 @@ import {
   PROPOSAL_SAMPLES,
   SAMPLE_CHANNEL_NAMES,
 } from "@/components/design/design-samples"
+import { SessionBrowserSamples } from "@/components/design/session-browser-samples"
 import { SessionHeaderVariants } from "@/components/design/session-header-variants"
 
 // /design: every state of the cards Lor shows in a session, rendered with
@@ -41,6 +42,10 @@ export function DesignPage() {
 
         <Section title="Session header">
           <SessionHeaderVariants />
+        </Section>
+
+        <Section title="Session browser">
+          <SessionBrowserSamples />
         </Section>
 
         <div className="max-w-3xl">

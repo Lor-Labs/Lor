@@ -101,13 +101,18 @@ async function startBrowser(
 // connection and 12 hours after it was made.
 export async function openBrowserView(
   sessionId: string,
-  userId: string
+  viewer: BrowserController
 ): Promise<BrowserView> {
+  const { userId } = viewer
   if (!UUID.test(userId)) return { status: "not_ready" }
   const grant = randomBytes(16).toString("hex")
+  // The name labels this person's pointer and annotations for the others.
+  const name = JSON.stringify(
+    viewer.name.replace(/\s+/g, " ").trim().slice(0, 80) || "Someone"
+  )
   const prepared = await runInBrowserDir(sessionId, [
     `find "$d/viewers" -type f -mmin +720 -delete 2>/dev/null`,
-    `printf '{"userId":"%s","at":%s}' ${q(userId)} "$(date +%s%3N)" > "$d/viewers/${grant}"`,
+    `printf '{"userId":"%s","name":%s,"at":%s}' ${q(userId)} ${q(name)} "$(date +%s%3N)" > "$d/viewers/${grant}"`,
     ...readControl,
   ])
   if (!prepared) return { status: "no_sandbox" }

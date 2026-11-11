@@ -60,7 +60,11 @@ import {
   sessionSandboxExists,
 } from "@repo/lor/dev-env/environments"
 import { listOpenPorts, openPort } from "@repo/lor/dev-env/previews"
-import { repoSetupStatus, startService } from "@repo/lor/dev-env/repo-setup"
+import {
+  repoSetupStatus,
+  startService,
+  stopService,
+} from "@repo/lor/dev-env/repo-setup"
 import { openTerminal } from "@repo/lor/dev-env/terminal"
 import { sessionPullRequestReview } from "@repo/lor/pr-reviews"
 import {
@@ -118,10 +122,12 @@ import type {
   OpenSessionTerminalRoute,
   PullSessionChangesRoute,
   PushSessionChangesRoute,
+  RestartSessionServiceRoute,
   RewindAgentSessionRoute,
   SetSessionBrowserControlRoute,
   StageSessionChangesRoute,
   StartSessionServiceRoute,
+  StopSessionServiceRoute,
   UpdateAgentSessionRoute,
   UpdateSessionSetupRoute,
 } from "@/routes/v1/sessions/routes"
@@ -1426,6 +1432,9 @@ export const dropActWaiting: AppRouteHandler<DropActWaitingRoute> = async (
   return c.json({ dropped }, HttpStatusCodes.OK)
 }
 
+const NO_SANDBOX_MESSAGE =
+  "This session has no sandbox yet. Send Lor a message to set one up."
+
 // The Browser tab (reference/dev-environment-runbook.md §3): code sessions
 // only. Listing needs channel access; opening a port needs write access, like
 // everything else that changes the sandbox (it may start a relay).
@@ -1514,35 +1523,102 @@ export const getSessionSetup: AppRouteHandler<GetSessionSetupRoute> = async (
   )
 }
 
-export const startSessionService: AppRouteHandler<
-  StartSessionServiceRoute
-> = async (c) => {
-  const { sessionId, name } = c.req.valid("param")
-  const row = await findAccessibleSession(sessionId, c.var.user.id)
+// Write access in a code session, for everything that starts or stops a
+// service.
+async function serviceSession(sessionId: string, userId: string) {
+  const row = await findAccessibleSession(sessionId, userId)
   if (!row || row.session.mode !== "code") {
-    return c.json(
-      { success: false as const, message: "Session not found" },
-      HttpStatusCodes.NOT_FOUND
-    )
+    return {
+      ok: false,
+      status: HttpStatusCodes.NOT_FOUND,
+      message: "Session not found",
+    } as const
   }
   if (!row.canWrite) {
+    return {
+      ok: false,
+      status: HttpStatusCodes.FORBIDDEN,
+      message: "Forbidden",
+    } as const
+  }
+  return { ok: true } as const
+}
+
+const startSessionServiceWith =
+  (
+    restart: boolean
+  ): AppRouteHandler<StartSessionServiceRoute | RestartSessionServiceRoute> =>
+  async (c) => {
+    const { sessionId, name } = c.req.valid("param")
+    const access = await serviceSession(sessionId, c.var.user.id)
+    if (!access.ok) {
+      return c.json(
+        { success: false as const, message: access.message },
+        access.status
+      )
+    }
+    const result = await startService(sessionId, name, { restart })
+    switch (result.status) {
+      case "started":
+      case "running":
+        return c.json({ status: result.status }, HttpStatusCodes.OK)
+      case "no_sandbox":
+        return c.json(
+          { success: false as const, message: NO_SANDBOX_MESSAGE },
+          HttpStatusCodes.CONFLICT
+        )
+      case "unknown_service":
+        return c.json(
+          {
+            success: false as const,
+            message: `.lor/environment.json has no service named ${name}.`,
+          },
+          HttpStatusCodes.NOT_FOUND
+        )
+      case "missing":
+        return c.json(
+          {
+            success: false as const,
+            message: "This repo has no .lor/environment.json yet.",
+          },
+          HttpStatusCodes.BAD_REQUEST
+        )
+      case "invalid":
+        return c.json(
+          {
+            success: false as const,
+            message: `.lor/environment.json is invalid: ${result.error}`,
+          },
+          HttpStatusCodes.BAD_REQUEST
+        )
+    }
+  }
+
+export const startSessionService: AppRouteHandler<StartSessionServiceRoute> =
+  startSessionServiceWith(false)
+
+export const restartSessionService: AppRouteHandler<RestartSessionServiceRoute> =
+  startSessionServiceWith(true)
+
+export const stopSessionService: AppRouteHandler<
+  StopSessionServiceRoute
+> = async (c) => {
+  const { sessionId, name } = c.req.valid("param")
+  const access = await serviceSession(sessionId, c.var.user.id)
+  if (!access.ok) {
     return c.json(
-      { success: false as const, message: "Forbidden" },
-      HttpStatusCodes.FORBIDDEN
+      { success: false as const, message: access.message },
+      access.status
     )
   }
-  const result = await startService(sessionId, name)
+  const result = await stopService(sessionId, name)
   switch (result.status) {
-    case "started":
-    case "running":
+    case "stopped":
+    case "not_running":
       return c.json({ status: result.status }, HttpStatusCodes.OK)
     case "no_sandbox":
       return c.json(
-        {
-          success: false as const,
-          message:
-            "This session has no sandbox yet. Send Lor a message to set one up.",
-        },
+        { success: false as const, message: NO_SANDBOX_MESSAGE },
         HttpStatusCodes.CONFLICT
       )
     case "unknown_service":
@@ -1552,22 +1628,6 @@ export const startSessionService: AppRouteHandler<
           message: `.lor/environment.json has no service named ${name}.`,
         },
         HttpStatusCodes.NOT_FOUND
-      )
-    case "missing":
-      return c.json(
-        {
-          success: false as const,
-          message: "This repo has no .lor/environment.json yet.",
-        },
-        HttpStatusCodes.BAD_REQUEST
-      )
-    case "invalid":
-      return c.json(
-        {
-          success: false as const,
-          message: `.lor/environment.json is invalid: ${result.error}`,
-        },
-        HttpStatusCodes.BAD_REQUEST
       )
   }
 }
@@ -1649,8 +1709,6 @@ async function browserSession(sessionId: string, userId: string) {
   return { ok: true, session: row.session } as const
 }
 
-const NO_SANDBOX_MESSAGE =
-  "This session has no sandbox yet. Send Lor a message to set one up."
 const OLD_SANDBOX_MESSAGE =
   "This session's sandbox predates the browser. Start a new session to use it."
 
@@ -1665,7 +1723,10 @@ export const openSessionBrowser: AppRouteHandler<
       access.status
     )
   }
-  const result = await openBrowserView(sessionId, c.var.user.id)
+  const result = await openBrowserView(sessionId, {
+    userId: c.var.user.id,
+    name: c.var.user.name,
+  })
   switch (result.status) {
     case "ready":
       return c.json(

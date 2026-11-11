@@ -8,12 +8,15 @@
 // client. When control changes, the page's bridge script reloads it in its
 // new role, and Selkies connections still in the old role are closed. Control
 // goes back to Lor after the controller has had no connection for a while.
+// Each page's events socket also carries who is here, everyone's pointer and
+// the shared annotations (gateway-collab.mjs).
 import { execFile } from "node:child_process"
-import { watch } from "node:fs"
+import { readFileSync, watch } from "node:fs"
 import { readFile, stat, unlink, utimes } from "node:fs/promises"
 import { createServer, request } from "node:http"
 import { promisify } from "node:util"
 import WebSocket, { WebSocketServer } from "ws"
+import { COLORS, colorFor, createCollab } from "./gateway-collab.mjs"
 
 const DIR = process.env.LOR_BROWSER_DIR ?? "/workspace/.cache/lor-browser"
 const VIEW_PORT = Number(process.env.LOR_BROWSER_VIEW_PORT ?? 6080)
@@ -72,7 +75,9 @@ async function readGrant(id) {
     const inUse = [...streams, ...listeners].some((c) => c.grant === id)
     if (now - grant.at > GRANT_MAX_MS) return null
     if (!inUse && now - info.mtimeMs > GRANT_IDLE_MS) return null
-    return { id, userId: grant.userId }
+    const name =
+      typeof grant.name === "string" ? grant.name.trim().slice(0, 80) : ""
+    return { id, userId: grant.userId, name: name || "Someone" }
   } catch {
     return null
   }
@@ -81,13 +86,68 @@ async function readGrant(id) {
 const roleFor = (userId) =>
   controllerId && userId === controllerId ? "control" : "watch"
 
-const controlMessage = (userId) =>
+// A person's pointer and annotation color: theirs by id, or the next one
+// nobody here has yet, and the same for as long as the browser runs.
+const colors = new Map()
+const colorOf = (userId) => {
+  let color = colors.get(userId)
+  if (!color) {
+    const taken = new Set(colors.values())
+    const own = colorFor(userId)
+    color = taken.has(own) ? (COLORS.find((c) => !taken.has(c)) ?? own) : own
+    colors.set(userId, color)
+  }
+  return color
+}
+
+const controlMessage = (viewer) =>
   JSON.stringify({
-    role: roleFor(userId),
+    type: "control",
+    role: roleFor(viewer.userId),
     controller: controllerId
       ? { userId: controllerId, name: controllerName || "Someone" }
       : null,
+    you: { userId: viewer.userId, name: viewer.name, color: viewer.color },
   })
+
+const sendTo = (viewer, data) => {
+  if (viewer.ws.readyState === WebSocket.OPEN) {
+    viewer.ws.send(JSON.stringify(data))
+  }
+}
+// To every page but `except`'s own (a person may have several open).
+const broadcast = (data, except) => {
+  const text = JSON.stringify(data)
+  for (const l of listeners) {
+    if (except && l.userId === except.userId) continue
+    if (l.ws.readyState === WebSocket.OPEN) l.ws.send(text)
+  }
+}
+// Who is here, once each, the person in control first.
+const presence = () => {
+  const people = new Map()
+  for (const l of listeners) {
+    people.set(l.userId, {
+      userId: l.userId,
+      name: l.name,
+      color: l.color,
+      role: roleFor(l.userId),
+    })
+  }
+  broadcast({
+    type: "presence",
+    people: [...people.values()].sort(
+      (a, b) => Number(b.role === "control") - Number(a.role === "control")
+    ),
+  })
+}
+
+const collab = createCollab({
+  cdpPort: CDP_PORT,
+  controller: () => controllerId,
+  broadcast,
+  send: sendTo,
+})
 
 async function syncControl() {
   const [next, name] = await Promise.all([
@@ -100,7 +160,8 @@ async function syncControl() {
     controllerName = name
     if (changed) controllerSeenAt = Date.now()
     const stale = [...streams].filter((c) => roleFor(c.userId) !== c.role)
-    for (const l of listeners) l.ws.send(controlMessage(l.userId))
+    for (const l of listeners) l.ws.send(controlMessage(l))
+    presence()
     if (stale.length > 0) {
       setTimeout(() => {
         for (const c of stale) {
@@ -225,82 +286,8 @@ function fitSoon() {
   fitBurst = [100, 300, 700, 1500].map((ms) => setTimeout(fitTick, ms))
 }
 
-// Injected into Selkies' page: tells the Lor panel who has control and when
-// the person in it uses the view (Lor's idle hand-back), and reloads the page
-// when this viewer's role changes. Before that reload it hands the panel the
-// picture on screen ("freeze"), which the panel shows until the reloaded page
-// draws its first frame ("picture"), so switching control never goes dark.
-const BRIDGE = `(() => {
-  const base = location.pathname.slice(0, location.pathname.lastIndexOf("/") + 1)
-  const post = (msg) => parent !== window && parent.postMessage({ source: "lor-browser", ...msg }, "*")
-  let role = null
-  let leaving = false
-  addEventListener("pagehide", () => { leaving = true })
-  // Selkies draws into a <video> or one of its canvases, whichever shows.
-  const shown = () => ["videoStream", "videoWorkerCanvas", "videoCanvas"]
-    .map((id) => document.getElementById(id))
-    .find((el) => el && el.style.display !== "none" && el.getBoundingClientRect().width > 0
-      && (el.tagName !== "VIDEO" || (el.readyState >= 2 && el.videoWidth > 0)))
-  const snapshot = () => {
-    try {
-      const el = shown()
-      if (!el) return null
-      const scale = Math.min(devicePixelRatio || 1, 2)
-      const canvas = document.createElement("canvas")
-      canvas.width = Math.round(innerWidth * scale)
-      canvas.height = Math.round(innerHeight * scale)
-      const ctx = canvas.getContext("2d")
-      ctx.fillStyle = "#000"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-      const r = el.getBoundingClientRect()
-      ctx.drawImage(el, r.left * scale, r.top * scale, r.width * scale, r.height * scale)
-      return canvas.toDataURL("image/jpeg", 0.85)
-    } catch {
-      return null
-    }
-  }
-  const reload = () => {
-    leaving = true
-    post({ type: "freeze", image: snapshot() })
-    location.reload()
-  }
-  // Selkies hides its status bar once the stream draws.
-  const waitForPicture = () => {
-    const status = document.getElementById("status-display")
-    if (status && status.classList.contains("hidden") && shown()) {
-      requestAnimationFrame(() => post({ type: "picture" }))
-      return
-    }
-    setTimeout(waitForPicture, 50)
-  }
-  waitForPicture()
-  const listen = () => {
-    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + base + "__lor/events")
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data)
-      if (role && msg.role !== role) return reload()
-      role = msg.role
-      post({ type: "control", role: msg.role, controller: msg.controller })
-    }
-    ws.onclose = (event) => {
-      if (leaving) return
-      if (event.code === 4004) return post({ type: "expired" })
-      post({ type: "disconnected" })
-      setTimeout(listen, 2000)
-    }
-  }
-  listen()
-  let last = 0
-  const onInput = () => {
-    const now = Date.now()
-    if (now - last < 1000) return
-    last = now
-    post({ type: "input" })
-  }
-  for (const name of ["pointerdown", "keydown", "wheel"]) {
-    addEventListener(name, onInput, { capture: true, passive: true })
-  }
-})()`
+// Injected into Selkies' page (bridge.js).
+const BRIDGE = readFileSync(new URL("./bridge.js", import.meta.url), "utf8")
 
 function proxyHttp(req, res, grant, path) {
   const role = roleFor(grant.userId)
@@ -371,6 +358,9 @@ const wss = new WebSocketServer({
   handleProtocols: (_offered, req) => req.upstreamProtocol || false,
 })
 
+// The events socket takes small JSON from viewers' pages.
+const events = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
+
 function relay(client, upstream, grant, role) {
   const stream = { ws: client, grant: grant.id, userId: grant.userId, role }
   streams.add(stream)
@@ -433,12 +423,32 @@ server.on("upgrade", async (req, socket, head) => {
   }
   await queueSync()
   if (match[2] === "/__lor/events") {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      const listener = { ws, grant: grant.id, userId: grant.userId }
+    events.handleUpgrade(req, socket, head, (ws) => {
+      const listener = {
+        ws,
+        grant: grant.id,
+        userId: grant.userId,
+        name: grant.name,
+        color: colorOf(grant.userId),
+      }
       listeners.add(listener)
-      ws.send(controlMessage(grant.userId))
-      ws.on("close", () => listeners.delete(listener))
-      ws.on("error", () => listeners.delete(listener))
+      ws.send(controlMessage(listener))
+      collab.welcome(listener)
+      presence()
+      ws.on("message", (data, isBinary) => {
+        if (isBinary) return
+        try {
+          const msg = JSON.parse(data.toString())
+          if (msg && typeof msg.t === "string") collab.onMessage(listener, msg)
+        } catch {}
+      })
+      const gone = () => {
+        if (!listeners.delete(listener)) return
+        collab.left(listener)
+        presence()
+      }
+      ws.on("close", gone)
+      ws.on("error", gone)
     })
     return
   }

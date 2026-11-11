@@ -122,7 +122,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && /opt/agent-browser/bin/agent-browser --version \
     && npm install --prefix /opt/lor-browser --no-audit --no-fund ws@${WS_VERSION}
 COPY browser/lor-browser-start browser/lor-browser /usr/local/bin/
-COPY browser/gateway.mjs /opt/lor-browser/gateway.mjs
+COPY browser/gateway.mjs browser/gateway-collab.mjs browser/bridge.js /opt/lor-browser/
 # The live view's cursor theme, Bibata Modern Ice (Selkies shows the X
 # cursor in the viewer's page; without a theme Chromium falls back to X's
 # bitmap cursors). It lives in /opt because the deployed sandbox comes up

@@ -255,14 +255,27 @@ export const sessionSetupResponseSchema = z.object({
       // Part of "the app" that Start app runs (`default` is not false).
       default: z.boolean(),
       state: z.enum(["stopped", "starting", "running", "exited"]),
-      // The end of its log while starting or after it exited.
+      // The end of the log of the process the Start button started.
       log: z.string().nullable(),
+      // While starting: since the start, and since the log's last output. A
+      // dev server in watch mode stays "starting" after it crashed.
+      installing: z.boolean(),
+      upMs: z.number().nullable(),
+      quietMs: z.number().nullable(),
+      // Ports its process listens on instead of `port`.
+      otherPorts: z.array(z.number().int()),
+      // The sandbox still holds its port from an earlier server.
+      portHeld: z.boolean(),
     })
   ),
 })
 
 export const startServiceResponseSchema = z.object({
   status: z.enum(["started", "running"]),
+})
+
+export const stopServiceResponseSchema = z.object({
+  status: z.enum(["stopped", "not_running"]),
 })
 
 export const serviceParamsSchema = sessionParamsSchema.extend({

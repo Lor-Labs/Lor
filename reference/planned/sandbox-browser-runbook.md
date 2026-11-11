@@ -351,6 +351,49 @@ Rules that keep it portable:
 - The image build (`bl push` today) and preview domains are the only other
   per-provider parts.
 
+### 7. Working together (Jacob, 2026-11-11)
+
+One browser, several people and Lor in it at once. Control stays with one
+person (or Lor); everything here works without it.
+
+- **Who is here.** The gateway's events socket (one per open view) says who
+  has the view open, with a color each. The panel's toolbar shows them, the
+  person in control first.
+- **Pointers.** Each view sends its pointer as a fraction of the display, so
+  it lines up in every viewer's own size. The bridge script draws the others'
+  pointers over the picture with their name: full size for the person in
+  control, smaller for people watching.
+- **Lor's pointer.** `lor-browser` acts over CDP, so there is no X pointer to
+  stream. The gateway keeps one CDP connection and installs a small agent in
+  every page, in an isolated world. It reports the trusted mouse and key
+  input the page receives while nobody has control, which is Lor's. Viewers
+  see a "Lor" pointer glide to where each command acts, click with a ripple
+  and show "…" while it types. It rests there, dimmed, for a minute. Mouse
+  moves without movement are dropped: after a load or a layout change
+  Chromium re-sends the position of the X pointer a person left behind.
+- **Shared annotations.** Annotate needs no control: a layer over the picture
+  takes the person's clicks and drags and sends them to the gateway, which
+  asks the page's agent what is there. A click annotates an element, a drag
+  over text annotates the highlighted text (with the quote). The pin, the
+  outline or highlight and a one-line bubble are drawn on the page itself, so
+  the stream and Lor's screenshots show them; the note box is in the person's
+  own view, and everyone sees the note as it is typed. Annotations live in
+  the gateway (memory, lost when the browser restarts), come back after a
+  reload of the same address, and number across everyone. Only the author
+  edits or removes one.
+- **Send to Lor** takes every finished note from everyone in one message
+  (authors named when there are several), with a screenshot of each, then
+  clears them.
+- **Share.** "Copy link to this browser" is the session's own URL with
+  `?side=browser`, for people in the workspace. "Open in a new tab" and "Copy
+  link anyone can open" are the port's preview URL for the page on screen
+  (also when Lor opened it). On a private preview the link carries a token
+  that lasts 15 minutes, and the panel says so; a lasting public link to the
+  app is not built.
+- **Not built:** a link that lets someone outside the workspace into the
+  shared browser itself (the live view needs a session grant), threads or
+  replies on a note, and annotations that outlive the browser process.
+
 ## Steps
 
 Each step is a review chunk of about 300–400 lines.
@@ -695,6 +738,58 @@ Each step is a review chunk of about 300–400 lines.
   16 monorepo with better-auth: profile start, sign in, Lor checks a UI
   change, two viewers, take control, annotations, idle and return.
   Then move this doc to the root as the as-built reference (link sweep).
+- [x] **7. Reliable Start and working together** (2026-11-11; built, image
+  not pushed, not run in the app yet).
+  - [x] 7a Start that tells the truth (no image push; `repo-setup.ts`,
+    `previews.ts`, `sandbox-ports.ts`). Found in a production sandbox:
+    - Services got `HOST=0.0.0.0`. Blaxel adds its own IPv6 listener beside a
+      server bound to 0.0.0.0 and keeps it after the server stops, so the
+      port read as running with nothing behind it, and the next server that
+      binds `::` failed with EADDRINUSE. Services now get no `HOST` (the
+      browser and the preview proxy reach loopback), a listener no process
+      owns never counts as running, and the panel says when the sandbox still
+      holds a port (`portHeld`).
+    - A dev server in watch mode stays alive after it crashed, so Start
+      showed "Starting" forever. One read per poll (`SETUP_STATUS`) now
+      returns each service's step (`install` or its own command, from a
+      `.phase` file), time since start, time since its log last changed, the
+      log's end and the ports its process group listens on. The panel shows
+      Installing, Starting, "nothing on port N yet" after 30 s of silence,
+      or "on port M, not N", each with the log and "Ask Lor to fix it".
+    - A zombie (the sandbox's init never reaps orphans) no longer counts as
+      alive.
+    - `POST …/setup/services/{name}/restart` and `…/stop`: end the service's
+      process group, then whatever else listens on its port.
+    - Lor's prompt: `install` holds every step a new sandbox needs before a
+      server starts, the file is checked by running its commands as written,
+      and services avoid the sandbox's own ports.
+    - Panel (`session-browser-run.tsx`): one control in the toolbar
+      (Running, Starting, Installing, Stopped, "{service} needs a look") that
+      opens every service with its state, live log, Start, Restart, Stop and
+      Open, and the other ports. It replaces the Open app menu.
+  - [x] 7b Collab gateway (§7; needs an image push).
+    `gateway-collab.mjs` (the CDP page agent, pointers, annotations) and
+    `bridge.js` (the script in Selkies' page, now a file) next to
+    `gateway.mjs`. The API writes the person's name into the grant. Checked
+    2026-11-11 in a sandbox with the repo's gateway beside the image's own
+    and two more viewers: Lor's pointer for `click`, `fill` and `hover` (and
+    none after a reload under a resting X pointer), the other viewers'
+    pointers, a note on an element and on a text selection typed
+    live, the export with its screenshots, pins after a reload, and taking
+    and handing back control.
+  - [x] 7c Panel. The page says `hello` (version 2) when its gateway has
+    §7; then annotating goes through the page (`useSessionBrowserSharedAnnotations`)
+    and the toolbar shows who is here (checked 2026-11-11 with the panel's
+    own hooks and view mounted against that gateway; Send to Lor needs the
+    app and was not run). Sandboxes from older images keep the
+    step-5 picker through the API until they are replaced; delete
+    `ANNOTATE_SCRIPT`, `/browser/annotate` and `useSessionBrowserAnnotations`
+    once none are left. Share menu as in §7. "Open in a new tab" opens its
+    tab in the click (the old button navigated the app's own tab on the web,
+    and was disabled until a page had been opened from the panel).
+  - QA owed in the app: two people and Lor in one session, the pointer
+    offset with a display resized by the controller, Safari, the desktop
+    app's copy and new-tab paths.
 
 ## Later
 
@@ -784,3 +879,9 @@ Each step is a review chunk of about 300–400 lines.
 - 2026-11-07 (LOR-148, Jacob): element comments became annotations drawn on
   the page next to their element (pin, outline, note box), replacing the note
   card under the live view; picking continues after each note until Done.
+- 2026-11-11 (Jacob): annotations no longer need control or Chromium's
+  inspect mode (§7). The gateway holds them, not attributes on the page, and
+  the note box moved from the page into each person's own view, so several
+  people annotate at once while Lor or someone else drives.
+- 2026-11-11: services no longer get `HOST=0.0.0.0` (step 7a). Previews
+  still work: the preview proxy connects over loopback.

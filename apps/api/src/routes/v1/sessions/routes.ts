@@ -54,6 +54,7 @@ import {
   sessionTouchesResponseSchema,
   stageSessionChangesRequestSchema,
   startServiceResponseSchema,
+  stopServiceResponseSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
   updateSessionSetupRequestSchema,
@@ -711,6 +712,57 @@ export const startSessionService = createRoute({
 })
 
 export type StartSessionServiceRoute = typeof startSessionService
+
+const serviceActionErrors = {
+  [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
+  [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+  [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+  [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+  [HttpStatusCodes.CONFLICT]: conflictSchema,
+  [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+}
+
+export const restartSessionService = createRoute({
+  path: "/sessions/{sessionId}/setup/services/{name}/restart",
+  method: "post",
+  summary: "Restart a service from a code session's run setup",
+  description:
+    "Stops the service's processes and whatever else listens on its port, then starts it again. For a service stuck before it listens, or one running old code.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: serviceParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: startServiceResponseSchema,
+      description: "Started again",
+    }),
+    ...serviceActionErrors,
+  },
+})
+
+export type RestartSessionServiceRoute = typeof restartSessionService
+
+export const stopSessionService = createRoute({
+  path: "/sessions/{sessionId}/setup/services/{name}/stop",
+  method: "post",
+  summary: "Stop a service from a code session's run setup",
+  description:
+    "Stops the service's processes and whatever else listens on its port.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: serviceParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: stopServiceResponseSchema,
+      description: "Stopped, or it was not running",
+    }),
+    ...serviceActionErrors,
+  },
+})
+
+export type StopSessionServiceRoute = typeof stopSessionService
 
 export const openSessionTerminal = createRoute({
   path: "/sessions/{sessionId}/terminal",
