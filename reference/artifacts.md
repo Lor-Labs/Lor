@@ -92,7 +92,9 @@ merges ("human wins, machine reconciles").
   or a 502/503/504 from Blaxel's edge. The probe, commands and file reads
   retry with backoff for up to 90 seconds (`whileSandboxStarts` in
   `sandbox/blaxel.ts`) instead of failing the turn; a command is replayed
-  after a gateway error only when the sandbox has no process by its name.
+  after a gateway error only when the sandbox has no process by its name. A
+  launch left unknown (the run stopped or the wait ran out first) is killed
+  by name once the sandbox answers.
   Past the wait the turn fails with `SandboxStartingError` and its own
   message. A sandbox Blaxel reports as `DELETING`, `TERMINATED` or `FAILED`
   counts as gone, so a new one is created.

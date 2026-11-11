@@ -841,6 +841,17 @@ export function blaxelSandboxSession(
     }
   }
 
+  // A launch whose outcome stays unknown (stopped or timed out before the
+  // sandbox answered) may be running with no caller holding it: `spawn` has
+  // no kill listener yet, and `run`'s one kill misses an unreachable sandbox.
+  // Stopped by its own name once the sandbox answers, outliving the run's
+  // abort; fencing at the next open is the backstop.
+  const stopWhenReachable = (name: string) => {
+    void whileSandboxStarts(() => sandbox.process.kill(name), {
+      retry: (err) => isWorkloadUnavailable(err) || isSandboxGatewayError(err),
+    }).catch(() => {})
+  }
+
   // A command sent while the sandbox boots or wakes from standby waits for it.
   // exec is a POST, replayed only when it never started: Blaxel's
   // not-dispatched answer, or a gateway error after which the sandbox has no
@@ -871,6 +882,7 @@ export function blaxelSandboxSession(
             () => true,
             (lookup: unknown) => {
               if (isNotFound(lookup)) return false
+              stopWhenReachable(request.name)
               if (
                 lookup instanceof SandboxStartingError ||
                 abortSignal?.aborted
