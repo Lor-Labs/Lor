@@ -373,9 +373,15 @@ export async function runClaudeCodeTurn(
   } catch (err) {
     if (err instanceof ClaudeCodeTurnError && !input.abortSignal?.aborted) {
       try {
-        const state = await session.stop()
-        settled = true
-        const named = (state.data as { claudeSessionId?: unknown } | null)
+        const state = await session.stop().catch((stopError: unknown) => {
+          logger.warn(
+            { err: stopError, sessionId: input.sessionId },
+            "Stopping the failed Claude Code turn failed"
+          )
+          return null
+        })
+        if (state) settled = true
+        const named = (state?.data as { claudeSessionId?: unknown } | null)
           ?.claudeSessionId
         const log = await readConversation(
           sandbox,
