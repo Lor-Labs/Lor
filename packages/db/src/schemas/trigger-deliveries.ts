@@ -2,12 +2,14 @@ import { relations, sql } from "drizzle-orm"
 import {
   boolean,
   index,
+  jsonb,
   pgTable,
   text,
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core"
 import { connectorTrigger } from "./connector-triggers"
+import type { TriggerSourceMessage } from "./messages"
 
 // One inbound delivery handled by a trigger — the delivery log. For BYO
 // webhooks it also stores the capped raw payload: Lor is the system of record
@@ -29,6 +31,7 @@ export const triggerDelivery = pgTable(
     // rows. `payload` above stays the raw inbound body.
     actPayload: text("act_payload"),
     actLabel: text("act_label"),
+    sourceMessage: jsonb("source_message").$type<TriggerSourceMessage>(),
     // What the event is about (item URL, or a webhook's `subject`): routes
     // Act into that subject's session in per_subject mode.
     subject: text("subject"),

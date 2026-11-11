@@ -330,6 +330,22 @@ export type TriggerRunPayload = {
   triggerId: string
   // Event source label, e.g. "GitHub · Pull request merged".
   label: string
+  sourceMessages?: TriggerSourceMessage[]
+  omittedMessages?: number
+}
+
+// The original automation message, retained even when POST is off or the
+// channel message is later deleted. Rendered like an asked-about message.
+export type TriggerSourceMessage = {
+  id: string
+  content: string | null
+  createdAt: string
+  author: { id: string; name: string; image: string | null }
+  overrideName: string | null
+  overrideAvatarUrl: string | null
+  mentions: { id: string; name: string; image: string | null }[]
+  attachments: Attachment[]
+  embeds: Embed[]
 }
 
 export type SessionContinuedPayload = {

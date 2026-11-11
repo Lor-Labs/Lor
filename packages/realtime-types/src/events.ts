@@ -319,7 +319,12 @@ export type RealtimeChannelEventPayload =
       reason?: "failures" | "out_of_credits"
       via?: "proposal"
     }
-  | { triggerId: string; label: string }
+  | {
+      triggerId: string
+      label: string
+      sourceMessages?: RealtimeTriggerSourceMessage[]
+      omittedMessages?: number
+    }
   | { sessionId: string; repoFullName: string | null }
   | {
       sessionId: string
@@ -362,6 +367,18 @@ export type RealtimeAuthor = {
 }
 
 export type RealtimeMessageMention = RealtimeAuthor
+
+export type RealtimeTriggerSourceMessage = {
+  id: string
+  content: string | null
+  createdAt: string
+  author: RealtimeAuthor
+  overrideName: string | null
+  overrideAvatarUrl: string | null
+  mentions: RealtimeMessageMention[]
+  attachments: RealtimeAttachment[]
+  embeds: RealtimeEmbed[]
+}
 
 export type RealtimeMessageReaction = {
   emoji: string
