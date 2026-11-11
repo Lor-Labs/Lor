@@ -6,7 +6,7 @@ import { type ReactNode, useState } from "react"
 import { Pressable, Text, View } from "react-native"
 
 // Work log ahead of a Lor message's answer (web lor-activity.tsx port).
-// Auto-opens while the run streams, collapses at the run boundary, manual
+// Auto-opens while streaming and retains the work on failure; manual
 // toggles win mid-run. Single-level on mobile — the rows inside carry their
 // own disclosures, so web's inner group tier is skipped.
 export function LorActivity({
@@ -27,10 +27,10 @@ export function LorActivity({
 }) {
   const muted = useThemeColor("muted")
   const [wasActive, setWasActive] = useState(active)
-  const [open, setOpen] = useState(active)
+  const [open, setOpen] = useState(active || failed)
   if (wasActive !== active) {
     setWasActive(active)
-    setOpen(active)
+    setOpen(active || failed)
   }
 
   // While the run is live, "Working for …" sits at the bottom of the reply

@@ -28,6 +28,7 @@ import type {
 } from "@repo/db/schema"
 import { withContext } from "@repo/logger"
 import {
+  ClaudeCodeTurnError,
   formatSpeakerLine,
   groundCitations,
   pausedTurnExpired,
@@ -527,8 +528,7 @@ export function createLorRespondProcessor(
             activeReasoningSegment = null
           }
 
-          // Phase 1 — generate + stream. On failure, replace the partial text
-          // with a fallback.
+          // Phase 1 — generate + stream. Failures retain the work so far.
           let answer: Awaited<ReturnType<typeof respond>>
           let workspaceId: string
           let gateText: string
@@ -584,6 +584,30 @@ export function createLorRespondProcessor(
                   "Instructions proposal push failed"
                 )
             )
+          }
+          let pending = ""
+          const flushPendingText = () => {
+            if (!pending) return
+            emit(pending, false)
+            pending = ""
+          }
+          const persistFailure = async (failureText: string) => {
+            flushPendingText()
+            closeReasoningSegment()
+            const failureDelta = `${streamedContent ? "\n\n" : ""}${failureText}`
+            await db
+              .update(schema.message)
+              .set({
+                content: streamedContent + failureDelta,
+                status: "failed",
+                lorToolCalls: toolCalls,
+                lorReasoning: reasoning || null,
+                lorReasoningSegments: reasoningSegments,
+                lorMemories: remembered,
+              })
+              .where(eq(schema.message.id, lorMessageId))
+              .catch(() => {})
+            emit(failureDelta, true, "failed")
           }
           try {
             // Every Lor turn runs in its session's Pi conversation.
@@ -1087,12 +1111,6 @@ export function createLorRespondProcessor(
               }
             }
 
-            let pending = ""
-            const flushPendingText = () => {
-              if (!pending) return
-              emit(pending, false)
-              pending = ""
-            }
             // Loop creator = whoever addressed Lor; null keeps the loop
             // valid when attribution failed (legacy jobs, deleted trigger).
             const proposeLoop: ProposeLoopExecutor = (loopInput) =>
@@ -1373,17 +1391,11 @@ export function createLorRespondProcessor(
                 : err instanceof SandboxStartingError
                   ? SANDBOX_STARTING_MESSAGE
                   : err instanceof HarnessDisabledError ||
-                      err instanceof BetaAccessError
+                      err instanceof BetaAccessError ||
+                      err instanceof ClaudeCodeTurnError
                     ? err.message
                     : LOR_ERROR_FALLBACK
-            await db
-              .update(schema.message)
-              .set({ content: failureText, status: "failed" })
-              .where(eq(schema.message.id, lorMessageId))
-              .catch(() => {})
-            // Replace (not append) so a partial answer streamed before the error
-            // is dropped in favor of the fallback, matching the persisted row.
-            emit(failureText, true, "failed", true)
+            await persistFailure(failureText)
             await runWriter.transition("failed", {
               stopReason:
                 execution &&
@@ -1536,15 +1548,7 @@ export function createLorRespondProcessor(
               { err, lorMessageId },
               "Lor reply persistence failed after streaming"
             )
-            // The streamed answer was never saved — replace it with the fallback
-            // (live and on reload) and stop, so fanout and write-back are skipped
-            // for a reply that didn't persist.
-            await db
-              .update(schema.message)
-              .set({ content: LOR_ERROR_FALLBACK, status: "failed" })
-              .where(eq(schema.message.id, lorMessageId))
-              .catch(() => {})
-            emit(LOR_ERROR_FALLBACK, true, "failed", true)
+            await persistFailure(LOR_ERROR_FALLBACK)
             await runWriter.transition("failed", { stopReason: "error" })
             execution?.stop()
             await settlePlan("failed")
