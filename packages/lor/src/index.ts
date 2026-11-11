@@ -240,6 +240,7 @@ import {
 } from "./session-core"
 import {
   CLAUDE_CODE_BINDING,
+  ClaudeCodeTurnError,
   runClaudeCodeTurn,
 } from "./session-core/claude-runtime"
 import {
@@ -798,6 +799,7 @@ export {
   SandboxCapacityError,
   stopParkedBridges,
 } from "./sandbox/session-sandbox"
+export { ClaudeCodeTurnError } from "./session-core/claude-runtime"
 // A paused turn saved by another adapter version cannot continue: its
 // approvals expire and the turn is dropped (pi-harness-runbook.md §4.3).
 export function pausedTurnExpired(saved: SavedHarnessState): boolean {
@@ -4190,6 +4192,26 @@ async function respondImpl(
           )
         }
       }
+      // Checkpoint failed turns too, so sandbox recovery retains their edits.
+      const checkpoint = async () => {
+        if (ctx.code && workFolder?.status === "ready") {
+          await writeCheckpoint(
+            codeSandboxIn(
+              sandbox.session,
+              piWorkDir(SESSION_WORK_DIR, conversationId)
+            ),
+            {
+              sessionId: conversationId,
+              workspaceId: ctx.workspaceId,
+              repoFullName: ctx.code.repoFullName,
+              runId: run.runId,
+            }
+          ).catch((err) =>
+            logger.warn({ err, sessionId: conversationId }, "Checkpoint failed")
+          )
+          await uncommitted?.flush()
+        }
+      }
       const turn = await (ctx.claudeCode
         ? claudeCodeTurn(ctx.claudeCode)
         : ctx.codex
@@ -4258,6 +4280,28 @@ async function respondImpl(
       ).catch(async (err: unknown) => {
         // A failed turn still charges the steps that finished.
         await chargeTurn(null)
+        if (err instanceof ClaudeCodeTurnError && !abortSignal?.aborted) {
+          try {
+            await harness.saveTurn({
+              save: err.save,
+              extraUsage: null,
+              toolCalls: toolCallCount,
+              toolOutputBytes: guarded.guard.takeStepBytes(),
+              approvals: [],
+              planId: planRef.current?.id ?? null,
+              pausedSandbox: null,
+              coveredMessageIds: coveredAmbient,
+              contextUsage: null,
+            })
+          } catch (saveError) {
+            if (abortSignal?.aborted) throw saveError
+            logger.error(
+              { err: saveError, sessionId: conversationId },
+              "Saving the failed Claude Code turn failed"
+            )
+          }
+          await checkpoint()
+        }
         throw err
       })
 
@@ -4401,25 +4445,7 @@ async function respondImpl(
         coveredMessageIds: coveredAmbient,
         contextUsage: turn.contextUsage,
       })
-      // A failed checkpoint never fails the turn: the files are still in the
-      // sandbox, and the next turn tries again.
-      if (ctx.code && workFolder?.status === "ready") {
-        await writeCheckpoint(
-          codeSandboxIn(
-            sandbox.session,
-            piWorkDir(SESSION_WORK_DIR, conversationId)
-          ),
-          {
-            sessionId: conversationId,
-            workspaceId: ctx.workspaceId,
-            repoFullName: ctx.code.repoFullName,
-            runId: run.runId,
-          }
-        ).catch((err) =>
-          logger.warn({ err, sessionId: conversationId }, "Checkpoint failed")
-        )
-        await uncommitted?.flush()
-      }
+      await checkpoint()
       if (approvals.length > 0) {
         if (planRef.current) {
           await updatePlan(
