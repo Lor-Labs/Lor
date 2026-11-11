@@ -160,6 +160,16 @@ export async function readCheckpointChanges(
 }
 
 const RESTORE_FAILED = 30
+const BACKUP_STUCK = 31
+
+// An interrupted rewind's live folder couldn't be moved back: the only copy
+// of uncheckpointed work. Callers must not clone or restore over it.
+export class WorkFolderBackupError extends Error {
+  constructor(detail: string) {
+    super(`couldn't move the work folder's backup back: ${detail}`)
+    this.name = "WorkFolderBackupError"
+  }
+}
 
 export type RestoreResult = "restored" | "present" | "none"
 
@@ -224,7 +234,7 @@ async function runRestore(
       // launch stopped once the sandbox answers) left the live folder only
       // as .old-<pid>: put it back before anything here can delete it, or
       // stop if it can't be moved.
-      `if [ ! -e "$dir" ]; then for old in "$dir".old-*; do [ -d "$old" ] || continue; mv "$old" "$dir" || exit ${RESTORE_FAILED}; break; done; fi`,
+      `if [ ! -e "$dir" ]; then for old in "$dir".old-*; do [ -d "$old" ] || continue; mv "$old" "$dir" || exit ${BACKUP_STUCK}; break; done; fi`,
       ...(input.replace
         ? []
         : [
@@ -260,6 +270,8 @@ async function runRestore(
   })
   if (result.exitCode !== 0) {
     const detail = result.stderr.split(token).join("***").slice(-300)
+    if (result.exitCode === BACKUP_STUCK)
+      throw new WorkFolderBackupError(detail)
     throw new Error(`checkpoint restore failed: ${detail}`)
   }
   return result.stdout.trim() === "present" ? "present" : "restored"
