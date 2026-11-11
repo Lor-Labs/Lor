@@ -409,6 +409,9 @@ function blaxelSessionSandbox(
   fresh: boolean,
   bridgeRunning?: boolean
 ): SessionSandbox {
+  // A Boat sandbox replaced by this one (a new size) was deleted in another
+  // process: a harness turn here needs the proxy's credential rule again.
+  boatNames.delete(sandbox.metadata.name ?? "")
   return {
     session: blaxelSandboxSession(sandbox),
     provider: "blaxel",

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
@@ -59,9 +59,10 @@ export function boatConfigured(): boolean {
   return Boolean(env.BOAT_API_KEY)
 }
 
-// The SDK's error says only "Response returned an error code". A command's
-// failure carries Boat's status and error code instead: they decide a retry,
-// and without them the logs can't tell a starting VM from a stopped one.
+// The SDK's error says only "Response returned an error code". A failed
+// command or create carries Boat's status and error code instead: they decide
+// a retry, and without them the logs can't tell a starting VM from a stopped
+// one.
 export class BoatRequestError extends Error {
   constructor(
     readonly status: number,
@@ -198,20 +199,41 @@ function boatType(memoryMb: number): "small" | "default" | "large" {
   return "large"
 }
 
+// Boat binds an Idempotency-Key to its request body for 24 hours, and a
+// delete frees it only for that same body (checked live 2026-11-11). With the
+// name alone as the key, a sandbox replaced at a new size answered 409
+// idempotency_key_reused. The key names the whole request instead: any size
+// creates, a retry returns the same VM, and two creates at once (a restore
+// and a turn) end on one VM, the second waiting out 409
+// idempotency_in_progress.
 export async function createBoatSandbox(
   name: string,
   memoryMb: number
 ): Promise<BoatSandbox> {
-  const { sandbox } = await boat().create({
-    idempotencyKey: name,
-    createSandboxRequest: {
-      name,
-      type: boatType(memoryMb),
-      from: env.LOR_BOAT_TEMPLATE,
-      ttlSeconds: BOAT_KEEP_ALIVE_SEC,
-      labels: { lor: "session" },
-    },
-  })
+  const createSandboxRequest = {
+    name,
+    type: boatType(memoryMb),
+    from: env.LOR_BOAT_TEMPLATE,
+    ttlSeconds: BOAT_KEEP_ALIVE_SEC,
+    labels: { lor: "session" },
+  }
+  const idempotencyKey = `${name}:${createHash("sha256")
+    .update(JSON.stringify(createSandboxRequest))
+    .digest("hex")
+    .slice(0, 12)}`
+  const { sandbox } = await whileSandboxStarts(
+    () =>
+      boat()
+        .create({ idempotencyKey, createSandboxRequest })
+        .catch(async (err: unknown) => {
+          throw await boatRequestError(err)
+        }),
+    {
+      retry: (err) =>
+        err instanceof BoatRequestError &&
+        err.code === "idempotency_in_progress",
+    }
+  )
   ids.set(name, sandbox.id)
   extendedAt.set(sandbox.id, Date.now())
   const ready = await waitUntilReady(boat(), sandbox.id)
