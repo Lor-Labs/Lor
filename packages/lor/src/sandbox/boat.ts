@@ -17,7 +17,11 @@ import type {
 } from "ai"
 import { logger } from "../logger"
 import { guardSandbox } from "./beta-compute"
-import { SANDBOX_PROCESS_ENV, WORKSPACE_MOUNT } from "./blaxel"
+import {
+  SANDBOX_PROCESS_ENV,
+  WORKSPACE_MOUNT,
+  whileSandboxStarts,
+} from "./blaxel"
 import type { SandboxUsageBucket } from "./blaxel-usage"
 
 // Boat (boat.dev), the fallback sandbox provider: a new session sandbox goes
@@ -55,7 +59,45 @@ export function boatConfigured(): boolean {
   return Boolean(env.BOAT_API_KEY)
 }
 
+// The SDK's error says only "Response returned an error code". A command's
+// failure carries Boat's status and error code instead: they decide a retry,
+// and without them the logs can't tell a starting VM from a stopped one.
+export class BoatRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | null,
+    cause: unknown
+  ) {
+    super(`Boat request failed (${status}${code ? ` ${code}` : ""})`, { cause })
+    this.name = "BoatRequestError"
+  }
+}
+
+async function boatRequestError(err: unknown): Promise<unknown> {
+  if (!(err instanceof ResponseError)) return err
+  // Boat's error envelope: `code` at the top and again in `error`.
+  const body: unknown = await err.response
+    .clone()
+    .json()
+    .catch(() => null)
+  const field = (value: unknown, key: string): unknown =>
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)[key]
+      : undefined
+  const code = [
+    field(body, "code"),
+    field(field(body, "error"), "code"),
+    field(body, "error"),
+  ].find((value) => typeof value === "string")
+  return new BoatRequestError(
+    err.response.status,
+    typeof code === "string" ? code.slice(0, 80) : null,
+    err
+  )
+}
+
 export function boatStatus(err: unknown): number | undefined {
+  if (err instanceof BoatRequestError) return err.status
   return err instanceof ResponseError ? err.response.status : undefined
 }
 
@@ -322,6 +364,7 @@ async function startCommand(
     command: string
     cwd?: string
     env?: Record<string, string>
+    abortSignal?: AbortSignal
   }
 ): Promise<number> {
   const envFile = await writeEnvFile(sandbox, input.env ?? {})
@@ -338,14 +381,29 @@ async function startCommand(
   ].join("\n")
   void keepAwake(sandbox.id)
   // Root, as on Blaxel (HOME=/root holds the harness bootstrap), whether or
-  // not Boat runs commands as root.
-  const started = (await boat().command({
-    sandboxId: sandbox.id,
-    commandRequest: {
-      command: `$([ "$(id -u)" = 0 ] || echo sudo -n -H) bash -c ${shellQuote(script)}`,
-      detached: true,
-    },
-  })) as CommandStartedResponse
+  // not Boat runs commands as root. Boat holds a command for up to 60 seconds
+  // while the VM starts (a create or resume), then answers 409 boat_starting:
+  // retryable, the command never ran. Nothing else is replayed (a 502 may
+  // have started it).
+  const started = (await whileSandboxStarts(
+    () =>
+      boat()
+        .command({
+          sandboxId: sandbox.id,
+          commandRequest: {
+            command: `$([ "$(id -u)" = 0 ] || echo sudo -n -H) bash -c ${shellQuote(script)}`,
+            detached: true,
+          },
+        })
+        .catch(async (err: unknown) => {
+          throw await boatRequestError(err)
+        }),
+    {
+      retry: (err) =>
+        err instanceof BoatRequestError && err.code === "boat_starting",
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    }
+  )) as CommandStartedResponse
   return started.processId
 }
 
@@ -386,6 +444,7 @@ export async function boatExec(
     command: input.command,
     ...(input.cwd ? { cwd: input.cwd } : {}),
     ...(input.env ? { env: input.env } : {}),
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
   })
   const onAbort = () => void stopCommand(sandbox, processId)
   input.abortSignal?.addEventListener("abort", onAbort, { once: true })

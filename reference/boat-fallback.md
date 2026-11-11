@@ -45,6 +45,13 @@ once on its $20 plan, so it takes the overflow (Jacob, 2026-11-05).
     stopped sandbox is resumed on the next open; one still stopping answers
     409 `sandbox_stopping`, so resume retries for up to 3 minutes (a stop
     took about 40 s).
+  - A command sent while the VM starts (a create or resume) is held by Boat
+    for up to 60 s, then answers `409 boat_starting`. `startCommand` retries
+    that one answer through `whileSandboxStarts` (2026-11-11, not run live)
+    and gives up with `SandboxStartingError`, like Blaxel's
+    `WORKLOAD_UNAVAILABLE` (`artifacts.md`, Booting and waking). A failed
+    command throws `BoatRequestError` with Boat's status and error code; the
+    SDK's own error names neither.
   - Commands run as root through `sudo -n -H` (Boat runs as `user` with
     passwordless sudo), detached, with output read by offset. Env values the
     caller passes go through a `/tmp` file the script reads and deletes, so a
@@ -97,3 +104,11 @@ once on its $20 plan, so it takes the overflow (Jacob, 2026-11-05).
   overflow (LOR_SANDBOX_PRIMARY unset) unless Boat offers a US region.
 - A live view or terminal left open with no commands still lets the VM stop
   30 minutes after Lor's last command.
+- Open, from Boat's API docs and not checked live (2026-11-11): replacing a
+  Boat sandbox (a new size, or an unhealthy one) when the new one lands on
+  Boat again. `createBoatSandbox` sends the sandbox name as the
+  `Idempotency-Key`, which Boat keeps for 24 hours: the same key with another
+  body (a new size) answers `409 idempotency_key_reused`, with the same body
+  it returns the first, deleted sandbox, and a create racing another answers
+  `409 idempotency_in_progress`. Deletion also runs in the background, so
+  `lookup` may still find the old VM for a while.

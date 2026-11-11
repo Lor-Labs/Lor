@@ -793,6 +793,7 @@ export {
   type RunTurnRecord,
   type SteeredMessage,
 } from "./run"
+export { SandboxStartingError } from "./sandbox/blaxel"
 export {
   deleteSessionSandbox,
   SandboxCapacityError,
@@ -3347,6 +3348,16 @@ async function respondImpl(
       memoryMb: ctx.code
         ? await sessionSandboxMemoryMb(conversationIdOf(harness.owner))
         : null,
+      ...(run.abortSignal ? { abortSignal: run.abortSignal } : {}),
+      // The wait for a starting sandbox can outlast the check above: a
+      // restore begun meanwhile (the Changes panel, a new size) finishes
+      // before this run stops the sandbox's leftover commands.
+      ...(ctx.code
+        ? {
+            beforeFencing: () =>
+              waitForCheckpoints(conversationIdOf(harness.owner)),
+          }
+        : {}),
     })
     let uncommitted: UncommittedLinesTracker | null = null
     try {

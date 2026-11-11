@@ -15,10 +15,13 @@ import {
   blaxelConfigured,
   closeConnection,
   hasWorkspaceDisk,
+  isSandboxGatewayError,
+  isWorkloadUnavailable,
   persistentLifecycle,
   probeSandbox,
   SANDBOX_PROCESS_ENV,
   WORKSPACE_MOUNT,
+  whileSandboxStarts,
 } from "./blaxel"
 import {
   type BoatSandbox,
@@ -334,6 +337,28 @@ function hasCode(err: unknown, codes: ReadonlyArray<unknown>): boolean {
 
 const isNotFound = (err: unknown) => hasCode(err, [404, "404"])
 
+// A sandbox being deleted (a size change replaces it) or one that failed still
+// answers a lookup for a while. It counts as gone: createIfNotExists waits
+// for the delete and makes the new one.
+const UNUSABLE_STATUSES: ReadonlySet<string> = new Set([
+  "DELETING",
+  "TERMINATED",
+  "FAILED",
+])
+
+async function findBlaxelSandbox(
+  name: string
+): Promise<SandboxInstance | null> {
+  if (!blaxelConfigured()) return null
+  const sandbox = await SandboxInstance.get(name).catch((err: unknown) => {
+    if (isNotFound(err)) return null
+    throw err
+  })
+  if (!sandbox || !UNUSABLE_STATUSES.has(sandbox.status ?? "")) return sandbox
+  closeConnection(sandbox)
+  return null
+}
+
 export function sessionSandboxName(owner: HarnessOwner): string {
   return "sessionId" in owner
     ? `ses-${owner.sessionId}`
@@ -413,7 +438,8 @@ async function existingBoatSandbox(name: string): Promise<BoatSandbox | null> {
 async function createSessionSandbox(
   name: string,
   code: boolean,
-  memoryMb: number | null
+  memoryMb: number | null,
+  abortSignal?: AbortSignal
 ): Promise<SessionSandbox> {
   await guardSandbox(name)
   const size = code
@@ -452,10 +478,12 @@ async function createSessionSandbox(
     )
     return onBoatInstead(err)
   }
-  const health = await probeSandbox(sandbox).catch((err: unknown) => {
-    closeConnection(sandbox)
-    throw err
-  })
+  const health = await probeSandbox(sandbox, abortSignal).catch(
+    (err: unknown) => {
+      closeConnection(sandbox)
+      throw err
+    }
+  )
   if (
     !health.healthy ||
     !hasWorkspaceDisk(sandbox, env.LOR_SESSION_DISK_MB) ||
@@ -517,6 +545,9 @@ async function stopLeftoverCommands(
 // `proxy`: the run is a Claude Code or Codex turn, whose model credential
 // only Blaxel's proxy can fill in (grantHarnessAccess). `memoryMb`: a code
 // session's environment size, used only when a sandbox is created.
+// `beforeFencing`: awaited once an existing sandbox answers and before its
+// leftover commands are stopped, so a restore or rewind running in it (its
+// command is a run-* too) finishes instead of being killed.
 export async function openSessionSandbox(
   owner: HarnessOwner,
   options: {
@@ -524,22 +555,20 @@ export async function openSessionSandbox(
     code?: boolean
     proxy?: boolean
     memoryMb?: number | null
+    abortSignal?: AbortSignal
+    beforeFencing?: () => Promise<void>
   } = {}
 ): Promise<SessionSandbox> {
   const name = sessionSandboxName(owner)
   await guardSandbox(name)
-  const existing = blaxelConfigured()
-    ? await SandboxInstance.get(name).catch((err: unknown) => {
-        if (isNotFound(err)) return null
-        throw err
-      })
-    : null
+  const existing = await findBlaxelSandbox(name)
   const boat = existing ? null : await existingBoatSandbox(name)
   if (boat) {
     // A probe error does not prove the workspace is gone (as below): only a
     // sandbox that answers unhealthy is replaced.
     const health = await boatExec(boat, { command: "true", timeoutSec: 30 })
     if (health.exitCode === 0) {
+      await options.beforeFencing?.()
       const bridgeRunning = await stopBoatLeftovers(
         boat,
         options.keepBridges ?? false
@@ -573,10 +602,12 @@ export async function openSessionSandbox(
     const health =
       hasWorkspaceDisk(existing, env.LOR_SESSION_DISK_MB) &&
       hasEgressLimits(existing)
-        ? await probeSandbox(existing).catch((err: unknown) => {
-            closeConnection(existing)
-            throw err
-          })
+        ? await probeSandbox(existing, options.abortSignal).catch(
+            (err: unknown) => {
+              closeConnection(existing)
+              throw err
+            }
+          )
         : null
     if (health?.healthy) {
       // Labels can't change, so this repeats on each open until the old
@@ -585,6 +616,10 @@ export async function openSessionSandbox(
       if (version !== EGRESS_VERSION && !proxyless) {
         await SandboxInstance.updateNetwork(name, { network: SESSION_NETWORK })
       }
+      await options.beforeFencing?.().catch((err: unknown) => {
+        closeConnection(existing)
+        throw err
+      })
       const bridgeRunning = await stopLeftoverCommands(
         existing,
         name,
@@ -603,7 +638,8 @@ export async function openSessionSandbox(
   return createSessionSandbox(
     name,
     options.code ?? false,
-    options.memoryMb ?? null
+    options.memoryMb ?? null,
+    options.abortSignal
   )
 }
 
@@ -616,12 +652,7 @@ export async function attachSessionSandbox(
   const name = sessionSandboxName(owner)
   if (!blaxelConfigured() && !boatConfigured()) return null
   await guardSandbox(name)
-  const existing = blaxelConfigured()
-    ? await SandboxInstance.get(name).catch((err: unknown) => {
-        if (isNotFound(err)) return null
-        throw err
-      })
-    : null
+  const existing = await findBlaxelSandbox(name)
   if (existing) return blaxelSessionSandbox(existing, false)
   const boat = await existingBoatSandbox(name)
   return boat ? boatSessionSandbox(boat, false) : null
@@ -782,7 +813,8 @@ export function blaxelSandboxSession(
   const readBytes = async (path: string): Promise<Uint8Array | null> => {
     await access()
     try {
-      const blob = await sandbox.fs.readBinary(path)
+      // Retried while the sandbox wakes: that 404 is not a missing file.
+      const blob = await whileSandboxStarts(() => sandbox.fs.readBinary(path))
       return new Uint8Array(await blob.arrayBuffer())
     } catch (err) {
       if (isNotFound(err)) return null
@@ -802,6 +834,41 @@ export function blaxelSandboxSession(
       await sandbox.fs.writeBinary(path, bytes)
     }
   }
+
+  // A command sent while the sandbox boots or wakes from standby waits for it.
+  // exec is a POST, replayed only when it never started: Blaxel's
+  // not-dispatched answer, or a gateway error after which the sandbox has no
+  // process by this name.
+  const startProcess = (
+    request: Parameters<SandboxInstance["process"]["exec"]>[0] & {
+      name: string
+    },
+    abortSignal?: AbortSignal
+  ) =>
+    whileSandboxStarts(
+      async () => {
+        try {
+          await sandbox.process.exec(request)
+        } catch (err) {
+          if (!isSandboxGatewayError(err)) throw err
+          const started = await sandbox.process.get(request.name).then(
+            () => true,
+            (lookup: unknown) => {
+              if (isNotFound(lookup)) return false
+              throw new Error("Sandbox command state is unknown", {
+                cause: err,
+              })
+            }
+          )
+          if (!started) throw err
+        }
+      },
+      {
+        retry: (err) =>
+          isWorkloadUnavailable(err) || isSandboxGatewayError(err),
+        ...(abortSignal ? { abortSignal } : {}),
+      }
+    )
 
   // Blaxel limits waitForCompletion to 60 seconds and documents a named
   // process plus a wait for longer work; the SDK's wait() always sleeps one
@@ -834,16 +901,19 @@ export function blaxelSandboxSession(
     }
     abortSignal?.addEventListener("abort", onAbort, { once: true })
     try {
-      await sandbox.process.exec({
-        name,
-        command: inShell(command),
-        // Default to the persistent volume: the harness resolves its working
-        // directory with `pwd`, so the conversation's files land on it.
-        workingDir: workingDirectory ?? WORKSPACE_MOUNT,
-        env: { ...SANDBOX_PROCESS_ENV, ...env },
-        keepAlive: true,
-        timeout: RUN_TIMEOUT_SEC,
-      })
+      await startProcess(
+        {
+          name,
+          command: inShell(command),
+          // Default to the persistent volume: the harness resolves its working
+          // directory with `pwd`, so the conversation's files land on it.
+          workingDir: workingDirectory ?? WORKSPACE_MOUNT,
+          env: { ...SANDBOX_PROCESS_ENV, ...env },
+          keepAlive: true,
+          timeout: RUN_TIMEOUT_SEC,
+        },
+        abortSignal
+      )
       // An abort during exec fired before the process existed.
       if (abortSignal?.aborted) onAbort()
       const result = await waitForProcess(name)
@@ -876,25 +946,28 @@ export function blaxelSandboxSession(
     // The harness whose bridge this is ("claude-code", "codex"), or null.
     const bridge = HARNESS_BRIDGE_SCRIPT.exec(command)?.[1] ?? null
     const name = `${bridge ? "bridge" : "spawn"}-${randomUUID().slice(0, 8)}`
-    await sandbox.process.exec({
-      name,
-      command: inShell(bridge ? `${BRIDGE_SHELL}${command}` : command),
-      workingDir: workingDirectory ?? WORKSPACE_MOUNT,
-      env: {
-        ...SANDBOX_PROCESS_ENV,
-        ...(bridge === "claude-code" ? CLAUDE_CODE_ENV : {}),
-        ...env,
+    await startProcess(
+      {
+        name,
+        command: inShell(bridge ? `${BRIDGE_SHELL}${command}` : command),
+        workingDir: workingDirectory ?? WORKSPACE_MOUNT,
+        env: {
+          ...SANDBOX_PROCESS_ENV,
+          ...(bridge === "claude-code" ? CLAUDE_CODE_ENV : {}),
+          ...env,
+        },
+        // A bridge outlives its turn while it waits on an approval: no time
+        // limit, and no keepAlive. A parked one still kept its sandbox out of
+        // standby, so it stops after 30 minutes (release-parked-bridge).
+        ...(bridge
+          ? {}
+          : {
+              keepAlive: true,
+              timeout: RUN_TIMEOUT_SEC,
+            }),
       },
-      // A bridge outlives its turn while it waits on an approval: no time
-      // limit, and no keepAlive. A parked one still kept its sandbox out of
-      // standby, so it stops after 30 minutes (release-parked-bridge).
-      ...(bridge
-        ? {}
-        : {
-            keepAlive: true,
-            timeout: RUN_TIMEOUT_SEC,
-          }),
-    })
+      abortSignal
+    )
     const kill = async () => {
       await sandbox.process.kill(name).catch(() => {})
     }
