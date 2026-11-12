@@ -1,16 +1,12 @@
 import RepeatIcon from "@hugeicons/core-free-icons/RepeatIcon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
-import type {
-  ChannelActivity,
-  SidebarSession,
-  SidebarSessionState,
-} from "@repo/realtime-types"
+import type { SidebarSession, SidebarSessionState } from "@repo/realtime-types"
 import { useQueryClient } from "@tanstack/react-query"
 import { router } from "expo-router"
 import * as SecureStore from "expo-secure-store"
 import { useThemeColor } from "heroui-native/hooks"
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native"
 import Animated, {
   FadeIn,
@@ -41,63 +37,40 @@ const STATE_LABELS = {
   unread: "Unread",
 } as const
 
-const COLLAPSED_KEY = "lor.collapsed-session-channels"
+const EXPANDED_KEY = "lor.expanded-session-channels"
 
-function readCollapsedIds(): Set<string> {
+function readExpandedIds(): Set<string> {
   try {
-    return new Set(JSON.parse(SecureStore.getItem(COLLAPSED_KEY) ?? "[]"))
+    return new Set(JSON.parse(SecureStore.getItem(EXPANDED_KEY) ?? "[]"))
   } catch {
     return new Set()
   }
 }
 
-function storeCollapsedIds(ids: Set<string>) {
+function storeExpandedIds(ids: Set<string>) {
   try {
-    SecureStore.setItem(COLLAPSED_KEY, JSON.stringify([...ids]))
+    SecureStore.setItem(EXPANDED_KEY, JSON.stringify([...ids]))
   } catch {
     // Still applies until the app restarts; persistence is best-effort.
   }
 }
 
-// Channels whose session rows are hidden, remembered per device. Starting a
-// session in a collapsed channel expands it.
-export function useSessionCollapse(activity: ChannelActivity[] | undefined) {
-  const [collapsed, setCollapsed] = useState(readCollapsedIds)
-  const knownIds = useRef<Map<string, Set<string>> | null>(null)
-  useEffect(() => {
-    if (!activity) return
-    const previous = knownIds.current
-    knownIds.current = new Map(
-      activity.map((channel) => [
-        channel.channelId,
-        new Set(channel.sessions.map((session) => session.id)),
-      ])
-    )
-    if (!previous) return
-    const grown = activity
-      .filter((channel) =>
-        channel.sessions.some(
-          (session) => !previous.get(channel.channelId)?.has(session.id)
-        )
-      )
-      .map((channel) => channel.channelId)
-    setCollapsed((current) => {
-      if (!grown.some((channelId) => current.has(channelId))) return current
-      const next = new Set(current)
-      for (const channelId of grown) next.delete(channelId)
-      storeCollapsedIds(next)
-      return next
-    })
-  }, [activity])
-
+// Channels whose session rows are shown, remembered per device. Collapsed by
+// default: active sessions already show in the cross-channel Sessions list,
+// so a channel lists its own only on request. Mirrors web.
+export function useSessionCollapse() {
+  const [expanded, setExpanded] = useState(readExpandedIds)
   const toggle = (channelId: string) => {
-    const next = new Set(collapsed)
+    const next = new Set(expanded)
     if (next.has(channelId)) next.delete(channelId)
     else next.add(channelId)
-    storeCollapsedIds(next)
-    setCollapsed(next)
+    storeExpandedIds(next)
+    setExpanded(next)
   }
-  return { collapsed, toggle }
+  return {
+    isCollapsed: (channelId: string) => !expanded.has(channelId),
+    toggle,
+  }
 }
 
 // Strongest state among some sessions, for a collapsed channel or the "N
