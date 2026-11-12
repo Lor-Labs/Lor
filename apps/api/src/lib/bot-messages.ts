@@ -78,7 +78,7 @@ type PostBotMessageInput = {
 // server's createMessage, without a socket.
 export async function postBotMessage(
   input: PostBotMessageInput
-): Promise<{ id: string }> {
+): Promise<RealtimeMessage> {
   // Archived channels (e.g. an archived project's) are read-only for bots
   // and webhooks too, not just users.
   const target = await db
@@ -196,5 +196,5 @@ export async function postBotMessage(
   }
   io.to(channelRoom(input.channel.id)).emit("message:created", message)
 
-  return { id: inserted.id }
+  return message
 }

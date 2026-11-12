@@ -2,10 +2,12 @@ import ArrowTurnForwardIcon from "@hugeicons/core-free-icons/ArrowTurnForwardIco
 import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon"
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon"
 import Edit02Icon from "@hugeicons/core-free-icons/Edit02Icon"
+import GitForkIcon from "@hugeicons/core-free-icons/GitForkIcon"
 import MessageCircleReplyIcon from "@hugeicons/core-free-icons/MessageCircleReplyIcon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
 import PinOffIcon from "@hugeicons/core-free-icons/PinOffIcon"
 import ThreadIcon from "@hugeicons/core-free-icons/ThreadIcon"
+import Undo02Icon from "@hugeicons/core-free-icons/Undo02Icon"
 import Unlink02Icon from "@hugeicons/core-free-icons/Unlink02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import * as Clipboard from "expo-clipboard"
@@ -31,6 +33,8 @@ export function MessageActionMenu({
   onDelete,
   onToggleReaction,
   onTogglePin,
+  onFork,
+  onRewind,
   onRemoveEmbed,
 }: {
   message: Message | null
@@ -46,6 +50,10 @@ export function MessageActionMenu({
   onDelete?: (message: Message) => void
   onToggleReaction?: (message: Message, emoji: string) => void
   onTogglePin?: (message: Message) => void
+  // Session, one of Lor's finished replies: a new session from it, or Lor
+  // going back to it. Rewind asks before it runs; the caller confirms.
+  onFork?: () => void
+  onRewind?: () => void
   // Unset unless the person may remove this message's link previews.
   onRemoveEmbed?: (message: Message, url: string) => void
 }) {
@@ -200,6 +208,30 @@ export function MessageActionMenu({
                     onOpenChange(false)
                   }}
                   tint={message.pinned ? accent : foreground}
+                />
+              ) : null}
+            </View>
+          ) : null}
+
+          {onFork || onRewind ? (
+            <View className="overflow-hidden rounded-lor-lg bg-surface-secondary">
+              {onFork ? (
+                <ActionRow
+                  icon={GitForkIcon}
+                  label="Fork from here"
+                  onPress={onFork}
+                  tint={foreground}
+                />
+              ) : null}
+              {onFork && onRewind ? (
+                <View className="ml-14 h-px bg-separator" />
+              ) : null}
+              {onRewind ? (
+                <ActionRow
+                  icon={Undo02Icon}
+                  label="Rewind to here"
+                  onPress={onRewind}
+                  tint={foreground}
                 />
               ) : null}
             </View>

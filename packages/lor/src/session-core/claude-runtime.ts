@@ -20,6 +20,7 @@ import type {
   UserModelMessage,
 } from "ai"
 import { aiRuntimeContext, aiTelemetry } from "../ai-observability"
+import { logger } from "../logger"
 import { claudeHeadOf, pendingRewind } from "./claude-branch"
 import {
   checkCompatibility,
@@ -52,12 +53,26 @@ export type ClaudeCodeMode =
   | "plan"
   | "bypassPermissions"
 
+// Keep Claude Code's streamed error and partial conversation together.
+export class ClaudeCodeTurnError extends Error {
+  save: PiTurnSave | null = null
+
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause })
+    this.name = "ClaudeCodeTurnError"
+  }
+}
+
 export const CLAUDE_CODE_BINDING: HarnessBinding = {
   kind: "claude_code",
   adapterVersion: CLAUDE_CODE_ADAPTER_VERSION,
   // Claude Code's own file has no format version; this is the save layout's.
   formatVersion: 1,
 }
+
+// A Claude Code turn's model when the sender picked none. Without one the
+// bridge's Claude Code picks Sonnet; Opus is Claude Code's documented default.
+export const CLAUDE_CODE_DEFAULT_MODEL = "opus"
 
 // Claude Code's own tools that Lor switches off: worktrees leave the work
 // folder that checkpoints and the Changes panel read; schedules and
@@ -200,9 +215,7 @@ export async function runClaudeCodeTurn(
       ...(effort ? { effort } : {}),
       ...(input.fast ? { fastMode: true } : {}),
     }),
-    // Without a model the bridge's Claude Code picks Sonnet, so Lor always
-    // sends one: Opus is Claude Code's documented default.
-    model: input.model ?? "opus",
+    model: input.model ?? CLAUDE_CODE_DEFAULT_MODEL,
     instructions: input.instructions,
     tools: prepareTools(
       { ...missingToolStubs(paused, input.tools), ...input.tools },
@@ -258,11 +271,16 @@ export async function runClaudeCodeTurn(
   let settled = false
   try {
     let aborted = false
+    let failure: ClaudeCodeTurnError | null = null
     let contextUsage: PiContextUsage | null = null
     const results: Awaited<ReturnType<typeof agent.stream>>[] = []
     const drain = async (result: Awaited<ReturnType<typeof agent.stream>>) => {
       results.push(result)
       for await (const part of result.stream) {
+        if (part.type === "error") {
+          failure ??= new ClaudeCodeTurnError(part.error)
+          continue
+        }
         if (part.type === "abort") aborted = true
         if (part.type === "finish") {
           // The harness sets it on finish; the AI SDK type does not declare it.
@@ -289,11 +307,12 @@ export async function runClaudeCodeTurn(
       )
     }
     // A continued turn that paused again leaves the prompt for a later turn.
-    if (input.prompt && !aborted && !session.hasUnfinishedTurn()) {
+    if (input.prompt && !aborted && !failure && !session.hasUnfinishedTurn()) {
       await drain(
         await agent.stream({ session, messages: [input.prompt], ...abort })
       )
     }
+    if (failure) throw failure
     aborted ||= Boolean(input.abortSignal?.aborted)
     const totals = await Promise.all(
       results.map((result) =>
@@ -353,6 +372,37 @@ export async function runClaudeCodeTurn(
       pendingToolResults: [...(continuation?.pendingToolResults ?? [])],
       contextUsage,
     }
+  } catch (err) {
+    if (err instanceof ClaudeCodeTurnError && !input.abortSignal?.aborted) {
+      try {
+        const state = await session.stop().catch((stopError: unknown) => {
+          logger.warn(
+            { err: stopError, sessionId: input.sessionId },
+            "Stopping the failed Claude Code turn failed"
+          )
+          return null
+        })
+        if (state) settled = true
+        const named = (state?.data as { claudeSessionId?: unknown } | null)
+          ?.claudeSessionId
+        const log = await readConversation(
+          sandbox,
+          claudeHome,
+          typeof named === "string"
+            ? named
+            : (saved?.head.harnessSessionId ?? null),
+          input.sessionId,
+          saved
+        )
+        err.save = withContinuation(log, saved, null)
+      } catch (saveError) {
+        logger.warn(
+          { err: saveError, sessionId: input.sessionId },
+          "Reading the failed Claude Code turn failed"
+        )
+      }
+    }
+    throw err
   } finally {
     // Lor supplies the sandbox, so neither leaves it running down.
     if (!settled) await session.destroy().catch(() => {})

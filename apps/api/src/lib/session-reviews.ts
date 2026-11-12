@@ -1,4 +1,14 @@
-import { and, db, desc, eq, isNull, LOR_USER_ID, schema, sql } from "@repo/db"
+import {
+  APP_USER_ID,
+  and,
+  db,
+  desc,
+  eq,
+  isNull,
+  LOR_USER_ID,
+  schema,
+  sql,
+} from "@repo/db"
 import type { AgentSession } from "@repo/db/schema"
 import { activeGithubInstallation } from "@repo/lor/github"
 import { reviewStartsThreads } from "@repo/lor/pr-reviews"
@@ -163,4 +173,89 @@ export async function recordSessionPullRequest(
     .catch((err) =>
       logger.warn({ err, sessionId: session.id }, "Touches broadcast failed")
     )
+}
+
+// The workspace member whose linked GitHub account this is; null when nobody
+// in the workspace linked it.
+async function memberForGithubUser(workspaceId: string, githubUserId: number) {
+  const [row] = await db
+    .select({
+      id: schema.user.id,
+      name: schema.user.name,
+      image: schema.user.image,
+    })
+    .from(schema.personalAccount)
+    .innerJoin(schema.user, eq(schema.user.id, schema.personalAccount.userId))
+    .innerJoin(
+      schema.workspaceMember,
+      and(
+        eq(schema.workspaceMember.userId, schema.personalAccount.userId),
+        eq(schema.workspaceMember.workspaceId, workspaceId)
+      )
+    )
+    .where(
+      and(
+        eq(schema.personalAccount.provider, "github"),
+        eq(schema.personalAccount.externalId, String(githubUserId))
+      )
+    )
+    .limit(1)
+  return row ?? null
+}
+
+// A pull request from a code session's branch was opened or merged: a line in
+// the session for its people and for Lor (LOR-159). Posted as the member who
+// did it on GitHub, else as the app user with the GitHub login.
+export async function announcePullRequest(input: {
+  session: AgentSession
+  eventType: "session_pr_opened" | "session_pr_merged"
+  pullRequest: {
+    number: number
+    url: string
+    title: string
+    headRef: string
+    baseRef: string
+  }
+  actor: { id: number; login: string } | null
+}): Promise<void> {
+  const { session, eventType, pullRequest, actor } = input
+  const repoFullName = session.repoFullName
+  if (!repoFullName) return
+  // GitHub redelivers webhooks: one line per pull request and kind.
+  const posted = await db
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.threadRootId, session.threadRootId),
+        eq(schema.message.eventType, eventType),
+        sql`${schema.message.eventPayload}->>'pullRequestUrl' = ${pullRequest.url}`
+      )
+    )
+    .limit(1)
+  if (posted.length > 0) return
+  const member = actor
+    ? await memberForGithubUser(session.workspaceId, actor.id)
+    : null
+  const githubLogin = actor?.login.replace(/\[bot\]$/, "") ?? "ghost"
+  const eventPayload = {
+    sessionId: session.id,
+    repoFullName,
+    pullRequestNumber: pullRequest.number,
+    pullRequestUrl: pullRequest.url,
+    title: pullRequest.title,
+    headBranch: pullRequest.headRef,
+    baseBranch: pullRequest.baseRef,
+    githubLogin,
+  }
+  await postSessionEvent(
+    session,
+    member ?? { id: APP_USER_ID, name: "GitHub", image: null },
+    { eventType, eventPayload },
+    channelEventContent({
+      eventType,
+      actorName: member?.name ?? `GitHub user ${githubLogin}`,
+      ...eventPayload,
+    })
+  )
 }

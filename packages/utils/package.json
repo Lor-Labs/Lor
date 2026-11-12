@@ -18,6 +18,7 @@
     "./file-preview": "./src/file-preview.ts",
     "./html": "./src/html.ts",
     "./short-code": "./src/short-code.ts",
+    "./trigger-message": "./src/trigger-message.ts",
     "./inference": "./src/inference.ts",
     "./diff-hunks": "./src/diff-hunks.ts",
     "./linear-issue-block": "./src/linear-issue-block.ts"

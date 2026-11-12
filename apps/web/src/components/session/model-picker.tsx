@@ -33,6 +33,7 @@ import {
   type AgentModelOption,
   agentModelsQueryOptions,
   type ModelChoice,
+  pinSessionChoice,
   rememberEffort,
   rememberFast,
   rememberModel,
@@ -170,7 +171,9 @@ export function ModelPicker({
         const item = key ? byKey.get(key) : undefined
         if (!item) return
         if (item.harness !== choice.harness) onHarness?.(item.harness)
-        rememberModel(item.harness, item.id)
+        // A session's first pick also keeps its other two as shown.
+        pinSessionChoice(choice)
+        rememberModel(item.harness, item.id, choice.sessionScope)
       }}
       itemToStringLabel={(key) => byKey.get(key)?.name ?? key}
       filter={(key: string, text) =>
@@ -383,9 +386,14 @@ export function EffortPicker({ choice }: { choice: ModelChoice }) {
             <DropdownMenuLabel>Thinking effort</DropdownMenuLabel>
             <DropdownMenuRadioGroup
               value={choice.effort ?? ""}
-              onValueChange={(value) =>
-                rememberEffort(harness, value ? String(value) : null)
-              }
+              onValueChange={(value) => {
+                pinSessionChoice(choice)
+                rememberEffort(
+                  harness,
+                  value ? String(value) : null,
+                  choice.sessionScope
+                )
+              }}
             >
               {harnessDefault && (
                 <DropdownMenuRadioItem value="">Default</DropdownMenuRadioItem>
@@ -404,7 +412,10 @@ export function EffortPicker({ choice }: { choice: ModelChoice }) {
             <DropdownMenuCheckboxItem
               variant="switch"
               checked={choice.fast}
-              onCheckedChange={(checked) => rememberFast(harness, checked)}
+              onCheckedChange={(checked) => {
+                pinSessionChoice(choice)
+                rememberFast(harness, checked, choice.sessionScope)
+              }}
             >
               Fast mode
             </DropdownMenuCheckboxItem>

@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto"
-import { and, db, desc, eq, inArray, LOR_USER_ID, schema } from "@repo/db"
+import {
+  and,
+  asc,
+  db,
+  desc,
+  eq,
+  inArray,
+  LOR_USER_ID,
+  schema,
+  sql,
+} from "@repo/db"
 import { findAgentSessionByThreadRoot } from "@repo/db/queries/agent-sessions"
 import { listChannelAudienceUserIds } from "@repo/db/queries/channel-access"
 import type { ActSessionMode, AgentSession } from "@repo/db/schema"
@@ -51,6 +61,7 @@ type ActSessionInput = {
 
 // A waiting event looks again after at least this long.
 const SESSION_BUSY_RETRY_SECONDS = 30
+const TRIGGER_SOURCE_MESSAGES_MAX = 150
 
 // An Act event becomes a session turn (reference/act-sessions-runbook.md):
 // a new session in per_event mode, else the subject's or the trigger's
@@ -153,13 +164,36 @@ async function runEventInSession(
   input: ActSessionInput,
   session: AgentSession
 ): Promise<"started" | "waiting" | "failed"> {
+  const deliveries = await db
+    .select({
+      sourceMessage: schema.triggerDelivery.sourceMessage,
+      total: sql<number>`(count(*) over ())::int`,
+    })
+    .from(schema.triggerDelivery)
+    .where(eq(schema.triggerDelivery.runId, input.runId))
+    .orderBy(
+      asc(schema.triggerDelivery.createdAt),
+      asc(schema.triggerDelivery.id)
+    )
+    .limit(TRIGGER_SOURCE_MESSAGES_MAX)
+  const sourceMessages = deliveries.flatMap((delivery) =>
+    delivery.sourceMessage ? [delivery.sourceMessage] : []
+  )
   const { messageId: eventId } = await postLorMessage(deps, {
     channelId: input.channelId,
     threadRootId: session.threadRootId,
     content: input.payload,
     type: "event",
     eventType: "trigger_run",
-    eventPayload: { triggerId: input.triggerId, label: input.label },
+    eventPayload: {
+      triggerId: input.triggerId,
+      label: input.label,
+      sourceMessages,
+      omittedMessages: Math.max(
+        0,
+        (deliveries[0]?.total ?? 0) - sourceMessages.length
+      ),
+    },
     silent: true,
   })
   const started = await startScopeRun(

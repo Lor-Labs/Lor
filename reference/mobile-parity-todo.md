@@ -26,13 +26,15 @@ The phone matches web's session model: `@Lor` starts a session, Lor works only i
 - [ ] A failed start from the New session screen lands on "Session unavailable" and loses the draft (the channel composer gets it back).
 - [ ] Approve or reject doesn't move the Channels-tab row (needs you → running) at once; the server's activity push moves it a moment later.
 - [ ] Search has no Sessions group for title matches (web ⌘K shows one; the API already returns `sessions` on page 1). Mobile shows the session title on message hits — `planned/session-memory.md` Step 2.
+- [x] Every session you follow, across channels (LOR-168, 2026-11-12): a Sessions row at the top of the Home list (what needs you and what is working beside it) opens `app/sessions.tsx`, the rows grouped Needs you / Working / Unread / Recent with their channel. Web has no such page: its sidebar shows every channel's rows at once.
+- [x] An action row under Lor's finished replies in a session (LOR-168, 2026-11-12, `lor-reply-actions.tsx`): Copy, Reply, Forward, Fork, More (the long-press menu), then the model the reply ran on and when. As web's row; reactions stay in the menu.
 
 ## Code sessions (catch-up pass started 2026-10-26, `reference/planned/code-sessions-runbook.md`)
 
 Goal (Jacob): mobile works with code sessions, including starting one, without web's full capability yet.
 
 - [x] M1: readable session event rows (continued, committed, pushed, forked, rewound) with their icons and links to the other session or the GitHub commit; a rewind's set-aside turns folded under a "Previous history" row.
-- [x] M2: Claude Code plan card (Approve and accept edits / Approve, ask for edits / Keep planning) and question stepper (options, a written answer, Previous / Skip / Next, Send), through the approve-plan and answer endpoints; answered cards show "Answered by … · Color: Blue". Approving a plan does not change the mode of mobile's next message (mobile has no mode picker; it sends Auto).
+- [x] M2: Claude Code plan card (Approve and accept edits / Approve, ask for edits / Keep planning) and question stepper (options, a written answer, Previous / Skip / Next, Send), through the approve-plan and answer endpoints; answered cards show "Answered by … · Color: Blue". Since M9 an approved plan also sets the mode of the next message, as on web.
 - [x] M3: a code icon on Channels-tab session rows and the repo on a channel's Sessions page; the heading shows repo and branch (opens GitHub), the harness, and "Forked from" / "Continued from" (a fork opens its source at the reply); the session sheet links the source and, in a code session, drops Files and shows Plan only for Lor's own agent (as web's Details tab); the people-only notice above the composer in a Claude Code session for senders without a linked Claude account (connecting is on web for now); tool icons for Claude Code's web and notebook tools and Codex's file changes and images.
 - [x] M4: starting a code session from New session: Chat | Code tabs, "on <repo> <branch> with <agent>" picks in bottom sheets (repo search on the device, branch search on the server, the default branch tagged), remembered on the device like web; Claude Code without a linked account blocks the send with a "connect on web" note. The start sends `code` and `harness`, and the session shows as a code session before the server confirms it. Its turns use the server's defaults (Claude Code: Auto on Opus; Codex: GPT-6.1 Sol).
 - [x] D1 (Changes and Files drawer, Jacob 2026-10-26: all three chunks): a code button in a code session's header with the changed-file count opens a tall sheet: changed files (Tracked / Untracked, status dot, +/- counts), each file's diff, the Lor-working and merge notes, and the restoring / gone states; live through the same socket events as web.
@@ -42,7 +44,10 @@ Goal (Jacob): mobile works with code sessions, including starting one, without w
 - [x] M6 (2026-10-27): New session remembers the last branch per repo on the device (checked on GitHub, a deleted one falls back to the default); the branch sheet filters loaded branches as you type while GitHub's search adds the rest; a typed name that matches none gets a "Create <name>" row, then the line reads "<new> new from <base>", the base a sheet of its own starting on the default branch. The start sends `code.newBranch`; the session heading shows the new branch (its link stays on the base until the first push).
 - [ ] M7: "New Lor branch" in the New session branch sheet (LOR-127, web 2026-11-06). Web's first branch row starts the session on a new branch the server names `lor/<place>-<id>` (`lorBranchName` in `@repo/utils/github`, the place picked from a list of made-up far-off names), from the last branch picked for the repo; it is on by default and remembered per repo until an existing branch is picked. Mobile sends `code.autoBranch: true` and names its optimistic session's branch with the same helper. Until then mobile starts on the picked branch as before.
 - [x] M8: PR review cards (web 2026-11-06, `reference/planned/pr-reviews.md`) — 2026-11-10. `session_reviewed` renders as the same collapsible card (`review-card.tsx`): review body and threads read live (`GET /v1/sessions/{id}/review`, refreshed on `session:review:updated`) and Fix with Lor (per thread, all open, whole review) filling the session composer. Web's Review list in the Details tab is still web-only.
-- [ ] Later: fork and rewind actions, the Claude Code mode picker, context meter, syntax highlighting in the drawer (skipped 2026-10-26; recommended: the API returns Shiki tokens with web's themes, since Hermes has no WebAssembly for Shiki's default engine).
+- [x] M9 (LOR-160 and LOR-168, 2026-11-12): one model chip that opens one sheet (agent tabs in New session, search, models grouped by who pays, the picked model's effort and Fast above the list), each session remembering its own picks on the device and otherwise taking its last run's; the Claude Code mode picker beside it (remembered on the device, sent as `claudeCodeMode`, set by an approved plan); the context meter at the end of that bar (a ring and percentage, tapping lists what fills the window); Fork from here (the reply's action row and its menu, asks first, opens the fork) and Rewind to here (the menu, asks first); the harness's own "/" commands and Codex "$" skills as a menu over the session composer, with a button that starts one. The session heading lists its facts as items that wrap whole; New session picks its channel, repo and branch from pills like the model's. "Connect on web" notes (New session, session composer, commit box) open web's Linked accounts settings.
+- [x] M10 (2026-11-13): environments and sandbox size (web `environment-picker.tsx`, `session-setup-dialog.tsx`, `session-setup-card.tsx`). New session shows an environment pill beside the model for a repo that has environments, remembered per repo on the device and sent as `code.environmentId`; a code session's sheet opens Environment & sandbox (`session-setup.tsx`: pick the environment and the sandbox size, with the replace-sandbox warning, through `PATCH /v1/sessions/{id}/setup`); Lor's `suggest_session_setup` shows as a card whose Review opens that sheet with the suggestion picked.
+- [ ] Creating and editing an environment's env files (web: `environment-dialog.tsx`); mobile picks among existing environments and says they are made on web.
+- [ ] Later: syntax highlighting in the drawer (skipped 2026-10-26; recommended: the API returns Shiki tokens with web's themes, since Hermes has no WebAssembly for Shiki's default engine).
 
 ## Post-launch — onboarding (web shipped 2026-10-08, `reference/onboarding.md`)
 
@@ -87,8 +92,8 @@ Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card
 
 `loop_card` rendering + draft activation shipped 2026-08-24 (`use-loops.ts`, `loop-card.tsx`; mirrors web's compact pill — infinity icon, name, plain-english schedule via `@repo/realtime-types/loops`, status chip, kept live by `loop:updated`; drafts show a Create Loop button that activates in the device timezone, with the high-frequency 422 confirm as a native Alert). Still web-only:
 
-- [ ] Loop detail view (web: right-panel `loop-panel.tsx` — full prompt, structured schedule editor `PATCH /v1/loops/:id`, timezone picker; mobile activation always pins the device tz).
-- [ ] Pause/resume/complete once those routes land (L3, web-first).
+- [x] Loop pages (LOR-168, 2026-11-12): a channel's Loops list (channel options → Loops, `app/channel/[channelId]/loops.tsx`) and a loop's page (`loop/[loopId].tsx`, also opened by tapping a loop card): status, schedule in words, next run, the prompt, recent runs (a run opens the loop's session), and Pause, Resume, Run now, Mark completed and Delete.
+- [ ] Editing a loop's prompt, schedule and timezone (web: `loop-panel.tsx`, `PATCH /v1/loops/:id`); mobile reads them and says they change on web. Mobile activation still pins the device timezone.
 
 ## Approval policies (LOR-81/83, shipped mobile 2026-09-02)
 
@@ -139,7 +144,7 @@ Core task surfaces shipped 2026-08-10 (`use-tasks.ts`, `task-ui.tsx`, `task-card
 Deliberately parked until the composer/keyboard rework settles (active in message-composer.tsx / chat-keyboard-layout.tsx).
 
 - [ ] **Full emoji reaction picker** — mobile has only 6 quick reactions in the long-press menu.
-- [ ] **Slash commands** — mobile composer's `/` toolbar button is a dead placeholder (web: `composer/slash-command-list.tsx`).
+- [ ] **Slash commands in channel chat** — the channel composer's `/` toolbar button is a dead placeholder (web: `composer/slash-command-list.tsx`). A session's composer has its harness's commands since 2026-11-12 (Code sessions M9).
 - [ ] **Formatting toolbar** — mobile composer's text-format button is also a no-op.
 - [ ] **Bio editing** — profile sheet displays bio but nothing can edit it anywhere (column is dormant since web removed it). Needs a product call on whether bios come back before any UI work.
 
@@ -165,6 +170,7 @@ Deliberately parked until the composer/keyboard rework settles (active in messag
 
 - **Session turn rail** (`session-turn-rail.tsx`) — a hover feature; web-only by decision (workspace-model Phase F).
 - **Integration OAuth setup (GitHub/Linear), channel webhooks tab** — inherently web-side. (Onboarding itself exists on mobile as `src/app/onboarding.tsx`; the setup checklist is tracked under onboarding above.)
+- **Linking a Claude, ChatGPT or GitHub account from the phone** — web-side by decision (Jacob 2026-11-11). Mobile's notices open web's Linked accounts settings.
 
 ## Done (recent parity work)
 

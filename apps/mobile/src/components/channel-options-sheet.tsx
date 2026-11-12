@@ -6,6 +6,7 @@ import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon"
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon"
 import Edit02Icon from "@hugeicons/core-free-icons/Edit02Icon"
 import HashIcon from "@hugeicons/core-free-icons/HashIcon"
+import Infinity01Icon from "@hugeicons/core-free-icons/Infinity01Icon"
 import Notification03Icon from "@hugeicons/core-free-icons/Notification03Icon"
 import NotificationOff03Icon from "@hugeicons/core-free-icons/NotificationOff03Icon"
 import Pin02Icon from "@hugeicons/core-free-icons/Pin02Icon"
@@ -40,6 +41,7 @@ export function ChannelOptionsSheet({
   onChannelUpdated,
   onOpenPinnedMessages,
   onOpenSessions,
+  onOpenLoops,
   onOpenChange,
   workspaceName,
   workspaceSlug,
@@ -52,6 +54,7 @@ export function ChannelOptionsSheet({
   onChannelUpdated: (channel: ChannelDetail) => void
   onOpenPinnedMessages: () => void
   onOpenSessions: () => void
+  onOpenLoops: () => void
   onOpenChange: (isOpen: boolean) => void
   workspaceName: string
   workspaceSlug: string
@@ -300,6 +303,40 @@ export function ChannelOptionsSheet({
                         </Text>
                         <Text className="text-xs leading-4 text-muted">
                           Everyone's work with Lor in this channel
+                        </Text>
+                      </View>
+                      <SymbolView
+                        name={{
+                          ios: "chevron.right",
+                          android: "chevron_right",
+                          web: "chevron_right",
+                        }}
+                        size={17}
+                        tintColor={foreground}
+                      />
+                    </Pressable>
+                  ) : null}
+                  {channel.type === "text" ? (
+                    <Pressable
+                      accessibilityHint="Opens a scrollable list"
+                      accessibilityLabel="Loops"
+                      accessibilityRole="button"
+                      className="min-h-14 flex-row items-center gap-three rounded-lor-sm bg-surface-secondary px-three py-three active:bg-surface-tertiary"
+                      onPress={onOpenLoops}
+                    >
+                      <View className="size-9 items-center justify-center rounded-lor-sm bg-surface-tertiary">
+                        <HugeiconsIcon
+                          color={foreground}
+                          icon={Infinity01Icon}
+                          size={19}
+                        />
+                      </View>
+                      <View className="min-w-0 flex-1 gap-px">
+                        <Text className="text-[15px] font-semibold text-foreground">
+                          Loops
+                        </Text>
+                        <Text className="text-xs leading-4 text-muted">
+                          What Lor does here on a schedule
                         </Text>
                       </View>
                       <SymbolView

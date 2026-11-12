@@ -6,7 +6,7 @@ import { LOR_USER_ID } from "@repo/db/constants"
 import { getAvatarInitials } from "@repo/utils/avatar-colors"
 import { formatDateDivider, formatDateTime, timeAgo } from "@repo/utils/date"
 import { useThemeColor } from "heroui-native/hooks"
-import { useMemo } from "react"
+import { type ReactNode, useMemo } from "react"
 import { Pressable, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { MessageApprovalCard } from "@/components/approval-card"
@@ -312,6 +312,7 @@ export function MessageRow({
   isActionHighlighted = false,
   onToggleReaction,
   layout = "chat",
+  footer,
 }: {
   avatarColorByUserId?: ReadonlyMap<string, string>
   message: Message
@@ -326,6 +327,9 @@ export function MessageRow({
   // on each turn's first message (Lor's too), no name row. Mirrors web's
   // message-item.tsx document layout.
   layout?: "chat" | "document"
+  // Session: under the row's content, the action row of a finished Lor
+  // reply (lor-reply-actions.tsx).
+  footer?: ReactNode
 }) {
   const isDocument = layout === "document"
   const prose = useMemo(
@@ -393,6 +397,7 @@ export function MessageRow({
               sessionThreadRootId={message.threadRootId}
             />
           </MessageProseContext.Provider>
+          {footer}
         </View>
       </View>
     )

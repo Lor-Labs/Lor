@@ -3,6 +3,7 @@ import type {
   AgentSession,
   SessionCommittedPayload,
   SessionForkedPayload,
+  SessionPullRequestPayload,
   SessionPushedPayload,
   SessionReviewedPayload,
   SessionRewoundPayload,
@@ -32,6 +33,10 @@ export async function postSessionEvent(
     | { eventType: "session_forked"; eventPayload: SessionForkedPayload }
     | { eventType: "session_rewound"; eventPayload: SessionRewoundPayload }
     | { eventType: "session_reviewed"; eventPayload: SessionReviewedPayload }
+    | {
+        eventType: "session_pr_opened" | "session_pr_merged"
+        eventPayload: SessionPullRequestPayload
+      }
     | {
         eventType: "session_setup_changed"
         eventPayload: SessionSetupChangedPayload

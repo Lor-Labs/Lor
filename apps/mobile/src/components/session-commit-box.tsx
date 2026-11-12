@@ -8,6 +8,7 @@ import { Spinner } from "heroui-native/spinner"
 import { useState } from "react"
 import { Pressable, Text, View } from "react-native"
 import { useKeyboardState } from "react-native-keyboard-controller"
+import { ConnectOnWebNotice } from "@/components/connect-on-web-notice"
 import { Button } from "@/components/ui/button"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import {
@@ -23,10 +24,12 @@ import {
 // web for now. Mirrors web's CommitBox (session-changes-panel.tsx).
 export function SessionCommitBox({
   sessionId,
+  workspaceSlug,
   changes,
   stagedCount,
 }: {
   sessionId: string
+  workspaceSlug: string
   changes: ReadyChanges
   stagedCount: number
 }) {
@@ -102,10 +105,10 @@ export function SessionCommitBox({
         ) : null}
       </View>
       {account === null ? (
-        <Text className="rounded-lor-sm bg-surface-secondary px-three py-two text-[13px] text-muted">
-          Commits are made as your own GitHub account. Link it in Lor on the web
-          or desktop to commit and push from here.
-        </Text>
+        <ConnectOnWebNotice workspaceSlug={workspaceSlug}>
+          Commits are made as your own GitHub account. Link it on the web to
+          commit and push from here.
+        </ConnectOnWebNotice>
       ) : (
         <>
           <View className="flex-row items-start gap-two rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
