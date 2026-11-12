@@ -93,8 +93,8 @@ import {
   markBrowserSeen,
   newPreviewToken,
   previewExpiry,
+  storeAnnotations,
   storedAnnotations,
-  syncAnnotationsSoon,
 } from "@/lib/session-previews"
 import { recordSessionPullRequest } from "@/lib/session-reviews"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
@@ -1890,7 +1890,21 @@ export const markSessionBrowserSeen: AppRouteHandler<
     )
   }
   await markBrowserSeen(sessionId)
-  if (body.annotations) syncAnnotationsSoon(sessionId)
+  // Awaited, so a failed copy fails the request and the page asks again.
+  if (body.annotations) {
+    try {
+      await storeAnnotations(sessionId)
+    } catch (err) {
+      logger.warn(
+        { err, sessionId: sessionId },
+        "Couldn't store the annotations"
+      )
+      return c.json(
+        { success: false as const, message: "Couldn't store the annotations" },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  }
   return c.json({ ok: true as const }, HttpStatusCodes.OK)
 }
 

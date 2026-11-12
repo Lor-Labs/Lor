@@ -183,13 +183,11 @@ export function useSessionRun(
         items.map((item) => serviceRequest(sessionId, item.name, item.action))
       )
     },
-    onMutate: (items) => {
-      if (items.some((item) => item.action !== "stop")) {
-        setWatchUntil(Date.now() + WATCH_MS)
-      }
-    },
+    // The polling window starts once the requests are done, however long
+    // they took.
     onSuccess: (_result, items) => {
       const started = items.find((item) => item.action !== "stop")
+      if (started) setWatchUntil(Date.now() + WATCH_MS)
       setOpening(started ? { name: started.name, at: Date.now() } : null)
       refresh()
     },
@@ -222,13 +220,18 @@ export function useSessionRun(
     if (!opening) return
     const service = services.find((s) => s.name === opening.name)
     const age = Date.now() - opening.at
+    // Setup read before the start says nothing about it yet.
+    if (setup.dataUpdatedAt < opening.at && age <= WATCH_MS) return
     if (service?.state === "running") {
       setOpening(null)
       void queryClient.invalidateQueries({ queryKey: portsKey(sessionId) })
       ready.current(service.port)
     } else if (
       ((!service || service.state === "exited") && age > START_GRACE_MS) ||
-      (service && NEEDS_HELP.includes(serviceHealth(service))) ||
+      // Exited has the grace above: the last run's log can still show.
+      (service &&
+        service.state !== "exited" &&
+        NEEDS_HELP.includes(serviceHealth(service))) ||
       age > WATCH_MS
     ) {
       setOpening(null)

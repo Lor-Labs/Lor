@@ -129,7 +129,11 @@ function PreviewView({
         return res.json()
       },
       seen: async (annotations) => {
-        await route.seen.$post({ param: { token }, json: { annotations } })
+        const res = await route.seen.$post({
+          param: { token },
+          json: { annotations },
+        })
+        if (!res.ok) throw new Error(await errorMessage(res, "Not recorded"))
       },
     }
   }, [token, viewer.control])

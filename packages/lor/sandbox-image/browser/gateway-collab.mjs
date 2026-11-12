@@ -473,9 +473,10 @@ function pageAgent(binding) {
       return {
         element: { ...element, quote },
         anchor: anchor(box),
+        // Page.captureScreenshot's clip is in document coordinates.
         clip: {
-          x: Math.max(0, box.left - pad),
-          y: Math.max(0, box.top - pad),
+          x: Math.max(0, box.left + scrollX - pad),
+          y: Math.max(0, box.top + scrollY - pad),
           width: Math.min(1600, box.width + pad * 2),
           height: Math.min(1000, box.height + pad * 2),
         },
@@ -621,23 +622,38 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
 
   // Once this process has written the file it owns it; until then a file
   // that appears is the API's stored copy for a new sandbox.
+  // Writes run one at a time and each takes the list as it is then, so an
+  // older write never lands last.
   let owned = false
   let saving = null
-  const save = () => {
-    owned = true
-    clearTimeout(saving)
-    saving = setTimeout(async () => {
+  let writing = Promise.resolve()
+  const write = () => {
+    writing = writing.then(async () => {
       const items = [...annotations.values()].map(withoutImage)
       try {
         await writeFile(`${FILE}.tmp`, JSON.stringify({ items }))
         await rename(`${FILE}.tmp`, FILE)
       } catch {}
-    }, 300)
+    })
+    return writing
+  }
+  const save = () => {
+    owned = true
+    clearTimeout(saving)
+    saving = setTimeout(write, 300)
+  }
+  const saveNow = () => {
+    owned = true
+    clearTimeout(saving)
+    return write()
   }
   const shot = (id) => `${SHOTS}/${id}.jpg`
 
-  const publish = () => {
-    save()
+  // `now`: the file is written before the list goes out, so a viewer who
+  // sees notes gone knows the API can store that (Send to Lor's clear).
+  const publish = async (now = false) => {
+    if (now) await saveNow()
+    else save()
     broadcast({
       type: "comments",
       items: [...annotations.values()].map(withoutImage),
@@ -959,7 +975,7 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
           number: note.number,
           anchor: picked.anchor,
         })
-        publish()
+        void publish()
         const image = await capture(entry, picked.clip)
         const saved = annotations.get(id)
         if (saved && image) {
@@ -977,7 +993,7 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
         item.note = String(msg.text ?? "").slice(0, MAX_NOTE)
         item.open = msg.open === true
         await run("note", item.id, item.note, item.open)
-        publish()
+        void publish()
         return
       }
       case "where": {
@@ -989,7 +1005,7 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
         if (!item || item.by.userId !== viewer.userId) return
         forget(item.id)
         await run("remove", item.id)
-        publish()
+        void publish()
         return
       }
       // Send to Lor: everything with its screenshot, for the sender's panel.
@@ -1020,7 +1036,7 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
           forget(item.id)
           await run("remove", item.id)
         }
-        publish()
+        await publish(true)
         return
       }
     }

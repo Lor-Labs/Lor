@@ -111,6 +111,7 @@ const ASLEEP_RETRY_MS = 20_000
 const SEEN_MS = 60_000
 // After this viewer's notes settle, the API stores the page's annotations.
 const STORE_AFTER_MS = 2_000
+const STORE_RETRY_MS = 15_000
 
 type BrowserViewResult =
   | {
@@ -127,7 +128,8 @@ type BrowserViewResult =
 export type BrowserViewSource = {
   // A new grant for this viewer. Throws with the API's message.
   open: () => Promise<BrowserViewResult>
-  // The view is open; `annotations`: this viewer's notes changed.
+  // The view is open; `annotations`: this viewer's notes changed. Throws
+  // when the API didn't record it.
   seen: (annotations: boolean) => Promise<void>
   // Whether this viewer may take the browser's mouse and keyboard.
   canControl: boolean
@@ -146,10 +148,11 @@ function sessionSource(sessionId: string): BrowserViewSource {
       return res.json()
     },
     seen: async (annotations) => {
-      await apiClient.v1.sessions[":sessionId"].browser.seen.$post({
+      const res = await apiClient.v1.sessions[":sessionId"].browser.seen.$post({
         param: { sessionId },
         json: { annotations },
       })
+      if (!res.ok) throw new Error(await errorMessage(res, "Not recorded"))
     },
   }
 }
@@ -352,14 +355,29 @@ export function useSessionBrowserLive(
       .map((comment) => [comment.id, comment.note])
   )
   const storedMine = useRef(mine)
+  // Bumped after a failed store, so the same notes are tried again.
+  const [storeRetry, setStoreRetry] = useState(0)
   useEffect(() => {
     if (!collab || !myId || storedMine.current === mine) return
+    let cancelled = false
+    let retry: ReturnType<typeof setTimeout> | null = null
     const timer = setTimeout(() => {
-      storedMine.current = mine
-      void source.current.seen(true).catch(() => {})
+      source.current.seen(true).then(
+        () => {
+          storedMine.current = mine
+        },
+        () => {
+          if (cancelled) return
+          retry = setTimeout(() => setStoreRetry((n) => n + 1), STORE_RETRY_MS)
+        }
+      )
     }, STORE_AFTER_MS)
-    return () => clearTimeout(timer)
-  }, [collab, myId, mine])
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      if (retry) clearTimeout(retry)
+    }
+  }, [collab, myId, mine, storeRetry])
 
   const post = (message: PanelMessage) => {
     const target = frame.current?.contentWindow

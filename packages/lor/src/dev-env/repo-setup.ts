@@ -127,14 +127,33 @@ async function readRepoSetup(
 
 const serviceLog = (name: string) => `${LOG_DIR}/${name}.log`
 
-// `stat(pid)` for a `node -e` script: a process's state and process group.
-// A zombie still answers `kill -0`: the sandbox's init never reaps orphans.
+// `stat(pid)` for a `node -e` script: a process's state, process group and
+// start (seconds since the epoch). A zombie still answers `kill -0`: the
+// sandbox's init never reaps orphans. `service(pidFile)`: the process a
+// service's pid file names, only if it started when the file was written. A
+// sandbox restored from a checkpoint keeps the file, and its pid can belong to
+// another process by then.
 const PROC_STAT_JS = `
+const bootTime = (() => {
+  try { return Number(/^btime (\\d+)/m.exec(fs.readFileSync("/proc/stat", "utf8"))[1]) } catch { return 0 }
+})()
 const stat = (pid) => {
   try {
     const text = fs.readFileSync("/proc/" + pid + "/stat", "utf8")
     const rest = text.slice(text.lastIndexOf(")") + 2).split(" ")
-    return { alive: rest[0] !== "Z" && rest[0] !== "X", group: Number(rest[2]) }
+    return { alive: rest[0] !== "Z" && rest[0] !== "X", group: Number(rest[2]), start: bootTime + Number(rest[19]) / 100 }
+  } catch {
+    return null
+  }
+}
+const service = (pidFile) => {
+  try {
+    const pid = Number(fs.readFileSync(pidFile, "utf8"))
+    if (!(pid > 1)) return null
+    const proc = stat(pid)
+    const written = fs.statSync(pidFile).mtimeMs / 1000
+    if (!proc || !bootTime || proc.start < written - 60 || proc.start > written + 5) return null
+    return { pid, ...proc }
   } catch {
     return null
   }
@@ -171,12 +190,9 @@ if (out.clone) {
   const now = Date.now()
   for (const name of names) {
     const log = logDir + "/" + name + ".log"
-    let proc = null
+    const proc = service(log + ".pid")
     let upMs = null
-    try {
-      proc = stat(Number(fs.readFileSync(log + ".pid", "utf8")))
-      upMs = Math.max(0, Math.round(now - fs.statSync(log + ".pid").mtimeMs))
-    } catch {}
+    try { upMs = Math.max(0, Math.round(now - fs.statSync(log + ".pid").mtimeMs)) } catch {}
     let tail = null
     let quietMs = null
     try {
@@ -218,7 +234,8 @@ type SandboxSetup = {
 // running: something listens on its port, whoever started it. starting: its
 // process is alive (installing, or not listening yet; a dev server in watch
 // mode stays here after it crashed, so `quietMs` and the log tell). exited:
-// its process ended; the log says why.
+// its process ended; the log says why. stopped: never started, or Stop ended
+// it (its `.phase` file says "stopped").
 export type ServiceState = "stopped" | "starting" | "running" | "exited"
 
 export type RepoSetupStatus =
@@ -281,7 +298,8 @@ export async function repoSetupStatus(
         ? "running"
         : proc?.alive
           ? "starting"
-          : proc?.tail != null
+          : // A deliberate stop leaves its log behind: not a crash.
+            proc?.tail != null && proc.phase !== "stopped"
             ? "exited"
             : "stopped"
       const starting = state === "starting"
@@ -401,9 +419,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const own = stat(process.pid)?.group
 const main = async () => {
   let stopped = false
-  let pid = 0
-  try { pid = Number(fs.readFileSync(logDir + "/" + name + ".log.pid", "utf8")) } catch {}
-  const proc = pid > 1 ? stat(pid) : null
+  const pidFile = logDir + "/" + name + ".log.pid"
+  const proc = service(pidFile)
+  const pid = proc ? proc.pid : 0
   if (proc && proc.alive) {
     const target = proc.group > 1 && proc.group !== own ? -proc.group : pid
     const signal = (sig) => { try { process.kill(target, sig); return true } catch { return false } }
@@ -411,6 +429,8 @@ const main = async () => {
     for (let i = 0; i < 30 && stat(pid)?.alive; i++) await sleep(100)
     signal("SIGKILL")
   }
+  // Start writes its own phase over this, so only a crash after it reads as exited.
+  if (fs.existsSync(pidFile)) { try { fs.writeFileSync(logDir + "/" + name + ".log.phase", "stopped") } catch {} }
   if (Number(port) > 0) {
     for (let i = 0; i < 2; i++) {
       const left = listeners(new Set(hidden.map(Number))).filter((l) => l.port === Number(port) && !l.hidden && l.pid > 1 && l.pid !== process.pid)

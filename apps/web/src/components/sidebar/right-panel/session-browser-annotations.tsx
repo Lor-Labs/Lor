@@ -141,6 +141,9 @@ function annotationsMessage(
   return lines.join("\n")
 }
 
+// How long Send waits for the gateway to say the sent notes are gone.
+const CLEAR_WAIT_MS = 5_000
+
 function jpegFile(base64: string, name: string) {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
   return new File([bytes], name, { type: "image/jpeg" })
@@ -389,6 +392,26 @@ export function useSessionBrowserSharedAnnotations(
   const socket = useSocket()
   const [sending, setSending] = useState(false)
   const { comments, annotating, myId } = live
+  // The gateway's latest list, read during a send that outlives this render.
+  const latest = useRef(comments)
+  latest.current = comments
+
+  // The gateway broadcasts its list after it wrote it to the browser's
+  // folder, so a list without these ids means they are gone and stored.
+  const cleared = (ids: string[]) =>
+    new Promise<boolean>((resolve) => {
+      const start = Date.now()
+      const check = () => {
+        if (!latest.current.some((comment) => ids.includes(comment.id))) {
+          resolve(true)
+        } else if (Date.now() - start > CLEAR_WAIT_MS) {
+          resolve(false)
+        } else {
+          setTimeout(check, 150)
+        }
+      }
+      check()
+    })
 
   const send = async () => {
     if (sending) return
@@ -417,12 +440,21 @@ export function useSessionBrowserSharedAnnotations(
             : Promise.resolve(null)
         )
       )
-      const attachments = uploads.filter((upload) => upload !== null)
+      // A note discarded while the screenshots uploaded doesn't go.
+      const present = new Set(latest.current.map((comment) => comment.id))
+      const kept = items.flatMap((item, i) =>
+        present.has(item.id) ? [{ item, upload: uploads[i] ?? null }] : []
+      )
+      if (kept.length === 0) return
+      const sent = kept.map((entry) => entry.item)
+      const attachments = kept.flatMap((entry) =>
+        entry.upload ? [entry.upload] : []
+      )
       const result = await socket.timeout(15_000).emitWithAck("message:send", {
         channelId,
         threadRootId,
         content: annotationsMessage(
-          items.map((item) => ({
+          sent.map((item) => ({
             element: item.element,
             note: item.note,
             quote: item.element.quote,
@@ -438,8 +470,14 @@ export function useSessionBrowserSharedAnnotations(
         toast.error(result.error)
         return
       }
-      live.post({ type: "clear", ids: items.map((item) => item.id) })
-      live.store()
+      const ids = sent.map((item) => item.id)
+      if (live.post({ type: "clear", ids }) && (await cleared(ids))) {
+        live.store()
+      } else {
+        toast.error(
+          "Sent to Lor, but the notes are still on the page. Don't send them again"
+        )
+      }
       // Lor needs the browser to make and check the fix.
       if (live.youControl) live.handBack()
     } catch (err) {

@@ -1,13 +1,14 @@
 import { auth } from "@repo/auth"
 import { openBrowserView } from "@repo/lor/dev-env/browser"
 import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
+import { logger } from "@/lib/logger"
 import {
   browserSeenRecently,
   findPreviewLink,
   markBrowserSeen,
   previewAccess,
+  storeAnnotations,
   storedAnnotations,
-  syncAnnotationsSoon,
 } from "@/lib/session-previews"
 import type { AppRouteHandler } from "@/lib/types/app-types"
 import type {
@@ -141,6 +142,20 @@ export const markPreviewSeen: AppRouteHandler<MarkPreviewSeenRoute> = async (
     )
   }
   await markBrowserSeen(preview.session.id)
-  if (body.annotations) syncAnnotationsSoon(preview.session.id)
+  // Awaited, so a failed copy fails the request and the page asks again.
+  if (body.annotations) {
+    try {
+      await storeAnnotations(preview.session.id)
+    } catch (err) {
+      logger.warn(
+        { err, sessionId: preview.session.id },
+        "Couldn't store the annotations"
+      )
+      return c.json(
+        { success: false as const, message: "Couldn't store the annotations" },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  }
   return c.json({ ok: true as const }, HttpStatusCodes.OK)
 }

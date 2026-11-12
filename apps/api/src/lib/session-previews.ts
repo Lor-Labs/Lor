@@ -213,7 +213,19 @@ export const endPreviewViewsSoon = (sessionId: string) =>
     logger.warn({ err, sessionId }, "Couldn't end the preview link's views")
   )
 
-export const syncAnnotationsSoon = (sessionId: string) =>
-  void syncAnnotations(sessionId).catch((err: unknown) =>
-    logger.warn({ err, sessionId }, "Couldn't store the browser annotations")
-  )
+// One copy at a time per session (in this API process): each reads the
+// sandbox after the one before it wrote, so an older read never lands last.
+const storing = new Map<string, Promise<void>>()
+
+export function storeAnnotations(sessionId: string): Promise<void> {
+  const run = (storing.get(sessionId) ?? Promise.resolve())
+    .catch(() => {})
+    .then(() => syncAnnotations(sessionId))
+  storing.set(sessionId, run)
+  run
+    .finally(() => {
+      if (storing.get(sessionId) === run) storing.delete(sessionId)
+    })
+    .catch(() => {})
+  return run
+}
