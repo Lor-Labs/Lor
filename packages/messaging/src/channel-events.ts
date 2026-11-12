@@ -84,6 +84,15 @@ export type ChannelEventContentInput =
       pullRequestNumber: number
       repoFullName: string
     }
+  | {
+      eventType: "session_pr_opened" | "session_pr_merged"
+      actorName: string
+      pullRequestNumber: number
+      pullRequestUrl: string
+      headBranch: string
+      baseBranch: string
+      repoFullName: string
+    }
 
 export function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ""
@@ -132,6 +141,11 @@ export function channelEventContent(input: ChannelEventContentInput): string {
     // untrusted and reaches Lor only through a person's Fix with Lor.
     case "session_reviewed":
       return `${input.reviewer}${input.reviewerBot ? " (bot)" : ""} ${input.state === "approved" ? "approved" : input.state === "changes_requested" ? "requested changes on" : "reviewed"} pull request #${input.pullRequestNumber} on ${input.repoFullName}`
+    // Lor reads these. The PR title is left out: it is untrusted text.
+    case "session_pr_opened":
+      return `${input.actorName} opened pull request #${input.pullRequestNumber} from ${input.headBranch} into ${input.baseBranch} on ${input.repoFullName} (${input.pullRequestUrl})`
+    case "session_pr_merged":
+      return `${input.actorName} merged pull request #${input.pullRequestNumber} from ${input.headBranch} into ${input.baseBranch} on ${input.repoFullName} (${input.pullRequestUrl})`
     // Lor reads it: a replaced sandbox lost everything outside the restore.
     case "session_setup_changed": {
       const parts: string[] = []

@@ -32,6 +32,7 @@ import {
   or,
   type SQL,
 } from "drizzle-orm"
+import { triggerMessagePayload } from "@/lib/trigger-messages"
 
 export async function getAvatarColorsByUserId(
   scope: { workspaceId: string } | { channelId: string },
@@ -641,6 +642,7 @@ export async function hydrateMessages(
 
   return messages.map(({ lorMemories, ...msg }) => ({
     ...msg,
+    eventPayload: triggerMessagePayload(msg),
     author: {
       ...msg.author,
       avatarColor: avatarColorByUserId.get(msg.author.id) ?? null,

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import {
@@ -17,7 +17,11 @@ import type {
 } from "ai"
 import { logger } from "../logger"
 import { guardSandbox } from "./beta-compute"
-import { SANDBOX_PROCESS_ENV, WORKSPACE_MOUNT } from "./blaxel"
+import {
+  SANDBOX_PROCESS_ENV,
+  WORKSPACE_MOUNT,
+  whileSandboxStarts,
+} from "./blaxel"
 import type { SandboxUsageBucket } from "./blaxel-usage"
 
 // Boat (boat.dev), the fallback sandbox provider: a new session sandbox goes
@@ -55,7 +59,46 @@ export function boatConfigured(): boolean {
   return Boolean(env.BOAT_API_KEY)
 }
 
+// The SDK's error says only "Response returned an error code". A failed
+// command or create carries Boat's status and error code instead: they decide
+// a retry, and without them the logs can't tell a starting VM from a stopped
+// one.
+export class BoatRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | null,
+    cause: unknown
+  ) {
+    super(`Boat request failed (${status}${code ? ` ${code}` : ""})`, { cause })
+    this.name = "BoatRequestError"
+  }
+}
+
+async function boatRequestError(err: unknown): Promise<unknown> {
+  if (!(err instanceof ResponseError)) return err
+  // Boat's error envelope: `code` at the top and again in `error`.
+  const body: unknown = await err.response
+    .clone()
+    .json()
+    .catch(() => null)
+  const field = (value: unknown, key: string): unknown =>
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)[key]
+      : undefined
+  const code = [
+    field(body, "code"),
+    field(field(body, "error"), "code"),
+    field(body, "error"),
+  ].find((value) => typeof value === "string")
+  return new BoatRequestError(
+    err.response.status,
+    typeof code === "string" ? code.slice(0, 80) : null,
+    err
+  )
+}
+
 export function boatStatus(err: unknown): number | undefined {
+  if (err instanceof BoatRequestError) return err.status
   return err instanceof ResponseError ? err.response.status : undefined
 }
 
@@ -156,22 +199,47 @@ function boatType(memoryMb: number): "small" | "default" | "large" {
   return "large"
 }
 
+// Boat binds an Idempotency-Key to its request body for 24 hours, and a
+// delete frees it only for that same body (checked live 2026-11-11). With the
+// name alone as the key, a sandbox replaced at a new size answered 409
+// idempotency_key_reused. The key names the whole request instead: any size
+// creates, a retry returns the same VM, and two creates at once (a restore
+// and a turn) end on one VM, the second waiting out 409
+// idempotency_in_progress.
 export async function createBoatSandbox(
   name: string,
-  memoryMb: number
+  memoryMb: number,
+  abortSignal?: AbortSignal
 ): Promise<BoatSandbox> {
-  const { sandbox } = await boat().create({
-    idempotencyKey: name,
-    createSandboxRequest: {
-      name,
-      type: boatType(memoryMb),
-      from: env.LOR_BOAT_TEMPLATE,
-      ttlSeconds: BOAT_KEEP_ALIVE_SEC,
-      labels: { lor: "session" },
-    },
-  })
+  const createSandboxRequest = {
+    name,
+    type: boatType(memoryMb),
+    from: env.LOR_BOAT_TEMPLATE,
+    ttlSeconds: BOAT_KEEP_ALIVE_SEC,
+    labels: { lor: "session" },
+  }
+  const idempotencyKey = `${name}:${createHash("sha256")
+    .update(JSON.stringify(createSandboxRequest))
+    .digest("hex")
+    .slice(0, 12)}`
+  const { sandbox } = await whileSandboxStarts(
+    () =>
+      boat()
+        .create({ idempotencyKey, createSandboxRequest })
+        .catch(async (err: unknown) => {
+          throw await boatRequestError(err)
+        }),
+    {
+      retry: (err) =>
+        err instanceof BoatRequestError &&
+        err.code === "idempotency_in_progress",
+      ...(abortSignal ? { abortSignal } : {}),
+    }
+  )
   ids.set(name, sandbox.id)
   extendedAt.set(sandbox.id, Date.now())
+  // The SDK's wait takes no signal; the VM stays and the next open finds it.
+  abortSignal?.throwIfAborted()
   const ready = await waitUntilReady(boat(), sandbox.id)
   logger.info(
     { sandbox: name, boatId: sandbox.id, type: ready.type },
@@ -322,6 +390,7 @@ async function startCommand(
     command: string
     cwd?: string
     env?: Record<string, string>
+    abortSignal?: AbortSignal
   }
 ): Promise<number> {
   const envFile = await writeEnvFile(sandbox, input.env ?? {})
@@ -338,14 +407,29 @@ async function startCommand(
   ].join("\n")
   void keepAwake(sandbox.id)
   // Root, as on Blaxel (HOME=/root holds the harness bootstrap), whether or
-  // not Boat runs commands as root.
-  const started = (await boat().command({
-    sandboxId: sandbox.id,
-    commandRequest: {
-      command: `$([ "$(id -u)" = 0 ] || echo sudo -n -H) bash -c ${shellQuote(script)}`,
-      detached: true,
-    },
-  })) as CommandStartedResponse
+  // not Boat runs commands as root. Boat holds a command for up to 60 seconds
+  // while the VM starts (a create or resume), then answers 409 boat_starting:
+  // retryable, the command never ran. Nothing else is replayed (a 502 may
+  // have started it).
+  const started = (await whileSandboxStarts(
+    () =>
+      boat()
+        .command({
+          sandboxId: sandbox.id,
+          commandRequest: {
+            command: `$([ "$(id -u)" = 0 ] || echo sudo -n -H) bash -c ${shellQuote(script)}`,
+            detached: true,
+          },
+        })
+        .catch(async (err: unknown) => {
+          throw await boatRequestError(err)
+        }),
+    {
+      retry: (err) =>
+        err instanceof BoatRequestError && err.code === "boat_starting",
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+    }
+  )) as CommandStartedResponse
   return started.processId
 }
 
@@ -386,9 +470,12 @@ export async function boatExec(
     command: input.command,
     ...(input.cwd ? { cwd: input.cwd } : {}),
     ...(input.env ? { env: input.env } : {}),
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
   })
   const onAbort = () => void stopCommand(sandbox, processId)
   input.abortSignal?.addEventListener("abort", onAbort, { once: true })
+  // An abort while the command was starting fired before this listener.
+  if (input.abortSignal?.aborted) onAbort()
   try {
     const offsets = { stdout: 0, stderr: 0 }
     let stdout = ""

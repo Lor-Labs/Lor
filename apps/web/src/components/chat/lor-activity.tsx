@@ -33,14 +33,14 @@ export function LorActivity({
   children: ReactNode
 }) {
   const [wasActive, setWasActive] = useState(active)
-  const [open, setOpen] = useState(active)
+  const [open, setOpen] = useState(active || failed)
   // Labels morph only for runs seen live; settled history rows stay plain text.
   const [live, setLive] = useState(active)
   const triggerRef = useRef<HTMLButtonElement>(null)
   // Reset at run boundaries; manual toggles still work while a run is active.
   if (wasActive !== active) {
     setWasActive(active)
-    setOpen(active)
+    setOpen(active || failed)
   }
   if (active && !live) setLive(true)
 

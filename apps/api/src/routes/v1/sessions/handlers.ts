@@ -2323,7 +2323,11 @@ export const updateSessionSetup: AppRouteHandler<
     after,
   } = outcome
 
-  if (replaced) await startRestore(session)
+  if (replaced) {
+    await startRestore(session)
+    // Open sessions show the replacement now, not only when it ends.
+    broadcastChangesUpdated(session, "", { filesChanged: true })
+  }
   // Null: the manifest cleanup deletes the old environment's files.
   if (environmentChanged || (resized && environmentId)) {
     queueEnvironmentWrite(session, environmentId)

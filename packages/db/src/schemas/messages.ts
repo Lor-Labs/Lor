@@ -86,6 +86,9 @@ export const channelEventTypeEnum = pgEnum("channel_event_type", [
   // In a code session: someone reviewed the pull request of its branch on
   // GitHub (reference/planned/pr-reviews.md). The card reads the comments live.
   "session_reviewed",
+  // In a code session: a pull request from its branch was opened, or merged.
+  "session_pr_opened",
+  "session_pr_merged",
   // In a code session: someone changed its environment or sandbox size.
   "session_setup_changed",
 ])
@@ -330,6 +333,22 @@ export type TriggerRunPayload = {
   triggerId: string
   // Event source label, e.g. "GitHub · Pull request merged".
   label: string
+  sourceMessages?: TriggerSourceMessage[]
+  omittedMessages?: number
+}
+
+// The original automation message, retained even when POST is off or the
+// channel message is later deleted. Rendered like an asked-about message.
+export type TriggerSourceMessage = {
+  id: string
+  content: string | null
+  createdAt: string
+  author: { id: string; name: string; image: string | null }
+  overrideName: string | null
+  overrideAvatarUrl: string | null
+  mentions: { id: string; name: string; image: string | null }[]
+  attachments: Attachment[]
+  embeds: Embed[]
 }
 
 export type SessionContinuedPayload = {
@@ -388,6 +407,20 @@ export type SessionReviewedPayload = {
   state: "approved" | "changes_requested" | "commented"
 }
 
+// session_pr_opened / session_pr_merged. The author is the workspace member
+// whose linked GitHub account did it, else the app user (githubLogin names
+// them).
+export type SessionPullRequestPayload = {
+  sessionId: string
+  repoFullName: string
+  pullRequestNumber: number
+  pullRequestUrl: string
+  title: string
+  headBranch: string
+  baseBranch: string
+  githubLogin: string
+}
+
 export type ChannelEventPayload =
   | ChannelCreatedPayload
   | ChannelRenamedPayload
@@ -401,6 +434,7 @@ export type ChannelEventPayload =
   | SessionForkedPayload
   | SessionRewoundPayload
   | SessionReviewedPayload
+  | SessionPullRequestPayload
   | SessionSetupChangedPayload
   | null
 

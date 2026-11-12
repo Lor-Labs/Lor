@@ -306,6 +306,8 @@ export type RealtimeChannelEventType =
   | "session_forked"
   | "session_rewound"
   | "session_reviewed"
+  | "session_pr_opened"
+  | "session_pr_merged"
   | "session_setup_changed"
 
 export type RealtimeChannelEventPayload =
@@ -319,7 +321,12 @@ export type RealtimeChannelEventPayload =
       reason?: "failures" | "out_of_credits"
       via?: "proposal"
     }
-  | { triggerId: string; label: string }
+  | {
+      triggerId: string
+      label: string
+      sourceMessages?: RealtimeTriggerSourceMessage[]
+      omittedMessages?: number
+    }
   | { sessionId: string; repoFullName: string | null }
   | {
       sessionId: string
@@ -349,6 +356,16 @@ export type RealtimeChannelEventPayload =
     }
   | {
       sessionId: string
+      repoFullName: string
+      pullRequestNumber: number
+      pullRequestUrl: string
+      title: string
+      headBranch: string
+      baseBranch: string
+      githubLogin: string
+    }
+  | {
+      sessionId: string
       environmentName?: string | null
       sandboxMemoryMb?: number
     }
@@ -362,6 +379,18 @@ export type RealtimeAuthor = {
 }
 
 export type RealtimeMessageMention = RealtimeAuthor
+
+export type RealtimeTriggerSourceMessage = {
+  id: string
+  content: string | null
+  createdAt: string
+  author: RealtimeAuthor
+  overrideName: string | null
+  overrideAvatarUrl: string | null
+  mentions: RealtimeMessageMention[]
+  attachments: RealtimeAttachment[]
+  embeds: RealtimeEmbed[]
+}
 
 export type RealtimeMessageReaction = {
   emoji: string

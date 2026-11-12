@@ -370,6 +370,16 @@ first load). The client behavior is the same.
 
 ## Deviations log
 
+- 2026-11-10: messages sent while a session's sandbox was being replaced
+  (a new size) or waking from standby failed with the generic error, on
+  Blaxel's `WORKLOAD_UNAVAILABLE`. Turns now wait for the sandbox
+  (`artifacts.md`, Booting and waking), and wait for a restore running in it
+  before stopping leftover commands (`beforeFencing`), since the restore's
+  command is a `run-*` too. The composer shows "Setting up the sandbox" while
+  the files are restored, then "The sandbox is ready" (`SandboxStatusNote`);
+  the size change broadcasts `session:changes:updated` when it starts as
+  well as when it ends. Not run live.
+
 - 2026-11-09 (LOR-156): a session's environment is no longer fixed at its
   start. The session menu's Environment & sandbox switches it (or sets one on
   a session started without) and writes its files at once; the size there is

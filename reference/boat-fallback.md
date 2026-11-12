@@ -40,11 +40,30 @@ once on its $20 plan, so it takes the overflow (Jacob, 2026-11-05).
     no table records the provider. Created from the saved snapshot
     `LOR_BOAT_TEMPLATE` with label `lor=session`; small/default/large for 4/8/16
     GB.
+  - Create's `Idempotency-Key` is the name plus a hash of the request
+    (2026-11-11). Boat binds a key to its request body for 24 hours and a
+    delete frees it only for that same body, so the name alone made a
+    sandbox replaced at a new size answer `409 idempotency_key_reused`. Two
+    creates at once (a restore and a turn) end on one VM: the second gets
+    `409 idempotency_in_progress` and retries. A deleted sandbox is gone from
+    `get` and the name list at once. Checked live through `createBoatSandbox`,
+    `boatExec` and `deleteBoatSandbox`: racing creates, then 4 GB, 8 GB and
+    4 GB again under one name. Not checked: the size change from the app.
+  - A Boat sandbox replaced by one on Blaxel (Blaxel is tried first) clears
+    the worker's memory of the session being on Boat when the Blaxel sandbox
+    opens, so harness turns get the proxy's credential rule again.
   - Keep-alive: every command and open sets `ttlSeconds` to 30 minutes (at most
     once a minute), which moves Boat's stop deadline to now + 30 minutes. A
     stopped sandbox is resumed on the next open; one still stopping answers
     409 `sandbox_stopping`, so resume retries for up to 3 minutes (a stop
     took about 40 s).
+  - A command sent while the VM starts (a create or resume) is held by Boat
+    for up to 60 s, then answers `409 boat_starting`. `startCommand` retries
+    that one answer through `whileSandboxStarts` (2026-11-11, not run live)
+    and gives up with `SandboxStartingError`, like Blaxel's
+    `WORKLOAD_UNAVAILABLE` (`artifacts.md`, Booting and waking). A failed
+    command or create throws `BoatRequestError` with Boat's status and error
+    code (seen live: `404 not_found`); the SDK's own error names neither.
   - Commands run as root through `sudo -n -H` (Boat runs as `user` with
     passwordless sudo), detached, with output read by offset. Env values the
     caller passes go through a `/tmp` file the script reads and deletes, so a
