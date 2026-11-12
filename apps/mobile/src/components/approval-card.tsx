@@ -86,11 +86,15 @@ export function ApprovalGateCard({
         ...(extra.planMode ? { claudeCodeMode: extra.planMode } : {}),
         ...(extra.answers ? { answers: extra.answers } : {}),
       },
-      { onSettled: () => onResolved?.() }
+      {
+        // The next message goes on in the mode the plan was approved with,
+        // instead of planning again.
+        onSuccess: () => {
+          if (extra.planMode) rememberClaudeCodeMode(extra.planMode)
+        },
+        onSettled: () => onResolved?.(),
+      }
     )
-    // The next message goes on in the mode the plan was approved with,
-    // instead of planning again.
-    if (extra.planMode) rememberClaudeCodeMode(extra.planMode)
   }
   const statusLine = canResolve
     ? "Needs your approval"

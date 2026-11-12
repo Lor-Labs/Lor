@@ -119,7 +119,8 @@ export function LorReplyActions({
       <Text
         accessibilityHint={label?.exact ? "Shows the exact model" : undefined}
         className="ml-two min-w-0 shrink text-xs text-muted"
-        numberOfLines={1}
+        // The exact id can be long: shown, it wraps instead of clipping.
+        numberOfLines={exact ? undefined : 1}
         onPress={label?.exact ? () => setExact((shown) => !shown) : undefined}
         style={{ fontVariant: ["tabular-nums"] }}
         suppressHighlighting

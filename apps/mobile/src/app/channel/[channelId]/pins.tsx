@@ -39,7 +39,13 @@ export default function PinnedMessagesScreen() {
   })
   const { avatarColorByUserId, openAuthorProfile, profileSheet } =
     useAuthorProfileSheet(workspace?.slug ?? "")
-  const refreshControl = usePullToRefresh(pins.reload)
+  const refreshControl = usePullToRefresh(async () => {
+    if (await pins.reload()) return
+    Alert.alert(
+      "Pinned messages didn't refresh",
+      "Check your connection and try again."
+    )
+  })
 
   const goBack = () => {
     if (router.canGoBack()) router.back()

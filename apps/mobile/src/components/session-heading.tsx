@@ -96,7 +96,11 @@ export function SessionHeading({
         <View className="mt-[6px] flex-row flex-wrap items-center gap-x-three gap-y-[6px]">
           {repo ? (
             <PressableScale
-              accessibilityHint="Opens the branch on GitHub"
+              accessibilityHint={
+                repo.newBranch
+                  ? `Opens ${repo.branch}, its base, on GitHub`
+                  : "Opens the branch on GitHub"
+              }
               accessibilityLabel={`${repo.fullName}, branch ${repo.newBranch ?? repo.branch}`}
               accessibilityRole="link"
               className="max-w-full flex-row flex-wrap items-center gap-x-three gap-y-[6px]"

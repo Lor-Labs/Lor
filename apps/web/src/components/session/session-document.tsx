@@ -545,7 +545,8 @@ export function SessionDocument({
       ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
     })
     if (nonce) showSendEffects(nonce, options)
-    if (nonce && agentAnswers) pinSessionChoice(modelChoice)
+    if (nonce && agentAnswers && !options?.toPeople)
+      pinSessionChoice(modelChoice)
     scroll.scrollAfterSend()
     // Lor is mid-answer, so a message for Lor will queue — show it in
     // the pill now instead of waiting for the routed round trip.

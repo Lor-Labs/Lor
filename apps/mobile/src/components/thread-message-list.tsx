@@ -601,6 +601,29 @@ export function ThreadMessageList({
                 name: "delete",
               })
             }
+            // The reply's action row sits inside this element, which VoiceOver
+            // reads as one: its actions are offered here too.
+            const lorActions = lorTurns.finished(message)
+            if (
+              lorActions &&
+              onFork &&
+              !forkingMessageId &&
+              lorTurns.canFork(message)
+            ) {
+              accessibilityActions.push({
+                label: "Fork from here",
+                name: "fork",
+              })
+            }
+            if (lorActions && onRewind && lorTurns.canRewind(message)) {
+              accessibilityActions.push({
+                label: "Rewind to here",
+                name: "rewind",
+              })
+            }
+            if (lorActions) {
+              accessibilityActions.push({ label: "More actions", name: "more" })
+            }
 
             return (
               <Pressable
@@ -619,6 +642,18 @@ export function ThreadMessageList({
                   }
                   if (event.nativeEvent.actionName === "delete") {
                     onDelete?.(message)
+                    return
+                  }
+                  if (event.nativeEvent.actionName === "fork") {
+                    confirmFork(message)
+                    return
+                  }
+                  if (event.nativeEvent.actionName === "rewind") {
+                    confirmRewind(message)
+                    return
+                  }
+                  if (event.nativeEvent.actionName === "more") {
+                    setSelectedMessage(message)
                   }
                 }}
                 onLongPress={() => handleLongPress(message)}
@@ -651,7 +686,9 @@ export function ThreadMessageList({
                           forking={forkingMessageId === message.id}
                           message={message}
                           onFork={
-                            onFork && lorTurns.canFork(message)
+                            onFork &&
+                            lorTurns.canFork(message) &&
+                            !forkingMessageId
                               ? () => confirmFork(message)
                               : undefined
                           }
@@ -728,7 +765,10 @@ export function ThreadMessageList({
         }
         onTogglePin={onTogglePin}
         onFork={
-          onFork && selectedMessage && lorTurns.canFork(selectedMessage)
+          onFork &&
+          !forkingMessageId &&
+          selectedMessage &&
+          lorTurns.canFork(selectedMessage)
             ? () => {
                 const message = selectedMessage
                 setSelectedMessage(null)

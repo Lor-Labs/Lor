@@ -460,9 +460,13 @@ export function MessageComposer({
     inputRef.current?.focus()
   }, [])
 
-  const pickCommand = (item: HarnessCommandItem) => {
+  // Replaces only the command being typed in the Markdown draft, so the
+  // draft's mentions and formatting stay.
+  const pickCommand = async (item: HarnessCommandItem) => {
     triggerHaptic("selection")
-    writeDraft(applyHarnessCommand(plainTextRef.current, item))
+    const markdown =
+      (await inputRef.current?.getMarkdown()) ?? contentRef.current
+    writeDraft(applyHarnessCommand(markdown, item))
   }
 
   useImperativeHandle(
@@ -572,7 +576,7 @@ export function MessageComposer({
       {commandMenu && !isMentionMenuOpen ? (
         <CommandSuggestionMenu
           items={commandMenu.items}
-          onSelect={pickCommand}
+          onSelect={(item) => void pickCommand(item)}
         />
       ) : null}
       {isMentionMenuOpen ? (

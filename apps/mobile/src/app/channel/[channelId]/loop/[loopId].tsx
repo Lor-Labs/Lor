@@ -104,6 +104,14 @@ export default function LoopScreen() {
         <View className="flex-1 items-center justify-center">
           <Spinner accessibilityLabel="Loading the loop" />
         </View>
+      ) : loops.isError ? (
+        <StatePanel
+          action={{ label: "Try again", onPress: () => void loops.refetch() }}
+          className="flex-1"
+          detail="Check your connection and try again."
+          status="danger"
+          title="The loop is unavailable"
+        />
       ) : (
         <StatePanel
           action={{ label: "Back to channel", onPress: backToChannel }}
@@ -287,6 +295,18 @@ function LoopDetail({ loop }: { loop: ChannelLoop }) {
               <Text className="px-three py-three text-[15px] text-muted">
                 Loading…
               </Text>
+            ) : runs.isError ? (
+              <PressableRow
+                accessibilityRole="button"
+                className="px-three py-three"
+                highlightClassName="rounded-none"
+                onPress={() => void runs.refetch()}
+              >
+                <Text className="text-[15px] text-muted">
+                  Couldn't load the runs.{" "}
+                  <Text className="font-semibold text-accent">Try again</Text>
+                </Text>
+              </PressableRow>
             ) : runs.data && runs.data.runs.length > 0 ? (
               runs.data.runs.map((run, index) => (
                 <RunRow

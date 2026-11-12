@@ -375,9 +375,20 @@ function NewSessionComposer({
         {claudeCode ? <ClaudeCodeModePicker /> : null}
         {/* Only for a repo that has environments; they are made on the
             web. */}
-        {mode === "code" &&
-        code.status === "ready" &&
-        environment.environments.length > 0 ? (
+        {mode === "code" && code.status === "ready" && environment.loading ? (
+          <Spinner accessibilityLabel="Loading environments" size="sm" />
+        ) : mode === "code" && code.status === "ready" && environment.failed ? (
+          // Without the list the remembered environment can't apply: the
+          // session would start without one unless this is retried.
+          <TargetChip
+            hint="Loads the repo's environments again"
+            icon={Settings02Icon}
+            label="Environments didn't load · Retry"
+            onPress={environment.retry}
+          />
+        ) : mode === "code" &&
+          code.status === "ready" &&
+          environment.environments.length > 0 ? (
           <TargetChip
             hint="Chooses the environment whose env files the session uses"
             icon={Settings02Icon}
@@ -435,7 +446,9 @@ function NewSessionComposer({
               mode === "code" ? "Ask Lor to work on the code…" : "Ask Lor…"
             }
             sendBlocked={
-              (mode === "code" && !code.target) || needsClaude || needsChatgpt
+              (mode === "code" && (!code.target || environment.loading)) ||
+              needsClaude ||
+              needsChatgpt
             }
             topAccessory={accessory}
           />

@@ -487,7 +487,7 @@ export function ChannelList({
   const { workspace, avatarColor } = useWorkspace()
   const { call, joining, join, ownVoiceChannel } = useVoiceCall()
   const { data: auth } = authClient.useSession()
-  const activity = useWorkspaceActivity(workspace?.id)
+  const { data: activity } = useWorkspaceActivity(workspace?.id)
   useWorkspaceSessionUpdates(workspace?.id)
   const sessionCollapse = useSessionCollapse(activity)
   const sessionsHint = useHint("sessions_intro")

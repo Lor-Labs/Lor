@@ -4,6 +4,7 @@ import { router, useFocusEffect } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Alert, RefreshControl, View } from "react-native"
 import Animated, {
+  useAnimatedRef,
   useAnimatedScrollHandler,
   useSharedValue,
 } from "react-native-reanimated"
@@ -53,6 +54,7 @@ export default function WorkspaceScreen() {
   // The list's offset stays on the UI thread: the header's hairline follows
   // it without a render per scroll frame.
   const scrollY = useSharedValue(0)
+  const scrollRef = useAnimatedRef<Animated.ScrollView>()
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.set(event.contentOffset.y)
   })
@@ -171,6 +173,10 @@ export default function WorkspaceScreen() {
 
   const channelCount = useMemo(() => countChannels(channels), [channels])
   const searchActive = query.trim().length > 0
+  // Results start at the top, wherever the channel list was scrolled to.
+  useEffect(() => {
+    if (searchActive) scrollRef.current?.scrollTo({ y: 0, animated: false })
+  }, [searchActive, scrollRef])
   const search = useMessageSearch({
     query,
     workspaceSlug: workspace?.slug ?? "",
@@ -292,6 +298,7 @@ export default function WorkspaceScreen() {
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           onScroll={onScroll}
+          ref={scrollRef}
           refreshControl={
             <RefreshControl
               onRefresh={() => void pullToRefresh()}

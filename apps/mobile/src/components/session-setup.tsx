@@ -175,6 +175,7 @@ export function SessionSetupSheet({
             >
               <Group title="Environment">
                 <Choice
+                  disabled={save.isPending}
                   label="None"
                   onPress={() => setEnvironmentId(null)}
                   selected={environmentId === null}
@@ -182,6 +183,7 @@ export function SessionSetupSheet({
                 />
                 {environments.map((env) => (
                   <Choice
+                    disabled={save.isPending}
                     key={env.id}
                     label={env.name}
                     onPress={() => setEnvironmentId(env.id)}
@@ -199,6 +201,7 @@ export function SessionSetupSheet({
               <Group title="Sandbox size">
                 {list.sandboxSizes.map((size) => (
                   <Choice
+                    disabled={save.isPending}
                     detail={`${size.creditsPerHour} credits an hour${
                       size.memoryMb === currentMb ? " · current" : ""
                     }`}
@@ -264,7 +267,10 @@ function Choice({
   selected,
   onPress,
   tick,
+  disabled = false,
 }: {
+  // While a save is in flight: the sheet closes on its result.
+  disabled?: boolean
   label: string
   detail?: string
   selected: boolean
@@ -274,8 +280,11 @@ function Choice({
   return (
     <PressableRow
       accessibilityRole="radio"
-      accessibilityState={{ checked: selected }}
-      className="min-h-12 flex-row items-center gap-two px-three py-two"
+      accessibilityState={{ checked: selected, disabled }}
+      className={`min-h-12 flex-row items-center gap-two px-three py-two ${
+        disabled ? "opacity-50" : ""
+      }`}
+      disabled={disabled}
       onPress={() => {
         if (selected) return
         triggerHaptic("selection")

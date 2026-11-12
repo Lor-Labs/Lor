@@ -994,7 +994,8 @@ export function ThreadView({
       {codeSession && lorSession ? (
         <SessionSetupSheet
           isOpen={isSetupOpen}
-          lorRunning={Boolean(pendingLorMessage)}
+          // A turn paused on approvals is still Lor's: no resize under it.
+          lorRunning={Boolean(stoppableLorMessageId)}
           onOpenChange={setIsSetupOpen}
           session={lorSession}
           workspaceSlug={workspace.slug}

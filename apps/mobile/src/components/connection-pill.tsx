@@ -1,6 +1,6 @@
 import { Spinner } from "heroui-native/spinner"
 import { useEffect, useState } from "react"
-import { Text, View } from "react-native"
+import { AccessibilityInfo, Platform, Text, View } from "react-native"
 import Animated, { FadeInUp, FadeOutUp } from "react-native-reanimated"
 import { useSocketConnected } from "@/context/socket-context"
 import { EASE_OUT } from "@/lib/motion"
@@ -24,7 +24,13 @@ export function ConnectionPill() {
       setShown(false)
       return
     }
-    const timer = setTimeout(() => setShown(true), SHOW_AFTER_MS)
+    const timer = setTimeout(() => {
+      setShown(true)
+      // Android reads the live region; iOS needs the announcement.
+      if (Platform.OS === "ios") {
+        AccessibilityInfo.announceForAccessibility("Reconnecting")
+      }
+    }, SHOW_AFTER_MS)
     return () => clearTimeout(timer)
   }, [connected])
 

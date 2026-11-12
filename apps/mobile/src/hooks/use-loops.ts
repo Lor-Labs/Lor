@@ -8,6 +8,7 @@ import {
 import { useEffect } from "react"
 import { Alert } from "react-native"
 import { useSocket } from "@/context/socket-context"
+import { useChannelRoom } from "@/hooks/use-channel-room"
 import { api } from "@/lib/api"
 import type { ChannelLoop } from "@/lib/api-types"
 
@@ -16,6 +17,9 @@ import type { ChannelLoop } from "@/lib/api-types"
 export function useChannelLoops(channelId: string) {
   const socket = useSocket()
   const queryClient = useQueryClient()
+  // loop:updated reaches the channel room; a loop page opened without the
+  // channel screen under it holds the room itself (refcounted).
+  useChannelRoom(socket, channelId)
   const query = useQuery({
     queryKey: ["channel-loops", channelId],
     enabled: channelId.length > 0,
@@ -284,17 +288,28 @@ export function useDeleteLoop(loop: ChannelLoop | null) {
     onMutate: () => {
       if (!loop) return undefined
       const key = ["channel-loops", loop.channelId]
-      const previous = queryClient.getQueryData<ChannelLoop[]>(key)
       queryClient.setQueryData(key, (existing: ChannelLoop[] | undefined) =>
         existing?.filter((item) => item.id !== loop.id)
       )
-      return { key, previous }
+      return { key, deleted: loop }
     },
     onSuccess: () => {
       if (loop) queryClient.removeQueries({ queryKey: ["loop-runs", loop.id] })
     },
+    onSettled: (_data, _err, _vars, context) => {
+      if (context) void queryClient.invalidateQueries({ queryKey: context.key })
+    },
     onError: (err, _vars, context) => {
-      if (context) queryClient.setQueryData(context.key, context.previous)
+      // Only the deleted loop comes back; updates to others since stay.
+      if (context) {
+        queryClient.setQueryData(
+          context.key,
+          (existing: ChannelLoop[] | undefined) =>
+            existing && !existing.some((item) => item.id === context.deleted.id)
+              ? [context.deleted, ...existing]
+              : existing
+        )
+      }
       Alert.alert(
         "Couldn't delete the loop",
         err instanceof Error ? err.message : "Please try again in a moment."

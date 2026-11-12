@@ -50,7 +50,11 @@ export default function SessionsScreen() {
   const { workspace } = useWorkspace()
   const foreground = useThemeColor("foreground")
   const queryClient = useQueryClient()
-  const activity = useWorkspaceActivity(workspace?.id)
+  const {
+    data: activity,
+    isError: activityFailed,
+    refetch: refetchActivity,
+  } = useWorkspaceActivity(workspace?.id)
   const { data: channels } = useQuery(
     workspaceChannelsQueryOptions(workspace?.slug ?? "")
   )
@@ -107,7 +111,18 @@ export default function SessionsScreen() {
         title="Sessions"
       />
       <View className="flex-1">
-        {activity === undefined ? (
+        {activity === undefined && activityFailed ? (
+          <StatePanel
+            action={{
+              label: "Try again",
+              onPress: () => void refetchActivity(),
+            }}
+            className="flex-1"
+            detail="Check your connection and try again."
+            status="danger"
+            title="Sessions are unavailable"
+          />
+        ) : activity === undefined ? (
           <View className="flex-1 items-center justify-center">
             <Spinner accessibilityLabel="Loading sessions" />
           </View>

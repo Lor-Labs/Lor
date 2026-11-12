@@ -135,6 +135,9 @@ export type ModelChoice = {
   // The session the picks are remembered for; null: the new-session screen.
   sessionScope: string | null
   catalog: AgentModels | undefined
+  // The catalog request failed with nothing cached; retry asks again.
+  catalogFailed: boolean
+  retryCatalog: () => void
   option: AgentModelOption | undefined
   // null: the harness's default.
   effort: string | null
@@ -180,10 +183,15 @@ export function useModelChoice(
     scope,
   }: { workspaceSlug?: string; enabled?: boolean; scope?: ModelScope }
 ): ModelChoice {
-  const { data: catalog } = useQuery({
+  const {
+    data: catalog,
+    isError,
+    refetch,
+  } = useQuery({
     ...agentModelsQueryOptions(harness, workspaceSlug),
     enabled: enabled && Boolean(workspaceSlug),
   })
+  const catalogFailed = isError && !catalog
   const sessionScope = scope?.sessionScope ?? null
   const savedModel = useRemembered(pickKey(harness, "model"))
   const savedEffort = useRemembered(pickKey(harness, "effort"))
@@ -211,6 +219,8 @@ export function useModelChoice(
       workspaceSlug,
       sessionScope,
       catalog,
+      catalogFailed,
+      retryCatalog: () => void refetch(),
       option,
       effort,
       fast,
@@ -220,7 +230,17 @@ export function useModelChoice(
         ...(fast ? { fast } : {}),
       },
     }
-  }, [harness, workspaceSlug, sessionScope, catalog, option, effort, fast])
+  }, [
+    harness,
+    workspaceSlug,
+    sessionScope,
+    catalog,
+    catalogFailed,
+    refetch,
+    option,
+    effort,
+    fast,
+  ])
 }
 
 // A Lor reply's model as its session's picker names it ("Opus"), with the

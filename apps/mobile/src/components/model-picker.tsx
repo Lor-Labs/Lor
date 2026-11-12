@@ -333,13 +333,25 @@ function ModelSheet({
               selectionColor={accent}
               value={query}
             />
-            {catalog ? null : <Spinner size="sm" />}
+            {catalog || choice.catalogFailed ? null : <Spinner size="sm" />}
           </View>
           <BottomSheetScrollView
             contentContainerStyle={{ paddingBottom: 40 }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
+            {choice.catalogFailed ? (
+              <PressableRow
+                accessibilityRole="button"
+                className="px-three py-three"
+                onPress={choice.retryCatalog}
+              >
+                <Text className="text-sm text-muted">
+                  Couldn't load the models.{" "}
+                  <Text className="font-semibold text-accent">Try again</Text>
+                </Text>
+              </PressableRow>
+            ) : null}
             {catalog && models.length === 0 ? (
               <Text className="px-three py-three text-sm text-muted">
                 No models match

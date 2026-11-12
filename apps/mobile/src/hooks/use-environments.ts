@@ -65,11 +65,12 @@ export function useCodeEnvironment(
     enabled: enabled && Boolean(workspaceSlug && repo),
   })
   const [picked, setPicked] = useState<{
+    workspaceSlug: string
     repo: string
     id: string | null
   } | null>(null)
   const id =
-    repo && picked?.repo === repo
+    repo && picked?.repo === repo && picked.workspaceSlug === workspaceSlug
       ? picked.id
       : repo
         ? readPick(pickKey(workspaceSlug, repo))
@@ -85,7 +86,7 @@ export function useCodeEnvironment(
     selected: environments.find((env) => env.id === id) ?? null,
     select: (next: string | null) => {
       if (!repo) return
-      setPicked({ repo, id: next })
+      setPicked({ workspaceSlug, repo, id: next })
       writePick(pickKey(workspaceSlug, repo), next)
     },
   }
