@@ -170,7 +170,7 @@ export function ModelPicker({
         const item = key ? byKey.get(key) : undefined
         if (!item) return
         if (item.harness !== choice.harness) onHarness?.(item.harness)
-        rememberModel(item.harness, item.id)
+        rememberModel(item.harness, item.id, choice.sessionScope)
       }}
       itemToStringLabel={(key) => byKey.get(key)?.name ?? key}
       filter={(key: string, text) =>
@@ -384,7 +384,11 @@ export function EffortPicker({ choice }: { choice: ModelChoice }) {
             <DropdownMenuRadioGroup
               value={choice.effort ?? ""}
               onValueChange={(value) =>
-                rememberEffort(harness, value ? String(value) : null)
+                rememberEffort(
+                  harness,
+                  value ? String(value) : null,
+                  choice.sessionScope
+                )
               }
             >
               {harnessDefault && (
@@ -404,7 +408,9 @@ export function EffortPicker({ choice }: { choice: ModelChoice }) {
             <DropdownMenuCheckboxItem
               variant="switch"
               checked={choice.fast}
-              onCheckedChange={(checked) => rememberFast(harness, checked)}
+              onCheckedChange={(checked) =>
+                rememberFast(harness, checked, choice.sessionScope)
+              }
             >
               Fast mode
             </DropdownMenuCheckboxItem>

@@ -33,6 +33,7 @@ import {
 import { cn } from "@repo/ui/lib/utils"
 import { useEffect, useState } from "react"
 import { EmojiReactionPicker } from "@/components/chat/emoji-reaction-picker"
+import type { RunModelLabel } from "@/hooks/use-agent-models"
 
 const ACTION_CLASS = "size-7 text-muted-foreground hover:text-foreground"
 const COPIED_MS = 1500
@@ -44,6 +45,7 @@ const COPIED_MS = 1500
 export function LorReplyActions({
   timeAlwaysVisible,
   time,
+  model = null,
   onCopyText,
   onReact,
   onReply,
@@ -55,6 +57,9 @@ export function LorReplyActions({
   timeAlwaysVisible: boolean
   // When the reply was sent; date dividers carry the day.
   time: string
+  // The model the reply's run used (LOR-160), shown before the time; null
+  // on replies from before runs recorded it.
+  model?: RunModelLabel | null
   onCopyText?: () => void
   onReact: (emoji: string) => void
   onReply: () => void
@@ -158,12 +163,28 @@ export function LorReplyActions({
       )}
       <span
         className={cn(
-          "ml-1.5 text-muted-foreground/70 text-xs tabular-nums transition-opacity duration-100",
+          "ml-1.5 flex min-w-0 items-center gap-1 text-muted-foreground/70 text-xs tabular-nums transition-opacity duration-100",
           !timeShown &&
             "opacity-0 group-hover:opacity-100 group-focus-within/actions:opacity-100"
         )}
       >
-        {time}
+        {model && (
+          <>
+            {model.exact ? (
+              <TooltipTrigger
+                handle={tooltipHandle}
+                payload={model.exact}
+                render={<span className="min-w-0 truncate" />}
+              >
+                {model.name}
+              </TooltipTrigger>
+            ) : (
+              <span className="min-w-0 truncate">{model.name}</span>
+            )}
+            <span aria-hidden="true">·</span>
+          </>
+        )}
+        <span className="shrink-0">{time}</span>
       </span>
       <Tooltip handle={tooltipHandle}>
         {({ payload }) => (

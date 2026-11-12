@@ -39,7 +39,12 @@ import { EffortPicker, ModelPicker } from "@/components/session/model-picker"
 import { SessionTurnRail } from "@/components/session/session-turn-rail"
 import { UserAvatar } from "@/components/ui/user-avatar"
 import { useSocket } from "@/context/socket-context"
-import { useModelChoice } from "@/hooks/use-agent-models"
+import {
+  pinSessionChoice,
+  runModelLabel,
+  type SessionTurnPick,
+  useModelChoice,
+} from "@/hooks/use-agent-models"
 import {
   cachedSessionForThread,
   sessionTouchesQueryOptions,
@@ -504,7 +509,30 @@ export function SessionDocument({
     null
   )
   const claudeMode = useClaudeCodeMode()
-  const modelChoice = useModelChoice(harness)
+  // The session's newest run seeds its picker on a browser that never picked
+  // here (LOR-160).
+  const lastRun = messages.find(
+    (m) => m.authorId === LOR_USER_ID && m.lorRun?.model
+  )?.lorRun
+  const lastTurnModel = lastRun?.model
+  const lastTurnEffort = lastRun?.effort ?? null
+  const lastTurnFast = lastRun?.fast ?? false
+  const lastTurn = useMemo<SessionTurnPick | null>(
+    () =>
+      lastTurnModel
+        ? { model: lastTurnModel, effort: lastTurnEffort, fast: lastTurnFast }
+        : null,
+    [lastTurnModel, lastTurnEffort, lastTurnFast]
+  )
+  const modelChoice = useModelChoice(harness, {
+    sessionScope: threadRootId,
+    lastTurn,
+  })
+  const catalog = modelChoice.catalog
+  const modelLabel = useCallback(
+    (model: string) => runModelLabel(catalog, model),
+    [catalog]
+  )
 
   const send = (
     content: string,
@@ -517,6 +545,7 @@ export function SessionDocument({
       ...(claudeCode ? { claudeCodeMode: claudeMode.mode } : {}),
     })
     if (nonce) showSendEffects(nonce, options)
+    if (nonce && agentAnswers) pinSessionChoice(modelChoice)
     scroll.scrollAfterSend()
     // Lor is mid-answer, so a message for Lor will queue — show it in
     // the pill now instead of waiting for the routed round trip.
@@ -809,6 +838,7 @@ export function SessionDocument({
                       onFork,
                       onRewind,
                       rewindRestoresFiles,
+                      modelLabel,
                     }}
                   />
                   {/* Inline input line: the document's last line, right under

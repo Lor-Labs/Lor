@@ -31,6 +31,7 @@ import {
   max,
   or,
   type SQL,
+  sql,
 } from "drizzle-orm"
 import { triggerMessagePayload } from "@/lib/trigger-messages"
 
@@ -460,6 +461,11 @@ export async function hydrateMessages(
             triggerMessageId: agentRun.triggerMessageId,
             startedAt: agentRun.startedAt,
             finishedAt: agentRun.finishedAt,
+            model: sql<string | null>`${agentRun.context} ->> 'turnModel'`,
+            effort: sql<string | null>`${agentRun.context} ->> 'turnEffort'`,
+            fast: sql<
+              boolean | null
+            >`(${agentRun.context} ->> 'turnFast')::boolean`,
           })
           .from(agentRun)
           .where(inArray(agentRun.messageId, messageIds))
@@ -553,13 +559,17 @@ export async function hydrateMessages(
   const lorTriggerByMessageId = new Map(
     lorRunRows.map((row) => [row.messageId, row.triggerMessageId])
   )
-  // "Worked for 3m" under a Lor reply: its run's wall-clock time.
+  // "Worked for 3m" under a Lor reply: its run's wall-clock time. The model
+  // it ran on shows beside the reply and seeds the session's model picker.
   const lorRunByMessageId = new Map(
     lorRunRows.map((row) => [
       row.messageId,
       {
         startedAt: row.startedAt?.toISOString() ?? null,
         finishedAt: row.finishedAt?.toISOString() ?? null,
+        model: row.model,
+        effort: row.effort,
+        fast: row.fast ?? false,
       },
     ])
   )
