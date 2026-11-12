@@ -1,8 +1,8 @@
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet"
-import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon"
 import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
 import GitBranchIcon from "@hugeicons/core-free-icons/GitBranchIcon"
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
+import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { isValidNewBranchName } from "@repo/utils/github"
@@ -14,9 +14,14 @@ import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useEffect, useState } from "react"
-import { Pressable, Text, View } from "react-native"
+import { Pressable, ScrollView, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
+import {
+  ClaudeCodeModePicker,
+  useClaudeCodeMode,
+} from "@/components/claude-code-mode-picker"
+import { ConnectOnWebNotice } from "@/components/connect-on-web-notice"
 import { MessageComposer } from "@/components/message-composer"
 import { messageDisplayName } from "@/components/message-row"
 import { ModelPicker } from "@/components/model-picker"
@@ -33,6 +38,7 @@ import { useModelChoice } from "@/hooks/use-agent-models"
 import {
   branchesQueryOptions,
   codeTargetNote,
+  type SessionMode,
   useCodeTarget,
   useHarnessOptions,
   useSessionHarness,
@@ -72,6 +78,7 @@ export default function NewSessionScreen() {
   }>()
   const { workspace } = useWorkspace()
   const foreground = useThemeColor("foreground")
+  const [mode, setMode] = useSessionMode()
   const { data: channels, isPending } = useQuery(
     workspaceChannelsQueryOptions(workspace?.slug ?? "")
   )
@@ -108,15 +115,32 @@ export default function NewSessionScreen() {
             tintColor={foreground}
           />
         </IconButton>
-        <Text className="text-[17px] font-bold tracking-[-0.2px] text-foreground">
+        <Text className="min-w-0 flex-1 text-[17px] font-bold tracking-[-0.2px] text-foreground">
           New session
         </Text>
+        {/* The session's kind sits with the title; what it runs in and on is
+            picked above the composer. */}
+        <Tabs
+          onValueChange={(value) => setMode(value === "code" ? "code" : "chat")}
+          value={mode}
+        >
+          <Tabs.List>
+            <Tabs.Indicator />
+            <Tabs.Trigger value="chat">
+              <Tabs.Label>Chat</Tabs.Label>
+            </Tabs.Trigger>
+            <Tabs.Trigger value="code">
+              <Tabs.Label>Code</Tabs.Label>
+            </Tabs.Trigger>
+          </Tabs.List>
+        </Tabs>
       </View>
       {channel ? (
         <NewSessionComposer
           aboutMessageId={params.aboutMessageId}
           channel={channel}
           draft={params.draft}
+          mode={mode}
           onPickChannel={setPickedChannelId}
           options={options}
         />
@@ -141,12 +165,14 @@ function NewSessionComposer({
   onPickChannel,
   aboutMessageId,
   draft,
+  mode,
 }: {
   channel: ChannelOption
   options: ChannelOption[]
   onPickChannel: (channelId: string) => void
   aboutMessageId?: string
   draft?: string
+  mode: SessionMode
 }) {
   const muted = useThemeColor("muted")
   const queryClient = useQueryClient()
@@ -158,7 +184,6 @@ function NewSessionComposer({
   >(null)
   const [isSending, setIsSending] = useState(false)
   const workspaceSlug = workspace?.slug ?? ""
-  const [mode, setMode] = useSessionMode()
   const code = useCodeTarget({
     workspaceSlug,
     channelId: channel.id,
@@ -178,6 +203,7 @@ function NewSessionComposer({
   // Unknown while the accounts load.
   const needsClaude = claudeCode && accounts?.claude.account === null
   const needsChatgpt = codex && accounts?.chatgpt.account === null
+  const claudeCodeMode = useClaudeCodeMode()
   const [branchQuery, setBranchQuery] = useState("")
   const [debouncedBranchQuery, setDebouncedBranchQuery] = useState("")
   useEffect(() => {
@@ -229,48 +255,19 @@ function NewSessionComposer({
 
   const accessory = (
     <View className="mb-two gap-two">
-      {/* How the session runs, on one row: its kind, and the model with its
-        agent (picked together in the model sheet). */}
-      <View className="flex-row items-center gap-two">
-        <Tabs
-          onValueChange={(value) => setMode(value === "code" ? "code" : "chat")}
-          value={mode}
-        >
-          <Tabs.List>
-            <Tabs.Indicator />
-            <Tabs.Trigger value="chat">
-              <Tabs.Label>Chat</Tabs.Label>
-            </Tabs.Trigger>
-            <Tabs.Trigger value="code">
-              <Tabs.Label>Code</Tabs.Label>
-            </Tabs.Trigger>
-          </Tabs.List>
-        </Tabs>
-        <View className="min-w-0 flex-1 items-end">
-          <ModelPicker
-            choice={modelChoice}
-            harnesses={mode === "code" ? harnessOptions : undefined}
-            onHarness={setHarness}
-          />
-        </View>
-      </View>
       {needsClaude ? (
-        <View className="rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
-          <Text className="text-[13px] text-muted">
-            Claude Code runs on your own Claude subscription. Connect it in Lor
-            on the web or desktop, or pick another agent.
-          </Text>
-        </View>
+        <ConnectOnWebNotice workspaceSlug={workspaceSlug}>
+          Claude Code runs on your own Claude subscription. Connect it on the
+          web, or pick another agent.
+        </ConnectOnWebNotice>
       ) : needsChatgpt ? (
-        <View className="rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
-          <Text className="text-[13px] text-muted">
-            Codex runs on your own ChatGPT plan. Connect it in Lor on the web or
-            desktop, or pick another agent.
-          </Text>
-        </View>
+        <ConnectOnWebNotice workspaceSlug={workspaceSlug}>
+          Codex runs on your own ChatGPT plan. Connect it on the web, or pick
+          another agent.
+        </ConnectOnWebNotice>
       ) : null}
       {aboutMessageId ? (
-        <View className="min-h-11 flex-row items-center gap-two rounded-lor-sm border border-border px-three">
+        <View className="min-h-11 flex-row items-center gap-two rounded-lor-md border border-border px-three">
           <Text className="text-sm text-muted">About</Text>
           <Text className="min-w-0 flex-1 text-sm" numberOfLines={1}>
             {aboutMessage ? (
@@ -299,33 +296,19 @@ function NewSessionComposer({
           </IconButton>
         </View>
       ) : null}
-      <View className="flex-row items-center gap-one">
-        <LorMark size={14} />
-        <Text className="text-[13px] text-muted">New session in</Text>
-        {aboutMessageId ? (
-          <Text className="text-[13px] font-semibold text-accent">
-            #{channelName}
-          </Text>
-        ) : (
-          <Pressable
-            accessibilityHint="Chooses the channel the session lives in"
-            accessibilityRole="button"
-            className="min-h-8 flex-row items-center gap-one rounded-lor-sm px-one active:bg-accent-soft"
-            hitSlop={6}
-            onPress={() => setSheet("channel")}
-          >
-            <Text className="text-[13px] font-semibold text-accent">
-              #{channelName}
-            </Text>
-            <HugeiconsIcon color={muted} icon={ArrowDown01Icon} size={12} />
-          </Pressable>
-        )}
-      </View>
-      {mode === "code" ? (
-        <View className="flex-row flex-wrap items-center gap-one">
-          {code.status === "ready" && code.repo ? (
+      {/* Where the session lives and works: its channel, then a code
+          session's repo and branch. Asking about a message fixes the
+          channel to that message's. */}
+      <View className="flex-row flex-wrap items-center gap-two">
+        <TargetChip
+          hint="Chooses the channel the session lives in"
+          icon={HashtagIcon}
+          label={channelName}
+          onPress={aboutMessageId ? undefined : () => setSheet("channel")}
+        />
+        {mode === "code" ? (
+          code.status === "ready" && code.repo ? (
             <>
-              <Text className="text-[13px] text-muted">on</Text>
               <TargetChip
                 hint="Chooses the repository the session works in"
                 icon={GithubIcon}
@@ -344,7 +327,7 @@ function NewSessionComposer({
                     pull request count from it. */}
                   {code.newBranch ? (
                     <>
-                      <Text className="text-[13px] text-muted">new from</Text>
+                      <Text className="text-[13px] text-muted">from</Text>
                       <TargetChip
                         hint="Chooses the branch the new one is made from"
                         icon={GitBranchIcon}
@@ -359,12 +342,27 @@ function NewSessionComposer({
               )}
             </>
           ) : (
-            <Text className="text-[13px] text-muted">
+            <Text className="min-w-0 shrink text-[13px] text-muted">
               {codeTargetNote(code.status)}
             </Text>
-          )}
-        </View>
-      ) : null}
+          )
+        ) : null}
+      </View>
+      {/* What it runs with: the model (and, in a code session, its agent,
+          picked in the same sheet), then Claude Code's mode. */}
+      <ScrollView
+        contentContainerClassName="items-center gap-two"
+        horizontal
+        keyboardShouldPersistTaps="handled"
+        showsHorizontalScrollIndicator={false}
+      >
+        <ModelPicker
+          choice={modelChoice}
+          harnesses={mode === "code" ? harnessOptions : undefined}
+          onHarness={setHarness}
+        />
+        {claudeCode ? <ClaudeCodeModePicker /> : null}
+      </ScrollView>
     </View>
   )
 
@@ -395,7 +393,10 @@ function NewSessionComposer({
                   mode === "code" && code.target
                     ? { ...code.target, harness }
                     : undefined,
-                  modelChoice.turn
+                  {
+                    ...modelChoice.turn,
+                    ...(claudeCode ? { claudeCodeMode } : {}),
+                  }
                 )
               } finally {
                 setIsSending(false)

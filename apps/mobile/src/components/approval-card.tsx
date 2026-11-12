@@ -10,6 +10,7 @@ import {
   QuestionApprovalCard,
   type ResolveExtra,
 } from "@/components/claude-code-approval"
+import { rememberClaudeCodeMode } from "@/components/claude-code-mode-picker"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/context/workspace-context"
 import {
@@ -87,6 +88,9 @@ export function ApprovalGateCard({
       },
       { onSettled: () => onResolved?.() }
     )
+    // The next message goes on in the mode the plan was approved with,
+    // instead of planning again.
+    if (extra.planMode) rememberClaudeCodeMode(extra.planMode)
   }
   const statusLine = canResolve
     ? "Needs your approval"

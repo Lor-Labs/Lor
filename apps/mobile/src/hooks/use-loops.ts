@@ -1,5 +1,10 @@
 import type { ServerToClientEvents } from "@repo/realtime-types"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { useEffect } from "react"
 import { Alert } from "react-native"
 import { useSocket } from "@/context/socket-context"
@@ -138,4 +143,178 @@ export function useActivateLoop(loop: ChannelLoop | null) {
     },
   })
   return mutation
+}
+
+async function fetchLoopRuns(loopId: string) {
+  const res = await api.v1.loops[":loopId"].runs.$get({ param: { loopId } })
+  if (!res.ok) throw new Error("Failed to fetch loop runs")
+  return res.json()
+}
+
+export type LoopRun = Awaited<ReturnType<typeof fetchLoopRuns>>["runs"][number]
+
+// A loop's recent runs, newest scheduled fire first, and the session each
+// run answered in. loop:updated (a run started or settled) refreshes it.
+// Mirrors web's useLoopRuns.
+export function useLoopRuns(loop: ChannelLoop | null) {
+  const socket = useSocket()
+  const queryClient = useQueryClient()
+  const loopId = loop && loop.status !== "draft" ? loop.id : null
+  useEffect(() => {
+    if (!socket || !loopId) return
+    const handleLoopUpdated: ServerToClientEvents["loop:updated"] = (
+      payload
+    ) => {
+      if (payload.loop.id !== loopId) return
+      void queryClient.invalidateQueries({ queryKey: ["loop-runs", loopId] })
+    }
+    socket.on("loop:updated", handleLoopUpdated)
+    return () => {
+      socket.off("loop:updated", handleLoopUpdated)
+    }
+  }, [socket, queryClient, loopId])
+  return useQuery({
+    queryKey: ["loop-runs", loopId ?? ""],
+    enabled: loopId !== null,
+    queryFn: () => fetchLoopRuns(loopId ?? ""),
+  })
+}
+
+function replaceLoop(queryClient: QueryClient, updated: ChannelLoop) {
+  queryClient.setQueryData(
+    ["channel-loops", updated.channelId],
+    (existing: ChannelLoop[] | undefined) =>
+      existing?.map((loop) => (loop.id === updated.id ? updated : loop))
+  )
+}
+
+type LoopLifecycleAction = "pause" | "resume" | "complete"
+
+const STATUS_AFTER: Record<LoopLifecycleAction, ChannelLoop["status"]> = {
+  pause: "paused",
+  resume: "active",
+  complete: "completed",
+}
+
+// Pause, resume and complete show at once; a refusal puts the loop back and
+// says why. Mirrors web's useLoopLifecycle.
+export function useLoopLifecycle(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (action: LoopLifecycleAction) => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const client = api.v1.loops[":loopId"]
+      const param = { loopId: loop.id }
+      const res =
+        action === "pause"
+          ? await client.pause.$post({ param })
+          : action === "resume"
+            ? await client.resume.$post({ param })
+            : await client.complete.$post({ param })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.message ?? `Failed to ${action} the loop`)
+      }
+      return (await res.json()).loop
+    },
+    onMutate: (action) => {
+      if (!loop) return undefined
+      replaceLoop(queryClient, { ...loop, status: STATUS_AFTER[action] })
+      return { previous: loop }
+    },
+    onSuccess: (updated) => replaceLoop(queryClient, updated),
+    onError: (err, _action, context) => {
+      if (context?.previous) replaceLoop(queryClient, context.previous)
+      Alert.alert(
+        "Couldn't change the loop",
+        err instanceof Error ? err.message : "Please try again in a moment."
+      )
+    },
+  })
+}
+
+// A run outside the schedule, which stays as it was. The server allows one
+// run at a time. Mirrors web's useRunLoopNow.
+export function useRunLoopNow(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const res = await api.v1.loops[":loopId"]["run-now"].$post({
+        param: { loopId: loop.id },
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.message ?? "Failed to start the run")
+      }
+      return (await res.json()).loop
+    },
+    onSuccess: (updated) => {
+      replaceLoop(queryClient, updated)
+      void queryClient.invalidateQueries({
+        queryKey: ["loop-runs", updated.id],
+      })
+    },
+    onError: (err) => {
+      Alert.alert(
+        "Couldn't start the run",
+        err instanceof Error ? err.message : "Please try again in a moment."
+      )
+    },
+  })
+}
+
+// Removes the loop and its card from the channel for good; it leaves the
+// list at once and comes back if the server refuses. Mirrors web's
+// useDeleteLoop.
+export function useDeleteLoop(loop: ChannelLoop | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      if (!loop) throw new Error("Loop not loaded yet")
+      const res = await api.v1.loops[":loopId"].$delete({
+        param: { loopId: loop.id },
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.message ?? "Failed to delete the loop")
+      }
+      return res.json()
+    },
+    onMutate: () => {
+      if (!loop) return undefined
+      const key = ["channel-loops", loop.channelId]
+      const previous = queryClient.getQueryData<ChannelLoop[]>(key)
+      queryClient.setQueryData(key, (existing: ChannelLoop[] | undefined) =>
+        existing?.filter((item) => item.id !== loop.id)
+      )
+      return { key, previous }
+    },
+    onSuccess: () => {
+      if (loop) queryClient.removeQueries({ queryKey: ["loop-runs", loop.id] })
+    },
+    onError: (err, _vars, context) => {
+      if (context) queryClient.setQueryData(context.key, context.previous)
+      Alert.alert(
+        "Couldn't delete the loop",
+        err instanceof Error ? err.message : "Please try again in a moment."
+      )
+    },
+  })
+}
+
+// Web's order: what runs first, then paused, drafts, and finished loops.
+const STATUS_ORDER: Record<ChannelLoop["status"], number> = {
+  active: 0,
+  paused: 1,
+  draft: 2,
+  completed: 3,
+}
+
+export function sortLoops(loops: ChannelLoop[]): ChannelLoop[] {
+  return [...loops].sort(
+    (a, b) =>
+      STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+      b.createdAt.localeCompare(a.createdAt)
+  )
 }

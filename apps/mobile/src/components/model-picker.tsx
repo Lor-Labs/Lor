@@ -13,10 +13,12 @@ import { BottomSheet } from "heroui-native/bottom-sheet"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
 import { useState } from "react"
-import { Pressable, ScrollView, Text, View } from "react-native"
+import { ScrollView, Text, View } from "react-native"
 import { KeyboardController } from "react-native-keyboard-controller"
 import { HarnessLogo } from "@/components/harness-logo"
 import { triggerHaptic } from "@/components/ui/haptics"
+import { PressableRow } from "@/components/ui/pressable-row"
+import { PressableScale } from "@/components/ui/pressable-scale"
 import { Switch } from "@/components/ui/switch"
 import {
   type AgentModelOption,
@@ -65,13 +67,14 @@ export function ModelPicker({
   const showsEffort = Boolean(option && option.efforts.length > 0)
 
   return (
-    <>
-      <Pressable
+    // One box for the chip and its sheet, so the sheet's own wrapper never
+    // counts as an item in the row of chips.
+    <View className="max-w-full">
+      <PressableScale
         accessibilityHint="Chooses the model, thinking effort and fast mode for your messages"
         accessibilityLabel={`${HARNESS_LABELS[harness]} model: ${option?.name ?? "default"}`}
         accessibilityRole="button"
-        className="min-h-9 max-w-full flex-row items-center gap-two rounded-full border border-border bg-surface px-three active:bg-surface-secondary"
-        hitSlop={6}
+        className="min-h-9 max-w-full flex-row items-center gap-two rounded-full border border-border bg-surface px-three"
         onPress={() => setOpen(true)}
       >
         <HarnessLogo harness={harness} size={14} />
@@ -95,7 +98,7 @@ export function ModelPicker({
           />
         ) : null}
         <HugeiconsIcon color={muted} icon={ArrowDown01Icon} size={12} />
-      </Pressable>
+      </PressableScale>
       <ModelSheet
         choice={choice}
         harnesses={harnesses}
@@ -103,7 +106,7 @@ export function ModelPicker({
         onHarness={onHarness}
         onOpenChange={setOpen}
       />
-    </>
+    </View>
   )
 }
 
@@ -190,20 +193,20 @@ function ModelSheet({
               void KeyboardController.dismiss().catch(() => undefined)
             })
           }}
-          snapPoints={["75%"]}
+          snapPoints={["82%"]}
         >
           <View className="flex-row items-center px-one pb-three">
             <BottomSheet.Title className="flex-1">Model</BottomSheet.Title>
-            <Pressable
+            <PressableScale
               accessibilityRole="button"
-              className="min-h-9 justify-center rounded-lor-sm px-two active:bg-accent-soft"
-              hitSlop={8}
+              className="min-h-9 justify-center px-two"
+              feedback="dim"
               onPress={() => onOpenChange(false)}
             >
               <Text className="text-[15px] font-semibold text-accent">
                 Done
               </Text>
-            </Pressable>
+            </PressableScale>
           </View>
           {tabs ? (
             <View className="mb-three gap-two">
@@ -214,12 +217,15 @@ function ModelSheet({
                 {tabs.map((tab) => {
                   const selected = tab.value === harness
                   return (
-                    <Pressable
+                    <PressableScale
                       accessibilityRole="tab"
                       accessibilityState={{ selected }}
-                      className={`min-h-10 flex-1 flex-row items-center justify-center gap-two rounded-lor-sm px-two ${
-                        selected ? "bg-surface" : "active:bg-surface"
+                      // Sized by its name, not in equal thirds: "Claude
+                      // Code" needs more room than "Lor".
+                      className={`min-h-10 grow flex-row items-center justify-center gap-[6px] rounded-lor-sm px-two ${
+                        selected ? "bg-surface" : ""
                       }`}
+                      hitSlop={0}
                       key={tab.value}
                       onPress={() => {
                         if (selected) return
@@ -237,12 +243,80 @@ function ModelSheet({
                       >
                         {tab.label}
                       </Text>
-                    </Pressable>
+                    </PressableScale>
                   )
                 })}
               </View>
               {tabDetail ? (
                 <Text className="px-three text-xs text-muted">{tabDetail}</Text>
+              ) : null}
+            </View>
+          ) : null}
+          {/* The picked model's own settings, above the list so they are in
+              reach however long the list is and whatever the sheet's height.
+              They follow the pick: tap a model, then set how it thinks. */}
+          {option && (efforts.length > 0 || option.fast) ? (
+            <View className="mb-three gap-three">
+              {efforts.length > 0 ? (
+                <View className="gap-two">
+                  <Text className="px-three text-xs font-semibold text-muted">
+                    Thinking effort
+                  </Text>
+                  <ScrollView
+                    contentContainerClassName="gap-[6px] px-one"
+                    horizontal
+                    keyboardShouldPersistTaps="handled"
+                    showsHorizontalScrollIndicator={false}
+                  >
+                    {effortChoices.map((level) => {
+                      const selected = level.value === choice.effort
+                      return (
+                        <PressableScale
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected }}
+                          className={`min-h-9 justify-center rounded-full border px-three ${
+                            selected
+                              ? "border-accent bg-accent-soft"
+                              : "border-border"
+                          }`}
+                          hitSlop={4}
+                          key={level.value ?? "default"}
+                          onPress={() => {
+                            if (selected) return
+                            triggerHaptic("selection")
+                            rememberPick(choice, { effort: level.value })
+                          }}
+                        >
+                          <Text
+                            className={`text-[13px] font-semibold ${
+                              selected ? "text-accent" : "text-foreground"
+                            }`}
+                          >
+                            {level.label}
+                          </Text>
+                        </PressableScale>
+                      )
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+              {option.fast ? (
+                <View className="flex-row items-center gap-three px-three">
+                  <View className="min-w-0 flex-1 gap-px">
+                    <Text className="text-[15px] text-foreground">
+                      Fast mode
+                    </Text>
+                    <Text className="text-xs text-muted">
+                      Faster output from the same model, at a higher price. On a
+                      Claude plan it uses extra usage.
+                    </Text>
+                  </View>
+                  <Switch
+                    accessibilityLabel="Fast mode"
+                    isSelected={choice.fast}
+                    onSelectedChange={(fast) => rememberPick(choice, { fast })}
+                  />
+                </View>
               ) : null}
             </View>
           ) : null}
@@ -262,10 +336,9 @@ function ModelSheet({
             {catalog ? null : <Spinner size="sm" />}
           </View>
           <BottomSheetScrollView
-            contentContainerStyle={{ paddingBottom: 12 }}
+            contentContainerStyle={{ paddingBottom: 40 }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            style={{ flex: 1 }}
           >
             {catalog && models.length === 0 ? (
               <Text className="px-three py-three text-sm text-muted">
@@ -288,12 +361,13 @@ function ModelSheet({
                   const selected = model.id === option?.id
                   const detail = modelDetail(model)
                   return (
-                    <Pressable
+                    <PressableRow
                       accessibilityRole="button"
                       accessibilityState={{ selected }}
-                      className={`min-h-12 flex-row items-center gap-two rounded-lor-sm px-three py-two active:bg-surface-secondary ${
+                      className={`min-h-12 flex-row items-center gap-two rounded-lor-sm px-three py-two ${
                         selected ? "bg-accent-soft" : ""
                       }`}
+                      highlightClassName="rounded-lor-sm"
                       key={model.id}
                       onPress={() => {
                         if (selected) return
@@ -319,77 +393,12 @@ function ModelSheet({
                           size={18}
                         />
                       ) : null}
-                    </Pressable>
+                    </PressableRow>
                   )
                 })}
               </View>
             ))}
           </BottomSheetScrollView>
-          {/* The picked model's own settings stay in reach under the list. */}
-          {option && (efforts.length > 0 || option.fast) ? (
-            <View className="gap-three border-t border-border px-one pt-three pb-six">
-              {efforts.length > 0 ? (
-                <View className="gap-two">
-                  <Text className="px-two text-xs font-semibold text-muted">
-                    Thinking effort
-                  </Text>
-                  <ScrollView
-                    contentContainerClassName="gap-one px-one"
-                    horizontal
-                    keyboardShouldPersistTaps="handled"
-                    showsHorizontalScrollIndicator={false}
-                  >
-                    {effortChoices.map((level) => {
-                      const selected = level.value === choice.effort
-                      return (
-                        <Pressable
-                          accessibilityRole="radio"
-                          accessibilityState={{ selected }}
-                          className={`min-h-9 justify-center rounded-full border px-three ${
-                            selected
-                              ? "border-accent bg-accent-soft"
-                              : "border-border active:bg-surface-secondary"
-                          }`}
-                          key={level.value ?? "default"}
-                          onPress={() => {
-                            if (selected) return
-                            triggerHaptic("soft")
-                            rememberPick(choice, { effort: level.value })
-                          }}
-                        >
-                          <Text
-                            className={`text-[13px] font-semibold ${
-                              selected ? "text-accent" : "text-foreground"
-                            }`}
-                          >
-                            {level.label}
-                          </Text>
-                        </Pressable>
-                      )
-                    })}
-                  </ScrollView>
-                </View>
-              ) : null}
-              {option.fast ? (
-                <View className="flex-row items-center gap-three px-two">
-                  <View className="min-w-0 flex-1 gap-px">
-                    <Text className="text-[15px] text-foreground">
-                      Fast mode
-                    </Text>
-                    <Text className="text-xs text-muted">
-                      Faster output from the same model, at a higher price. On a
-                      Claude plan it uses extra usage.
-                    </Text>
-                  </View>
-                  <Switch
-                    accessibilityLabel="Fast mode"
-                    isSelected={choice.fast}
-                    onSelectedChange={(fast) => rememberPick(choice, { fast })}
-                  />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
         </BottomSheet.Content>
       </BottomSheet.Portal>
     </BottomSheet>

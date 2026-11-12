@@ -8,9 +8,15 @@ import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Pressable, Text, View } from "react-native"
+import { Alert, Pressable, ScrollView, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
+import {
+  ClaudeCodeModePicker,
+  useClaudeCodeMode,
+} from "@/components/claude-code-mode-picker"
+import { ConnectOnWebNotice } from "@/components/connect-on-web-notice"
+import { ContextMeter } from "@/components/context-meter"
 import { ForwardSheet } from "@/components/forward-sheet"
 import {
   MessageComposer,
@@ -49,6 +55,8 @@ import {
 } from "@/hooks/use-agent-models"
 import {
   useAgentSession,
+  useForkSession,
+  useRewindSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import {
@@ -78,7 +86,6 @@ import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { AgentSession, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
-import { HARNESS_LABELS } from "@/lib/harness"
 import { confirmRemoveEmbed } from "@/lib/remove-embed"
 import { useSessionComposerInbox } from "@/lib/session-composer-inbox"
 
@@ -127,6 +134,8 @@ export function ThreadView({
   // Session: the message being forwarded into the channel chat.
   const [forwarding, setForwarding] = useState<Message | null>(null)
   const updateSession = useUpdateAgentSession()
+  const fork = useForkSession()
+  const rewind = useRewindSession(lorSession?.id ?? "")
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   useSessionComposerInbox(
     threadRootId,
@@ -379,6 +388,9 @@ export function ThreadView({
     enabled: Boolean(lorSession),
     scope: modelScope,
   })
+  // A Claude Code turn also carries the mode picked beside the model.
+  const claudeCode = lorSession?.harness === "claude_code"
+  const claudeCodeMode = useClaudeCodeMode()
   const modelCatalog = modelChoice.catalog
   const modelLabel = useCallback(
     (model: string) => runModelLabel(modelCatalog, model),
@@ -394,11 +406,7 @@ export function ThreadView({
         channelName={channelName}
         createdAt={lorSession.createdAt}
         generatedTitle={lorSession.titleEditedAt === null}
-        harnessLabel={
-          lorSession.harness === "pi"
-            ? null
-            : HARNESS_LABELS[lorSession.harness]
-        }
+        harness={lorSession.harness === "pi" ? null : lorSession.harness}
         repo={
           lorSession.repoFullName && lorSession.baseBranch
             ? {
@@ -726,6 +734,9 @@ export function ThreadView({
               }
               initialDraft={composerDraft}
               peopleOnly={!harnessEnabled || withoutSubscription}
+              harnessCommands={
+                agentAnswers ? lorSession?.harnessCommands : null
+              }
               subscribers={otherSubscribers}
               channelId={channelId}
               channelName={channelName}
@@ -773,7 +784,12 @@ export function ThreadView({
                             }
                           : undefined,
                       toPeople,
-                      turn: agentAnswers ? modelChoice.turn : undefined,
+                      turn: agentAnswers
+                        ? {
+                            ...modelChoice.turn,
+                            ...(claudeCode ? { claudeCodeMode } : {}),
+                          }
+                        : undefined,
                     }
                   )
                   if (agentAnswers && !toPeople) pinSessionChoice(modelChoice)
@@ -790,26 +806,43 @@ export function ThreadView({
                 // A session lists its queued turns in the transcript.
                 lorSession ? (
                   !harnessEnabled ? (
-                    <View className="mb-two rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
-                      <Text className="text-[13px] text-muted">
+                    <View className="mb-two rounded-lor-md border border-border bg-surface-secondary px-three py-three">
+                      <Text className="text-[13px] leading-[18px] text-muted">
                         This agent is temporarily unavailable. Messages here go
                         to the people in this session. Start a new session with
                         Lor to keep working.
                       </Text>
                     </View>
                   ) : withoutSubscription ? (
-                    <View className="mb-two rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
-                      <Text className="text-[13px] text-muted">
-                        {subscriptionHarness === "codex"
-                          ? "Codex answers people on their own ChatGPT plan."
-                          : "Claude Code answers people on their own Claude subscription."}{" "}
-                        Your messages here go to the people in the session.
-                        Connect yours in Lor on the web or desktop.
-                      </Text>
-                    </View>
+                    <ConnectOnWebNotice
+                      className="mb-two"
+                      workspaceSlug={workspace.slug}
+                    >
+                      {subscriptionHarness === "codex"
+                        ? "Codex answers people on their own ChatGPT plan."
+                        : "Claude Code answers people on their own Claude subscription."}{" "}
+                      Until you connect yours, your messages here go to the
+                      people in the session.
+                    </ConnectOnWebNotice>
                   ) : (
-                    <View className="mb-two items-start">
-                      <ModelPicker choice={modelChoice} />
+                    // What the next turn runs with, in one bar: the picks
+                    // scroll sideways when they don't fit, and the context
+                    // meter stays in view at the end.
+                    <View className="mb-two flex-row items-center gap-two">
+                      <ScrollView
+                        className="min-w-0 flex-1"
+                        contentContainerClassName="items-center gap-two"
+                        horizontal
+                        keyboardShouldPersistTaps="handled"
+                        showsHorizontalScrollIndicator={false}
+                      >
+                        <ModelPicker choice={modelChoice} />
+                        {claudeCode ? <ClaudeCodeModePicker /> : null}
+                      </ScrollView>
+                      <ContextMeter
+                        isRunning={Boolean(stoppableLorMessageId)}
+                        scopeKey={threadRootId}
+                      />
                     </View>
                   )
                 ) : (
@@ -888,6 +921,25 @@ export function ThreadView({
                 onPressAuthor={openAuthorProfile}
                 onReply={archivedBar ? undefined : startReply}
                 onForward={lorSession ? setForwarding : undefined}
+                onFork={
+                  lorSession
+                    ? (message) =>
+                        fork.mutate({
+                          sessionId: lorSession.id,
+                          messageId: message.id,
+                        })
+                    : undefined
+                }
+                forkingMessageId={
+                  fork.isPending ? fork.variables.messageId : null
+                }
+                onRewind={
+                  lorSession && !lorSession.archivedAt
+                    ? (message) => rewind.mutate(message.id)
+                    : undefined
+                }
+                rewindRestoresFiles={lorSession?.mode === "code"}
+                pausedLorMessageId={pausedLorMessageId}
                 onToggleReaction={thread.toggleReaction}
                 onTogglePin={
                   canPinMessages
@@ -941,6 +993,7 @@ export function ThreadView({
           isOpen={isCodeOpen}
           onOpenChange={setIsCodeOpen}
           sessionId={lorSession.id}
+          workspaceSlug={workspace.slug}
         />
       ) : null}
       {lorSession ? (

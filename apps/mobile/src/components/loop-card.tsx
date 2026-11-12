@@ -1,17 +1,18 @@
 import Infinity01Icon from "@hugeicons/core-free-icons/Infinity01Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { describeLoopSchedule } from "@repo/realtime-types/loops"
+import { router } from "expo-router"
 import { useThemeColor } from "heroui-native/hooks"
 import { Text, View } from "react-native"
 import { Button } from "@/components/ui/button"
+import { PressableScale } from "@/components/ui/pressable-scale"
 import { useActivateLoop, useLoopForCard } from "@/hooks/use-loops"
 import type { ChannelLoop, Message } from "@/lib/api-types"
 
 // Mirror of web's compact loop pill: icon, name, plain-english schedule,
 // status chip — and drafts activate right from the card in the device
-// timezone, same as web's quick button. The detail view (full prompt,
-// schedule/timezone editor) is still web-only — see
-// reference/mobile-parity-todo.md.
+// timezone, same as web's quick button. Tapping it opens the loop's page
+// (prompt, schedule, recent runs, pause and resume).
 
 const STATUS_META: Record<
   ChannelLoop["status"],
@@ -39,6 +40,24 @@ const STATUS_META: Record<
   },
 }
 
+export function LoopStatusChip({ status }: { status: ChannelLoop["status"] }) {
+  const meta = STATUS_META[status]
+  return (
+    <View className={`rounded-full px-two py-one ${meta.container}`}>
+      <Text className={`text-[11px] font-semibold ${meta.text}`}>
+        {meta.label}
+      </Text>
+    </View>
+  )
+}
+
+export function openLoop(loop: ChannelLoop) {
+  router.push({
+    pathname: "/channel/[channelId]/loop/[loopId]",
+    params: { channelId: loop.channelId, loopId: loop.id },
+  })
+}
+
 export function LoopCard({ message }: { message: Message }) {
   const muted = useThemeColor("muted")
   // Fire markers (type "loop_fire") resolve the loop through the card
@@ -60,9 +79,16 @@ export function LoopCard({ message }: { message: Message }) {
     )
   }
 
-  const meta = STATUS_META[loop.status]
   return (
-    <View className="mt-one max-w-[420px] flex-row items-center gap-two rounded-lor-sm border border-border bg-surface px-three py-two">
+    <PressableScale
+      accessibilityHint="Opens the loop"
+      accessibilityLabel={`Loop ${loop.name}`}
+      accessibilityRole="button"
+      className="mt-one max-w-[420px] flex-row items-center gap-two rounded-lor-md border border-border bg-surface px-three py-two"
+      hitSlop={0}
+      onPress={() => openLoop(loop)}
+      scale={0.98}
+    >
       <View className="size-9 items-center justify-center rounded-lor-sm bg-surface-secondary">
         <HugeiconsIcon color={muted} icon={Infinity01Icon} size={16} />
       </View>
@@ -86,12 +112,8 @@ export function LoopCard({ message }: { message: Message }) {
           {activate.isPending ? "Working…" : "Create Loop"}
         </Button>
       ) : (
-        <View className={`rounded-full px-two py-one ${meta.container}`}>
-          <Text className={`text-[11px] font-semibold ${meta.text}`}>
-            {meta.label}
-          </Text>
-        </View>
+        <LoopStatusChip status={loop.status} />
       )}
-    </View>
+    </PressableScale>
   )
 }

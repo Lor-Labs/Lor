@@ -1,28 +1,20 @@
-import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon"
-import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon"
-import { HugeiconsIcon } from "@hugeicons/react-native"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import * as Haptics from "expo-haptics"
 import { router, useFocusEffect } from "expo-router"
-import { SymbolView } from "expo-symbols"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import {
-  Alert,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native"
+import { Alert, RefreshControl, View } from "react-native"
+import Animated, {
+  useAnimatedScrollHandler,
+  useSharedValue,
+} from "react-native-reanimated"
 import { ChannelActionsSheet } from "@/components/channel-actions-sheet"
-import { ChannelList } from "@/components/channel-list"
+import { ChannelList, ChannelListSkeleton } from "@/components/channel-list"
+import { ConnectionPill } from "@/components/connection-pill"
 import { CreateChannelSheet } from "@/components/create-channel-sheet"
 import { CreateInviteSheet } from "@/components/create-invite-sheet"
 import { FinishSetupCard } from "@/components/finish-setup-card"
+import { HomeHeader } from "@/components/home-header"
 import { HowLorWorksSheet } from "@/components/how-lor-works-sheet"
-import { Avatar } from "@/components/ui/avatar"
-import { IconButton } from "@/components/ui/icon-button"
 import { Screen } from "@/components/ui/screen"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
@@ -36,6 +28,7 @@ import { useMessageSearch } from "@/hooks/use-message-search"
 import { usePrefetchChannels } from "@/hooks/use-prefetch-channels"
 import { useProjectUpdates } from "@/hooks/use-project-updates"
 import { useTheme } from "@/hooks/use-theme"
+import { workspaceActivityKey } from "@/hooks/use-workspace-activity"
 import { api } from "@/lib/api"
 import type {
   Channel,
@@ -44,6 +37,7 @@ import type {
 } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
 import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
+import { SWAP_ENTER, SWAP_EXIT } from "@/lib/motion"
 import { workspaceChannelsQueryOptions } from "@/lib/workspace-channels"
 
 export default function WorkspaceScreen() {
@@ -56,6 +50,12 @@ export default function WorkspaceScreen() {
     selectWorkspace,
   } = useWorkspace()
   const [query, setQuery] = useState("")
+  // The list's offset stays on the UI thread: the header's hairline follows
+  // it without a render per scroll frame.
+  const scrollY = useSharedValue(0)
+  const onScroll = useAnimatedScrollHandler((event) => {
+    scrollY.set(event.contentOffset.y)
+  })
   const [isPullRefreshing, setIsPullRefreshing] = useState(false)
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
@@ -135,10 +135,21 @@ export default function WorkspaceScreen() {
   // Live refetch on project archive start/finish (spinner → Archived section).
   useProjectUpdates(workspaceSlug)
 
+  const queryClient = useQueryClient()
+  const workspaceId = workspace?.id
   const pullToRefresh = async () => {
     setIsPullRefreshing(true)
     try {
-      await Promise.all([refetchChannels(), refetchProjects()])
+      await Promise.all([
+        refetchChannels(),
+        refetchProjects(),
+        // The session rows under each channel come over the socket.
+        workspaceId
+          ? queryClient.invalidateQueries({
+              queryKey: workspaceActivityKey(workspaceId),
+            })
+          : undefined,
+      ])
     } finally {
       setIsPullRefreshing(false)
     }
@@ -260,160 +271,88 @@ export default function WorkspaceScreen() {
 
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
-      <View className="border-b border-separator bg-lor-sidebar dark:bg-lor-sidebar-dark pb-three pt-two">
-        <View className="min-h-12 flex-row items-center gap-three px-four">
-          <Pressable
-            accessibilityHint="Opens workspace options"
-            accessibilityLabel={`${workspace.name} workspace options`}
-            accessibilityRole="button"
-            className="min-w-0 flex-1 flex-row items-center gap-three active:opacity-70"
-            onPress={() => setIsWorkspaceSheetOpen(true)}
-          >
-            <Avatar
-              image={workspace.logo}
-              name={workspace.name}
-              shape="square"
-              size="md"
-            />
-            <View className="min-w-0 shrink flex-row items-center gap-one">
-              <Text
-                className="shrink text-[21px] font-bold tracking-[-0.4px] text-foreground"
-                numberOfLines={1}
-              >
-                {workspace.name}
-              </Text>
-              <SymbolView
-                name={{
-                  ios: "chevron.down",
-                  android: "expand_more",
-                  web: "expand_more",
-                }}
-                size={13}
-                tintColor={theme.textTertiary}
-              />
-            </View>
-          </Pressable>
-          {permissions.canCreateChannel ? (
-            <IconButton
-              accessibilityLabel="Create channel"
-              onPress={() => setIsCreateChannelOpen(true)}
-              variant="ghost"
-            >
-              <HugeiconsIcon color={theme.text} icon={PlusSignIcon} size={20} />
-            </IconButton>
-          ) : null}
-          <IconButton
-            accessibilityLabel="New session"
-            onPress={() => router.push("/session/new")}
-            variant="ghost"
-          >
-            <HugeiconsIcon
-              color={theme.text}
-              icon={PencilEdit02Icon}
-              size={20}
-            />
-          </IconButton>
-        </View>
-
-        <View className="mt-two px-four">
-          <View className="min-h-10 flex-row items-center gap-two rounded-full bg-surface-secondary px-three">
-            <SymbolView
-              name={{
-                ios: "magnifyingglass",
-                android: "search",
-                web: "search",
-              }}
-              size={16}
-              tintColor={theme.textTertiary}
-            />
-            <TextInput
-              accessibilityLabel="Search channels and messages"
-              autoCapitalize="none"
-              autoCorrect={false}
-              className="min-w-0 flex-1 py-two text-[15px] text-foreground"
-              onChangeText={setQuery}
-              placeholder="Search all channels"
-              placeholderTextColor={theme.textTertiary}
-              returnKeyType="search"
-              value={query}
-            />
-            {query.length > 0 ? (
-              <Pressable
-                accessibilityLabel="Clear search"
-                accessibilityRole="button"
-                className="size-7 items-center justify-center rounded-full active:bg-surface-tertiary"
-                hitSlop={6}
-                onPress={() => setQuery("")}
-              >
-                <SymbolView
-                  name={{
-                    ios: "xmark.circle.fill",
-                    android: "cancel",
-                    web: "cancel",
-                  }}
-                  size={17}
-                  tintColor={theme.textTertiary}
-                />
-              </Pressable>
-            ) : null}
-          </View>
-        </View>
-      </View>
-
-      <ScrollView
-        className="flex-1"
-        contentContainerClassName="px-four pb-seven pt-four"
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-        refreshControl={
-          <RefreshControl
-            onRefresh={() => void pullToRefresh()}
-            refreshing={isPullRefreshing}
-            tintColor={theme.accent}
-          />
+      <HomeHeader
+        onCreateChannel={
+          permissions.canCreateChannel
+            ? () => setIsCreateChannelOpen(true)
+            : undefined
         }
-        showsVerticalScrollIndicator={false}
-        style={{ flex: 1 }}
-      >
-        {searchActive ? (
-          <WorkspaceSearchResults
-            channels={matchingChannels}
-            onPressChannel={openChannel}
-            onPressMessage={(message) => void openSearchMessage(message)}
-            onPressMessageAuthor={openAuthorProfile}
-            query={query.trim()}
-            search={search}
-          />
-        ) : channelError ? (
-          <StatePanel
-            action={{
-              label: "Try again",
-              onPress: () => void refetchChannels(),
-            }}
-            className="px-two"
-            detail={channelError}
-            title="Channels are unavailable"
-          />
-        ) : (
-          <>
-            {canManageWorkspace && workspace.setupPending ? (
-              <FinishSetupCard
-                workspaceId={workspace.id}
-                workspaceSlug={workspace.slug}
-              />
-            ) : null}
-            <ChannelList
-              archivedCategoryIds={archivedCategoryIds}
-              archivingCategoryIds={archivingCategoryIds}
-              data={channels ?? undefined}
-              isLoading={isLoadingChannels}
-              onLongPress={setActionChannel}
-              onPress={openChannel}
-              projectCategoryIds={projectCategoryIds}
+        onNewSession={() => router.push("/session/new")}
+        onOpenWorkspace={() => setIsWorkspaceSheetOpen(true)}
+        onQueryChange={setQuery}
+        query={query}
+        scrollY={scrollY}
+        workspace={workspace}
+      />
+
+      <View className="flex-1">
+        <Animated.ScrollView
+          className="flex-1"
+          contentContainerClassName="px-two pb-seven pt-two"
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          onScroll={onScroll}
+          refreshControl={
+            <RefreshControl
+              onRefresh={() => void pullToRefresh()}
+              refreshing={isPullRefreshing}
+              tintColor={theme.accent}
             />
-          </>
-        )}
-      </ScrollView>
+          }
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+          style={{ flex: 1 }}
+        >
+          {searchActive ? (
+            <Animated.View
+              entering={SWAP_ENTER}
+              exiting={SWAP_EXIT}
+              key="search"
+            >
+              <WorkspaceSearchResults
+                channels={matchingChannels}
+                onPressChannel={openChannel}
+                onPressMessage={(message) => void openSearchMessage(message)}
+                onPressMessageAuthor={openAuthorProfile}
+                query={query.trim()}
+                search={search}
+              />
+            </Animated.View>
+          ) : channelError ? (
+            <StatePanel
+              action={{
+                label: "Try again",
+                onPress: () => void refetchChannels(),
+              }}
+              className="px-two"
+              detail={channelError}
+              title="Channels are unavailable"
+            />
+          ) : (
+            <Animated.View entering={SWAP_ENTER} exiting={SWAP_EXIT} key="list">
+              {canManageWorkspace && workspace.setupPending ? (
+                <FinishSetupCard
+                  workspaceId={workspace.id}
+                  workspaceSlug={workspace.slug}
+                />
+              ) : null}
+              <ChannelList
+                archivedCategoryIds={archivedCategoryIds}
+                archivingCategoryIds={archivingCategoryIds}
+                data={channels ?? undefined}
+                isLoading={isLoadingChannels}
+                // A workspace's folds and first reveal are its own.
+                key={workspace.id}
+                onLongPress={setActionChannel}
+                onOpenSessions={() => router.push("/sessions")}
+                onPress={openChannel}
+                projectCategoryIds={projectCategoryIds}
+              />
+            </Animated.View>
+          )}
+        </Animated.ScrollView>
+        <ConnectionPill />
+      </View>
       <ChannelActionsSheet
         channel={actionChannel}
         onOpenChange={(isOpen) => {
@@ -488,37 +427,20 @@ function findMatchingChannels(
   )
 }
 
+// The header's shape while the workspace loads, then the channel rows'
+// skeleton, so nothing moves when the real screen takes over.
 function LoadingScreen() {
   return (
     <Screen className="bg-background" edges={["top", "bottom"]}>
-      <View className="border-b border-separator bg-lor-sidebar dark:bg-lor-sidebar-dark px-four pb-three pt-two">
-        <View className="min-h-12 flex-row items-center gap-three">
-          <Skeleton className="size-10 rounded-lor-sm" />
-          <View className="flex-1 gap-two">
-            <Skeleton className="h-4 w-36 rounded-full" />
-            <Skeleton className="h-2.5 w-20 rounded-full" />
-          </View>
+      <View className="px-four pb-three pt-one">
+        <View className="min-h-11 flex-row items-center gap-three">
+          <Skeleton className="size-9 rounded-[10px]" />
+          <Skeleton className="h-4 w-28 rounded-full" />
         </View>
-        <Skeleton className="mt-two h-10 rounded-full" />
+        <Skeleton className="mt-two h-10 rounded-[12px]" />
       </View>
-      <View className="gap-five px-four pt-four">
-        {[0, 1].map((section) => (
-          <View className="gap-one" key={section}>
-            <View className="min-h-8 flex-row items-center gap-two px-two">
-              <Skeleton className="size-3 rounded-sm" />
-              <Skeleton className="h-2.5 w-20 rounded-full" />
-            </View>
-            {[0, 1, 2].map((row) => (
-              <View
-                className="min-h-[42px] flex-row items-center gap-two px-two"
-                key={row}
-              >
-                <Skeleton className="size-5 rounded-md" />
-                <Skeleton className="h-3 w-[48%] rounded-full" />
-              </View>
-            ))}
-          </View>
-        ))}
+      <View className="px-two pt-two">
+        <ChannelListSkeleton />
       </View>
     </Screen>
   )

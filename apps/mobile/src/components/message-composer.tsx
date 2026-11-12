@@ -9,6 +9,7 @@ import TextFontIcon from "@hugeicons/core-free-icons/TextFontIcon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import { LOR_USER_ID } from "@repo/db/constants"
+import type { RealtimeHarnessCommandList } from "@repo/realtime-types"
 import { Alert } from "heroui-native/alert"
 import { useThemeColor } from "heroui-native/hooks"
 import { Spinner } from "heroui-native/spinner"
@@ -36,6 +37,12 @@ import Animated, {
 } from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { AttachmentPickerPanel } from "@/components/attachment-picker-panel"
+import {
+  applyHarnessCommand,
+  CommandSuggestionMenu,
+  type HarnessCommandItem,
+  harnessCommandQuery,
+} from "@/components/command-suggestion-menu"
 import { ComposerAttachmentPreview } from "@/components/composer-attachment-preview"
 import {
   type ComposerDestination,
@@ -101,6 +108,7 @@ export function MessageComposer({
   peopleOnly,
   subscribers,
   currentUserId,
+  harnessCommands,
 }: {
   channelId: string
   channelName: string
@@ -148,6 +156,9 @@ export function MessageComposer({
   subscribers?: PingedPerson[]
   // A reply to your own message addresses no one.
   currentUserId?: string
+  // Session only, when its agent answers this person: the harness's own "/"
+  // commands and "$" skills, for the menu that opens as one is typed.
+  harnessCommands?: RealtimeHarnessCommandList | null
 }) {
   const lorHint = useHint("lor_intro")
   const showLorIntro = lorIntro && !lorHint.dismissed
@@ -232,6 +243,11 @@ export function MessageComposer({
   // once @Lor makes it start a session.
   const showDestination =
     Boolean(destination) && !isEditing && (isSession || routing.toLor)
+  // A command reaches the harness only in a message that goes to Lor.
+  const commandMenu =
+    !isEditing && isSession && routing.toLor
+      ? harnessCommandQuery(plainText, harnessCommands)
+      : null
   const isExpanded =
     isEditing ||
     isFocused ||
@@ -436,6 +452,19 @@ export function MessageComposer({
     [closeMentionMenu]
   )
 
+  const writeDraft = useCallback((markdown: string) => {
+    setContent(markdown)
+    setPlainText(markdown)
+    setSubmitError(null)
+    inputRef.current?.setValue(markdown)
+    inputRef.current?.focus()
+  }, [])
+
+  const pickCommand = (item: HarnessCommandItem) => {
+    triggerHaptic("selection")
+    writeDraft(applyHarnessCommand(plainTextRef.current, item))
+  }
+
   useImperativeHandle(
     mentionRef,
     () => ({
@@ -446,15 +475,9 @@ export function MessageComposer({
         inputRef.current?.startMention("@")
         inputRef.current?.insertMention(`@${label}`, `${MENTION_SCHEME}${id}`)
       },
-      replaceDraft: (markdown) => {
-        setContent(markdown)
-        setPlainText(markdown)
-        setSubmitError(null)
-        inputRef.current?.setValue(markdown)
-        inputRef.current?.focus()
-      },
+      replaceDraft: writeDraft,
     }),
-    []
+    [writeDraft]
   )
 
   const send = async () => {
@@ -545,6 +568,12 @@ export function MessageComposer({
             <Alert.Title className="text-sm">{submitError}</Alert.Title>
           </Alert.Content>
         </Alert>
+      ) : null}
+      {commandMenu && !isMentionMenuOpen ? (
+        <CommandSuggestionMenu
+          items={commandMenu.items}
+          onSelect={pickCommand}
+        />
       ) : null}
       {isMentionMenuOpen ? (
         <MentionSuggestionMenu
@@ -702,6 +731,18 @@ export function MessageComposer({
                     color={muted}
                     icon={AtSignIcon}
                     onPress={startMention}
+                  />
+                ) : null}
+                {/* Starts a command: the menu opens on the "/" it types. */}
+                {isSession &&
+                routing.toLor &&
+                !hasMessage &&
+                (harnessCommands?.slash.length ?? 0) > 0 ? (
+                  <ComposerShortcut
+                    accessibilityLabel="Run a command"
+                    color={muted}
+                    icon={CommandLineIcon}
+                    onPress={() => writeDraft("/")}
                   />
                 ) : null}
                 <DestinationBar

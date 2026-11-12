@@ -260,8 +260,12 @@ export function useSendNewSession(channel: {
     // Code mode: the session's repo, base branch (or a new branch from it)
     // and agent.
     code?: SessionStart["code"],
-    // The model, effort and fast mode for its first turn.
-    turn?: Pick<SendMessagePayload, "model" | "effort" | "fast">
+    // The model, effort and fast mode for its first turn, and Claude Code's
+    // mode.
+    turn?: Pick<
+      SendMessagePayload,
+      "model" | "effort" | "fast" | "claudeCodeMode"
+    >
   ) => {
     const user = auth?.user
     if (!socket?.connected) {
