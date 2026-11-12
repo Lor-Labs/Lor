@@ -19,7 +19,7 @@ import { KeyboardController } from "react-native-keyboard-controller"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
 import { MessageComposer } from "@/components/message-composer"
 import { messageDisplayName } from "@/components/message-row"
-import { ModelChips } from "@/components/model-chips"
+import { ModelPicker } from "@/components/model-picker"
 import { PickerSheet } from "@/components/picker-sheet"
 import { TargetChip } from "@/components/target-chip"
 import { IconButton } from "@/components/ui/icon-button"
@@ -43,7 +43,6 @@ import { useSendNewSession } from "@/hooks/use-session-start"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
-import { HARNESS_LABELS } from "@/lib/harness"
 import { toSearchPreviewText } from "@/lib/message-markdown"
 import {
   openTextChannels,
@@ -155,7 +154,7 @@ function NewSessionComposer({
   const { workspace } = useWorkspace()
   const { data: auth } = authClient.useSession()
   const [sheet, setSheet] = useState<
-    "channel" | "repo" | "branch" | "base" | "harness" | null
+    "channel" | "repo" | "branch" | "base" | null
   >(null)
   const [isSending, setIsSending] = useState(false)
   const workspaceSlug = workspace?.slug ?? ""
@@ -171,7 +170,9 @@ function NewSessionComposer({
   const harnessOptions = useHarnessOptions()
   const claudeCode = mode === "code" && harness === "claude_code"
   // A chat session always runs on Lor's own agent.
-  const modelChoice = useModelChoice(mode === "code" ? harness : "pi")
+  const modelChoice = useModelChoice(mode === "code" ? harness : "pi", {
+    workspaceSlug,
+  })
   const codex = mode === "code" && harness === "codex"
   const { data: accounts } = usePersonalAccounts(claudeCode || codex)
   // Unknown while the accounts load.
@@ -228,21 +229,31 @@ function NewSessionComposer({
 
   const accessory = (
     <View className="mb-two gap-two">
-      <Tabs
-        className="self-start"
-        onValueChange={(value) => setMode(value === "code" ? "code" : "chat")}
-        value={mode}
-      >
-        <Tabs.List>
-          <Tabs.Indicator />
-          <Tabs.Trigger value="chat">
-            <Tabs.Label>Chat</Tabs.Label>
-          </Tabs.Trigger>
-          <Tabs.Trigger value="code">
-            <Tabs.Label>Code</Tabs.Label>
-          </Tabs.Trigger>
-        </Tabs.List>
-      </Tabs>
+      {/* How the session runs, on one row: its kind, and the model with its
+        agent (picked together in the model sheet). */}
+      <View className="flex-row items-center gap-two">
+        <Tabs
+          onValueChange={(value) => setMode(value === "code" ? "code" : "chat")}
+          value={mode}
+        >
+          <Tabs.List>
+            <Tabs.Indicator />
+            <Tabs.Trigger value="chat">
+              <Tabs.Label>Chat</Tabs.Label>
+            </Tabs.Trigger>
+            <Tabs.Trigger value="code">
+              <Tabs.Label>Code</Tabs.Label>
+            </Tabs.Trigger>
+          </Tabs.List>
+        </Tabs>
+        <View className="min-w-0 flex-1 items-end">
+          <ModelPicker
+            choice={modelChoice}
+            harnesses={mode === "code" ? harnessOptions : undefined}
+            onHarness={setHarness}
+          />
+        </View>
+      </View>
       {needsClaude ? (
         <View className="rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
           <Text className="text-[13px] text-muted">
@@ -352,19 +363,8 @@ function NewSessionComposer({
               {codeTargetNote(code.status)}
             </Text>
           )}
-          {harnessOptions.length > 1 && (
-            <>
-              <Text className="text-[13px] text-muted">with</Text>
-              <TargetChip
-                hint="Chooses the agent that runs the session"
-                label={HARNESS_LABELS[harness]}
-                onPress={() => setSheet("harness")}
-              />
-            </>
-          )}
         </View>
       ) : null}
-      <ModelChips choice={modelChoice} lead="using" />
     </View>
   )
 
@@ -492,18 +492,6 @@ function NewSessionComposer({
         search={{ placeholder: "Find a branch", onQueryChange: setBranchQuery }}
         selected={code.branch}
         title="New branch from"
-      />
-      <PickerSheet
-        isOpen={sheet === "harness"}
-        onOpenChange={(open) => setSheet(open ? "harness" : null)}
-        onPick={(value) => {
-          const next = harnessOptions.find((option) => option.value === value)
-          if (next) setHarness(next.value)
-          setSheet(null)
-        }}
-        options={harnessOptions}
-        selected={harness}
-        title="Agent"
       />
     </>
   )

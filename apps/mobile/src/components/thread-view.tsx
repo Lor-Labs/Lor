@@ -1,6 +1,7 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { isHarnessAllowedInBeta, isHarnessEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
@@ -15,7 +16,7 @@ import {
   MessageComposer,
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
-import { ModelChips } from "@/components/model-chips"
+import { ModelPicker } from "@/components/model-picker"
 import { RunQueuePill } from "@/components/run-queue-pill"
 import { SessionCodeDrawer } from "@/components/session-code-drawer"
 import { SessionHeading } from "@/components/session-heading"
@@ -40,7 +41,12 @@ import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
-import { useModelChoice } from "@/hooks/use-agent-models"
+import {
+  pinSessionChoice,
+  RunModelLabelContext,
+  runModelLabel,
+  useModelChoice,
+} from "@/hooks/use-agent-models"
 import {
   useAgentSession,
   useUpdateAgentSession,
@@ -343,10 +349,40 @@ export function ThreadView({
   // model, effort and fast mode picked in the composer.
   const agentAnswers =
     Boolean(lorSession) && harnessEnabled && !withoutSubscription
-  const modelChoice = useModelChoice(
-    lorSession?.harness ?? "pi",
-    agentAnswers,
-    workspace?.slug
+  // The session's newest run seeds its picker on a device that never picked
+  // here (LOR-160).
+  const lastRun = thread.messages.find(
+    (message) => message.authorId === LOR_USER_ID && message.lorRun?.model
+  )?.lorRun
+  const lastTurnModel = lastRun?.model
+  const lastTurnEffort = lastRun?.effort ?? null
+  const lastTurnFast = lastRun?.fast ?? false
+  const modelScope = useMemo(
+    () =>
+      threadRootId
+        ? {
+            sessionScope: threadRootId,
+            lastTurn: lastTurnModel
+              ? {
+                  model: lastTurnModel,
+                  effort: lastTurnEffort,
+                  fast: lastTurnFast,
+                }
+              : null,
+          }
+        : undefined,
+    [threadRootId, lastTurnModel, lastTurnEffort, lastTurnFast]
+  )
+  // The catalog also names each reply's model, so it loads for any session.
+  const modelChoice = useModelChoice(lorSession?.harness ?? "pi", {
+    workspaceSlug: workspace?.slug,
+    enabled: Boolean(lorSession),
+    scope: modelScope,
+  })
+  const modelCatalog = modelChoice.catalog
+  const modelLabel = useCallback(
+    (model: string) => runModelLabel(modelCatalog, model),
+    [modelCatalog]
   )
   // Memoized: the list re-renders its rows only when its items change, and
   // the heading is one, so it changes them exactly when its content does.
@@ -740,6 +776,7 @@ export function ThreadView({
                       turn: agentAnswers ? modelChoice.turn : undefined,
                     }
                   )
+                  if (agentAnswers && !toPeople) pinSessionChoice(modelChoice)
                 } catch (error) {
                   if (nonce) removeOptimistic(nonce)
                   throw error
@@ -771,8 +808,8 @@ export function ThreadView({
                       </Text>
                     </View>
                   ) : (
-                    <View className="mb-one">
-                      <ModelChips choice={modelChoice} />
+                    <View className="mb-two items-start">
+                      <ModelPicker choice={modelChoice} />
                     </View>
                   )
                 ) : (
@@ -817,62 +854,66 @@ export function ThreadView({
               title="Thread is unavailable"
             />
           ) : (
-            <ThreadMessageList
-              avatarColorByUserId={avatarColorByUserId}
-              heading={sessionHeading}
-              onHeadingVisibleChange={setHeadingVisible}
-              resolveUserName={(userId) => memberById(userId)?.name}
-              layout={lorSession ? "document" : "chat"}
-              footer={
-                lorSession ? (
-                  <RunQueuePill
-                    currentUserId={session?.user.id}
-                    messages={queuedMessages}
-                    variant="document"
-                  />
-                ) : undefined
-              }
-              currentUserId={session?.user.id}
-              editingMessageId={editingMessage?.id}
-              focusMessageId={focusMessageId}
-              hasOlder={thread.hasOlder}
-              isRefreshing={thread.isRefreshing}
-              isLoadingOlder={thread.isLoadingOlder}
-              keyboardProps={keyboardProps}
-              listKey={`thread-${threadRootId}`}
-              messages={visibleMessages}
-              onLoadAround={thread.loadAround}
-              onLoadOlder={() => void thread.loadOlder()}
-              onDelete={confirmDelete}
-              onEdit={archivedBar ? undefined : startEditing}
-              onPressAuthor={openAuthorProfile}
-              onReply={archivedBar ? undefined : startReply}
-              onForward={lorSession ? setForwarding : undefined}
-              onToggleReaction={thread.toggleReaction}
-              onTogglePin={
-                canPinMessages
-                  ? (message) => {
-                      void thread.togglePin(message.id, message.pinned)
-                    }
-                  : undefined
-              }
-              onRemoveEmbed={
-                archivedBar
-                  ? undefined
-                  : (message, url) =>
-                      confirmRemoveEmbed({
-                        workspaceSlug: workspace.slug,
-                        channelId: message.channelId,
-                        messageId: message.id,
-                        url,
-                      })
-              }
-              canRemoveOthersEmbeds={canDeleteOthersMessages}
-              paginationError={thread.paginationError}
-              root={thread.root}
-              replyingToId={replyingTo?.id}
-              totalReplyCount={thread.totalReplyCount}
-            />
+            <RunModelLabelContext.Provider
+              value={lorSession ? modelLabel : null}
+            >
+              <ThreadMessageList
+                avatarColorByUserId={avatarColorByUserId}
+                heading={sessionHeading}
+                onHeadingVisibleChange={setHeadingVisible}
+                resolveUserName={(userId) => memberById(userId)?.name}
+                layout={lorSession ? "document" : "chat"}
+                footer={
+                  lorSession ? (
+                    <RunQueuePill
+                      currentUserId={session?.user.id}
+                      messages={queuedMessages}
+                      variant="document"
+                    />
+                  ) : undefined
+                }
+                currentUserId={session?.user.id}
+                editingMessageId={editingMessage?.id}
+                focusMessageId={focusMessageId}
+                hasOlder={thread.hasOlder}
+                isRefreshing={thread.isRefreshing}
+                isLoadingOlder={thread.isLoadingOlder}
+                keyboardProps={keyboardProps}
+                listKey={`thread-${threadRootId}`}
+                messages={visibleMessages}
+                onLoadAround={thread.loadAround}
+                onLoadOlder={() => void thread.loadOlder()}
+                onDelete={confirmDelete}
+                onEdit={archivedBar ? undefined : startEditing}
+                onPressAuthor={openAuthorProfile}
+                onReply={archivedBar ? undefined : startReply}
+                onForward={lorSession ? setForwarding : undefined}
+                onToggleReaction={thread.toggleReaction}
+                onTogglePin={
+                  canPinMessages
+                    ? (message) => {
+                        void thread.togglePin(message.id, message.pinned)
+                      }
+                    : undefined
+                }
+                onRemoveEmbed={
+                  archivedBar
+                    ? undefined
+                    : (message, url) =>
+                        confirmRemoveEmbed({
+                          workspaceSlug: workspace.slug,
+                          channelId: message.channelId,
+                          messageId: message.id,
+                          url,
+                        })
+                }
+                canRemoveOthersEmbeds={canDeleteOthersMessages}
+                paginationError={thread.paginationError}
+                root={thread.root}
+                replyingToId={replyingTo?.id}
+                totalReplyCount={thread.totalReplyCount}
+              />
+            </RunModelLabelContext.Provider>
           )
         }
         typingIndicator={
