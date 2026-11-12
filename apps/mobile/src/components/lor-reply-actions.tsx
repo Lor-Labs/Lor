@@ -93,22 +93,21 @@ export function LorReplyActions({
           onPress={onForward}
         />
       ) : null}
-      {onFork ? (
-        forking ? (
-          <View
-            accessibilityLabel="Forking"
-            className="size-8 items-center justify-center"
-          >
-            <Spinner color="default" size="sm" />
-          </View>
-        ) : (
-          <RowAction
-            color={muted}
-            icon={GitForkIcon}
-            label="Fork from here"
-            onPress={onFork}
-          />
-        )
+      {/* The spinner shows while this reply forks, when Fork itself is off. */}
+      {forking ? (
+        <View
+          accessibilityLabel="Forking"
+          className="size-8 items-center justify-center"
+        >
+          <Spinner color="default" size="sm" />
+        </View>
+      ) : onFork ? (
+        <RowAction
+          color={muted}
+          icon={GitForkIcon}
+          label="Fork from here"
+          onPress={onFork}
+        />
       ) : null}
       <RowAction
         color={muted}

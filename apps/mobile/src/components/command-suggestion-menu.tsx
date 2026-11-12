@@ -47,10 +47,22 @@ export function harnessCommandQuery(
   return items.length > 0 ? { sigil, query, items } : null
 }
 
-// The draft with the command being typed replaced by the picked one.
-export function applyHarnessCommand(text: string, item: HarnessCommandItem) {
+// The Markdown draft with the command being typed replaced by the picked
+// one. The typed token comes from the plain text; only that token's last
+// occurrence in the Markdown changes, so formatting around it (the closing
+// "**" of "**$rev**") stays.
+export function applyHarnessCommand(
+  markdown: string,
+  plainText: string,
+  item: HarnessCommandItem
+) {
   if (item.insert.startsWith("/")) return item.insert
-  return text.replace(/\$[^\s$]*$/, item.insert)
+  const token = /(?:^|\s)(\$[^\s$]*)$/.exec(plainText)?.[1]
+  const at = token ? markdown.lastIndexOf(token) : -1
+  if (!token || at < 0) return markdown.replace(/\$[^\s$]*$/, item.insert)
+  // The picked insert ends with a space; formatting after the token keeps it.
+  const after = markdown.slice(at + token.length)
+  return `${markdown.slice(0, at)}${after ? item.insert.trimEnd() : item.insert}${after}`
 }
 
 export function CommandSuggestionMenu({

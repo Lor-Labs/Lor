@@ -466,7 +466,7 @@ export function MessageComposer({
     triggerHaptic("selection")
     const markdown =
       (await inputRef.current?.getMarkdown()) ?? contentRef.current
-    writeDraft(applyHarnessCommand(markdown, item))
+    writeDraft(applyHarnessCommand(markdown, plainTextRef.current, item))
   }
 
   useImperativeHandle(

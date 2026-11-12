@@ -28,7 +28,10 @@ export function ConnectionPill() {
       setShown(true)
       // Android reads the live region; iOS needs the announcement.
       if (Platform.OS === "ios") {
-        AccessibilityInfo.announceForAccessibility("Reconnecting")
+        // Queued: a routine status never cuts off what is being read.
+        AccessibilityInfo.announceForAccessibilityWithOptions("Reconnecting", {
+          queue: true,
+        })
       }
     }, SHOW_AFTER_MS)
     return () => clearTimeout(timer)
