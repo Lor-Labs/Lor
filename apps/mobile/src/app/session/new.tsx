@@ -3,6 +3,7 @@ import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon"
 import GitBranchIcon from "@hugeicons/core-free-icons/GitBranchIcon"
 import GithubIcon from "@hugeicons/core-free-icons/GithubIcon"
 import HashtagIcon from "@hugeicons/core-free-icons/HashtagIcon"
+import Settings02Icon from "@hugeicons/core-free-icons/Settings02Icon"
 import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
 import { isValidNewBranchName } from "@repo/utils/github"
@@ -44,6 +45,7 @@ import {
   useSessionHarness,
   useSessionMode,
 } from "@/hooks/use-code-target"
+import { useCodeEnvironment } from "@/hooks/use-environments"
 import { usePersonalAccounts } from "@/hooks/use-personal-accounts"
 import { useSendNewSession } from "@/hooks/use-session-start"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
@@ -57,6 +59,8 @@ import {
 
 type ChannelOption = { id: string; name: string | null }
 
+// The environment sheet's value for "no environment".
+const NO_ENVIRONMENT = "none"
 const EXAMPLES_DISMISSED_KEY = "lor.new-session-examples-dismissed"
 
 function sessionExamples(channelName: string) {
@@ -180,7 +184,7 @@ function NewSessionComposer({
   const { workspace } = useWorkspace()
   const { data: auth } = authClient.useSession()
   const [sheet, setSheet] = useState<
-    "channel" | "repo" | "branch" | "base" | null
+    "channel" | "repo" | "branch" | "base" | "environment" | null
   >(null)
   const [isSending, setIsSending] = useState(false)
   const workspaceSlug = workspace?.slug ?? ""
@@ -189,6 +193,12 @@ function NewSessionComposer({
     channelId: channel.id,
     enabled: mode === "code",
   })
+  // Which environment's env files the session writes, per repo.
+  const environment = useCodeEnvironment(
+    workspaceSlug,
+    code.repo,
+    mode === "code"
+  )
   // Claude Code and Codex run on the starter's own Claude subscription or
   // ChatGPT plan; connecting them is on web for now.
   const [harness, setHarness] = useSessionHarness()
@@ -349,7 +359,8 @@ function NewSessionComposer({
         ) : null}
       </View>
       {/* What it runs with: the model (and, in a code session, its agent,
-          picked in the same sheet), then Claude Code's mode. */}
+          picked in the same sheet), Claude Code's mode, then the repo's
+          environment. */}
       <ScrollView
         contentContainerClassName="items-center gap-two"
         horizontal
@@ -362,6 +373,18 @@ function NewSessionComposer({
           onHarness={setHarness}
         />
         {claudeCode ? <ClaudeCodeModePicker /> : null}
+        {/* Only for a repo that has environments; they are made on the
+            web. */}
+        {mode === "code" &&
+        code.status === "ready" &&
+        environment.environments.length > 0 ? (
+          <TargetChip
+            hint="Chooses the environment whose env files the session uses"
+            icon={Settings02Icon}
+            label={environment.selected?.name ?? "No environment"}
+            onPress={() => setSheet("environment")}
+          />
+        ) : null}
       </ScrollView>
     </View>
   )
@@ -391,7 +414,13 @@ function NewSessionComposer({
                   attachments,
                   aboutMessageId,
                   mode === "code" && code.target
-                    ? { ...code.target, harness }
+                    ? {
+                        ...code.target,
+                        harness,
+                        ...(environment.selected
+                          ? { environmentId: environment.selected.id }
+                          : {}),
+                      }
                     : undefined,
                   {
                     ...modelChoice.turn,
@@ -493,6 +522,30 @@ function NewSessionComposer({
         search={{ placeholder: "Find a branch", onQueryChange: setBranchQuery }}
         selected={code.branch}
         title="New branch from"
+      />
+      <PickerSheet
+        isOpen={sheet === "environment"}
+        onOpenChange={(open) => setSheet(open ? "environment" : null)}
+        onPick={(value) => {
+          environment.select(value === NO_ENVIRONMENT ? null : value)
+          setSheet(null)
+        }}
+        options={[
+          {
+            value: NO_ENVIRONMENT,
+            label: "None",
+            detail: "The session starts without env files.",
+          },
+          ...environment.environments.map((env) => ({
+            value: env.id,
+            label: env.name,
+            detail: env.sandboxMemoryMb
+              ? `${env.sandboxMemoryMb / 1024} GB sandbox`
+              : undefined,
+          })),
+        ]}
+        selected={environment.selected?.id ?? NO_ENVIRONMENT}
+        title="Environment"
       />
     </>
   )

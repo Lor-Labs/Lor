@@ -26,6 +26,7 @@ import { ModelPicker } from "@/components/model-picker"
 import { RunQueuePill } from "@/components/run-queue-pill"
 import { SessionCodeDrawer } from "@/components/session-code-drawer"
 import { SessionHeading } from "@/components/session-heading"
+import { SessionSetupSheet } from "@/components/session-setup"
 import { SessionSheet } from "@/components/session-sheet"
 import {
   ThreadMessageList,
@@ -131,6 +132,7 @@ export function ThreadView({
   const [headingVisible, setHeadingVisible] = useState(true)
   const [isActionsOpen, setIsActionsOpen] = useState(false)
   const [isCodeOpen, setIsCodeOpen] = useState(false)
+  const [isSetupOpen, setIsSetupOpen] = useState(false)
   // Session: the message being forwarded into the channel chat.
   const [forwarding, setForwarding] = useState<Message | null>(null)
   const updateSession = useUpdateAgentSession()
@@ -985,7 +987,17 @@ export function ThreadView({
           lorRunning={Boolean(pendingLorMessage)}
           messages={thread.messages}
           onOpenChange={setIsActionsOpen}
+          onOpenSetup={codeSession ? () => setIsSetupOpen(true) : undefined}
           session={lorSession}
+        />
+      ) : null}
+      {codeSession && lorSession ? (
+        <SessionSetupSheet
+          isOpen={isSetupOpen}
+          lorRunning={Boolean(pendingLorMessage)}
+          onOpenChange={setIsSetupOpen}
+          session={lorSession}
+          workspaceSlug={workspace.slug}
         />
       ) : null}
       {codeSession && lorSession ? (

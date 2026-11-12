@@ -49,6 +49,8 @@ export type SessionStart = {
     branch: string
     newBranch?: string
     harness: SessionHarness
+    // The environment whose env files the session writes.
+    environmentId?: string
   }
 }
 
@@ -109,7 +111,7 @@ export function useSessionStart(
       repoFullName: start.code?.repo ?? null,
       baseBranch: start.code?.branch ?? null,
       newBranch: start.code?.newBranch ?? null,
-      environmentId: null,
+      environmentId: start.code?.environmentId ?? null,
       sandboxMemoryMb: null,
       uncommittedAdditions: null,
       uncommittedDeletions: null,
@@ -309,6 +311,9 @@ export function useSendNewSession(channel: {
                 repo: code.repo,
                 branch: code.branch,
                 ...(code.newBranch ? { newBranch: code.newBranch } : {}),
+                ...(code.environmentId
+                  ? { environmentId: code.environmentId }
+                  : {}),
               },
               harness: code.harness,
             }
