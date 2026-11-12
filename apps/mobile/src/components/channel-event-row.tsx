@@ -2,6 +2,8 @@ import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon"
 import ArrowUp02Icon from "@hugeicons/core-free-icons/ArrowUp02Icon"
 import GitCommitIcon from "@hugeicons/core-free-icons/GitCommitIcon"
 import GitForkIcon from "@hugeicons/core-free-icons/GitForkIcon"
+import GitMergeIcon from "@hugeicons/core-free-icons/GitMergeIcon"
+import GitPullRequestIcon from "@hugeicons/core-free-icons/GitPullRequestIcon"
 import Infinity01Icon from "@hugeicons/core-free-icons/Infinity01Icon"
 import Settings02Icon from "@hugeicons/core-free-icons/Settings02Icon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
@@ -55,6 +57,14 @@ type SessionPushedPayload = {
   headSha: string
 }
 type SessionForkedPayload = { sessionId: string; fromMessageId: string }
+type SessionPullRequestPayload = {
+  pullRequestNumber: number
+  pullRequestUrl: string
+  title: string
+  headBranch: string
+  baseBranch: string
+  githubLogin: string
+}
 type SessionSetupChangedPayload = {
   environmentName?: string | null
   sandboxMemoryMb?: number
@@ -256,6 +266,31 @@ function eventText(
         </>
       )
     }
+    // Someone without a linked GitHub account reads as their GitHub login.
+    case "session_pr_opened":
+    case "session_pr_merged": {
+      if (!payload) break
+      const p = payload as SessionPullRequestPayload
+      return (
+        <>
+          {message.authorId === APP_USER_ID ? (
+            <Name>{p.githubLogin}</Name>
+          ) : (
+            actor
+          )}{" "}
+          {message.eventType === "session_pr_merged" ? "merged" : "opened"}{" "}
+          <Text
+            accessibilityRole="link"
+            className="font-semibold text-muted underline"
+            onPress={() => void Linking.openURL(p.pullRequestUrl)}
+            suppressHighlighting
+          >
+            #{p.pullRequestNumber} {p.title}
+          </Text>{" "}
+          into <Name>{p.baseBranch}</Name>
+        </>
+      )
+    }
     case "session_forked": {
       if (!payload) break
       const p = payload as SessionForkedPayload
@@ -369,6 +404,8 @@ const SESSION_EVENT_ICONS: Partial<
   session_pushed: ArrowUp02Icon,
   session_forked: GitForkIcon,
   session_rewound: Undo02Icon,
+  session_pr_opened: GitPullRequestIcon,
+  session_pr_merged: GitMergeIcon,
   session_setup_changed: Settings02Icon,
   loop_run: Infinity01Icon,
   trigger_run: ZapIcon,

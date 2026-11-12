@@ -306,6 +306,8 @@ export type RealtimeChannelEventType =
   | "session_forked"
   | "session_rewound"
   | "session_reviewed"
+  | "session_pr_opened"
+  | "session_pr_merged"
   | "session_setup_changed"
 
 export type RealtimeChannelEventPayload =
@@ -351,6 +353,16 @@ export type RealtimeChannelEventPayload =
       reviewer: string
       reviewerBot: boolean
       state: "approved" | "changes_requested" | "commented"
+    }
+  | {
+      sessionId: string
+      repoFullName: string
+      pullRequestNumber: number
+      pullRequestUrl: string
+      title: string
+      headBranch: string
+      baseBranch: string
+      githubLogin: string
     }
   | {
       sessionId: string

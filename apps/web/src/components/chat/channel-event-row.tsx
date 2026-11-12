@@ -3,6 +3,8 @@ import {
   ArrowUp02Icon,
   GitCommitIcon,
   GitForkIcon,
+  GitMergeIcon,
+  GitPullRequestIcon,
   HashtagIcon,
   Infinity01Icon,
   Settings02Icon,
@@ -79,6 +81,14 @@ type SessionPushedPayload = {
   headSha: string
 }
 type SessionForkedPayload = { sessionId: string; fromMessageId: string }
+type SessionPullRequestPayload = {
+  pullRequestNumber: number
+  pullRequestUrl: string
+  title: string
+  headBranch: string
+  baseBranch: string
+  githubLogin: string
+}
 type SessionSetupChangedPayload = {
   environmentName?: string | null
   sandboxMemoryMb?: number
@@ -549,6 +559,32 @@ function eventText(
         </>
       )
     }
+    // Someone without a linked GitHub account reads as their GitHub login.
+    case "session_pr_opened":
+    case "session_pr_merged": {
+      if (!payload) break
+      const p = payload as SessionPullRequestPayload
+      const merged = message.eventType === "session_pr_merged"
+      return (
+        <>
+          {message.authorId === APP_USER_ID ? (
+            <Name>{p.githubLogin}</Name>
+          ) : (
+            actor
+          )}{" "}
+          {merged ? "merged" : "opened"}{" "}
+          <a
+            href={p.pullRequestUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={HOVER_NAME_CLASS}
+          >
+            #{p.pullRequestNumber} {p.title}
+          </a>{" "}
+          into <Name>{p.baseBranch}</Name>
+        </>
+      )
+    }
     // The fork's heading links back to the reply it was forked at.
     case "session_forked": {
       if (!payload) break
@@ -693,6 +729,8 @@ const SESSION_EVENT_ICONS: Partial<
   session_pushed: ArrowUp02Icon,
   session_forked: GitForkIcon,
   session_rewound: Undo02Icon,
+  session_pr_opened: GitPullRequestIcon,
+  session_pr_merged: GitMergeIcon,
   session_setup_changed: Settings02Icon,
   loop_run: Infinity01Icon,
   trigger_run: ZapIcon,
@@ -706,6 +744,12 @@ const ACTOR_EVENTS: ReadonlySet<string> = new Set([
   "session_forked",
   "session_rewound",
   "session_setup_changed",
+])
+
+// Actor rows when the person's linked GitHub account did it.
+const PULL_REQUEST_EVENTS: ReadonlySet<string> = new Set([
+  "session_pr_opened",
+  "session_pr_merged",
 ])
 
 export function SessionEventRow({
@@ -722,7 +766,10 @@ export function SessionEventRow({
 }) {
   const { author } = message
   const byPerson = Boolean(
-    message.eventType && ACTOR_EVENTS.has(message.eventType)
+    message.eventType &&
+      (ACTOR_EVENTS.has(message.eventType) ||
+        (PULL_REQUEST_EVENTS.has(message.eventType) &&
+          message.authorId !== APP_USER_ID))
   )
   // After a name the sentence's own space follows; leading, it needs one.
   const inlineIcon = icon ? (
