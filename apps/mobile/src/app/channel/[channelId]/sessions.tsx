@@ -29,6 +29,7 @@ import {
   type ChannelSession,
   useChannelSessions,
 } from "@/hooks/use-channel-sessions"
+import { usePullToRefresh } from "@/hooks/use-pull-to-refresh"
 
 // Everyone's sessions in the channel, so teammates can browse and join each
 // other's work. Opening one never subscribes you. Mirrors web's Sessions
@@ -44,6 +45,7 @@ export default function ChannelSessionsScreen() {
     channelId: channelId ?? "",
   })
   const sessions = useChannelSessions(channelId ?? "", archived)
+  const refreshControl = usePullToRefresh(sessions.refetch)
   const channelName = channelState.channel?.name ?? "channel"
 
   const goBack = () => {
@@ -140,8 +142,7 @@ export default function ChannelSessionsScreen() {
           contentContainerStyle={{ padding: 8, paddingBottom: 32 }}
           data={sessions.data}
           keyExtractor={(session) => session.id}
-          onRefresh={() => void sessions.refetch()}
-          refreshing={sessions.isRefetching}
+          refreshControl={refreshControl}
           renderItem={({ item }) => (
             <SessionListRow
               channelId={channelId ?? ""}

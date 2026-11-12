@@ -17,6 +17,7 @@ import { useAuthorProfileSheet } from "@/hooks/use-author-profile-sheet"
 import { useChannelDetail } from "@/hooks/use-channel-detail"
 import { useChannelPermissions } from "@/hooks/use-channel-permissions"
 import { usePinnedMessages } from "@/hooks/use-pinned-messages"
+import { usePullToRefresh } from "@/hooks/use-pull-to-refresh"
 import { api } from "@/lib/api"
 import type { Message } from "@/lib/api-types"
 import { fetchMessageLocation, openMessageAt } from "@/lib/message-location"
@@ -38,6 +39,13 @@ export default function PinnedMessagesScreen() {
   })
   const { avatarColorByUserId, openAuthorProfile, profileSheet } =
     useAuthorProfileSheet(workspace?.slug ?? "")
+  const refreshControl = usePullToRefresh(async () => {
+    if (await pins.reload()) return
+    Alert.alert(
+      "Pinned messages didn't refresh",
+      "Check your connection and try again."
+    )
+  })
 
   const goBack = () => {
     if (router.canGoBack()) router.back()
@@ -164,6 +172,7 @@ export default function PinnedMessagesScreen() {
           contentContainerStyle={{ paddingBottom: 32 }}
           data={pins.messages}
           keyExtractor={(message) => message.id}
+          refreshControl={refreshControl}
           ListHeaderComponent={
             <View className="flex-row items-center gap-two px-four pb-two pt-four">
               <HugeiconsIcon color={foreground} icon={Pin02Icon} size={16} />

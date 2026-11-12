@@ -1,4 +1,5 @@
 import type { LegendListRef } from "@legendapp/list/react-native"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { formatDateDivider } from "@repo/utils/date"
 import { Spinner } from "heroui-native/spinner"
 import {
@@ -9,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { Pressable, Text, View } from "react-native"
+import { Alert, Pressable, Text, View } from "react-native"
 import Animated, { FadeInUp, FadeOutUp } from "react-native-reanimated"
 import {
   ChannelEventRow,
@@ -17,6 +18,7 @@ import {
 } from "@/components/channel-event-row"
 import type { ChatMessageListKeyboardProps } from "@/components/chat-keyboard-layout"
 import { canForwardMessage } from "@/components/forward-sheet"
+import { LorReplyActions } from "@/components/lor-reply-actions"
 import { MessageActionMenu } from "@/components/message-action-menu"
 import {
   areMessagesOnSameDay,
@@ -78,6 +80,11 @@ export function ThreadMessageList({
   onTogglePin,
   onRemoveEmbed,
   canRemoveOthersEmbeds = false,
+  onFork,
+  forkingMessageId = null,
+  onRewind,
+  rewindRestoresFiles = false,
+  pausedLorMessageId = null,
   currentUserId,
   editingMessageId,
   replyingToId,
@@ -116,6 +123,17 @@ export function ThreadMessageList({
   onRemoveEmbed?: (message: Message, url: string) => void
   // "Delete others' messages" also removes others' link previews.
   canRemoveOthersEmbeds?: boolean
+  // Session: a new session from one of Lor's finished replies. The reply
+  // being forked shows a spinner on its Fork button.
+  onFork?: (message: Message) => void
+  forkingMessageId?: string | null
+  // Session: Lor goes back to one of its earlier replies; unset where the
+  // session can't rewind (archived). A code session's rewind also puts back
+  // that turn's files.
+  onRewind?: (message: Message) => void
+  rewindRestoresFiles?: boolean
+  // Session: Lor's reply whose turn waits on approvals.
+  pausedLorMessageId?: string | null
   currentUserId?: string
   editingMessageId?: string | null
   replyingToId?: string | null
@@ -191,6 +209,92 @@ export function ThreadMessageList({
     root,
     heading,
   ])
+
+  // What a session's Lor replies offer, as on web's conversation-messages:
+  // an approval resume answers Lor's paused reply with a new one, and both
+  // are one turn, so only its last reply gets the action row; any earlier
+  // finished reply on the current line can be rewound to while Lor is idle.
+  const lorTurns = useMemo(() => {
+    const isDocument = layout === "document"
+    const isLorReply = (message: Message) =>
+      message.authorId === LOR_USER_ID &&
+      (message.type === "default" || message.type === "reply")
+    const lorReplyIds = new Set(
+      isDocument
+        ? orderedMessages.filter(isLorReply).map((message) => message.id)
+        : []
+    )
+    const resumedIds = new Set(
+      orderedMessages.flatMap((message) =>
+        isLorReply(message) &&
+        message.lorTriggerMessageId &&
+        lorReplyIds.has(message.lorTriggerMessageId)
+          ? [message.lorTriggerMessageId]
+          : []
+      )
+    )
+    const setAside = (index: number) =>
+      groups.some((group) => index >= group.start && index <= group.end)
+    let latestLorIndex = -1
+    for (let index = orderedMessages.length - 1; index >= 0; index -= 1) {
+      const message = orderedMessages[index]
+      if (message && isLorReply(message) && !setAside(index)) {
+        latestLorIndex = index
+        break
+      }
+    }
+    const lorBusy = orderedMessages.some(
+      (message) =>
+        message.authorId === LOR_USER_ID && message.status === "pending"
+    )
+    const finished = (message: Message) =>
+      isDocument &&
+      isLorReply(message) &&
+      message.status !== "pending" &&
+      !resumedIds.has(message.id) &&
+      message.id !== pausedLorMessageId
+    return {
+      // The reply closes its turn: it gets the action row.
+      finished,
+      canFork: (message: Message) =>
+        isDocument && isLorReply(message) && message.status === "complete",
+      canRewind: (message: Message) => {
+        const index = orderedMessages.findIndex(
+          (candidate) => candidate.id === message.id
+        )
+        return (
+          finished(message) &&
+          message.status === "complete" &&
+          !lorBusy &&
+          index >= 0 &&
+          index < latestLorIndex &&
+          !setAside(index)
+        )
+      },
+    }
+  }, [layout, orderedMessages, groups, pausedLorMessageId])
+
+  // Both ask first: a fork makes a new session, a rewind moves everyone.
+  const confirmFork = (message: Message) =>
+    Alert.alert(
+      "Fork from this reply?",
+      "Starts a new session from here. This one won't change.",
+      [
+        { style: "cancel", text: "Cancel" },
+        { text: "Fork", onPress: () => onFork?.(message) },
+      ]
+    )
+  const confirmRewind = (message: Message) =>
+    Alert.alert(
+      "Rewind to here?",
+      rewindRestoresFiles
+        ? "Lor and the files go back to this reply for everyone. Later messages fold away."
+        : "Lor goes back to this reply for everyone. Later messages fold away.",
+      [
+        { style: "cancel", text: "Cancel" },
+        { text: "Rewind", onPress: () => onRewind?.(message) },
+      ]
+    )
 
   const handleFirstVisibleItemChanged = useCallback(
     ({ item }: { item: ThreadListItem }) => {
@@ -497,6 +601,29 @@ export function ThreadMessageList({
                 name: "delete",
               })
             }
+            // The reply's action row sits inside this element, which VoiceOver
+            // reads as one: its actions are offered here too.
+            const lorActions = lorTurns.finished(message)
+            if (
+              lorActions &&
+              onFork &&
+              !forkingMessageId &&
+              lorTurns.canFork(message)
+            ) {
+              accessibilityActions.push({
+                label: "Fork from here",
+                name: "fork",
+              })
+            }
+            if (lorActions && onRewind && lorTurns.canRewind(message)) {
+              accessibilityActions.push({
+                label: "Rewind to here",
+                name: "rewind",
+              })
+            }
+            if (lorActions) {
+              accessibilityActions.push({ label: "More actions", name: "more" })
+            }
 
             return (
               <Pressable
@@ -515,6 +642,18 @@ export function ThreadMessageList({
                   }
                   if (event.nativeEvent.actionName === "delete") {
                     onDelete?.(message)
+                    return
+                  }
+                  if (event.nativeEvent.actionName === "fork") {
+                    confirmFork(message)
+                    return
+                  }
+                  if (event.nativeEvent.actionName === "rewind") {
+                    confirmRewind(message)
+                    return
+                  }
+                  if (event.nativeEvent.actionName === "more") {
+                    setSelectedMessage(message)
                   }
                 }}
                 onLongPress={() => handleLongPress(message)}
@@ -541,6 +680,28 @@ export function ThreadMessageList({
                     }
                     layout={layout}
                     showHeader={showHeader}
+                    footer={
+                      lorTurns.finished(message) ? (
+                        <LorReplyActions
+                          forking={forkingMessageId === message.id}
+                          message={message}
+                          onFork={
+                            onFork &&
+                            lorTurns.canFork(message) &&
+                            !forkingMessageId
+                              ? () => confirmFork(message)
+                              : undefined
+                          }
+                          onForward={
+                            onForward && canForwardMessage(message)
+                              ? () => onForward(message)
+                              : undefined
+                          }
+                          onMore={() => setSelectedMessage(message)}
+                          onReply={onReply ? () => onReply(message) : undefined}
+                        />
+                      ) : undefined
+                    }
                   />
                 </View>
               </Pressable>
@@ -603,6 +764,27 @@ export function ThreadMessageList({
           onToggleReaction?.(message.id, emoji)
         }
         onTogglePin={onTogglePin}
+        onFork={
+          onFork &&
+          !forkingMessageId &&
+          selectedMessage &&
+          lorTurns.canFork(selectedMessage)
+            ? () => {
+                const message = selectedMessage
+                setSelectedMessage(null)
+                confirmFork(message)
+              }
+            : undefined
+        }
+        onRewind={
+          onRewind && selectedMessage && lorTurns.canRewind(selectedMessage)
+            ? () => {
+                const message = selectedMessage
+                setSelectedMessage(null)
+                confirmRewind(message)
+              }
+            : undefined
+        }
         onRemoveEmbed={
           selectedMessage &&
           !isOptimisticMessage(selectedMessage) &&

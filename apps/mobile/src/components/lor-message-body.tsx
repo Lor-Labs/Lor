@@ -7,6 +7,7 @@ import { LorReasoning } from "@/components/lor-reasoning"
 import { LorToolTrail } from "@/components/lor-tool-trail"
 import { lorWorkedMs } from "@/components/lor-work-time"
 import { MessageContent } from "@/components/message-content"
+import { SessionSetupCard } from "@/components/session-setup"
 import type { Message } from "@/lib/api-types"
 import { buildLorSegments, type LorToolCall } from "@/lib/lor"
 import { openFile } from "@/lib/open-file"
@@ -20,7 +21,7 @@ export function LorMessageBody({
   streaming: boolean
   onCitationJump?: (messageId: string) => void
 }) {
-  const { segments, deliverables } = useMemo(() => {
+  const { segments, deliverables, setups } = useMemo(() => {
     const toolCalls = message.lorToolCalls ?? []
     // Deliverables from any tool call (mirrors web) — presented at the end of
     // the message, deduped by artifact (the latest version wins).
@@ -37,6 +38,12 @@ export function LorMessageBody({
         message.lorReasoningSegments ?? []
       ),
       deliverables: [...files.values()],
+      // Lor's suggested environment or sandbox size, as a card to apply.
+      setups: toolCalls.flatMap((toolCall) =>
+        toolCall.setup
+          ? [{ id: toolCall.toolCallId, setup: toolCall.setup }]
+          : []
+      ),
     }
   }, [message])
 
@@ -147,6 +154,9 @@ export function LorMessageBody({
           ))}
         </View>
       ) : null}
+      {setups.map(({ id, setup }) => (
+        <SessionSetupCard key={id} setup={setup} />
+      ))}
     </>
   )
 }

@@ -45,6 +45,7 @@ type ItemProps = Pick<
   | "onFork"
   | "onRewind"
   | "rewindRestoresFiles"
+  | "modelLabel"
 >
 
 // A thread's or session's replies inside a MessageScrollerContent: the

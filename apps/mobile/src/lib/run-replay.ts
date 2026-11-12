@@ -84,9 +84,17 @@ export function applyLorFrame(message: Message, frame: LorFrame): Message {
       ...(payload.done
         ? {
             lorRun: {
+              ...message.lorRun,
               startedAt: message.lorRun?.startedAt ?? null,
               finishedAt:
                 message.lorRun?.finishedAt ?? new Date().toISOString(),
+              ...(payload.model
+                ? {
+                    model: payload.model,
+                    effort: payload.effort ?? null,
+                    fast: payload.fast ?? false,
+                  }
+                : {}),
             },
           }
         : {}),

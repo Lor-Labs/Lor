@@ -1,6 +1,7 @@
+import MessageMultiple01Icon from "@hugeicons/core-free-icons/MessageMultiple01Icon"
 import RepeatIcon from "@hugeicons/core-free-icons/RepeatIcon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
-import { HugeiconsIcon } from "@hugeicons/react-native"
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native"
 import type {
   ChannelActivity,
   SidebarSession,
@@ -11,31 +12,25 @@ import { router } from "expo-router"
 import * as SecureStore from "expo-secure-store"
 import { useThemeColor } from "heroui-native/hooks"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
-import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native"
-import Animated, {
-  FadeIn,
-  FadeOut,
-  LinearTransition,
-} from "react-native-reanimated"
+import { ActivityIndicator, Alert, Text, View } from "react-native"
+import Animated from "react-native-reanimated"
 import { LineCounts } from "@/components/code-drawer-parts"
 import { confirmArchiveSession } from "@/components/session-sheet"
 import { TypewriterText } from "@/components/typewriter-text"
 import { triggerHaptic } from "@/components/ui/haptics"
+import { PressableRow } from "@/components/ui/pressable-row"
 import { useWorkspace } from "@/context/workspace-context"
 import {
   agentSessionQueryOptions,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
+import { LIST_REFLOW, ROW_ENTER, ROW_EXIT } from "@/lib/motion"
 
 // Each channel lists at most this many of your sessions; a "N more" row
 // expands the rest in place. Mirrors web's channel-sessions.tsx.
 const SESSION_CAP = 3
 
-const rowIn = FadeIn.duration(160)
-const rowOut = FadeOut.duration(120)
-const rowLayout = LinearTransition.duration(180)
-
-const STATE_LABELS = {
+export const SESSION_STATE_LABELS = {
   needs_you: "Needs you",
   running: "Lor is working",
   unread: "Unread",
@@ -122,7 +117,7 @@ export function SessionStateIndicator({
   if (state === "running") {
     return (
       <ActivityIndicator
-        accessibilityLabel={STATE_LABELS.running}
+        accessibilityLabel={SESSION_STATE_LABELS.running}
         color={accent}
         size="small"
         style={{ transform: [{ scale: 0.6 }] }}
@@ -132,21 +127,88 @@ export function SessionStateIndicator({
   if (state === "unread") {
     return (
       <View
-        accessibilityLabel={STATE_LABELS.unread}
-        className="mx-[5px] size-1.5 rounded-full bg-accent"
+        accessibilityLabel={SESSION_STATE_LABELS.unread}
+        className="mx-[5px] size-[7px] rounded-full bg-accent"
       />
     )
   }
   return (
     <View
-      accessibilityLabel={STATE_LABELS.needs_you}
-      className="size-4 items-center justify-center rounded-full bg-warning-soft"
+      accessibilityLabel={SESSION_STATE_LABELS.needs_you}
+      className="size-[18px] items-center justify-center rounded-full bg-warning-soft"
     >
-      <Text className="text-[10px] font-bold leading-[12px] text-warning-soft-foreground">
+      <Text className="text-[11px] font-bold leading-[13px] text-warning-soft-foreground">
         !
       </Text>
     </View>
   )
+}
+
+// Opening a session row and its long-press archive, shared by the rows
+// under a channel and the all-sessions list.
+export function useSessionRowActions({
+  channelId,
+  session,
+  onOpen,
+}: {
+  channelId: string
+  session: SidebarSession
+  onOpen?: () => void
+}) {
+  const queryClient = useQueryClient()
+  const { workspace } = useWorkspace()
+  const updateSession = useUpdateAgentSession()
+  const archive = () => {
+    if (!workspace) return
+    confirmArchiveSession(session.state === "running", () =>
+      updateSession.mutate({
+        workspaceId: workspace.id,
+        channelId,
+        sessionId: session.id,
+        archived: true,
+      })
+    )
+  }
+  return {
+    archive,
+    // Warm the session's page during the press, so it opens filled.
+    prefetch: () =>
+      void queryClient.prefetchQuery(agentSessionQueryOptions(session.id)),
+    open: () => {
+      onOpen?.()
+      router.push({
+        pathname: "/session/[sessionId]",
+        params: { sessionId: session.id },
+      })
+    },
+    promptArchive: () => {
+      triggerHaptic("medium")
+      Alert.alert(session.title, undefined, [
+        { style: "cancel", text: "Cancel" },
+        { style: "destructive", text: "Archive", onPress: archive },
+      ])
+    },
+  }
+}
+
+// A session's kind as a mark: a loop's runs, a code session, a chat. The
+// same three as web's sidebar.
+export function sessionKindIcon(session: SidebarSession): IconSvgElement {
+  return session.loop
+    ? RepeatIcon
+    : session.code
+      ? SourceCodeIcon
+      : MessageMultiple01Icon
+}
+
+export function sessionRowLabel(session: SidebarSession) {
+  const stateLabel =
+    session.state === "idle" ? "" : `, ${SESSION_STATE_LABELS[session.state]}`
+  const linesLabel =
+    session.uncommitted?.additions || session.uncommitted?.deletions
+      ? `, ${session.uncommitted.additions} lines added, ${session.uncommitted.deletions} removed`
+      : ""
+  return `Open session ${session.title}${linesLabel}${stateLabel}`
 }
 
 // Your sessions in a channel, under its row: newest activity first, whatever
@@ -157,13 +219,16 @@ export function ChannelSessionRows({
   collapsed,
   hint,
   onOpenSession,
+  openedSessionId = null,
 }: {
   channelId: string
   sessions: SidebarSession[] | undefined
   collapsed: boolean
   // Under the rows: the sessions_intro hint, on the first channel with any.
   hint?: ReactNode
-  onOpenSession?: () => void
+  onOpenSession?: (sessionId: string) => void
+  // The session open on top of the list (useOpenedRow).
+  openedSessionId?: string | null
 }) {
   const [expanded, setExpanded] = useState(false)
   const ordered = useMemo(
@@ -184,30 +249,36 @@ export function ChannelSessionRows({
   const rollup = strongestSessionState(hidden)
 
   return (
-    // Lines up with the channel name: row padding + icon box + gap.
-    <View className={`pl-[36px] ${collapsed ? "" : "mb-one"}`}>
+    // Siblings of the channel rows, not a box of their own: see ChannelList.
+    <>
       {visible.map((session) => (
         <Animated.View
-          entering={rowIn}
-          exiting={rowOut}
+          entering={ROW_ENTER}
+          exiting={ROW_EXIT}
           key={session.id}
-          layout={rowLayout}
+          layout={LIST_REFLOW}
         >
           <SessionRow
             channelId={channelId}
             onOpen={onOpenSession}
+            selected={openedSessionId === session.id}
             session={session}
           />
         </Animated.View>
       ))}
       {!collapsed && ordered.length > SESSION_CAP ? (
-        <Animated.View entering={rowIn} exiting={rowOut} layout={rowLayout}>
-          <Pressable
+        <Animated.View
+          entering={ROW_ENTER}
+          exiting={ROW_EXIT}
+          layout={LIST_REFLOW}
+        >
+          <PressableRow
             accessibilityRole="button"
             accessibilityState={{ expanded }}
-            className="min-h-9 flex-row items-center gap-two rounded-lor-sm px-two active:bg-surface-secondary"
+            className="min-h-10 flex-row items-center gap-two pr-two"
             onPress={() => setExpanded((current) => !current)}
           >
+            <SessionGutter />
             <Text
               className="min-w-0 flex-1 text-[14px] text-muted"
               numberOfLines={1}
@@ -215,84 +286,71 @@ export function ChannelSessionRows({
               {expanded ? "Show less" : `${hidden.length} more`}
             </Text>
             {rollup ? <SessionStateIndicator state={rollup} /> : null}
-          </Pressable>
+          </PressableRow>
         </Animated.View>
       ) : null}
-      {collapsed ? null : hint}
+      {collapsed || !hint ? null : (
+        <Animated.View
+          entering={ROW_ENTER}
+          exiting={ROW_EXIT}
+          layout={LIST_REFLOW}
+        >
+          {hint}
+        </Animated.View>
+      )}
+    </>
+  )
+}
+
+// The column under the channel's icon: each session's kind, drawn smaller
+// than the channel's own mark so the rows read as its children. The same
+// three marks as web's sidebar. As wide as a channel row's padding, icon box
+// and gap, so session titles line up with channel names.
+function SessionGutter({ icon }: { icon?: IconSvgElement }) {
+  const muted = useThemeColor("muted")
+  return (
+    <View className="w-[36px] items-center justify-center pl-two">
+      {icon ? (
+        <HugeiconsIcon color={muted} icon={icon} size={14} strokeWidth={2} />
+      ) : null}
     </View>
   )
 }
 
-// Long-press archives it, like the archive button on web's row hover.
 function SessionRow({
   channelId,
   onOpen,
+  selected,
   session,
 }: {
   channelId: string
-  onOpen?: () => void
+  onOpen?: (sessionId: string) => void
+  selected: boolean
   session: SidebarSession
 }) {
-  const muted = useThemeColor("muted")
-  const queryClient = useQueryClient()
-  const { workspace } = useWorkspace()
-  const updateSession = useUpdateAgentSession()
+  const actions = useSessionRowActions({
+    channelId,
+    session,
+    onOpen: onOpen ? () => onOpen(session.id) : undefined,
+  })
   const emphasized = session.state === "unread" || session.state === "needs_you"
-  const stateLabel =
-    session.state === "idle" ? "" : `, ${STATE_LABELS[session.state]}`
-  const linesLabel =
-    session.uncommitted?.additions || session.uncommitted?.deletions
-      ? `, ${session.uncommitted.additions} lines added, ${session.uncommitted.deletions} removed`
-      : ""
-  const archive = () => {
-    if (!workspace) return
-    confirmArchiveSession(session.state === "running", () =>
-      updateSession.mutate({
-        workspaceId: workspace.id,
-        channelId,
-        sessionId: session.id,
-        archived: true,
-      })
-    )
-  }
 
   return (
-    <Pressable
+    <PressableRow
       accessibilityActions={[{ label: "Archive", name: "archive" }]}
-      accessibilityLabel={`Open session ${session.title}${linesLabel}${stateLabel}`}
+      accessibilityLabel={sessionRowLabel(session)}
       accessibilityRole="button"
-      className="min-h-9 flex-row items-center gap-two rounded-lor-sm px-two active:bg-surface-secondary"
+      className="min-h-10 flex-row items-center gap-two pr-two"
       delayLongPress={350}
-      onAccessibilityAction={archive}
-      onLongPress={() => {
-        triggerHaptic("medium")
-        Alert.alert(session.title, undefined, [
-          { style: "cancel", text: "Cancel" },
-          { style: "destructive", text: "Archive", onPress: archive },
-        ])
-      }}
-      // Warm the session's page during the press, so it opens filled.
-      onPressIn={() =>
-        void queryClient.prefetchQuery(agentSessionQueryOptions(session.id))
-      }
-      onPress={() => {
-        onOpen?.()
-        router.push({
-          pathname: "/session/[sessionId]",
-          params: { sessionId: session.id },
-        })
-      }}
+      onAccessibilityAction={actions.archive}
+      onLongPress={actions.promptArchive}
+      onPress={actions.open}
+      onPressIn={actions.prefetch}
+      selected={selected}
     >
-      {session.loop || session.code ? (
-        <HugeiconsIcon
-          color={muted}
-          icon={session.loop ? RepeatIcon : SourceCodeIcon}
-          size={14}
-          strokeWidth={2}
-        />
-      ) : null}
+      <SessionGutter icon={sessionKindIcon(session)} />
       <Text
-        className={`min-w-0 flex-1 text-[14px] ${
+        className={`min-w-0 flex-1 text-[15px] leading-5 ${
           emphasized ? "font-medium text-foreground" : "text-muted"
         }`}
         numberOfLines={1}
@@ -301,6 +359,6 @@ function SessionRow({
       </Text>
       {session.uncommitted ? <LineCounts {...session.uncommitted} /> : null}
       <SessionStateIndicator state={session.state} />
-    </Pressable>
+    </PressableRow>
   )
 }

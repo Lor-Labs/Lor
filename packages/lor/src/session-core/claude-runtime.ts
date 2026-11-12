@@ -70,6 +70,10 @@ export const CLAUDE_CODE_BINDING: HarnessBinding = {
   formatVersion: 1,
 }
 
+// A Claude Code turn's model when the sender picked none. Without one the
+// bridge's Claude Code picks Sonnet; Opus is Claude Code's documented default.
+export const CLAUDE_CODE_DEFAULT_MODEL = "opus"
+
 // Claude Code's own tools that Lor switches off: worktrees leave the work
 // folder that checkpoints and the Changes panel read; schedules and
 // notifications would outlive the turn's process (Loops do this in Lor);
@@ -211,9 +215,7 @@ export async function runClaudeCodeTurn(
       ...(effort ? { effort } : {}),
       ...(input.fast ? { fastMode: true } : {}),
     }),
-    // Without a model the bridge's Claude Code picks Sonnet, so Lor always
-    // sends one: Opus is Claude Code's documented default.
-    model: input.model ?? "opus",
+    model: input.model ?? CLAUDE_CODE_DEFAULT_MODEL,
     instructions: input.instructions,
     tools: prepareTools(
       { ...missingToolStubs(paused, input.tools), ...input.tools },

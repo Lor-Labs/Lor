@@ -447,7 +447,9 @@ export type AgentRunContext = {
   claudeCodeUserId?: string
   claudeCodeMode?: ClaudeCodeMode
   // The model, effort and fast mode the turn's sender picked (any harness),
-  // read the same way by a run that continues the paused turn.
+  // read the same way by a run that continues the paused turn. turnModel is
+  // the model the turn ran on: the pick, the payer's fallback, or the
+  // harness's default (always set since LOR-160), shown beside the reply.
   turnModel?: string
   turnEffort?: string
   turnFast?: boolean

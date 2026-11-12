@@ -41,10 +41,14 @@ import {
 
 export function SessionCodeDrawer({
   sessionId,
+  workspaceSlug,
   isOpen,
   onOpenChange,
 }: {
   sessionId: string
+  // For the commit box's link to Linked accounts on the web: a sheet's
+  // content renders outside the workspace provider.
+  workspaceSlug: string
   isOpen: boolean
   onOpenChange: (isOpen: boolean) => void
 }) {
@@ -85,7 +89,12 @@ export function SessionCodeDrawer({
       version={changes.dataUpdatedAt}
     />
   ) : (
-    <ChangesList changes={ready} onOpen={setOpenPath} sessionId={sessionId} />
+    <ChangesList
+      changes={ready}
+      onOpen={setOpenPath}
+      sessionId={sessionId}
+      workspaceSlug={workspaceSlug}
+    />
   )
 
   return (
@@ -162,10 +171,12 @@ function isStaged(file: ChangedFile) {
 
 function ChangesList({
   sessionId,
+  workspaceSlug,
   changes,
   onOpen,
 }: {
   sessionId: string
+  workspaceSlug: string
   changes: ReadyChanges
   onOpen: (path: string) => void
 }) {
@@ -246,6 +257,7 @@ function ChangesList({
         changes={changes}
         sessionId={sessionId}
         stagedCount={stagedCount}
+        workspaceSlug={workspaceSlug}
       />
     </View>
   )

@@ -1,24 +1,32 @@
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon"
 import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon"
 import { HugeiconsIcon } from "@hugeicons/react-native"
+import { LOR_USER_ID } from "@repo/db/constants"
 import { isHarnessAllowedInBeta, isHarnessEnabled } from "@repo/utils/features"
 import { useQuery } from "@tanstack/react-query"
 import { router } from "expo-router"
 import { SymbolView } from "expo-symbols"
 import { useThemeColor } from "heroui-native/hooks"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Pressable, Text, View } from "react-native"
+import { Alert, Pressable, ScrollView, Text, View } from "react-native"
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 import { ChatKeyboardLayout } from "@/components/chat-keyboard-layout"
+import {
+  ClaudeCodeModePicker,
+  useClaudeCodeMode,
+} from "@/components/claude-code-mode-picker"
+import { ConnectOnWebNotice } from "@/components/connect-on-web-notice"
+import { ContextMeter } from "@/components/context-meter"
 import { ForwardSheet } from "@/components/forward-sheet"
 import {
   MessageComposer,
   type MessageComposerMentionHandle,
 } from "@/components/message-composer"
-import { ModelChips } from "@/components/model-chips"
+import { ModelPicker } from "@/components/model-picker"
 import { RunQueuePill } from "@/components/run-queue-pill"
 import { SessionCodeDrawer } from "@/components/session-code-drawer"
 import { SessionHeading } from "@/components/session-heading"
+import { SessionSetupSheet } from "@/components/session-setup"
 import { SessionSheet } from "@/components/session-sheet"
 import {
   ThreadMessageList,
@@ -40,9 +48,16 @@ import { CallTranscript } from "@/components/voice/call-transcript"
 import { useSocket, useSocketConnected } from "@/context/socket-context"
 import { useVoiceCall } from "@/context/voice-call-context"
 import { useWorkspace } from "@/context/workspace-context"
-import { useModelChoice } from "@/hooks/use-agent-models"
+import {
+  pinSessionChoice,
+  RunModelLabelContext,
+  runModelLabel,
+  useModelChoice,
+} from "@/hooks/use-agent-models"
 import {
   useAgentSession,
+  useForkSession,
+  useRewindSession,
   useUpdateAgentSession,
 } from "@/hooks/use-agent-session"
 import {
@@ -72,7 +87,6 @@ import { useTypingIndicator } from "@/hooks/use-typing-indicator"
 import { useWorkspaceMentionCandidates } from "@/hooks/use-workspace-mention-candidates"
 import type { AgentSession, Message } from "@/lib/api-types"
 import { authClient } from "@/lib/auth-client"
-import { HARNESS_LABELS } from "@/lib/harness"
 import { confirmRemoveEmbed } from "@/lib/remove-embed"
 import { useSessionComposerInbox } from "@/lib/session-composer-inbox"
 
@@ -118,9 +132,12 @@ export function ThreadView({
   const [headingVisible, setHeadingVisible] = useState(true)
   const [isActionsOpen, setIsActionsOpen] = useState(false)
   const [isCodeOpen, setIsCodeOpen] = useState(false)
+  const [isSetupOpen, setIsSetupOpen] = useState(false)
   // Session: the message being forwarded into the channel chat.
   const [forwarding, setForwarding] = useState<Message | null>(null)
   const updateSession = useUpdateAgentSession()
+  const fork = useForkSession()
+  const rewind = useRewindSession(lorSession?.id ?? "")
   const composerMentionRef = useRef<MessageComposerMentionHandle>(null)
   useSessionComposerInbox(
     threadRootId,
@@ -343,10 +360,43 @@ export function ThreadView({
   // model, effort and fast mode picked in the composer.
   const agentAnswers =
     Boolean(lorSession) && harnessEnabled && !withoutSubscription
-  const modelChoice = useModelChoice(
-    lorSession?.harness ?? "pi",
-    agentAnswers,
-    workspace?.slug
+  // The session's newest run seeds its picker on a device that never picked
+  // here (LOR-160).
+  const lastRun = thread.messages.find(
+    (message) => message.authorId === LOR_USER_ID && message.lorRun?.model
+  )?.lorRun
+  const lastTurnModel = lastRun?.model
+  const lastTurnEffort = lastRun?.effort ?? null
+  const lastTurnFast = lastRun?.fast ?? false
+  const modelScope = useMemo(
+    () =>
+      threadRootId
+        ? {
+            sessionScope: threadRootId,
+            lastTurn: lastTurnModel
+              ? {
+                  model: lastTurnModel,
+                  effort: lastTurnEffort,
+                  fast: lastTurnFast,
+                }
+              : null,
+          }
+        : undefined,
+    [threadRootId, lastTurnModel, lastTurnEffort, lastTurnFast]
+  )
+  // The catalog also names each reply's model, so it loads for any session.
+  const modelChoice = useModelChoice(lorSession?.harness ?? "pi", {
+    workspaceSlug: workspace?.slug,
+    enabled: Boolean(lorSession),
+    scope: modelScope,
+  })
+  // A Claude Code turn also carries the mode picked beside the model.
+  const claudeCode = lorSession?.harness === "claude_code"
+  const claudeCodeMode = useClaudeCodeMode()
+  const modelCatalog = modelChoice.catalog
+  const modelLabel = useCallback(
+    (model: string) => runModelLabel(modelCatalog, model),
+    [modelCatalog]
   )
   // Memoized: the list re-renders its rows only when its items change, and
   // the heading is one, so it changes them exactly when its content does.
@@ -358,11 +408,7 @@ export function ThreadView({
         channelName={channelName}
         createdAt={lorSession.createdAt}
         generatedTitle={lorSession.titleEditedAt === null}
-        harnessLabel={
-          lorSession.harness === "pi"
-            ? null
-            : HARNESS_LABELS[lorSession.harness]
-        }
+        harness={lorSession.harness === "pi" ? null : lorSession.harness}
         repo={
           lorSession.repoFullName && lorSession.baseBranch
             ? {
@@ -690,6 +736,9 @@ export function ThreadView({
               }
               initialDraft={composerDraft}
               peopleOnly={!harnessEnabled || withoutSubscription}
+              harnessCommands={
+                agentAnswers ? lorSession?.harnessCommands : null
+              }
               subscribers={otherSubscribers}
               channelId={channelId}
               channelName={channelName}
@@ -737,9 +786,15 @@ export function ThreadView({
                             }
                           : undefined,
                       toPeople,
-                      turn: agentAnswers ? modelChoice.turn : undefined,
+                      turn: agentAnswers
+                        ? {
+                            ...modelChoice.turn,
+                            ...(claudeCode ? { claudeCodeMode } : {}),
+                          }
+                        : undefined,
                     }
                   )
+                  if (agentAnswers && !toPeople) pinSessionChoice(modelChoice)
                 } catch (error) {
                   if (nonce) removeOptimistic(nonce)
                   throw error
@@ -753,26 +808,43 @@ export function ThreadView({
                 // A session lists its queued turns in the transcript.
                 lorSession ? (
                   !harnessEnabled ? (
-                    <View className="mb-two rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
-                      <Text className="text-[13px] text-muted">
+                    <View className="mb-two rounded-lor-md border border-border bg-surface-secondary px-three py-three">
+                      <Text className="text-[13px] leading-[18px] text-muted">
                         This agent is temporarily unavailable. Messages here go
                         to the people in this session. Start a new session with
                         Lor to keep working.
                       </Text>
                     </View>
                   ) : withoutSubscription ? (
-                    <View className="mb-two rounded-lor-sm border border-border bg-surface-secondary px-three py-two">
-                      <Text className="text-[13px] text-muted">
-                        {subscriptionHarness === "codex"
-                          ? "Codex answers people on their own ChatGPT plan."
-                          : "Claude Code answers people on their own Claude subscription."}{" "}
-                        Your messages here go to the people in the session.
-                        Connect yours in Lor on the web or desktop.
-                      </Text>
-                    </View>
+                    <ConnectOnWebNotice
+                      className="mb-two"
+                      workspaceSlug={workspace.slug}
+                    >
+                      {subscriptionHarness === "codex"
+                        ? "Codex answers people on their own ChatGPT plan."
+                        : "Claude Code answers people on their own Claude subscription."}{" "}
+                      Until you connect yours, your messages here go to the
+                      people in the session.
+                    </ConnectOnWebNotice>
                   ) : (
-                    <View className="mb-one">
-                      <ModelChips choice={modelChoice} />
+                    // What the next turn runs with, in one bar: the picks
+                    // scroll sideways when they don't fit, and the context
+                    // meter stays in view at the end.
+                    <View className="mb-two flex-row items-center gap-two">
+                      <ScrollView
+                        className="min-w-0 flex-1"
+                        contentContainerClassName="items-center gap-two"
+                        horizontal
+                        keyboardShouldPersistTaps="handled"
+                        showsHorizontalScrollIndicator={false}
+                      >
+                        <ModelPicker choice={modelChoice} />
+                        {claudeCode ? <ClaudeCodeModePicker /> : null}
+                      </ScrollView>
+                      <ContextMeter
+                        isRunning={Boolean(stoppableLorMessageId)}
+                        scopeKey={threadRootId}
+                      />
                     </View>
                   )
                 ) : (
@@ -817,62 +889,85 @@ export function ThreadView({
               title="Thread is unavailable"
             />
           ) : (
-            <ThreadMessageList
-              avatarColorByUserId={avatarColorByUserId}
-              heading={sessionHeading}
-              onHeadingVisibleChange={setHeadingVisible}
-              resolveUserName={(userId) => memberById(userId)?.name}
-              layout={lorSession ? "document" : "chat"}
-              footer={
-                lorSession ? (
-                  <RunQueuePill
-                    currentUserId={session?.user.id}
-                    messages={queuedMessages}
-                    variant="document"
-                  />
-                ) : undefined
-              }
-              currentUserId={session?.user.id}
-              editingMessageId={editingMessage?.id}
-              focusMessageId={focusMessageId}
-              hasOlder={thread.hasOlder}
-              isRefreshing={thread.isRefreshing}
-              isLoadingOlder={thread.isLoadingOlder}
-              keyboardProps={keyboardProps}
-              listKey={`thread-${threadRootId}`}
-              messages={visibleMessages}
-              onLoadAround={thread.loadAround}
-              onLoadOlder={() => void thread.loadOlder()}
-              onDelete={confirmDelete}
-              onEdit={archivedBar ? undefined : startEditing}
-              onPressAuthor={openAuthorProfile}
-              onReply={archivedBar ? undefined : startReply}
-              onForward={lorSession ? setForwarding : undefined}
-              onToggleReaction={thread.toggleReaction}
-              onTogglePin={
-                canPinMessages
-                  ? (message) => {
-                      void thread.togglePin(message.id, message.pinned)
-                    }
-                  : undefined
-              }
-              onRemoveEmbed={
-                archivedBar
-                  ? undefined
-                  : (message, url) =>
-                      confirmRemoveEmbed({
-                        workspaceSlug: workspace.slug,
-                        channelId: message.channelId,
-                        messageId: message.id,
-                        url,
-                      })
-              }
-              canRemoveOthersEmbeds={canDeleteOthersMessages}
-              paginationError={thread.paginationError}
-              root={thread.root}
-              replyingToId={replyingTo?.id}
-              totalReplyCount={thread.totalReplyCount}
-            />
+            <RunModelLabelContext.Provider
+              value={lorSession ? modelLabel : null}
+            >
+              <ThreadMessageList
+                avatarColorByUserId={avatarColorByUserId}
+                heading={sessionHeading}
+                onHeadingVisibleChange={setHeadingVisible}
+                resolveUserName={(userId) => memberById(userId)?.name}
+                layout={lorSession ? "document" : "chat"}
+                footer={
+                  lorSession ? (
+                    <RunQueuePill
+                      currentUserId={session?.user.id}
+                      messages={queuedMessages}
+                      variant="document"
+                    />
+                  ) : undefined
+                }
+                currentUserId={session?.user.id}
+                editingMessageId={editingMessage?.id}
+                focusMessageId={focusMessageId}
+                hasOlder={thread.hasOlder}
+                isRefreshing={thread.isRefreshing}
+                isLoadingOlder={thread.isLoadingOlder}
+                keyboardProps={keyboardProps}
+                listKey={`thread-${threadRootId}`}
+                messages={visibleMessages}
+                onLoadAround={thread.loadAround}
+                onLoadOlder={() => void thread.loadOlder()}
+                onDelete={confirmDelete}
+                onEdit={archivedBar ? undefined : startEditing}
+                onPressAuthor={openAuthorProfile}
+                onReply={archivedBar ? undefined : startReply}
+                onForward={lorSession ? setForwarding : undefined}
+                onFork={
+                  lorSession
+                    ? (message) =>
+                        fork.mutate({
+                          sessionId: lorSession.id,
+                          messageId: message.id,
+                        })
+                    : undefined
+                }
+                forkingMessageId={
+                  fork.isPending ? fork.variables.messageId : null
+                }
+                onRewind={
+                  lorSession && !lorSession.archivedAt
+                    ? (message) => rewind.mutate(message.id)
+                    : undefined
+                }
+                rewindRestoresFiles={lorSession?.mode === "code"}
+                pausedLorMessageId={pausedLorMessageId}
+                onToggleReaction={thread.toggleReaction}
+                onTogglePin={
+                  canPinMessages
+                    ? (message) => {
+                        void thread.togglePin(message.id, message.pinned)
+                      }
+                    : undefined
+                }
+                onRemoveEmbed={
+                  archivedBar
+                    ? undefined
+                    : (message, url) =>
+                        confirmRemoveEmbed({
+                          workspaceSlug: workspace.slug,
+                          channelId: message.channelId,
+                          messageId: message.id,
+                          url,
+                        })
+                }
+                canRemoveOthersEmbeds={canDeleteOthersMessages}
+                paginationError={thread.paginationError}
+                root={thread.root}
+                replyingToId={replyingTo?.id}
+                totalReplyCount={thread.totalReplyCount}
+              />
+            </RunModelLabelContext.Provider>
           )
         }
         typingIndicator={
@@ -892,7 +987,18 @@ export function ThreadView({
           lorRunning={Boolean(pendingLorMessage)}
           messages={thread.messages}
           onOpenChange={setIsActionsOpen}
+          onOpenSetup={codeSession ? () => setIsSetupOpen(true) : undefined}
           session={lorSession}
+        />
+      ) : null}
+      {codeSession && lorSession ? (
+        <SessionSetupSheet
+          isOpen={isSetupOpen}
+          // A turn paused on approvals is still Lor's: no resize under it.
+          lorRunning={Boolean(stoppableLorMessageId)}
+          onOpenChange={setIsSetupOpen}
+          session={lorSession}
+          workspaceSlug={workspace.slug}
         />
       ) : null}
       {codeSession && lorSession ? (
@@ -900,6 +1006,7 @@ export function ThreadView({
           isOpen={isCodeOpen}
           onOpenChange={setIsCodeOpen}
           sessionId={lorSession.id}
+          workspaceSlug={workspace.slug}
         />
       ) : null}
       {lorSession ? (

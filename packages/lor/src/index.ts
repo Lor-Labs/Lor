@@ -240,6 +240,7 @@ import {
 } from "./session-core"
 import {
   CLAUDE_CODE_BINDING,
+  CLAUDE_CODE_DEFAULT_MODEL,
   ClaudeCodeTurnError,
   runClaudeCodeTurn,
 } from "./session-core/claude-runtime"
@@ -3201,7 +3202,13 @@ async function respondImpl(
             }
           : {}),
         ...(ctx.codex ? { codexUserId: ctx.codex.userId } : {}),
-        ...(ctx.turn?.model ? { turnModel: ctx.turn.model } : {}),
+        turnModel:
+          ctx.turn?.model ??
+          (ctx.claudeCode
+            ? CLAUDE_CODE_DEFAULT_MODEL
+            : ctx.codex
+              ? CODEX_DEFAULT_MODEL
+              : LOR_MODEL),
         ...(ctx.turn?.effort ? { turnEffort: ctx.turn.effort } : {}),
         ...(ctx.turn?.fast ? { turnFast: true } : {}),
         sandboxMode: harness.sandboxMode,

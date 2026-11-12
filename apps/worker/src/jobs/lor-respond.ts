@@ -424,6 +424,9 @@ export function createLorRespondProcessor(
           })
           let streamedContent = ""
           let streamMentionRoster: RealtimeMessageMention[] = []
+          // The model, effort and fast mode the turn runs with, from its
+          // saved request; the done frame carries them to the reply's label.
+          let runPicks = execution?.resume?.context ?? null
           runWriter.append({ kind: "state", state: "working" })
 
           const emit = (
@@ -460,6 +463,15 @@ export function createLorRespondProcessor(
               ...(replace ? { replace: true } : {}),
               ...(resolvedMentions.length > 0 || replace
                 ? { mentions: resolvedMentions }
+                : {}),
+              ...(done && runPicks?.turnModel
+                ? {
+                    model: runPicks.turnModel,
+                    ...(runPicks.turnEffort
+                      ? { effort: runPicks.turnEffort }
+                      : {}),
+                    ...(runPicks.turnFast ? { fast: true } : {}),
+                  }
                 : {}),
               ...runRef(seq),
             })
@@ -1340,6 +1352,10 @@ export function createLorRespondProcessor(
               },
               {
                 ...execution.handle,
+                saveContext: async (saved) => {
+                  await execution.handle.saveContext(saved)
+                  runPicks = saved.context
+                },
                 harness: {
                   owner,
                   saved: harnessState,
