@@ -55,7 +55,8 @@ export type SessionBrowserAnnotations = {
   start: () => void
   done: () => void
   discard: () => void
-  send: () => void
+  // Null outside the app: a preview link's page never sends to Lor.
+  send: (() => void) | null
 }
 
 // Drafts outlive the panel (switching sessions or tabs): their pins stay on
@@ -382,7 +383,8 @@ export function useSessionBrowserAnnotations(
 export function useSessionBrowserSharedAnnotations(
   channelId: string,
   threadRootId: string,
-  live: SessionBrowserLive
+  live: SessionBrowserLive,
+  { canSend = true }: { canSend?: boolean } = {}
 ): SessionBrowserAnnotations {
   const socket = useSocket()
   const [sending, setSending] = useState(false)
@@ -437,6 +439,7 @@ export function useSessionBrowserSharedAnnotations(
         return
       }
       live.post({ type: "clear", ids: items.map((item) => item.id) })
+      live.store()
       // Lor needs the browser to make and check the fix.
       if (live.youControl) live.handBack()
     } catch (err) {
@@ -458,6 +461,6 @@ export function useSessionBrowserSharedAnnotations(
       live.post({ type: "annotate", on: false })
       live.post({ type: "clear" })
     },
-    send: () => void send(),
+    send: canSend ? () => void send() : null,
   }
 }

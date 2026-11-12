@@ -15,7 +15,7 @@ import { cn } from "@repo/ui/lib/utils"
 import { browserStep, needsBrowserControl } from "@repo/utils/browser-step"
 import { useMutation } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { SessionBrowserAnnotations } from "@/components/sidebar/right-panel/session-browser-annotations"
 import { useSocket } from "@/context/socket-context"
 import { apiClient } from "@/lib/api-client"
@@ -70,9 +70,9 @@ type BridgeMessage = { source: "lor-browser" } & (
       controller: BrowserController
     }
   | { type: "freeze"; image: string | null }
-  | { type: "input" | "disconnected" | "expired" | "picture" }
+  | { type: "input" | "disconnected" | "expired" | "picture" | "asleep" }
   | { type: "hello"; version: number }
-  | { type: "presence"; people: BrowserPerson[] }
+  | { type: "presence"; people: BrowserPerson[]; watching?: number }
   | { type: "page"; url: string; title: string }
   | { type: "comments"; items: BrowserComment[] }
   | { type: "annotating"; on: boolean; writing: boolean }
@@ -104,6 +104,55 @@ const IDLE_HAND_BACK_MS = 15_000
 const LOR_WAIT_MS = 50_000
 const EXPORT_TIMEOUT_MS = 10_000
 const NOT_ANNOTATING = { on: false, writing: false }
+// A public preview link with nobody signed in watching: ask again this often.
+const ASLEEP_RETRY_MS = 20_000
+// A signed-in viewer's open view says so this often (the API lets a public
+// link's signed-out visitors watch alongside).
+const SEEN_MS = 60_000
+// After this viewer's notes settle, the API stores the page's annotations.
+const STORE_AFTER_MS = 2_000
+
+type BrowserViewResult =
+  | {
+      status: "ready"
+      url: string
+      role: "control" | "watch"
+      controller: BrowserController
+    }
+  | { status: "unavailable" }
+  | { status: "asleep" }
+
+// Where a live view comes from: the session's own routes in the app, a
+// preview link's outside it (reference/planned/sandbox-browser-runbook.md §8).
+export type BrowserViewSource = {
+  // A new grant for this viewer. Throws with the API's message.
+  open: () => Promise<BrowserViewResult>
+  // The view is open; `annotations`: this viewer's notes changed.
+  seen: (annotations: boolean) => Promise<void>
+  // Whether this viewer may take the browser's mouse and keyboard.
+  canControl: boolean
+}
+
+function sessionSource(sessionId: string): BrowserViewSource {
+  return {
+    canControl: true,
+    open: async () => {
+      const res = await apiClient.v1.sessions[":sessionId"].browser.$post({
+        param: { sessionId },
+      })
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Couldn't open the browser"))
+      }
+      return res.json()
+    },
+    seen: async (annotations) => {
+      await apiClient.v1.sessions[":sessionId"].browser.seen.$post({
+        param: { sessionId },
+        json: { annotations },
+      })
+    },
+  }
+}
 
 async function errorMessage(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as {
@@ -123,8 +172,14 @@ function lorBrowserCaption(label: string): string | null {
 export function useSessionBrowserLive(
   sessionId: string,
   threadRootId: string,
-  enabled: boolean
+  enabled: boolean,
+  // A preview link's page passes its own; stable for the page's life.
+  from?: BrowserViewSource
 ) {
+  const own = useMemo(() => sessionSource(sessionId), [sessionId])
+  const source = useRef(from ?? own)
+  source.current = from ?? own
+  const canControl = source.current.canControl
   const socket = useSocket()
   const { data: auth } = authClient.useSession()
   const myId = auth?.user.id ?? null
@@ -165,6 +220,9 @@ export function useSessionBrowserLive(
   // The collab gateway's page said hello: it shares presence and annotations.
   const [collab, setCollab] = useState(false)
   const [people, setPeople] = useState<BrowserPerson[]>([])
+  // Signed-out viewers of a public preview link.
+  const [watching, setWatching] = useState(0)
+  const [asleep, setAsleep] = useState(false)
   const [page, setPage] = useState<{ url: string; title: string } | null>(null)
   const [comments, setComments] = useState<BrowserComment[]>([])
   const [annotating, setAnnotating] = useState(NOT_ANNOTATING)
@@ -192,20 +250,18 @@ export function useSessionBrowserLive(
       else retry = setTimeout(() => setAttempt((n) => n + 1), delay)
     }
     const load = async () => {
-      const res = await apiClient.v1.sessions[":sessionId"].browser.$post({
-        param: { sessionId },
-      })
-      if (cancelled) return
-      if (!res.ok) {
-        retryLater(await errorMessage(res, "Couldn't open the browser"))
-        return
-      }
-      const view = await res.json()
+      const view = await source.current.open()
       if (cancelled) return
       if (view.status === "unavailable") {
         setUnavailable(true)
         return
       }
+      if (view.status === "asleep") {
+        setAsleep(true)
+        retry = setTimeout(() => setAttempt((n) => n + 1), ASLEEP_RETRY_MS)
+        return
+      }
+      setAsleep(false)
       setRole(view.role)
       learnController(view.controller)
       origin.current = new URL(view.url).origin
@@ -242,10 +298,18 @@ export function useSessionBrowserLive(
       } else if (msg.type === "expired") {
         setConnected(false)
         setAttempt((n) => n + 1)
+      } else if (msg.type === "asleep") {
+        // The gateway dropped this signed-out viewer: nobody signed in is
+        // here. Asking again at once could wake the sandbox for nothing.
+        setConnected(false)
+        setAsleep(true)
+        if (retry) clearTimeout(retry)
+        retry = setTimeout(() => setAttempt((n) => n + 1), ASLEEP_RETRY_MS)
       } else if (msg.type === "hello") {
         setCollab(msg.version >= 2)
       } else if (msg.type === "presence") {
         if (Array.isArray(msg.people)) setPeople(msg.people)
+        setWatching(typeof msg.watching === "number" ? msg.watching : 0)
       } else if (msg.type === "page") {
         setPage({ url: String(msg.url), title: String(msg.title ?? "") })
       } else if (msg.type === "comments") {
@@ -267,9 +331,35 @@ export function useSessionBrowserLive(
       setConnected(false)
       setFrozen(null)
       setPeople([])
+      setWatching(0)
       setAnnotating(NOT_ANNOTATING)
     }
   }, [enabled, paused, unavailable, failed, attempt, sessionId])
+
+  useEffect(() => {
+    if (!connected || !myId) return
+    const timer = setInterval(
+      () => void source.current.seen(false).catch(() => {}),
+      SEEN_MS
+    )
+    return () => clearInterval(timer)
+  }, [connected, myId])
+
+  // Only the author's page asks, so one change is stored once.
+  const mine = JSON.stringify(
+    comments
+      .filter((comment) => comment.by.userId === myId && !comment.open)
+      .map((comment) => [comment.id, comment.note])
+  )
+  const storedMine = useRef(mine)
+  useEffect(() => {
+    if (!collab || !myId || storedMine.current === mine) return
+    const timer = setTimeout(() => {
+      storedMine.current = mine
+      void source.current.seen(true).catch(() => {})
+    }, STORE_AFTER_MS)
+    return () => clearTimeout(timer)
+  }, [collab, myId, mine])
 
   const post = (message: PanelMessage) => {
     const target = frame.current?.contentWindow
@@ -477,6 +567,11 @@ export function useSessionBrowserLive(
     keep: () => setKept(lorWaiting),
     hold: setHeld,
     myId,
+    canControl,
+    asleep,
+    watching,
+    // After Send to Lor cleared everyone's notes.
+    store: () => void source.current.seen(true).catch(() => {}),
     collab,
     people,
     page,
@@ -498,9 +593,15 @@ export type SessionBrowserLive = ReturnType<typeof useSessionBrowserLive>
 export function SessionBrowserLiveView({
   live,
   annotations,
+  page = false,
+  watchingNote,
 }: {
   live: SessionBrowserLive
   annotations?: SessionBrowserAnnotations
+  // The view is the page itself (a preview link): nothing to expand into.
+  page?: boolean
+  // The status line while this viewer only watches, instead of "Watching".
+  watchingNote?: string
 }) {
   const { expanded, setExpanded, youControl } = live
 
@@ -525,6 +626,11 @@ export function SessionBrowserLiveView({
         Reconnect
       </Button>
     </FrameMessage>
+  ) : live.asleep ? (
+    <FrameMessage
+      text="This preview is asleep"
+      detail="It wakes when someone on the team opens it. This page checks again on its own."
+    />
   ) : !live.everConnected ? (
     <FrameMessage
       text="Starting the browser…"
@@ -595,24 +701,32 @@ export function SessionBrowserLiveView({
               {corner}
             </FramePill>
           )}
-          <button
-            type="button"
-            // While you drive, Esc goes to the page (the iframe takes it).
-            title={expanded ? "Shrink" : "Expand"}
-            aria-label={expanded ? "Shrink the browser" : "Expand the browser"}
-            onClick={() => setExpanded(!expanded)}
-            className="absolute top-2 right-2 flex size-7 cursor-pointer items-center justify-center rounded-md bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-ring"
-          >
-            <HugeiconsIcon
-              icon={expanded ? ArrowShrink02Icon : ArrowExpand01Icon}
-              className="size-3.5"
-              strokeWidth={2}
-            />
-          </button>
+          {!page && (
+            <button
+              type="button"
+              // While you drive, Esc goes to the page (the iframe takes it).
+              title={expanded ? "Shrink" : "Expand"}
+              aria-label={
+                expanded ? "Shrink the browser" : "Expand the browser"
+              }
+              onClick={() => setExpanded(!expanded)}
+              className="absolute top-2 right-2 flex size-7 cursor-pointer items-center justify-center rounded-md bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              <HugeiconsIcon
+                icon={expanded ? ArrowShrink02Icon : ArrowExpand01Icon}
+                className="size-3.5"
+                strokeWidth={2}
+              />
+            </button>
+          )}
           <DriverPill live={live} />
         </div>
       </div>
-      <SessionBrowserFooter live={live} annotations={annotations} />
+      <SessionBrowserFooter
+        live={live}
+        annotations={annotations}
+        watchingNote={watchingNote}
+      />
     </div>
   )
 }
@@ -622,15 +736,21 @@ export function SessionBrowserLiveView({
 export function SessionBrowserFooter({
   live,
   annotations,
+  watchingNote,
 }: {
   live: SessionBrowserLive
   annotations?: SessionBrowserAnnotations
+  watchingNote?: string
 }) {
   return annotations &&
     (annotations.phase !== "off" || annotations.count > 0) ? (
     <AnnotateBar live={live} annotations={annotations} />
   ) : (
-    <BrowserFooter live={live} annotations={annotations} />
+    <BrowserFooter
+      live={live}
+      annotations={annotations}
+      watchingNote={watchingNote}
+    />
   )
 }
 
@@ -665,6 +785,7 @@ const footerClass = (expanded: boolean) =>
   )
 
 function ControlToggle({ live }: { live: SessionBrowserLive }) {
+  if (!live.canControl) return null
   return (
     <Button
       size="sm"
@@ -685,9 +806,11 @@ function ControlToggle({ live }: { live: SessionBrowserLive }) {
 function BrowserFooter({
   live,
   annotations,
+  watchingNote = "Watching",
 }: {
   live: SessionBrowserLive
   annotations?: SessionBrowserAnnotations
+  watchingNote?: string
 }) {
   const asking = live.youControl && live.lorWants
   const status = live.slowSwitch
@@ -702,7 +825,7 @@ function BrowserFooter({
             ? `${live.controller.name} has control.`
             : live.lorStep
               ? `Lor is using the browser · ${live.lorStep.text}`
-              : "Watching"
+              : watchingNote
   return (
     <div className={footerClass(live.expanded)}>
       {((live.lorStep && !live.controller && !live.youControl) ||
@@ -854,7 +977,7 @@ function AnnotateBar({
           {count > 0 ? "Add" : "Annotate"}
         </Button>
       )}
-      {count > 0 && (
+      {count > 0 && annotations.send && (
         <Button size="sm" disabled={sending} onClick={annotations.send}>
           <HugeiconsIcon icon={SentIcon} className="size-3.5" strokeWidth={2} />
           {sending ? "Sending…" : "Send to Lor"}

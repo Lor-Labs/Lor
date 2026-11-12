@@ -32,6 +32,11 @@ const READY_WAIT_MS = 30_000
 // images streamed over VNC).
 const MISSING = 3
 const SELKIES = "/usr/bin/selkies"
+// The image's gateway version (sandbox-image/browser/version). From 3 it
+// enforces what each viewer may do, which preview links rely on.
+const GATEWAY_VERSION_FILE = "/opt/lor-browser/version"
+const PREVIEW_GATEWAY_VERSION = 3
+const ANNOTATIONS_FILE = "annotations.json"
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const owner = (sessionId: string) => ({ sessionId })
@@ -39,6 +44,8 @@ const q = shellQuote
 
 export type BrowserController = { userId: string; name: string }
 
+// `outdated`: the sandbox's gateway can't hold a preview link's viewers to
+// their role (its image predates preview links).
 export type BrowserView =
   | {
       status: "ready"
@@ -47,7 +54,35 @@ export type BrowserView =
       role: "control" | "watch"
       controller: BrowserController | null
     }
-  | { status: "no_sandbox" | "unavailable" | "not_ready" }
+  | { status: "no_sandbox" | "unavailable" | "not_ready" | "outdated" }
+
+// Who a grant is for, and what the gateway lets them do beyond watching
+// (reference/planned/sandbox-browser-runbook.md §8). `annotate`: show their
+// pointer and leave notes. `send`: read everyone's notes with screenshots and
+// clear them, for Send to Lor in the app. `anonymous`: a public preview link's
+// signed-out visitor, who only watches.
+export type BrowserViewer =
+  | { userId: string; name: string; annotate: boolean; send: boolean }
+  | { anonymous: true }
+
+// An annotation as the gateway keeps it in the browser's folder.
+export type BrowserAnnotation = {
+  id: string
+  number: number
+  color: string
+  by: { userId: string; name: string }
+  note: string
+  element: {
+    selector: string
+    tag: string
+    role: string | null
+    name: string | null
+    text: string
+    html: string
+    url: string
+    quote: string | null
+  }
+}
 
 // Prints the controller's id, then their name; empty when Lor may drive.
 const readControl = [
@@ -95,29 +130,55 @@ async function startBrowser(
   return portReady(owner(sessionId), port, READY_WAIT_MS)
 }
 
-// The live view's page for one person: a new grant (written with the
+// The live view's page for one viewer: a new grant (written with the
 // sandbox's clock, which the gateway checks it against) on the gateway's
 // public preview. The gateway lets a grant lapse 10 minutes after its last
 // connection and 12 hours after it was made.
+// `preview`: a preview link's view. Refuses a sandbox whose gateway ignores
+// what a grant allows, and marks the grant so turning the link off ends it.
+// `stored`: the annotations to put back when the browser's folder has none
+// (a new sandbox); the gateway loads them.
 export async function openBrowserView(
   sessionId: string,
-  viewer: BrowserController
+  viewer: BrowserViewer,
+  options: {
+    preview?: boolean
+    stored?: () => Promise<BrowserAnnotation[]>
+  } = {}
 ): Promise<BrowserView> {
-  const { userId } = viewer
-  if (!UUID.test(userId)) return { status: "not_ready" }
+  const anonymous = "anonymous" in viewer
+  if (!anonymous && !UUID.test(viewer.userId)) return { status: "not_ready" }
   const grant = randomBytes(16).toString("hex")
   // The name labels this person's pointer and annotations for the others.
-  const name = JSON.stringify(
-    viewer.name.replace(/\s+/g, " ").trim().slice(0, 80) || "Someone"
-  )
+  const record = anonymous
+    ? { userId: `anon-${randomBytes(8).toString("hex")}`, anonymous: true }
+    : {
+        userId: viewer.userId,
+        name: viewer.name.replace(/\s+/g, " ").trim().slice(0, 80) || "Someone",
+        can: [
+          ...(viewer.annotate ? ["annotate"] : []),
+          ...(viewer.send ? ["send"] : []),
+        ],
+      }
+  const json = JSON.stringify(
+    options.preview ? { ...record, via: "preview" } : record
+  ).slice(0, -1)
   const prepared = await runInBrowserDir(sessionId, [
     `find "$d/viewers" -type f -mmin +720 -delete 2>/dev/null`,
-    `printf '{"userId":"%s","name":%s,"at":%s}' ${q(userId)} ${q(name)} "$(date +%s%3N)" > "$d/viewers/${grant}"`,
+    `printf '%s,"at":%s}' ${q(json)} "$(date +%s%3N)" > "$d/viewers/${grant}"`,
+    `[ "$(cat ${GATEWAY_VERSION_FILE} 2>/dev/null || echo 0)" -ge ${PREVIEW_GATEWAY_VERSION} ] && echo 1 || echo 0`,
+    `[ -e "$d/${ANNOTATIONS_FILE}" ] && echo 1 || echo 0`,
     ...readControl,
   ])
   if (!prepared) return { status: "no_sandbox" }
   if (prepared.exitCode === MISSING) return { status: "unavailable" }
   if (prepared.exitCode !== 0) return { status: "not_ready" }
+  const [roles = "0", hasAnnotations = "0", ...control] =
+    prepared.stdout.split("\n")
+  if (options.preview && roles.trim() !== "1") return { status: "outdated" }
+  if (hasAnnotations.trim() !== "1" && options.stored) {
+    await restoreBrowserAnnotations(sessionId, await options.stored())
+  }
   const ready = await startBrowser(sessionId, BROWSER_VIEW_PORT)
   if (ready === null) return { status: "no_sandbox" }
   if (!ready) return { status: "not_ready" }
@@ -127,12 +188,100 @@ export async function openBrowserView(
     access: "public",
   })
   if (!exposed) return { status: "no_sandbox" }
-  const controller = parseControl(prepared.stdout)
+  const controller = parseControl(control.join("\n"))
   return {
     status: "ready",
     url: `${exposed.url}/v/${grant}/`,
-    role: controller?.userId === userId ? "control" : "watch",
+    role:
+      !anonymous && controller?.userId === viewer.userId ? "control" : "watch",
     controller,
+  }
+}
+
+// Turning a preview link off, or making it private: the grants its visitors
+// got go, and the gateway closes their connections within a minute (its
+// grant check). Their pages ask again and get what the link allows now.
+export async function endPreviewViews(sessionId: string): Promise<void> {
+  await runInBrowserDir(sessionId, [
+    `grep -l '"via":"preview"' "$d/viewers/"* 2>/dev/null | xargs -r rm -f`,
+  ])
+}
+
+async function restoreBrowserAnnotations(
+  sessionId: string,
+  items: BrowserAnnotation[]
+): Promise<void> {
+  if (items.length === 0) return
+  const sandbox = await attachSessionSandbox(owner(sessionId))
+  if (!sandbox) return
+  try {
+    await sandbox.session.writeTextFile({
+      path: `${BROWSER_DIR}/${ANNOTATIONS_FILE}`,
+      content: JSON.stringify({ items }),
+    })
+  } finally {
+    sandbox.close()
+  }
+}
+
+// The gateway's annotations, for the copy that outlives the sandbox. Null
+// when the folder has no file: the gateway has had none to write yet, which
+// says nothing about the stored ones.
+export async function readBrowserAnnotations(
+  sessionId: string
+): Promise<BrowserAnnotation[] | null> {
+  const read = await runInBrowserDir(sessionId, [
+    `cat "$d/${ANNOTATIONS_FILE}" 2>/dev/null || true`,
+  ])
+  if (!read || read.exitCode !== 0 || !read.stdout.trim()) return null
+  try {
+    const parsed = JSON.parse(read.stdout) as { items?: unknown }
+    if (!Array.isArray(parsed.items)) return null
+    return parsed.items.filter(isBrowserAnnotation)
+  } catch {
+    return null
+  }
+}
+
+const text = (value: unknown, max: number) =>
+  typeof value === "string" ? value.slice(0, max) : ""
+
+function isBrowserAnnotation(value: unknown): value is BrowserAnnotation {
+  const item = value as Partial<BrowserAnnotation> | null
+  return Boolean(
+    item &&
+      typeof item.id === "string" &&
+      UUID.test(item.id) &&
+      typeof item.number === "number" &&
+      typeof item.note === "string" &&
+      typeof item.by?.userId === "string" &&
+      typeof item.element?.selector === "string" &&
+      typeof item.element.url === "string"
+  )
+}
+
+// The stored shape, with every field bounded: the file comes from a sandbox
+// that runs the repo's own code.
+export function cleanBrowserAnnotation(
+  item: BrowserAnnotation
+): BrowserAnnotation {
+  const { element } = item
+  return {
+    id: item.id,
+    number: Math.max(1, Math.min(Math.round(item.number), 9999)),
+    color: /^#[0-9a-f]{6}$/i.test(item.color) ? item.color : "#7c5cff",
+    by: { userId: item.by.userId, name: text(item.by.name, 80) || "Someone" },
+    note: text(item.note, 2000),
+    element: {
+      selector: text(element.selector, 500),
+      tag: text(element.tag, 40),
+      role: text(element.role, 40) || null,
+      name: text(element.name, 200) || null,
+      text: text(element.text, 200),
+      html: text(element.html, 300),
+      url: text(element.url, 2000),
+      quote: text(element.quote, 500) || null,
+    },
   }
 }
 

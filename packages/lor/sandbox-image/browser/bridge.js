@@ -19,7 +19,9 @@
   const ANNOTATING = "lor-annotating"
 
   let role = null
-  let me = { userId: "", name: "", color: LOR }
+  // `annotate`: this viewer may point and leave notes; a signed-out viewer
+  // of a public preview link only watches (the gateway enforces it).
+  let me = { userId: "", name: "", color: LOR, annotate: true }
   let leaving = false
   addEventListener("pagehide", () => {
     leaving = true
@@ -246,6 +248,7 @@
       wasInside = false
       return
     }
+    if (!me.annotate) return
     const now = Date.now()
     const down = event.type === "pointerdown"
     if (!down && now - lastSent < 40) return
@@ -414,7 +417,7 @@
 
   let wheel = { dx: 0, dy: 0, timer: 0 }
   const startAnnotating = () => {
-    if (layer) return
+    if (layer || !me.annotate) return
     layer = document.createElement("div")
     layer.className = "catch"
     hoverBox = document.createElement("div")
@@ -586,12 +589,17 @@
         case "control":
           if (role && msg.role !== role) return reload()
           role = msg.role
-          if (msg.you) me = msg.you
-          host.style.setProperty("--me", me.color)
+          if (msg.you) me = { annotate: true, ...msg.you }
+          host.style.setProperty("--me", me.color || LOR)
+          if (!me.annotate) stopAnnotating()
           post({ type: "control", role: msg.role, controller: msg.controller })
           return
         case "presence":
-          return post({ type: "presence", people: msg.people })
+          return post({
+            type: "presence",
+            people: msg.people,
+            watching: msg.watching ?? 0,
+          })
         case "page":
           return post({ type: "page", url: msg.url, title: msg.title })
         case "cursor":
@@ -613,7 +621,7 @@
       }
     }
     ws.onopen = () => {
-      post({ type: "hello", version: 2 })
+      post({ type: "hello", version: 3 })
       let resume = false
       try {
         resume = sessionStorage.getItem(ANNOTATING) === "1"
@@ -625,6 +633,8 @@
       pending.clear()
       if (leaving) return
       if (event.code === 4004) return post({ type: "expired" })
+      // Nobody signed in is here: a public link's viewers wait.
+      if (event.code === 4005) return post({ type: "asleep" })
       post({ type: "disconnected" })
       setTimeout(listen, 2000)
     }

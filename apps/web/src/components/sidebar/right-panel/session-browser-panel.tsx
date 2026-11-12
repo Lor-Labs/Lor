@@ -6,6 +6,7 @@ import {
   LinkSquare02Icon,
   ReloadIcon,
   Share08Icon,
+  Unlink03Icon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { authClient } from "@repo/auth/client"
@@ -13,6 +14,7 @@ import { isTauri } from "@repo/auth/tauri-fetch"
 import { Button } from "@repo/ui/components/button"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -21,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@repo/ui/components/menu"
 import { toast } from "@repo/ui/components/toast"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -89,7 +91,7 @@ async function failure(res: Response, fallback: string): Promise<Error> {
 
 // The port's preview URL for a page. `expires`: a private preview, whose
 // link carries a short-lived token (15 minutes, sandbox-ports.ts).
-async function previewLink(sessionId: string, target: Target) {
+async function appLink(sessionId: string, target: Target) {
   const res = await apiClient.v1.sessions[":sessionId"].ports[
     ":port"
   ].open.$post({ param: { sessionId, port: String(target.port) } })
@@ -107,7 +109,7 @@ async function previewLink(sessionId: string, target: Target) {
 }
 
 const previewUrl = async (sessionId: string, target: Target) =>
-  (await previewLink(sessionId, target)).url
+  (await appLink(sessionId, target)).url
 
 // Safari only allows a copy that starts in the click itself, so text that
 // still has to be fetched is handed over as a promise where that works.
@@ -308,29 +310,17 @@ export function SessionBrowserPanel({
     )
   }
 
+  // The preview link (reference/planned/sandbox-browser-runbook.md §8): a
+  // URL outside the app that opens this browser for stakeholders.
+  const previewLink = usePreviewLink(sessionId, liveMode)
   const share = (
     <ShareMenu
       app={appTarget ? addressOf(appTarget) : null}
-      together={liveMode}
-      onCopySession={() =>
-        copyText(
-          Promise.resolve(
-            `${webOrigin()}/${view.workspaceSlug}/session/${sessionId}?side=browser`
-          )
-        ).then(
-          () =>
-            toast.success(
-              live.collab
-                ? "Link copied. Teammates who open it see this browser, each other's pointers and notes"
-                : "Link copied. Teammates who open it see this browser"
-            ),
-          () => toast.error("Couldn't copy the link")
-        )
-      }
+      preview={liveMode ? previewLink : null}
       onOpenApp={() => appTarget && openInTab(appTarget)}
       onCopyApp={() => {
         if (!appTarget) return
-        const link = previewLink(sessionId, appTarget)
+        const link = appLink(sessionId, appTarget)
         copyText(link.then((made) => made.url))
           .then(() => link)
           .then(
@@ -552,23 +542,116 @@ export function SessionBrowserPanel({
   )
 }
 
-// Two things to share: this browser, for teammates in the workspace to watch,
-// point and annotate together, and the app's own preview URL, which opens in
-// anyone's browser.
+type PreviewLinkState = ReturnType<typeof usePreviewLink>
+
+const previewUrlOf = (token: string) => `${webOrigin()}/preview/${token}`
+
+const shareKey = (sessionId: string) =>
+  ["session-browser-share", sessionId] as const
+
+// The session's preview link: read, create or change who it lets in, turn
+// off. Creating copies it, in the same click.
+function usePreviewLink(sessionId: string, enabled: boolean) {
+  const queryClient = useQueryClient()
+  const share = apiClient.v1.sessions[":sessionId"].browser.share
+  const query = useQuery({
+    queryKey: shareKey(sessionId),
+    enabled,
+    queryFn: async () => {
+      const res = await share.$get({ param: { sessionId } })
+      if (!res.ok) throw await failure(res, "Couldn't read the preview link")
+      return (await res.json()).link
+    },
+  })
+  const set = async (access: "private" | "public") => {
+    const res = await share.$put({ param: { sessionId }, json: { access } })
+    if (!res.ok) throw await failure(res, "Couldn't make the preview link")
+    const { link } = await res.json()
+    queryClient.setQueryData(shareKey(sessionId), link)
+    if (!link) throw new Error("Couldn't make the preview link")
+    return link
+  }
+  const link = query.data ?? null
+  return {
+    link,
+    loading: query.isPending,
+    create: () => {
+      copyText(set("private").then((made) => previewUrlOf(made.token))).then(
+        () => {
+          toast.success(
+            "Preview link copied. People in this workspace can open it"
+          )
+        },
+        (err: unknown) => {
+          toast.error(message(err, "Couldn't make the preview link"))
+        }
+      )
+    },
+    copy: () => {
+      if (!link) return
+      copyText(Promise.resolve(previewUrlOf(link.token))).then(
+        () => {
+          toast.success("Preview link copied")
+        },
+        () => {
+          toast.error("Couldn't copy the link")
+        }
+      )
+    },
+    setPublic: (on: boolean) => {
+      set(on ? "public" : "private").then(
+        () => {
+          toast.success(
+            on
+              ? "Anyone with the link can now watch this browser"
+              : "Only people in this workspace can open the link now"
+          )
+        },
+        (err: unknown) => {
+          toast.error(message(err, "Couldn't change the preview link"))
+        }
+      )
+    },
+    turnOff: () => {
+      share.$delete({ param: { sessionId } }).then(
+        (res) => {
+          if (!res.ok) {
+            toast.error("Couldn't turn the link off")
+            return
+          }
+          queryClient.setQueryData(shareKey(sessionId), null)
+          toast.success("Preview link turned off")
+        },
+        () => {
+          toast.error("Couldn't turn the link off")
+        }
+      )
+    },
+  }
+}
+
+function expiresIn(iso: string): string {
+  const days = Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)
+  return days <= 1 ? "Expires within a day" : `Expires in ${days} days`
+}
+
+// Two things to share. The preview link opens this browser on its own page
+// for stakeholders, who watch, point and annotate there. The app's own
+// preview URL opens the running app in anyone's browser.
 export function ShareMenu({
   app,
-  together,
-  onCopySession,
+  preview,
   onOpenApp,
   onCopyApp,
 }: {
   // `localhost:3000/path`, or null with nothing running to link to.
   app: string | null
-  together: boolean
-  onCopySession: () => void
+  // Null where there is no live browser to share.
+  preview: PreviewLinkState | null
   onOpenApp: () => void
   onCopyApp: () => void
 }) {
+  const link = preview?.link ?? null
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger
@@ -582,15 +665,44 @@ export function ShareMenu({
         />
         Share
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        {together && (
+      <DropdownMenuContent align="end" className="w-72">
+        {preview && (
           <>
             <DropdownMenuGroup>
-              <DropdownMenuLabel>This browser, for teammates</DropdownMenuLabel>
-              <DropdownMenuItem onClick={onCopySession}>
-                <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
-                Copy link to this browser
-              </DropdownMenuItem>
+              <DropdownMenuLabel className="flex items-baseline justify-between gap-2">
+                Preview link
+                {link && (
+                  <span className="font-normal text-[11px] text-muted-foreground">
+                    {expiresIn(link.expiresAt)}
+                  </span>
+                )}
+              </DropdownMenuLabel>
+              {link ? (
+                <>
+                  <DropdownMenuItem onClick={preview.copy}>
+                    <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
+                    Copy preview link
+                  </DropdownMenuItem>
+                  <DropdownMenuCheckboxItem
+                    checked={link.access === "public"}
+                    onCheckedChange={preview.setPublic}
+                  >
+                    Anyone with the link can watch
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuItem onClick={preview.turnOff}>
+                    <HugeiconsIcon icon={Unlink03Icon} strokeWidth={2} />
+                    Turn off link
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <DropdownMenuItem
+                  disabled={preview.loading}
+                  onClick={preview.create}
+                >
+                  <HugeiconsIcon icon={Link01Icon} strokeWidth={2} />
+                  Create link for this workspace
+                </DropdownMenuItem>
+              )}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
           </>
@@ -601,11 +713,11 @@ export function ShareMenu({
           </DropdownMenuLabel>
           <DropdownMenuItem disabled={!app} onClick={onOpenApp}>
             <HugeiconsIcon icon={LinkSquare02Icon} strokeWidth={2} />
-            Open in a new tab
+            Open the app in a new tab
           </DropdownMenuItem>
           <DropdownMenuItem disabled={!app} onClick={onCopyApp}>
             <HugeiconsIcon icon={Copy01Icon} strokeWidth={2} />
-            Copy link anyone can open
+            Copy the app's own URL
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

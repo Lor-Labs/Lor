@@ -9,7 +9,11 @@
 // new role, and Selkies connections still in the old role are closed. Control
 // goes back to Lor after the controller has had no connection for a while.
 // Each page's events socket also carries who is here, everyone's pointer and
-// the shared annotations (gateway-collab.mjs).
+// the shared annotations (gateway-collab.mjs). A grant says what its viewer
+// may do beyond watching (§8, preview links): `can` lists "annotate" (point
+// and leave notes) and "send" (read and clear everyone's notes); an
+// `anonymous` grant only watches, and is dropped once no signed-in viewer has
+// been here for a while, so a public link alone never keeps the sandbox awake.
 import { execFile } from "node:child_process"
 import { readFileSync, watch } from "node:fs"
 import { readFile, stat, unlink, utimes } from "node:fs/promises"
@@ -31,7 +35,12 @@ const TOKENS = {
 const GRANT_IDLE_MS = 10 * 60_000
 const GRANT_MAX_MS = 12 * 60 * 60_000
 const RELEASE_AFTER_MS = 2 * 60_000
-const MAX_CONNECTIONS = 40
+const MAX_CONNECTIONS = 60
+// Signed-out viewers of a public link never crowd out the people working.
+const MAX_ANONYMOUS_CONNECTIONS = 24
+const ANONYMOUS_ALONE_MS = 2 * 60_000
+// Close code for an anonymous viewer dropped because nobody signed in is here.
+const ASLEEP = 4005
 const MAX_BUFFERED = 8 * 1024 * 1024
 // Selkies' own "permissions changed" close: its page reloads in the new role.
 const ROLE_CHANGED = 4002
@@ -50,6 +59,7 @@ const VIEW_PATH = /^\/v\/([^/]+)(\/.*)?$/
 const run = promisify(execFile)
 const streams = new Set()
 const listeners = new Set()
+const connections = () => [...streams, ...listeners]
 let controllerId = ""
 let controllerName = ""
 let controllerSeenAt = Date.now()
@@ -77,7 +87,18 @@ async function readGrant(id) {
     if (!inUse && now - info.mtimeMs > GRANT_IDLE_MS) return null
     const name =
       typeof grant.name === "string" ? grant.name.trim().slice(0, 80) : ""
-    return { id, userId: grant.userId, name: name || "Someone" }
+    const anonymous = grant.anonymous === true
+    // No list: a grant from an API before roles, which made them only for
+    // people who can write in the channel.
+    const can = Array.isArray(grant.can) ? grant.can : ["annotate", "send"]
+    return {
+      id,
+      userId: grant.userId,
+      name: name || "Someone",
+      anonymous,
+      annotate: !anonymous && can.includes("annotate"),
+      send: !anonymous && can.includes("send"),
+    }
   } catch {
     return null
   }
@@ -107,7 +128,12 @@ const controlMessage = (viewer) =>
     controller: controllerId
       ? { userId: controllerId, name: controllerName || "Someone" }
       : null,
-    you: { userId: viewer.userId, name: viewer.name, color: viewer.color },
+    you: {
+      userId: viewer.userId,
+      name: viewer.name,
+      color: viewer.color,
+      annotate: viewer.annotate,
+    },
   })
 
 const sendTo = (viewer, data) => {
@@ -123,10 +149,16 @@ const broadcast = (data, except) => {
     if (l.ws.readyState === WebSocket.OPEN) l.ws.send(text)
   }
 }
-// Who is here, once each, the person in control first.
+// Who is here, once each, the person in control first; signed-out viewers
+// are only counted.
 const presence = () => {
   const people = new Map()
+  const watching = new Set()
   for (const l of listeners) {
+    if (l.anonymous) {
+      watching.add(l.userId)
+      continue
+    }
     people.set(l.userId, {
       userId: l.userId,
       name: l.name,
@@ -139,11 +171,13 @@ const presence = () => {
     people: [...people.values()].sort(
       (a, b) => Number(b.role === "control") - Number(a.role === "control")
     ),
+    watching: watching.size,
   })
 }
 
 const collab = createCollab({
   cdpPort: CDP_PORT,
+  dir: DIR,
   controller: () => controllerId,
   broadcast,
   send: sendTo,
@@ -362,7 +396,13 @@ const wss = new WebSocketServer({
 const events = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
 
 function relay(client, upstream, grant, role) {
-  const stream = { ws: client, grant: grant.id, userId: grant.userId, role }
+  const stream = {
+    ws: client,
+    grant: grant.id,
+    userId: grant.userId,
+    role,
+    anonymous: grant.anonymous,
+  }
   streams.add(stream)
   upstream.on("message", (data, isBinary) => {
     if (client.readyState !== client.OPEN) return
@@ -421,6 +461,13 @@ server.on("upgrade", async (req, socket, head) => {
     socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n")
     return
   }
+  if (
+    grant.anonymous &&
+    connections().filter((c) => c.anonymous).length >= MAX_ANONYMOUS_CONNECTIONS
+  ) {
+    socket.end("HTTP/1.1 503 Service Unavailable\r\n\r\n")
+    return
+  }
   await queueSync()
   if (match[2] === "/__lor/events") {
     events.handleUpgrade(req, socket, head, (ws) => {
@@ -429,7 +476,11 @@ server.on("upgrade", async (req, socket, head) => {
         grant: grant.id,
         userId: grant.userId,
         name: grant.name,
-        color: colorOf(grant.userId),
+        // Signed-out viewers have no pointer or notes to color.
+        color: grant.anonymous ? "" : colorOf(grant.userId),
+        anonymous: grant.anonymous,
+        annotate: grant.annotate,
+        send: grant.send,
       }
       listeners.add(listener)
       ws.send(controlMessage(listener))
@@ -488,10 +539,23 @@ setInterval(async () => {
   }
 }, 60_000)
 setInterval(queueSync, 1000)
+// A public link's signed-out viewers watch while someone signed in is here.
+let signedInSeenAt = Date.now()
+setInterval(() => {
+  const all = connections()
+  if (all.some((c) => !c.anonymous)) {
+    signedInSeenAt = Date.now()
+    return
+  }
+  if (Date.now() - signedInSeenAt < ANONYMOUS_ALONE_MS) return
+  for (const c of all) c.ws.close(ASLEEP, "asleep")
+}, 5000)
 // The API writes the control files; react at once rather than on the tick.
 let syncSoon = null
 try {
   const watcher = watch(DIR, (_event, file) => {
+    // The API put stored annotations back into a new sandbox.
+    if (file === "annotations.json") return collab.stored()
     if (file !== "controller-id" && file !== "controller") return
     clearTimeout(syncSoon)
     syncSoon = setTimeout(queueSync, 30)

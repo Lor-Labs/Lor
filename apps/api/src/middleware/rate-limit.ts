@@ -132,3 +132,12 @@ export const siteLookupRateLimit = rateLimiter({
   max: 10,
   keyExtractor: (c) => c.get("user")?.id ?? getIp(c),
 })
+
+/**
+ * Preview links answer signed-out visitors: 60 requests/min per IP. Opening
+ * a view can start a command in the session's sandbox.
+ */
+export const previewRateLimit = rateLimiter({
+  prefix: "preview",
+  max: 60,
+})

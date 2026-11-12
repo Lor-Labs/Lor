@@ -7,6 +7,10 @@
 // draws annotations on the page itself, so the stream and Lor's screenshots
 // show them. Viewers talk to it over the events socket, in display
 // coordinates from 0 to 1, so nobody needs control to point or annotate.
+// Annotations are kept in the browser's folder (annotations.json, with each
+// screenshot beside it), so they outlive this process; the API copies them to
+// the database and puts them back into a new sandbox (§8).
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises"
 import WebSocket from "ws"
 
 const WORLD = "lor-collab"
@@ -519,7 +523,9 @@ function pageAgent(binding) {
   }
 }
 
-export function createCollab({ cdpPort, controller, broadcast, send }) {
+export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
+  const FILE = `${dir}/annotations.json`
+  const SHOTS = `${dir}/annotations`
   // Page sessions by CDP session id: its isolated world, and what it shows.
   const pages = new Map()
   const annotations = new Map()
@@ -602,19 +608,41 @@ export function createCollab({ cdpPort, controller, broadcast, send }) {
       { frameId, worldName: WORLD },
       sessionId
     )
-    if (world?.executionContextId && !entry.context) {
-      entry.context = world.executionContextId
-      await inPage(entry, AGENT)
+    // Its context event arrives before this answer and sets entry.context,
+    // so the agent goes into the world by its own id (it installs once).
+    if (world?.executionContextId) {
+      entry.context ||= world.executionContextId
+      await inPage({ sessionId, context: world.executionContextId }, AGENT)
     }
     await inPage(entry, "globalThis.__lor && globalThis.__lor.announce()")
   }
 
   const withoutImage = ({ image: _image, clip: _clip, ...rest }) => rest
-  const publish = () =>
+
+  // Once this process has written the file it owns it; until then a file
+  // that appears is the API's stored copy for a new sandbox.
+  let owned = false
+  let saving = null
+  const save = () => {
+    owned = true
+    clearTimeout(saving)
+    saving = setTimeout(async () => {
+      const items = [...annotations.values()].map(withoutImage)
+      try {
+        await writeFile(`${FILE}.tmp`, JSON.stringify({ items }))
+        await rename(`${FILE}.tmp`, FILE)
+      } catch {}
+    }, 300)
+  }
+  const shot = (id) => `${SHOTS}/${id}.jpg`
+
+  const publish = () => {
+    save()
     broadcast({
       type: "comments",
       items: [...annotations.values()].map(withoutImage),
     })
+  }
 
   const drawable = (a) => ({
     id: a.id,
@@ -742,6 +770,46 @@ export function createCollab({ cdpPort, controller, broadcast, send }) {
   }
   void connect()
 
+  const loadStored = async () => {
+    if (owned || annotations.size > 0) return
+    let items = []
+    try {
+      items = JSON.parse(await readFile(FILE, "utf8")).items
+    } catch {
+      return
+    }
+    if (owned || annotations.size > 0 || !Array.isArray(items)) return
+    for (const item of items.slice(0, MAX_ANNOTATIONS)) {
+      if (!item?.id || !item.element?.selector || !item.by?.userId) continue
+      annotations.set(item.id, {
+        ...item,
+        note: String(item.note ?? ""),
+        open: false,
+        image: null,
+      })
+    }
+    if (annotations.size === 0) return
+    broadcast({
+      type: "comments",
+      items: [...annotations.values()].map(withoutImage),
+    })
+    const entry = current()
+    if (!entry) return
+    const here = [...annotations.values()].filter(
+      (a) => a.element.url === entry.url
+    )
+    void inPage(
+      entry,
+      `globalThis.__lor && globalThis.__lor.sync(${JSON.stringify(here.map(drawable))})`
+    )
+  }
+  void loadStored()
+
+  const forget = (id) => {
+    annotations.delete(id)
+    void unlink(shot(id)).catch(() => {})
+  }
+
   const number = () =>
     Math.max(0, ...[...annotations.values()].map((a) => a.number)) + 1
   const fraction = (value) =>
@@ -760,8 +828,18 @@ export function createCollab({ cdpPort, controller, broadcast, send }) {
   }
 
   // Messages from one viewer's page. `reply` answers that viewer only.
+  // Watching is all a viewer without `annotate` does: their page's messages
+  // are dropped here, whatever it sends.
   const onMessage = async (viewer, msg) => {
     const reply = (data) => send(viewer, data)
+    if (!viewer.annotate) {
+      if (msg.t === "pick") {
+        reply({ type: "picked", seq: msg.seq, error: "not_allowed" })
+      } else if (msg.t === "export") {
+        reply({ type: "export", seq: msg.seq, items: [] })
+      }
+      return
+    }
     switch (msg.t) {
       case "ptr": {
         if (msg.gone || !fraction(msg.x) || !fraction(msg.y)) {
@@ -884,7 +962,13 @@ export function createCollab({ cdpPort, controller, broadcast, send }) {
         publish()
         const image = await capture(entry, picked.clip)
         const saved = annotations.get(id)
-        if (saved && image) saved.image = image
+        if (saved && image) {
+          saved.image = image
+          await mkdir(SHOTS, { recursive: true }).catch(() => {})
+          await writeFile(shot(id), Buffer.from(image, "base64")).catch(
+            () => {}
+          )
+        }
         return
       }
       case "note": {
@@ -903,29 +987,37 @@ export function createCollab({ cdpPort, controller, broadcast, send }) {
       case "remove": {
         const item = annotations.get(msg.id)
         if (!item || item.by.userId !== viewer.userId) return
-        annotations.delete(item.id)
+        forget(item.id)
         await run("remove", item.id)
         publish()
         return
       }
       // Send to Lor: everything with its screenshot, for the sender's panel.
+      // A screenshot from before this process started is read from its file.
       case "export": {
-        reply({
-          type: "export",
-          seq: msg.seq,
-          items: [...annotations.values()].map(
-            ({ clip: _clip, ...item }) => item
-          ),
-        })
+        if (!viewer.send) {
+          return reply({ type: "export", seq: msg.seq, items: [] })
+        }
+        const items = []
+        for (const { clip: _clip, ...item } of annotations.values()) {
+          const image =
+            item.image ??
+            (await readFile(shot(item.id), "base64").catch(() => null))
+          items.push({ ...item, image })
+        }
+        reply({ type: "export", seq: msg.seq, items })
         return
       }
-      // After a send (every annotation that went) or a discard (one's own).
+      // After a send (every annotation that went, for whoever may send) or a
+      // discard (one's own).
       case "clear": {
-        const ids = Array.isArray(msg.ids) ? new Set(msg.ids) : null
+        const ids =
+          Array.isArray(msg.ids) && viewer.send ? new Set(msg.ids) : null
+        if (Array.isArray(msg.ids) && !ids) return
         for (const item of [...annotations.values()]) {
           const mine = item.by.userId === viewer.userId
           if (ids ? !ids.has(item.id) : !mine) continue
-          annotations.delete(item.id)
+          forget(item.id)
           await run("remove", item.id)
         }
         publish()
@@ -949,8 +1041,11 @@ export function createCollab({ cdpPort, controller, broadcast, send }) {
       }
     },
     left: (viewer) => {
+      if (!viewer.annotate) return
       broadcast({ type: "cursor", id: viewer.userId, gone: true }, viewer)
       void run("endSelect", viewer.userId)
     },
+    // annotations.json appeared in the folder.
+    stored: () => void loadStored(),
   }
 }

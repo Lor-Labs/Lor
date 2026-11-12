@@ -9,6 +9,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
   or,
   schema,
   sql,
@@ -87,6 +88,14 @@ import { logger } from "@/lib/logger"
 import { fetchSessionContext } from "@/lib/queries/session-context"
 import { fetchSessionTouches } from "@/lib/queries/session-touches"
 import { eventAuthor, postSessionEvent } from "@/lib/session-events"
+import {
+  endPreviewViewsSoon,
+  markBrowserSeen,
+  newPreviewToken,
+  previewExpiry,
+  storedAnnotations,
+  syncAnnotationsSoon,
+} from "@/lib/session-previews"
 import { recordSessionPullRequest } from "@/lib/session-reviews"
 import { enqueueSessionSandboxDelete } from "@/lib/session-sandbox-queue"
 import type { AppRouteHandler } from "@/lib/types/app-types"
@@ -99,6 +108,7 @@ import type {
   AnnotateSessionBrowserRoute,
   ApplySessionEnvironmentRoute,
   CommitSessionChangesRoute,
+  DeleteSessionBrowserShareRoute,
   DropActWaitingRoute,
   ForkAgentSessionRoute,
   GenerateSessionCommitMessageRoute,
@@ -107,6 +117,7 @@ import type {
   GetRepoFileRoute,
   GetRepoImageRoute,
   GetRepoTreeRoute,
+  GetSessionBrowserShareRoute,
   GetSessionChangeDiffRoute,
   GetSessionChangesRoute,
   GetSessionContextRoute,
@@ -116,6 +127,7 @@ import type {
   ListSessionFilesRoute,
   ListSessionPortsRoute,
   ListSessionTouchesRoute,
+  MarkSessionBrowserSeenRoute,
   OpenSessionBrowserPageRoute,
   OpenSessionBrowserRoute,
   OpenSessionPortRoute,
@@ -125,6 +137,7 @@ import type {
   RestartSessionServiceRoute,
   RewindAgentSessionRoute,
   SetSessionBrowserControlRoute,
+  SetSessionBrowserShareRoute,
   StageSessionChangesRoute,
   StartSessionServiceRoute,
   StopSessionServiceRoute,
@@ -1723,12 +1736,20 @@ export const openSessionBrowser: AppRouteHandler<
       access.status
     )
   }
-  const result = await openBrowserView(sessionId, {
-    userId: c.var.user.id,
-    name: c.var.user.name,
-  })
+  // Anyone here can write in the channel, so they annotate and send.
+  const result = await openBrowserView(
+    sessionId,
+    {
+      userId: c.var.user.id,
+      name: c.var.user.name,
+      annotate: true,
+      send: true,
+    },
+    { stored: () => storedAnnotations(sessionId) }
+  )
   switch (result.status) {
     case "ready":
+      await markBrowserSeen(sessionId)
       return c.json(
         {
           status: "ready" as const,
@@ -1739,6 +1760,7 @@ export const openSessionBrowser: AppRouteHandler<
         HttpStatusCodes.OK
       )
     case "unavailable":
+    case "outdated":
       return c.json({ status: "unavailable" as const }, HttpStatusCodes.OK)
     case "no_sandbox":
       return c.json(
@@ -1751,6 +1773,125 @@ export const openSessionBrowser: AppRouteHandler<
         HttpStatusCodes.BAD_REQUEST
       )
   }
+}
+
+// Preview links (reference/planned/sandbox-browser-runbook.md §8).
+const shareBody = (
+  link: { token: string; access: "private" | "public"; expiresAt: Date } | null
+) => ({
+  link:
+    link && link.expiresAt.getTime() > Date.now()
+      ? {
+          token: link.token,
+          access: link.access,
+          expiresAt: link.expiresAt.toISOString(),
+        }
+      : null,
+})
+
+export const getSessionBrowserShare: AppRouteHandler<
+  GetSessionBrowserShareRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const link = await db
+    .select()
+    .from(schema.sessionPreviewLink)
+    .where(eq(schema.sessionPreviewLink.sessionId, sessionId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  return c.json(shareBody(link), HttpStatusCodes.OK)
+}
+
+export const setSessionBrowserShare: AppRouteHandler<
+  SetSessionBrowserShareRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const before = await db
+    .select({ access: schema.sessionPreviewLink.access })
+    .from(schema.sessionPreviewLink)
+    .where(eq(schema.sessionPreviewLink.sessionId, sessionId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null)
+  // A lapsed link's row is replaced, so its old URL stays dead.
+  await db
+    .delete(schema.sessionPreviewLink)
+    .where(
+      and(
+        eq(schema.sessionPreviewLink.sessionId, sessionId),
+        lt(schema.sessionPreviewLink.expiresAt, new Date())
+      )
+    )
+  const link = await db
+    .insert(schema.sessionPreviewLink)
+    .values({
+      sessionId,
+      token: newPreviewToken(),
+      access: body.access,
+      expiresAt: previewExpiry(),
+      createdById: c.var.user.id,
+    })
+    .onConflictDoUpdate({
+      target: schema.sessionPreviewLink.sessionId,
+      set: { access: body.access, expiresAt: previewExpiry() },
+    })
+    .returning()
+    .then((rows) => rows[0] ?? null)
+  // Made private: people the link no longer lets in leave.
+  if (before?.access === "public" && body.access === "private") {
+    endPreviewViewsSoon(sessionId)
+  }
+  return c.json(shareBody(link), HttpStatusCodes.OK)
+}
+
+export const deleteSessionBrowserShare: AppRouteHandler<
+  DeleteSessionBrowserShareRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  const removed = await db
+    .delete(schema.sessionPreviewLink)
+    .where(eq(schema.sessionPreviewLink.sessionId, sessionId))
+    .returning({ id: schema.sessionPreviewLink.id })
+  if (removed.length > 0) endPreviewViewsSoon(sessionId)
+  return c.json(shareBody(null), HttpStatusCodes.OK)
+}
+
+export const markSessionBrowserSeen: AppRouteHandler<
+  MarkSessionBrowserSeenRoute
+> = async (c) => {
+  const { sessionId } = c.req.valid("param")
+  const body = c.req.valid("json")
+  const access = await browserSession(sessionId, c.var.user.id)
+  if (!access.ok) {
+    return c.json(
+      { success: false as const, message: access.message },
+      access.status
+    )
+  }
+  await markBrowserSeen(sessionId)
+  if (body.annotations) syncAnnotationsSoon(sessionId)
+  return c.json({ ok: true as const }, HttpStatusCodes.OK)
 }
 
 export const setSessionBrowserControl: AppRouteHandler<

@@ -168,8 +168,23 @@ function Toolbar({
         <BrowserPresence people={PEOPLE} myId="1" />
         <ShareMenu
           app={summary === "running" ? "localhost:3000/settings" : null}
-          together
-          onCopySession={() => {}}
+          preview={{
+            link:
+              summary === "running"
+                ? {
+                    token: "sample",
+                    access: "private",
+                    expiresAt: new Date(
+                      Date.now() + 6 * 86_400_000
+                    ).toISOString(),
+                  }
+                : null,
+            loading: false,
+            create: () => {},
+            copy: () => {},
+            setPublic: () => {},
+            turnOff: () => {},
+          }}
           onOpenApp={() => {}}
           onCopyApp={() => {}}
         />
@@ -195,6 +210,7 @@ const live = (patch: Partial<SessionBrowserLive>) =>
     keep: () => {},
     handBack: () => {},
     takeControl: () => {},
+    canControl: true,
     ...patch,
   }) as SessionBrowserLive
 

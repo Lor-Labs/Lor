@@ -183,6 +183,32 @@ export const browserControlRequestSchema = z.object({
   take: z.boolean(),
 })
 
+// A preview link (reference/planned/sandbox-browser-runbook.md §8): the URL
+// outside the app that opens this session's browser. `private`: people in the
+// workspace. `public`: anyone watches.
+export const previewAccessSchema = z.enum(["private", "public"])
+
+export const browserShareResponseSchema = z.object({
+  link: z
+    .object({
+      token: z.string(),
+      access: previewAccessSchema,
+      expiresAt: z.string(),
+    })
+    .nullable(),
+})
+
+export const browserShareRequestSchema = z.object({
+  access: previewAccessSchema,
+})
+
+// `annotations`: the notes on the page changed, so store them again.
+export const browserSeenRequestSchema = z.object({
+  annotations: z.boolean().default(false),
+})
+
+export const browserSeenResponseSchema = z.object({ ok: z.literal(true) })
+
 export const browserControlResponseSchema = z.object({
   controller: browserControllerSchema,
 })

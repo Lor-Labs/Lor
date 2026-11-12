@@ -18,6 +18,10 @@ import {
   browserAnnotateResponseSchema,
   browserControlRequestSchema,
   browserControlResponseSchema,
+  browserSeenRequestSchema,
+  browserSeenResponseSchema,
+  browserShareRequestSchema,
+  browserShareResponseSchema,
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
   commitMessageResponseSchema,
@@ -819,6 +823,91 @@ export const openSessionBrowser = createRoute({
 })
 
 export type OpenSessionBrowserRoute = typeof openSessionBrowser
+
+const shareResponses = {
+  [HttpStatusCodes.OK]: jsonContent({
+    schema: browserShareResponseSchema,
+    description: "The session's preview link, or null without one",
+  }),
+  ...browserErrors,
+}
+
+export const getSessionBrowserShare = createRoute({
+  path: "/sessions/{sessionId}/browser/share",
+  method: "get",
+  summary: "Read a code session's preview link",
+  description:
+    "The link that opens this session's browser outside the app, for anyone who can write in the channel.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hide: true,
+  responses: shareResponses,
+})
+
+export type GetSessionBrowserShareRoute = typeof getSessionBrowserShare
+
+export const setSessionBrowserShare = createRoute({
+  path: "/sessions/{sessionId}/browser/share",
+  method: "put",
+  summary: "Create or change a code session's preview link",
+  description:
+    "Creates the link, or changes who it lets in and renews it for 7 days. Private: people in the workspace, signed in. Public: anyone watches; signed-in Lor accounts point and annotate.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: browserShareRequestSchema,
+      description: "Who the link lets in",
+    }),
+  },
+  hide: true,
+  responses: shareResponses,
+})
+
+export type SetSessionBrowserShareRoute = typeof setSessionBrowserShare
+
+export const deleteSessionBrowserShare = createRoute({
+  path: "/sessions/{sessionId}/browser/share",
+  method: "delete",
+  summary: "Turn off a code session's preview link",
+  description: "The link stops opening at once. A new one has a new URL.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hide: true,
+  responses: shareResponses,
+})
+
+export type DeleteSessionBrowserShareRoute = typeof deleteSessionBrowserShare
+
+export const markSessionBrowserSeen = createRoute({
+  path: "/sessions/{sessionId}/browser/seen",
+  method: "post",
+  summary: "Say the session browser's live view is open",
+  description:
+    "Sent every minute by an open live view, so a public preview link's signed-out visitors may watch alongside. With `annotations`, also stores the page's annotations.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: {
+    params: sessionParamsSchema,
+    body: jsonContent({
+      schema: browserSeenRequestSchema,
+      description: "Whether the annotations changed",
+    }),
+  },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: browserSeenResponseSchema,
+      description: "Recorded",
+    }),
+    ...browserErrors,
+  },
+})
+
+export type MarkSessionBrowserSeenRoute = typeof markSessionBrowserSeen
 
 export const setSessionBrowserControl = createRoute({
   path: "/sessions/{sessionId}/browser/control",
