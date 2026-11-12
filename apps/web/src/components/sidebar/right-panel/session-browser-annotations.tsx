@@ -1,5 +1,5 @@
 import { toast } from "@repo/ui/components/toast"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type {
   BrowserCommentExport,
   SessionBrowserLive,
@@ -394,7 +394,9 @@ export function useSessionBrowserSharedAnnotations(
   const { comments, annotating, myId } = live
   // The gateway's latest list, read during a send that outlives this render.
   const latest = useRef(comments)
-  latest.current = comments
+  useLayoutEffect(() => {
+    latest.current = comments
+  }, [comments])
 
   // The gateway broadcasts its list after it wrote it to the browser's
   // folder, so a list without these ids means they are gone and stored.
@@ -440,11 +442,17 @@ export function useSessionBrowserSharedAnnotations(
             : Promise.resolve(null)
         )
       )
-      // A note discarded while the screenshots uploaded doesn't go.
-      const present = new Set(latest.current.map((comment) => comment.id))
-      const kept = items.flatMap((item, i) =>
-        present.has(item.id) ? [{ item, upload: uploads[i] ?? null }] : []
+      // A note discarded, reopened or edited while the screenshots uploaded
+      // stays on the page for a later send.
+      const now = new Map(
+        latest.current.map((comment) => [comment.id, comment])
       )
+      const kept = items.flatMap((item, i) => {
+        const current = now.get(item.id)
+        return current && !current.open && current.note === item.note
+          ? [{ item, upload: uploads[i] ?? null }]
+          : []
+      })
       if (kept.length === 0) return
       const sent = kept.map((entry) => entry.item)
       const attachments = kept.flatMap((entry) =>

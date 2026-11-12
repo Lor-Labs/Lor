@@ -225,22 +225,27 @@ async function restoreBrowserAnnotations(
 }
 
 // The gateway's annotations, for the copy that outlives the sandbox. Null
-// when the folder has no file: the gateway has had none to write yet, which
-// says nothing about the stored ones.
+// when there is nothing to copy: no sandbox, or no file yet (the gateway has
+// had none to write), which says nothing about the stored ones.
 export async function readBrowserAnnotations(
   sessionId: string
 ): Promise<BrowserAnnotation[] | null> {
   const read = await runInBrowserDir(sessionId, [
-    `cat "$d/${ANNOTATIONS_FILE}" 2>/dev/null || true`,
+    `[ -e "$d/${ANNOTATIONS_FILE}" ] || exit 0`,
+    `cat "$d/${ANNOTATIONS_FILE}"`,
   ])
-  if (!read || read.exitCode !== 0 || !read.stdout.trim()) return null
-  try {
-    const parsed = JSON.parse(read.stdout) as { items?: unknown }
-    if (!Array.isArray(parsed.items)) return null
-    return parsed.items.filter(isBrowserAnnotation)
-  } catch {
-    return null
+  // No sandbox (stopped or deleted: the stored copy stands), an image without
+  // the browser, or no file yet.
+  if (!read || read.exitCode === MISSING || !read.stdout.trim()) return null
+  // A failed read or a broken file throws, so the caller can try again.
+  if (read.exitCode !== 0) {
+    throw new Error(`Couldn't read ${ANNOTATIONS_FILE} (exit ${read.exitCode})`)
   }
+  const parsed = JSON.parse(read.stdout) as { items?: unknown }
+  if (!Array.isArray(parsed.items)) {
+    throw new Error(`${ANNOTATIONS_FILE} has no list of annotations`)
+  }
+  return parsed.items.filter(isBrowserAnnotation)
 }
 
 const text = (value: unknown, max: number) =>

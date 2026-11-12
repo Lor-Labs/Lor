@@ -627,20 +627,20 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
   let owned = false
   let saving = null
   let writing = Promise.resolve()
+  // A failed write rejects its own promise; the queue goes on.
   const write = () => {
-    writing = writing.then(async () => {
+    const step = writing.then(async () => {
       const items = [...annotations.values()].map(withoutImage)
-      try {
-        await writeFile(`${FILE}.tmp`, JSON.stringify({ items }))
-        await rename(`${FILE}.tmp`, FILE)
-      } catch {}
+      await writeFile(`${FILE}.tmp`, JSON.stringify({ items }))
+      await rename(`${FILE}.tmp`, FILE)
     })
-    return writing
+    writing = step.catch(() => {})
+    return step
   }
   const save = () => {
     owned = true
     clearTimeout(saving)
-    saving = setTimeout(write, 300)
+    saving = setTimeout(() => write().catch(() => {}), 300)
   }
   const saveNow = () => {
     owned = true
@@ -650,7 +650,9 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
   const shot = (id) => `${SHOTS}/${id}.jpg`
 
   // `now`: the file is written before the list goes out, so a viewer who
-  // sees notes gone knows the API can store that (Send to Lor's clear).
+  // sees notes gone knows the API can store that (Send to Lor's clear). A
+  // failed write throws and nothing goes out: the sender is told the notes
+  // are still there.
   const publish = async (now = false) => {
     if (now) await saveNow()
     else save()
