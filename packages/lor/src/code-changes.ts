@@ -260,7 +260,8 @@ export async function readChanges(
 ): Promise<CodeChanges> {
   const base = shellQuote(`refs/remotes/origin/${baseBranch}`)
   // Unpushed commits count against the branch's remote-tracking ref, like
-  // readUnpushedCommits and markPushed; the base's for a new branch.
+  // readUnpushedCommits and markPushed; the base's for a new branch. Commits
+  // already on any GitHub branch (pulled in from the base) aren't unpushed.
   const upstream = [
     `branch=$(git symbolic-ref --short -q HEAD || true)`,
     `up="refs/remotes/origin/$branch"`,
@@ -275,7 +276,7 @@ export async function readChanges(
       `${GIT} status --porcelain=v2 -z --branch --untracked-files=all || exit 4`,
       `printf '\\0${LOG_MARKER}\\0'`,
       ...upstream,
-      `${GIT} log -n ${MAX_COMMITS} --format='%H%x1f%s' "$up"..HEAD 2>/dev/null || true`,
+      `${GIT} log -n ${MAX_COMMITS} --format='%H%x1f%s' HEAD --not "$up" --remotes=origin 2>/dev/null || true`,
       `printf '\\0${STAT_MARKER}\\0'`,
       `${GIT} diff HEAD --numstat -z --find-renames --no-color 2>/dev/null || true`,
       `printf '\\0${NEW_MARKER}\\0'`,
@@ -711,8 +712,10 @@ export async function readUnpushedCommits(
       `up="refs/remotes/origin/$branch"`,
       `git rev-parse -q --verify "$up" >/dev/null || up=${base}`,
       `printf '%s\\0%s\\0' "$branch" "$(git rev-parse "$up")"`,
-      // Parents before children; changes against the first parent.
-      `for c in $(git rev-list --topo-order --reverse "$up"..HEAD | head -n ${MAX_PUSH_COMMITS + 1}); do`,
+      // Parents before children; changes against the first parent. Commits
+      // GitHub already has on another branch (a pull from the base, whose
+      // merges GitHub signed) are parents to build on, not commits to replay.
+      `for c in $(git rev-list --topo-order --reverse HEAD --not "$up" --remotes=origin | head -n ${MAX_PUSH_COMMITS + 1}); do`,
       `  printf '${COMMIT_MARKER}%s\\0%s\\0' "$c" "$(git rev-parse "$c^^{tree}" 2>/dev/null)"`,
       `  git cat-file commit "$c"; printf '\\0'`,
       `  git diff-tree -r -z --no-renames "$c^" "$c"; printf '\\0'`,

@@ -351,6 +351,115 @@ Rules that keep it portable:
 - The image build (`bl push` today) and preview domains are the only other
   per-provider parts.
 
+### 7. Working together (Jacob, 2026-11-11)
+
+One browser, several people and Lor in it at once. Control stays with one
+person (or Lor); everything here works without it.
+
+- **Who is here.** The gateway's events socket (one per open view) says who
+  has the view open, with a color each. The panel's toolbar shows them, the
+  person in control first.
+- **Pointers.** Each view sends its pointer as a fraction of the display, so
+  it lines up in every viewer's own size. The bridge script draws the others'
+  pointers over the picture with their name: full size for the person in
+  control, smaller for people watching.
+- **Lor's pointer.** `lor-browser` acts over CDP, so there is no X pointer to
+  stream. The gateway keeps one CDP connection and installs a small agent in
+  every page, in an isolated world. It reports the trusted mouse and key
+  input the page receives while nobody has control, which is Lor's. Viewers
+  see a "Lor" pointer glide to where each command acts, click with a ripple
+  and show "…" while it types. It rests there, dimmed, for a minute. Mouse
+  moves without movement are dropped: after a load or a layout change
+  Chromium re-sends the position of the X pointer a person left behind.
+- **Shared annotations.** Annotate needs no control: a layer over the picture
+  takes the person's clicks and drags and sends them to the gateway, which
+  asks the page's agent what is there. A click annotates an element, a drag
+  over text annotates the highlighted text (with the quote). The pin, the
+  outline or highlight and a one-line bubble are drawn on the page itself, so
+  the stream and Lor's screenshots show them; the note box is in the person's
+  own view, and everyone sees the note as it is typed. Annotations live in
+  the gateway (memory, lost when the browser restarts), come back after a
+  reload of the same address, and number across everyone. Only the author
+  edits or removes one.
+- **Send to Lor** takes every finished note from everyone in one message
+  (authors named when there are several), with a screenshot of each, then
+  clears them.
+- **Share.** "Copy link to this browser" is the session's own URL with
+  `?side=browser`, for people in the workspace. "Open in a new tab" and "Copy
+  link anyone can open" are the port's preview URL for the page on screen
+  (also when Lor opened it). On a private preview the link carries a token
+  that lasts 15 minutes, and the panel says so; a lasting public link to the
+  app is not built.
+- **Not built:** threads or replies on a note. (A link for people outside
+  the app and annotations that outlive the sandbox came with §8.)
+
+### 8. Preview links (Jacob, 2026-11-11)
+
+Like a Vercel preview deployment's link: a URL to send a stakeholder (the
+design team), who watches the session's browser, points and annotates on
+their own page, with no Lor app open.
+
+- **Shared screen** (Jacob: first). The link opens the session's one live
+  browser, so everyone sees the same page and it moves when Lor or the
+  person in control navigates. Each visitor getting their own copy of the
+  app (a true preview deployment, with the toolbar injected into its pages)
+  is later.
+- **The link.** `/preview/<token>` in the web app, outside the app shell: a
+  header (session title, workspace, who is here) and the live view. One link
+  per session (`session_preview_link`), made by anyone who can write in the
+  channel from the Browser tab's Share menu. Private unless switched to
+  public, renewed for 7 days whenever it is made or changed, dead when it is
+  turned off, when it lapses or when the session is archived. A link that
+  doesn't open reads as not found, whatever the reason. Turning it off or
+  making it private also ends the views it already gave: their grants say
+  `via: "preview"` and are deleted, the gateway closes them within a minute
+  (its grant check), and pages that may still watch get a new grant.
+- **Who sees what** (Jacob):
+
+  | Visitor | Private link | Public link |
+  |---|---|---|
+  | Signed out | "Sign in to see this preview" | Watches: the screen, the pointers, the notes |
+  | Signed in, not in the workspace | "This preview is private" | Watches, points, annotates |
+  | In the workspace | Watches, points, annotates | Same |
+  | Can write in the session's channel | Also takes control | Same |
+
+  A private link is for the whole workspace, also when the session's channel
+  is private: making the link is the share. Nobody sends to Lor from a
+  preview page; a member's Send in the app takes everyone's notes.
+- **Take control** now means only the browser's real mouse and keyboard
+  (click, type, scroll, navigate; Lor's commands wait meanwhile). Pointing
+  and annotating never need it. It stays with people who can write in the
+  channel: whoever drives can go anywhere in that Chromium, with the logins
+  its profile holds.
+- **Roles are enforced in the sandbox.** The API writes what a viewer may do
+  into their grant: `can: ["annotate", "send"]`, or `anonymous`. The gateway
+  drops everything but watching from a viewer without `annotate` (no pointer,
+  no notes), and gives the notes' screenshots and clearing other people's
+  notes only to `send` (people in the app). The image's
+  `/opt/lor-browser/version` says its gateway does this (3); the API refuses
+  preview views on older sandboxes, where a grant's roles would be ignored.
+- **A public link never wakes or holds the sandbox on its own.** A
+  signed-out visitor gets a view only while someone signed in has the browser
+  open: every signed-in view says so once a minute (a Redis key, 150 s), and
+  the API checks it before it touches the sandbox, which would wake it. The
+  page shows "This preview is asleep" and asks again every 20 s, also after
+  the gateway dropped it (asking at once would find the key still set and
+  wake the sandbox again). The gateway drops signed-out viewers 2 minutes
+  after the last signed-in one leaves, and takes at most 24 of their
+  connections (12 viewers) of its 60.
+- **Annotations outlive the sandbox.** The gateway keeps them in the
+  browser's folder (`annotations.json`, each screenshot as a file), so they
+  survive its restart. The API copies that list into
+  `session_browser_annotation` whenever a signed-in author's notes settle and
+  after a Send, and writes it back into a new sandbox's folder before its
+  browser starts; the gateway also loads a list that appears while it has
+  none. The sandbox's list is the truth while it lives: rows it no longer has
+  are deleted. Screenshots are not stored, so a note restored into a new
+  sandbox goes to Lor without one.
+- **Later:** each visitor's own copy of the app; a draggable Vercel-style
+  toolbar on the preview page (Jacob); sending from a preview page; a guest
+  role for people without a Lor account who should annotate.
+
 ## Steps
 
 Each step is a review chunk of about 300–400 lines.
@@ -690,11 +799,103 @@ Each step is a review chunk of about 300–400 lines.
     it.
   - No element chips in the transcript and no prompt line: the message is
     plain markdown that Lor reads as it is.
+- [x] **8. Preview links** (2026-11-11; built, needs `db:push` and an image
+  push, not run in the app yet).
+  - Rollout order: `db:push` (two new tables), then the API and web. The
+    image can go any time: until a session's sandbox has it, its preview link
+    says "This preview isn't running" and its Browser tab works as before.
+  - `packages/db/src/schemas/session-previews.ts`: `session_preview_link`
+    and `session_browser_annotation`.
+  - `dev-env/browser.ts`: `openBrowserView` takes a viewer with what they may
+    do (or `anonymous`), checks the gateway's version for preview views, and
+    puts stored annotations back; `readBrowserAnnotations`.
+  - `apps/api/src/lib/session-previews.ts`: who a link lets in, the
+    signed-in-viewer key in Redis, the annotations' copy.
+  - API: `GET/PUT/DELETE /sessions/{id}/browser/share` and
+    `POST /sessions/{id}/browser/seen` (people who can write in the
+    channel); `GET /previews/{token}`, `POST /previews/{token}/view` and
+    `/seen` with no auth middleware (they read the caller's session when
+    there is one), 60 requests a minute per IP.
+  - Gateway: roles from the grant, the signed-out viewers' count in
+    `presence`, their limit and the 2-minute drop (close code 4005),
+    `annotations.json`. Fixed on the way: a gateway that connected to a page
+    already open never installed its page agent (its world's context event
+    arrived before `createIsolatedWorld` answered), so it saw no page until
+    the next navigation.
+  - Web: `/preview/$token` (`components/preview/preview-page.tsx`) on the
+    panel's own live view and hooks, which now take where their grants come
+    from (`BrowserViewSource`). The Share menu makes, copies, opens up and
+    turns off the link; "Copy link to this browser" (the session's URL) gave
+    way to it, and the preview page's "Open in Lor" uses `?side=browser`.
+  - Checked 2026-11-11 against the repo's gateway in a sandbox: a signed-out
+    viewer's pointer and pick are refused and it is only counted; a guest
+    annotates but gets no export and can't clear by id; notes and
+    screenshots come back after a gateway restart; a list written into the
+    folder is loaded; a signed-out viewer alone is dropped after 2 minutes.
+    Not run: every API route (the tables don't exist yet), the Redis gate,
+    the copy to the database and back.
+  - Added in review (2026-11-11): turning a link off or making it private
+    ends its visitors' views (`endPreviewViews`; checked against the
+    gateway: the preview viewer closed with 4004 within a minute, a member on
+    the same browser stayed), and a signed-out viewer dropped as asleep waits
+    20 s before it asks again.
 - [ ] **6. Remove the iframe and run live QA.** Delete the iframe path and
   its `scheme-light` fix. Keep "Open in your browser". Live QA on a Next.js
   16 monorepo with better-auth: profile start, sign in, Lor checks a UI
   change, two viewers, take control, annotations, idle and return.
   Then move this doc to the root as the as-built reference (link sweep).
+- [x] **7. Reliable Start and working together** (2026-11-11; built, image
+  not pushed, not run in the app yet).
+  - [x] 7a Start that tells the truth (no image push; `repo-setup.ts`,
+    `previews.ts`, `sandbox-ports.ts`). Found in a production sandbox:
+    - Services got `HOST=0.0.0.0`. Blaxel adds its own IPv6 listener beside a
+      server bound to 0.0.0.0 and keeps it after the server stops, so the
+      port read as running with nothing behind it, and the next server that
+      binds `::` failed with EADDRINUSE. Services now get no `HOST` (the
+      browser and the preview proxy reach loopback), a listener no process
+      owns never counts as running, and the panel says when the sandbox still
+      holds a port (`portHeld`).
+    - A dev server in watch mode stays alive after it crashed, so Start
+      showed "Starting" forever. One read per poll (`SETUP_STATUS`) now
+      returns each service's step (`install` or its own command, from a
+      `.phase` file), time since start, time since its log last changed, the
+      log's end and the ports its process group listens on. The panel shows
+      Installing, Starting, "nothing on port N yet" after 30 s of silence,
+      or "on port M, not N", each with the log and "Ask Lor to fix it".
+    - A zombie (the sandbox's init never reaps orphans) no longer counts as
+      alive.
+    - `POST …/setup/services/{name}/restart` and `…/stop`: end the service's
+      process group, then whatever else listens on its port.
+    - Lor's prompt: `install` holds every step a new sandbox needs before a
+      server starts, the file is checked by running its commands as written,
+      and services avoid the sandbox's own ports.
+    - Panel (`session-browser-run.tsx`): one control in the toolbar
+      (Running, Starting, Installing, Stopped, "{service} needs a look") that
+      opens every service with its state, live log, Start, Restart, Stop and
+      Open, and the other ports. It replaces the Open app menu.
+  - [x] 7b Collab gateway (§7; needs an image push).
+    `gateway-collab.mjs` (the CDP page agent, pointers, annotations) and
+    `bridge.js` (the script in Selkies' page, now a file) next to
+    `gateway.mjs`. The API writes the person's name into the grant. Checked
+    2026-11-11 in a sandbox with the repo's gateway beside the image's own
+    and two more viewers: Lor's pointer for `click`, `fill` and `hover` (and
+    none after a reload under a resting X pointer), the other viewers'
+    pointers, a note on an element and on a text selection typed
+    live, the export with its screenshots, pins after a reload, and taking
+    and handing back control.
+  - [x] 7c Panel. The page says `hello` (version 2) when its gateway has
+    §7; then annotating goes through the page (`useSessionBrowserSharedAnnotations`)
+    and the toolbar shows who is here (checked 2026-11-11 with the panel's
+    own hooks and view mounted against that gateway; Send to Lor needs the
+    app and was not run). Sandboxes from older images keep the
+    step-5 picker through the API until they are replaced; delete
+    `ANNOTATE_SCRIPT`, `/browser/annotate` and `useSessionBrowserAnnotations`
+    once none are left. Share menu as in §7. "Open in a new tab" opens its
+    tab in the click (the old button navigated the app's own tab on the web,
+    and was disabled until a page had been opened from the panel).
+  - QA owed in the app: two people and Lor in one session, the pointer
+    offset with a display resized by the controller, Safari, the desktop
+    app's copy and new-tab paths.
 
 ## Later
 
@@ -784,3 +985,12 @@ Each step is a review chunk of about 300–400 lines.
 - 2026-11-07 (LOR-148, Jacob): element comments became annotations drawn on
   the page next to their element (pin, outline, note box), replacing the note
   card under the live view; picking continues after each note until Done.
+- 2026-11-11 (Jacob): annotations no longer need control or Chromium's
+  inspect mode (§7). The gateway holds them, not attributes on the page, and
+  the note box moved from the page into each person's own view, so several
+  people annotate at once while Lor or someone else drives.
+- 2026-11-11: services no longer get `HOST=0.0.0.0` (step 7a). Previews
+  still work: the preview proxy connects over loopback.
+- 2026-11-11 (Jacob): preview links (§8). Annotations moved from the
+  gateway's memory to a file in the browser's folder and a copy in Postgres.
+  The Browser tab's "Copy link to this browser" became the preview link.
