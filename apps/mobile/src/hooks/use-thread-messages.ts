@@ -780,8 +780,12 @@ export function useThreadMessages({
         onOptimistic?: (id: string) => void
         // A session's "To subscribers": Lor doesn't run.
         toPeople?: boolean
-        // In a session: the model, effort and fast mode for the turn.
-        turn?: Pick<SendMessagePayload, "model" | "effort" | "fast">
+        // In a session: the model, effort and fast mode for the turn, and in
+        // a Claude Code session its mode.
+        turn?: Pick<
+          SendMessagePayload,
+          "model" | "effort" | "fast" | "claudeCodeMode"
+        >
       } = {}
     ) => {
       const trimmed = content.trim()

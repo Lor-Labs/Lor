@@ -3,7 +3,8 @@ import { formatDateTime } from "@repo/utils/date"
 import { Pressable, Text, View } from "react-native"
 import { ChannelRow } from "@/components/channel-list"
 import { Avatar } from "@/components/ui/avatar"
-import { SectionLabel } from "@/components/ui/section-label"
+import { PressableRow } from "@/components/ui/pressable-row"
+import { PressableScale } from "@/components/ui/pressable-scale"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatePanel } from "@/components/ui/state-panel"
 import { useUnread } from "@/context/unread-context"
@@ -24,7 +25,7 @@ function MessageResultRow({
   const preview = toSearchPreviewText(message.content, message.mentions)
 
   return (
-    <Pressable
+    <PressableRow
       accessibilityActions={
         onPressAuthor
           ? [
@@ -38,7 +39,7 @@ function MessageResultRow({
       accessibilityHint="Opens the channel and focuses this message"
       accessibilityLabel={`Message from ${displayName} in ${message.channelName}: ${preview}`}
       accessibilityRole="button"
-      className="flex-row gap-three rounded-lor-sm px-two py-two active:bg-surface-secondary"
+      className="flex-row gap-three px-two py-two"
       onAccessibilityAction={(event) => {
         if (event.nativeEvent.actionName === "viewAuthorProfile") {
           onPressAuthor?.(message)
@@ -89,7 +90,27 @@ function MessageResultRow({
           {preview}
         </Text>
       </View>
-    </Pressable>
+    </PressableRow>
+  )
+}
+
+// Same heading as the Home list's folds, so the two views of this screen
+// read as one.
+function ResultsHeading({ title, count }: { title: string; count?: number }) {
+  return (
+    <View className="min-h-9 flex-row items-center gap-[6px] px-two">
+      <Text className="text-[13px] font-semibold leading-[18px] text-muted">
+        {title}
+      </Text>
+      {count === undefined ? null : (
+        <Text
+          className="text-[13px] leading-[18px] text-muted"
+          style={{ fontVariant: ["tabular-nums"] }}
+        >
+          {count}
+        </Text>
+      )}
+    </View>
   )
 }
 
@@ -130,12 +151,10 @@ export function WorkspaceSearchResults({
   }
 
   return (
-    <View className="gap-four pb-seven">
+    <View className="gap-three pb-seven">
       {channels.length > 0 ? (
         <View>
-          <View className="min-h-8 flex-row items-center px-two">
-            <SectionLabel>Channels</SectionLabel>
-          </View>
+          <ResultsHeading title="Channels" />
           {channels.map((channel) => (
             <ChannelRow
               channel={channel}
@@ -149,14 +168,14 @@ export function WorkspaceSearchResults({
       ) : null}
 
       <View>
-        <View className="min-h-8 flex-row items-center gap-two px-two">
-          <SectionLabel>Messages</SectionLabel>
-          {!isSearching && search.results.length > 0 ? (
-            <Text className="text-[11px] font-semibold text-muted">
-              {search.itemsTotal}
-            </Text>
-          ) : null}
-        </View>
+        <ResultsHeading
+          count={
+            !isSearching && search.results.length > 0
+              ? search.itemsTotal
+              : undefined
+          }
+          title="Messages"
+        />
 
         {isSearching ? (
           <MessageResultsSkeleton />
@@ -185,15 +204,16 @@ export function WorkspaceSearchResults({
             {search.isLoadingMore ? (
               <MessageResultsSkeleton rows={2} />
             ) : search.nextPage != null ? (
-              <Pressable
+              <PressableScale
                 accessibilityRole="button"
-                className="mx-two my-two items-center rounded-lor-sm border border-border py-three active:bg-surface-secondary"
+                className="mx-two my-two items-center rounded-lor-md border border-border py-three"
                 onPress={search.loadMore}
+                scale={0.98}
               >
                 <Text className="text-sm font-semibold text-foreground">
                   Show more results
                 </Text>
-              </Pressable>
+              </PressableScale>
             ) : null}
           </View>
         )}

@@ -10,6 +10,7 @@ import {
   QuestionApprovalCard,
   type ResolveExtra,
 } from "@/components/claude-code-approval"
+import { rememberClaudeCodeMode } from "@/components/claude-code-mode-picker"
 import { Button } from "@/components/ui/button"
 import { useWorkspace } from "@/context/workspace-context"
 import {
@@ -85,7 +86,14 @@ export function ApprovalGateCard({
         ...(extra.planMode ? { claudeCodeMode: extra.planMode } : {}),
         ...(extra.answers ? { answers: extra.answers } : {}),
       },
-      { onSettled: () => onResolved?.() }
+      {
+        // The next message goes on in the mode the plan was approved with,
+        // instead of planning again.
+        onSuccess: () => {
+          if (extra.planMode) rememberClaudeCodeMode(extra.planMode)
+        },
+        onSettled: () => onResolved?.(),
+      }
     )
   }
   const statusLine = canResolve

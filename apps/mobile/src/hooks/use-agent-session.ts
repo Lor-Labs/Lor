@@ -8,6 +8,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
+import { router } from "expo-router"
 import { useToast } from "heroui-native/toast"
 import { useEffect } from "react"
 import { Alert } from "react-native"
@@ -234,6 +235,76 @@ export function useUpdateAgentSession() {
     },
   })
   return mutation
+}
+
+// The server's reason for a refused fork or rewind.
+async function refusal(
+  res: { json: () => Promise<unknown> },
+  fallback: string
+) {
+  const body = (await res.json().catch(() => null)) as {
+    message?: string
+  } | null
+  return body?.message ?? fallback
+}
+
+// "Fork from here": the server makes a session that continues from that
+// reply's turn; it joins your Home list and opens. The session forked from
+// is unchanged. Mirrors web's useForkSession.
+export function useForkSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (fork: { sessionId: string; messageId: string }) => {
+      const res = await api.v1.sessions[":sessionId"].fork.$post({
+        param: { sessionId: fork.sessionId },
+        json: { messageId: fork.messageId },
+      })
+      if (!res.ok) {
+        throw new Error(await refusal(res, "Couldn't fork the session"))
+      }
+      return res.json()
+    },
+    onSuccess: async ({ session }) => {
+      await cancelSidebarFetch(queryClient, session.workspaceId)
+      patchSidebarSession(
+        queryClient,
+        {
+          workspaceId: session.workspaceId,
+          channelId: session.channelId,
+          sessionId: session.id,
+        },
+        { show: sidebarRowFor(session) }
+      )
+      void queryClient.invalidateQueries({
+        queryKey: channelSessionsKey(session.channelId),
+      })
+      router.push({
+        pathname: "/session/[sessionId]",
+        params: { sessionId: session.id },
+      })
+    },
+    onError: (error) => Alert.alert("Couldn't fork the session", error.message),
+  })
+}
+
+// "Rewind to here": the server moves Lor back to that reply's turn (and a
+// code session's files with it); its event row, arriving like any message,
+// folds the later turns for everyone. Mirrors web's useRewindSession.
+export function useRewindSession(sessionId: string) {
+  return useMutation({
+    mutationFn: async (messageId: string) => {
+      const res = await api.v1.sessions[":sessionId"].rewind.$post({
+        param: { sessionId },
+        json: { messageId },
+      })
+      if (!res.ok) {
+        throw new Error(await refusal(res, "Couldn't rewind the session"))
+      }
+      return res.json()
+    },
+    onError: (error) =>
+      Alert.alert("Couldn't rewind the session", error.message),
+  })
 }
 
 // Every session the user follows, wherever they are: generated titles also

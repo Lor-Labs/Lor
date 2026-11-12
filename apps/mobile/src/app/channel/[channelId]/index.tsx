@@ -526,6 +526,13 @@ function ChannelScreen() {
           })
           setIsOptionsOpen(false)
         }}
+        onOpenLoops={() => {
+          router.push({
+            pathname: "/channel/[channelId]/loops",
+            params: { channelId },
+          })
+          setIsOptionsOpen(false)
+        }}
         onOpenChange={setIsOptionsOpen}
         workspaceName={workspace.name}
         workspaceSlug={workspace.slug}
