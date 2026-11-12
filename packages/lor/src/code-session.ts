@@ -1,7 +1,11 @@
 import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
-import { restoreWorkFolder, waitForCheckpoints } from "./code-checkpoints"
+import {
+  restoreWorkFolder,
+  WorkFolderBackupError,
+  waitForCheckpoints,
+} from "./code-checkpoints"
 import { REPO_SETUP_FILE } from "./dev-env/work-dir"
 import { activeGithubInstallation } from "./github"
 import { logger } from "./logger"
@@ -120,6 +124,8 @@ export async function prepareCodeWorkFolder(input: {
     { sessionId: input.sessionId, workDir, repoFullName: code.repoFullName },
     abortSignal
   ).catch((err: unknown) => {
+    // A fresh clone would leave the backup to the next cleanup.
+    if (err instanceof WorkFolderBackupError) throw err
     logger.warn(
       { err, sessionId: input.sessionId },
       "Checkpoint restore failed"

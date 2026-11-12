@@ -41,6 +41,7 @@ import { ActWaitingNote } from "@/components/session/act-waiting-note"
 import { ArchiveSessionDialog } from "@/components/session/archive-session-dialog"
 import { HarnessLogo } from "@/components/session/harness-logo"
 import { HARNESS_LABELS } from "@/components/session/harness-picker"
+import { SandboxStatusNote } from "@/components/session/sandbox-status-note"
 import { SessionContextFold } from "@/components/session/session-context-fold"
 import { SessionDocument } from "@/components/session/session-document"
 import { SessionSetupDialog } from "@/components/session/session-setup-dialog"
@@ -396,12 +397,19 @@ function SessionConversation({
               />
             )}
           </>
-        ) : session.origin === "trigger" ? (
-          <ActWaitingNote
-            sessionId={session.id}
-            threadRootId={session.threadRootId}
-          />
-        ) : undefined
+        ) : (
+          <>
+            {session.origin === "trigger" ? (
+              <ActWaitingNote
+                sessionId={session.id}
+                threadRootId={session.threadRootId}
+              />
+            ) : null}
+            {code && !session.archivedAt ? (
+              <SandboxStatusNote sessionId={session.id} />
+            ) : null}
+          </>
+        )
       }
       workspaceSlug={workspaceSlug}
       channelId={session.channelId}
