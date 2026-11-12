@@ -47,10 +47,14 @@ export function harnessCommandQuery(
   return items.length > 0 ? { sigil, query, items } : null
 }
 
+// What may follow the visible end of the draft in its Markdown: closing
+// emphasis or code marks and a link's destination, never visible text.
+const MARKDOWN_TAIL = /^(?:[*_~`]+|\]\([^)]*\))*$/
+
 // The Markdown draft with the command being typed replaced by the picked
-// one. The typed token comes from the plain text; only that token's last
-// occurrence in the Markdown changes, so formatting around it (the closing
-// "**" of "**$rev**") stays.
+// one. The typed token is the end of the plain text, so in the Markdown it is
+// the occurrence followed only by closing formatting: the closing "**" of
+// "**$rev**" stays, and the same text in a link's destination is left alone.
 export function applyHarnessCommand(
   markdown: string,
   plainText: string,
@@ -58,7 +62,14 @@ export function applyHarnessCommand(
 ) {
   if (item.insert.startsWith("/")) return item.insert
   const token = /(?:^|\s)(\$[^\s$]*)$/.exec(plainText)?.[1]
-  const at = token ? markdown.lastIndexOf(token) : -1
+  let at = token ? markdown.lastIndexOf(token) : -1
+  while (
+    token &&
+    at >= 0 &&
+    !MARKDOWN_TAIL.test(markdown.slice(at + token.length))
+  ) {
+    at = at === 0 ? -1 : markdown.lastIndexOf(token, at - 1)
+  }
   if (!token || at < 0) return markdown.replace(/\$[^\s$]*$/, item.insert)
   // The picked insert ends with a space; formatting after the token keeps it.
   const after = markdown.slice(at + token.length)
