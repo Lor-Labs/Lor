@@ -48,8 +48,12 @@ export function harnessCommandQuery(
 }
 
 // What may follow the visible end of the draft in its Markdown: closing
-// emphasis or code marks and a link's destination, never visible text.
-const MARKDOWN_TAIL = /^(?:[*_~`]+|\]\([^)]*\))*$/
+// emphasis or code marks and a link's destination (escaped characters and
+// one level of balanced parentheses, as in "wiki/A_(b)"), never visible text.
+const MARKDOWN_TAIL = /^(?:[*_~`]+|\]\((?:[^()\\]|\\.|\([^()\\]*\))*\))*$/
+// The fallback touches only a token the Markdown itself ends with, never a
+// delimiter or destination after it.
+const BARE_TOKEN_AT_END = /\$[^\s$*_~`[\]()\\]*$/
 
 // The Markdown draft with the command being typed replaced by the picked
 // one. The typed token is the end of the plain text, so in the Markdown it is
@@ -70,7 +74,7 @@ export function applyHarnessCommand(
   ) {
     at = at === 0 ? -1 : markdown.lastIndexOf(token, at - 1)
   }
-  if (!token || at < 0) return markdown.replace(/\$[^\s$]*$/, item.insert)
+  if (!token || at < 0) return markdown.replace(BARE_TOKEN_AT_END, item.insert)
   // The picked insert ends with a space; formatting after the token keeps it.
   const after = markdown.slice(at + token.length)
   return `${markdown.slice(0, at)}${after ? item.insert.trimEnd() : item.insert}${after}`
