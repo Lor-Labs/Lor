@@ -37,6 +37,8 @@ const SELKIES = "/usr/bin/selkies"
 const GATEWAY_VERSION_FILE = "/opt/lor-browser/version"
 const PREVIEW_GATEWAY_VERSION = 3
 const ANNOTATIONS_FILE = "annotations.json"
+// Exit code: the browser's folder has no annotations file yet.
+const NO_ANNOTATIONS = 4
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const owner = (sessionId: string) => ({ sessionId })
@@ -231,13 +233,16 @@ export async function readBrowserAnnotations(
   sessionId: string
 ): Promise<BrowserAnnotation[] | null> {
   const read = await runInBrowserDir(sessionId, [
-    `[ -e "$d/${ANNOTATIONS_FILE}" ] || exit 0`,
+    `[ -e "$d/${ANNOTATIONS_FILE}" ] || exit ${NO_ANNOTATIONS}`,
     `cat "$d/${ANNOTATIONS_FILE}"`,
   ])
   // No sandbox (stopped or deleted: the stored copy stands), an image without
   // the browser, or no file yet.
-  if (!read || read.exitCode === MISSING || !read.stdout.trim()) return null
-  // A failed read or a broken file throws, so the caller can try again.
+  if (!read || read.exitCode === MISSING || read.exitCode === NO_ANNOTATIONS) {
+    return null
+  }
+  // A failed read or a broken (even empty) file throws, so the caller can try
+  // again.
   if (read.exitCode !== 0) {
     throw new Error(`Couldn't read ${ANNOTATIONS_FILE} (exit ${read.exitCode})`)
   }
