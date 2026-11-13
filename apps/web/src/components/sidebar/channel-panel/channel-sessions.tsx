@@ -54,47 +54,34 @@ import { sessionTabLink } from "@/hooks/use-session-tabs"
 // Each channel lists at most this many of your sessions; a "N more" row
 // expands the rest in place.
 const SESSION_CAP = 3
-const COLLAPSED_KEY = "lor-collapsed-session-channels"
+const EXPANDED_KEY = "lor-expanded-session-channels"
 
-function readCollapsedIds(): Set<string> {
+function readExpandedIds(): Set<string> {
   try {
-    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]"))
+    return new Set(JSON.parse(localStorage.getItem(EXPANDED_KEY) ?? "[]"))
   } catch {
     return new Set()
   }
 }
 
-function storeCollapsed(channelId: string, collapsed: boolean) {
-  const ids = readCollapsedIds()
-  if (collapsed) ids.add(channelId)
+function storeExpanded(channelId: string, expanded: boolean) {
+  const ids = readExpandedIds()
+  if (expanded) ids.add(channelId)
   else ids.delete(channelId)
   try {
-    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]))
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify([...ids]))
   } catch {}
 }
 
 // Whether a channel's session rows are hidden, remembered per device.
-// Starting a session in a collapsed channel expands it.
-export function useSessionCollapse(
-  channelId: string,
-  sessions: SidebarSession[] | undefined
-) {
-  const [collapsed, setCollapsed] = useState(() =>
-    readCollapsedIds().has(channelId)
+// Collapsed by default: active sessions already show in the sidebar's
+// cross-channel Sessions list, so a channel lists its own only on request.
+export function useSessionCollapse(channelId: string) {
+  const [collapsed, setCollapsed] = useState(
+    () => !readExpandedIds().has(channelId)
   )
-  const knownIds = useRef<Set<string> | null>(null)
-  useEffect(() => {
-    if (!sessions) return
-    const previous = knownIds.current
-    knownIds.current = new Set(sessions.map((session) => session.id))
-    if (previous && sessions.some((session) => !previous.has(session.id))) {
-      storeCollapsed(channelId, false)
-      setCollapsed(false)
-    }
-  }, [channelId, sessions])
-
   const toggle = () => {
-    storeCollapsed(channelId, !collapsed)
+    storeExpanded(channelId, collapsed)
     setCollapsed(!collapsed)
   }
   return { collapsed, toggle }

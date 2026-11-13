@@ -39,6 +39,11 @@ export function useChannelActivity(channelId: string) {
   return channels.get(channelId)
 }
 
+// Every channel's subscribed sessions, for the cross-channel Sessions list.
+export function useAllChannelActivity() {
+  return useContext(ActivityContext).channels
+}
+
 export function useActivityWorkspaceId() {
   return useContext(ActivityContext).workspaceId
 }
