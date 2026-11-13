@@ -14,6 +14,14 @@ type Point = { x: number; y: number }
 const STAGE_PADDING = 48
 const DRAG_THRESHOLD = 4
 const CENTER: Point = { x: 0, y: 0 }
+// Keyboard panning while zoomed: an arrow reveals more of the image that way.
+const PAN_STEP = 60
+const KEY_PAN: Record<string, Point> = {
+  ArrowLeft: { x: PAN_STEP, y: 0 },
+  ArrowRight: { x: -PAN_STEP, y: 0 },
+  ArrowUp: { x: 0, y: PAN_STEP },
+  ArrowDown: { x: 0, y: -PAN_STEP },
+}
 
 function ZoomStage({
   src,
@@ -134,6 +142,15 @@ function ZoomStage({
           transform: `translate3d(${shown.x}px, ${shown.y}px, 0) scale(${zoomed ? zoomScale : 1})`,
         }}
         onClick={toggleZoom}
+        onKeyDown={(event) => {
+          const step = KEY_PAN[event.key]
+          if (!zoomed || !step) return
+          event.preventDefault()
+          setAnimate(true)
+          setOffset((previous) =>
+            clampOffset({ x: previous.x + step.x, y: previous.y + step.y })
+          )
+        }}
         onPointerDown={(event) => {
           drag.current =
             zoomed && event.button === 0

@@ -3,7 +3,8 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { toast } from "@repo/ui/components/toast"
 import { cn } from "@repo/ui/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import type React from "react"
+import { useId, useState } from "react"
 import { TerminalTab } from "@/components/session/terminal-tab"
 import { RightPanelHeader } from "@/components/sidebar/right-panel/right-panel-header"
 import { useRightSidebar } from "@/components/sidebar/right-panel/right-sidebar-context"
@@ -73,6 +74,8 @@ function useTerminalTabs(sessionId: string) {
       .catch(() => null)
     if (res?.ok) {
       setVisited((prev) => prev.filter((other) => other !== tab))
+      // An in-flight list read from before the delete would bring the tab back.
+      await queryClient.cancelQueries({ queryKey: terminalsKey(sessionId) })
       queryClient.setQueryData(terminalsKey(sessionId), (prev: typeof data) =>
         prev
           ? {
@@ -82,6 +85,7 @@ function useTerminalTabs(sessionId: string) {
             }
           : prev
       )
+      void queryClient.invalidateQueries({ queryKey: terminalsKey(sessionId) })
     } else {
       toast.error("Couldn't close that terminal")
     }
@@ -109,6 +113,21 @@ export function SessionTerminalPanel({
   const { tabs, active, mounted, next, select, close } = useTerminalTabs(
     view.sessionId
   )
+  const idPrefix = useId()
+  const tabId = (tab: number) => `${idPrefix}-tab-${tab}`
+  const panelId = (tab: number) => `${idPrefix}-panel-${tab}`
+
+  // Roving focus: Left/Right moves to the neighboring tab and selects it.
+  const onTabKeyDown = (event: React.KeyboardEvent, tab: number) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+    event.preventDefault()
+    const index = tabs.indexOf(tab)
+    const step = event.key === "ArrowRight" ? 1 : -1
+    const target = tabs[(index + step + tabs.length) % tabs.length]
+    if (target === undefined) return
+    select(target)
+    document.getElementById(tabId(target))?.focus()
+  }
   return (
     <div className="flex h-full w-full flex-col">
       <RightPanelHeader
@@ -135,8 +154,12 @@ export function SessionTerminalPanel({
             <button
               type="button"
               role="tab"
+              id={tabId(tab)}
               aria-selected={tab === active}
+              aria-controls={mounted.includes(tab) ? panelId(tab) : undefined}
+              tabIndex={tab === active ? 0 : -1}
               onClick={() => select(tab)}
+              onKeyDown={(event) => onTabKeyDown(event, tab)}
               className={cn(
                 "cursor-pointer py-1 pl-2",
                 tabs.length > 1 ? "pr-1" : "pr-2"
@@ -184,6 +207,9 @@ export function SessionTerminalPanel({
         {mounted.map((tab) => (
           <div
             key={tab}
+            role="tabpanel"
+            id={panelId(tab)}
+            aria-labelledby={tabId(tab)}
             className={cn(
               "absolute inset-0",
               tab !== active && "pointer-events-none invisible"
