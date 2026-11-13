@@ -10,9 +10,10 @@ import { apiClient } from "@/lib/api-client"
 import { openExternal } from "@/lib/open-external"
 
 // The code session's Terminal tab (reference/dev-environment-runbook.md §4):
-// xterm.js on ttyd's WebSocket. Each person gets their own tmux session in
-// the sandbox, so closing the socket (tab switch, idle, network) keeps the
-// shell and whatever runs in it; reconnecting picks it back up.
+// xterm.js on ttyd's WebSocket. Each of a person's terminal tabs is its own
+// tmux session in the sandbox, so closing the socket (tab switch, idle,
+// network) keeps the shell and whatever runs in it; reconnecting picks it
+// back up.
 
 const HIDDEN_DISCONNECT_MS = 2 * 60_000
 const LOCALHOST_URL =
@@ -27,9 +28,10 @@ type Phase =
   | { kind: "open" }
   | { kind: "closed"; message: string }
 
-async function terminalUrl(sessionId: string): Promise<string> {
+async function terminalUrl(sessionId: string, tab: number): Promise<string> {
   const res = await apiClient.v1.sessions[":sessionId"].terminal.$post({
     param: { sessionId },
+    query: { tab: String(tab) },
   })
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {
@@ -51,9 +53,15 @@ function themeFrom(element: HTMLElement) {
 
 export function TerminalTab({
   sessionId,
+  tab,
+  active,
   onOpenPort,
 }: {
   sessionId: string
+  // Which of the person's shells this is, from 1.
+  tab: number
+  // False while another terminal tab is in front: stays connected, unfocused.
+  active: boolean
   // A localhost link printed in the terminal (a dev server's URL).
   onOpenPort: (port: number, path: string) => void
 }) {
@@ -65,6 +73,12 @@ export function TerminalTab({
   useEffect(() => {
     openPortRef.current = onOpenPort
   }, [onOpenPort])
+  const termRef = useRef<Terminal | null>(null)
+  const activeRef = useRef(active)
+  useEffect(() => {
+    activeRef.current = active
+    if (active) termRef.current?.focus()
+  }, [active])
 
   useEffect(() => {
     const host = hostRef.current
@@ -94,6 +108,7 @@ export function TerminalTab({
       })
     )
     term.open(host)
+    termRef.current = term
     try {
       term.loadAddon(new WebglAddon())
     } catch {
@@ -131,7 +146,7 @@ export function TerminalTab({
     }
     document.addEventListener("visibilitychange", onVisibility)
 
-    terminalUrl(sessionId)
+    terminalUrl(sessionId, tab)
       .then((url) => {
         if (disposed) return
         socket = new WebSocket(url, ["tty"])
@@ -145,7 +160,7 @@ export function TerminalTab({
             })
           )
           setPhase({ kind: "open" })
-          term.focus()
+          if (activeRef.current) term.focus()
         }
         socket.onmessage = (event) => {
           const bytes = new Uint8Array(event.data as ArrayBuffer)
@@ -162,9 +177,10 @@ export function TerminalTab({
       resize.disconnect()
       input.dispose()
       socket?.close()
+      termRef.current = null
       term.dispose()
     }
-  }, [sessionId, attempt])
+  }, [sessionId, tab, attempt])
 
   return (
     <div className="relative flex h-full flex-col bg-background">

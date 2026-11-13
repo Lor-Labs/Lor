@@ -24,6 +24,7 @@ import {
   browserShareResponseSchema,
   channelSessionsParamsSchema,
   channelSessionsQuerySchema,
+  closeTerminalResponseSchema,
   commitMessageResponseSchema,
   commitSessionChangesRequestSchema,
   commitSessionChangesResponseSchema,
@@ -36,6 +37,7 @@ import {
   openBrowserPageResponseSchema,
   openBrowserResponseSchema,
   openPortResponseSchema,
+  openTerminalQuerySchema,
   openTerminalResponseSchema,
   portParamsSchema,
   pullSessionChangesResponseSchema,
@@ -55,10 +57,12 @@ import {
   sessionPortsResponseSchema,
   sessionReviewResponseSchema,
   sessionSetupResponseSchema,
+  sessionTerminalsResponseSchema,
   sessionTouchesResponseSchema,
   stageSessionChangesRequestSchema,
   startServiceResponseSchema,
   stopServiceResponseSchema,
+  terminalTabParamsSchema,
   updateAgentSessionRequestSchema,
   updateAgentSessionResponseSchema,
   updateSessionSetupRequestSchema,
@@ -773,10 +777,10 @@ export const openSessionTerminal = createRoute({
   method: "post",
   summary: "Open a terminal in a code session's sandbox",
   description:
-    "Starts the terminal server if needed and returns a WebSocket URL to the caller's own shell, with a short-lived token. Anyone who can write in the channel can do this.",
+    "Starts the terminal server if needed and returns a WebSocket URL to one of the caller's own shells (`tab`, 1 by default), with a short-lived token. A tab that has no shell yet gets one. Anyone who can write in the channel can do this.",
   tags: ["Sessions"],
   middleware: [sessionAuthMiddleware] as const,
-  request: { params: sessionParamsSchema },
+  request: { params: sessionParamsSchema, query: openTerminalQuerySchema },
   hide: true,
   responses: {
     [HttpStatusCodes.OK]: jsonContent({
@@ -793,6 +797,53 @@ export const openSessionTerminal = createRoute({
 })
 
 export type OpenSessionTerminalRoute = typeof openSessionTerminal
+
+export const listSessionTerminals = createRoute({
+  path: "/sessions/{sessionId}/terminals",
+  method: "get",
+  summary: "List the caller's terminal tabs in a code session",
+  description:
+    "The caller's terminal tabs whose shells still run in the session's sandbox. Empty when the session has no sandbox.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: sessionParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: sessionTerminalsResponseSchema,
+      description: "The caller's terminal tabs",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type ListSessionTerminalsRoute = typeof listSessionTerminals
+
+export const closeSessionTerminal = createRoute({
+  path: "/sessions/{sessionId}/terminals/{tab}",
+  method: "delete",
+  summary: "Close one of the caller's terminal tabs",
+  description: "Ends the tab's shell and whatever runs in it.",
+  tags: ["Sessions"],
+  middleware: [sessionAuthMiddleware] as const,
+  request: { params: terminalTabParamsSchema },
+  hide: true,
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent({
+      schema: closeTerminalResponseSchema,
+      description: "Closed, or it had no shell",
+    }),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedSchema,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenSchema,
+    [HttpStatusCodes.NOT_FOUND]: notFoundSchema,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalServerErrorSchema,
+  },
+})
+
+export type CloseSessionTerminalRoute = typeof closeSessionTerminal
 
 const browserErrors = {
   [HttpStatusCodes.BAD_REQUEST]: badRequestSchema,
