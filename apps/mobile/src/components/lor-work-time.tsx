@@ -17,7 +17,7 @@ export function lorWorkedMs(message: Message): number | null {
   return Number.isFinite(ms) ? ms : null
 }
 
-// "Working for 1m 12s" under an in-flight Lor reply, ticking each second.
+// "Working for 1m 12s" above an in-flight Lor reply, ticking each second.
 export function LorWorkingFor({ since }: { since: string }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -28,7 +28,7 @@ export function LorWorkingFor({ since }: { since: string }) {
   return (
     <Shimmer>
       <Text
-        className="mt-one text-xs text-muted"
+        className="mb-one text-xs text-muted"
         style={{ fontVariant: ["tabular-nums"] }}
       >
         Working for {formatWorkTime(now - Date.parse(since))}

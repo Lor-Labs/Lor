@@ -85,7 +85,8 @@ npm install -g --no-audit --no-fund --prefix /opt/agent-browser agent-browser@0.
 /opt/agent-browser/bin/agent-browser --version
 npm install --prefix /opt/lor-browser --no-audit --no-fund ws@8.22.1 >/dev/null
 install -m 755 "$SRC/browser/lor-browser-start" "$SRC/browser/lor-browser" /usr/local/bin/
-cp "$SRC/browser/gateway.mjs" /opt/lor-browser/gateway.mjs
+install -m 644 "$SRC/browser/gateway.mjs" "$SRC/browser/gateway-collab.mjs" \
+  "$SRC/browser/bridge.js" "$SRC/browser/version" /opt/lor-browser/
 
 mkdir -p /workspace/in /workspace/out /workspace/.pi-sessions /root/.pi/agent
 rm -rf "$SRC"

@@ -17,7 +17,7 @@ export function lorWorkedMs(message: Message): number | null {
   return Number.isFinite(ms) ? ms : null
 }
 
-// "Working for 1m 12s" under an in-flight Lor reply, ticking each second.
+// "Working for 1m 12s" above an in-flight Lor reply, ticking each second.
 export function LorWorkingFor({ since }: { since: string }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -26,7 +26,7 @@ export function LorWorkingFor({ since }: { since: string }) {
   }, [])
 
   return (
-    <div className="mt-2 flex items-center gap-2 text-[13px] text-muted-foreground">
+    <div className="mb-2 flex items-center gap-2 text-[13px] text-muted-foreground">
       <HugeiconsIcon
         icon={Loading03Icon}
         className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
