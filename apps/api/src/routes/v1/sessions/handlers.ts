@@ -89,11 +89,11 @@ import { fetchSessionContext } from "@/lib/queries/session-context"
 import { fetchSessionTouches } from "@/lib/queries/session-touches"
 import { eventAuthor, postSessionEvent } from "@/lib/session-events"
 import {
+  confirmBrowserViewer,
   endPreviewViewsSoon,
   markBrowserSeen,
   newPreviewToken,
   previewExpiry,
-  rememberBrowserViewer,
   storeAnnotations,
   storedAnnotations,
 } from "@/lib/session-previews"
@@ -1750,9 +1750,19 @@ export const openSessionBrowser: AppRouteHandler<
     { stored: () => storedAnnotations(sessionId) }
   )
   switch (result.status) {
-    case "ready":
+    case "ready": {
       await markBrowserSeen(sessionId)
-      await rememberBrowserViewer(sessionId, c.var.user.id)
+      const kept = await confirmBrowserViewer(
+        sessionId,
+        c.var.user.id,
+        async () => (await browserSession(sessionId, c.var.user.id)).ok
+      )
+      if (!kept) {
+        return c.json(
+          { success: false as const, message: "Forbidden" },
+          HttpStatusCodes.FORBIDDEN
+        )
+      }
       return c.json(
         {
           status: "ready" as const,
@@ -1762,6 +1772,7 @@ export const openSessionBrowser: AppRouteHandler<
         },
         HttpStatusCodes.OK
       )
+    }
     case "unavailable":
     case "outdated":
       return c.json({ status: "unavailable" as const }, HttpStatusCodes.OK)

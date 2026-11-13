@@ -270,6 +270,20 @@ export async function endInaccessibleBrowserViews(
   }
 }
 
+// Remembers the grant, then checks access again: a removal that ran between
+// the first check and the remembering missed this grant, so it goes here.
+// A failed check counts as no access. False when the grant was taken back.
+export async function confirmBrowserViewer(
+  sessionId: string,
+  userId: string,
+  stillAllowed: () => Promise<boolean>
+): Promise<boolean> {
+  await rememberBrowserViewer(sessionId, userId)
+  if (await stillAllowed().catch(() => false)) return true
+  await endUserBrowserViews(sessionId, userId)
+  return false
+}
+
 export const endInaccessibleBrowserViewsSoon = (userId: string) =>
   void endInaccessibleBrowserViews(userId).catch((err: unknown) =>
     logger.warn({ err, userId }, "Couldn't end browser views after lost access")

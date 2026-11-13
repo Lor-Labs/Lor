@@ -196,7 +196,7 @@ async function runEventInSession(
   let bytes = 0
   for (const { sourceMessage } of deliveries) {
     if (!sourceMessage) continue
-    bytes += JSON.stringify(sourceMessage).length
+    bytes += Buffer.byteLength(JSON.stringify(sourceMessage))
     if (bytes > TRIGGER_SOURCE_MESSAGES_BYTES) break
     sourceMessages.push(sourceMessage)
   }

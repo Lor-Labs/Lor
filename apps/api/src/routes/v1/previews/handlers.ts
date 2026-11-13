@@ -4,10 +4,10 @@ import * as HttpStatusCodes from "@/lib/helpers/http/status-codes"
 import { logger } from "@/lib/logger"
 import {
   browserSeenRecently,
+  confirmBrowserViewer,
   findPreviewLink,
   markBrowserSeen,
   previewAccess,
-  rememberBrowserViewer,
   storeAnnotations,
   storedAnnotations,
 } from "@/lib/session-previews"
@@ -114,7 +114,15 @@ export const openPreviewView: AppRouteHandler<OpenPreviewViewRoute> = async (
   }
   if (user) {
     await markBrowserSeen(sessionId)
-    await rememberBrowserViewer(sessionId, user.id)
+    const issuedControl = access.control
+    const kept = await confirmBrowserViewer(sessionId, user.id, async () => {
+      const now = await previewAccess(preview, user.id)
+      return now.status === "ready" && (now.control || !issuedControl)
+    })
+    // The page asks again and gets what the link allows now.
+    if (!kept) {
+      return c.json({ status: "unavailable" as const }, HttpStatusCodes.OK)
+    }
   }
   return c.json(
     {

@@ -39,9 +39,11 @@ function capSourceMessage(
     ...source,
     content: source.content?.slice(0, SOURCE_MESSAGE_CONTENT_MAX) ?? null,
   }
-  if (JSON.stringify(capped).length <= SOURCE_MESSAGE_MAX) return capped
+  const size = (value: TriggerSourceMessage) =>
+    Buffer.byteLength(JSON.stringify(value))
+  if (size(capped) <= SOURCE_MESSAGE_MAX) return capped
   const plain = { ...capped, embeds: [], attachments: [] }
-  return JSON.stringify(plain).length <= SOURCE_MESSAGE_MAX ? plain : null
+  return size(plain) <= SOURCE_MESSAGE_MAX ? plain : null
 }
 
 export type DispatchOutcome = {
