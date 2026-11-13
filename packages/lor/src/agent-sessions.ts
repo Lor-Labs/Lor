@@ -82,6 +82,7 @@ export type CreateSessionArgs = {
     newBranch?: string | null
     // Checked to be the workspace's and to include the repo by the caller.
     environmentId?: string | null
+    sandboxMemoryMb?: number | null
   }
   // Claude Code: checked against the starter's Claude account by the caller.
   harness?: AgentSession["harness"]
@@ -132,6 +133,7 @@ export async function createSession(
       baseBranch: args.code?.baseBranch ?? null,
       newBranch: args.code?.newBranch ?? null,
       environmentId: args.code?.environmentId ?? null,
+      sandboxMemoryMb: args.code?.sandboxMemoryMb ?? null,
       sourceSessionId: args.sourceSessionId ?? null,
       forkedFromMessageId: args.forkedFromMessageId ?? null,
       title: args.title,

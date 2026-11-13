@@ -48,8 +48,8 @@ export function LorActivity({
   const workHint = useHint("lor_reply", live && !active && toolCount > 0)
   const dismissWorkHint = workHint.dismiss
 
-  // While the run is live, "Working for …" sits at the bottom of the reply
-  // (LorWorkingFor); once it settles, the time moves up here.
+  // While the run is live, LorWorkingFor shows the elapsed time above the reply;
+  // once it settles, this activity label shows the final duration.
   const took = workedMs !== null ? formatWorkTime(workedMs) : null
   const label = active
     ? "Activity"

@@ -11,8 +11,14 @@ import { HARNESS_LABELS, type SessionHarness } from "@/lib/harness"
 // harness-picker.tsx; the picks are remembered on the device.
 
 export type SessionMode = "chat" | "code"
-// `newBranch`: a branch the session makes from `branch` at its start.
-export type CodeTarget = { repo: string; branch: string; newBranch?: string }
+// `newBranch`: a branch the session makes from `branch` at its start;
+// `autoBranch`: the server names that branch (lor/<place>-<id>).
+export type CodeTarget = {
+  repo: string
+  branch: string
+  newBranch?: string
+  autoBranch?: boolean
+}
 
 const MODE_KEY = "lor.new-session-mode"
 const HARNESS_KEY = "lor.new-session-harness"
@@ -21,6 +27,10 @@ const repoKey = (workspaceSlug: string) =>
   `lor.code-repo.${workspaceSlug.replace(/[^\w.-]/g, "_")}`
 const branchKey = (workspaceSlug: string, repo: string) =>
   `lor.code-branch.${`${workspaceSlug}.${repo}`.replace(/[^\w.-]/g, "_")}`
+// "off" once the person picks an existing branch; unset or "on": each new
+// session gets its own lor/ branch (LOR-127).
+const autoBranchKey = (workspaceSlug: string, repo: string) =>
+  `lor.code-auto-branch.${`${workspaceSlug}.${repo}`.replace(/[^\w.-]/g, "_")}`
 const REPOS_STALE_MS = 5 * 60 * 1000
 const BRANCHES_STALE_MS = 30 * 1000
 
@@ -146,6 +156,7 @@ export function useCodeTarget({
     repo: string
     branch: string | null
     newBranch?: string
+    autoBranch?: boolean
   } | null>(null)
   const repos = useQuery({
     queryKey: ["code-repos", workspaceSlug, channelId],
@@ -189,15 +200,14 @@ export function useCodeTarget({
   const checking = Boolean(stored) && storedCheck.isPending
   const own = picked?.repo === repo ? picked : null
   const newBranch = own?.newBranch ?? null
-  // With a new branch, `branch` is its base: the repo's default branch until
-  // one is picked in "from".
+  const autoBranch =
+    !newBranch &&
+    (own?.autoBranch ??
+      (repo ? readStored(autoBranchKey(workspaceSlug, repo)) !== "off" : true))
+  // With a new branch, `branch` is its base: the person's last branch for the
+  // repo, else its default, until one is picked in "from".
   const branch =
-    own?.branch ??
-    (newBranch
-      ? defaultBranch
-      : checking
-        ? null
-        : (remembered ?? defaultBranch))
+    own?.branch ?? (checking ? null : (remembered ?? defaultBranch))
   const status = repos.isPending
     ? "loading"
     : repos.isError
@@ -214,10 +224,19 @@ export function useCodeTarget({
     repo,
     branch,
     newBranch,
+    autoBranch,
     defaultBranch,
     target:
       repo && branch
-        ? { repo, branch, ...(newBranch ? { newBranch } : {}) }
+        ? {
+            repo,
+            branch,
+            ...(newBranch
+              ? { newBranch }
+              : autoBranch
+                ? { autoBranch: true }
+                : {}),
+          }
         : null,
     pickRepo: (next: string) => {
       setPicked({ repo: next, branch: null })
@@ -225,15 +244,28 @@ export function useCodeTarget({
     },
     pickBranch: (next: string) => {
       if (!repo) return
-      setPicked({ repo, branch: next })
+      setPicked({ repo, branch: next, autoBranch: false })
       writeStored(branchKey(workspaceSlug, repo), next)
+      writeStored(autoBranchKey(workspaceSlug, repo), "off")
+    },
+    pickAutoBranch: () => {
+      if (!repo) return
+      setPicked({ repo, branch: own?.branch ?? null, autoBranch: true })
+      writeStored(autoBranchKey(workspaceSlug, repo), "on")
     },
     // Not remembered: it isn't on GitHub until the session's first push.
     createBranch: (name: string) => {
       if (repo) setPicked({ repo, branch: null, newBranch: name })
     },
+    // Remembered: the next new branch starts from it too.
     pickBase: (next: string) => {
-      if (repo && newBranch) setPicked({ repo, branch: next, newBranch })
+      if (!repo || !(newBranch || autoBranch)) return
+      setPicked({
+        repo,
+        branch: next,
+        ...(newBranch ? { newBranch } : { autoBranch: true }),
+      })
+      writeStored(branchKey(workspaceSlug, repo), next)
     },
   }
 }

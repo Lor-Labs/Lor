@@ -17,6 +17,7 @@ import {
   type SessionCheckpointRow,
   turnCheckpoint,
 } from "./code-checkpoints"
+import { environmentForRepo } from "./dev-env/environments"
 import { loadHarnessState, turnEndChunk, turnEndEntryId } from "./harness-store"
 import { SESSION_WORK_DIR } from "./sandbox/session-sandbox"
 import type { SavedHarnessState } from "./session-core"
@@ -186,6 +187,19 @@ export async function forkSession(input: {
       : point.harness === "codex"
         ? forkCodexLog(saved, point.endOffset)
         : forkClaudeLog(saved, point.endOffset, source.id, id)
+  // A fork keeps the source's environment (env files) and sandbox size
+  // (LOR-146), dropped if the environment no longer covers the repo.
+  const forkCode = code && {
+    ...code,
+    environmentId: source.environmentId
+      ? await environmentForRepo(
+          source.workspaceId,
+          source.environmentId,
+          code.repoFullName
+        )
+      : null,
+    sandboxMemoryMb: source.sandboxMemoryMb,
+  }
   // Before the rows: a failed transaction leaves only a branch, which the
   // daily checkpoint sweep deletes.
   if (checkpoint) await branchCheckpoint(checkpoint, id)
@@ -198,7 +212,7 @@ export async function forkSession(input: {
       authorId: input.userId,
       creatorId: input.userId,
       origin: "new",
-      ...(code ? { code } : {}),
+      ...(forkCode ? { code: forkCode } : {}),
       harness: source.harness,
       sourceSessionId: source.id,
       forkedFromMessageId: input.messageId,

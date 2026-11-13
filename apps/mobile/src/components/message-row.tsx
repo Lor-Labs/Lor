@@ -177,6 +177,9 @@ function MessageRowBody({
           {message.type === "reply" ? (
             <ReplyPreview message={message} onJumpToMessage={onJumpToMessage} />
           ) : null}
+          {isStreaming && (message.content || hasTimeline) ? (
+            <LorWorkingFor since={lorWorkStart(message)} />
+          ) : null}
           {isLor &&
           message.lorReasoning &&
           (message.lorReasoningSegments?.length ?? 0) === 0 ? (
@@ -208,8 +211,6 @@ function MessageRowBody({
           ) : null}
           {isStreaming && !message.content && !hasTimeline ? (
             <ThinkingIndicator />
-          ) : isStreaming ? (
-            <LorWorkingFor since={lorWorkStart(message)} />
           ) : null}
           {isLor && message.lorTriggerMessageId ? (
             <MessageApprovalCard
