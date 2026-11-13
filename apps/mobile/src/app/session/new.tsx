@@ -61,6 +61,9 @@ type ChannelOption = { id: string; name: string | null }
 
 // The environment sheet's value for "no environment".
 const NO_ENVIRONMENT = "none"
+// The branch sheet's "New Lor branch" row; the NUL keeps it from matching a
+// real branch.
+const AUTO_BRANCH_ITEM = "\u0000auto-branch"
 const EXAMPLES_DISMISSED_KEY = "lor.new-session-examples-dismissed"
 
 function sessionExamples(channelName: string) {
@@ -330,12 +333,15 @@ function NewSessionComposer({
                   <TargetChip
                     hint="Chooses the branch the session works on, or makes a new one"
                     icon={GitBranchIcon}
-                    label={code.newBranch ?? code.branch}
+                    label={
+                      code.newBranch ??
+                      (code.autoBranch ? "New Lor branch" : code.branch)
+                    }
                     onPress={() => setSheet("branch")}
                   />
                   {/* A new branch's base, in sight: the session's diff and
                     pull request count from it. */}
-                  {code.newBranch ? (
+                  {code.newBranch || code.autoBranch ? (
                     <>
                       <Text className="text-[13px] text-muted">from</Text>
                       <TargetChip
@@ -517,12 +523,26 @@ function NewSessionComposer({
         loading={searchingBranches && branchQuery.trim() !== ""}
         onOpenChange={(open) => setSheet(open ? "branch" : null)}
         onPick={(branch) => {
-          code.pickBranch(branch)
+          if (branch === AUTO_BRANCH_ITEM) code.pickAutoBranch()
+          else code.pickBranch(branch)
           setSheet(null)
         }}
-        options={branchOptions}
+        options={[
+          {
+            value: AUTO_BRANCH_ITEM,
+            label: "New Lor branch",
+            detail: "Named after a far-off place, like lor/riverwood-3f9a2c",
+          },
+          ...branchOptions,
+        ]}
         search={{ placeholder: "Find a branch", onQueryChange: setBranchQuery }}
-        selected={code.newBranch ? null : code.branch}
+        selected={
+          code.newBranch
+            ? null
+            : code.autoBranch
+              ? AUTO_BRANCH_ITEM
+              : code.branch
+        }
         title="Branch"
       />
       <PickerSheet
