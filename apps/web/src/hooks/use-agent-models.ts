@@ -67,6 +67,23 @@ function remember(key: string, value: string | null) {
   for (const listener of listeners) listener()
 }
 
+// Sign-out: a session's picks (keys ending @<session>) must not carry over
+// to the next account in this browser.
+export function clearSessionPicks() {
+  const prefixes = Object.values(KEY_PREFIX)
+  const isSessionPick = (key: string) =>
+    key.includes("@") && prefixes.some((prefix) => key.startsWith(prefix))
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (isSessionPick(key)) localStorage.removeItem(key)
+    }
+  } catch {}
+  for (const key of [...remembered.keys()]) {
+    if (isSessionPick(key)) remembered.delete(key)
+  }
+  for (const listener of listeners) listener()
+}
+
 function subscribe(listener: () => void) {
   listeners.add(listener)
   return () => {

@@ -446,7 +446,12 @@ function NewSessionComposer({
               mode === "code" ? "Ask Lor to work on the code…" : "Ask Lor…"
             }
             sendBlocked={
-              (mode === "code" && (!code.target || environment.loading)) ||
+              // A failed environment list must not start the session without
+              // the remembered environment's env files: retry first.
+              (mode === "code" &&
+                (!code.target ||
+                  environment.loading ||
+                  (environment.failed && !environment.selected))) ||
               needsClaude ||
               needsChatgpt
             }

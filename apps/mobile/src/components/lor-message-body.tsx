@@ -1,3 +1,4 @@
+import { splitFailedReply } from "@repo/utils/lor"
 import { useMemo } from "react"
 import { View } from "react-native"
 import { FileChip } from "@/components/file-chip"
@@ -62,6 +63,8 @@ export function LorMessageBody({
     if (streaming || failed) break
   }
   const answer = answerIndex >= 0 ? segments[answerIndex] : undefined
+  const failedReply =
+    failed && answer?.kind === "text" ? splitFailedReply(answer.text) : null
   const activitySegments = segments
     .map((segment, index) => ({ segment, index }))
     .filter(
@@ -132,14 +135,18 @@ export function LorMessageBody({
           streaming={streaming && answerIndex === segments.length - 1}
         />
       ) : null}
-      {/* A failed run's text is the worker's failure message, not an answer. */}
+      {/* A failed run's text is output kept from before the failure, then
+          the worker's failure message. */}
+      {failedReply?.partial ? (
+        <MessageContent
+          content={failedReply.partial}
+          mentions={message.mentions}
+          onCitationJump={onCitationJump}
+        />
+      ) : null}
       {failed ? (
         <LorFailureNotice
-          text={
-            answer?.kind === "text"
-              ? answer.text
-              : "Lor couldn't finish this response."
-          }
+          text={failedReply?.failure ?? "Lor couldn't finish this response."}
         />
       ) : null}
       {deliverables.length > 0 ? (

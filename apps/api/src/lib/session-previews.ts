@@ -5,6 +5,7 @@ import {
   type BrowserAnnotation,
   cleanBrowserAnnotation,
   endPreviewViews,
+  endUserBrowserViews,
   readBrowserAnnotations,
 } from "@repo/lor/dev-env/browser"
 import { logger } from "@/lib/logger"
@@ -127,7 +128,7 @@ export async function browserSeenRecently(sessionId: string): Promise<boolean> {
 }
 
 // For a sandbox whose browser folder has no annotations yet. A failed read
-// opens the browser without them rather than not at all.
+// throws: an empty list would let the gateway's next save erase them.
 export async function storedAnnotations(
   sessionId: string
 ): Promise<BrowserAnnotation[]> {
@@ -138,7 +139,7 @@ export async function storedAnnotations(
     .orderBy(schema.sessionBrowserAnnotation.number)
     .catch((err: unknown) => {
       logger.warn({ err, sessionId }, "Couldn't read the stored annotations")
-      return []
+      throw err
     })
   return rows.map((row) => ({
     id: row.id,
@@ -211,6 +212,67 @@ export async function syncAnnotations(sessionId: string): Promise<void> {
 export const endPreviewViewsSoon = (sessionId: string) =>
   void endPreviewViews(sessionId).catch((err: unknown) =>
     logger.warn({ err, sessionId }, "Couldn't end the preview link's views")
+  )
+
+// Sessions whose browser a person got a grant for, within a grant's 12-hour
+// life (the gateway's GRANT_MAX_MS), so losing access can revoke them without
+// touching (and waking) every sandbox in the workspace.
+const GRANT_MAX_MS = 12 * 60 * 60_000
+const viewerKey = (userId: string) => `browser:viewer:${userId}`
+
+export async function rememberBrowserViewer(
+  sessionId: string,
+  userId: string
+): Promise<void> {
+  try {
+    const redis = await getRedisClient()
+    const key = viewerKey(userId)
+    const now = Date.now()
+    await redis.zAdd(key, { score: now, value: sessionId })
+    await redis.zRemRangeByScore(key, 0, now - GRANT_MAX_MS)
+    await redis.expire(key, GRANT_MAX_MS / 1000)
+  } catch (err) {
+    logger.warn({ err, sessionId }, "Couldn't record the browser viewer")
+  }
+}
+
+// After someone loses access (workspace kick, project removal, a role
+// change): in each browser they recently watched where they can no longer
+// write in the channel, their grants go and control they hold goes back.
+export async function endInaccessibleBrowserViews(
+  userId: string
+): Promise<void> {
+  const redis = await getRedisClient()
+  const sessionIds = await redis.zRangeByScore(
+    viewerKey(userId),
+    Date.now() - GRANT_MAX_MS,
+    "+inf"
+  )
+  if (sessionIds.length === 0) return
+  const sessions = await db
+    .select({
+      id: schema.agentSession.id,
+      channelId: schema.agentSession.channelId,
+    })
+    .from(schema.agentSession)
+    .where(inArray(schema.agentSession.id, sessionIds))
+  for (const session of sessions) {
+    try {
+      const channel = await resolveChannelAccess(userId, session.channelId)
+      if (channel.ok && channel.access.canWrite) continue
+      await endUserBrowserViews(session.id, userId)
+    } catch (err) {
+      logger.warn(
+        { err, userId, sessionId: session.id },
+        "Couldn't end a browser view after lost access"
+      )
+    }
+  }
+}
+
+export const endInaccessibleBrowserViewsSoon = (userId: string) =>
+  void endInaccessibleBrowserViews(userId).catch((err: unknown) =>
+    logger.warn({ err, userId }, "Couldn't end browser views after lost access")
   )
 
 // One copy at a time per session (in this API process): each reads the

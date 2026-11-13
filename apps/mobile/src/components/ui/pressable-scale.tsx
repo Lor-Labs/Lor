@@ -67,8 +67,8 @@ export function PressableScale({
       }}
       pressRetentionOffset={pressRetentionOffset}
       style={[
-        style,
         REST,
+        style,
         disabled
           ? { opacity: 0.5 }
           : held

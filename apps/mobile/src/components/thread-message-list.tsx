@@ -256,8 +256,14 @@ export function ThreadMessageList({
     return {
       // The reply closes its turn: it gets the action row.
       finished,
+      // A reply paused on (or resumed after) an approval can't be forked
+      // from; the server refuses it.
       canFork: (message: Message) =>
-        isDocument && isLorReply(message) && message.status === "complete",
+        isDocument &&
+        isLorReply(message) &&
+        message.status === "complete" &&
+        !resumedIds.has(message.id) &&
+        message.id !== pausedLorMessageId,
       canRewind: (message: Message) => {
         const index = orderedMessages.findIndex(
           (candidate) => candidate.id === message.id
@@ -265,7 +271,9 @@ export function ThreadMessageList({
         return (
           finished(message) &&
           message.status === "complete" &&
+          // Refused while a turn waits on an approval, like a running one.
           !lorBusy &&
+          !pausedLorMessageId &&
           index >= 0 &&
           index < latestLorIndex &&
           !setAside(index)

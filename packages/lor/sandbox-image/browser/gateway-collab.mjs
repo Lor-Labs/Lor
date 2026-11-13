@@ -509,7 +509,15 @@ function pageAgent(binding) {
         notes.delete(id)
       }
       for (const note of list) {
-        if (!notes.has(note.id)) draw(note)
+        const state = notes.get(note.id)
+        if (!state) {
+          draw(note)
+          continue
+        }
+        // Edited while this tab was hidden.
+        state.text = note.text
+        state.open = note.open
+        setText(state)
       }
     },
     // A new gateway connection found this agent already here.
@@ -828,8 +836,14 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
     void unlink(shot(id)).catch(() => {})
   }
 
-  const number = () =>
-    Math.max(0, ...[...annotations.values()].map((a) => a.number)) + 1
+  // Numbers handed to picks still in flight, so concurrent picks differ.
+  const pendingNumbers = new Set()
+  const number = () => {
+    const taken = [...annotations.values()].map((a) => a.number)
+    const n = Math.max(0, ...taken, ...pendingNumbers) + 1
+    pendingNumbers.add(n)
+    return n
+  }
   const fraction = (value) =>
     typeof value === "number" && value >= -0.05 && value <= 1.05
 
@@ -942,10 +956,16 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
           author: viewer.name,
           text: "",
         }
-        const picked = await inPage(
-          entry,
-          `globalThis.__lor ? globalThis.__lor.pick(${JSON.stringify(note)}, ${msg.ax}, ${msg.ay}, ${dragged ? msg.bx : null}, ${dragged ? msg.by : null}) : null`
-        )
+        let picked = null
+        try {
+          picked = await inPage(
+            entry,
+            `globalThis.__lor ? globalThis.__lor.pick(${JSON.stringify(note)}, ${msg.ax}, ${msg.ay}, ${dragged ? msg.bx : null}, ${dragged ? msg.by : null}) : null`
+          )
+        } finally {
+          // Held until the annotation is in the list (or the pick made none).
+          if (!picked || picked.pin) pendingNumbers.delete(note.number)
+        }
         if (!picked) {
           return reply({ type: "picked", seq: msg.seq, error: "nothing" })
         }
@@ -970,6 +990,7 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
           element: picked.element,
           image: null,
         })
+        pendingNumbers.delete(note.number)
         reply({
           type: "picked",
           seq: msg.seq,
@@ -1032,13 +1053,22 @@ export function createCollab({ cdpPort, dir, controller, broadcast, send }) {
         const ids =
           Array.isArray(msg.ids) && viewer.send ? new Set(msg.ids) : null
         if (Array.isArray(msg.ids) && !ids) return
-        for (const item of [...annotations.values()]) {
-          const mine = item.by.userId === viewer.userId
-          if (ids ? !ids.has(item.id) : !mine) continue
+        const gone = [...annotations.values()].filter((item) =>
+          ids ? ids.has(item.id) : item.by.userId === viewer.userId
+        )
+        for (const item of gone) annotations.delete(item.id)
+        // The file is saved before any screenshot goes, so a failed write
+        // keeps the notes and their images.
+        try {
+          await publish(true)
+        } catch (err) {
+          for (const item of gone) annotations.set(item.id, item)
+          throw err
+        }
+        for (const item of gone) {
           forget(item.id)
           await run("remove", item.id)
         }
-        await publish(true)
         return
       }
     }

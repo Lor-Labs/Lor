@@ -2,6 +2,7 @@ import { posix } from "node:path"
 import { shellQuote } from "@ai-sdk/harness/utils"
 import type { Experimental_SandboxSession as SandboxSession } from "ai"
 import {
+  recoverWorkFolderBackup,
   restoreWorkFolder,
   WorkFolderBackupError,
   waitForCheckpoints,
@@ -115,6 +116,23 @@ export async function prepareCodeWorkFolder(input: {
       cloned: false,
       restored: false,
       instructions: existing.instructions,
+    }
+  }
+  if (
+    await recoverWorkFolderBackup(
+      sandbox,
+      { sessionId: input.sessionId, workDir },
+      abortSignal
+    )
+  ) {
+    const recovered = await readInstructions(sandbox, workDir, abortSignal)
+    if (recovered.present) {
+      return {
+        status: "ready",
+        cloned: false,
+        restored: false,
+        instructions: recovered.instructions,
+      }
     }
   }
 

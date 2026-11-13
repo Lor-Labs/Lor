@@ -774,9 +774,19 @@ export async function stopBoatProcess(
   name: string
 ): Promise<void> {
   const pid = `${PROCS}/${name}.pid`
+  // Waits for the group to exit (KILL after 10 s): a server still holding its
+  // port would make a restart's replacement exit at once.
   await boatExec(sandbox, {
     label: "proc-stop",
-    command: `[ -f ${pid} ] && kill -TERM -- "-$(cat ${pid})" 2>/dev/null; rm -f ${pid}; true`,
+    command: [
+      `if [ -f ${pid} ]; then`,
+      `  g="$(cat ${pid})"`,
+      `  kill -TERM -- "-$g" 2>/dev/null`,
+      `  i=0; while kill -0 -- "-$g" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done`,
+      `  kill -KILL -- "-$g" 2>/dev/null`,
+      `fi`,
+      `rm -f ${pid}; true`,
+    ].join("\n"),
     timeoutSec: 30,
   })
 }

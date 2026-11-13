@@ -97,6 +97,16 @@ function readSessionPicks(): Record<string, SessionPick> {
   return sessionPicks ?? {}
 }
 
+// Sign-out: a session's picks must not carry over to the next account on
+// this device.
+export function clearSessionPicks() {
+  sessionPicks = {}
+  try {
+    SecureStore.deleteItemAsync(SESSION_PICKS_KEY).catch(() => {})
+  } catch {}
+  for (const listener of listeners) listener()
+}
+
 function rememberSessionPick(sessionScope: string, pick: SessionPick) {
   const { [sessionScope]: _previous, ...others } = readSessionPicks()
   // Insertion order is recency: the oldest sessions drop off the front.

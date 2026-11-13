@@ -199,6 +199,32 @@ export async function restoreWorkFolder(
   })
 }
 
+// Puts an interrupted rewind's .old-<pid> backup back as "$dir" when the
+// live folder is missing; exits BACKUP_STUCK when it can't be moved.
+const RECOVER_BACKUP = `if [ ! -e "$dir" ]; then for old in "$dir".old-*; do [ -d "$old" ] || continue; mv "$old" "$dir" || exit ${BACKUP_STUCK}; printf recovered; break; done; fi`
+
+// Before anything that needs Code Storage or GitHub: a failed remote step
+// must not fall back to a clone that hides the backup (and a later cleanup
+// deletes it). Under the checkpoint lock, so it never runs between a live
+// rewind's two renames. True when the backup was moved back.
+export async function recoverWorkFolderBackup(
+  session: SandboxSession,
+  input: { sessionId: string; workDir: string },
+  abortSignal?: AbortSignal
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    await lockSession(tx, input.sessionId)
+    const result = await session.run({
+      command: [`dir=${shellQuote(input.workDir)}`, RECOVER_BACKUP].join("\n"),
+      ...(abortSignal ? { abortSignal } : {}),
+    })
+    if (result.exitCode === BACKUP_STUCK) {
+      throw new WorkFolderBackupError(result.stderr.slice(-300))
+    }
+    return result.exitCode === 0 && result.stdout.includes("recovered")
+  })
+}
+
 // Builds the checkpoint's repo in <workDir>.restore-<pid> and moves it into
 // place. `replace` (rewind) swaps out the live folder and keeps the live
 // origin/<branch>: what GitHub has is not rewound. Otherwise it fills a
@@ -234,7 +260,7 @@ async function runRestore(
       // launch stopped once the sandbox answers) left the live folder only
       // as .old-<pid>: put it back before anything here can delete it, or
       // stop if it can't be moved.
-      `if [ ! -e "$dir" ]; then for old in "$dir".old-*; do [ -d "$old" ] || continue; mv "$old" "$dir" || exit ${BACKUP_STUCK}; break; done; fi`,
+      `${RECOVER_BACKUP} >/dev/null`,
       ...(input.replace
         ? []
         : [

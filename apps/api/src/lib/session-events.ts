@@ -41,7 +41,10 @@ export async function postSessionEvent(
         eventType: "session_setup_changed"
         eventPayload: SessionSetupChangedPayload
       },
-  content: string
+  content: string,
+  // A deterministic key makes the line once-only: a second insert with it
+  // conflicts on the message clientKey index and posts nothing.
+  clientKey?: string
 ) {
   const [row] = await db
     .insert(schema.message)
@@ -53,7 +56,9 @@ export async function postSessionEvent(
       content,
       threadRootId: session.threadRootId,
       excludedFromMemory: true,
+      clientKey: clientKey ?? null,
     })
+    .onConflictDoNothing()
     .returning({ id: schema.message.id, createdAt: schema.message.createdAt })
   if (!row) return
   const message: RealtimeMessage = {

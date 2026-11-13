@@ -39,3 +39,18 @@ export function upsertToolCall<T extends { toolCallId: string }>(
     ? [...current, toolCall]
     : current.map((item, index) => (index === existingIndex ? toolCall : item))
 }
+
+// A failed reply's trailing text: output kept from before the failure, a
+// blank line, then the failure message (lor-respond's persistFailure keeps
+// blank lines out of the message itself).
+export function splitFailedReply(text: string): {
+  partial: string | null
+  failure: string
+} {
+  const at = text.lastIndexOf("\n\n")
+  const failure = (at < 0 ? text : text.slice(at + 2)).trim()
+  return {
+    partial: at < 0 ? null : text.slice(0, at).trim() || null,
+    failure: failure || "Lor couldn't finish this response.",
+  }
+}

@@ -572,9 +572,16 @@ export async function openSessionSandbox(
   if (boat) {
     // A probe error does not prove the workspace is gone (as below): only a
     // sandbox that answers unhealthy is replaced.
-    const health = await boatExec(boat, { command: "true", timeoutSec: 30 })
+    const health = await boatExec(boat, {
+      command: "true",
+      timeoutSec: 30,
+      ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+    })
+    // A stopped turn neither fences nor reads its stopped probe as unhealthy.
+    options.abortSignal?.throwIfAborted()
     if (health.exitCode === 0) {
       await options.beforeFencing?.()
+      options.abortSignal?.throwIfAborted()
       const bridgeRunning = await stopBoatLeftovers(
         boat,
         options.keepBridges ?? false

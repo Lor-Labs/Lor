@@ -1,3 +1,4 @@
+import { splitFailedReply } from "@repo/utils/lor"
 import { memo, useMemo, useRef } from "react"
 import { ArtifactFileCard } from "@/components/chat/artifact-file-card"
 import { LorActivity, LorActivityGroup } from "@/components/chat/lor-activity"
@@ -217,6 +218,8 @@ export const LorMessageBody = memo(function LorMessageBody({
     if (streaming || failed) break
   }
   const answer = segments[answerIndex]
+  const failedReply =
+    failed && answer?.kind === "text" ? splitFailedReply(answer.text) : null
   const activitySegments = segments.filter((_, index) => index !== answerIndex)
   if (legacyReasoning) {
     activitySegments.unshift({
@@ -312,15 +315,19 @@ export const LorMessageBody = memo(function LorMessageBody({
           onCitationJump={onCitationJump}
         />
       )}
-      {/* A failed run's text is the worker's failure message, not an answer. */}
+      {/* A failed run's text is output kept from before the failure, then
+          the worker's failure message. */}
+      {failed && failedReply?.partial && (
+        <MessageMarkdown
+          content={failedReply.partial}
+          mentions={mentions}
+          onCitationJump={onCitationJump}
+        />
+      )}
       {failed && (
         <LorFailureNotice
           arrived={wasStreaming.current}
-          text={
-            answer?.kind === "text"
-              ? answer.text
-              : "Lor couldn't finish this response."
-          }
+          text={failedReply?.failure ?? "Lor couldn't finish this response."}
         />
       )}
       {deliverables.length > 0 && (

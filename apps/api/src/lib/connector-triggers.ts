@@ -27,6 +27,22 @@ export type EventItem = {
 // Raw payloads logged on trigger_delivery are capped — Lor stores the whole
 // payload only for BYO webhooks, and only up to this.
 const DELIVERY_PAYLOAD_MAX = 64 * 1024
+// The trigger card's copy of the posted message, shown in the session. The
+// Act turn reads actPayload, so this one is only for display.
+const SOURCE_MESSAGE_CONTENT_MAX = 16 * 1024
+const SOURCE_MESSAGE_MAX = 64 * 1024
+
+function capSourceMessage(
+  source: TriggerSourceMessage
+): TriggerSourceMessage | null {
+  const capped = {
+    ...source,
+    content: source.content?.slice(0, SOURCE_MESSAGE_CONTENT_MAX) ?? null,
+  }
+  if (JSON.stringify(capped).length <= SOURCE_MESSAGE_MAX) return capped
+  const plain = { ...capped, embeds: [], attachments: [] }
+  return JSON.stringify(plain).length <= SOURCE_MESSAGE_MAX ? plain : null
+}
 
 export type DispatchOutcome = {
   // The posted channel message id, when the POST effect ran.
@@ -209,7 +225,7 @@ export async function dispatchConnectorEvent(input: {
         : null,
       actPayload: actText ? actText.slice(0, ACT_DELIVERY_PAYLOAD_MAX) : null,
       actLabel: actOn ? input.label : null,
-      sourceMessage: actOn ? sourceMessage : null,
+      sourceMessage: actOn ? capSourceMessage(sourceMessage) : null,
       subject: input.subject ?? input.item?.url ?? null,
       posted: postedMessageId !== null,
     })

@@ -7,6 +7,7 @@ import {
   findPreviewLink,
   markBrowserSeen,
   previewAccess,
+  rememberBrowserViewer,
   storeAnnotations,
   storedAnnotations,
 } from "@/lib/session-previews"
@@ -103,13 +104,18 @@ export const openPreviewView: AppRouteHandler<OpenPreviewViewRoute> = async (
       : { anonymous: true },
     {
       preview: true,
+      control: access.control,
+      expiresAt: preview.link.expiresAt,
       ...(user ? { stored: () => storedAnnotations(sessionId) } : {}),
     }
   )
   if (result.status !== "ready") {
     return c.json({ status: "unavailable" as const }, HttpStatusCodes.OK)
   }
-  if (user) await markBrowserSeen(sessionId)
+  if (user) {
+    await markBrowserSeen(sessionId)
+    await rememberBrowserViewer(sessionId, user.id)
+  }
   return c.json(
     {
       status: "ready" as const,

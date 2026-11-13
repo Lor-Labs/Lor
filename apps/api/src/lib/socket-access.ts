@@ -9,6 +9,7 @@ import {
 } from "@repo/voice/server"
 import { publishRealtime } from "@/lib/bot-messages"
 import { logger } from "@/lib/logger"
+import { endInaccessibleBrowserViewsSoon } from "@/lib/session-previews"
 
 // Called after someone loses access (project removal, workspace kick).
 export async function disconnectUserSockets(userId: string) {
@@ -20,6 +21,7 @@ export async function disconnectUserSockets(userId: string) {
   await removeFromInaccessibleCalls(userId).catch((err) =>
     logger.warn({ err, userId }, "Removing a user from live calls failed")
   )
+  endInaccessibleBrowserViewsSoon(userId)
 }
 
 // A LiveKit connection outlives the socket: drop the user from live calls in

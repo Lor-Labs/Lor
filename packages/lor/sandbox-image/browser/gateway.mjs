@@ -84,6 +84,8 @@ async function readGrant(id) {
     const now = Date.now()
     const inUse = [...streams, ...listeners].some((c) => c.grant === id)
     if (now - grant.at > GRANT_MAX_MS) return null
+    // A preview link's expiry, on the sandbox's clock.
+    if (typeof grant.until === "number" && now > grant.until) return null
     if (!inUse && now - info.mtimeMs > GRANT_IDLE_MS) return null
     const name =
       typeof grant.name === "string" ? grant.name.trim().slice(0, 80) : ""
@@ -96,6 +98,9 @@ async function readGrant(id) {
       userId: grant.userId,
       name: name || "Someone",
       anonymous,
+      // `control: false`: a preview viewer who can't write in the channel
+      // never drives, even with a stale controller id.
+      control: !anonymous && grant.control !== false,
       annotate: !anonymous && can.includes("annotate"),
       send: !anonymous && can.includes("send"),
     }
@@ -104,8 +109,10 @@ async function readGrant(id) {
   }
 }
 
-const roleFor = (userId) =>
-  controllerId && userId === controllerId ? "control" : "watch"
+const roleFor = (viewer) =>
+  controllerId && viewer.control && viewer.userId === controllerId
+    ? "control"
+    : "watch"
 
 // A person's pointer and annotation color: theirs by id, or the next one
 // nobody here has yet, and the same for as long as the browser runs.
@@ -124,7 +131,7 @@ const colorOf = (userId) => {
 const controlMessage = (viewer) =>
   JSON.stringify({
     type: "control",
-    role: roleFor(viewer.userId),
+    role: roleFor(viewer),
     controller: controllerId
       ? { userId: controllerId, name: controllerName || "Someone" }
       : null,
@@ -163,7 +170,7 @@ const presence = () => {
       userId: l.userId,
       name: l.name,
       color: l.color,
-      role: roleFor(l.userId),
+      role: roleFor(l),
     })
   }
   broadcast({
@@ -193,13 +200,13 @@ async function syncControl() {
     controllerId = next
     controllerName = name
     if (changed) controllerSeenAt = Date.now()
-    const stale = [...streams].filter((c) => roleFor(c.userId) !== c.role)
+    const stale = [...streams].filter((c) => roleFor(c) !== c.role)
     for (const l of listeners) l.ws.send(controlMessage(l))
     presence()
     if (stale.length > 0) {
       setTimeout(() => {
         for (const c of stale) {
-          if (streams.has(c) && roleFor(c.userId) !== c.role) {
+          if (streams.has(c) && roleFor(c) !== c.role) {
             c.ws.close(ROLE_CHANGED, "role changed")
           }
         }
@@ -324,7 +331,7 @@ function fitSoon() {
 const BRIDGE = readFileSync(new URL("./bridge.js", import.meta.url), "utf8")
 
 function proxyHttp(req, res, grant, path) {
-  const role = roleFor(grant.userId)
+  const role = roleFor(grant)
   const isPage = path === "/" || path === "/index.html"
   const headers = { ...req.headers, authorization: `Bearer ${TOKENS[role]}` }
   delete headers.cookie
@@ -400,6 +407,7 @@ function relay(client, upstream, grant, role) {
     ws: client,
     grant: grant.id,
     userId: grant.userId,
+    control: grant.control,
     role,
     anonymous: grant.anonymous,
   }
@@ -423,7 +431,7 @@ function relay(client, upstream, grant, role) {
     if (upstream.readyState !== upstream.OPEN) return
     // Lost control: nothing more reaches Selkies while the page reloads
     // before the delayed close.
-    if (role === "control" && roleFor(stream.userId) !== "control") return
+    if (role === "control" && roleFor(stream) !== "control") return
     if (!isBinary) {
       const text = data.toString()
       if (CONTROLLER_ONLY.some((prefix) => text.startsWith(prefix))) {
@@ -445,36 +453,59 @@ function relay(client, upstream, grant, role) {
   client.on("close", close)
   client.on("error", close)
   // Control changed while Selkies was answering: that sync missed this stream.
-  if (roleFor(stream.userId) !== role) close(ROLE_CHANGED)
+  if (roleFor(stream) !== role) close(ROLE_CHANGED)
 }
+
+// Slots taken by upgrades still being set up, so concurrent upgrades can't
+// all pass the connection caps before any of them registers.
+let reserved = 0
+let reservedAnonymous = 0
 
 server.on("upgrade", async (req, socket, head) => {
   // A client gone mid-upgrade must not throw from the raw socket.
   socket.on("error", () => socket.destroy())
-  const url = new URL(req.url ?? "/", "http://gateway")
-  const match = url.pathname.match(VIEW_PATH)
-  const grant =
-    match && streams.size + listeners.size < MAX_CONNECTIONS
-      ? await readGrant(match[1])
-      : null
-  if (!grant || !match[2]) {
+  if (streams.size + listeners.size + reserved >= MAX_CONNECTIONS) {
     socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n")
     return
   }
-  if (
-    grant.anonymous &&
-    connections().filter((c) => c.anonymous).length >= MAX_ANONYMOUS_CONNECTIONS
-  ) {
-    socket.end("HTTP/1.1 503 Service Unavailable\r\n\r\n")
+  reserved++
+  let held = true
+  let anonymousSlot = false
+  const release = () => {
+    if (!held) return
+    held = false
+    reserved--
+    if (anonymousSlot) reservedAnonymous--
+  }
+  socket.once("close", release)
+  const url = new URL(req.url ?? "/", "http://gateway")
+  const match = url.pathname.match(VIEW_PATH)
+  const grant = match ? await readGrant(match[1]) : null
+  if (!held) return
+  if (!grant || !match[2]) {
+    release()
+    socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n")
     return
   }
+  if (grant.anonymous) {
+    const anonymous = connections().filter((c) => c.anonymous).length
+    if (anonymous + reservedAnonymous >= MAX_ANONYMOUS_CONNECTIONS) {
+      release()
+      socket.end("HTTP/1.1 503 Service Unavailable\r\n\r\n")
+      return
+    }
+    anonymousSlot = true
+    reservedAnonymous++
+  }
   await queueSync()
+  if (!held) return
   if (match[2] === "/__lor/events") {
     events.handleUpgrade(req, socket, head, (ws) => {
       const listener = {
         ws,
         grant: grant.id,
         userId: grant.userId,
+        control: grant.control,
         name: grant.name,
         // Signed-out viewers have no pointer or notes to color.
         color: grant.anonymous ? "" : colorOf(grant.userId),
@@ -483,6 +514,7 @@ server.on("upgrade", async (req, socket, head) => {
         send: grant.send,
       }
       listeners.add(listener)
+      release()
       ws.send(controlMessage(listener))
       collab.welcome(listener)
       presence()
@@ -503,7 +535,7 @@ server.on("upgrade", async (req, socket, head) => {
     })
     return
   }
-  const role = roleFor(grant.userId)
+  const role = roleFor(grant)
   url.searchParams.set("token", TOKENS[role])
   const protocols = (req.headers["sec-websocket-protocol"] ?? "")
     .split(",")
@@ -518,9 +550,10 @@ server.on("upgrade", async (req, socket, head) => {
   socket.once("close", () => upstream.terminate())
   upstream.once("open", () => {
     req.upstreamProtocol = upstream.protocol
-    wss.handleUpgrade(req, socket, head, (client) =>
+    wss.handleUpgrade(req, socket, head, (client) => {
       relay(client, upstream, grant, role)
-    )
+      release()
+    })
   })
   upstream.once("unexpected-response", (_req, res) => {
     socket.end(`HTTP/1.1 ${res.statusCode ?? 502} Upstream\r\n\r\n`)

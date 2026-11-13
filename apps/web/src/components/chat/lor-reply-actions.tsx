@@ -174,7 +174,7 @@ export function LorReplyActions({
               <TooltipTrigger
                 handle={tooltipHandle}
                 payload={model.exact}
-                render={<span className="min-w-0 truncate" />}
+                render={<button type="button" className="min-w-0 truncate" />}
               >
                 {model.name}
               </TooltipTrigger>

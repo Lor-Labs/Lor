@@ -606,7 +606,27 @@ export function createLorRespondProcessor(
           const persistFailure = async (failureText: string) => {
             flushPendingText()
             closeReasoningSegment()
-            const failureDelta = `${streamedContent ? "\n\n" : ""}${failureText}`
+            // A tool that started and never returned was interrupted; with no
+            // status the trail would show it completed once streaming stops.
+            for (const [idx, call] of toolCalls.entries()) {
+              if (call.status) continue
+              const interrupted: LorToolCall = { ...call, status: "error" }
+              toolCalls[idx] = interrupted
+              const seq = runWriter.append({
+                kind: "tool",
+                toolCall: interrupted,
+              })
+              emitter.to(room).emit("lor:tool", {
+                channelId,
+                threadRootId,
+                messageId: lorMessageId,
+                toolCall: interrupted,
+                ...runRef(seq),
+              })
+            }
+            // One paragraph, so clients can split it from the kept output
+            // (splitFailedReply).
+            const failureDelta = `${streamedContent ? "\n\n" : ""}${failureText.replace(/\n{2,}/g, "\n").trim()}`
             await db
               .update(schema.message)
               .set({

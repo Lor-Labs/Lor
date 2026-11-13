@@ -139,7 +139,7 @@ function LoopDetail({ loop }: { loop: ChannelLoop }) {
           params: { sessionId },
         })
     : undefined
-  const scheduleText = describeLoopSchedule(loop.schedule, null)
+  const scheduleText = describeLoopSchedule(loop.schedule, loop.timezone)
   const busy = lifecycle.isPending || deleteLoop.isPending
 
   const confirmComplete = () =>
@@ -261,7 +261,10 @@ function LoopDetail({ loop }: { loop: ChannelLoop }) {
 
       <Section title="Schedule">
         <View className="overflow-hidden rounded-lor-md border border-border bg-surface">
-          <DetailRow label="Repeats">{scheduleText}</DetailRow>
+          <DetailRow label="Repeats">
+            {/* The time zone has its own row below. */}
+            {describeLoopSchedule(loop.schedule, null)}
+          </DetailRow>
           <DetailRow label="Ends" last={!loop.timezone}>
             {loop.endAt
               ? `On ${formatEndDate(loop.endAt)}`

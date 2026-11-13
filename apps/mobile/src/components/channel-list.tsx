@@ -487,7 +487,9 @@ export function ChannelList({
   const { workspace, avatarColor } = useWorkspace()
   const { call, joining, join, ownVoiceChannel } = useVoiceCall()
   const { data: auth } = authClient.useSession()
-  const { data: activity } = useWorkspaceActivity(workspace?.id)
+  const { data: activity, isError: activityFailed } = useWorkspaceActivity(
+    workspace?.id
+  )
   useWorkspaceSessionUpdates(workspace?.id)
   const sessionCollapse = useSessionCollapse(activity)
   const sessionsHint = useHint("sessions_intro")
@@ -681,7 +683,9 @@ export function ChannelList({
         {/* One flat run of rows and headings: nothing that moves sits inside
             a box that also resizes, so a fold is only fades and slides. */}
         <View className="pb-seven">
-          {onOpenSessions && allSessions.length > 0 ? (
+          {/* Failed activity isn't zero sessions: the entry stays, and the
+              Sessions screen offers a retry. */}
+          {onOpenSessions && (allSessions.length > 0 || activityFailed) ? (
             <SessionsSummaryRow
               onPress={() => {
                 setOpenedId(SESSIONS_ROW)

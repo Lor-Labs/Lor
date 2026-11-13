@@ -924,7 +924,8 @@ export function ThreadView({
                 onReply={archivedBar ? undefined : startReply}
                 onForward={lorSession ? setForwarding : undefined}
                 onFork={
-                  lorSession
+                  // The fork endpoint refuses a switched-off harness.
+                  lorSession && harnessEnabled
                     ? (message) =>
                         fork.mutate({
                           sessionId: lorSession.id,
@@ -937,7 +938,12 @@ export function ThreadView({
                 }
                 onRewind={
                   lorSession && !lorSession.archivedAt
-                    ? (message) => rewind.mutate(message.id)
+                    ? (message) =>
+                        rewind.mutate(message.id, {
+                          // The event may never reach this socket: reload.
+                          onSuccess: () =>
+                            void thread.reload({ replace: true, silent: true }),
+                        })
                     : undefined
                 }
                 rewindRestoresFiles={lorSession?.mode === "code"}

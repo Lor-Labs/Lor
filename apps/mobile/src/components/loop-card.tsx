@@ -79,30 +79,37 @@ export function LoopCard({ message }: { message: Message }) {
     )
   }
 
+  // Create Loop sits beside the card's button, not inside it: VoiceOver
+  // can't reach a control nested in another.
   return (
-    <PressableScale
-      accessibilityHint="Opens the loop"
-      accessibilityLabel={`Loop ${loop.name}`}
-      accessibilityRole="button"
-      className="mt-one max-w-[420px] flex-row items-center gap-two rounded-lor-md border border-border bg-surface px-three py-two"
-      hitSlop={0}
-      onPress={() => openLoop(loop)}
-      scale={0.98}
-    >
-      <View className="size-9 items-center justify-center rounded-lor-sm bg-surface-secondary">
-        <HugeiconsIcon color={muted} icon={Infinity01Icon} size={16} />
-      </View>
-      <View className="min-w-0 flex-1">
-        <Text
-          className="text-[15px] font-semibold leading-5 text-foreground"
-          numberOfLines={1}
-        >
-          {loop.name}
-        </Text>
-        <Text className="text-sm leading-5 text-muted" numberOfLines={1}>
-          {describeLoopSchedule(loop.schedule, null)}
-        </Text>
-      </View>
+    <View className="mt-one max-w-[420px] flex-row items-center gap-two rounded-lor-md border border-border bg-surface px-three py-two">
+      <PressableScale
+        accessibilityHint="Opens the loop"
+        accessibilityLabel={`Loop ${loop.name}`}
+        accessibilityRole="button"
+        className="min-w-0 flex-1 flex-row items-center gap-two"
+        hitSlop={0}
+        onPress={() => openLoop(loop)}
+        scale={0.98}
+      >
+        <View className="size-9 items-center justify-center rounded-lor-sm bg-surface-secondary">
+          <HugeiconsIcon color={muted} icon={Infinity01Icon} size={16} />
+        </View>
+        <View className="min-w-0 flex-1">
+          <Text
+            className="text-[15px] font-semibold leading-5 text-foreground"
+            numberOfLines={1}
+          >
+            {loop.name}
+          </Text>
+          <Text className="text-sm leading-5 text-muted" numberOfLines={1}>
+            {describeLoopSchedule(loop.schedule, null)}
+          </Text>
+        </View>
+        {loop.status === "draft" ? null : (
+          <LoopStatusChip status={loop.status} />
+        )}
+      </PressableScale>
       {loop.status === "draft" ? (
         <Button
           isDisabled={activate.isPending}
@@ -111,9 +118,7 @@ export function LoopCard({ message }: { message: Message }) {
         >
           {activate.isPending ? "Working…" : "Create Loop"}
         </Button>
-      ) : (
-        <LoopStatusChip status={loop.status} />
-      )}
-    </PressableScale>
+      ) : null}
+    </View>
   )
 }

@@ -75,9 +75,13 @@ export function applyHarnessCommand(
     at = at === 0 ? -1 : markdown.lastIndexOf(token, at - 1)
   }
   if (!token || at < 0) return markdown.replace(BARE_TOKEN_AT_END, item.insert)
-  // The picked insert ends with a space; formatting after the token keeps it.
+  // The picked insert ends with a space; with formatting after the token
+  // (**$rev**) the space moves past it, so the next word starts arguments.
   const after = markdown.slice(at + token.length)
-  return `${markdown.slice(0, at)}${after ? item.insert.trimEnd() : item.insert}${after}`
+  if (!after) return `${markdown.slice(0, at)}${item.insert}`
+  const trimmed = item.insert.trimEnd()
+  const space = item.insert.slice(trimmed.length)
+  return `${markdown.slice(0, at)}${trimmed}${after}${space}`
 }
 
 export function CommandSuggestionMenu({

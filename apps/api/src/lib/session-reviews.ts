@@ -256,6 +256,9 @@ export async function announcePullRequest(input: {
       eventType,
       actorName: member?.name ?? `GitHub user ${githubLogin}`,
       ...eventPayload,
-    })
+    }),
+    // Overlapping redeliveries both pass the check above; this key lets only
+    // one insert land.
+    `${eventType}:${session.threadRootId}:${pullRequest.url}`
   )
 }

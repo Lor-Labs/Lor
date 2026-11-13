@@ -575,6 +575,11 @@ function usePreviewLink(sessionId: string, enabled: boolean) {
   return {
     link,
     loading: query.isPending,
+    // A failed read isn't "no link": Create would turn a public link private.
+    failed: query.isError,
+    retry: () => {
+      void query.refetch()
+    },
     create: () => {
       copyText(set("private").then((made) => previewUrlOf(made.token))).then(
         () => {
@@ -694,6 +699,11 @@ export function ShareMenu({
                     Turn off link
                   </DropdownMenuItem>
                 </>
+              ) : preview.failed ? (
+                <DropdownMenuItem onClick={preview.retry}>
+                  <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} />
+                  Couldn't read the link. Try again
+                </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem
                   disabled={preview.loading}

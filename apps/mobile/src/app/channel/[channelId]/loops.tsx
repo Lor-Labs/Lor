@@ -59,6 +59,10 @@ export default function ChannelLoopsScreen() {
         />
       ) : sorted.length === 0 ? (
         <StatePanel
+          action={{
+            label: loops.isRefetching ? "Refreshing…" : "Refresh",
+            onPress: () => void loops.refetch(),
+          }}
           className="flex-1"
           detail="Ask Lor to do something on a schedule to set one up."
           title="No loops in this channel yet"
@@ -83,7 +87,7 @@ function LoopRow({ loop }: { loop: ChannelLoop }) {
   return (
     <PressableRow
       accessibilityHint="Opens the loop"
-      accessibilityLabel={`${loop.name}, ${loop.status}, ${describeLoopSchedule(loop.schedule, null)}`}
+      accessibilityLabel={`${loop.name}, ${loop.status}, ${describeLoopSchedule(loop.schedule, loop.timezone)}`}
       accessibilityRole="button"
       className={`min-h-[56px] flex-row items-center gap-three px-two py-two ${
         loop.status === "completed" ? "opacity-60" : ""
@@ -106,7 +110,7 @@ function LoopRow({ loop }: { loop: ChannelLoop }) {
           {loop.name}
         </Text>
         <Text className="text-[13px] text-muted" numberOfLines={1}>
-          {describeLoopSchedule(loop.schedule, null)}
+          {describeLoopSchedule(loop.schedule, loop.timezone)}
         </Text>
       </View>
       {loop.status === "active" ? null : (

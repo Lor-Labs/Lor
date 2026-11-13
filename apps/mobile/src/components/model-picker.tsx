@@ -72,7 +72,15 @@ export function ModelPicker({
     <View className="max-w-full">
       <PressableScale
         accessibilityHint="Chooses the model, thinking effort and fast mode for your messages"
-        accessibilityLabel={`${HARNESS_LABELS[harness]} model: ${option?.name ?? "default"}`}
+        accessibilityLabel={[
+          `${HARNESS_LABELS[harness]} model: ${option?.name ?? "default"}`,
+          showsEffort
+            ? `effort: ${choice.effort ? effortLabel(choice.effort) : "default"}`
+            : null,
+          choice.fast ? "fast mode on" : null,
+        ]
+          .filter(Boolean)
+          .join(", ")}
         accessibilityRole="button"
         className="min-h-9 max-w-full flex-row items-center gap-two rounded-full border border-border bg-surface px-three"
         onPress={() => setOpen(true)}

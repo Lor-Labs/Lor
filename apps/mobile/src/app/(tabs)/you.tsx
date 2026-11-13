@@ -7,6 +7,7 @@ import { Avatar } from "@/components/ui/avatar"
 import { Screen } from "@/components/ui/screen"
 import { useSocketConnected } from "@/context/socket-context"
 import { useWorkspace } from "@/context/workspace-context"
+import { clearSessionPicks } from "@/hooks/use-agent-models"
 import { useTheme } from "@/hooks/use-theme"
 import { authClient } from "@/lib/auth-client"
 import { unregisterPushToken } from "@/lib/push-notifications"
@@ -106,6 +107,7 @@ export default function YouScreen() {
             .then(() => authClient.signOut())
             .then(({ error }) => {
               if (error) throw new Error(error.message ?? "Log out failed")
+              clearSessionPicks()
             })
             .catch(() => {
               Alert.alert("Log out failed", "Please try again in a moment.")

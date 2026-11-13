@@ -232,7 +232,16 @@
 
   let ws = null
   const send = (msg) => {
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg))
+    if (!ws || ws.readyState !== 1) return false
+    ws.send(JSON.stringify(msg))
+    return true
+  }
+  // A saved or removed note while the events socket was down: sent again on
+  // reconnect, so the draft isn't lost. One per annotation, the latest.
+  const unsent = new Map()
+  const deliver = (msg) => {
+    if (send(msg)) unsent.delete(msg.id)
+    else unsent.set(msg.id, msg)
   }
   let seq = 0
 
@@ -311,11 +320,11 @@
     const { id, isNew, before, area } = card
     const text = area.value.trim()
     if (keep === "remove" || (isNew && (keep === "cancel" || !text))) {
-      send({ t: "remove", id })
+      deliver({ t: "remove", id })
     } else if (keep === "cancel") {
-      send({ t: "note", id, text: before, open: false })
+      deliver({ t: "note", id, text: before, open: false })
     } else {
-      send({ t: "note", id, text, open: false })
+      deliver({ t: "note", id, text, open: false })
     }
     clearTimeout(card.timer)
     card.el.remove()
@@ -622,6 +631,7 @@
     }
     ws.onopen = () => {
       post({ type: "hello", version: 3 })
+      for (const msg of [...unsent.values()]) deliver(msg)
       let resume = false
       try {
         resume = sessionStorage.getItem(ANNOTATING) === "1"

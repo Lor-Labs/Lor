@@ -180,6 +180,8 @@ function Toolbar({
                   }
                 : null,
             loading: false,
+            failed: false,
+            retry: () => {},
             create: () => {},
             copy: () => {},
             setPublic: () => {},

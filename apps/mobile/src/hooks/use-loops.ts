@@ -184,6 +184,15 @@ export function useLoopRuns(loop: ChannelLoop | null) {
   })
 }
 
+// Loops carry no version, so a response or rollback can be older than a
+// loop:updated that landed meanwhile: each mutation refetches when it settles.
+const refetchLoops = (queryClient: QueryClient, loop: ChannelLoop | null) => {
+  if (!loop) return
+  void queryClient.invalidateQueries({
+    queryKey: ["channel-loops", loop.channelId],
+  })
+}
+
 function replaceLoop(queryClient: QueryClient, updated: ChannelLoop) {
   queryClient.setQueryData(
     ["channel-loops", updated.channelId],
@@ -234,6 +243,7 @@ export function useLoopLifecycle(loop: ChannelLoop | null) {
         err instanceof Error ? err.message : "Please try again in a moment."
       )
     },
+    onSettled: () => refetchLoops(queryClient, loop),
   })
 }
 
@@ -265,6 +275,7 @@ export function useRunLoopNow(loop: ChannelLoop | null) {
         err instanceof Error ? err.message : "Please try again in a moment."
       )
     },
+    onSettled: () => refetchLoops(queryClient, loop),
   })
 }
 
@@ -276,9 +287,13 @@ export function useDeleteLoop(loop: ChannelLoop | null) {
   return useMutation({
     mutationFn: async () => {
       if (!loop) throw new Error("Loop not loaded yet")
-      const res = await api.v1.loops[":loopId"].$delete({
-        param: { loopId: loop.id },
-      })
+      const param = { loopId: loop.id }
+      // A draft goes through discard-draft, which refuses (409) a loop
+      // someone activated since this screen loaded.
+      const res =
+        loop.status === "draft"
+          ? await api.v1.loops[":loopId"]["discard-draft"].$post({ param })
+          : await api.v1.loops[":loopId"].$delete({ param })
       if (!res.ok) {
         const body = await res.json().catch(() => null)
         throw new Error(body?.message ?? "Failed to delete the loop")

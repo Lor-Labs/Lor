@@ -93,6 +93,7 @@ import {
   markBrowserSeen,
   newPreviewToken,
   previewExpiry,
+  rememberBrowserViewer,
   storeAnnotations,
   storedAnnotations,
 } from "@/lib/session-previews"
@@ -665,7 +666,8 @@ export const rewindAgentSession: AppRouteHandler<
       : null
   if (code && checkpoint) startRewindFiles(code, checkpoint)
   const author = eventAuthor(user)
-  void postSessionEvent(
+  // Awaited: clients reload the thread on success and must find the event.
+  await postSessionEvent(
     session,
     author,
     {
@@ -1750,6 +1752,7 @@ export const openSessionBrowser: AppRouteHandler<
   switch (result.status) {
     case "ready":
       await markBrowserSeen(sessionId)
+      await rememberBrowserViewer(sessionId, c.var.user.id)
       return c.json(
         {
           status: "ready" as const,
@@ -1821,36 +1824,46 @@ export const setSessionBrowserShare: AppRouteHandler<
       access.status
     )
   }
-  const before = await db
-    .select({ access: schema.sessionPreviewLink.access })
-    .from(schema.sessionPreviewLink)
-    .where(eq(schema.sessionPreviewLink.sessionId, sessionId))
-    .limit(1)
-    .then((rows) => rows[0] ?? null)
-  // A lapsed link's row is replaced, so its old URL stays dead.
-  await db
-    .delete(schema.sessionPreviewLink)
-    .where(
-      and(
-        eq(schema.sessionPreviewLink.sessionId, sessionId),
-        lt(schema.sessionPreviewLink.expiresAt, new Date())
+  // Serialized per session (the session row's lock), so the revocation
+  // below sees the access this write actually replaced.
+  const { before, link } = await db.transaction(async (tx) => {
+    await tx
+      .select({ id: schema.agentSession.id })
+      .from(schema.agentSession)
+      .where(eq(schema.agentSession.id, sessionId))
+      .for("update")
+    const before = await tx
+      .select({ access: schema.sessionPreviewLink.access })
+      .from(schema.sessionPreviewLink)
+      .where(eq(schema.sessionPreviewLink.sessionId, sessionId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null)
+    // A lapsed link's row is replaced, so its old URL stays dead.
+    await tx
+      .delete(schema.sessionPreviewLink)
+      .where(
+        and(
+          eq(schema.sessionPreviewLink.sessionId, sessionId),
+          lt(schema.sessionPreviewLink.expiresAt, new Date())
+        )
       )
-    )
-  const link = await db
-    .insert(schema.sessionPreviewLink)
-    .values({
-      sessionId,
-      token: newPreviewToken(),
-      access: body.access,
-      expiresAt: previewExpiry(),
-      createdById: c.var.user.id,
-    })
-    .onConflictDoUpdate({
-      target: schema.sessionPreviewLink.sessionId,
-      set: { access: body.access, expiresAt: previewExpiry() },
-    })
-    .returning()
-    .then((rows) => rows[0] ?? null)
+    const link = await tx
+      .insert(schema.sessionPreviewLink)
+      .values({
+        sessionId,
+        token: newPreviewToken(),
+        access: body.access,
+        expiresAt: previewExpiry(),
+        createdById: c.var.user.id,
+      })
+      .onConflictDoUpdate({
+        target: schema.sessionPreviewLink.sessionId,
+        set: { access: body.access, expiresAt: previewExpiry() },
+      })
+      .returning()
+      .then((rows) => rows[0] ?? null)
+    return { before, link }
+  })
   // Made private: people the link no longer lets in leave.
   if (before?.access === "public" && body.access === "private") {
     endPreviewViewsSoon(sessionId)

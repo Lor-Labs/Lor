@@ -16,6 +16,7 @@ import { type FormEvent, useState } from "react"
 import { PasswordInput } from "@/components/auth/password-input"
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar"
 import { SocketProvider, useSocket } from "@/context/socket-context"
+import { clearSessionPicks } from "@/hooks/use-agent-models"
 import { apiClient } from "@/lib/api-client"
 import { acceptInvitation } from "@/lib/invitations"
 import { clearSessionPanels } from "@/lib/session-panel-memory"
@@ -128,6 +129,7 @@ function InvitationCard({
     },
     onSuccess: () => {
       clearSessionPanels(session?.user.id)
+      clearSessionPicks()
       queryClient.clear()
     },
     onError: (error) => toast.error(error.message),

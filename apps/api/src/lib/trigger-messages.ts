@@ -83,5 +83,10 @@ export function triggerMessagePayload(message: {
       // Capped payloads and old batches retain the saved text.
     }
   }
-  return { ...payload, sourceMessages: [source], omittedMessages: 0 }
+  // The recovered message stands for one of the ones the run left out.
+  return {
+    ...payload,
+    sourceMessages: [source],
+    omittedMessages: Math.max(0, (payload.omittedMessages ?? 0) - 1),
+  }
 }

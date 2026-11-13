@@ -33,9 +33,10 @@ const READY_WAIT_MS = 30_000
 const MISSING = 3
 const SELKIES = "/usr/bin/selkies"
 // The image's gateway version (sandbox-image/browser/version). From 3 it
-// enforces what each viewer may do, which preview links rely on.
+// enforces what each viewer may do, which preview links rely on; from 4 it
+// also enforces a grant's link expiry (`until`) and `control: false`.
 const GATEWAY_VERSION_FILE = "/opt/lor-browser/version"
-const PREVIEW_GATEWAY_VERSION = 3
+const PREVIEW_GATEWAY_VERSION = 4
 const ANNOTATIONS_FILE = "annotations.json"
 // Exit code: the browser's folder has no annotations file yet.
 const NO_ANNOTATIONS = 4
@@ -92,6 +93,10 @@ const readControl = [
   `cat "$d/controller" 2>/dev/null || true`,
 ]
 
+// Hands control back only when this person has it.
+const releaseControl = (userId: string) =>
+  `if [ "$(cat "$d/controller-id" 2>/dev/null)" = ${q(userId)} ]; then rm -f "$d/controller-id" "$d/controller"; fi`
+
 function parseControl(stdout: string): BrowserController | null {
   const [userId = "", ...name] = stdout.split("\n")
   if (!UUID.test(userId.trim())) return null
@@ -139,13 +144,20 @@ async function startBrowser(
 // `preview`: a preview link's view. Refuses a sandbox whose gateway ignores
 // what a grant allows, and marks the grant so turning the link off ends it.
 // `stored`: the annotations to put back when the browser's folder has none
-// (a new sandbox); the gateway loads them.
+// (a new sandbox); the gateway loads them. A failed read refuses the view
+// (the page asks again): opening without them would let the gateway's next
+// list erase the stored ones.
+// `control: false`: this viewer may not drive; control they still hold (they
+// lost write access) goes back. `expiresAt`: the preview link's expiry, past
+// which the gateway refuses the grant.
 export async function openBrowserView(
   sessionId: string,
   viewer: BrowserViewer,
   options: {
     preview?: boolean
     stored?: () => Promise<BrowserAnnotation[]>
+    control?: boolean
+    expiresAt?: Date
   } = {}
 ): Promise<BrowserView> {
   const anonymous = "anonymous" in viewer
@@ -161,13 +173,24 @@ export async function openBrowserView(
           ...(viewer.annotate ? ["annotate"] : []),
           ...(viewer.send ? ["send"] : []),
         ],
+        ...(options.control === false ? { control: false } : {}),
       }
   const json = JSON.stringify(
     options.preview ? { ...record, via: "preview" } : record
   ).slice(0, -1)
+  // Written on the sandbox's clock, like `at`.
+  const untilMs = options.expiresAt
+    ? Math.max(0, options.expiresAt.getTime() - Date.now())
+    : null
+  const until = untilMs === null ? "" : `,"until":%s`
+  const untilArg =
+    untilMs === null ? "" : ` "$(( $(date +%s%3N) + ${untilMs} ))"`
   const prepared = await runInBrowserDir(sessionId, [
     `find "$d/viewers" -type f -mmin +720 -delete 2>/dev/null`,
-    `printf '%s,"at":%s}' ${q(json)} "$(date +%s%3N)" > "$d/viewers/${grant}"`,
+    `printf '%s,"at":%s${until}}' ${q(json)} "$(date +%s%3N)"${untilArg} > "$d/viewers/${grant}"`,
+    ...(!anonymous && options.control === false
+      ? [releaseControl(viewer.userId)]
+      : []),
     `[ "$(cat ${GATEWAY_VERSION_FILE} 2>/dev/null || echo 0)" -ge ${PREVIEW_GATEWAY_VERSION} ] && echo 1 || echo 0`,
     `[ -e "$d/${ANNOTATIONS_FILE}" ] && echo 1 || echo 0`,
     ...readControl,
@@ -179,7 +202,9 @@ export async function openBrowserView(
     prepared.stdout.split("\n")
   if (options.preview && roles.trim() !== "1") return { status: "outdated" }
   if (hasAnnotations.trim() !== "1" && options.stored) {
-    await restoreBrowserAnnotations(sessionId, await options.stored())
+    const stored = await options.stored().catch(() => null)
+    if (!stored) return { status: "not_ready" }
+    await restoreBrowserAnnotations(sessionId, stored)
   }
   const ready = await startBrowser(sessionId, BROWSER_VIEW_PORT)
   if (ready === null) return { status: "no_sandbox" }
@@ -206,6 +231,20 @@ export async function openBrowserView(
 export async function endPreviewViews(sessionId: string): Promise<void> {
   await runInBrowserDir(sessionId, [
     `grep -l '"via":"preview"' "$d/viewers/"* 2>/dev/null | xargs -r rm -f`,
+  ])
+}
+
+// Someone who lost access (removed from the workspace, or no longer able to
+// write in the channel): their grants go and control they hold goes back.
+// Their pages ask again and get what they may do now.
+export async function endUserBrowserViews(
+  sessionId: string,
+  userId: string
+): Promise<void> {
+  if (!UUID.test(userId)) return
+  await runInBrowserDir(sessionId, [
+    `grep -lF ${q(`"userId":"${userId}"`)} "$d/viewers/"* 2>/dev/null | xargs -r rm -f`,
+    releaseControl(userId),
   ])
 }
 
@@ -317,10 +356,7 @@ export async function setBrowserControl(
           `printf '%s' ${q(person.userId)} > "$d/controller-id"`,
           ...readControl,
         ]
-      : [
-          `[ "$(cat "$d/controller-id" 2>/dev/null)" = ${q(person.userId)} ] && rm -f "$d/controller-id" "$d/controller"`,
-          ...readControl,
-        ]
+      : [releaseControl(person.userId), ...readControl]
   )
   if (!result) return { status: "no_sandbox" }
   if (result.exitCode === MISSING) return { status: "unavailable" }
